@@ -7,9 +7,21 @@
   },
   "settings": {
     "title": "Настройки",
+    "profile": "Профиль",
+    "username": "Имя пользователя",
+    "email": "Email",
     "language": "Язык",
     "english": "English",
-    "russian": "Русский"
+    "russian": "Русский",
+    "password": "Пароль",
+    "currentPassword": "Текущий пароль",
+    "newPassword": "Новый пароль",
+    "confirmPassword": "Подтвердите пароль",
+    "save": "Сохранить",
+    "saving": "Сохранение...",
+    "passwordMismatch": "Пароли не совпадают",
+    "passwordChanged": "Пароль успешно изменён",
+    "passwordError": "Не удалось сменить пароль"
   },
   "lobby": {
     "title": "Лобби",

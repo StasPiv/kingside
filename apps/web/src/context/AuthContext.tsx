@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import type { User } from '@kingside/shared';
 import { api } from '../api';
 import { socket, matchmakingSocket } from '../socket';
-import i18n from '../i18n';
+import i18n from '../i18n/index';
 
 type AuthState = {
   user: User | null;

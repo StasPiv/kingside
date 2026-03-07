@@ -2,6 +2,8 @@ export const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -
 
 export const INITIAL_RATING = 1200;
 
+export const SUPPORTED_LANGUAGES = ['en', 'ru'] as const;
+
 export const TIME_CONTROLS = {
   bullet: { initialTime: 60, increment: 0 },
   blitz: { initialTime: 300, increment: 0 },

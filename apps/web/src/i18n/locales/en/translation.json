@@ -7,9 +7,21 @@
   },
   "settings": {
     "title": "Settings",
+    "profile": "Profile",
+    "username": "Username",
+    "email": "Email",
     "language": "Language",
     "english": "English",
-    "russian": "Russian"
+    "russian": "Russian",
+    "password": "Password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Confirm password",
+    "save": "Save",
+    "saving": "Saving...",
+    "passwordMismatch": "Passwords do not match",
+    "passwordChanged": "Password changed successfully",
+    "passwordError": "Failed to change password"
   },
   "lobby": {
     "title": "Lobby",
