@@ -7,10 +7,12 @@ import { INITIAL_FEN } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { socket } from '../socket';
 
+type ClockPayload = { whiteMs: number; blackMs: number };
+
 type GameState = {
   fen: string;
   moves: string[];
-  clocks: { white: number; black: number };
+  clocks: ClockPayload;
   status: string;
   result?: string;
 };
@@ -21,6 +23,13 @@ type ChatMessage = {
   content: string;
   timestamp: string;
 };
+
+function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
+  return {
+    white: Math.floor(clocks.whiteMs / 1000),
+    black: Math.floor(clocks.blackMs / 1000),
+  };
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -52,7 +61,7 @@ export function GamePage() {
       game.load(state.fen);
       setFen(state.fen);
       setMoves(state.moves);
-      setClocks(state.clocks);
+      setClocks(msToSeconds(state.clocks));
       setStatus(state.status);
       if (state.result) setResult(state.result);
     },
@@ -65,11 +74,11 @@ export function GamePage() {
       updateFromState(state);
     };
 
-    const onGameMove = (data: { uci: string; san: string; fen: string; clocks: { white: number; black: number } }) => {
+    const onGameMove = (data: { uci: string; san: string; fen: string; clocks: ClockPayload }) => {
       game.load(data.fen);
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
-      setClocks(data.clocks);
+      setClocks(msToSeconds(data.clocks));
     };
 
     const onGameEnd = (data: { result: string }) => {
