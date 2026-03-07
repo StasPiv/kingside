@@ -50,3 +50,27 @@ _build-shared:
 # Start dev servers
 _dev:
     npx turbo run dev
+
+# Start webhook server + SSH tunnel
+webhook:
+    #!/usr/bin/env bash
+    pkill -f "python3.*webhook-server.py" 2>/dev/null || true
+    pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
+    sleep 1
+    nohup python3 webhook-server.py > logs/webhook-stdout.log 2>&1 &
+    echo "Webhook-сервер запущен (PID: $!)"
+    chmod +x tunnel.sh
+    nohup ./tunnel.sh > logs/tunnel.log 2>&1 &
+    echo "SSH-туннель запущен (PID: $!)"
+    sleep 2
+    if curl -s http://127.0.0.1:9876/health | grep -q ok; then
+        echo "Health check: OK"
+    else
+        echo "Health check: FAIL"
+    fi
+
+# Stop webhook server + SSH tunnel
+webhook-stop:
+    pkill -f "python3.*webhook-server.py" 2>/dev/null || true
+    pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
+    echo "Webhook и туннель остановлены"
