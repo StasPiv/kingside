@@ -192,10 +192,14 @@ export function GamePage() {
         </div>
         <div className="board-container">
           <Chessboard
-            position={fen}
-            onPieceDrop={onDrop}
-            boardOrientation={playerColor}
-            boardWidth={560}
+            options={{
+              position: fen,
+              onPieceDrop: ({ sourceSquare, targetSquare }) => {
+                if (!targetSquare) return false;
+                return onDrop(sourceSquare as Square, targetSquare as Square);
+              },
+              boardOrientation: playerColor,
+            }}
           />
         </div>
         <div className="player-info player-info-self">
