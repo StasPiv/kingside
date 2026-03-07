@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
@@ -219,6 +219,7 @@ export function GamePage() {
                 return onDrop(sourceSquare as Square, targetSquare as Square);
               },
               boardOrientation: playerColor,
+              draggingPieceStyle: { transform: 'scale(1)' },
             }}
           />
         </div>
@@ -266,6 +267,7 @@ export function GamePage() {
           <div className="game-result">
             <h3>{t('game.finished')}</h3>
             <p>{result === 'draw' ? t('game.draw') : result === 'white_wins' ? t('game.whiteWins') : t('game.blackWins')}</p>
+            <Link to={`/analysis/${gameId}`} className="analysis-link">{t('game.analyze')}</Link>
           </div>
         )}
 
