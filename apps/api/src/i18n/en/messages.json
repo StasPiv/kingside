@@ -11,5 +11,6 @@
   "game.noDrawOffer": "No draw offer to accept",
   "auth.missingToken": "Missing authentication token",
   "auth.invalidToken": "Invalid authentication token",
-  "matchmaking.alreadyInQueue": "Already in matchmaking queue"
+  "matchmaking.alreadyInQueue": "Already in matchmaking queue",
+  "game.botGameLimitReached": "Too many active bot games"
 }

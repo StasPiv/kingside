@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
 import { RatingService } from './rating.service';
-import { INITIAL_FEN, STOCKFISH_BOT_ID, TIME_CONTROLS } from '@kingside/shared';
+import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, TIME_CONTROLS } from '@kingside/shared';
 
 interface GameState {
   fen: string;
@@ -351,6 +351,20 @@ export class GameService {
     botLevel: number,
     timeControl: 'bullet' | 'blitz' | 'rapid' | 'classical',
   ) {
+    const activeBotGames = await this.prisma.game.count({
+      where: {
+        isBot: true,
+        status: 'active',
+        OR: [{ whiteId: userId }, { blackId: userId }],
+      },
+    });
+
+    if (activeBotGames >= MAX_ACTIVE_BOT_GAMES) {
+      throw new Error(
+        this.i18n.t('messages.game.botGameLimitReached'),
+      );
+    }
+
     const resolvedColor =
       color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color;
 

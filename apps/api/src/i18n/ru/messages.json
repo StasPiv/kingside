@@ -11,5 +11,6 @@
   "game.noDrawOffer": "Нет предложения ничьей для принятия",
   "auth.missingToken": "Отсутствует токен аутентификации",
   "auth.invalidToken": "Недействительный токен аутентификации",
-  "matchmaking.alreadyInQueue": "Вы уже находитесь в очереди поиска"
+  "matchmaking.alreadyInQueue": "Вы уже находитесь в очереди поиска",
+  "game.botGameLimitReached": "Превышен лимит активных игр с ботом"
 }
