@@ -1,0 +1,360 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+a {
+  color: #7c83ff;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  background: #7c83ff;
+  color: #fff;
+  transition: background 0.2s;
+}
+
+button:hover {
+  background: #6366f1;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+input {
+  padding: 10px 14px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #16213e;
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+}
+
+input:focus {
+  border-color: #7c83ff;
+}
+
+/* Header */
+.header nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #16213e;
+  border-bottom: 1px solid #1a1a3e;
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.logo:hover {
+  text-decoration: none;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.nav-user {
+  color: #a0a0c0;
+}
+
+.nav-btn {
+  background: transparent;
+  color: #a0a0c0;
+  padding: 6px 12px;
+}
+
+.nav-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Auth pages */
+.auth-page {
+  display: flex;
+  justify-content: center;
+  padding-top: 60px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 380px;
+  padding: 32px;
+  background: #16213e;
+  border-radius: 12px;
+}
+
+.auth-form h1 {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.auth-form p {
+  text-align: center;
+  color: #a0a0c0;
+  font-size: 14px;
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* Lobby */
+.lobby-page {
+  text-align: center;
+  padding-top: 40px;
+}
+
+.lobby-page h1 {
+  margin-bottom: 8px;
+}
+
+.user-info {
+  color: #a0a0c0;
+  margin-bottom: 32px;
+}
+
+.time-controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.tc-btn {
+  background: #16213e;
+  color: #a0a0c0;
+  padding: 12px 20px;
+  border: 2px solid transparent;
+}
+
+.tc-btn.active {
+  border-color: #7c83ff;
+  color: #fff;
+}
+
+.play-btn {
+  font-size: 18px;
+  padding: 14px 48px;
+}
+
+.searching {
+  margin-top: 16px;
+  color: #a0a0c0;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Game page */
+.game-page {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.game-board-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.clock {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: #16213e;
+  padding: 8px 24px;
+  border-radius: 8px;
+  min-width: 120px;
+  text-align: center;
+}
+
+.board-container {
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.game-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 280px;
+}
+
+.move-list {
+  background: #16213e;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.move-list h3 {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #a0a0c0;
+}
+
+.moves {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.move-pair {
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.move-number {
+  color: #666;
+  min-width: 28px;
+}
+
+.move {
+  min-width: 56px;
+}
+
+.game-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.game-actions button {
+  flex: 1;
+  background: #16213e;
+  color: #a0a0c0;
+}
+
+.game-actions button:hover {
+  color: #fff;
+  background: #1e2d50;
+}
+
+.draw-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.draw-offer p {
+  font-size: 14px;
+  color: #fbbf24;
+}
+
+.game-result {
+  background: #16213e;
+  padding: 16px;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.game-result h3 {
+  margin-bottom: 4px;
+}
+
+/* Chat */
+.chat {
+  background: #16213e;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat h3 {
+  font-size: 14px;
+  color: #a0a0c0;
+  margin-bottom: 8px;
+}
+
+.chat-messages {
+  max-height: 200px;
+  overflow-y: auto;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-msg {
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.chat-msg.own {
+  color: #7c83ff;
+}
+
+.chat-input {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-input input {
+  flex: 1;
+  font-size: 13px;
+  padding: 8px;
+}
+
+.chat-input button {
+  font-size: 13px;
+  padding: 8px 12px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #a0a0c0;
+}
