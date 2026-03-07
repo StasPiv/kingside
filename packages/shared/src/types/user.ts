@@ -4,7 +4,10 @@ export type User = {
   id: string;
   username: string;
   email: string;
-  rating: number;
+  ratingBullet: number;
+  ratingBlitz: number;
+  ratingRapid: number;
+  ratingClassical: number;
   createdAt: string;
   locale?: Locale;
 };

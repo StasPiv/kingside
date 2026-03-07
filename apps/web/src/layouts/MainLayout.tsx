@@ -14,7 +14,7 @@ export function MainLayout() {
           <div className="nav-links">
             {user ? (
               <>
-                <span className="nav-user">{user.username} ({user.rating})</span>
+                <span className="nav-user">{user.username} ({user.ratingBlitz})</span>
                 <Link to="/settings">{t('nav.settings')}</Link>
                 <button className="nav-btn" onClick={logout}>{t('nav.logout')}</button>
               </>

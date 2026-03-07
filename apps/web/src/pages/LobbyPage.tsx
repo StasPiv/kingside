@@ -56,7 +56,7 @@ export function LobbyPage() {
       <h1>{t('lobby.title')}</h1>
       {user && (
         <p className="user-info">
-          {user.username} &middot; {t('lobby.rating', { rating: user.rating })}
+          {user.username} &middot; {t('lobby.rating', { rating: user[`rating${selectedTC.charAt(0).toUpperCase() + selectedTC.slice(1)}` as keyof typeof user] })}
         </p>
       )}
       <div className="time-controls">
