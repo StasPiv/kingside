@@ -1,10 +1,6 @@
-import { IsEnum, IsInt, Min } from 'class-validator';
-import { TimeControlType } from '../../generated/prisma/enums';
+import { IsInt, Min } from 'class-validator';
 
 export class JoinQueueDto {
-  @IsEnum(TimeControlType)
-  timeControl!: TimeControlType;
-
   @IsInt()
   @Min(1)
   timeInitial!: number;

@@ -10,7 +10,7 @@ import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { MatchmakingService } from './matchmaking.service';
 import { JoinQueueDto } from './dto/join-queue.dto';
-import { TimeControlType } from '../generated/prisma/enums';
+import { classifyTimeControl, type TimeControlCategory } from '@kingside/shared';
 
 @WebSocketGateway({ namespace: '/game' })
 export class MatchmakingGateway implements OnGatewayDisconnect {
@@ -18,7 +18,7 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger = new Logger(MatchmakingGateway.name);
-  private playerQueues = new Map<string, TimeControlType>();
+  private playerQueues = new Map<string, TimeControlCategory>();
 
   constructor(private readonly matchmakingService: MatchmakingService) {}
 
@@ -36,12 +36,12 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
       return;
     }
 
-    this.playerQueues.set(user.id, data.timeControl);
-    this.logger.log(`${user.username} joined ${data.timeControl} queue`);
+    const timeControlType = classifyTimeControl(data.timeInitial, data.increment);
+    this.playerQueues.set(user.id, timeControlType);
+    this.logger.log(`${user.username} joined ${timeControlType} queue`);
 
     const result = await this.matchmakingService.joinQueue(
       user.id,
-      data.timeControl,
       data.timeInitial,
       data.increment,
     );
@@ -51,7 +51,7 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
 
       const matchData = {
         gameId: result.gameId,
-        timeControl: data.timeControl,
+        timeControl: timeControlType,
         timeInitial: data.timeInitial,
         increment: data.increment,
       };

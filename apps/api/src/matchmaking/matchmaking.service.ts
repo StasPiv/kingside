@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { TimeControlType } from '../generated/prisma/enums';
+import { classifyTimeControl, type TimeControlCategory } from '@kingside/shared';
 
 interface QueueEntry {
   userId: string;
@@ -23,10 +23,11 @@ export class MatchmakingService {
 
   async joinQueue(
     userId: string,
-    timeControlType: TimeControlType,
     timeInitialSec: number,
     timeIncrementSec: number,
   ): Promise<{ gameId: string; color: string; opponent: any } | null> {
+    const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
+
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
@@ -99,7 +100,7 @@ export class MatchmakingService {
     return null;
   }
 
-  async leaveQueue(userId: string, timeControlType: TimeControlType) {
+  async leaveQueue(userId: string, timeControlType: TimeControlCategory) {
     const queueKey = `matchmaking:${timeControlType}`;
     const members = await this.redis.zrange(queueKey, 0, -1);
 

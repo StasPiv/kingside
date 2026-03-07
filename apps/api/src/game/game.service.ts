@@ -3,7 +3,7 @@ import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
-import { INITIAL_FEN } from '@kingside/shared';
+import { INITIAL_FEN, classifyTimeControl } from '@kingside/shared';
 
 interface GameState {
   fen: string;
@@ -308,10 +308,11 @@ export class GameService {
   async createGame(
     whiteId: string,
     blackId: string,
-    timeControlType: 'bullet' | 'blitz' | 'rapid' | 'classical',
     timeInitialSec: number,
     timeIncrementSec: number,
   ) {
+    const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
+
     return this.prisma.game.create({
       data: {
         whiteId,
