@@ -3,6 +3,7 @@
   "auth.usernameOrEmailTaken": "Имя пользователя или email уже заняты",
   "auth.invalidRefreshToken": "Недействительный токен обновления",
   "user.notFound": "Пользователь не найден",
+  "user.wrongPassword": "Текущий пароль неверный",
   "game.notActive": "Игра не активна",
   "game.notYourTurn": "Сейчас не ваш ход",
   "game.invalidMove": "Недопустимый ход",

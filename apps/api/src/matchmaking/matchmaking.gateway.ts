@@ -10,6 +10,7 @@ import {
 import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
+import { I18nService } from 'nestjs-i18n';
 import { MatchmakingService } from './matchmaking.service';
 import { JoinQueueDto } from './dto/join-queue.dto';
 import { JwtPayload } from '../auth/jwt.strategy';
@@ -26,6 +27,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
   constructor(
     private readonly matchmakingService: MatchmakingService,
     private readonly jwtService: JwtService,
+    private readonly i18n: I18nService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -53,7 +55,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
     if (!user) return;
 
     if (this.playerQueues.has(user.id)) {
-      client.emit('error', { code: 'ALREADY_IN_QUEUE', message: 'Already in matchmaking queue' });
+      client.emit('error', { code: 'ALREADY_IN_QUEUE', message: this.i18n.t('messages.matchmaking.alreadyInQueue') });
       return;
     }
 

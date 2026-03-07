@@ -3,6 +3,7 @@
   "auth.usernameOrEmailTaken": "Username or email already taken",
   "auth.invalidRefreshToken": "Invalid refresh token",
   "user.notFound": "User not found",
+  "user.wrongPassword": "Current password is incorrect",
   "game.notActive": "Game is not active",
   "game.notYourTurn": "Not your turn",
   "game.invalidMove": "Invalid move",
