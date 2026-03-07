@@ -36,3 +36,6 @@ export const DAILY_TIME_CONTROLS = {
   daily7: { daysPerMove: 7, label: '7 days' },
   daily14: { daysPerMove: 14, label: '14 days' },
 } as const;
+
+export const MAX_INITIAL_TIME_SEC = 10800;
+export const MAX_INCREMENT_SEC = 600;
