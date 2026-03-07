@@ -7,7 +7,7 @@
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "lint": "eslint src/",
-    "test": "echo \"No tests yet\"",
+    "test": "jest",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio"
@@ -40,9 +40,12 @@
     "@nestjs/testing": "^11.1.16",
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.3.5",
     "@types/passport-jwt": "^4.0.1",
+    "jest": "^30.2.0",
     "prisma": "^6.19.2",
+    "ts-jest": "^29.4.6",
     "ts-node-dev": "^2.0.0"
   }
 }
