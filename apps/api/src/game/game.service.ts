@@ -4,7 +4,8 @@ import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
-import { INITIAL_FEN } from '@kingside/shared';
+import { RatingService } from './rating.service';
+import { INITIAL_FEN, STOCKFISH_BOT_ID, TIME_CONTROLS } from '@kingside/shared';
 
 interface GameState {
   fen: string;
@@ -36,6 +37,7 @@ export class GameService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly clockService: GameClockService,
+    private readonly ratingService: RatingService,
     private readonly i18n: I18nService,
   ) {}
 
@@ -316,6 +318,7 @@ export class GameService {
     await this.clockService.deleteClock(gameId);
     await this.redis.del(`game:${gameId}:draw_offer`);
 
+    await this.ratingService.updateRatingsAfterGame(gameId, result);
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
   }
 
@@ -336,6 +339,38 @@ export class GameService {
         status: 'waiting',
       },
     });
+  }
+
+  async createGameWithBot(
+    userId: string,
+    color: 'white' | 'black' | 'random',
+    botLevel: number,
+    timeControl: 'bullet' | 'blitz' | 'rapid' | 'classical',
+  ) {
+    const resolvedColor =
+      color === 'random' ? (Math.random() < 0.5 ? 'white' : 'black') : color;
+
+    const whiteId = resolvedColor === 'white' ? userId : STOCKFISH_BOT_ID;
+    const blackId = resolvedColor === 'black' ? userId : STOCKFISH_BOT_ID;
+
+    const tc = TIME_CONTROLS[timeControl];
+
+    const game = await this.prisma.game.create({
+      data: {
+        whiteId,
+        blackId,
+        timeControlType: timeControl,
+        timeInitialSec: tc.initialTime,
+        timeIncrementSec: tc.increment,
+        status: 'waiting',
+        isBot: true,
+        botLevel,
+      },
+    });
+
+    await this.initGame(game.id);
+
+    return this.getGame(game.id);
   }
 
   async getGame(id: string) {
