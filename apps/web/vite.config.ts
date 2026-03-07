@@ -29,7 +29,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2,wasm}'],
         navigateFallback: 'index.html',
         runtimeCaching: [
           {
@@ -50,6 +50,10 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   resolve: {
     alias: {
