@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TIME_CONTROLS } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
-import { socket } from '../socket';
+import { matchmakingSocket } from '../socket';
 
 type TimeControlKey = keyof typeof TIME_CONTROLS;
 
@@ -25,22 +25,22 @@ export function LobbyPage() {
       navigate(`/game/${data.gameId}`);
     };
 
-    socket.on('matchmaking:found', onMatchFound);
+    matchmakingSocket.on('matchmaking:found', onMatchFound);
     return () => {
-      socket.off('matchmaking:found', onMatchFound);
+      matchmakingSocket.off('matchmaking:found', onMatchFound);
       if (searching) {
-        socket.emit('matchmaking:leave');
+        matchmakingSocket.emit('matchmaking:leave');
       }
     };
   }, [navigate, searching]);
 
   const handleSearch = () => {
     if (searching) {
-      socket.emit('matchmaking:leave');
+      matchmakingSocket.emit('matchmaking:leave');
       setSearching(false);
     } else {
       const tc = TIME_CONTROLS[selectedTC];
-      socket.emit('matchmaking:join', {
+      matchmakingSocket.emit('matchmaking:join', {
         timeControl: selectedTC,
         timeInitial: tc.initialTime,
         increment: tc.increment,

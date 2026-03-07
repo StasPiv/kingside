@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import type { User } from '@kingside/shared';
 import { api } from '../api';
-import { socket } from '../socket';
+import { socket, matchmakingSocket } from '../socket';
 
 type AuthState = {
   user: User | null;
@@ -46,8 +46,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (state.token) {
       socket.auth = { token: state.token };
       socket.connect();
+      matchmakingSocket.auth = { token: state.token };
+      matchmakingSocket.connect();
     } else {
       socket.disconnect();
+      matchmakingSocket.disconnect();
     }
   }, [state.token]);
 
