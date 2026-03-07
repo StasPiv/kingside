@@ -32,8 +32,7 @@ export class MatchmakingService {
       where: { id: userId },
     });
 
-    const ratingField = `rating${timeControlType.charAt(0).toUpperCase() + timeControlType.slice(1)}` as
-      'ratingBullet' | 'ratingBlitz' | 'ratingRapid' | 'ratingClassical';
+    const ratingField = this.ratingFieldForCategory(timeControlType);
     const rating = user[ratingField];
 
     const queueKey = `matchmaking:${timeControlType}`;
@@ -88,7 +87,7 @@ export class MatchmakingService {
       };
     }
 
-    // No match found — add to queue
+    // No match found - add to queue
     const entry: QueueEntry = {
       userId,
       rating,
@@ -100,8 +99,8 @@ export class MatchmakingService {
     return null;
   }
 
-  async leaveQueue(userId: string, timeControlType: TimeControlCategory) {
-    const queueKey = `matchmaking:${timeControlType}`;
+  async leaveQueue(userId: string, category: TimeControlCategory) {
+    const queueKey = `matchmaking:${category}`;
     const members = await this.redis.zrange(queueKey, 0, -1);
 
     for (const member of members) {
@@ -113,5 +112,17 @@ export class MatchmakingService {
     }
 
     return false;
+  }
+
+  private ratingFieldForCategory(
+    category: TimeControlCategory,
+  ): 'ratingBullet' | 'ratingBlitz' | 'ratingRapid' | 'ratingClassical' {
+    const map = {
+      bullet: 'ratingBullet' as const,
+      blitz: 'ratingBlitz' as const,
+      rapid: 'ratingRapid' as const,
+      classical: 'ratingClassical' as const,
+    };
+    return map[category];
   }
 }

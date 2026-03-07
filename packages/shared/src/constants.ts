@@ -2,9 +2,33 @@ export const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq -
 
 export const INITIAL_RATING = 1200;
 
+export const SUPPORTED_LANGUAGES = ['en', 'ru'] as const;
+
+export const STOCKFISH_BOT_ID = '00000000-0000-4000-a000-000000000001';
+export const STOCKFISH_BOT_USERNAME = 'Stockfish Bot';
+
+export const MAX_ACTIVE_BOT_GAMES = 3;
+
 export const TIME_CONTROLS = {
-  bullet: { initialTime: 60, increment: 0 },
-  blitz: { initialTime: 300, increment: 0 },
-  rapid: { initialTime: 600, increment: 0 },
-  classical: { initialTime: 1800, increment: 0 },
+  // Bullet
+  '1_0': { initialTime: 60, increment: 0 },
+  '1_1': { initialTime: 60, increment: 1 },
+  '2_1': { initialTime: 120, increment: 1 },
+  // Blitz
+  '3_0': { initialTime: 180, increment: 0 },
+  '3_2': { initialTime: 180, increment: 2 },
+  '5_0': { initialTime: 300, increment: 0 },
+  '5_3': { initialTime: 300, increment: 3 },
+  // Rapid
+  '10_0': { initialTime: 600, increment: 0 },
+  '10_5': { initialTime: 600, increment: 5 },
+  '15_10': { initialTime: 900, increment: 10 },
+  '30_0': { initialTime: 1800, increment: 0 },
+  // Classical
+  '30_20': { initialTime: 1800, increment: 20 },
+  '60_0': { initialTime: 3600, increment: 0 },
+  '60_30': { initialTime: 3600, increment: 30 },
 } as const;
+
+export const MAX_INITIAL_TIME_SEC = 10800;
+export const MAX_INCREMENT_SEC = 600;

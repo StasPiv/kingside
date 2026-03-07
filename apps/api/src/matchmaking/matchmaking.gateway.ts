@@ -38,7 +38,7 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
 
     const timeControlType = classifyTimeControl(data.timeInitial, data.increment);
     this.playerQueues.set(user.id, timeControlType);
-    this.logger.log(`${user.username} joined ${timeControlType} queue`);
+    this.logger.log(`${user.username} joined ${timeControlType} queue (${data.timeInitial}+${data.increment})`);
 
     const result = await this.matchmakingService.joinQueue(
       user.id,
