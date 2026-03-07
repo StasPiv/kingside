@@ -19,7 +19,7 @@ export class CreateGameWithBotDto {
 
   @IsInt()
   @Min(1)
-  @Max(8)
+  @Max(20)
   botLevel!: number;
 
   @IsIn(['bullet', 'blitz', 'rapid', 'classical'])

@@ -71,6 +71,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       isBot,
       botLevel,
     });
+
+    if (isBot && state.moves.length === 0 && state.status === 'active') {
+      this.triggerBotReply(data.gameId);
+    }
   }
 
   @SubscribeMessage('game:move')
