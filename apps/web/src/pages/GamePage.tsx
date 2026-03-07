@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useLocation } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import type { Square } from 'chess.js';
@@ -40,6 +40,8 @@ function formatTime(seconds: number): string {
 
 export function GamePage() {
   const { id: gameId } = useParams<{ id: string }>();
+  const location = useLocation();
+  const routeColor = (location.state as { color?: 'white' | 'black' } | null)?.color;
   const { user } = useAuth();
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState(INITIAL_FEN);
@@ -47,7 +49,7 @@ export function GamePage() {
   const [clocks, setClocks] = useState({ white: 300, black: 300 });
   const [status, setStatus] = useState('active');
   const [result, setResult] = useState<string | null>(null);
-  const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
+  const [playerColor, setPlayerColor] = useState<'white' | 'black'>(routeColor ?? 'white');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [players, setPlayers] = useState<{ white: string; black: string }>({ white: '', black: '' });
