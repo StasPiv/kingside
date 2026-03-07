@@ -1,9 +1,19 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { UpdateSettingsDto } from './dto/update-settings.dto';
 
 @Injectable()
 export class UserService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async updateSettings(userId: string, dto: UpdateSettingsDto) {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { locale: dto.locale },
+      select: { id: true, locale: true },
+    });
+    return user;
+  }
 
   async getProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
