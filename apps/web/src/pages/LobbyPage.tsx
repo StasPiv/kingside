@@ -16,8 +16,9 @@ type TimeControlPreset = {
 
 type CustomTimeControl = {
   id: string;
-  minutes: number;
-  increment: number;
+  name?: string;
+  initialSec: number;
+  incrementSec: number;
 };
 
 const TC_LABEL_KEYS: Record<TimeControlCategory, string> = {
@@ -65,7 +66,7 @@ export function LobbyPage() {
   const loadSavedControls = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await api.get<CustomTimeControl[]>('/time-controls/custom');
+      const data = await api.get<CustomTimeControl[]>('/api/users/me/time-controls');
       setSavedControls(data);
     } catch {
       // API may not be available yet
@@ -131,9 +132,9 @@ export function LobbyPage() {
   const handleSaveCustom = async () => {
     if (!user) return;
     try {
-      await api.post('/time-controls/custom', {
-        minutes: customMinutes,
-        increment: customIncrement,
+      await api.post('/api/users/me/time-controls', {
+        initialSec: customMinutes * 60,
+        incrementSec: customIncrement,
       });
       await loadSavedControls();
       setShowCustomForm(false);
@@ -150,7 +151,7 @@ export function LobbyPage() {
 
   const handleDeleteSaved = async (id: string) => {
     try {
-      await api.delete(`/time-controls/custom/${id}`);
+      await api.delete(`/api/users/me/time-controls/${id}`);
       setSavedControls((prev) => prev.filter((c) => c.id !== id));
     } catch {
       // API may not be available yet
@@ -158,8 +159,8 @@ export function LobbyPage() {
   };
 
   const handleSelectSaved = (ctrl: CustomTimeControl) => {
-    setSelectedMinutes(ctrl.minutes);
-    setSelectedIncrement(ctrl.increment);
+    setSelectedMinutes(Math.floor(ctrl.initialSec / 60));
+    setSelectedIncrement(ctrl.incrementSec);
   };
 
   const isSelected = (minutes: number, increment: number) =>
@@ -223,16 +224,19 @@ export function LobbyPage() {
             <div className="saved-controls">
               <h3>{t('lobby.customControl.savedTitle')}</h3>
               <div className="time-controls">
-                {savedControls.map((ctrl) => (
+                {savedControls.map((ctrl) => {
+                  const mins = Math.floor(ctrl.initialSec / 60);
+                  const inc = ctrl.incrementSec;
+                  return (
                   <div key={ctrl.id} className="saved-control-item">
                     <button
-                      className={`tc-btn ${isSelected(ctrl.minutes, ctrl.increment) ? 'active' : ''}`}
+                      className={`tc-btn ${isSelected(mins, inc) ? 'active' : ''}`}
                       onClick={() => handleSelectSaved(ctrl)}
                       disabled={searching}
                     >
-                      {ctrl.increment > 0
-                        ? `${ctrl.minutes} | ${ctrl.increment}`
-                        : `${ctrl.minutes} min`}
+                      {inc > 0
+                        ? `${mins} | ${inc}`
+                        : `${mins} min`}
                     </button>
                     <button
                       className="delete-btn"
@@ -243,7 +247,8 @@ export function LobbyPage() {
                       x
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
