@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 
 export function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -17,7 +19,7 @@ export function RegisterPage() {
     setError('');
 
     if (password !== confirmPassword) {
-      setError('Пароли не совпадают');
+      setError(t('auth.register.passwordMismatch'));
       return;
     }
 
@@ -26,7 +28,7 @@ export function RegisterPage() {
       await register(username, email, password);
       navigate('/lobby');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка регистрации');
+      setError(err instanceof Error ? err.message : t('auth.register.error'));
     } finally {
       setLoading(false);
     }
@@ -35,11 +37,11 @@ export function RegisterPage() {
   return (
     <div className="auth-page">
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>Регистрация</h1>
+        <h1>{t('auth.register.title')}</h1>
         {error && <div className="error">{error}</div>}
         <input
           type="text"
-          placeholder="Имя пользователя"
+          placeholder={t('auth.register.username')}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
@@ -49,14 +51,14 @@ export function RegisterPage() {
         />
         <input
           type="email"
-          placeholder="Email"
+          placeholder={t('auth.register.email')}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
         />
         <input
           type="password"
-          placeholder="Пароль"
+          placeholder={t('auth.register.password')}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
@@ -64,16 +66,16 @@ export function RegisterPage() {
         />
         <input
           type="password"
-          placeholder="Подтвердите пароль"
+          placeholder={t('auth.register.confirmPassword')}
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           required
         />
         <button type="submit" disabled={loading}>
-          {loading ? 'Регистрация...' : 'Зарегистрироваться'}
+          {loading ? t('auth.register.submitting') : t('auth.register.submit')}
         </button>
         <p>
-          Уже есть аккаунт? <Link to="/login">Войти</Link>
+          {t('auth.register.hasAccount')} <Link to="/login">{t('auth.register.loginLink')}</Link>
         </p>
       </form>
     </div>

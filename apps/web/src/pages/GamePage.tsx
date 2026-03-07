@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import type { Square } from 'chess.js';
@@ -43,6 +44,7 @@ export function GamePage() {
   const location = useLocation();
   const routeColor = (location.state as { color?: 'white' | 'black' } | null)?.color;
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState(INITIAL_FEN);
   const [moves, setMoves] = useState<string[]>([]);
@@ -211,7 +213,7 @@ export function GamePage() {
 
       <div className="game-sidebar">
         <div className="move-list">
-          <h3>Ходы</h3>
+          <h3>{t('game.moves')}</h3>
           <div className="moves">
             {moves.map((move, i) =>
               i % 2 === 0 ? (
@@ -229,14 +231,14 @@ export function GamePage() {
           <div className="game-actions">
             {drawOffered ? (
               <div className="draw-offer">
-                <p>Соперник предлагает ничью</p>
-                <button onClick={handleDrawAccept}>Принять</button>
-                <button onClick={handleDrawDecline}>Отклонить</button>
+                <p>{t('game.drawOffered')}</p>
+                <button onClick={handleDrawAccept}>{t('game.accept')}</button>
+                <button onClick={handleDrawDecline}>{t('game.decline')}</button>
               </div>
             ) : (
               <>
-                <button onClick={handleDrawOffer}>Ничья</button>
-                <button onClick={handleResign}>Сдаться</button>
+                <button onClick={handleDrawOffer}>{t('game.offerDraw')}</button>
+                <button onClick={handleResign}>{t('game.resign')}</button>
               </>
             )}
           </div>
@@ -244,13 +246,13 @@ export function GamePage() {
 
         {status === 'finished' && result && (
           <div className="game-result">
-            <h3>Партия завершена</h3>
-            <p>{result === 'draw' ? 'Ничья' : result === 'white_wins' ? 'Белые победили' : 'Черные победили'}</p>
+            <h3>{t('game.finished')}</h3>
+            <p>{result === 'draw' ? t('game.draw') : result === 'white_wins' ? t('game.whiteWins') : t('game.blackWins')}</p>
           </div>
         )}
 
         <div className="chat">
-          <h3>Чат</h3>
+          <h3>{t('game.chat')}</h3>
           <div className="chat-messages">
             {messages.map((msg, i) => (
               <div key={i} className={`chat-msg ${msg.userId === user?.id ? 'own' : ''}`}>
@@ -265,9 +267,9 @@ export function GamePage() {
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
-              placeholder="Сообщение..."
+              placeholder={t('game.chatPlaceholder')}
             />
-            <button onClick={handleChatSend}>Отправить</button>
+            <button onClick={handleChatSend}>{t('game.chatSend')}</button>
           </div>
         </div>
       </div>

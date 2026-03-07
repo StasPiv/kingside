@@ -1,21 +1,23 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { TIME_CONTROLS } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 
 type TimeControlKey = keyof typeof TIME_CONTROLS;
 
-const TIME_CONTROL_LABELS: Record<TimeControlKey, string> = {
-  bullet: 'Пуля (1 мин)',
-  blitz: 'Блиц (5 мин)',
-  rapid: 'Рапид (10 мин)',
-  classical: 'Классика (30 мин)',
-};
+const TC_LABEL_KEYS: Record<TimeControlKey, string> = {
+  bullet: 'lobby.bullet',
+  blitz: 'lobby.blitz',
+  rapid: 'lobby.rapid',
+  classical: 'lobby.classical',
+} as const;
 
 export function LobbyPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [searching, setSearching] = useState(false);
   const [selectedTC, setSelectedTC] = useState<TimeControlKey>('blitz');
 
@@ -51,10 +53,10 @@ export function LobbyPage() {
 
   return (
     <div className="lobby-page">
-      <h1>Лобби</h1>
+      <h1>{t('lobby.title')}</h1>
       {user && (
         <p className="user-info">
-          {user.username} &middot; Рейтинг: {user.rating}
+          {user.username} &middot; {t('lobby.rating', { rating: user.rating })}
         </p>
       )}
       <div className="time-controls">
@@ -65,14 +67,14 @@ export function LobbyPage() {
             onClick={() => setSelectedTC(key)}
             disabled={searching}
           >
-            {TIME_CONTROL_LABELS[key]}
+            {t(TC_LABEL_KEYS[key])}
           </button>
         ))}
       </div>
       <button className="play-btn" onClick={handleSearch}>
-        {searching ? 'Отменить поиск...' : 'Играть'}
+        {searching ? t('lobby.cancelSearch') : t('lobby.play')}
       </button>
-      {searching && <p className="searching">Поиск соперника...</p>}
+      {searching && <p className="searching">{t('lobby.searching')}</p>}
     </div>
   );
 }
