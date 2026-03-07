@@ -78,7 +78,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const result = await this.gameService.makeMove(data.gameId, userId, data.uci);
 
-      this.server.to(`game:${data.gameId}`).emit('game:move', {
+      client.to(`game:${data.gameId}`).emit('game:move', {
         uci: data.uci,
         san: result.san,
         fen: result.fen,
