@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  username        String   @unique
+  email           String   @unique
+  passwordHash    String   @map("password_hash")
+  ratingBullet    Int      @default(1500) @map("rating_bullet")
+  ratingBlitz     Int      @default(1500) @map("rating_blitz")
+  ratingRapid     Int      @default(1500) @map("rating_rapid")
+  ratingClassical Int      @default(1500) @map("rating_classical")
+  createdAt       DateTime @default(now()) @map("created_at")
+  lastSeenAt      DateTime @default(now()) @map("last_seen_at")
+
+  whiteGames   Game[]        @relation("WhitePlayer")
+  blackGames   Game[]        @relation("BlackPlayer")
+  chatMessages ChatMessage[]
+
+  @@map("users")
+}
+
+enum GameStatus {
+  waiting
+  active
+  finished
+  aborted
+}
+
+enum GameResult {
+  white
+  black
+  draw
+}
+
+enum Termination {
+  checkmate
+  resignation
+  timeout
+  draw_agreement
+  stalemate
+  insufficient
+  repetition
+  fifty_moves
+  abort
+}
+
+enum TimeControlType {
+  bullet
+  blitz
+  rapid
+  classical
+}
+
+model Game {
+  id                String           @id @default(uuid()) @db.Uuid
+  whiteId           String           @map("white_id") @db.Uuid
+  blackId           String           @map("black_id") @db.Uuid
+  status            GameStatus       @default(waiting)
+  result            GameResult?
+  termination       Termination?
+  timeControlType   TimeControlType  @map("time_control_type")
+  timeInitialSec    Int              @map("time_initial_sec")
+  timeIncrementSec  Int              @map("time_increment_sec")
+  pgn               String?
+  finalFen          String?          @map("final_fen")
+  whiteRatingBefore Int?             @map("white_rating_before")
+  blackRatingBefore Int?             @map("black_rating_before")
+  whiteRatingAfter  Int?             @map("white_rating_after")
+  blackRatingAfter  Int?             @map("black_rating_after")
+  createdAt         DateTime         @default(now()) @map("created_at")
+  startedAt         DateTime?        @map("started_at")
+  finishedAt        DateTime?        @map("finished_at")
+
+  white        User          @relation("WhitePlayer", fields: [whiteId], references: [id])
+  black        User          @relation("BlackPlayer", fields: [blackId], references: [id])
+  moves        Move[]
+  chatMessages ChatMessage[]
+
+  @@index([whiteId])
+  @@index([blackId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("games")
+}
+
+enum PieceColor {
+  white
+  black
+}
+
+model Move {
+  id         String     @id @default(uuid()) @db.Uuid
+  gameId     String     @map("game_id") @db.Uuid
+  moveNumber Int        @map("move_number")
+  color      PieceColor
+  uci        String
+  san        String
+  fenAfter   String     @map("fen_after")
+  timeLeftMs Int        @map("time_left_ms")
+  createdAt  DateTime   @default(now()) @map("created_at")
+
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@index([gameId, moveNumber])
+  @@map("moves")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  gameId    String   @map("game_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  content   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  game Game @relation(fields: [gameId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([gameId])
+  @@map("chat_messages")
+}
