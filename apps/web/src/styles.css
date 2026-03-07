@@ -322,6 +322,8 @@ input:focus {
   flex-direction: column;
   gap: 16px;
   width: 280px;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .move-list {
@@ -835,6 +837,55 @@ input:focus {
   border-radius: 6px;
   font-size: 14px;
   text-align: center;
+}
+
+/* Responsive: tablets */
+@media (max-width: 768px) {
+  .main {
+    padding: 16px;
+  }
+
+  .game-page,
+  .analysis-page {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .game-sidebar,
+  .analysis-sidebar {
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .player-info {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+/* Responsive: mobile */
+@media (max-width: 480px) {
+  .main {
+    padding: 8px;
+  }
+
+  .header nav {
+    padding: 10px 12px;
+  }
+
+  .game-page,
+  .analysis-page {
+    gap: 12px;
+  }
+
+  .game-sidebar,
+  .analysis-sidebar {
+    gap: 10px;
+  }
+
+  .clock {
+    font-size: 18px;
+  }
 }
 
 
