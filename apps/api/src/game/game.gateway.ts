@@ -54,13 +54,15 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.join(`game:${data.gameId}`);
 
-    const { state, clocks } = await this.gameService.getGameState(data.gameId);
+    const { state, clocks, whiteId, blackId } = await this.gameService.getGameState(data.gameId);
+    const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
     client.emit('game:state', {
       gameId: data.gameId,
       fen: state.fen,
       moves: state.moves,
       clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
       status: state.status,
+      color,
     });
   }
 
