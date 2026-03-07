@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockfishService } from '../engine/stockfish.service';
 import { GameService } from './game.service';
@@ -31,8 +31,8 @@ export class BotGameService implements OnModuleInit {
           passwordHash: '',
         },
       });
-    } catch (err) {
-      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+    } catch (err: unknown) {
+      if (err instanceof PrismaClientKnownRequestError && err.code === 'P2002') {
         this.logger.warn('Bot user conflict (P2002), updating existing record by email');
         await this.prisma.user.update({
           where: { email: 'stockfish-bot@kingside.local' },
