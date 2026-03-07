@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { I18nService } from 'nestjs-i18n';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
@@ -16,6 +17,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly i18n: I18nService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -26,7 +28,7 @@ export class AuthService {
     });
 
     if (existing) {
-      throw new ConflictException('Username or email already taken');
+      throw new ConflictException(this.i18n.t('messages.auth.usernameOrEmailTaken'));
     }
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
@@ -48,12 +50,12 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(this.i18n.t('messages.auth.invalidCredentials'));
     }
 
     const valid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!valid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(this.i18n.t('messages.auth.invalidCredentials'));
     }
 
     await this.prisma.user.update({
@@ -71,7 +73,7 @@ export class AuthService {
       });
       return this.generateTokens(payload.sub, payload.username);
     } catch {
-      throw new UnauthorizedException('Invalid refresh token');
+      throw new UnauthorizedException(this.i18n.t('messages.auth.invalidRefreshToken'));
     }
   }
 

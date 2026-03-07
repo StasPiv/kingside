@@ -1,0 +1,14 @@
+{
+  "auth.invalidCredentials": "Неверное имя пользователя или пароль",
+  "auth.usernameOrEmailTaken": "Имя пользователя или email уже заняты",
+  "auth.invalidRefreshToken": "Недействительный токен обновления",
+  "user.notFound": "Пользователь не найден",
+  "game.notActive": "Игра не активна",
+  "game.notYourTurn": "Сейчас не ваш ход",
+  "game.invalidMove": "Недопустимый ход",
+  "game.notAPlayer": "Вы не являетесь участником этой игры",
+  "game.noDrawOffer": "Нет предложения ничьей для принятия",
+  "auth.missingToken": "Отсутствует токен аутентификации",
+  "auth.invalidToken": "Недействительный токен аутентификации",
+  "matchmaking.alreadyInQueue": "Вы уже находитесь в очереди поиска"
+}
