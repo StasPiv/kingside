@@ -24,6 +24,7 @@ model User {
   whiteGames   Game[]        @relation("WhitePlayer")
   blackGames   Game[]        @relation("BlackPlayer")
   chatMessages ChatMessage[]
+  timeControls UserTimeControl[]
 
   @@map("users")
 }
@@ -126,4 +127,18 @@ model ChatMessage {
 
   @@index([gameId])
   @@map("chat_messages")
+}
+
+model UserTimeControl {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  name         String?
+  initialSec   Int      @map("initial_sec")
+  incrementSec Int      @map("increment_sec")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("user_time_controls")
 }
