@@ -21,6 +21,30 @@ services:
     volumes:
       - redis_data:/data
 
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: kingside-api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:3001"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      STOCKFISH_PATH: ${STOCKFISH_PATH:-/usr/games/stockfish}
+      STOCKFISH_MAX_INSTANCES: ${STOCKFISH_MAX_INSTANCES:-4}
+    depends_on:
+      - postgres
+      - redis
+    profiles:
+      - full
+
 volumes:
   postgres_data:
   redis_data:
