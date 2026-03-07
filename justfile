@@ -31,6 +31,9 @@ _infra:
     @echo "Waiting for PostgreSQL..."
     @until docker exec kingside-postgres pg_isready -U kingside > /dev/null 2>&1; do sleep 1; done
     @echo "PostgreSQL is ready"
+    @echo "Waiting for Redis..."
+    @until docker exec kingside-redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 1; done
+    @echo "Redis is ready"
 
 # Install dependencies
 _deps:

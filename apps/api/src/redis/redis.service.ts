@@ -7,7 +7,7 @@ export class RedisService extends Redis implements OnModuleDestroy {
   constructor(private readonly configService: ConfigService) {
     super({
       host: configService.get('REDIS_HOST', 'localhost'),
-      port: configService.get('REDIS_PORT', 6379),
+      port: configService.get('REDIS_PORT', 6380),
     });
   }
 
