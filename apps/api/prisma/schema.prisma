@@ -19,6 +19,7 @@ model User {
   ratingClassical Int      @default(1500) @map("rating_classical")
   createdAt       DateTime @default(now()) @map("created_at")
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
+  locale          String   @default("en") @map("locale")
 
   whiteGames   Game[]        @relation("WhitePlayer")
   blackGames   Game[]        @relation("BlackPlayer")

@@ -87,6 +87,7 @@ export class AuthService {
         ratingRapid: true,
         ratingClassical: true,
         createdAt: true,
+        locale: true,
       },
     });
     return user;
