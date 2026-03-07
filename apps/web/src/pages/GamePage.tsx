@@ -219,6 +219,7 @@ export function GamePage() {
                 return onDrop(sourceSquare as Square, targetSquare as Square);
               },
               boardOrientation: playerColor,
+              dragActivationDistance: 0,
               draggingPieceStyle: { transform: 'scale(1)' },
             }}
           />
