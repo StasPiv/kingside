@@ -1,12 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { TIME_CONTROLS } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 import { api } from '../api';
 
-type TimeControlKey = keyof typeof TIME_CONTROLS;
 type PieceColor = 'white' | 'black' | 'random';
 type TimeControlCategory = 'bullet' | 'blitz' | 'rapid' | 'classical';
 
@@ -22,7 +20,7 @@ type CustomTimeControl = {
   increment: number;
 };
 
-const TC_LABEL_KEYS: Record<TimeControlKey, string> = {
+const TC_LABEL_KEYS: Record<TimeControlCategory, string> = {
   bullet: 'lobby.bullet',
   blitz: 'lobby.blitz',
   rapid: 'lobby.rapid',
@@ -80,7 +78,7 @@ export function LobbyPage() {
 
   const [botLevel, setBotLevel] = useState(3);
   const [botColor, setBotColor] = useState<PieceColor>('random');
-  const [botTC, setBotTC] = useState<TimeControlKey>('blitz');
+  const [botTC, setBotTC] = useState<TimeControlCategory>('blitz');
   const [startingBot, setStartingBot] = useState(false);
 
   useEffect(() => {
@@ -347,7 +345,7 @@ export function LobbyPage() {
         <div className="bot-option">
           <label>{t('lobby.timeControl')}</label>
           <div className="time-controls">
-            {(Object.keys(TIME_CONTROLS) as TimeControlKey[]).map((key) => (
+            {CATEGORIES.map((key) => (
               <button
                 key={key}
                 className={`tc-btn ${botTC === key ? 'active' : ''}`}

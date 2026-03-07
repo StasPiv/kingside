@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
 import { RatingService } from './rating.service';
-import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, TIME_CONTROLS, classifyTimeControl } from '@kingside/shared';
+import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, DEFAULT_CATEGORY_TC, classifyTimeControl } from '@kingside/shared';
 
 interface GameState {
   fen: string;
@@ -372,7 +372,7 @@ export class GameService {
     const whiteId = resolvedColor === 'white' ? userId : STOCKFISH_BOT_ID;
     const blackId = resolvedColor === 'black' ? userId : STOCKFISH_BOT_ID;
 
-    const tc = TIME_CONTROLS[timeControl];
+    const tc = DEFAULT_CATEGORY_TC[timeControl];
 
     const game = await this.prisma.game.create({
       data: {

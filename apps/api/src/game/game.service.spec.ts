@@ -8,7 +8,7 @@ jest.mock('../redis/redis.service', () => ({
 
 import { GameService } from './game.service';
 import { GameClockService, ClockState } from './game-clock.service';
-import { STOCKFISH_BOT_ID, TIME_CONTROLS, INITIAL_FEN, MAX_ACTIVE_BOT_GAMES } from '@kingside/shared';
+import { STOCKFISH_BOT_ID, DEFAULT_CATEGORY_TC, INITIAL_FEN, MAX_ACTIVE_BOT_GAMES } from '@kingside/shared';
 
 describe('GameService', () => {
   let service: GameService;
@@ -107,8 +107,8 @@ describe('GameService', () => {
           isBot: true,
           botLevel: 3,
           timeControlType: 'blitz',
-          timeInitialSec: TIME_CONTROLS.blitz.initialTime,
-          timeIncrementSec: TIME_CONTROLS.blitz.increment,
+          timeInitialSec: DEFAULT_CATEGORY_TC.blitz.initialTime,
+          timeIncrementSec: DEFAULT_CATEGORY_TC.blitz.increment,
         }),
       });
     });
@@ -152,8 +152,8 @@ describe('GameService', () => {
         expect(prisma.game.create).toHaveBeenCalledWith({
           data: expect.objectContaining({
             timeControlType: tc,
-            timeInitialSec: TIME_CONTROLS[tc].initialTime,
-            timeIncrementSec: TIME_CONTROLS[tc].increment,
+            timeInitialSec: DEFAULT_CATEGORY_TC[tc].initialTime,
+            timeIncrementSec: DEFAULT_CATEGORY_TC[tc].increment,
           }),
         });
       },

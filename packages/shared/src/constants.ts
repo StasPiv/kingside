@@ -25,6 +25,13 @@ export const TIME_CONTROLS = {
   '60_30': { initialTime: 3600, increment: 30 },
 } as const;
 
+export const DEFAULT_CATEGORY_TC: Record<string, { initialTime: number; increment: number }> = {
+  bullet: { initialTime: 60, increment: 0 },
+  blitz: { initialTime: 300, increment: 0 },
+  rapid: { initialTime: 600, increment: 0 },
+  classical: { initialTime: 1800, increment: 0 },
+} as const;
+
 export const STOCKFISH_BOT_ID = '00000000-0000-4000-a000-000000000001';
 export const STOCKFISH_BOT_USERNAME = 'Stockfish Bot';
 
