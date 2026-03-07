@@ -4,23 +4,44 @@ import {
   SubscribeMessage,
   ConnectedSocket,
   MessageBody,
+  OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { JwtService } from '@nestjs/jwt';
 import { MatchmakingService } from './matchmaking.service';
 import { JoinQueueDto } from './dto/join-queue.dto';
+import { JwtPayload } from '../auth/jwt.strategy';
 import { TimeControlType } from '../generated/prisma/enums';
 
-@WebSocketGateway({ namespace: '/game', cors: { origin: '*' } })
-export class MatchmakingGateway implements OnGatewayDisconnect {
+@WebSocketGateway({ namespace: '/matchmaking', cors: { origin: '*' } })
+export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(MatchmakingGateway.name);
   private playerQueues = new Map<string, TimeControlType>();
 
-  constructor(private readonly matchmakingService: MatchmakingService) {}
+  constructor(
+    private readonly matchmakingService: MatchmakingService,
+    private readonly jwtService: JwtService,
+  ) {}
+
+  async handleConnection(client: Socket) {
+    try {
+      const token = client.handshake.auth?.token || client.handshake.query?.token;
+      if (!token) {
+        client.disconnect();
+        return;
+      }
+      const payload = this.jwtService.verify<JwtPayload>(String(token));
+      client.data.user = { id: payload.sub, username: payload.username };
+      this.logger.log(`Matchmaking client connected: ${payload.username} (${client.id})`);
+    } catch {
+      client.disconnect();
+    }
+  }
 
   @UsePipes(new ValidationPipe({ transform: true }))
   @SubscribeMessage('matchmaking:join')
