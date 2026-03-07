@@ -448,6 +448,12 @@ input:focus {
   gap: 12px;
 }
 
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #a0a0c0;
+}
+
 .success {
   background: rgba(34, 197, 94, 0.15);
   color: #22c55e;

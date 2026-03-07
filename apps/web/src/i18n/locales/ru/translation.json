@@ -16,9 +16,13 @@
     "password": "Пароль",
     "currentPassword": "Текущий пароль",
     "newPassword": "Новый пароль",
+    "changePassword": "Смена пароля",
     "confirmPassword": "Подтвердите пароль",
+    "confirmNewPassword": "Подтвердите новый пароль",
     "save": "Сохранить",
     "saving": "Сохранение...",
+    "updatePassword": "Сменить пароль",
+    "updatingPassword": "Сохранение...",
     "passwordMismatch": "Пароли не совпадают",
     "passwordChanged": "Пароль успешно изменён",
     "passwordError": "Не удалось сменить пароль"

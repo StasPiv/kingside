@@ -16,9 +16,13 @@
     "password": "Password",
     "currentPassword": "Current password",
     "newPassword": "New password",
+    "changePassword": "Change Password",
     "confirmPassword": "Confirm password",
+    "confirmNewPassword": "Confirm new password",
     "save": "Save",
     "saving": "Saving...",
+    "updatePassword": "Update Password",
+    "updatingPassword": "Updating...",
     "passwordMismatch": "Passwords do not match",
     "passwordChanged": "Password changed successfully",
     "passwordError": "Failed to change password"

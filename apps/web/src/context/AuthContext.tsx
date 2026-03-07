@@ -30,6 +30,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const user = await api.get<User>('/api/auth/me');
       if (user.locale) {
         i18n.changeLanguage(user.locale);
+        localStorage.setItem('locale', user.locale);
       }
       setState((s) => ({ ...s, user, loading: false }));
     } catch {
