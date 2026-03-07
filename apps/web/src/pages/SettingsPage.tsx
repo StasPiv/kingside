@@ -18,7 +18,6 @@ export function SettingsPage() {
   const handleLanguageChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const locale = e.target.value as Locale;
     i18n.changeLanguage(locale);
-    localStorage.setItem('locale', locale);
     await api.patch('/api/users/me/settings', { locale });
   };
 
