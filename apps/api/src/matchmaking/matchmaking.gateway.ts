@@ -12,7 +12,7 @@ import { MatchmakingService } from './matchmaking.service';
 import { JoinQueueDto } from './dto/join-queue.dto';
 import { TimeControlType } from '../generated/prisma/enums';
 
-@WebSocketGateway({ namespace: '/game', cors: { origin: '*' } })
+@WebSocketGateway({ namespace: '/game' })
 export class MatchmakingGateway implements OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
