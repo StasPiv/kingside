@@ -13,7 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { GameService } from './game.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 
-@WebSocketGateway({ namespace: '/game' })
+@WebSocketGateway({ namespace: '/game', cors: { origin: '*' } })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
