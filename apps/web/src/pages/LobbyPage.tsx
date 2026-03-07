@@ -20,9 +20,9 @@ export function LobbyPage() {
   const [selectedTC, setSelectedTC] = useState<TimeControlKey>('blitz');
 
   useEffect(() => {
-    const onMatchFound = (data: { gameId: string }) => {
+    const onMatchFound = (data: { gameId: string; color: 'white' | 'black' }) => {
       setSearching(false);
-      navigate(`/game/${data.gameId}`);
+      navigate(`/game/${data.gameId}`, { state: { color: data.color } });
     };
 
     matchmakingSocket.on('matchmaking:found', onMatchFound);
