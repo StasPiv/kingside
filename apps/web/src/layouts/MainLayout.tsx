@@ -1,8 +1,10 @@
 import { Link, Outlet } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 
 export function MainLayout() {
   const { user, logout } = useAuth();
+  const { t } = useTranslation();
 
   return (
     <div className="app">
@@ -13,12 +15,13 @@ export function MainLayout() {
             {user ? (
               <>
                 <span className="nav-user">{user.username} ({user.rating})</span>
-                <button className="nav-btn" onClick={logout}>Выход</button>
+                <Link to="/settings">{t('nav.settings')}</Link>
+                <button className="nav-btn" onClick={logout}>{t('nav.logout')}</button>
               </>
             ) : (
               <>
-                <Link to="/login">Вход</Link>
-                <Link to="/register">Регистрация</Link>
+                <Link to="/login">{t('nav.login')}</Link>
+                <Link to="/register">{t('nav.register')}</Link>
               </>
             )}
           </div>

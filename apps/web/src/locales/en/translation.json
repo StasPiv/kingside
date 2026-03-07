@@ -1,0 +1,70 @@
+{
+  "nav": {
+    "settings": "Settings",
+    "logout": "Logout",
+    "login": "Login",
+    "register": "Register"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "english": "English",
+    "russian": "Russian"
+  },
+  "lobby": {
+    "title": "Lobby",
+    "rating": "Rating: {{rating}}",
+    "bullet": "Bullet (1 min)",
+    "blitz": "Blitz (5 min)",
+    "rapid": "Rapid (10 min)",
+    "classical": "Classical (30 min)",
+    "play": "Play",
+    "cancelSearch": "Cancel search...",
+    "searching": "Searching...",
+    "searchingStatus": "Searching for opponent...",
+    "findGame": "Find Game"
+  },
+  "common": {
+    "loading": "Loading..."
+  },
+  "auth": {
+    "login": {
+      "title": "Login",
+      "username": "Username",
+      "password": "Password",
+      "submit": "Sign In",
+      "submitting": "Signing In...",
+      "error": "Login failed",
+      "noAccount": "Don't have an account?",
+      "registerLink": "Register"
+    },
+    "register": {
+      "title": "Register",
+      "username": "Username",
+      "email": "Email",
+      "password": "Password",
+      "confirmPassword": "Confirm password",
+      "submit": "Register",
+      "submitting": "Registering...",
+      "error": "Registration failed",
+      "passwordMismatch": "Passwords do not match",
+      "hasAccount": "Already have an account?",
+      "loginLink": "Sign In"
+    }
+  },
+  "game": {
+    "moves": "Moves",
+    "resign": "Resign",
+    "offerDraw": "Draw",
+    "drawOffered": "Opponent offers a draw",
+    "accept": "Accept",
+    "decline": "Decline",
+    "finished": "Game over",
+    "draw": "Draw",
+    "whiteWins": "White wins",
+    "blackWins": "Black wins",
+    "chat": "Chat",
+    "chatPlaceholder": "Message...",
+    "chatSend": "Send"
+  }
+}

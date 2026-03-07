@@ -1,0 +1,70 @@
+{
+  "nav": {
+    "settings": "Настройки",
+    "logout": "Выход",
+    "login": "Вход",
+    "register": "Регистрация"
+  },
+  "settings": {
+    "title": "Настройки",
+    "language": "Язык",
+    "english": "English",
+    "russian": "Русский"
+  },
+  "lobby": {
+    "title": "Лобби",
+    "rating": "Рейтинг: {{rating}}",
+    "bullet": "Пуля (1 мин)",
+    "blitz": "Блиц (5 мин)",
+    "rapid": "Рапид (10 мин)",
+    "classical": "Классика (30 мин)",
+    "play": "Играть",
+    "cancelSearch": "Отменить поиск...",
+    "searching": "Поиск...",
+    "searchingStatus": "Поиск соперника...",
+    "findGame": "Найти игру"
+  },
+  "common": {
+    "loading": "Загрузка..."
+  },
+  "auth": {
+    "login": {
+      "title": "Вход",
+      "username": "Имя пользователя",
+      "password": "Пароль",
+      "submit": "Войти",
+      "submitting": "Вход...",
+      "error": "Ошибка входа",
+      "noAccount": "Нет аккаунта?",
+      "registerLink": "Зарегистрироваться"
+    },
+    "register": {
+      "title": "Регистрация",
+      "username": "Имя пользователя",
+      "email": "Email",
+      "password": "Пароль",
+      "confirmPassword": "Подтвердите пароль",
+      "submit": "Зарегистрироваться",
+      "submitting": "Регистрация...",
+      "error": "Ошибка регистрации",
+      "passwordMismatch": "Пароли не совпадают",
+      "hasAccount": "Уже есть аккаунт?",
+      "loginLink": "Войти"
+    }
+  },
+  "game": {
+    "moves": "Ходы",
+    "resign": "Сдаться",
+    "offerDraw": "Ничья",
+    "drawOffered": "Соперник предлагает ничью",
+    "accept": "Принять",
+    "decline": "Отклонить",
+    "finished": "Партия завершена",
+    "draw": "Ничья",
+    "whiteWins": "Белые победили",
+    "blackWins": "Черные победили",
+    "chat": "Чат",
+    "chatPlaceholder": "Сообщение...",
+    "chatSend": "Отправить"
+  }
+}

@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,7 +20,7 @@ export function LoginPage() {
       await login(username, password);
       navigate('/lobby');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Ошибка входа');
+      setError(err instanceof Error ? err.message : t('auth.login.error'));
     } finally {
       setLoading(false);
     }
@@ -27,27 +29,27 @@ export function LoginPage() {
   return (
     <div className="auth-page">
       <form className="auth-form" onSubmit={handleSubmit}>
-        <h1>Вход</h1>
+        <h1>{t('auth.login.title')}</h1>
         {error && <div className="error">{error}</div>}
         <input
           type="text"
-          placeholder="Имя пользователя"
+          placeholder={t('auth.login.username')}
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           required
         />
         <input
           type="password"
-          placeholder="Пароль"
+          placeholder={t('auth.login.password')}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
         />
         <button type="submit" disabled={loading}>
-          {loading ? 'Вход...' : 'Войти'}
+          {loading ? t('auth.login.submitting') : t('auth.login.submit')}
         </button>
         <p>
-          Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>
+          {t('auth.login.noAccount')} <Link to="/register">{t('auth.login.registerLink')}</Link>
         </p>
       </form>
     </div>

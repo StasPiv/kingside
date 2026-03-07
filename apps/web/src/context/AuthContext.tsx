@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import type { User } from '@kingside/shared';
 import { api } from '../api';
 import { socket, matchmakingSocket } from '../socket';
+import i18n from '../i18n';
 
 type AuthState = {
   user: User | null;
@@ -27,6 +28,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchMe = useCallback(async () => {
     try {
       const user = await api.get<User>('/api/auth/me');
+      if (user.locale) {
+        i18n.changeLanguage(user.locale);
+      }
       setState((s) => ({ ...s, user, loading: false }));
     } catch {
       localStorage.removeItem('token');
