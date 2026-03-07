@@ -76,13 +76,18 @@ export class GameService {
     clocks: ClockState;
     whiteId: string;
     blackId: string;
+    players: { white: string; black: string };
   }> {
     const raw = await this.redis.hgetall(this.stateKey(gameId));
 
     if (!raw.fen) {
       const game = await this.prisma.game.findUniqueOrThrow({
         where: { id: gameId },
-        include: { moves: { orderBy: { moveNumber: 'asc' } } },
+        include: {
+          moves: { orderBy: { moveNumber: 'asc' } },
+          white: { select: { username: true } },
+          black: { select: { username: true } },
+        },
       });
       const state: GameState = {
         fen: game.finalFen || INITIAL_FEN,
@@ -91,12 +96,18 @@ export class GameService {
         activeColor: 'white',
       };
       const clocks = await this.clockService.getClocks(gameId);
-      return { state, clocks, whiteId: game.whiteId, blackId: game.blackId };
+      const players = { white: game.white.username, black: game.black.username };
+      return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players };
     }
 
     const game = await this.prisma.game.findUniqueOrThrow({
       where: { id: gameId },
-      select: { whiteId: true, blackId: true },
+      select: {
+        whiteId: true,
+        blackId: true,
+        white: { select: { username: true } },
+        black: { select: { username: true } },
+      },
     });
 
     const state: GameState = {
@@ -107,7 +118,8 @@ export class GameService {
     };
     const clocks = await this.clockService.getClocks(gameId);
 
-    return { state, clocks, whiteId: game.whiteId, blackId: game.blackId };
+    const players = { white: game.white.username, black: game.black.username };
+    return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players };
   }
 
   async makeMove(gameId: string, userId: string, uci: string): Promise<MoveResult> {

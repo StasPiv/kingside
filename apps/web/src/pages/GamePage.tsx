@@ -15,6 +15,7 @@ type GameState = {
   clocks: ClockPayload;
   status: string;
   result?: string;
+  players?: { white: string; black: string };
 };
 
 type ChatMessage = {
@@ -26,8 +27,8 @@ type ChatMessage = {
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
   return {
-    white: Math.floor(clocks.whiteMs / 1000),
-    black: Math.floor(clocks.blackMs / 1000),
+    white: Math.floor((clocks?.whiteMs ?? 0) / 1000),
+    black: Math.floor((clocks?.blackMs ?? 0) / 1000),
   };
 }
 
@@ -49,6 +50,7 @@ export function GamePage() {
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
+  const [players, setPlayers] = useState<{ white: string; black: string }>({ white: '', black: '' });
   const [drawOffered, setDrawOffered] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -71,6 +73,7 @@ export function GamePage() {
   useEffect(() => {
     const onGameState = (state: GameState & { color?: 'white' | 'black' }) => {
       if (state.color) setPlayerColor(state.color);
+      if (state.players) setPlayers(state.players);
       updateFromState(state);
     };
 
@@ -180,8 +183,10 @@ export function GamePage() {
   return (
     <div className="game-page">
       <div className="game-board-area">
-        <div className="clock opponent-clock">
-          {formatTime(clocks[opponentColor])}
+        <div className="player-info opponent-info">
+          <span className={`color-indicator ${opponentColor}`} />
+          <span className="player-name">{players[opponentColor] || opponentColor}</span>
+          <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
         <div className="board-container">
           <Chessboard
@@ -191,8 +196,10 @@ export function GamePage() {
             boardWidth={560}
           />
         </div>
-        <div className="clock player-clock">
-          {formatTime(clocks[playerColor])}
+        <div className="player-info player-info-self">
+          <span className={`color-indicator ${playerColor}`} />
+          <span className="player-name">{players[playerColor] || playerColor}</span>
+          <span className="clock">{formatTime(clocks[playerColor])}</span>
         </div>
       </div>
 
