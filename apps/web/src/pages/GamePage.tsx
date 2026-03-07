@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
+
+const MemoChessboard = memo(Chessboard);
 import type { Square } from 'chess.js';
 import { INITIAL_FEN } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
@@ -210,7 +212,7 @@ export function GamePage() {
       position: fen,
       onPieceDrop: handlePieceDrop,
       boardOrientation: playerColor,
-      animationDurationInMs: 100,
+      animationDurationInMs: 0,
       dragActivationDistance: 0,
       draggingPieceStyle: { transform: 'scale(1)' },
     }),
@@ -231,7 +233,7 @@ export function GamePage() {
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
         <div className="board-container">
-          <Chessboard options={boardOptions} />
+          <MemoChessboard options={boardOptions} />
         </div>
         <div className="player-info player-info-self">
           <span className={`color-indicator ${playerColor}`} />
