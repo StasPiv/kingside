@@ -437,6 +437,11 @@ input:focus {
   max-height: calc(100vh - 190px);
   aspect-ratio: 1;
   width: 100%;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  will-change: contents;
 }
 
 .game-sidebar {

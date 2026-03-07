@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -143,7 +143,7 @@ export function GamePage() {
     return () => clearInterval(interval);
   }, [status, fen, game]);
 
-  const onDrop = (sourceSquare: Square, targetSquare: Square): boolean => {
+  const onDrop = useCallback((sourceSquare: Square, targetSquare: Square): boolean => {
     if (status !== 'active') return false;
 
     const turnColor = game.turn() === 'w' ? 'white' : 'black';
@@ -169,7 +169,7 @@ export function GamePage() {
     } catch {
       return false;
     }
-  };
+  }, [game, gameId, playerColor, status]);
 
   const handleResign = () => {
     socket.emit('game:resign', { gameId });
@@ -197,6 +197,26 @@ export function GamePage() {
 
   const opponentColor = playerColor === 'white' ? 'black' : 'white';
 
+  const handlePieceDrop = useCallback(
+    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }) => {
+      if (!targetSquare) return false;
+      return onDrop(sourceSquare as Square, targetSquare as Square);
+    },
+    [onDrop],
+  );
+
+  const boardOptions = useMemo(
+    () => ({
+      position: fen,
+      onPieceDrop: handlePieceDrop,
+      boardOrientation: playerColor,
+      animationDurationInMs: 100,
+      dragActivationDistance: 0,
+      draggingPieceStyle: { transform: 'scale(1)' },
+    }),
+    [fen, handlePieceDrop, playerColor],
+  );
+
   return (
     <div className="game-page">
       <div className="game-board-area">
@@ -211,18 +231,7 @@ export function GamePage() {
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
         <div className="board-container">
-          <Chessboard
-            options={{
-              position: fen,
-              onPieceDrop: ({ sourceSquare, targetSquare }) => {
-                if (!targetSquare) return false;
-                return onDrop(sourceSquare as Square, targetSquare as Square);
-              },
-              boardOrientation: playerColor,
-              dragActivationDistance: 0,
-              draggingPieceStyle: { transform: 'scale(1)' },
-            }}
-          />
+          <Chessboard options={boardOptions} />
         </div>
         <div className="player-info player-info-self">
           <span className={`color-indicator ${playerColor}`} />
