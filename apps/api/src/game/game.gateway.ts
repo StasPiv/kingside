@@ -11,6 +11,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { GameService } from './game.service';
+import { ChatService } from '../chat/chat.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: '*' } })
@@ -23,6 +24,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly gameService: GameService,
     private readonly jwtService: JwtService,
+    private readonly chatService: ChatService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -170,6 +172,22 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
 
     await this.gameService.handleDrawDecline(data.gameId, userId);
+  }
+
+  @SubscribeMessage('chat:send')
+  async handleChatSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { gameId: string; content: string },
+  ) {
+    const userId = client.data.user?.id;
+    if (!userId) return;
+
+    try {
+      const message = await this.chatService.sendMessage(data.gameId, userId, data.content);
+      this.server.to(`game:${data.gameId}`).emit('chat:message', message);
+    } catch (e: any) {
+      client.emit('error', { code: 'CHAT_ERROR', message: e.message });
+    }
   }
 
   emitGameStart(gameId: string, payload: any) {
