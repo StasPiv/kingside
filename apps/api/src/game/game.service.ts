@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
 import { RatingService } from './rating.service';
-import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, TIME_CONTROLS } from '@kingside/shared';
+import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, TIME_CONTROLS, classifyTimeControl } from '@kingside/shared';
 
 interface GameState {
   fen: string;
@@ -329,10 +329,11 @@ export class GameService {
   async createGame(
     whiteId: string,
     blackId: string,
-    timeControlType: 'bullet' | 'blitz' | 'rapid' | 'classical',
     timeInitialSec: number,
     timeIncrementSec: number,
   ) {
+    const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
+
     return this.prisma.game.create({
       data: {
         whiteId,
