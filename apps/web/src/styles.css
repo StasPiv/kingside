@@ -264,9 +264,8 @@ input:focus {
 .move-list {
   background: #16213e;
   border-radius: 8px;
-  padding: 16px;
-  max-height: 300px;
-  overflow-y: auto;
+  padding: 12px;
+  overflow: hidden;
 }
 
 .move-list h3 {
@@ -277,19 +276,22 @@ input:focus {
 
 .moves {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  gap: 4px;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding-bottom: 4px;
 }
 
 .move-pair {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   font-size: 14px;
+  flex-shrink: 0;
 }
 
 .move-number {
   color: #666;
-  min-width: 28px;
 }
 
 .move {

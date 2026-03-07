@@ -57,10 +57,17 @@ export function GamePage() {
   const [players, setPlayers] = useState<{ white: string; black: string }>({ white: '', black: '' });
   const [drawOffered, setDrawOffered] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const movesRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    if (movesRef.current) {
+      movesRef.current.scrollLeft = movesRef.current.scrollWidth;
+    }
+  }, [moves]);
 
   const updateFromState = useCallback(
     (state: GameState) => {
@@ -214,7 +221,7 @@ export function GamePage() {
       <div className="game-sidebar">
         <div className="move-list">
           <h3>{t('game.moves')}</h3>
-          <div className="moves">
+          <div className="moves" ref={movesRef}>
             {moves.map((move, i) =>
               i % 2 === 0 ? (
                 <div key={i} className="move-pair">
