@@ -11,6 +11,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { GameService } from './game.service';
+import { BotGameService } from './bot-game.service';
 import { ChatService } from '../chat/chat.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 
@@ -23,6 +24,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     private readonly gameService: GameService,
+    private readonly botGameService: BotGameService,
     private readonly jwtService: JwtService,
     private readonly chatService: ChatService,
   ) {}
@@ -56,7 +58,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.join(`game:${data.gameId}`);
 
-    const { state, clocks, whiteId, blackId, players } = await this.gameService.getGameState(data.gameId);
+    const { state, clocks, whiteId, blackId, players, isBot, botLevel } = await this.gameService.getGameState(data.gameId);
     const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
     client.emit('game:state', {
       gameId: data.gameId,
@@ -66,6 +68,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       status: state.status,
       color,
       players,
+      isBot,
+      botLevel,
     });
   }
 
@@ -92,6 +96,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           result: result.result,
           termination: result.termination,
         });
+      } else {
+        this.triggerBotReply(data.gameId);
       }
     } catch (e: any) {
       client.emit('error', { code: 'INVALID_MOVE', message: e.message });
@@ -192,5 +198,28 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitGameStart(gameId: string, payload: any) {
     this.server.to(`game:${gameId}`).emit('game:state', payload);
+  }
+
+  private async triggerBotReply(gameId: string): Promise<void> {
+    try {
+      const botResult = await this.botGameService.maybeBotReply(gameId);
+      if (!botResult) return;
+
+      this.server.to(`game:${gameId}`).emit('game:move', {
+        uci: botResult.uci,
+        san: botResult.san,
+        fen: botResult.fen,
+        clocks: { whiteMs: botResult.clocks.whiteMs, blackMs: botResult.clocks.blackMs },
+      });
+
+      if (botResult.gameOver) {
+        this.server.to(`game:${gameId}`).emit('game:end', {
+          result: botResult.result,
+          termination: botResult.termination,
+        });
+      }
+    } catch (e: any) {
+      this.logger.error(`Bot reply failed for game ${gameId}: ${e.message}`);
+    }
   }
 }

@@ -17,6 +17,8 @@ type GameState = {
   status: string;
   result?: string;
   players?: { white: string; black: string };
+  isBot?: boolean;
+  botLevel?: number | null;
 };
 
 type ChatMessage = {
@@ -56,6 +58,8 @@ export function GamePage() {
   const [chatInput, setChatInput] = useState('');
   const [players, setPlayers] = useState<{ white: string; black: string }>({ white: '', black: '' });
   const [drawOffered, setDrawOffered] = useState(false);
+  const [isBot, setIsBot] = useState(false);
+  const [botLevel, setBotLevel] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
 
@@ -85,6 +89,8 @@ export function GamePage() {
     const onGameState = (state: GameState & { color?: 'white' | 'black' }) => {
       if (state.color) setPlayerColor(state.color);
       if (state.players) setPlayers(state.players);
+      if (state.isBot !== undefined) setIsBot(state.isBot);
+      if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
       updateFromState(state);
     };
 
@@ -196,7 +202,12 @@ export function GamePage() {
       <div className="game-board-area">
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
-          <span className="player-name">{players[opponentColor] || opponentColor}</span>
+          <span className="player-name">
+            {players[opponentColor] || opponentColor}
+            {isBot && botLevel != null && (
+              <span className="bot-level"> (Lv. {botLevel})</span>
+            )}
+          </span>
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
         <div className="board-container">
@@ -236,7 +247,7 @@ export function GamePage() {
 
         {status === 'active' && (
           <div className="game-actions">
-            {drawOffered ? (
+            {!isBot && drawOffered ? (
               <div className="draw-offer">
                 <p>{t('game.drawOffered')}</p>
                 <button onClick={handleDrawAccept}>{t('game.accept')}</button>
@@ -244,7 +255,7 @@ export function GamePage() {
               </div>
             ) : (
               <>
-                <button onClick={handleDrawOffer}>{t('game.offerDraw')}</button>
+                {!isBot && <button onClick={handleDrawOffer}>{t('game.offerDraw')}</button>}
                 <button onClick={handleResign}>{t('game.resign')}</button>
               </>
             )}
@@ -258,27 +269,29 @@ export function GamePage() {
           </div>
         )}
 
-        <div className="chat">
-          <h3>{t('game.chat')}</h3>
-          <div className="chat-messages">
-            {messages.map((msg, i) => (
-              <div key={i} className={`chat-msg ${msg.userId === user?.id ? 'own' : ''}`}>
-                <strong>{msg.username}</strong>: {msg.content}
-              </div>
-            ))}
-            <div ref={chatEndRef} />
+        {!isBot && (
+          <div className="chat">
+            <h3>{t('game.chat')}</h3>
+            <div className="chat-messages">
+              {messages.map((msg, i) => (
+                <div key={i} className={`chat-msg ${msg.userId === user?.id ? 'own' : ''}`}>
+                  <strong>{msg.username}</strong>: {msg.content}
+                </div>
+              ))}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="chat-input">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                placeholder={t('game.chatPlaceholder')}
+              />
+              <button onClick={handleChatSend}>{t('game.chatSend')}</button>
+            </div>
           </div>
-          <div className="chat-input">
-            <input
-              type="text"
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
-              placeholder={t('game.chatPlaceholder')}
-            />
-            <button onClick={handleChatSend}>{t('game.chatSend')}</button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
