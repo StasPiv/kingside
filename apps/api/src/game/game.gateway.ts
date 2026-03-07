@@ -59,7 +59,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.emit('game:state', {
       gameId: data.gameId,
       fen: state.fen,
-      moves: state.moves,
+      moves: state.moves.map((m) => m.san),
       clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
       status: state.status,
       color,
@@ -98,7 +98,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         client.emit('game:state', {
           gameId: data.gameId,
           fen: state.fen,
-          moves: state.moves,
+          moves: state.moves.map((m) => m.san),
           clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
           status: state.status,
         });
