@@ -397,10 +397,17 @@ class WebhookHandler(BaseHTTPRequestHandler):
         event = payload.get("webhookEvent", "")
         log(f"Получен webhook: {event}")
 
-        # Отправляем Telegram-уведомление для всех событий
-        tg_text = format_telegram_issue(event, payload)
-        if tg_text:
-            send_telegram(tg_text)
+        # Telegram: только комментарии от coordinator
+        if event == "comment_created":
+            comment_body = payload.get("comment", {}).get("body", "")
+            if isinstance(comment_body, dict):
+                comment_text = extract_text_from_adf(comment_body)
+            else:
+                comment_text = comment_body
+            if comment_text.strip().startswith("COORDINATOR:"):
+                tg_text = format_telegram_issue(event, payload)
+                if tg_text:
+                    send_telegram(tg_text)
 
         if event == "comment_created":
             issue = payload.get("issue", {})
@@ -435,8 +442,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
             agents = [m.lower() for m in mentions
                       if m.lower() in valid_agents and m.lower() != author_agent]
 
+            # Coordinator получает все комментарии (если он не автор)
+            if "coordinator" in valid_agents and author_agent != "coordinator" and "coordinator" not in agents:
+                agents.append("coordinator")
+
             if not agents:
-                log(f"Комментарий к {key}: нет @agent в тексте, пропуск")
+                log(f"Комментарий к {key}: нет агентов для обработки, пропуск")
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b'{"status":"skipped"}')
