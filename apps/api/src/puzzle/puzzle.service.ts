@@ -1,12 +1,15 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
-import type { PuzzleAttemptResult, PuzzleStats } from '@kingside/shared';
 
 @Injectable()
 export class PuzzleService {
+  private readonly logger = new Logger(PuzzleService.name);
+
   constructor(
     private readonly prisma: PrismaService,
+    private readonly i18n: I18nService,
     private readonly puzzleRating: PuzzleRatingService,
   ) {}
 
@@ -27,6 +30,7 @@ export class PuzzleService {
     const attemptedIds = await this.prisma.puzzleAttempt.findMany({
       where: { userId },
       select: { puzzleId: true },
+      distinct: ['puzzleId'],
     });
     const excludeIds = attemptedIds.map((a) => a.puzzleId);
 
@@ -36,11 +40,10 @@ export class PuzzleService {
         id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
       },
       take: 10,
-      orderBy: { rating: 'asc' },
+      orderBy: { popularity: 'desc' },
     });
 
     if (puzzles.length === 0) {
-      // Fallback: widen search to any unsolved puzzle
       const fallback = await this.prisma.puzzle.findFirst({
         where: {
           id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
@@ -48,12 +51,11 @@ export class PuzzleService {
         orderBy: { rating: 'asc' },
       });
       if (!fallback) {
-        throw new NotFoundException('No puzzles available');
+        throw new NotFoundException(this.i18n.t('messages.puzzle.noPuzzlesAvailable'));
       }
       return this.formatPuzzle(fallback);
     }
 
-    // Pick a random puzzle from the candidates
     const picked = puzzles[Math.floor(Math.random() * puzzles.length)];
     return this.formatPuzzle(picked);
   }
@@ -111,6 +113,7 @@ export class PuzzleService {
     const attemptedIds = await this.prisma.puzzleAttempt.findMany({
       where: { userId },
       select: { puzzleId: true },
+      distinct: ['puzzleId'],
     });
     const excludeIds = attemptedIds.map((a) => a.puzzleId);
 
@@ -125,7 +128,7 @@ export class PuzzleService {
     });
 
     if (puzzles.length === 0) {
-      throw new NotFoundException('No puzzles available for this theme');
+      throw new NotFoundException(this.i18n.t('messages.puzzle.noPuzzlesAvailable'));
     }
 
     const picked = puzzles[Math.floor(Math.random() * puzzles.length)];
@@ -140,12 +143,12 @@ export class PuzzleService {
     puzzleId: string,
     solved: boolean,
     timeMs: number,
-  ): Promise<PuzzleAttemptResult> {
+  ) {
     const puzzle = await this.prisma.puzzle.findUnique({
       where: { id: puzzleId },
     });
     if (!puzzle) {
-      throw new NotFoundException('Puzzle not found');
+      throw new NotFoundException(this.i18n.t('messages.puzzle.notFound'));
     }
 
     const ratingChange = await this.puzzleRating.applyRatingChange(
@@ -165,6 +168,10 @@ export class PuzzleService {
       },
     });
 
+    this.logger.log(
+      `Puzzle ${puzzleId} ${solved ? 'solved' : 'failed'} by user ${userId}: rating ${ratingChange.userRatingBefore} -> ${ratingChange.userRatingAfter}`,
+    );
+
     return {
       solved,
       puzzleRating: ratingChange.puzzleRatingAfter,
@@ -177,7 +184,7 @@ export class PuzzleService {
   /**
    * Get puzzle statistics for a user.
    */
-  async getStats(userId: string): Promise<PuzzleStats> {
+  async getStats(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { ratingPuzzle: true },
@@ -186,10 +193,10 @@ export class PuzzleService {
     const [totalAttempted, totalSolved, bestRush] = await Promise.all([
       this.prisma.puzzleAttempt.count({ where: { userId } }),
       this.prisma.puzzleAttempt.count({ where: { userId, solved: true } }),
-      this.prisma.puzzleRushSession.findFirst({
-        where: { userId, finishedAt: { not: null } },
-        orderBy: { solved: 'desc' },
-        select: { solved: true },
+      this.prisma.puzzleRushScore.findFirst({
+        where: { userId },
+        orderBy: { score: 'desc' },
+        select: { score: true },
       }),
     ]);
 
@@ -197,7 +204,7 @@ export class PuzzleService {
       rating: user.ratingPuzzle,
       totalSolved,
       totalAttempted,
-      bestPuzzleRushScore: bestRush?.solved ?? null,
+      bestPuzzleRushScore: bestRush?.score ?? null,
     };
   }
 
@@ -209,9 +216,26 @@ export class PuzzleService {
       where: { id: puzzleId },
     });
     if (!puzzle) {
-      throw new NotFoundException('Puzzle not found');
+      throw new NotFoundException(this.i18n.t('messages.puzzle.notFound'));
     }
     return this.formatPuzzle(puzzle);
+  }
+
+  /**
+   * Get user's recent puzzle attempts.
+   */
+  async getUserAttempts(userId: string, take = 20, skip = 0) {
+    return this.prisma.puzzleAttempt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take,
+      skip,
+      include: {
+        puzzle: {
+          select: { id: true, fen: true, rating: true, themes: true },
+        },
+      },
+    });
   }
 
   private formatPuzzle(puzzle: {
@@ -219,14 +243,14 @@ export class PuzzleService {
     fen: string;
     moves: string;
     rating: number;
-    themes: string[];
+    themes: string;
   }) {
     return {
       id: puzzle.id,
       fen: puzzle.fen,
       moves: puzzle.moves.split(' '),
       rating: puzzle.rating,
-      themes: puzzle.themes,
+      themes: puzzle.themes.split(' ').filter(Boolean),
     };
   }
 }

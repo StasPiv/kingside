@@ -1,9 +1,10 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
   Param,
-  ParseUUIDPipe,
+  ParseIntPipe,
   Post,
   Query,
   Request,
@@ -47,8 +48,24 @@ export class PuzzleController {
     return this.puzzleService.getNextPuzzleByTheme(req.user.id, theme);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('stats/me')
+  getMyStats(@Request() req: any) {
+    return this.puzzleService.getStats(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('attempts')
+  getAttempts(
+    @Request() req: any,
+    @Query('take', new DefaultValuePipe(20), ParseIntPipe) take: number,
+    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+  ) {
+    return this.puzzleService.getUserAttempts(req.user.id, take, skip);
+  }
+
   @Get(':id')
-  getPuzzle(@Param('id', ParseUUIDPipe) id: string) {
+  getPuzzle(@Param('id') id: string) {
     return this.puzzleService.getPuzzle(id);
   }
 
@@ -56,7 +73,7 @@ export class PuzzleController {
   @Post(':id/attempt')
   submitAttempt(
     @Request() req: any,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: SubmitAttemptDto,
   ) {
     return this.puzzleService.submitAttempt(
@@ -65,11 +82,5 @@ export class PuzzleController {
       dto.solved,
       dto.timeMs,
     );
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Get('stats/me')
-  getMyStats(@Request() req: any) {
-    return this.puzzleService.getStats(req.user.id);
   }
 }

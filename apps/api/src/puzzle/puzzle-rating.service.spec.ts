@@ -30,7 +30,7 @@ describe('PuzzleRatingService', () => {
     prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
     prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
       rating: 1500,
-      ratingDeviation: 350,
+      ratingDev: 350,
     });
 
     const result = await service.applyRatingChange(userId, puzzleId, true);
@@ -43,7 +43,7 @@ describe('PuzzleRatingService', () => {
     prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
     prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
       rating: 1500,
-      ratingDeviation: 350,
+      ratingDev: 350,
     });
 
     const result = await service.applyRatingChange(userId, puzzleId, false);
@@ -55,7 +55,7 @@ describe('PuzzleRatingService', () => {
     prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
     prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
       rating: 1800,
-      ratingDeviation: 100,
+      ratingDev: 100,
     });
 
     const hard = await service.applyRatingChange(userId, puzzleId, true);
@@ -63,7 +63,7 @@ describe('PuzzleRatingService', () => {
     prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
     prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
       rating: 1200,
-      ratingDeviation: 100,
+      ratingDev: 100,
     });
 
     const easy = await service.applyRatingChange(userId, puzzleId, true);
@@ -77,7 +77,7 @@ describe('PuzzleRatingService', () => {
     prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
     prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
       rating: 1500,
-      ratingDeviation: 350,
+      ratingDev: 350,
     });
 
     await service.applyRatingChange(userId, puzzleId, true);
@@ -96,7 +96,7 @@ describe('PuzzleRatingService', () => {
     prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
     prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
       rating: 1500,
-      ratingDeviation: 350,
+      ratingDev: 350,
     });
 
     const result = await service.applyRatingChange(userId, puzzleId, true);
@@ -109,7 +109,7 @@ describe('PuzzleRatingService', () => {
     prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
     prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
       rating: 1500,
-      ratingDeviation: 350,
+      ratingDev: 350,
     });
 
     const result = await service.applyRatingChange(userId, puzzleId, true);
