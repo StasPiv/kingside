@@ -27,12 +27,12 @@ export class PuzzleService {
     const minRating = user.ratingPuzzle - range;
     const maxRating = user.ratingPuzzle + range;
 
-    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId },
+    const solvedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId, solved: true },
       select: { puzzleId: true },
       distinct: ['puzzleId'],
     });
-    const excludeIds = attemptedIds.map((a) => a.puzzleId);
+    const excludeIds = solvedIds.map((a) => a.puzzleId);
 
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
@@ -110,12 +110,12 @@ export class PuzzleService {
     const minRating = user.ratingPuzzle - range;
     const maxRating = user.ratingPuzzle + range;
 
-    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId },
+    const solvedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId, solved: true },
       select: { puzzleId: true },
       distinct: ['puzzleId'],
     });
-    const excludeIds = attemptedIds.map((a) => a.puzzleId);
+    const excludeIds = solvedIds.map((a) => a.puzzleId);
 
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
