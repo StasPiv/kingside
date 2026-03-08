@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 
@@ -23,6 +24,7 @@ type GameRecord = {
 };
 
 export function ProfilePage() {
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [games, setGames] = useState<GameRecord[]>([]);
@@ -41,7 +43,7 @@ export function ProfilePage() {
         setProfile(profileData);
         setGames(gamesData);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Ошибка загрузки профиля');
+        setError(err instanceof Error ? err.message : t('profile.loadError'));
       } finally {
         setLoading(false);
       }
@@ -50,18 +52,20 @@ export function ProfilePage() {
     fetchProfile();
   }, [user]);
 
-  if (loading) return <div className="loading">Загрузка...</div>;
+  if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
   if (!profile) return null;
 
+  const locale = i18n.language === 'ru' ? 'ru-RU' : 'en-US';
+
   const ratings = [
-    { label: 'Пуля', value: profile.ratingBullet },
-    { label: 'Блиц', value: profile.ratingBlitz },
-    { label: 'Рапид', value: profile.ratingRapid },
-    { label: 'Классика', value: profile.ratingClassical },
+    { label: t('profile.bullet'), value: profile.ratingBullet },
+    { label: t('profile.blitz'), value: profile.ratingBlitz },
+    { label: t('profile.rapid'), value: profile.ratingRapid },
+    { label: t('profile.classical'), value: profile.ratingClassical },
   ];
 
-  const memberSince = new Date(profile.createdAt).toLocaleDateString('ru-RU', {
+  const memberSince = new Date(profile.createdAt).toLocaleDateString(locale, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -71,11 +75,11 @@ export function ProfilePage() {
     <div className="profile-page">
       <div className="profile-header">
         <h1>{profile.username}</h1>
-        <p className="profile-member-since">На сайте с {memberSince}</p>
+        <p className="profile-member-since">{t('profile.memberSince', { date: memberSince })}</p>
       </div>
 
       <div className="profile-ratings">
-        <h2>Рейтинги</h2>
+        <h2>{t('profile.ratings')}</h2>
         <div className="ratings-grid">
           {ratings.map((r) => (
             <div key={r.label} className="rating-card">
@@ -88,16 +92,16 @@ export function ProfilePage() {
 
       {games.length > 0 && (
         <div className="profile-games">
-          <h2>Последние партии</h2>
+          <h2>{t('profile.recentGames')}</h2>
           <div className="games-list">
             {games.map((game) => {
               const isWhite = game.white.id === profile.id;
               const opponent = isWhite ? game.black.username : game.white.username;
-              const date = new Date(game.createdAt).toLocaleDateString('ru-RU');
+              const date = new Date(game.createdAt).toLocaleDateString(locale);
 
               return (
                 <div key={game.id} className="game-record">
-                  <span className="game-opponent">vs {opponent}</span>
+                  <span className="game-opponent">{t('profile.vs', { opponent })}</span>
                   <span className="game-tc">{game.timeControl}</span>
                   <span className="game-result-badge">{game.result}</span>
                   <span className="game-date">{date}</span>
