@@ -34,7 +34,7 @@ export function App() {
         <Route path="/lobby" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-        <Route path="/puzzles" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
+        <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Route>
     </Routes>
