@@ -201,6 +201,17 @@
       "fiveMinutes": "5 Minutes"
     }
   },
+  "profile": {
+    "error": "Failed to load profile",
+    "ratings": "Ratings",
+    "recentGames": "Recent Games",
+    "memberSince": "Member since {{date}}",
+    "bullet": "Bullet",
+    "blitz": "Blitz",
+    "rapid": "Rapid",
+    "classical": "Classical",
+    "vs": "vs {{opponent}}"
+  },
   "rushLeaderboard": {
     "title": "Puzzle Rush Leaderboard",
     "player": "Player",
