@@ -49,9 +49,12 @@ export type PuzzleRushResultResponse = {
 
 export const puzzleApi = {
   /** Get next puzzle matched to user rating */
-  getNext: (params?: PuzzleNextParams) => {
-    const query = params?.theme ? `?theme=${encodeURIComponent(params.theme)}` : '';
-    return api.get<PuzzleDto>(`/api/puzzles/next${query}`);
+  getNext: (params?: PuzzleNextParams & { excludeId?: string }) => {
+    const searchParams = new URLSearchParams();
+    if (params?.theme) searchParams.set('theme', params.theme);
+    if (params?.excludeId) searchParams.set('excludeId', params.excludeId);
+    const query = searchParams.toString();
+    return api.get<PuzzleDto>(`/api/puzzles/next${query ? `?${query}` : ''}`);
   },
 
   /** Get puzzle by ID */
