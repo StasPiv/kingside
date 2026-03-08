@@ -60,6 +60,12 @@ export function SettingsPage() {
           <label>{t('settings.email')}</label>
           <input type="email" value={user?.email ?? ''} disabled />
         </div>
+        {user?.ratingPuzzle != null && (
+          <div className="settings-field">
+            <span className="settings-label">{t('settings.puzzleRating')}</span>
+            <span className="settings-value">{user.ratingPuzzle}</span>
+          </div>
+        )}
       </section>
 
       <section className="settings-section">
