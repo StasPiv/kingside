@@ -37,50 +37,55 @@ export function PuzzlePage() {
     return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
   }, [puzzle, game]);
 
-  const loadPuzzle = useCallback(async (specificId?: string, excludeId?: string) => {
+  const initPuzzle = useCallback((data: PuzzleDto) => {
+    setPuzzle(data);
+    const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
+    setPuzzleMoves(moves);
+
+    const chess = new Chess(data.fen);
+    if (moves.length > 0) {
+      const uci = moves[0];
+      const from = uci.slice(0, 2);
+      const to = uci.slice(2, 4);
+      const promotion = uci.length > 4 ? uci[4] : undefined;
+      chess.move({ from, to, promotion });
+    }
+    setGame(chess);
+    setMoveIndex(1);
+    setStatus('thinking');
+    startTimeRef.current = Date.now();
+    attemptSubmittedRef.current = false;
+  }, []);
+
+  const loadPuzzle = useCallback(async (specificId?: string) => {
     setLoading(true);
     setError('');
     try {
       const data = specificId
         ? await puzzleApi.getById(specificId)
-        : await puzzleApi.getNext(excludeId ? { excludeId } : undefined);
-      setPuzzle(data);
-      const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
-      setPuzzleMoves(moves);
-
-      // Set up the position and play the first (opponent's) move
-      const chess = new Chess(data.fen);
-      if (moves.length > 0) {
-        const uci = moves[0];
-        const from = uci.slice(0, 2);
-        const to = uci.slice(2, 4);
-        const promotion = uci.length > 4 ? uci[4] : undefined;
-        chess.move({ from, to, promotion });
-      }
-      setGame(chess);
-      setMoveIndex(1);
-      setStatus('thinking');
-      startTimeRef.current = Date.now();
-      attemptSubmittedRef.current = false;
+        : await puzzleApi.getNext();
+      initPuzzle(data);
     } catch {
       setError('Failed to load puzzle');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [initPuzzle]);
 
   useEffect(() => {
     loadPuzzle(puzzleId);
   }, [loadPuzzle, puzzleId]);
 
-  const submitAttemptResult = useCallback(async (solved: boolean) => {
-    if (!puzzle || attemptSubmittedRef.current) return;
+  const submitAttemptResult = useCallback(async (solved: boolean): Promise<PuzzleDto | null> => {
+    if (!puzzle || attemptSubmittedRef.current) return null;
     attemptSubmittedRef.current = true;
     const timeMs = Date.now() - startTimeRef.current;
     try {
-      await puzzleApi.submitAttempt(puzzle.id, { result: solved ? 'solved' : 'failed', timeMs });
+      const response = await puzzleApi.submitAttempt(puzzle.id, { result: solved ? 'solved' : 'failed', timeMs });
+      return response.nextPuzzle;
     } catch {
       // non-critical: attempt recording failed, don't block UX
+      return null;
     }
   }, [puzzle]);
 
@@ -152,8 +157,13 @@ export function PuzzlePage() {
   );
 
   const handleNext = async () => {
-    await submitAttemptResult(status === 'correct');
-    loadPuzzle(undefined, puzzle?.id);
+    const nextPuzzle = await submitAttemptResult(status === 'correct');
+    if (nextPuzzle) {
+      initPuzzle(nextPuzzle);
+    } else {
+      // Fallback: if submitAttempt didn't return nextPuzzle (e.g. attempt was already submitted)
+      await loadPuzzle();
+    }
   };
 
   const handleRetry = () => {
@@ -181,7 +191,7 @@ export function PuzzlePage() {
     return (
       <div className="puzzle-page">
         <div className="error">{error}</div>
-        <button onClick={loadPuzzle} style={{ marginTop: 16 }}>{t('puzzle.retry')}</button>
+        <button onClick={() => loadPuzzle()} style={{ marginTop: 16 }}>{t('puzzle.retry')}</button>
       </div>
     );
   }
