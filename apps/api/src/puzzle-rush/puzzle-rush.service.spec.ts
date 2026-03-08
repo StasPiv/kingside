@@ -19,7 +19,12 @@ describe('PuzzleRushService', () => {
     fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
     moves: 'e7e5 d2d4',
     rating: 1400,
-    ratingDeviation: 100,
+    ratingDev: 100,
+    popularity: 80,
+    nbPlays: 500,
+    themes: 'opening short',
+    gameUrl: 'https://lichess.org/abc',
+    openingTags: '',
   };
 
   beforeEach(() => {
@@ -57,17 +62,19 @@ describe('PuzzleRushService', () => {
     it('should start a new session with 3-minute mode', async () => {
       const result = await service.startSession(userId, '3');
 
-      expect(result.durationMs).toBe(180000);
-      expect(result.lives).toBe(3);
-      expect(result.timeMode).toBe('3');
-      expect(result.puzzle.setupMove).toBe('e7e5');
+      expect(result.session.timeLimitSec).toBe(180);
+      expect(result.session.solved).toBe(0);
+      expect(result.session.failed).toBe(0);
+      expect(result.session.finishedAt).toBeNull();
+      expect(result.puzzle.id).toBe('puzzle-1');
+      expect(result.puzzle.moves).toEqual(['e7e5', 'd2d4']);
       expect(redis.set).toHaveBeenCalled();
     });
 
     it('should start a new session with 5-minute mode', async () => {
       const result = await service.startSession(userId, '5');
 
-      expect(result.durationMs).toBe(300000);
+      expect(result.session.timeLimitSec).toBe(300);
     });
 
     it('should throw BadRequestException if session already exists', async () => {
