@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { api } from '../api';
@@ -11,6 +12,7 @@ type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
 
 export function PuzzlePage() {
   const { t } = useTranslation();
+  const { id: puzzleId } = useParams<{ id: string }>();
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [game, setGame] = useState<Chess | null>(null);
   const [status, setStatus] = useState<PuzzleStatus>('thinking');
@@ -33,11 +35,13 @@ export function PuzzlePage() {
     return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
   }, [puzzle, game]);
 
-  const loadPuzzle = useCallback(async () => {
+  const loadPuzzle = useCallback(async (specificId?: string) => {
     setLoading(true);
     setError('');
     try {
-      const data = await api.get<PuzzleDto>('/api/puzzles/next');
+      const idToLoad = specificId || puzzleId;
+      const url = idToLoad ? `/api/puzzles/${idToLoad}` : '/api/puzzles/next';
+      const data = await api.get<PuzzleDto>(url);
       setPuzzle(data);
       const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
       setPuzzleMoves(moves);
@@ -59,7 +63,7 @@ export function PuzzlePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [puzzleId]);
 
   useEffect(() => {
     loadPuzzle();

@@ -181,7 +181,7 @@ export function PuzzleBrowserPage() {
                 </div>
                 <button
                   className="puzzle-solve-btn"
-                  onClick={() => window.location.href = `/puzzles/${puzzle.id}`}
+                  onClick={() => window.location.href = `/puzzle/${puzzle.id}`}
                 >
                   {t('puzzleBrowser.solve')}
                 </button>
