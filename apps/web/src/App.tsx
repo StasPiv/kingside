@@ -40,8 +40,10 @@ export function App() {
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
-        <Route path="/puzzle-rush" element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
-        <Route path="/puzzle-rush/leaderboard" element={<ProtectedRoute><PuzzleRushLeaderboardPage /></ProtectedRoute>} />
+        <Route path="/puzzle-rush">
+          <Route index element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
+          <Route path="leaderboard" element={<ProtectedRoute><PuzzleRushLeaderboardPage /></ProtectedRoute>} />
+        </Route>
         <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
