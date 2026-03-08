@@ -1744,6 +1744,15 @@ input:focus {
 
 /* Responsive: tablets */
 @media (max-width: 768px) {
+  .header nav {
+    flex-wrap: wrap;
+    gap: 4px 16px;
+  }
+
+  .nav-links {
+    gap: 10px;
+  }
+
   .main {
     padding: 16px;
   }
@@ -1783,7 +1792,19 @@ input:focus {
   }
 
   .header nav {
-    padding: 10px 12px;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    font-size: 14px;
+  }
+
+  .logo {
+    font-size: 16px;
+  }
+
+  .nav-links {
+    gap: 8px;
+    font-size: 13px;
   }
 
   .game-page,
