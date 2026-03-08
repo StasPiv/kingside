@@ -142,8 +142,22 @@ test.describe('Profile Page', () => {
     await setupProfileMocks(page, userId);
 
     await page.locator('.nav-user').click();
+
     await expect(page).toHaveURL(/\/profile/);
     await expect(page.locator('.profile-page')).toBeVisible();
+  });
+
+  test('should render username in header as a Link, not a span', async ({ authenticatedPage: page }) => {
+    await navigateTo(page, '/lobby');
+
+    const navUser = page.locator('.nav-user');
+    await expect(navUser).toBeVisible();
+
+    const tagName = await navUser.evaluate((el) => el.tagName.toLowerCase());
+    expect(tagName).toBe('a');
+
+    const href = await navUser.getAttribute('href');
+    expect(href).toBe('/profile');
   });
 
   test('should redirect unauthenticated user to /login', async ({ page }) => {
