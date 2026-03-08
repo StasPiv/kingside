@@ -164,15 +164,15 @@ describe('PuzzleRushService', () => {
   });
 
   describe('getNextPuzzle', () => {
-    it('should return current puzzle with session state', async () => {
+    it('should return current puzzle with moves and session state', async () => {
       const session = {
         userId,
         timeMode: '3',
         score: 3,
         lives: 2,
         currentPuzzleId: 'puzzle-1',
-        currentMoves: ['e7e5'],
-        currentMoveIndex: 0,
+        currentMoves: ['e7e5', 'd2d4'],
+        currentMoveIndex: 1,
         startedAt: Date.now() - 60000,
         durationMs: 180000,
         solvedPuzzleIds: [],
@@ -184,6 +184,7 @@ describe('PuzzleRushService', () => {
 
       expect(result.puzzle.id).toBe('puzzle-1');
       expect(result.puzzle.fen).toBe(mockPuzzle.fen);
+      expect(result.puzzle.moves).toEqual(['e7e5', 'd2d4']);
       expect(result.puzzle.rating).toBe(1400);
       expect(result.score).toBe(3);
       expect(result.lives).toBe(2);

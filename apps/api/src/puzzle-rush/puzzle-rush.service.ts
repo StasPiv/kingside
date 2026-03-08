@@ -115,8 +115,12 @@ export class PuzzleRushService {
     };
   }
 
+  /**
+   * Get next puzzle for prefetching (no delay transition).
+   * Returns the current puzzle from the active session.
+   */
   async getNextPuzzle(userId: string): Promise<{
-    puzzle: { id: string; fen: string; rating: number };
+    puzzle: { id: string; fen: string; moves: string[]; rating: number };
     score: number;
     lives: number;
     elapsedMs: number;
@@ -133,13 +137,17 @@ export class PuzzleRushService {
     const puzzle = await this.prisma.puzzle.findUnique({
       where: { id: session.currentPuzzleId },
     });
-
     if (!puzzle) {
       throw new NotFoundException('Current puzzle not found');
     }
 
     return {
-      puzzle: { id: puzzle.id, fen: puzzle.fen, rating: puzzle.rating },
+      puzzle: {
+        id: puzzle.id,
+        fen: puzzle.fen,
+        moves: puzzle.moves.split(' '),
+        rating: puzzle.rating,
+      },
       score: session.score,
       lives: session.lives,
       elapsedMs: elapsed,
