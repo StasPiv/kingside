@@ -173,9 +173,14 @@ export function PuzzleRushPage() {
             }
           }
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           // Revert on error
           setGame(new Chess(prevFen));
+          if (err instanceof ApiError && err.errorCode) {
+            const key = `puzzleRush.errors.${err.errorCode}`;
+            const localized = t(key);
+            setError(localized !== key ? localized : err.message);
+          }
         })
         .finally(() => {
           setSubmitting(false);
