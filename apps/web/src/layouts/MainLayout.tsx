@@ -12,7 +12,7 @@ export function MainLayout() {
           <div className="nav-links">
             {user ? (
               <>
-                <span className="nav-user">{user.username} ({user.rating})</span>
+                <Link to="/profile" className="nav-user">{user.username} ({user.rating})</Link>
                 <button className="nav-btn" onClick={logout}>Выход</button>
               </>
             ) : (
