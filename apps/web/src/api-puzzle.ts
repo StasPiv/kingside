@@ -1,77 +1,21 @@
 import { api } from './api';
-import type { PuzzleDto, PuzzleAttemptResult } from '@kingside/shared';
-
-// --- Request / Response types ---
+import type {
+  PuzzleDto,
+  PuzzleAttemptRequest,
+  PuzzleAttemptResponse,
+  DailyPuzzleResponse,
+  PuzzleRushStartRequest,
+  PuzzleRushStartResponse,
+  PuzzleRushAnswerRequest,
+  PuzzleRushAnswerResponse,
+  PuzzleRushNextResponse,
+  PuzzleRushSessionResponse,
+  PuzzleRushEndResponse,
+  PuzzleRushLeaderboardResponse,
+} from '@kingside/shared';
 
 export type PuzzleNextParams = {
   theme?: string;
-};
-
-export type PuzzleAttemptRequest = {
-  result: PuzzleAttemptResult;
-  timeMs: number;
-};
-
-export type PuzzleAttemptResponse = {
-  solved: boolean;
-  puzzleRating: number;
-  userRatingBefore: number;
-  userRatingAfter: number;
-  correctMoves: string[];
-  nextPuzzle: PuzzleDto | null;
-};
-
-export type DailyPuzzleResponse = {
-  puzzle: PuzzleDto;
-  date: string;
-};
-
-export type PuzzleRushStartRequest = {
-  timeLimitSec: 180 | 300;
-};
-
-export type PuzzleRushSessionInfo = {
-  id: string;
-  solved: number;
-  failed: number;
-  timeLimitSec: number;
-  startedAt: string;
-  finishedAt: string | null;
-};
-
-export type PuzzleRushStartResponse = {
-  session: PuzzleRushSessionInfo;
-  puzzle: PuzzleDto;
-};
-
-export type PuzzleRushAnswerRequest = {
-  uci: string;
-};
-
-export type PuzzleRushAnswerResponse = {
-  correct: boolean;
-  score: number;
-  lives: number;
-  finished: boolean;
-  nextPuzzle: { fen: string; setupMove: string; rating: number } | null;
-  expectedMove?: string;
-};
-
-export type PuzzleRushNextResponse = {
-  puzzle: { id: string; fen: string; rating: number };
-  score: number;
-  lives: number;
-  elapsedMs: number;
-  durationMs: number;
-};
-
-export type PuzzleRushSessionResponse = {
-  score: number;
-  lives: number;
-  timeMode: string;
-  elapsedMs: number;
-  durationMs: number;
-  puzzle: { fen: string } | null;
 };
 
 // --- API client ---
@@ -116,11 +60,11 @@ export const puzzleApi = {
 
   /** End rush session manually */
   endRushSession: () =>
-    api.delete<{ score: number; timeMode: string; isHighScore: boolean }>('/api/puzzles/rush/session'),
+    api.delete<PuzzleRushEndResponse>('/api/puzzles/rush/session'),
 
   /** Get rush leaderboard */
   getRushLeaderboard: (timeMode = '3', limit = 20) =>
-    api.get<{ entries: { userId: string; username: string; score: number; createdAt: string }[] }>(
+    api.get<PuzzleRushLeaderboardResponse>(
       `/api/puzzles/rush/leaderboard?timeMode=${timeMode}&limit=${limit}`,
     ),
 

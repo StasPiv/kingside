@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 import { api } from '../api';
+import { MatchmakingEvents, type CustomTimeControl } from '@kingside/shared';
 
 type PieceColor = 'white' | 'black' | 'random';
 type TimeControlCategory = 'bullet' | 'blitz' | 'rapid' | 'classical';
@@ -12,13 +13,6 @@ type TimeControlPreset = {
   minutes: number;
   increment: number;
   category: TimeControlCategory;
-};
-
-type CustomTimeControl = {
-  id: string;
-  name?: string;
-  initialSec: number;
-  incrementSec: number;
 };
 
 const TC_LABEL_KEYS: Record<TimeControlCategory, string> = {
@@ -88,11 +82,11 @@ export function LobbyPage() {
       navigate(`/game/${data.gameId}`, { state: { color: data.color } });
     };
 
-    matchmakingSocket.on('matchmaking:found', onMatchFound);
+    matchmakingSocket.on(MatchmakingEvents.FOUND, onMatchFound);
     return () => {
-      matchmakingSocket.off('matchmaking:found', onMatchFound);
+      matchmakingSocket.off(MatchmakingEvents.FOUND, onMatchFound);
       if (searching) {
-        matchmakingSocket.emit('matchmaking:leave');
+        matchmakingSocket.emit(MatchmakingEvents.LEAVE);
       }
     };
   }, [navigate, searching]);
@@ -104,10 +98,10 @@ export function LobbyPage() {
 
   const handleSearch = () => {
     if (searching) {
-      matchmakingSocket.emit('matchmaking:leave');
+      matchmakingSocket.emit(MatchmakingEvents.LEAVE);
       setSearching(false);
     } else {
-      matchmakingSocket.emit('matchmaking:join', {
+      matchmakingSocket.emit(MatchmakingEvents.JOIN, {
         timeInitial: selectedMinutes * 60,
         increment: selectedIncrement,
       });
