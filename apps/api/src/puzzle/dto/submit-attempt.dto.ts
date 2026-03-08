@@ -1,8 +1,9 @@
-import { IsBoolean, IsInt, Min } from 'class-validator';
+import { IsIn, IsInt, Min } from 'class-validator';
+import type { PuzzleAttemptResult } from '@kingside/shared';
 
 export class SubmitAttemptDto {
-  @IsBoolean()
-  solved!: boolean;
+  @IsIn(['solved', 'failed'])
+  result!: PuzzleAttemptResult;
 
   @IsInt()
   @Min(0)
