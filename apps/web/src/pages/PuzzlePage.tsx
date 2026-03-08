@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { api } from '../api';
+import { puzzleApi } from '../api-puzzle';
 import type { PuzzleDto } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
@@ -20,6 +21,8 @@ export function PuzzlePage() {
   const [error, setError] = useState('');
   const [streak, setStreak] = useState(0);
   const [totalSolved, setTotalSolved] = useState(0);
+  const puzzleStartTime = useRef<number>(Date.now());
+  const attemptSubmitted = useRef(false);
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -56,6 +59,8 @@ export function PuzzlePage() {
       setGame(chess);
       setMoveIndex(1);
       setStatus('thinking');
+      puzzleStartTime.current = Date.now();
+      attemptSubmitted.current = false;
     } catch {
       setError('Failed to load puzzle');
     } finally {
@@ -81,6 +86,11 @@ export function PuzzlePage() {
       if (sourceSquare !== from || targetSquare !== to) {
         setStatus('incorrect');
         setStreak(0);
+        if (!attemptSubmitted.current && puzzle.id) {
+          attemptSubmitted.current = true;
+          const timeMs = Date.now() - puzzleStartTime.current;
+          puzzleApi.submitAttempt(puzzle.id, { result: 'failed', timeMs }).catch(() => {});
+        }
         return false;
       }
 
@@ -89,6 +99,11 @@ export function PuzzlePage() {
       if (!move) {
         setStatus('incorrect');
         setStreak(0);
+        if (!attemptSubmitted.current && puzzle.id) {
+          attemptSubmitted.current = true;
+          const timeMs = Date.now() - puzzleStartTime.current;
+          puzzleApi.submitAttempt(puzzle.id, { result: 'failed', timeMs }).catch(() => {});
+        }
         return false;
       }
 
@@ -101,6 +116,11 @@ export function PuzzlePage() {
         setStatus('correct');
         setStreak((s) => s + 1);
         setTotalSolved((n) => n + 1);
+        if (!attemptSubmitted.current && puzzle.id) {
+          attemptSubmitted.current = true;
+          const timeMs = Date.now() - puzzleStartTime.current;
+          puzzleApi.submitAttempt(puzzle.id, { result: 'solved', timeMs }).catch(() => {});
+        }
         return true;
       }
 

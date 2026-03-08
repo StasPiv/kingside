@@ -433,7 +433,7 @@ input:focus {
 .board-container {
   border-radius: 4px;
   overflow: hidden;
-  max-width: calc(100vh - 190px);
+  max-width: min(calc(100vh - 190px), calc(100vw - 32px));
   max-height: calc(100vh - 190px);
   aspect-ratio: 1;
   width: 100%;
