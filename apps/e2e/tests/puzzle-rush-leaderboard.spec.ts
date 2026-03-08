@@ -14,9 +14,18 @@ test.describe('Puzzle Rush Leaderboard', () => {
     await expect(page.locator('.rush-leaderboard-page h1')).toBeVisible();
   });
 
-  test('should require authentication', async ({ page }) => {
+  test('should be accessible without authentication (KS-238)', async ({ page }) => {
+    await page.route('**/api/puzzle-rush/leaderboard*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ entries: [] }),
+      }),
+    );
+
     await page.goto('/puzzle-rush/leaderboard');
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page).toHaveURL(/\/puzzle-rush\/leaderboard/);
+    await expect(page.locator('.rush-leaderboard-page')).toBeVisible();
   });
 
   test('should display time mode tabs with 3 min active by default', async ({ authenticatedPage: page }) => {

@@ -10,7 +10,7 @@ import { test, expect, navigateTo } from '../fixtures/auth.fixture';
  * 4. Ссылка назад на Puzzle Rush работает корректно
  * 5. Навигация из MainLayout (пункт меню rushLeaderboard) ведёт на страницу
  * 6. Переводы отображаются корректно (en, ru)
- * 7. Роут защищён ProtectedRoute — неавторизованный пользователь не имеет доступа
+ * 7. Роут доступен без авторизации (KS-238)
  */
 
 const mockEntries = [
@@ -298,17 +298,20 @@ test.describe('KS-234: E2E верификация Puzzle Rush Leaderboard', () =
     await expect(page.locator('.rush-lb-empty')).toHaveText('Результатов пока нет');
   });
 
-  // --- Сценарий 7: Защита роута ProtectedRoute ---
+  // --- Сценарий 7: Доступ без авторизации (KS-238) ---
 
-  test('7.1 неавторизованный пользователь перенаправляется на /login', async ({ page }) => {
+  test('7.1 неавторизованный пользователь видит страницу без редиректа (KS-238)', async ({ page }) => {
+    await mockLeaderboardApi(page);
     await page.goto('/puzzle-rush/leaderboard');
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page).toHaveURL(/\/puzzle-rush\/leaderboard/);
+    await expect(page.locator('.rush-leaderboard-page')).toBeVisible();
   });
 
-  test('7.2 страница leaderboard недоступна без токена', async ({ page }) => {
+  test('7.2 страница leaderboard доступна без токена (KS-238)', async ({ page }) => {
+    await mockLeaderboardApi(page);
     await page.goto('/puzzle-rush/leaderboard');
 
-    // Не должно быть элементов leaderboard
-    await expect(page.locator('.rush-leaderboard-page')).not.toBeVisible();
+    await expect(page.locator('.rush-leaderboard-page')).toBeVisible();
+    await expect(page.locator('.rush-leaderboard-page h1')).toBeVisible();
   });
 });
