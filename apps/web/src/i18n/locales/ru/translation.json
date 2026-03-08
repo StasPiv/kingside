@@ -123,5 +123,50 @@
     "chat": "Чат",
     "chatPlaceholder": "Сообщение...",
     "chatSend": "Отправить"
+  },
+  "puzzle": {
+    "title": "Задачи",
+    "rating": "Рейтинг: {{rating}}",
+    "solve": "Решить",
+    "next": "Далее",
+    "retry": "Повторить",
+    "hint": "Подсказка",
+    "showSolution": "Показать решение",
+    "correct": "Верно!",
+    "incorrect": "Неверно",
+    "yourTurn": "Ваш ход",
+    "findBestMove": "Найдите лучший ход",
+    "puzzleRating": "Рейтинг задачи: {{rating}}",
+    "solved": "Решена",
+    "failed": "Не решена",
+    "streak": "Серия: {{count}}",
+    "bestStreak": "Лучшая серия: {{count}}",
+    "totalSolved": "Решено: {{count}}",
+    "themes": "Темы",
+    "difficulty": "Сложность",
+    "easy": "Легко",
+    "medium": "Средне",
+    "hard": "Сложно",
+    "daily": {
+      "title": "Задача дня",
+      "completed": "Задача дня решена!",
+      "comeBack": "Возвращайтесь завтра за новой задачей",
+      "streakDays": "Дней подряд: {{count}}"
+    },
+    "rush": {
+      "title": "Puzzle Rush",
+      "start": "Начать",
+      "timeLeft": "Осталось: {{time}}",
+      "score": "Счёт: {{score}}",
+      "bestScore": "Лучший: {{score}}",
+      "gameOver": "Игра окончена",
+      "finalScore": "Итоговый счёт: {{score}}",
+      "newRecord": "Новый рекорд!",
+      "playAgain": "Играть снова",
+      "lives": "Жизни: {{count}}",
+      "survival": "На выживание",
+      "threeMinutes": "3 минуты",
+      "fiveMinutes": "5 минут"
+    }
   }
 }
