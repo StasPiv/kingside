@@ -366,29 +366,40 @@ export class PuzzleRushService {
     const minRating = user.ratingPuzzle - ratingRange;
     const maxRating = user.ratingPuzzle + ratingRange;
 
-    // Use raw query for random selection with exclusion
-    const puzzles = await this.prisma.puzzle.findMany({
-      where: {
-        rating: { gte: minRating, lte: maxRating },
-        id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
-      },
-      take: 10,
-      skip: Math.floor(Math.random() * 100),
-    });
+    const where = {
+      rating: { gte: minRating, lte: maxRating },
+      id: excludeIds.length > 0 ? { notIn: excludeIds } : undefined,
+    };
 
-    if (puzzles.length === 0) {
-      // Fallback: try without rating filter
-      const fallback = await this.prisma.puzzle.findMany({
-        where: {
-          id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
-        },
+    const count = await this.prisma.puzzle.count({ where });
+
+    if (count > 0) {
+      const skip = Math.floor(Math.random() * count);
+      const puzzle = await this.prisma.puzzle.findMany({
+        where,
         take: 1,
-        skip: Math.floor(Math.random() * 50),
+        skip,
       });
-      return fallback[0] || null;
+      return puzzle[0] || null;
     }
 
-    return puzzles[Math.floor(Math.random() * puzzles.length)];
+    // Fallback: try without rating filter
+    const fallbackWhere = {
+      id: excludeIds.length > 0 ? { notIn: excludeIds } : undefined,
+    };
+
+    const fallbackCount = await this.prisma.puzzle.count({ where: fallbackWhere });
+    if (fallbackCount === 0) {
+      return null;
+    }
+
+    const fallbackSkip = Math.floor(Math.random() * fallbackCount);
+    const fallback = await this.prisma.puzzle.findMany({
+      where: fallbackWhere,
+      take: 1,
+      skip: fallbackSkip,
+    });
+    return fallback[0] || null;
   }
 
   private async recordAttempt(
