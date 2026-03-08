@@ -1440,6 +1440,12 @@ input:focus {
   flex-direction: column;
   align-items: center;
   padding-top: 20px;
+  width: 100%;
+}
+
+.puzzle-page .board-container {
+  max-width: min(calc(100vh - 190px), 100%);
+  max-height: min(calc(100vh - 190px), 100%);
 }
 
 .puzzle-page h1 {
@@ -1459,6 +1465,7 @@ input:focus {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  width: 100%;
 }
 
 .puzzle-status-bar {
