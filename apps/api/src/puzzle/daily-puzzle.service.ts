@@ -94,8 +94,8 @@ export class DailyPuzzleService {
       fen: string;
       moves: string;
       rating: number;
-      ratingDeviation: number;
-      themes: string[];
+      ratingDev: number;
+      themes: string;
     };
   }) {
     return {
@@ -106,8 +106,8 @@ export class DailyPuzzleService {
         fen: daily.puzzle.fen,
         moves: daily.puzzle.moves,
         rating: daily.puzzle.rating,
-        ratingDeviation: daily.puzzle.ratingDeviation,
-        themes: daily.puzzle.themes,
+        ratingDeviation: daily.puzzle.ratingDev,
+        themes: daily.puzzle.themes.split(' ').filter(Boolean),
       },
     };
   }

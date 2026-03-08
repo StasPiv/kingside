@@ -160,7 +160,8 @@ model Puzzle {
   gameUrl     String @map("game_url")
   openingTags String @default("") @map("opening_tags")
 
-  attempts PuzzleAttempt[]
+  attempts     PuzzleAttempt[]
+  dailyPuzzles DailyPuzzle[]
 
   @@index([rating])
   @@index([themes])
@@ -198,4 +199,15 @@ model PuzzleRushScore {
   @@index([userId])
   @@index([score])
   @@map("puzzle_rush_scores")
+}
+
+model DailyPuzzle {
+  id       String   @id @default(uuid()) @db.Uuid
+  puzzleId String   @map("puzzle_id")
+  date     DateTime @unique @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+
+  @@map("daily_puzzles")
 }

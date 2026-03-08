@@ -18,7 +18,8 @@ describe('ChatService', () => {
       },
     } as any;
 
-    service = new ChatService(prisma);
+    const i18n = { t: jest.fn((key: string) => key) } as any;
+    service = new ChatService(prisma, i18n);
   });
 
   describe('sendMessage', () => {
