@@ -140,6 +140,40 @@ describe('App routing', () => {
     expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
   });
 
+  // KS-268: QA verification of KS-258 redirect /puzzles/rush → /puzzle-rush
+  describe('KS-258 redirect verification', () => {
+    it('redirects /puzzles/rush to /puzzle-rush for authenticated user', () => {
+      mockUseAuth.mockReturnValue({
+        user: { id: 'u1', username: 'Test' },
+        loading: false,
+        token: 'tok',
+        login: vi.fn(),
+        register: vi.fn(),
+        logout: vi.fn(),
+      });
+      renderApp('/puzzles/rush');
+      expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+    });
+
+    it('redirects /puzzles/rush to /puzzle-rush then to /login when not authenticated', () => {
+      renderApp('/puzzles/rush');
+      expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+    });
+
+    it('/puzzle-rush still works directly (not broken by redirect)', () => {
+      mockUseAuth.mockReturnValue({
+        user: { id: 'u1', username: 'Test' },
+        loading: false,
+        token: 'tok',
+        login: vi.fn(),
+        register: vi.fn(),
+        logout: vi.fn(),
+      });
+      renderApp('/puzzle-rush');
+      expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+    });
+  });
+
   it('redirects /profile to /login when not authenticated', () => {
     renderApp('/profile');
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
