@@ -260,4 +260,37 @@ test.describe('Puzzle Rush Leaderboard', () => {
 
     await expect(page.locator('.loading')).toBeVisible();
   });
+
+  test('should render correctly on mobile viewport', async ({ authenticatedPage: page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+
+    await page.route('**/api/puzzle-rush/leaderboard*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          entries: [
+            { userId: 'u1', username: 'Player1', score: 30, createdAt: '2026-01-01' },
+            { userId: 'u2', username: 'Player2', score: 20, createdAt: '2026-01-02' },
+          ],
+        }),
+      }),
+    );
+
+    await navigateTo(page, '/puzzle-rush/leaderboard');
+
+    await expect(page.locator('.rush-leaderboard-page')).toBeVisible();
+    await expect(page.locator('.rush-lb-mode-tabs')).toBeVisible();
+    await expect(page.locator('.rush-lb-table')).toBeVisible();
+    await expect(page.locator('.rush-lb-back-link')).toBeVisible();
+
+    const rows = page.locator('.rush-lb-row');
+    await expect(rows).toHaveCount(2);
+
+    // Verify no horizontal overflow
+    const pageWidth = await page.locator('.rush-leaderboard-page').evaluate(
+      (el) => el.scrollWidth <= el.clientWidth,
+    );
+    expect(pageWidth).toBe(true);
+  });
 });
