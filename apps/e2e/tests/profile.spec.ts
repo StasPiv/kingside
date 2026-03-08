@@ -44,6 +44,12 @@ const mockGames = [
   },
 ];
 
+const mockRushStats = {
+  best3: 12,
+  best5: 18,
+  totalSessions: 5,
+};
+
 function setupProfileMocks(page: import('@playwright/test').Page, userId: string) {
   return Promise.all([
     page.route(`**/api/users/${userId}`, (route) =>
@@ -64,6 +70,13 @@ function setupProfileMocks(page: import('@playwright/test').Page, userId: string
             black: g.black.id === 'user-1' ? { ...g.black, id: userId } : g.black,
           })),
         ),
+      }),
+    ),
+    page.route(`**/api/users/${userId}/puzzle-rush-stats`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockRushStats),
       }),
     ),
   ]);
@@ -144,6 +157,53 @@ test.describe('Profile Page', () => {
     await expect(first.locator('.game-date')).toBeVisible();
   });
 
+  test('should display Puzzle Rush stats when available', async ({
+    authenticatedPage: page,
+  }) => {
+    const userId = await getUserId(page);
+    await setupProfileMocks(page, userId);
+    await setLocale(page, 'en');
+    await navigateTo(page, '/profile');
+
+    await expect(page.locator('.profile-puzzle-rush')).toBeVisible();
+
+    const cards = page.locator('.rush-stat-card');
+    await expect(cards).toHaveCount(3);
+
+    await expect(cards.nth(0).locator('.rush-stat-value')).toHaveText('12');
+    await expect(cards.nth(1).locator('.rush-stat-value')).toHaveText('18');
+    await expect(cards.nth(2).locator('.rush-stat-value')).toHaveText('5');
+  });
+
+  test('should hide Puzzle Rush section when all stats are zero', async ({
+    authenticatedPage: page,
+  }) => {
+    const userId = await getUserId(page);
+
+    await page.route(`**/api/users/${userId}`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...mockProfile, id: userId }),
+      }),
+    );
+    await page.route(`**/api/users/${userId}/games*`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockGames) }),
+    );
+    await page.route(`**/api/users/${userId}/puzzle-rush-stats`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ best3: 0, best5: 0, totalSessions: 0 }),
+      }),
+    );
+
+    await navigateTo(page, '/profile');
+
+    await expect(page.locator('.profile-page')).toBeVisible();
+    await expect(page.locator('.profile-puzzle-rush')).not.toBeVisible();
+  });
+
   test('should navigate to /profile when clicking username in header', async ({
     authenticatedPage: page,
   }) => {
@@ -183,6 +243,9 @@ test.describe('Profile Page', () => {
     await page.route(`**/api/users/${userId}/games*`, (route) =>
       route.fulfill({ status: 500, contentType: 'application/json', body: '[]' }),
     );
+    await page.route(`**/api/users/${userId}/puzzle-rush-stats`, (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+    );
 
     await navigateTo(page, '/profile');
 
@@ -202,6 +265,9 @@ test.describe('Profile Page', () => {
     });
     await page.route(`**/api/users/${userId}/games*`, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+    );
+    await page.route(`**/api/users/${userId}/puzzle-rush-stats`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockRushStats) }),
     );
 
     await navigateTo(page, '/profile');
@@ -223,6 +289,9 @@ test.describe('Profile Page', () => {
     );
     await page.route(`**/api/users/${userId}/games*`, (route) =>
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+    );
+    await page.route(`**/api/users/${userId}/puzzle-rush-stats`, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(mockRushStats) }),
     );
 
     await navigateTo(page, '/profile');
