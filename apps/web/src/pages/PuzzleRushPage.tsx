@@ -265,7 +265,7 @@ export function PuzzleRushPage() {
           {loading ? t('common.loading') : t('puzzle.rush.start')}
         </button>
 
-        <Link to="/puzzle-rush/leaderboard" className="rush-leaderboard-link">
+        <Link to="/puzzle-rush/leaderboard" className="rush-leaderboard-link" data-testid="rush-leaderboard-link">
           {t('nav.rushLeaderboard')}
         </Link>
       </div>
@@ -301,7 +301,7 @@ export function PuzzleRushPage() {
             {t('puzzle.rush.playAgain')}
           </button>
 
-          <Link to="/puzzle-rush/leaderboard" className="rush-leaderboard-link">
+          <Link to="/puzzle-rush/leaderboard" className="rush-leaderboard-link" data-testid="rush-leaderboard-link">
             {t('nav.rushLeaderboard')}
           </Link>
         </div>
