@@ -11,6 +11,7 @@ export function MainLayout() {
       <header className="header">
         <nav>
           <Link to="/lobby" className="logo">Kingside</Link>
+          <Link to="/puzzles">{t('nav.puzzles')}</Link>
           <div className="nav-links">
             {user ? (
               <>

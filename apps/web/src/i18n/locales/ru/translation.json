@@ -3,7 +3,8 @@
     "settings": "Настройки",
     "logout": "Выход",
     "login": "Вход",
-    "register": "Регистрация"
+    "register": "Регистрация",
+    "puzzles": "Задачи"
   },
   "settings": {
     "title": "Настройки",
