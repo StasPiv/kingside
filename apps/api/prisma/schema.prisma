@@ -22,12 +22,12 @@ model User {
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
   locale          String   @default("en") @map("locale")
 
-  whiteGames        Game[]             @relation("WhitePlayer")
-  blackGames        Game[]             @relation("BlackPlayer")
-  chatMessages      ChatMessage[]
-  timeControls      UserTimeControl[]
-  puzzleAttempts    PuzzleAttempt[]
-  puzzleRushSessions PuzzleRushSession[]
+  whiteGames       Game[]             @relation("WhitePlayer")
+  blackGames       Game[]             @relation("BlackPlayer")
+  chatMessages     ChatMessage[]
+  timeControls     UserTimeControl[]
+  puzzleAttempts   PuzzleAttempt[]
+  puzzleRushScores PuzzleRushScore[]
 
   @@map("users")
 }
@@ -148,65 +148,53 @@ model UserTimeControl {
   @@map("user_time_controls")
 }
 
-// --- Puzzle models ---
-
 model Puzzle {
-  id            String   @id @default(uuid()) @db.Uuid
-  fen           String
-  moves         String
-  rating        Int      @default(1500)
-  ratingDeviation Int    @default(350) @map("rating_deviation")
-  themes        String[] @default([])
-  source        String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id          String @id
+  fen         String
+  moves       String
+  rating      Int
+  ratingDev   Int    @map("rating_dev")
+  popularity  Int
+  nbPlays     Int    @map("nb_plays")
+  themes      String
+  gameUrl     String @map("game_url")
+  openingTags String @default("") @map("opening_tags")
 
-  attempts    PuzzleAttempt[]
-  dailyPuzzle DailyPuzzle?
+  attempts PuzzleAttempt[]
 
   @@index([rating])
   @@map("puzzles")
 }
 
 model PuzzleAttempt {
-  id        String   @id @default(uuid()) @db.Uuid
-  puzzleId  String   @map("puzzle_id") @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  solved    Boolean
-  timeMs    Int      @map("time_ms")
-  ratingBefore Int   @map("rating_before")
-  ratingAfter  Int   @map("rating_after")
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  puzzleId     String   @map("puzzle_id")
+  userId       String   @map("user_id") @db.Uuid
+  solved       Boolean
+  timeMs       Int      @map("time_ms")
+  ratingBefore Int      @map("rating_before")
+  ratingAfter  Int      @map("rating_after")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
   user   User   @relation(fields: [userId], references: [id])
 
   @@index([userId])
   @@index([puzzleId])
+  @@index([userId, createdAt])
   @@map("puzzle_attempts")
 }
 
-model DailyPuzzle {
+model PuzzleRushScore {
   id        String   @id @default(uuid()) @db.Uuid
-  puzzleId  String   @unique @map("puzzle_id") @db.Uuid
-  date      DateTime @unique @db.Date
+  userId    String   @map("user_id") @db.Uuid
+  score     Int
+  timeMode  String   @map("time_mode")
   createdAt DateTime @default(now()) @map("created_at")
-
-  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
-
-  @@map("daily_puzzles")
-}
-
-model PuzzleRushSession {
-  id             String   @id @default(uuid()) @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
-  solved         Int      @default(0)
-  failed         Int      @default(0)
-  timeLimitSec   Int      @map("time_limit_sec")
-  startedAt      DateTime @default(now()) @map("started_at")
-  finishedAt     DateTime? @map("finished_at")
 
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId])
-  @@map("puzzle_rush_sessions")
+  @@index([score])
+  @@map("puzzle_rush_scores")
 }

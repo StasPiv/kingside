@@ -13,11 +13,57 @@
 
 import * as fs from 'fs';
 import * as readline from 'readline';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '../generated/prisma/client';
 
 const prisma = new PrismaClient();
 
+interface PuzzleRecord {
+  id: string;
+  fen: string;
+  moves: string;
+  rating: number;
+  ratingDev: number;
+  popularity: number;
+  nbPlays: number;
+  themes: string;
+  gameUrl: string;
+  openingTags: string;
+}
+
+function parseLine(line: string): PuzzleRecord | null {
+  const parts = line.split(',');
+  if (parts.length < 9) return null;
+
+  const [id, fen, moves, rating, ratingDev, popularity, nbPlays, themes, gameUrl, ...openingParts] = parts;
+
+  const ratingNum = parseInt(rating, 10);
+  const ratingDevNum = parseInt(ratingDev, 10);
+  const popularityNum = parseInt(popularity, 10);
+  const nbPlaysNum = parseInt(nbPlays, 10);
+
+  if ([ratingNum, ratingDevNum, popularityNum, nbPlaysNum].some(Number.isNaN)) {
+    return null;
+  }
+
+  return {
+    id,
+    fen,
+    moves,
+    rating: ratingNum,
+    ratingDev: ratingDevNum,
+    popularity: popularityNum,
+    nbPlays: nbPlaysNum,
+    themes,
+    gameUrl,
+    openingTags: openingParts.join(',') || '',
+  };
+}
+
 async function importPuzzles(csvPath: string, limit: number) {
+  if (!fs.existsSync(csvPath)) {
+    throw new Error(`File not found: ${csvPath}`);
+  }
+
   const fileStream = fs.createReadStream(csvPath);
   const rl = readline.createInterface({
     input: fileStream,
@@ -25,37 +71,26 @@ async function importPuzzles(csvPath: string, limit: number) {
   });
 
   let count = 0;
-  let batch: any[] = [];
+  let skipped = 0;
+  let batch: Prisma.PuzzleCreateManyInput[] = [];
   const BATCH_SIZE = 1000;
   let isFirstLine = true;
 
   for await (const line of rl) {
     if (isFirstLine) {
       isFirstLine = false;
-      // Skip header if present
       if (line.startsWith('PuzzleId')) continue;
     }
 
-    if (limit > 0 && count >= limit) break;
+    if (limit > 0 && count + batch.length >= limit) break;
 
-    const parts = line.split(',');
-    if (parts.length < 9) continue;
+    const record = parseLine(line);
+    if (!record) {
+      skipped++;
+      continue;
+    }
 
-    const [id, fen, moves, rating, ratingDev, popularity, nbPlays, themes, gameUrl, ...openingParts] = parts;
-    const openingTags = openingParts.join(',');
-
-    batch.push({
-      id,
-      fen,
-      moves,
-      rating: parseInt(rating, 10),
-      ratingDev: parseInt(ratingDev, 10),
-      popularity: parseInt(popularity, 10),
-      nbPlays: parseInt(nbPlays, 10),
-      themes,
-      gameUrl,
-      openingTags: openingTags || '',
-    });
+    batch.push(record);
 
     if (batch.length >= BATCH_SIZE) {
       await prisma.puzzle.createMany({
@@ -76,7 +111,7 @@ async function importPuzzles(csvPath: string, limit: number) {
     count += batch.length;
   }
 
-  console.log(`Done. Total imported: ${count} puzzles.`);
+  console.log(`Done. Total imported: ${count}, skipped: ${skipped}.`);
 }
 
 const args = process.argv.slice(2);
