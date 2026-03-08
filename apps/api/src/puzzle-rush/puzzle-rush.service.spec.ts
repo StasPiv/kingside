@@ -5,12 +5,7 @@ jest.mock('../redis/redis.service', () => ({
   RedisService: jest.fn(),
 }));
 
-import {
-  NotFoundException,
-  BadRequestException,
-  ServiceUnavailableException,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PuzzleRushService } from './puzzle-rush.service';
 
 describe('PuzzleRushService', () => {
@@ -24,12 +19,7 @@ describe('PuzzleRushService', () => {
     fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
     moves: 'e7e5 d2d4',
     rating: 1400,
-    ratingDev: 100,
-    popularity: 80,
-    nbPlays: 500,
-    themes: 'opening short',
-    gameUrl: 'https://lichess.org/abc',
-    openingTags: '',
+    ratingDeviation: 100,
   };
 
   beforeEach(() => {
@@ -65,60 +55,72 @@ describe('PuzzleRushService', () => {
 
   describe('startSession', () => {
     it('should start a new session with 3-minute mode', async () => {
-      const result = await service.startSession(userId, 180);
+      const result = await service.startSession(userId, '3');
 
-      expect(result.session.timeLimitSec).toBe(180);
-      expect(result.session.solved).toBe(0);
-      expect(result.session.failed).toBe(0);
-      expect(result.session.finishedAt).toBeNull();
-      expect(result.puzzle.id).toBe('puzzle-1');
-      expect(result.puzzle.moves).toEqual(['e7e5', 'd2d4']);
+      expect(result.durationMs).toBe(180000);
+      expect(result.lives).toBe(3);
+      expect(result.timeMode).toBe('3');
       expect(redis.set).toHaveBeenCalled();
     });
 
     it('should start a new session with 5-minute mode', async () => {
-      const result = await service.startSession(userId, 300);
+      const result = await service.startSession(userId, '5');
 
-      expect(result.session.timeLimitSec).toBe(300);
+      expect(result.durationMs).toBe(300000);
     });
 
-    it('should throw BadRequestException if session already exists', async () => {
+    it('should throw BadRequestException with SESSION_EXISTS errorCode if session already exists', async () => {
       redis.get.mockResolvedValue(JSON.stringify({ userId }));
 
-      await expect(service.startSession(userId, 180)).rejects.toThrow(
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
         BadRequestException,
       );
+      await expect(service.startSession(userId, '3')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'SESSION_EXISTS' }),
+      });
     });
 
-    it('should throw NotFoundException when no puzzles available', async () => {
+    it('should throw BadRequestException with INVALID_TIME_MODE errorCode for invalid time mode', async () => {
+      await expect(service.startSession(userId, '10')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.startSession(userId, '10')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'INVALID_TIME_MODE' }),
+      });
+    });
+
+    it('should throw NotFoundException with NO_PUZZLES errorCode when no puzzles available', async () => {
       prisma.puzzle.findMany.mockResolvedValue([]);
 
-      await expect(service.startSession(userId, 180)).rejects.toThrow(
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
         NotFoundException,
       );
+      await expect(service.startSession(userId, '3')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'NO_PUZZLES' }),
+      });
     });
 
-    it('should throw ServiceUnavailableException when Redis fails on get', async () => {
-      redis.get.mockRejectedValue(new Error('Connection refused'));
+    it('should throw InternalServerErrorException on Redis get failure', async () => {
+      redis.get.mockRejectedValue(new Error('Redis connection refused'));
 
-      await expect(service.startSession(userId, 180)).rejects.toThrow(
-        ServiceUnavailableException,
-      );
-    });
-
-    it('should throw InternalServerErrorException when Prisma fails on puzzle fetch', async () => {
-      prisma.puzzle.count.mockRejectedValue(new Error('Database connection lost'));
-
-      await expect(service.startSession(userId, 180)).rejects.toThrow(
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
         InternalServerErrorException,
       );
     });
 
-    it('should throw ServiceUnavailableException when Redis fails on set', async () => {
-      redis.set.mockRejectedValue(new Error('Connection refused'));
+    it('should throw InternalServerErrorException on Prisma failure', async () => {
+      prisma.user.findUniqueOrThrow.mockRejectedValue(new Error('Prisma connection error'));
 
-      await expect(service.startSession(userId, 180)).rejects.toThrow(
-        ServiceUnavailableException,
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+
+    it('should throw InternalServerErrorException on Redis set failure', async () => {
+      redis.set.mockRejectedValue(new Error('Redis write error'));
+
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        InternalServerErrorException,
       );
     });
   });
@@ -131,7 +133,7 @@ describe('PuzzleRushService', () => {
       lives: 3,
       currentPuzzleId: 'puzzle-1',
       currentMoves: ['e7e5', 'd2d4'],
-      currentMoveIndex: 1,
+      currentMoveIndex: 0,
       startedAt: Date.now(),
       durationMs: 180000,
       solvedPuzzleIds: [],
@@ -142,7 +144,7 @@ describe('PuzzleRushService', () => {
       redis.get.mockResolvedValue(JSON.stringify(makeSession()));
       prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
 
-      const result = await service.submitAnswer(userId, 'd2d4');
+      const result = await service.submitAnswer(userId, 'e7e5');
 
       expect(result.correct).toBe(true);
       expect(result.score).toBe(1);
@@ -158,7 +160,7 @@ describe('PuzzleRushService', () => {
 
       expect(result.correct).toBe(false);
       expect(result.lives).toBe(2);
-      expect(result.expectedMove).toBe('d2d4');
+      expect(result.expectedMove).toBe('e7e5');
     });
 
     it('should finish session when lives reach 0', async () => {
@@ -184,66 +186,38 @@ describe('PuzzleRushService', () => {
       expect(result.finished).toBe(true);
     });
 
-    it('should throw NotFoundException when no active session', async () => {
+    it('should throw NotFoundException with SESSION_NOT_FOUND errorCode when no active session', async () => {
       redis.get.mockResolvedValue(null);
 
       await expect(service.submitAnswer(userId, 'e2e4')).rejects.toThrow(
         NotFoundException,
       );
+      await expect(service.submitAnswer(userId, 'e2e4')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'SESSION_NOT_FOUND' }),
+      });
     });
-  });
 
-  describe('getNextPuzzle', () => {
-    it('should return current puzzle with moves and session state', async () => {
-      const session = {
-        userId,
-        timeMode: '3',
-        score: 3,
-        lives: 2,
-        currentPuzzleId: 'puzzle-1',
-        currentMoves: ['e7e5', 'd2d4'],
-        currentMoveIndex: 1,
-        startedAt: Date.now() - 60000,
-        durationMs: 180000,
-        solvedPuzzleIds: [],
-      };
+    it('should throw InternalServerErrorException on Redis failure during loadSession', async () => {
+      redis.get.mockRejectedValue(new Error('Redis connection refused'));
+
+      await expect(service.submitAnswer(userId, 'e2e4')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      await expect(service.submitAnswer(userId, 'e2e4')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'INTERNAL_ERROR' }),
+      });
+    });
+
+    it('should throw InternalServerErrorException on Redis failure during saveSession', async () => {
+      const session = makeSession();
       redis.get.mockResolvedValue(JSON.stringify(session));
-      prisma.puzzle.findUnique.mockResolvedValue(mockPuzzle);
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+      // First set succeeds (loadSession), second fails (saveSession)
+      redis.set.mockRejectedValue(new Error('Redis write error'));
 
-      const result = await service.getNextPuzzle(userId);
-
-      expect(result.puzzle.id).toBe('puzzle-1');
-      expect(result.puzzle.fen).toBe(mockPuzzle.fen);
-      expect(result.puzzle.moves).toEqual(['e7e5', 'd2d4']);
-      expect(result.puzzle.rating).toBe(1400);
-      expect(result.score).toBe(3);
-      expect(result.lives).toBe(2);
-      expect(result.elapsedMs).toBeGreaterThan(0);
-      expect(result.durationMs).toBe(180000);
-    });
-
-    it('should throw NotFoundException when no active session', async () => {
-      redis.get.mockResolvedValue(null);
-
-      await expect(service.getNextPuzzle(userId)).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw BadRequestException when session expired', async () => {
-      const session = {
-        userId,
-        timeMode: '3',
-        score: 3,
-        lives: 2,
-        currentPuzzleId: 'puzzle-1',
-        currentMoves: ['e7e5'],
-        currentMoveIndex: 0,
-        startedAt: Date.now() - 200000,
-        durationMs: 180000,
-        solvedPuzzleIds: [],
-      };
-      redis.get.mockResolvedValue(JSON.stringify(session));
-
-      await expect(service.getNextPuzzle(userId)).rejects.toThrow(BadRequestException);
+      await expect(service.submitAnswer(userId, 'a7a6')).rejects.toThrow(
+        InternalServerErrorException,
+      );
     });
   });
 
@@ -268,14 +242,17 @@ describe('PuzzleRushService', () => {
 
       expect(result.score).toBe(5);
       expect(result.lives).toBe(2);
-      expect(result.timeLimitSec).toBe(180);
+      expect(result.timeMode).toBe('3');
       expect(result.elapsedMs).toBeGreaterThan(0);
     });
 
-    it('should throw NotFoundException when no active session', async () => {
+    it('should throw NotFoundException with SESSION_NOT_FOUND errorCode when no active session', async () => {
       redis.get.mockResolvedValue(null);
 
       await expect(service.getSession(userId)).rejects.toThrow(NotFoundException);
+      await expect(service.getSession(userId)).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'SESSION_NOT_FOUND' }),
+      });
     });
   });
 

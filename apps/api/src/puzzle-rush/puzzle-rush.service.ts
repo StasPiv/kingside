@@ -1,11 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  BadRequestException,
-  InternalServerErrorException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -23,6 +16,10 @@ interface PuzzleRushSession {
 }
 
 const MAX_LIVES = 3;
+const TIME_MODES: Record<string, number> = {
+  '3': 3 * 60 * 1000,
+  '5': 5 * 60 * 1000,
+};
 
 @Injectable()
 export class PuzzleRushService {
@@ -37,58 +34,75 @@ export class PuzzleRushService {
     return `puzzle_rush:${userId}:session`;
   }
 
-  async startSession(userId: string, timeLimitSec: number) {
-    this.logger.log(`Starting Puzzle Rush session: userId=${userId}, timeLimitSec=${timeLimitSec}`);
+  async startSession(userId: string, timeMode: string): Promise<{
+    sessionId: string;
+    puzzle: { fen: string; rating: number };
+    timeMode: string;
+    durationMs: number;
+    lives: number;
+  }> {
+    this.logger.log(`startSession called: userId=${userId}, timeMode=${timeMode}`);
 
     let existing: string | null;
     try {
       existing = await this.redis.get(this.sessionKey(userId));
     } catch (error) {
-      this.logger.error(
-        `Redis error checking existing session for user ${userId}: ${error.message}`,
-        error.stack,
-      );
-      throw new ServiceUnavailableException('Session service temporarily unavailable');
+      this.logger.error(`Redis error checking existing session for user ${userId}`, error?.stack || error);
+      throw new InternalServerErrorException({
+        message: 'Failed to check existing session',
+        errorCode: 'INTERNAL_ERROR',
+      });
     }
 
     if (existing) {
-      this.logger.warn(`Session already exists for userId=${userId}`);
-      throw new BadRequestException('Active Puzzle Rush session already exists');
+      this.logger.warn(`Session already exists for user ${userId}`);
+      throw new BadRequestException({
+        message: 'Active Puzzle Rush session already exists',
+        errorCode: 'SESSION_EXISTS',
+      });
     }
 
-    const durationMs = timeLimitSec * 1000;
+    const durationMs = TIME_MODES[timeMode];
+    if (!durationMs) {
+      this.logger.warn(`Invalid time mode "${timeMode}" requested by user ${userId}`);
+      throw new BadRequestException({
+        message: 'Invalid time mode',
+        errorCode: 'INVALID_TIME_MODE',
+      });
+    }
 
     let puzzle: Awaited<ReturnType<typeof this.getRandomPuzzle>>;
     try {
       puzzle = await this.getRandomPuzzle(userId, []);
     } catch (error) {
-      this.logger.error(
-        `Prisma error fetching random puzzle for user ${userId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException('Failed to load puzzle data');
+      this.logger.error(`Prisma error fetching puzzle for user ${userId}`, error?.stack || error);
+      throw new InternalServerErrorException({
+        message: 'Failed to load puzzle',
+        errorCode: 'INTERNAL_ERROR',
+      });
     }
 
     if (!puzzle) {
-      this.logger.warn(`No puzzles available for userId=${userId}`);
-      throw new NotFoundException('No puzzles available');
+      this.logger.warn(`No puzzles available for user ${userId}`);
+      throw new NotFoundException({
+        message: 'No puzzles available',
+        errorCode: 'NO_PUZZLES',
+      });
     }
 
     const moves = puzzle.moves.split(' ');
     // In Lichess puzzles, first move is the "setup" move (opponent's last move).
     // The puzzle position is AFTER the first move is played.
-    // User moves start from index 1.
-
-    const now = new Date();
+    const setupFen = puzzle.fen;
 
     const session: PuzzleRushSession = {
       userId,
-      timeMode: String(timeLimitSec / 60),
+      timeMode,
       score: 0,
       lives: MAX_LIVES,
       currentPuzzleId: puzzle.id,
       currentMoves: moves,
-      currentMoveIndex: 1,
+      currentMoveIndex: 0,
       startedAt: Date.now(),
       durationMs,
       solvedPuzzleIds: [],
@@ -99,43 +113,31 @@ export class PuzzleRushService {
         this.sessionKey(userId),
         JSON.stringify(session),
         'EX',
-        timeLimitSec + 60, // TTL slightly longer than session
+        durationMs / 1000 + 60, // TTL slightly longer than session
       );
     } catch (error) {
-      this.logger.error(
-        `Redis error saving session for user ${userId}: ${error.message}`,
-        error.stack,
-      );
-      throw new ServiceUnavailableException('Failed to create session');
+      this.logger.error(`Redis error saving session for user ${userId}`, error?.stack || error);
+      throw new InternalServerErrorException({
+        message: 'Failed to create session',
+        errorCode: 'INTERNAL_ERROR',
+      });
     }
 
-    this.logger.log(
-      `Puzzle Rush started for ${userId}: timeLimitSec=${timeLimitSec}, puzzleId=${puzzle.id}, rating=${puzzle.rating}`,
-    );
+    this.logger.log(`Session started: userId=${userId}, timeMode=${timeMode}, puzzleId=${puzzle.id}`);
 
     return {
-      session: {
-        id: userId,
-        solved: 0,
-        failed: 0,
-        timeLimitSec,
-        startedAt: now.toISOString(),
-        finishedAt: null,
-      },
-      puzzle: {
-        id: puzzle.id,
-        fen: puzzle.fen,
-        moves: puzzle.moves.split(' '),
-        rating: puzzle.rating,
-        themes: puzzle.themes.split(' ').filter(Boolean),
-      },
+      sessionId: userId,
+      puzzle: { fen: setupFen, rating: puzzle.rating },
+      timeMode,
+      durationMs,
+      lives: MAX_LIVES,
     };
   }
 
   async getSession(userId: string): Promise<{
     score: number;
     lives: number;
-    timeLimitSec: number;
+    timeMode: string;
     elapsedMs: number;
     durationMs: number;
     puzzle: { fen: string } | null;
@@ -149,50 +151,10 @@ export class PuzzleRushService {
     return {
       score: session.score,
       lives: session.lives,
-      timeLimitSec: parseInt(session.timeMode, 10) * 60,
+      timeMode: session.timeMode,
       elapsedMs: Date.now() - session.startedAt,
       durationMs: session.durationMs,
       puzzle: puzzle ? { fen: puzzle.fen } : null,
-    };
-  }
-
-  /**
-   * Get next puzzle for prefetching (no delay transition).
-   * Returns the current puzzle from the active session.
-   */
-  async getNextPuzzle(userId: string): Promise<{
-    puzzle: { id: string; fen: string; moves: string[]; rating: number };
-    score: number;
-    lives: number;
-    elapsedMs: number;
-    durationMs: number;
-  }> {
-    const session = await this.loadSession(userId);
-
-    const elapsed = Date.now() - session.startedAt;
-    if (elapsed >= session.durationMs) {
-      await this.finishSession(session, 'time');
-      throw new BadRequestException('Session has expired');
-    }
-
-    const puzzle = await this.prisma.puzzle.findUnique({
-      where: { id: session.currentPuzzleId },
-    });
-    if (!puzzle) {
-      throw new NotFoundException('Current puzzle not found');
-    }
-
-    return {
-      puzzle: {
-        id: puzzle.id,
-        fen: puzzle.fen,
-        moves: puzzle.moves.split(' '),
-        rating: puzzle.rating,
-      },
-      score: session.score,
-      lives: session.lives,
-      elapsedMs: elapsed,
-      durationMs: session.durationMs,
     };
   }
 
@@ -201,7 +163,7 @@ export class PuzzleRushService {
     score: number;
     lives: number;
     finished: boolean;
-    nextPuzzle: { fen: string; setupMove: string; rating: number } | null;
+    nextPuzzle: { fen: string; rating: number } | null;
     expectedMove?: string;
   }> {
     const session = await this.loadSession(userId);
@@ -249,10 +211,9 @@ export class PuzzleRushService {
         return this.finishSession(session, 'no_puzzles');
       }
 
-      const nextMoves = nextPuzzle.moves.split(' ');
       session.currentPuzzleId = nextPuzzle.id;
-      session.currentMoves = nextMoves;
-      session.currentMoveIndex = 1;
+      session.currentMoves = nextPuzzle.moves.split(' ');
+      session.currentMoveIndex = 0;
 
       await this.saveSession(session);
 
@@ -261,7 +222,7 @@ export class PuzzleRushService {
         score: session.score,
         lives: session.lives,
         finished: false,
-        nextPuzzle: { fen: nextPuzzle.fen, setupMove: nextMoves[0], rating: nextPuzzle.rating },
+        nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating },
       };
     }
 
@@ -280,10 +241,9 @@ export class PuzzleRushService {
       return this.finishSession(session, 'no_puzzles');
     }
 
-    const nextMoves = nextPuzzle.moves.split(' ');
     session.currentPuzzleId = nextPuzzle.id;
-    session.currentMoves = nextMoves;
-    session.currentMoveIndex = 1;
+    session.currentMoves = nextPuzzle.moves.split(' ');
+    session.currentMoveIndex = 0;
 
     await this.saveSession(session);
 
@@ -292,21 +252,21 @@ export class PuzzleRushService {
       score: session.score,
       lives: session.lives,
       finished: false,
-      nextPuzzle: { fen: nextPuzzle.fen, setupMove: nextMoves[0], rating: nextPuzzle.rating },
+      nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating },
       expectedMove,
     };
   }
 
   async endSession(userId: string): Promise<{
     score: number;
-    timeLimitSec: number;
+    timeMode: string;
     isHighScore: boolean;
   }> {
     const session = await this.loadSession(userId);
     const result = await this.finishSession(session, 'manual');
     return {
       score: result.score,
-      timeLimitSec: parseInt(session.timeMode, 10) * 60,
+      timeMode: session.timeMode,
       isHighScore: false, // Will be checked in finishSession
     };
   }
@@ -342,9 +302,21 @@ export class PuzzleRushService {
   }
 
   private async loadSession(userId: string): Promise<PuzzleRushSession> {
-    const raw = await this.redis.get(this.sessionKey(userId));
+    let raw: string | null;
+    try {
+      raw = await this.redis.get(this.sessionKey(userId));
+    } catch (error) {
+      this.logger.error(`Redis error loading session for user ${userId}`, error?.stack || error);
+      throw new InternalServerErrorException({
+        message: 'Failed to load session',
+        errorCode: 'INTERNAL_ERROR',
+      });
+    }
     if (!raw) {
-      throw new NotFoundException('No active Puzzle Rush session');
+      throw new NotFoundException({
+        message: 'No active Puzzle Rush session',
+        errorCode: 'SESSION_NOT_FOUND',
+      });
     }
     return JSON.parse(raw);
   }
@@ -352,12 +324,20 @@ export class PuzzleRushService {
   private async saveSession(session: PuzzleRushSession): Promise<void> {
     const remaining = session.durationMs - (Date.now() - session.startedAt);
     const ttl = Math.max(Math.ceil(remaining / 1000) + 60, 60);
-    await this.redis.set(
-      this.sessionKey(session.userId),
-      JSON.stringify(session),
-      'EX',
-      ttl,
-    );
+    try {
+      await this.redis.set(
+        this.sessionKey(session.userId),
+        JSON.stringify(session),
+        'EX',
+        ttl,
+      );
+    } catch (error) {
+      this.logger.error(`Redis error saving session for user ${session.userId}`, error?.stack || error);
+      throw new InternalServerErrorException({
+        message: 'Failed to save session',
+        errorCode: 'INTERNAL_ERROR',
+      });
+    }
   }
 
   private async finishSession(
@@ -371,16 +351,29 @@ export class PuzzleRushService {
     nextPuzzle: null;
   }> {
     // Save score to DB
-    await this.prisma.puzzleRushScore.create({
-      data: {
-        userId: session.userId,
-        score: session.score,
-        timeMode: session.timeMode,
-      },
-    });
+    try {
+      await this.prisma.puzzleRushScore.create({
+        data: {
+          userId: session.userId,
+          score: session.score,
+          timeMode: session.timeMode,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`DB error saving score for user ${session.userId}`, error?.stack || error);
+      throw new InternalServerErrorException({
+        message: 'Failed to save score',
+        errorCode: 'INTERNAL_ERROR',
+      });
+    }
 
     // Clean up Redis session
-    await this.redis.del(this.sessionKey(session.userId));
+    try {
+      await this.redis.del(this.sessionKey(session.userId));
+    } catch (error) {
+      this.logger.error(`Redis error cleaning session for user ${session.userId}`, error?.stack || error);
+      // Not throwing here — score is already saved, cleanup failure is non-critical
+    }
 
     this.logger.log(
       `Puzzle Rush ended for ${session.userId}: score=${session.score}, mode=${session.timeMode}, reason=${_reason}`,
@@ -409,40 +402,29 @@ export class PuzzleRushService {
     const minRating = user.ratingPuzzle - ratingRange;
     const maxRating = user.ratingPuzzle + ratingRange;
 
-    const where = {
-      rating: { gte: minRating, lte: maxRating },
-      id: excludeIds.length > 0 ? { notIn: excludeIds } : undefined,
-    };
-
-    const count = await this.prisma.puzzle.count({ where });
-
-    if (count > 0) {
-      const skip = Math.floor(Math.random() * count);
-      const puzzle = await this.prisma.puzzle.findMany({
-        where,
-        take: 1,
-        skip,
-      });
-      return puzzle[0] || null;
-    }
-
-    // Fallback: try without rating filter
-    const fallbackWhere = {
-      id: excludeIds.length > 0 ? { notIn: excludeIds } : undefined,
-    };
-
-    const fallbackCount = await this.prisma.puzzle.count({ where: fallbackWhere });
-    if (fallbackCount === 0) {
-      return null;
-    }
-
-    const fallbackSkip = Math.floor(Math.random() * fallbackCount);
-    const fallback = await this.prisma.puzzle.findMany({
-      where: fallbackWhere,
-      take: 1,
-      skip: fallbackSkip,
+    // Use raw query for random selection with exclusion
+    const puzzles = await this.prisma.puzzle.findMany({
+      where: {
+        rating: { gte: minRating, lte: maxRating },
+        id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
+      },
+      take: 10,
+      skip: Math.floor(Math.random() * 100),
     });
-    return fallback[0] || null;
+
+    if (puzzles.length === 0) {
+      // Fallback: try without rating filter
+      const fallback = await this.prisma.puzzle.findMany({
+        where: {
+          id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
+        },
+        take: 1,
+        skip: Math.floor(Math.random() * 50),
+      });
+      return fallback[0] || null;
+    }
+
+    return puzzles[Math.floor(Math.random() * puzzles.length)];
   }
 
   private async recordAttempt(

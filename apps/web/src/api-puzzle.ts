@@ -1,33 +1,51 @@
 import { api } from './api';
-import type {
-  PuzzleDto,
-  PuzzleAttemptRequest,
-  PuzzleAttemptResponse,
-  DailyPuzzleResponse,
-  PuzzleRushStartRequest,
-  PuzzleRushStartResponse,
-  PuzzleRushAnswerRequest,
-  PuzzleRushAnswerResponse,
-  PuzzleRushNextResponse,
-  PuzzleRushSessionResponse,
-  PuzzleRushEndResponse,
-  PuzzleRushLeaderboardResponse,
-} from '@kingside/shared';
+import type { PuzzleDto, PuzzleAttempt, PuzzleAttemptResult } from '@kingside/shared';
+
+// --- Request / Response types ---
 
 export type PuzzleNextParams = {
   theme?: string;
+};
+
+export type PuzzleAttemptRequest = {
+  result: PuzzleAttemptResult;
+  timeMs: number;
+};
+
+export type DailyPuzzleResponse = {
+  puzzle: PuzzleDto;
+  date: string;
+};
+
+export type PuzzleRushStartRequest = {
+  timeMode: '3' | '5';
+};
+
+export type PuzzleRushSession = {
+  id: string;
+  solved: number;
+  failed: number;
+  timeMode: '3' | '5';
+  startedAt: string;
+  finishedAt: string | null;
+};
+
+export type PuzzleRushSolveRequest = {
+  uci: string;
+};
+
+export type PuzzleRushLeaderboardParams = {
+  timeMode?: '3' | '5';
+  limit?: number;
 };
 
 // --- API client ---
 
 export const puzzleApi = {
   /** Get next puzzle matched to user rating */
-  getNext: (params?: PuzzleNextParams & { excludeId?: string }) => {
-    const searchParams = new URLSearchParams();
-    if (params?.theme) searchParams.set('theme', params.theme);
-    if (params?.excludeId) searchParams.set('excludeId', params.excludeId);
-    const query = searchParams.toString();
-    return api.get<PuzzleDto>(`/api/puzzles/next${query ? `?${query}` : ''}`);
+  getNext: (params?: PuzzleNextParams) => {
+    const query = params?.theme ? `?theme=${encodeURIComponent(params.theme)}` : '';
+    return api.get<PuzzleDto>(`/api/puzzles/next${query}`);
   },
 
   /** Get puzzle by ID */
@@ -36,7 +54,7 @@ export const puzzleApi = {
 
   /** Submit puzzle attempt result */
   submitAttempt: (puzzleId: string, body: PuzzleAttemptRequest) =>
-    api.post<PuzzleAttemptResponse>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempts`, body),
+    api.post<PuzzleAttempt>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempt`, body),
 
   /** Get today's daily puzzle */
   getDaily: () =>
@@ -44,31 +62,32 @@ export const puzzleApi = {
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>
-    api.post<PuzzleRushStartResponse>('/api/puzzles/rush', body),
+    api.post('/api/puzzle-rush/start', body),
 
-  /** Submit a move (UCI) in puzzle rush */
-  submitRushAnswer: (body: PuzzleRushAnswerRequest) =>
-    api.post<PuzzleRushAnswerResponse>('/api/puzzles/rush/answer', body),
-
-  /** Get current rush session state */
+  /** Get current puzzle rush session */
   getRushSession: () =>
-    api.get<PuzzleRushSessionResponse>('/api/puzzles/rush/session'),
+    api.get('/api/puzzle-rush/session'),
 
-  /** Get next puzzle in rush session */
-  getRushNext: () =>
-    api.get<PuzzleRushNextResponse>('/api/puzzles/rush/next'),
+  /** Submit a move in puzzle rush */
+  solveRush: (body: PuzzleRushSolveRequest) =>
+    api.post('/api/puzzle-rush/solve', body),
 
-  /** End rush session manually */
+  /** End current puzzle rush session */
   endRushSession: () =>
-    api.delete<PuzzleRushEndResponse>('/api/puzzles/rush/session'),
+    api.delete('/api/puzzle-rush/session'),
 
-  /** Get rush leaderboard */
-  getRushLeaderboard: (timeLimitSec = 180, limit = 20) =>
-    api.get<PuzzleRushLeaderboardResponse>(
-      `/api/puzzles/rush/leaderboard?timeLimitSec=${timeLimitSec}&limit=${limit}`,
-    ),
+  /** Get puzzle rush leaderboard */
+  getRushLeaderboard: (params?: PuzzleRushLeaderboardParams) => {
+    const query = new URLSearchParams();
+    if (params?.timeMode) query.set('timeMode', params.timeMode);
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return api.get(`/api/puzzle-rush/leaderboard${qs ? `?${qs}` : ''}`);
+  },
 
-  /** Get user's best rush score */
-  getRushBest: (timeLimitSec = 180) =>
-    api.get<number>(`/api/puzzles/rush/best?timeLimitSec=${timeLimitSec}`),
+  /** Get user's best puzzle rush result */
+  getRushBest: (timeMode?: '3' | '5') => {
+    const query = timeMode ? `?timeMode=${timeMode}` : '';
+    return api.get(`/api/puzzle-rush/best${query}`);
+  },
 };

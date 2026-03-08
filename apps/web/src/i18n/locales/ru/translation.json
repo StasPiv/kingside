@@ -130,7 +130,9 @@
     "errors": {
       "SESSION_EXISTS": "У вас уже есть активная сессия Puzzle Rush",
       "INVALID_TIME_MODE": "Недопустимый режим времени",
-      "NO_PUZZLES": "Нет доступных задач"
+      "NO_PUZZLES": "Нет доступных задач",
+      "SESSION_NOT_FOUND": "Сессия не найдена",
+      "INTERNAL_ERROR": "Внутренняя ошибка сервера. Попробуйте позже"
     }
   },
   "game": {

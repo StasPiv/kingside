@@ -1,53 +1,47 @@
-# Production-логи API
+# Production логи
 
 ## Конфигурация
 
-Docker-контейнер `api` использует `json-file` logging driver:
-- **max-size**: 50 MB на файл
-- **max-file**: 5 файлов (ротация)
-- **tag**: `kingside-api`
+API-сервис использует Docker json-file logging driver с ротацией:
+- Максимальный размер файла: 50MB
+- Максимум файлов: 5 (итого до 250MB)
+- Тег: `kingside-api`
 
-Логи хранятся в стандартном расположении Docker: `/var/lib/docker/containers/<container-id>/`.
+Файлы логов хранятся в стандартном каталоге Docker:
+```
+/var/lib/docker/containers/<container-id>/<container-id>-json.log
+```
 
-## Просмотр логов
-
-### Через justfile
+## Команды
 
 ```bash
-# Все логи API
+# Последние 100 строк логов API
 just logs
 
-# Последние 100 строк + follow
+# Последние N строк
+just logs 500
+
+# Логи в реальном времени
 just logs-follow
 
-# Только логи Puzzle Rush
-just logs-puzzle-rush
+# Поиск по паттерну (например, ошибки)
+just logs-grep "ERROR"
+just logs-grep "puzzle-rush"
+just logs-grep "Redis"
 
-# С дополнительными параметрами docker compose logs
-just logs --tail=50
-just logs --since=1h
-just logs --since="2026-03-01"
+# Docker compose напрямую
+docker compose logs api --since 1h --timestamps
+docker compose logs api --since "2024-01-15T10:00:00" --until "2024-01-15T12:00:00"
 ```
 
-### Напрямую через Docker
+## Уровни логирования NestJS
 
-```bash
-# Все логи
-docker compose logs api
+- `LOG` — штатные операции
+- `WARN` — предупреждения
+- `ERROR` — ошибки (Redis, Prisma, etc.)
 
-# Follow
-docker compose logs -f api
+## Примечания
 
-# Фильтрация по времени
-docker compose logs --since=2h api
-
-# Фильтрация по содержимому
-docker compose logs api 2>&1 | grep "PuzzleRushService"
-```
-
-## Что логируется
-
-NestJS Logger пишет в stdout контейнера. Для Puzzle Rush доступны:
-- Начало/завершение сессий (`Puzzle Rush ended for ...`)
-- Ошибки при обработке запросов
-- Стандартные HTTP-логи NestJS
+- Логи переживают перезапуск контейнера (json-file driver хранит на хосте)
+- При `docker compose down -v` логи НЕ удаляются (они не в volumes)
+- При `docker rm` контейнера логи удаляются вместе с ним

@@ -3,24 +3,22 @@ import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
-import { ApiError } from '../api';
+import { ApiError } from '../ApiError';
 import { useContainerWidth } from '../hooks/useContainerWidth';
-import type { PuzzleRushStartRequest } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
 
 type RushScreen = 'start' | 'playing' | 'result';
-type TimeMode = PuzzleRushStartRequest['timeMode'];
+type TimeLimitOption = 180 | 300;
 
 const MAX_LIVES = 3;
-const TIME_MODE_SEC: Record<TimeMode, number> = { '3': 180, '5': 300 };
 
 export function PuzzleRushPage() {
   const { t } = useTranslation();
 
   // Screen state
   const [screen, setScreen] = useState<RushScreen>('start');
-  const [timeMode, setTimeMode] = useState<TimeMode>('3');
+  const [timeLimit, setTimeLimit] = useState<TimeLimitOption>(180);
 
   // Session state
   const [score, setScore] = useState(0);
@@ -85,10 +83,10 @@ export function PuzzleRushPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await puzzleApi.startRush({ timeMode });
+      const data = await puzzleApi.startRush({ timeMode: timeLimit === 180 ? '3' : '5' });
       setScore(0);
       setLives(MAX_LIVES);
-      setTimeLeft(TIME_MODE_SEC[timeMode]);
+      setTimeLeft(timeLimit);
 
       const moves = Array.isArray(data.puzzle.moves)
         ? data.puzzle.moves
@@ -98,8 +96,8 @@ export function PuzzleRushPage() {
     } catch (err: unknown) {
       if (err instanceof ApiError && err.errorCode) {
         const key = `puzzleRush.errors.${err.errorCode}`;
-        const translated = t(key);
-        setError(translated !== key ? translated : err.message);
+        const localized = t(key);
+        setError(localized !== key ? localized : err.message);
       } else {
         const message =
           err instanceof Error ? err.message : String(err || '');
@@ -139,7 +137,7 @@ export function PuzzleRushPage() {
 
       // Send to server for validation
       puzzleApi
-        .submitRushAnswer({ uci })
+        .solveRush({ uci })
         .then((response) => {
           setScore(response.score);
           setLives(response.lives);
@@ -175,9 +173,14 @@ export function PuzzleRushPage() {
             }
           }
         })
-        .catch(() => {
+        .catch((err: unknown) => {
           // Revert on error
           setGame(new Chess(prevFen));
+          if (err instanceof ApiError && err.errorCode) {
+            const key = `puzzleRush.errors.${err.errorCode}`;
+            const localized = t(key);
+            setError(localized !== key ? localized : err.message);
+          }
         })
         .finally(() => {
           setSubmitting(false);
@@ -227,14 +230,14 @@ export function PuzzleRushPage() {
           <h3>{t('puzzleRush.selectTime')}</h3>
           <div className="time-controls">
             <button
-              className={`tc-btn ${timeMode === '3' ? 'active' : ''}`}
-              onClick={() => setTimeMode('3')}
+              className={`tc-btn ${timeLimit === 180 ? 'active' : ''}`}
+              onClick={() => setTimeLimit(180)}
             >
               {t('puzzle.rush.threeMinutes')}
             </button>
             <button
-              className={`tc-btn ${timeMode === '5' ? 'active' : ''}`}
-              onClick={() => setTimeMode('5')}
+              className={`tc-btn ${timeLimit === 300 ? 'active' : ''}`}
+              onClick={() => setTimeLimit(300)}
             >
               {t('puzzle.rush.fiveMinutes')}
             </button>
@@ -256,7 +259,7 @@ export function PuzzleRushPage() {
 
   // --- Result Screen ---
   if (screen === 'result') {
-    const timeUsed = TIME_MODE_SEC[timeMode] - timeLeft;
+    const timeUsed = timeLimit - timeLeft;
 
     return (
       <div className="puzzle-rush-page">
