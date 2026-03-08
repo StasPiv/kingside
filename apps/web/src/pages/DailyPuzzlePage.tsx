@@ -56,7 +56,7 @@ export function DailyPuzzlePage() {
         setState('solving');
       })
       .catch((e) => {
-        setError(e.message || t('dailyPuzzle.loadError'));
+        setError(e.message || t('puzzle.loadError'));
         setState('loading');
       });
   }, [game, t]);
@@ -221,9 +221,9 @@ export function DailyPuzzlePage() {
     <div className="daily-puzzle-page">
       <div className="puzzle-board-area">
         <div className="puzzle-header">
-          <h1>{t('dailyPuzzle.title')}</h1>
+          <h1>{t('puzzle.daily.title')}</h1>
           <div className="puzzle-rating">
-            {t('dailyPuzzle.rating')}: {puzzle.rating}
+            {t('puzzle.puzzleRating', { rating: puzzle.rating })}
           </div>
         </div>
         <div className="board-container">
@@ -233,18 +233,18 @@ export function DailyPuzzlePage() {
           {state === 'solving' && (
             <div className="puzzle-hint">
               {playerColor === 'white'
-                ? t('dailyPuzzle.whiteToMove')
-                : t('dailyPuzzle.blackToMove')}
+                ? t('puzzle.whiteToMove')
+                : t('puzzle.blackToMove')}
             </div>
           )}
           {state === 'correct' && (
             <div className="puzzle-result puzzle-correct">
-              {t('dailyPuzzle.correct')}
+              {t('puzzle.correct')}
             </div>
           )}
           {state === 'failed' && (
             <div className="puzzle-result puzzle-wrong">
-              {t('dailyPuzzle.wrong')}
+              {t('puzzle.wrong')}
             </div>
           )}
         </div>
@@ -253,7 +253,7 @@ export function DailyPuzzlePage() {
       <div className="puzzle-sidebar">
         {themes.length > 0 && (
           <div className="puzzle-themes">
-            <h3>{t('dailyPuzzle.themes')}</h3>
+            <h3>{t('puzzle.themes')}</h3>
             <div className="theme-tags">
               {themes.map((theme) => (
                 <span key={theme} className="theme-tag">
@@ -284,14 +284,14 @@ export function DailyPuzzlePage() {
         <div className="puzzle-actions">
           {state === 'failed' && (
             <>
-              <button onClick={handleRetry}>{t('dailyPuzzle.retry')}</button>
+              <button onClick={handleRetry}>{t('puzzle.retry')}</button>
               <button onClick={handleShowSolution} className="show-solution-btn">
-                {t('dailyPuzzle.showSolution')}
+                {t('puzzle.showSolution')}
               </button>
             </>
           )}
           {state === 'correct' && (
-            <button onClick={handleRetry}>{t('dailyPuzzle.tryAgain')}</button>
+            <button onClick={handleRetry}>{t('puzzle.tryAgain')}</button>
           )}
         </div>
       </div>
