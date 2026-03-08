@@ -26,7 +26,8 @@
     "updatingPassword": "Updating...",
     "passwordMismatch": "Passwords do not match",
     "passwordChanged": "Password changed successfully",
-    "passwordError": "Failed to change password"
+    "passwordError": "Failed to change password",
+    "puzzleRating": "Puzzle Rating"
   },
   "lobby": {
     "title": "Lobby",

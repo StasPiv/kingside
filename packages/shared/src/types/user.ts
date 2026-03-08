@@ -8,6 +8,7 @@ export type User = {
   ratingBlitz: number;
   ratingRapid: number;
   ratingClassical: number;
+  ratingPuzzle?: number;
   createdAt: string;
   locale?: Locale;
 };

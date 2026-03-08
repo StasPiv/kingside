@@ -26,7 +26,8 @@
     "updatingPassword": "Сохранение...",
     "passwordMismatch": "Пароли не совпадают",
     "passwordChanged": "Пароль успешно изменён",
-    "passwordError": "Не удалось сменить пароль"
+    "passwordError": "Не удалось сменить пароль",
+    "puzzleRating": "Рейтинг задач"
   },
   "lobby": {
     "title": "Лобби",
