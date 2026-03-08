@@ -1444,8 +1444,8 @@ input:focus {
 }
 
 .puzzle-page .board-container {
-  max-width: min(calc(100vh - 190px), 100%);
-  max-height: min(calc(100vh - 190px), 100%);
+  max-width: min(calc(100vh - 190px), calc(100vw - 32px));
+  max-height: min(calc(100vh - 190px), calc(100vw - 32px));
 }
 
 .puzzle-page h1 {
