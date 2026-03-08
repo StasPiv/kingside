@@ -1281,6 +1281,159 @@ input:focus {
   text-align: center;
 }
 
+/* Puzzle Browser */
+.puzzle-browser-page {
+  padding-top: 20px;
+}
+
+.puzzle-browser-page h1 {
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+.puzzle-filters {
+  background: #16213e;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.filter-section {
+  margin-bottom: 20px;
+}
+
+.filter-section:last-child {
+  margin-bottom: 0;
+}
+
+.filter-section h3 {
+  font-size: 14px;
+  color: #a0a0c0;
+  margin-bottom: 12px;
+}
+
+.difficulty-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  background: #1a1a2e;
+  color: #a0a0c0;
+  padding: 8px 16px;
+  border: 2px solid transparent;
+  font-size: 13px;
+}
+
+.filter-btn.active {
+  border-color: #7c83ff;
+  color: #fff;
+}
+
+.filter-btn:hover:not(.active) {
+  color: #fff;
+}
+
+.theme-category-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.theme-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.theme-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.puzzle-results-info {
+  text-align: center;
+  color: #a0a0c0;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.puzzle-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.puzzle-card {
+  background: #16213e;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.puzzle-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.puzzle-id {
+  color: #666;
+  font-size: 13px;
+}
+
+.puzzle-rating {
+  font-size: 16px;
+  font-weight: 700;
+  color: #7c83ff;
+}
+
+.puzzle-card-themes {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.puzzle-theme-tag {
+  background: rgba(124, 131, 255, 0.15);
+  color: #a0a0c0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.puzzle-theme-tag.more {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.puzzle-solve-btn {
+  margin-top: auto;
+  padding: 8px;
+  font-size: 13px;
+}
+
+.puzzle-empty {
+  text-align: center;
+  color: #666;
+  padding: 40px;
+}
+
+.puzzle-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+}
+
+.page-info {
+  color: #a0a0c0;
+  font-size: 14px;
+}
+
 /* Responsive: tablets */
 @media (max-width: 768px) {
   .main {
@@ -1304,6 +1457,14 @@ input:focus {
   .player-info {
     min-width: 0;
     width: 100%;
+  }
+
+  .puzzle-list {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+
+  .difficulty-filters {
+    flex-wrap: wrap;
   }
 }
 
