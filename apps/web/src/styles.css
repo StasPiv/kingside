@@ -951,6 +951,119 @@ input:focus {
   text-decoration: none;
 }
 
+/* Daily Puzzle page */
+.daily-puzzle-page {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.puzzle-board-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.puzzle-header {
+  text-align: center;
+}
+
+.puzzle-header h1 {
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.puzzle-rating {
+  font-size: 14px;
+  color: #a0a0c0;
+}
+
+.puzzle-status {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+.puzzle-hint {
+  font-size: 16px;
+  font-weight: 600;
+  color: #a0a0c0;
+}
+
+.puzzle-result {
+  font-size: 18px;
+  font-weight: 700;
+  padding: 8px 24px;
+  border-radius: 6px;
+}
+
+.puzzle-correct {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.puzzle-wrong {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.puzzle-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 280px;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.puzzle-themes {
+  background: #16213e;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.puzzle-themes h3 {
+  font-size: 14px;
+  color: #a0a0c0;
+  margin-bottom: 8px;
+}
+
+.theme-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.theme-tag {
+  background: rgba(124, 131, 255, 0.15);
+  color: #7c83ff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.puzzle-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.puzzle-actions button {
+  flex: 1;
+}
+
+.show-solution-btn {
+  background: #16213e;
+  color: #a0a0c0;
+}
+
+.show-solution-btn:hover {
+  color: #fff;
+  background: #1e2d50;
+}
+
 .loading {
   text-align: center;
   padding: 40px;
@@ -973,13 +1086,15 @@ input:focus {
   }
 
   .game-page,
-  .analysis-page {
+  .analysis-page,
+  .daily-puzzle-page {
     flex-direction: column;
     align-items: center;
   }
 
   .game-sidebar,
-  .analysis-sidebar {
+  .analysis-sidebar,
+  .puzzle-sidebar {
     width: 100%;
     max-width: 480px;
   }
@@ -1001,12 +1116,14 @@ input:focus {
   }
 
   .game-page,
-  .analysis-page {
+  .analysis-page,
+  .daily-puzzle-page {
     gap: 12px;
   }
 
   .game-sidebar,
-  .analysis-sidebar {
+  .analysis-sidebar,
+  .puzzle-sidebar {
     gap: 10px;
   }
 

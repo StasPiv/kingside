@@ -168,5 +168,18 @@
       "threeMinutes": "3 Minutes",
       "fiveMinutes": "5 Minutes"
     }
+  },
+  "dailyPuzzle": {
+    "title": "Daily Puzzle",
+    "rating": "Rating",
+    "whiteToMove": "White to move",
+    "blackToMove": "Black to move",
+    "correct": "Correct!",
+    "wrong": "Wrong move",
+    "retry": "Retry",
+    "tryAgain": "Try Again",
+    "showSolution": "Show Solution",
+    "themes": "Themes",
+    "loadError": "Failed to load puzzle"
   }
 }
