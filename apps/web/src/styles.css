@@ -440,7 +440,7 @@ input:focus {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
-  will-change: contents;
+  will-change: transform;
 }
 
 .game-sidebar {
