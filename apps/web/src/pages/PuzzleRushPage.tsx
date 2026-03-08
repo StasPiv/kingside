@@ -5,20 +5,22 @@ import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../api';
 import { useContainerWidth } from '../hooks/useContainerWidth';
+import type { PuzzleRushStartRequest } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
 
 type RushScreen = 'start' | 'playing' | 'result';
-type TimeLimitOption = 180 | 300;
+type TimeMode = PuzzleRushStartRequest['timeMode'];
 
 const MAX_LIVES = 3;
+const TIME_MODE_SEC: Record<TimeMode, number> = { '3': 180, '5': 300 };
 
 export function PuzzleRushPage() {
   const { t } = useTranslation();
 
   // Screen state
   const [screen, setScreen] = useState<RushScreen>('start');
-  const [timeLimit, setTimeLimit] = useState<TimeLimitOption>(180);
+  const [timeMode, setTimeMode] = useState<TimeMode>('3');
 
   // Session state
   const [score, setScore] = useState(0);
@@ -83,10 +85,10 @@ export function PuzzleRushPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await puzzleApi.startRush({ timeLimitSec: timeLimit });
+      const data = await puzzleApi.startRush({ timeMode });
       setScore(0);
       setLives(MAX_LIVES);
-      setTimeLeft(timeLimit);
+      setTimeLeft(TIME_MODE_SEC[timeMode]);
 
       const moves = Array.isArray(data.puzzle.moves)
         ? data.puzzle.moves
@@ -225,14 +227,14 @@ export function PuzzleRushPage() {
           <h3>{t('puzzleRush.selectTime')}</h3>
           <div className="time-controls">
             <button
-              className={`tc-btn ${timeLimit === 180 ? 'active' : ''}`}
-              onClick={() => setTimeLimit(180)}
+              className={`tc-btn ${timeMode === '3' ? 'active' : ''}`}
+              onClick={() => setTimeMode('3')}
             >
               {t('puzzle.rush.threeMinutes')}
             </button>
             <button
-              className={`tc-btn ${timeLimit === 300 ? 'active' : ''}`}
-              onClick={() => setTimeLimit(300)}
+              className={`tc-btn ${timeMode === '5' ? 'active' : ''}`}
+              onClick={() => setTimeMode('5')}
             >
               {t('puzzle.rush.fiveMinutes')}
             </button>
@@ -254,7 +256,7 @@ export function PuzzleRushPage() {
 
   // --- Result Screen ---
   if (screen === 'result') {
-    const timeUsed = timeLimit - timeLeft;
+    const timeUsed = TIME_MODE_SEC[timeMode] - timeLeft;
 
     return (
       <div className="puzzle-rush-page">

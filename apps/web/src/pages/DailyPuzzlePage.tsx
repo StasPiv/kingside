@@ -5,22 +5,15 @@ import { Chessboard } from 'react-chessboard';
 import type { Square } from 'chess.js';
 import { api } from '../api';
 import { useContainerWidth } from '../hooks/useContainerWidth';
+import type { PuzzleDto, DailyPuzzleResponse } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
-
-type DailyPuzzle = {
-  id: string;
-  fen: string;
-  moves: string;
-  rating: number;
-  themes: string;
-};
 
 type PuzzleState = 'loading' | 'solving' | 'correct' | 'failed';
 
 export function DailyPuzzlePage() {
   const { t } = useTranslation();
-  const [puzzle, setPuzzle] = useState<DailyPuzzle | null>(null);
+  const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState('');
   const [state, setState] = useState<PuzzleState>('loading');
@@ -34,14 +27,14 @@ export function DailyPuzzlePage() {
 
   useEffect(() => {
     api
-      .get<DailyPuzzle>('/api/puzzles/daily')
+      .get<DailyPuzzleResponse>('/api/puzzles/daily')
       .then((data) => {
-        setPuzzle(data);
-        const moves = data.moves.split(' ');
+        setPuzzle(data.puzzle);
+        const moves = data.puzzle.moves.split(' ');
         setSolutionMoves(moves);
 
         // Load the initial FEN
-        game.load(data.fen);
+        game.load(data.puzzle.fen);
 
         // The first move in the solution is the "setup" move (opponent's last move)
         // Apply it so the player sees the position after that move
@@ -206,9 +199,7 @@ export function DailyPuzzlePage() {
     [fen, handlePieceDrop, playerColor, boardStyle],
   );
 
-  const themes = puzzle?.themes
-    ? puzzle.themes.split(' ').filter(Boolean)
-    : [];
+  const themes = puzzle?.themes ?? [];
 
   if (error) {
     return (
