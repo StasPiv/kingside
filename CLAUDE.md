@@ -1,1 +1,0 @@
-# Kingside Project Configuration
