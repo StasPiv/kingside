@@ -46,7 +46,7 @@ export class PuzzleRushService {
     let existing: string | null;
     try {
       existing = await this.redis.get(this.sessionKey(userId));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Redis error checking existing session for user ${userId}`, error?.stack || error);
       throw new InternalServerErrorException({
         message: 'Failed to check existing session',
@@ -74,7 +74,7 @@ export class PuzzleRushService {
     let puzzle: Awaited<ReturnType<typeof this.getRandomPuzzle>>;
     try {
       puzzle = await this.getRandomPuzzle(userId, []);
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Prisma error fetching puzzle for user ${userId}`, error?.stack || error);
       throw new InternalServerErrorException({
         message: 'Failed to load puzzle',
@@ -115,7 +115,7 @@ export class PuzzleRushService {
         'EX',
         durationMs / 1000 + 60, // TTL slightly longer than session
       );
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Redis error saving session for user ${userId}`, error?.stack || error);
       throw new InternalServerErrorException({
         message: 'Failed to create session',
@@ -305,7 +305,7 @@ export class PuzzleRushService {
     let raw: string | null;
     try {
       raw = await this.redis.get(this.sessionKey(userId));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Redis error loading session for user ${userId}`, error?.stack || error);
       throw new InternalServerErrorException({
         message: 'Failed to load session',
@@ -331,7 +331,7 @@ export class PuzzleRushService {
         'EX',
         ttl,
       );
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Redis error saving session for user ${session.userId}`, error?.stack || error);
       throw new InternalServerErrorException({
         message: 'Failed to save session',
@@ -359,7 +359,7 @@ export class PuzzleRushService {
           timeMode: session.timeMode,
         },
       });
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`DB error saving score for user ${session.userId}`, error?.stack || error);
       throw new InternalServerErrorException({
         message: 'Failed to save score',
@@ -370,7 +370,7 @@ export class PuzzleRushService {
     // Clean up Redis session
     try {
       await this.redis.del(this.sessionKey(session.userId));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`Redis error cleaning session for user ${session.userId}`, error?.stack || error);
       // Not throwing here — score is already saved, cleanup failure is non-critical
     }
