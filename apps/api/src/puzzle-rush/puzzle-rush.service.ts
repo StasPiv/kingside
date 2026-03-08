@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -41,7 +41,14 @@ export class PuzzleRushService {
     durationMs: number;
     lives: number;
   }> {
-    const existing = await this.redis.get(this.sessionKey(userId));
+    let existing: string | null;
+    try {
+      existing = await this.redis.get(this.sessionKey(userId));
+    } catch (error) {
+      this.logger.error(`Redis error checking existing session for user ${userId}`, error?.stack || error);
+      throw new InternalServerErrorException('Failed to check existing session');
+    }
+
     if (existing) {
       throw new BadRequestException('Active Puzzle Rush session already exists');
     }
@@ -51,7 +58,14 @@ export class PuzzleRushService {
       throw new BadRequestException('Invalid time mode');
     }
 
-    const puzzle = await this.getRandomPuzzle(userId, []);
+    let puzzle: Awaited<ReturnType<typeof this.getRandomPuzzle>>;
+    try {
+      puzzle = await this.getRandomPuzzle(userId, []);
+    } catch (error) {
+      this.logger.error(`Prisma error fetching puzzle for user ${userId}`, error?.stack || error);
+      throw new InternalServerErrorException('Failed to load puzzle');
+    }
+
     if (!puzzle) {
       throw new NotFoundException('No puzzles available');
     }
@@ -74,12 +88,17 @@ export class PuzzleRushService {
       solvedPuzzleIds: [],
     };
 
-    await this.redis.set(
-      this.sessionKey(userId),
-      JSON.stringify(session),
-      'EX',
-      durationMs / 1000 + 60, // TTL slightly longer than session
-    );
+    try {
+      await this.redis.set(
+        this.sessionKey(userId),
+        JSON.stringify(session),
+        'EX',
+        durationMs / 1000 + 60, // TTL slightly longer than session
+      );
+    } catch (error) {
+      this.logger.error(`Redis error saving session for user ${userId}`, error?.stack || error);
+      throw new InternalServerErrorException('Failed to create session');
+    }
 
     return {
       sessionId: userId,

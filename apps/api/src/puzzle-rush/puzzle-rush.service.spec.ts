@@ -5,7 +5,7 @@ jest.mock('../redis/redis.service', () => ({
   RedisService: jest.fn(),
 }));
 
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PuzzleRushService } from './puzzle-rush.service';
 
 describe('PuzzleRushService', () => {
@@ -88,6 +88,30 @@ describe('PuzzleRushService', () => {
 
       await expect(service.startSession(userId, '3')).rejects.toThrow(
         NotFoundException,
+      );
+    });
+
+    it('should throw InternalServerErrorException on Redis get failure', async () => {
+      redis.get.mockRejectedValue(new Error('Redis connection refused'));
+
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+
+    it('should throw InternalServerErrorException on Prisma failure', async () => {
+      prisma.user.findUniqueOrThrow.mockRejectedValue(new Error('Prisma connection error'));
+
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+
+    it('should throw InternalServerErrorException on Redis set failure', async () => {
+      redis.set.mockRejectedValue(new Error('Redis write error'));
+
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        InternalServerErrorException,
       );
     });
   });
