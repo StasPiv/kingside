@@ -251,12 +251,48 @@ describe('PuzzleRush Controller E2E', () => {
       await appNoAuth.close();
     });
 
-    it('should reject unauthenticated request', async () => {
+    it('should reject unauthenticated POST /start', async () => {
       const res = await request(appNoAuth.getHttpServer())
         .post(`${BASE}/start`)
         .send({ timeMode: '3' });
 
       expect(res.status).toBe(403);
+    });
+
+    it('should reject unauthenticated GET /session', async () => {
+      const res = await request(appNoAuth.getHttpServer())
+        .get(`${BASE}/session`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject unauthenticated POST /solve', async () => {
+      const res = await request(appNoAuth.getHttpServer())
+        .post(`${BASE}/solve`)
+        .send({ uci: 'e2e4' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject unauthenticated DELETE /session', async () => {
+      const res = await request(appNoAuth.getHttpServer())
+        .delete(`${BASE}/session`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should reject unauthenticated GET /best', async () => {
+      const res = await request(appNoAuth.getHttpServer())
+        .get(`${BASE}/best?timeMode=3`);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('should allow unauthenticated GET /leaderboard (KS-238 fix)', async () => {
+      const res = await request(appNoAuth.getHttpServer())
+        .get(`${BASE}/leaderboard?timeMode=3`);
+
+      expect(res.status).toBe(200);
     });
   });
 });

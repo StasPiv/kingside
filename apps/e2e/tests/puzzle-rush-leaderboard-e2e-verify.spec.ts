@@ -298,17 +298,19 @@ test.describe('KS-234: E2E верификация Puzzle Rush Leaderboard', () =
     await expect(page.locator('.rush-lb-empty')).toHaveText('Результатов пока нет');
   });
 
-  // --- Сценарий 7: Защита роута ProtectedRoute ---
+  // --- Сценарий 7: Публичный роут (KS-238 fix) ---
 
-  test('7.1 неавторизованный пользователь перенаправляется на /login', async ({ page }) => {
+  test('7.1 неавторизованный пользователь видит leaderboard без редиректа', async ({ page }) => {
+    await mockLeaderboardApi(page);
     await page.goto('/puzzle-rush/leaderboard');
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page).toHaveURL(/\/puzzle-rush\/leaderboard/);
+    await expect(page.locator('.rush-leaderboard-page')).toBeVisible();
   });
 
-  test('7.2 страница leaderboard недоступна без токена', async ({ page }) => {
+  test('7.2 страница leaderboard доступна без токена', async ({ page }) => {
+    await mockLeaderboardApi(page);
     await page.goto('/puzzle-rush/leaderboard');
 
-    // Не должно быть элементов leaderboard
-    await expect(page.locator('.rush-leaderboard-page')).not.toBeVisible();
+    await expect(page.locator('.rush-leaderboard-page')).toBeVisible();
   });
 });
