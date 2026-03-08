@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { api } from '../api';
@@ -11,6 +12,7 @@ type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
 
 export function PuzzlePage() {
   const { t } = useTranslation();
+  const { id: puzzleId } = useParams<{ id?: string }>();
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [game, setGame] = useState<Chess | null>(null);
   const [status, setStatus] = useState<PuzzleStatus>('thinking');
@@ -33,11 +35,12 @@ export function PuzzlePage() {
     return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
   }, [puzzle, game]);
 
-  const loadPuzzle = useCallback(async () => {
+  const loadPuzzle = useCallback(async (id?: string) => {
     setLoading(true);
     setError('');
     try {
-      const data = await api.get<PuzzleDto>('/api/puzzles/random');
+      const url = id ? `/api/puzzles/${encodeURIComponent(id)}` : '/api/puzzles/random';
+      const data = await api.get<PuzzleDto>(url);
       setPuzzle(data);
       const moves = data.moves.split(' ');
       setPuzzleMoves(moves);
@@ -58,8 +61,8 @@ export function PuzzlePage() {
   }, []);
 
   useEffect(() => {
-    loadPuzzle();
-  }, [loadPuzzle]);
+    loadPuzzle(puzzleId);
+  }, [loadPuzzle, puzzleId]);
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
@@ -150,7 +153,7 @@ export function PuzzlePage() {
     return (
       <div className="puzzle-page">
         <div className="error">{error}</div>
-        <button onClick={loadPuzzle} style={{ marginTop: 16 }}>{t('puzzle.retry')}</button>
+        <button onClick={() => loadPuzzle(puzzleId)} style={{ marginTop: 16 }}>{t('puzzle.retry')}</button>
       </div>
     );
   }

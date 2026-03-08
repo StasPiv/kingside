@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { PuzzleDto, PuzzleTheme } from '@kingside/shared';
@@ -48,6 +49,7 @@ const PAGE_SIZE = 20;
 
 export function PuzzleBrowserPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { user } = useAuth();
 
   const [puzzles, setPuzzles] = useState<PuzzleDto[]>([]);
@@ -186,7 +188,7 @@ export function PuzzleBrowserPage() {
                 </div>
                 <button
                   className="puzzle-solve-btn"
-                  onClick={() => window.location.href = `/puzzles/${puzzle.id}`}
+                  onClick={() => navigate(`/puzzles/${puzzle.id}`)}
                 >
                   {t('puzzleBrowser.solve')}
                 </button>
