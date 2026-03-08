@@ -4,14 +4,13 @@ import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { useContainerWidth } from '../hooks/useContainerWidth';
-import type { PuzzleDto } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
 
 type RushScreen = 'start' | 'playing' | 'result';
 type TimeLimitOption = 180 | 300;
 
-const MAX_LIVES = 2;
+const MAX_LIVES = 3;
 
 export function PuzzleRushPage() {
   const { t } = useTranslation();
@@ -21,52 +20,35 @@ export function PuzzleRushPage() {
   const [timeLimit, setTimeLimit] = useState<TimeLimitOption>(180);
 
   // Session state
-  const [sessionId, setSessionId] = useState('');
-  const [solved, setSolved] = useState(0);
+  const [score, setScore] = useState(0);
   const [lives, setLives] = useState(MAX_LIVES);
   const [timeLeft, setTimeLeft] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Puzzle state
-  const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
-  const [nextPuzzle, setNextPuzzle] = useState<PuzzleDto | null>(null);
   const [game, setGame] = useState<Chess | null>(null);
-  const [moveIndex, setMoveIndex] = useState(0);
-  const [puzzleMoves, setPuzzleMoves] = useState<string[]>([]);
+  const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const puzzleStartTimeRef = useRef(Date.now());
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
-  const sessionIdRef = useRef('');
 
-  // Keep ref in sync
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-
-  const boardOrientation = useMemo(() => {
-    if (!puzzle) return 'white' as const;
-    const setupGame = new Chess(puzzle.fen);
-    return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
-  }, [puzzle]);
-
-  const initPuzzle = useCallback((data: PuzzleDto) => {
-    setPuzzle(data);
-    setFeedback(null);
-    const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
-    setPuzzleMoves(moves);
-
-    const chess = new Chess(data.fen);
-    if (moves.length > 0) {
-      const uci = moves[0];
-      chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-    }
+  const setupPuzzle = useCallback((fen: string, setupMove: string) => {
+    const chess = new Chess(fen);
+    // User plays opposite to the side making the setup move
+    const orientationAfterSetup = chess.turn() === 'w' ? 'black' : 'white';
+    setBoardOrientation(orientationAfterSetup);
+    // Apply setup move
+    chess.move({
+      from: setupMove.slice(0, 2),
+      to: setupMove.slice(2, 4),
+      promotion: setupMove.length > 4 ? setupMove[4] : undefined,
+    });
     setGame(chess);
-    setMoveIndex(1);
-    puzzleStartTimeRef.current = Date.now();
+    setFeedback(null);
   }, []);
 
   const stopTimer = useCallback(() => {
@@ -96,29 +78,20 @@ export function PuzzleRushPage() {
     return () => stopTimer();
   }, [screen, endGame, stopTimer]);
 
-  // Preload next puzzle
-  const preloadNext = useCallback(async (sid: string, currentPuzzleId?: string) => {
-    try {
-      const data = await puzzleApi.getNext(currentPuzzleId ? { excludeId: currentPuzzleId } : undefined);
-      setNextPuzzle(data);
-    } catch {
-      // non-critical
-    }
-  }, []);
-
   const handleStart = async () => {
     setLoading(true);
     setError('');
     try {
       const data = await puzzleApi.startRush({ timeLimitSec: timeLimit });
-      setSessionId(data.session.id);
-      setSolved(0);
+      setScore(0);
       setLives(MAX_LIVES);
       setTimeLeft(timeLimit);
-      setNextPuzzle(null);
-      initPuzzle(data.puzzle);
+
+      const moves = Array.isArray(data.puzzle.moves)
+        ? data.puzzle.moves
+        : data.puzzle.moves.split(' ');
+      setupPuzzle(data.puzzle.fen, moves[0]);
       setScreen('playing');
-      preloadNext(data.session.id, data.puzzle.id);
     } catch {
       setError(t('puzzleRush.errorStarting'));
     } finally {
@@ -126,112 +99,82 @@ export function PuzzleRushPage() {
     }
   };
 
-  const advanceToNextPuzzle = useCallback(() => {
-    if (nextPuzzle) {
-      const np = nextPuzzle;
-      setNextPuzzle(null);
-      initPuzzle(np);
-      preloadNext(sessionIdRef.current, np.id);
-    } else {
-      // Fallback: fetch next directly
-      puzzleApi.getNext().then((data) => {
-        initPuzzle(data);
-        preloadNext(sessionIdRef.current, data.id);
-      }).catch(() => {
-        endGame();
-      });
-    }
-  }, [nextPuzzle, initPuzzle, preloadNext, endGame]);
-
-  const handlePuzzleSolved = useCallback(async () => {
-    const timeMs = Date.now() - puzzleStartTimeRef.current;
-    setSolved((s) => s + 1);
-    setFeedback('correct');
-
-    try {
-      const response = await puzzleApi.submitRushResult(sessionIdRef.current, { result: 'solved', timeMs });
-      if (response.nextPuzzle) {
-        setNextPuzzle(response.nextPuzzle);
-      }
-    } catch {
-      // non-critical
-    }
-
-    // Instant transition to next puzzle
-    setTimeout(() => {
-      advanceToNextPuzzle();
-    }, 300);
-  }, [advanceToNextPuzzle]);
-
-  const handlePuzzleFailed = useCallback(async () => {
-    const timeMs = Date.now() - puzzleStartTimeRef.current;
-    setFeedback('wrong');
-
-    try {
-      await puzzleApi.submitRushResult(sessionIdRef.current, { result: 'failed', timeMs });
-    } catch {
-      // non-critical
-    }
-
-    setLives((prev) => {
-      const newLives = prev - 1;
-      if (newLives <= 0) {
-        setTimeout(() => endGame(), 500);
-      } else {
-        setTimeout(() => advanceToNextPuzzle(), 500);
-      }
-      return newLives;
-    });
-  }, [advanceToNextPuzzle, endGame]);
+  const loadNextPuzzle = useCallback(
+    (nextPuzzle: { fen: string; setupMove: string; rating: number }) => {
+      setTimeout(() => {
+        setupPuzzle(nextPuzzle.fen, nextPuzzle.setupMove);
+      }, 300);
+    },
+    [setupPuzzle],
+  );
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
-      if (!game || !puzzle || screen !== 'playing') return false;
-      if (feedback) return false;
-      if (moveIndex >= puzzleMoves.length) return false;
+      if (!game || screen !== 'playing') return false;
+      if (feedback || submitting) return false;
 
-      const expectedMove = puzzleMoves[moveIndex];
-      const from = expectedMove.slice(0, 2);
-      const to = expectedMove.slice(2, 4);
-      const promotion = expectedMove.length > 4 ? expectedMove[4] : undefined;
-
-      if (sourceSquare !== from || targetSquare !== to) {
-        handlePuzzleFailed();
-        return false;
-      }
-
+      // Try the move locally first for immediate visual feedback
       const copy = new Chess(game.fen());
-      const move = copy.move({ from, to, promotion });
-      if (!move) {
-        handlePuzzleFailed();
-        return false;
-      }
+      const move = copy.move({ from: sourceSquare, to: targetSquare });
+      if (!move) return false;
 
+      // Build UCI string
+      const uci = sourceSquare + targetSquare + (move.promotion ?? '');
+
+      const prevFen = game.fen();
       setGame(copy);
-      const nextIndex = moveIndex + 1;
-      setMoveIndex(nextIndex);
+      setSubmitting(true);
 
-      if (nextIndex >= puzzleMoves.length) {
-        handlePuzzleSolved();
-        return true;
-      }
+      // Send to server for validation
+      puzzleApi
+        .submitRushAnswer({ uci })
+        .then((response) => {
+          setScore(response.score);
+          setLives(response.lives);
 
-      // Play opponent's response
-      setTimeout(() => {
-        const opponentMove = puzzleMoves[nextIndex];
-        const oFrom = opponentMove.slice(0, 2);
-        const oTo = opponentMove.slice(2, 4);
-        const oPromotion = opponentMove.length > 4 ? opponentMove[4] : undefined;
-        const next = new Chess(copy.fen());
-        next.move({ from: oFrom, to: oTo, promotion: oPromotion });
-        setGame(next);
-        setMoveIndex(nextIndex + 1);
-      }, 200);
+          if (response.finished) {
+            endGame();
+            return;
+          }
+
+          if (response.correct) {
+            if (response.nextPuzzle) {
+              // Puzzle fully solved, load next
+              setFeedback('correct');
+              loadNextPuzzle(response.nextPuzzle);
+            } else if (response.expectedMove) {
+              // Intermediate move — animate opponent's response
+              const opMove = response.expectedMove;
+              setTimeout(() => {
+                const next = new Chess(copy.fen());
+                next.move({
+                  from: opMove.slice(0, 2),
+                  to: opMove.slice(2, 4),
+                  promotion: opMove.length > 4 ? opMove[4] : undefined,
+                });
+                setGame(next);
+              }, 200);
+            }
+          } else {
+            // Wrong answer
+            setFeedback('wrong');
+            if (response.nextPuzzle) {
+              loadNextPuzzle(response.nextPuzzle);
+            }
+          }
+        })
+        .catch(() => {
+          // Revert on error
+          setGame(new Chess(prevFen));
+        })
+        .finally(() => {
+          setSubmitting(false);
+        });
 
       return true;
     },
-    [game, puzzle, screen, feedback, moveIndex, puzzleMoves, handlePuzzleFailed, handlePuzzleSolved],
+    [game, screen, feedback, submitting, endGame, loadNextPuzzle],
   );
 
   const boardStyle = useMemo(
@@ -310,7 +253,7 @@ export function PuzzleRushPage() {
           <h2>{t('puzzle.rush.gameOver')}</h2>
 
           <div className="rush-final-score">
-            <div className="rush-score-big">{solved}</div>
+            <div className="rush-score-big">{score}</div>
             <div className="rush-score-label">{t('puzzleRush.puzzlesSolved')}</div>
           </div>
 
@@ -341,7 +284,7 @@ export function PuzzleRushPage() {
           {formatTime(timeLeft)}
         </span>
         <div className="puzzle-rush-score">
-          <span className="rush-solved">{solved}</span>
+          <span className="rush-solved">{score}</span>
         </div>
         <span className="rush-lives" title={t('puzzle.rush.lives', { count: lives })}>
           {livesDisplay}
