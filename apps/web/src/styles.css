@@ -1367,6 +1367,114 @@ input:focus {
   color: #a0a0c0;
 }
 
+/* Profile page */
+.profile-page {
+  max-width: 640px;
+  margin: 0 auto;
+  padding-top: 24px;
+}
+
+.profile-header {
+  margin-bottom: 32px;
+}
+
+.profile-header h1 {
+  font-size: 28px;
+  margin-bottom: 4px;
+}
+
+.profile-member-since {
+  color: #a0a0c0;
+  font-size: 14px;
+}
+
+.profile-ratings {
+  margin-bottom: 32px;
+}
+
+.profile-ratings h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+.ratings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.rating-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #16213e;
+  padding: 14px 18px;
+  border-radius: 8px;
+}
+
+.rating-label {
+  color: #a0a0c0;
+  font-size: 14px;
+}
+
+.rating-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+
+.profile-games h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+.games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-record {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #16213e;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.game-opponent {
+  flex: 1;
+  color: #e0e0e0;
+}
+
+.game-tc {
+  color: #a0a0c0;
+}
+
+.game-result-badge {
+  color: #7c83ff;
+  font-weight: 600;
+}
+
+.game-date {
+  color: #666;
+  font-size: 13px;
+}
+
+.nav-user {
+  color: #a0a0c0;
+  text-decoration: none;
+}
+
+.nav-user:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+
 .loading {
   text-align: center;
   padding: 40px;
