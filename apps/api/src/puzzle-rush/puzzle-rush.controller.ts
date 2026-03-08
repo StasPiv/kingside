@@ -38,11 +38,6 @@ export class PuzzleRushController {
     return this.puzzleRushService.submitAnswer(req.user.id, dto.uci);
   }
 
-  @Post('solve')
-  solve(@Request() req: any, @Body() dto: SubmitPuzzleAnswerDto) {
-    return this.puzzleRushService.submitAnswer(req.user.id, dto.uci);
-  }
-
   @Delete('session')
   endSession(@Request() req: any) {
     return this.puzzleRushService.endSession(req.user.id);
