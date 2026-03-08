@@ -165,7 +165,7 @@ export function PuzzlePage() {
     [game, onPieceDrop, boardOrientation, boardStyle],
   );
 
-  const handleNext = async () => {
+  const handleNext = useCallback(async () => {
     const nextPuzzle = await submitAttemptResult(status === 'correct');
     if (nextPuzzle) {
       initPuzzle(nextPuzzle);
@@ -173,7 +173,16 @@ export function PuzzlePage() {
       // Fallback: if submitAttempt didn't return nextPuzzle (e.g. attempt was already submitted)
       await loadPuzzle();
     }
-  };
+  }, [submitAttemptResult, status, initPuzzle, loadPuzzle]);
+
+  // Auto-advance to next puzzle after successful solve
+  useEffect(() => {
+    if (status !== 'correct') return;
+    const timer = setTimeout(() => {
+      handleNext();
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [status, handleNext]);
 
   const handleRetry = () => {
     if (!puzzle) return;
