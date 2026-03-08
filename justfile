@@ -11,6 +11,18 @@ down:
 clean:
     docker compose down -v
 
+# View API logs (production). Usage: just logs [lines]
+logs lines="100":
+    docker compose logs api --tail {{lines}} --timestamps
+
+# Follow API logs in real-time
+logs-follow:
+    docker compose logs api -f --timestamps
+
+# View API logs filtered by level. Usage: just logs-grep "ERROR"
+logs-grep pattern:
+    docker compose logs api --no-color | grep -i "{{pattern}}"
+
 # --- internal recipes ---
 
 # Copy .env files if missing
