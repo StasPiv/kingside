@@ -140,7 +140,7 @@ export class PuzzleRushService {
     timeMode: string;
     elapsedMs: number;
     durationMs: number;
-    puzzle: { fen: string } | null;
+    puzzle: { fen: string; rating: number } | null;
   }> {
     const session = await this.loadSession(userId);
 
@@ -154,7 +154,7 @@ export class PuzzleRushService {
       timeMode: session.timeMode,
       elapsedMs: Date.now() - session.startedAt,
       durationMs: session.durationMs,
-      puzzle: puzzle ? { fen: puzzle.fen } : null,
+      puzzle: puzzle ? { fen: puzzle.fen, rating: puzzle.rating } : null,
     };
   }
 

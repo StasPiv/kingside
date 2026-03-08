@@ -244,6 +244,7 @@ describe('PuzzleRushService', () => {
       expect(result.lives).toBe(2);
       expect(result.timeMode).toBe('3');
       expect(result.elapsedMs).toBeGreaterThan(0);
+      expect(result.puzzle).toEqual({ fen: mockPuzzle.fen, rating: mockPuzzle.rating });
     });
 
     it('should throw NotFoundException with SESSION_NOT_FOUND errorCode when no active session', async () => {
