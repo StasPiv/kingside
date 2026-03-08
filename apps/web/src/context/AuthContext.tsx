@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import type { User } from '@kingside/shared';
+import type { User, AuthTokenResponse } from '@kingside/shared';
 import { api } from '../api';
 import { socket, matchmakingSocket } from '../socket';
 import i18n from '../i18n/index';
@@ -62,14 +62,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state.token]);
 
   const login = async (username: string, password: string) => {
-    const { accessToken, refreshToken } = await api.post<{ accessToken: string; refreshToken: string }>('/api/auth/login', { username, password });
+    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/api/auth/login', { username, password });
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken }));
   };
 
   const register = async (username: string, email: string, password: string) => {
-    const { accessToken, refreshToken } = await api.post<{ accessToken: string; refreshToken: string }>('/api/auth/register', { username, email, password });
+    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/api/auth/register', { username, email, password });
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken }));

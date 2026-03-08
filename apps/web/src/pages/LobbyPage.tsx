@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 import { api } from '../api';
-import { MatchmakingEvents, type CustomTimeControl } from '@kingside/shared';
+import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse } from '@kingside/shared';
 
 type PieceColor = 'white' | 'black' | 'random';
 type TimeControlCategory = 'bullet' | 'blitz' | 'rapid' | 'classical';
@@ -112,7 +112,7 @@ export function LobbyPage() {
   const handlePlayBot = async () => {
     setStartingBot(true);
     try {
-      const game = await api.post<{ id: string }>('/api/games/bot', {
+      const game = await api.post<CreateGameResponse>('/api/games/bot', {
         color: botColor,
         botLevel,
         timeControl: botTC,
