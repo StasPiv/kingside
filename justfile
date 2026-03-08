@@ -54,6 +54,11 @@ _dev:
 # Start webhook server + SSH tunnel
 webhook:
     #!/usr/bin/env bash
+    if [ -f .env ]; then
+        set -a
+        source .env
+        set +a
+    fi
     pkill -f "python3.*webhook-server.py" 2>/dev/null || true
     pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
     sleep 1
