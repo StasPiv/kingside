@@ -3,10 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
-<<<<<<< HEAD
-import { api } from '../api';
-=======
->>>>>>> feature/KS-177
 import { puzzleApi } from '../api-puzzle';
 import type { PuzzleDto } from '@kingside/shared';
 
@@ -153,8 +149,9 @@ export function PuzzlePage() {
       onPieceDrop: onPieceDrop,
       boardOrientation: boardOrientation,
       animationDurationInMs: 200,
+      ...(boardWidth > 0 && { boardWidth }),
     }),
-    [game, onPieceDrop, boardOrientation],
+    [game, onPieceDrop, boardOrientation, boardWidth],
   );
 
   const handleNext = async () => {
