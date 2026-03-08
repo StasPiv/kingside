@@ -8,7 +8,7 @@ export type PuzzleNextParams = {
 };
 
 export type PuzzleAttemptRequest = {
-  solved: boolean;
+  result: PuzzleAttemptResult;
   timeMs: number;
 };
 
