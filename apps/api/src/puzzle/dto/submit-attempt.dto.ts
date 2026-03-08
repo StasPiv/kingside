@@ -1,9 +1,9 @@
-import { IsIn, IsInt, IsString, Min } from 'class-validator';
+import { IsIn, IsInt, Min } from 'class-validator';
+import type { PuzzleAttemptRequest, PuzzleAttemptResult } from '@kingside/shared';
 
-export class SubmitAttemptDto {
-  @IsString()
+export class SubmitAttemptDto implements PuzzleAttemptRequest {
   @IsIn(['solved', 'failed'])
-  result!: 'solved' | 'failed';
+  result!: PuzzleAttemptResult;
 
   @IsInt()
   @Min(0)

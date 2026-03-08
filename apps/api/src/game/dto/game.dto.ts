@@ -1,6 +1,7 @@
 import { IsIn, IsInt, IsString, IsUUID, Max, Min } from 'class-validator';
+import type { WsGameMovePayload, CreateGameWithBotRequest } from '@kingside/shared';
 
-export class MoveDto {
+export class MoveDto implements WsGameMovePayload {
   @IsUUID()
   gameId!: string;
 
@@ -13,7 +14,7 @@ export class GameIdDto {
   gameId!: string;
 }
 
-export class CreateGameWithBotDto {
+export class CreateGameWithBotDto implements CreateGameWithBotRequest {
   @IsIn(['white', 'black', 'random'])
   color!: 'white' | 'black' | 'random';
 

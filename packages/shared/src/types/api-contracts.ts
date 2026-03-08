@@ -123,7 +123,7 @@ export type DailySolveRequest = {
 // ─── Puzzle Rush (REST) ─────────────────────────────────────────────
 
 export type PuzzleRushStartRequest = {
-  timeLimitSec: 180 | 300;
+  timeMode: '3' | '5';
 };
 
 export type PuzzleRushSessionInfo = {

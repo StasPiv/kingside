@@ -1,6 +1,7 @@
 import { IsIn } from 'class-validator';
+import type { UpdateSettingsRequest, Locale } from '@kingside/shared';
 
-export class UpdateSettingsDto {
+export class UpdateSettingsDto implements UpdateSettingsRequest {
   @IsIn(['en', 'ru'])
-  locale!: string;
+  locale!: Locale;
 }
