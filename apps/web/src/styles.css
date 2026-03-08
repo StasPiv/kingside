@@ -1444,8 +1444,8 @@ input:focus {
 }
 
 .puzzle-page .board-container {
-  max-width: min(calc(100vh - 190px), calc(100vw - 32px));
-  max-height: min(calc(100vh - 190px), calc(100vw - 32px));
+  max-width: min(calc(100vh - 250px), calc(100vw - 32px));
+  max-height: min(calc(100vh - 250px), calc(100vw - 32px));
 }
 
 .puzzle-page h1 {
@@ -1552,6 +1552,11 @@ input:focus {
   .board-container {
     max-width: min(calc(100vh - 190px), calc(100vw - 16px));
     max-height: min(calc(100vh - 190px), calc(100vw - 16px));
+  }
+
+  .puzzle-page .board-container {
+    max-width: min(calc(100vh - 250px), calc(100vw - 16px));
+    max-height: min(calc(100vh - 250px), calc(100vw - 16px));
   }
 
   .game-sidebar,
