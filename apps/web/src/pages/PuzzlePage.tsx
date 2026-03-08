@@ -77,7 +77,7 @@ export function PuzzlePage() {
     attemptSubmittedRef.current = true;
     const timeMs = Date.now() - startTimeRef.current;
     try {
-      await api.post(`/api/puzzles/${encodeURIComponent(puzzle.id)}/attempt`, { solved, timeMs });
+      await api.post(`/api/puzzles/${encodeURIComponent(puzzle.id)}/attempt`, { result: solved ? 'solved' : 'failed', timeMs });
     } catch {
       // non-critical: attempt recording failed, don't block UX
     }
