@@ -38,8 +38,8 @@ import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
     UserModule,
     GameModule,
     MatchmakingModule,
-    PuzzleModule,
     PuzzleRushModule,
+    PuzzleModule,
   ],
 })
 export class AppModule {}
