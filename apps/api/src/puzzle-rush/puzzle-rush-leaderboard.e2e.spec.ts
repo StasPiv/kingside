@@ -432,11 +432,13 @@ describe('KS-225: Puzzle Rush Leaderboard E2E', () => {
       await appNoAuth.close();
     });
 
-    it('should reject unauthenticated leaderboard request', async () => {
+    it('should allow unauthenticated leaderboard request (public endpoint)', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+
       const res = await request(appNoAuth.getHttpServer())
         .get(`${BASE}/leaderboard?timeMode=3`);
 
-      expect(res.status).toBe(403);
+      expect(res.status).toBe(200);
     });
 
     it('should reject unauthenticated best score request', async () => {
