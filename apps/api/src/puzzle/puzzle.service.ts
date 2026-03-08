@@ -17,7 +17,7 @@ export class PuzzleService {
    * Get a puzzle matching the user's current rating (±200 range).
    * Excludes puzzles the user has already attempted.
    */
-  async getNextPuzzle(userId: string) {
+  async getNextPuzzle(userId: string, excludeId?: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { ratingPuzzle: true },
@@ -33,6 +33,9 @@ export class PuzzleService {
       distinct: ['puzzleId'],
     });
     const excludeIds = solvedIds.map((a) => a.puzzleId);
+    if (excludeId && !excludeIds.includes(excludeId)) {
+      excludeIds.push(excludeId);
+    }
 
     const puzzles = await this.prisma.puzzle.findMany({
       where: {

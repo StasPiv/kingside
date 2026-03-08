@@ -35,8 +35,11 @@ export class PuzzleController {
 
   @UseGuards(JwtAuthGuard)
   @Get('next')
-  getNextPuzzle(@Request() req: any) {
-    return this.puzzleService.getNextPuzzle(req.user.id);
+  getNextPuzzle(
+    @Request() req: any,
+    @Query('excludeId') excludeId?: string,
+  ) {
+    return this.puzzleService.getNextPuzzle(req.user.id, excludeId);
   }
 
   /**
@@ -79,7 +82,7 @@ export class PuzzleController {
     return this.puzzleService.submitAttempt(
       req.user.id,
       id,
-      dto.solved,
+      dto.result === 'solved',
       dto.timeMs,
     );
   }
