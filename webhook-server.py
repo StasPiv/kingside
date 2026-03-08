@@ -31,6 +31,51 @@ JIRA_TARGET_ISSUE = os.environ.get("JIRA_TARGET_ISSUE", "KS-118")
 AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
 
+def extract_text_from_adf(node):
+    """Рекурсивно извлекает текст из ADF (Atlassian Document Format).
+
+    Обрабатывает все типы нод: text, mention, inlineCard, hardBreak и др.
+    """
+    if isinstance(node, str):
+        return node
+
+    if not isinstance(node, dict):
+        return ""
+
+    node_type = node.get("type", "")
+
+    # Листовые ноды с текстом
+    if node_type == "text":
+        return node.get("text", "")
+    if node_type == "mention":
+        # mention ноды хранят текст в "text" (напр. "@coordinator")
+        # или id в "attrs.id" / "attrs.text"
+        text = node.get("text", "")
+        if not text:
+            attrs = node.get("attrs", {})
+            text = attrs.get("text", "")
+        return text
+    if node_type == "inlineCard":
+        attrs = node.get("attrs", {})
+        return attrs.get("url", "") or attrs.get("title", "")
+    if node_type == "hardBreak":
+        return "\n"
+    if node_type == "emoji":
+        return node.get("attrs", {}).get("shortName", "")
+
+    # Контейнерные ноды — рекурсия по content
+    parts = []
+    for child in node.get("content", []):
+        parts.append(extract_text_from_adf(child))
+
+    separator = "\n" if node_type in ("doc", "paragraph", "bulletList",
+                                       "orderedList", "listItem",
+                                       "blockquote", "codeBlock",
+                                       "table", "tableRow", "tableCell",
+                                       "tableHeader", "heading") else ""
+    return separator.join(parts)
+
+
 def get_valid_agents():
     """Сканирует .claude/agents/ и возвращает set имён агентов."""
     agents = set()
@@ -135,13 +180,7 @@ def format_telegram_issue(event_type, payload):
         comment_author = payload.get("comment", {}).get("author", {}).get("displayName", "")
         comment_body = payload.get("comment", {}).get("body", "")
         if isinstance(comment_body, dict):
-            # ADF format — извлекаем текст
-            texts = []
-            for block in comment_body.get("content", []):
-                for item in block.get("content", []):
-                    if item.get("type") == "text":
-                        texts.append(item.get("text", ""))
-            comment_body = " ".join(texts)
+            comment_body = extract_text_from_adf(comment_body)
         preview = comment_body[:200] + ("..." if len(comment_body) > 200 else "")
         return (
             f"💬 <b>Новый комментарий</b>\n"
@@ -377,12 +416,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
             # Извлекаем текст из ADF формата (dict) или используем как строку
             if isinstance(comment_body, dict):
-                texts = []
-                for block in comment_body.get("content", []):
-                    for item in block.get("content", []):
-                        if item.get("type") == "text":
-                            texts.append(item.get("text", ""))
-                comment_text = " ".join(texts)
+                comment_text = extract_text_from_adf(comment_body)
             else:
                 comment_text = comment_body
 
