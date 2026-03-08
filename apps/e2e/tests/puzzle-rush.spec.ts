@@ -93,6 +93,19 @@ test.describe('Puzzle Rush', () => {
     await expect(page.locator('.puzzle-hint')).toBeVisible();
   });
 
+  test('should show chessboard with pieces', async ({ authenticatedPage: page }) => {
+    await page.goto('/puzzle-rush');
+    await page.locator('.play-btn').click();
+
+    // Board container should appear
+    await expect(page.locator('.board-container')).toBeVisible({
+      timeout: 10000,
+    });
+
+    const boardArea = page.locator('.board-container');
+    await expect(boardArea).not.toBeEmpty();
+  });
+
   test('should navigate to puzzle rush from nav link', async ({ authenticatedPage: page }) => {
     // Page starts at /lobby after auth fixture
     await page.getByRole('link', { name: /puzzle rush/i }).first().click();
@@ -223,7 +236,7 @@ test.describe('Puzzle Rush', () => {
   test('should show timer with low-time styling', async ({ authenticatedPage: page }) => {
     await page.goto('/puzzle-rush');
 
-    // Mock start with very short time for timer test
+    // Mock start with a simple puzzle
     await page.route('**/api/puzzle-rush/start', async (route) => {
       await route.fulfill({
         status: 200,
@@ -242,10 +255,6 @@ test.describe('Puzzle Rush', () => {
       });
     });
 
-    // Override timeLimit to be small (we can't directly, but we can test
-    // the low time class appears eventually)
-    // The .rush-time-low class appears when timeLeft <= 10
-    // This would take 170 seconds to happen naturally, so we verify the class exists in CSS
     await page.locator('.play-btn').click();
     await expect(page.locator('.rush-time')).toBeVisible({ timeout: 10_000 });
 
@@ -286,5 +295,21 @@ test.describe('Puzzle Rush', () => {
   test('should display description text on start screen', async ({ authenticatedPage: page }) => {
     await page.goto('/puzzle-rush');
     await expect(page.locator('.puzzle-rush-description')).toBeVisible();
+  });
+
+  test('should handle start with 5-minute mode', async ({ authenticatedPage: page }) => {
+    await page.goto('/puzzle-rush');
+
+    // Select 5 minutes
+    const timeControls = page.locator('.puzzle-rush-time-select .tc-btn');
+    await timeControls.nth(1).click();
+    await page.locator('.play-btn').click();
+
+    // Timer should show ~5:00
+    const timer = page.locator('.rush-time');
+    await expect(timer).toBeVisible({ timeout: 10000 });
+    const timeText = await timer.textContent();
+    // Should start at 5:00 or 4:59
+    expect(timeText).toMatch(/^[45]:\d{2}$/);
   });
 });

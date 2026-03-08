@@ -331,6 +331,228 @@ describe('PuzzleRushService', () => {
     });
   });
 
+  describe('submitAnswer — multi-move puzzles', () => {
+    const makeMultiMoveSession = (overrides = {}) => ({
+      userId,
+      timeMode: '3',
+      score: 0,
+      lives: 3,
+      currentPuzzleId: 'puzzle-multi',
+      // 4 moves: user move, opponent response, user move, (done)
+      currentMoves: ['e2e4', 'd7d5', 'e4d5', 'c7c6'],
+      currentMoveIndex: 0,
+      startedAt: Date.now(),
+      durationMs: 180000,
+      solvedPuzzleIds: [],
+      ...overrides,
+    });
+
+    it('should return opponent move on intermediate correct answer', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeMultiMoveSession()));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+
+      const result = await service.submitAnswer(userId, 'e2e4');
+
+      expect(result.correct).toBe(true);
+      expect(result.finished).toBe(false);
+      expect(result.nextPuzzle).toBeNull();
+      // Should return opponent's response move
+      expect(result.expectedMove).toBe('d7d5');
+      // Score should NOT increment on intermediate move
+      expect(result.score).toBe(0);
+    });
+
+    it('should increment score when final move of multi-move puzzle is correct', async () => {
+      const session = makeMultiMoveSession({ currentMoveIndex: 2 });
+      redis.get.mockResolvedValue(JSON.stringify(session));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+
+      const result = await service.submitAnswer(userId, 'e4d5');
+
+      expect(result.correct).toBe(true);
+      expect(result.score).toBe(1);
+      expect(result.finished).toBe(false);
+      expect(result.nextPuzzle).toBeDefined();
+    });
+
+    it('should update currentMoveIndex in session after intermediate move', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeMultiMoveSession()));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+
+      await service.submitAnswer(userId, 'e2e4');
+
+      // Verify session was saved with updated moveIndex
+      expect(redis.set).toHaveBeenCalled();
+      const savedSession = JSON.parse(redis.set.mock.calls[0][1]);
+      expect(savedSession.currentMoveIndex).toBe(2);
+    });
+  });
+
+  describe('endSession', () => {
+    it('should end session and save score to database', async () => {
+      const session = {
+        userId,
+        timeMode: '3',
+        score: 7,
+        lives: 2,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5'],
+        currentMoveIndex: 0,
+        startedAt: Date.now() - 60000,
+        durationMs: 180000,
+        solvedPuzzleIds: ['p1', 'p2'],
+      };
+      redis.get.mockResolvedValue(JSON.stringify(session));
+
+      const result = await service.endSession(userId);
+
+      expect(result.score).toBe(7);
+      expect(result.timeMode).toBe('3');
+      expect(prisma.puzzleRushScore.create).toHaveBeenCalledWith({
+        data: {
+          userId,
+          score: 7,
+          timeMode: '3',
+        },
+      });
+      expect(redis.del).toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when no session exists', async () => {
+      redis.get.mockResolvedValue(null);
+
+      await expect(service.endSession(userId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('submitAnswer — rating update (ELO)', () => {
+    const makeSession = (overrides = {}) => ({
+      userId,
+      timeMode: '3',
+      score: 0,
+      lives: 3,
+      currentPuzzleId: 'puzzle-1',
+      currentMoves: ['e7e5', 'd2d4'],
+      currentMoveIndex: 0,
+      startedAt: Date.now(),
+      durationMs: 180000,
+      solvedPuzzleIds: [],
+      ...overrides,
+    });
+
+    it('should record puzzle attempt and update user rating on correct answer', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeSession()));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+
+      await service.submitAnswer(userId, 'e7e5');
+
+      expect(prisma.puzzleAttempt.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          puzzleId: 'puzzle-1',
+          userId,
+          solved: true,
+          ratingBefore: 1500,
+        }),
+      });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { ratingPuzzle: expect.any(Number) },
+      });
+    });
+
+    it('should record puzzle attempt on wrong answer', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeSession()));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+
+      await service.submitAnswer(userId, 'a7a6');
+
+      expect(prisma.puzzleAttempt.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          puzzleId: 'puzzle-1',
+          userId,
+          solved: false,
+        }),
+      });
+    });
+
+    it('should increase rating when solving harder puzzle', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeSession()));
+      // Puzzle rating higher than user rating
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1800 });
+
+      await service.submitAnswer(userId, 'e7e5');
+
+      const updateCall = prisma.user.update.mock.calls[0][0];
+      // New rating should be higher than 1500 (user solved a harder puzzle)
+      expect(updateCall.data.ratingPuzzle).toBeGreaterThan(1500);
+    });
+
+    it('should decrease rating when failing easier puzzle', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeSession()));
+      // Puzzle rating lower than user rating
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1200 });
+
+      await service.submitAnswer(userId, 'a7a6'); // wrong
+
+      const updateCall = prisma.user.update.mock.calls[0][0];
+      // New rating should be lower than 1500
+      expect(updateCall.data.ratingPuzzle).toBeLessThan(1500);
+    });
+  });
+
+  describe('getLeaderboard — custom limit', () => {
+    it('should respect custom limit parameter', async () => {
+      await service.getLeaderboard('5', 10);
+
+      expect(prisma.puzzleRushScore.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { timeMode: '5' },
+          take: 10,
+        }),
+      );
+    });
+  });
+
+  describe('submitAnswer — no more puzzles available', () => {
+    const makeSession = (overrides = {}) => ({
+      userId,
+      timeMode: '3',
+      score: 5,
+      lives: 3,
+      currentPuzzleId: 'puzzle-1',
+      currentMoves: ['e7e5', 'd2d4'],
+      currentMoveIndex: 0,
+      startedAt: Date.now(),
+      durationMs: 180000,
+      solvedPuzzleIds: [],
+      ...overrides,
+    });
+
+    it('should finish session when no more puzzles on correct answer', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeSession()));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+      // Return empty for next puzzle search
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      const result = await service.submitAnswer(userId, 'e7e5');
+
+      expect(result.finished).toBe(true);
+      expect(result.score).toBe(6);
+    });
+
+    it('should finish session when no more puzzles on wrong answer', async () => {
+      redis.get.mockResolvedValue(JSON.stringify(makeSession()));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      const result = await service.submitAnswer(userId, 'a7a6');
+
+      expect(result.finished).toBe(true);
+    });
+  });
+
   describe('getUserBest', () => {
     it('should return best score', async () => {
       prisma.puzzleRushScore.findFirst.mockResolvedValue({ score: 12 });
