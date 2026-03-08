@@ -27,7 +27,7 @@ export type DailyPuzzleResponse = {
 };
 
 export type PuzzleRushStartRequest = {
-  timeLimitSec: number;
+  timeMode: '3' | '5';
 };
 
 export type PuzzleRushSession = {
@@ -80,7 +80,7 @@ export const puzzleApi = {
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>
-    api.post<{ session: PuzzleRushSession; puzzle: PuzzleDto }>('/api/puzzles/rush', body),
+    api.post<{ session: PuzzleRushSession; puzzle: PuzzleDto }>('/api/puzzle-rush/start', body),
 
   /** Submit puzzle rush attempt and get next puzzle */
   submitRushResult: (sessionId: string, body: PuzzleRushResultRequest) =>

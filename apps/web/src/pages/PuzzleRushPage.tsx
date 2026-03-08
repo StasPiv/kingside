@@ -110,7 +110,7 @@ export function PuzzleRushPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await puzzleApi.startRush({ timeLimitSec: timeLimit });
+      const data = await puzzleApi.startRush({ timeMode: String(timeLimit / 60) as '3' | '5' });
       setSessionId(data.session.id);
       setSolved(0);
       setLives(MAX_LIVES);
