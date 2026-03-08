@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
@@ -22,6 +22,8 @@ export function PuzzlePage() {
   const [error, setError] = useState('');
   const [streak, setStreak] = useState(0);
   const [totalSolved, setTotalSolved] = useState(0);
+  const startTimeRef = useRef(Date.now());
+  const attemptSubmittedRef = useRef(false);
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -58,6 +60,8 @@ export function PuzzlePage() {
       setGame(chess);
       setMoveIndex(1);
       setStatus('thinking');
+      startTimeRef.current = Date.now();
+      attemptSubmittedRef.current = false;
     } catch {
       setError('Failed to load puzzle');
     } finally {
@@ -68,6 +72,17 @@ export function PuzzlePage() {
   useEffect(() => {
     loadPuzzle();
   }, [loadPuzzle]);
+
+  const submitAttemptResult = useCallback(async (solved: boolean) => {
+    if (!puzzle || attemptSubmittedRef.current) return;
+    attemptSubmittedRef.current = true;
+    const timeMs = Date.now() - startTimeRef.current;
+    try {
+      await api.post(`/api/puzzles/${encodeURIComponent(puzzle.id)}/attempt`, { solved, timeMs });
+    } catch {
+      // non-critical: attempt recording failed, don't block UX
+    }
+  }, [puzzle]);
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
@@ -83,6 +98,7 @@ export function PuzzlePage() {
       if (sourceSquare !== from || targetSquare !== to) {
         setStatus('incorrect');
         setStreak(0);
+        submitAttemptResult(false);
         return false;
       }
 
@@ -91,6 +107,7 @@ export function PuzzlePage() {
       if (!move) {
         setStatus('incorrect');
         setStreak(0);
+        submitAttemptResult(false);
         return false;
       }
 
@@ -103,6 +120,7 @@ export function PuzzlePage() {
         setStatus('correct');
         setStreak((s) => s + 1);
         setTotalSolved((n) => n + 1);
+        submitAttemptResult(true);
         return true;
       }
 
@@ -120,7 +138,7 @@ export function PuzzlePage() {
 
       return true;
     },
-    [game, puzzle, status, moveIndex, puzzleMoves],
+    [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
   );
 
   const boardOptions = useMemo(
