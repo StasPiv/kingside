@@ -21,10 +21,13 @@ model User {
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
   locale          String   @default("en") @map("locale")
 
-  whiteGames   Game[]        @relation("WhitePlayer")
-  blackGames   Game[]        @relation("BlackPlayer")
-  chatMessages ChatMessage[]
-  timeControls UserTimeControl[]
+  ratingPuzzle    Int      @default(1500) @map("rating_puzzle")
+
+  whiteGames     Game[]          @relation("WhitePlayer")
+  blackGames     Game[]          @relation("BlackPlayer")
+  chatMessages   ChatMessage[]
+  timeControls   UserTimeControl[]
+  puzzleAttempts PuzzleAttempt[]
 
   @@map("users")
 }
@@ -143,4 +146,40 @@ model UserTimeControl {
 
   @@index([userId])
   @@map("user_time_controls")
+}
+
+model Puzzle {
+  id          String  @id
+  fen         String
+  moves       String
+  rating      Int
+  ratingDev   Int     @map("rating_dev")
+  popularity  Int
+  nbPlays     Int     @map("nb_plays")
+  themes      String
+  gameUrl     String  @map("game_url")
+  openingTags String  @map("opening_tags")
+
+  attempts PuzzleAttempt[]
+
+  @@index([rating])
+  @@index([themes])
+  @@map("puzzles")
+}
+
+model PuzzleAttempt {
+  id           String   @id @default(uuid()) @db.Uuid
+  puzzleId     String   @map("puzzle_id")
+  userId       String   @map("user_id") @db.Uuid
+  solved       Boolean
+  ratingBefore Int      @map("rating_before")
+  ratingAfter  Int      @map("rating_after")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([puzzleId])
+  @@map("puzzle_attempts")
 }
