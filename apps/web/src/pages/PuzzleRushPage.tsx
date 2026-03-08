@@ -92,8 +92,9 @@ export function PuzzleRushPage() {
         : data.puzzle.moves.split(' ');
       setupPuzzle(data.puzzle.fen, moves[0]);
       setScreen('playing');
-    } catch {
-      setError(t('puzzleRush.errorStarting'));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '';
+      setError(message || t('puzzleRush.errorStarting'));
     } finally {
       setLoading(false);
     }
