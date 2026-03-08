@@ -69,26 +69,35 @@ describe('PuzzleRushService', () => {
       expect(result.durationMs).toBe(300000);
     });
 
-    it('should throw BadRequestException if session already exists', async () => {
+    it('should throw BadRequestException with SESSION_EXISTS errorCode if session already exists', async () => {
       redis.get.mockResolvedValue(JSON.stringify({ userId }));
 
       await expect(service.startSession(userId, '3')).rejects.toThrow(
         BadRequestException,
       );
+      await expect(service.startSession(userId, '3')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'SESSION_EXISTS' }),
+      });
     });
 
-    it('should throw BadRequestException for invalid time mode', async () => {
+    it('should throw BadRequestException with INVALID_TIME_MODE errorCode for invalid time mode', async () => {
       await expect(service.startSession(userId, '10')).rejects.toThrow(
         BadRequestException,
       );
+      await expect(service.startSession(userId, '10')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'INVALID_TIME_MODE' }),
+      });
     });
 
-    it('should throw NotFoundException when no puzzles available', async () => {
+    it('should throw NotFoundException with NO_PUZZLES errorCode when no puzzles available', async () => {
       prisma.puzzle.findMany.mockResolvedValue([]);
 
       await expect(service.startSession(userId, '3')).rejects.toThrow(
         NotFoundException,
       );
+      await expect(service.startSession(userId, '3')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'NO_PUZZLES' }),
+      });
     });
 
     it('should throw InternalServerErrorException on Redis get failure', async () => {

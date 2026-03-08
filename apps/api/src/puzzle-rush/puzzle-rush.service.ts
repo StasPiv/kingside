@@ -41,21 +41,34 @@ export class PuzzleRushService {
     durationMs: number;
     lives: number;
   }> {
+    this.logger.log(`startSession called: userId=${userId}, timeMode=${timeMode}`);
+
     let existing: string | null;
     try {
       existing = await this.redis.get(this.sessionKey(userId));
     } catch (error) {
       this.logger.error(`Redis error checking existing session for user ${userId}`, error?.stack || error);
-      throw new InternalServerErrorException('Failed to check existing session');
+      throw new InternalServerErrorException({
+        message: 'Failed to check existing session',
+        errorCode: 'INTERNAL_ERROR',
+      });
     }
 
     if (existing) {
-      throw new BadRequestException('Active Puzzle Rush session already exists');
+      this.logger.warn(`Session already exists for user ${userId}`);
+      throw new BadRequestException({
+        message: 'Active Puzzle Rush session already exists',
+        errorCode: 'SESSION_EXISTS',
+      });
     }
 
     const durationMs = TIME_MODES[timeMode];
     if (!durationMs) {
-      throw new BadRequestException('Invalid time mode');
+      this.logger.warn(`Invalid time mode "${timeMode}" requested by user ${userId}`);
+      throw new BadRequestException({
+        message: 'Invalid time mode',
+        errorCode: 'INVALID_TIME_MODE',
+      });
     }
 
     let puzzle: Awaited<ReturnType<typeof this.getRandomPuzzle>>;
@@ -63,11 +76,18 @@ export class PuzzleRushService {
       puzzle = await this.getRandomPuzzle(userId, []);
     } catch (error) {
       this.logger.error(`Prisma error fetching puzzle for user ${userId}`, error?.stack || error);
-      throw new InternalServerErrorException('Failed to load puzzle');
+      throw new InternalServerErrorException({
+        message: 'Failed to load puzzle',
+        errorCode: 'INTERNAL_ERROR',
+      });
     }
 
     if (!puzzle) {
-      throw new NotFoundException('No puzzles available');
+      this.logger.warn(`No puzzles available for user ${userId}`);
+      throw new NotFoundException({
+        message: 'No puzzles available',
+        errorCode: 'NO_PUZZLES',
+      });
     }
 
     const moves = puzzle.moves.split(' ');
@@ -97,8 +117,13 @@ export class PuzzleRushService {
       );
     } catch (error) {
       this.logger.error(`Redis error saving session for user ${userId}`, error?.stack || error);
-      throw new InternalServerErrorException('Failed to create session');
+      throw new InternalServerErrorException({
+        message: 'Failed to create session',
+        errorCode: 'INTERNAL_ERROR',
+      });
     }
+
+    this.logger.log(`Session started: userId=${userId}, timeMode=${timeMode}, puzzleId=${puzzle.id}`);
 
     return {
       sessionId: userId,
