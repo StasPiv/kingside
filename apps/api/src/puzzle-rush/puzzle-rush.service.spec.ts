@@ -186,11 +186,37 @@ describe('PuzzleRushService', () => {
       expect(result.finished).toBe(true);
     });
 
-    it('should throw NotFoundException when no active session', async () => {
+    it('should throw NotFoundException with SESSION_NOT_FOUND errorCode when no active session', async () => {
       redis.get.mockResolvedValue(null);
 
       await expect(service.submitAnswer(userId, 'e2e4')).rejects.toThrow(
         NotFoundException,
+      );
+      await expect(service.submitAnswer(userId, 'e2e4')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'SESSION_NOT_FOUND' }),
+      });
+    });
+
+    it('should throw InternalServerErrorException on Redis failure during loadSession', async () => {
+      redis.get.mockRejectedValue(new Error('Redis connection refused'));
+
+      await expect(service.submitAnswer(userId, 'e2e4')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      await expect(service.submitAnswer(userId, 'e2e4')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'INTERNAL_ERROR' }),
+      });
+    });
+
+    it('should throw InternalServerErrorException on Redis failure during saveSession', async () => {
+      const session = makeSession();
+      redis.get.mockResolvedValue(JSON.stringify(session));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+      // First set succeeds (loadSession), second fails (saveSession)
+      redis.set.mockRejectedValue(new Error('Redis write error'));
+
+      await expect(service.submitAnswer(userId, 'a7a6')).rejects.toThrow(
+        InternalServerErrorException,
       );
     });
   });
@@ -220,10 +246,13 @@ describe('PuzzleRushService', () => {
       expect(result.elapsedMs).toBeGreaterThan(0);
     });
 
-    it('should throw NotFoundException when no active session', async () => {
+    it('should throw NotFoundException with SESSION_NOT_FOUND errorCode when no active session', async () => {
       redis.get.mockResolvedValue(null);
 
       await expect(service.getSession(userId)).rejects.toThrow(NotFoundException);
+      await expect(service.getSession(userId)).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'SESSION_NOT_FOUND' }),
+      });
     });
   });
 
