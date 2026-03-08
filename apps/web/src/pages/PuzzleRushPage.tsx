@@ -82,7 +82,7 @@ export function PuzzleRushPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await puzzleApi.startRush({ timeMode: timeLimit === 180 ? '3' : '5' });
+      const data = await puzzleApi.startRush({ timeLimitSec: timeLimit });
       setScore(0);
       setLives(MAX_LIVES);
       setTimeLeft(timeLimit);
