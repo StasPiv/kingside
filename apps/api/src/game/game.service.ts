@@ -6,6 +6,7 @@ import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
 import { RatingService } from './rating.service';
 import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, DEFAULT_CATEGORY_TC, classifyTimeControl } from '@kingside/shared';
+import { GameResult, Termination } from '../generated/prisma/enums';
 
 interface GameState {
   fen: string;
@@ -206,8 +207,8 @@ export class GameService {
     });
 
     let gameOver = false;
-    let result: 'white' | 'black' | 'draw' | undefined;
-    let termination: string | undefined;
+    let result: GameResult | undefined;
+    let termination: Termination | undefined;
 
     if (chess.isCheckmate()) {
       result = activeColor;
@@ -299,8 +300,8 @@ export class GameService {
 
   private async endGame(
     gameId: string,
-    result: 'white' | 'black' | 'draw',
-    termination: string,
+    result: GameResult,
+    termination: Termination,
   ): Promise<void> {
     await this.redis.hset(this.stateKey(gameId), { status: 'finished' });
     await this.clockService.stopClock(gameId);
@@ -311,8 +312,8 @@ export class GameService {
       where: { id: gameId },
       data: {
         status: 'finished',
-        result: result as any,
-        termination: termination as any,
+        result,
+        termination,
         finalFen: raw.fen,
         finishedAt: new Date(),
       },
