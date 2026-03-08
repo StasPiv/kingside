@@ -1215,6 +1215,108 @@ input:focus {
   color: #ef4444;
 }
 
+.rush-leaderboard-link {
+  display: inline-block;
+  margin-top: 16px;
+  color: #7c83ff;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.rush-leaderboard-link:hover {
+  text-decoration: underline;
+}
+
+/* Puzzle Rush Leaderboard */
+.rush-leaderboard-page {
+  text-align: center;
+  padding-top: 40px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.rush-leaderboard-page h1 {
+  margin-bottom: 20px;
+}
+
+.rush-lb-mode-tabs {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.rush-lb-empty {
+  color: #666;
+  padding: 40px;
+}
+
+.rush-lb-table {
+  text-align: left;
+  margin-bottom: 24px;
+}
+
+.rush-lb-header-row {
+  display: flex;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: #666;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.rush-lb-row {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.rush-lb-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rush-lb-row-current {
+  background: rgba(124, 131, 255, 0.12);
+  border-radius: 6px;
+}
+
+.rush-lb-row-current:hover {
+  background: rgba(124, 131, 255, 0.18);
+}
+
+.rush-lb-col-rank {
+  min-width: 40px;
+  color: #666;
+  font-weight: 600;
+}
+
+.rush-lb-col-name {
+  flex: 1;
+}
+
+.rush-lb-col-score {
+  min-width: 60px;
+  text-align: right;
+  font-weight: 700;
+  color: #7c83ff;
+}
+
+.rush-lb-back-link {
+  display: inline-block;
+  padding: 10px 24px;
+  background: #16213e;
+  border-radius: 8px;
+  color: #7c83ff;
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+.rush-lb-back-link:hover {
+  background: #1e2d50;
+  text-decoration: none;
+}
+
 .puzzle-rush-result {
   padding-top: 20px;
 }

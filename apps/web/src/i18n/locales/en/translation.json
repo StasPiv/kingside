@@ -5,7 +5,8 @@
     "login": "Login",
     "register": "Register",
     "puzzles": "Puzzles",
-    "puzzleRush": "Puzzle Rush"
+    "puzzleRush": "Puzzle Rush",
+    "rushLeaderboard": "Leaderboard"
   },
   "settings": {
     "title": "Settings",
@@ -199,6 +200,14 @@
       "threeMinutes": "3 Minutes",
       "fiveMinutes": "5 Minutes"
     }
+  },
+  "rushLeaderboard": {
+    "title": "Puzzle Rush Leaderboard",
+    "player": "Player",
+    "score": "Score",
+    "empty": "No results yet",
+    "error": "Failed to load leaderboard",
+    "backToRush": "Back to Puzzle Rush"
   },
   "puzzleBrowser": {
     "title": "Puzzles",
