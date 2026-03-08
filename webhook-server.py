@@ -6,8 +6,11 @@ import re
 import subprocess
 import os
 import sys
+import time
+import threading
 import urllib.request
 import urllib.parse
+import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
@@ -19,6 +22,11 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9876
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+
+JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
+JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
+JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
+JIRA_TARGET_ISSUE = os.environ.get("JIRA_TARGET_ISSUE", "KS-118")
 
 AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
@@ -223,6 +231,104 @@ def launch_agent(key, summary, agent, prompt=None):
     log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
 
 
+def add_jira_comment(issue_key, text):
+    """Добавляет комментарий в Jira-задачу через REST API."""
+    if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
+        log("Jira API не настроен: пропуск добавления комментария")
+        return False
+
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/comment"
+    auth = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
+
+    body = {
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": text},
+                        {"type": "text", "text": " "},
+                        {"type": "text", "text": "@coordinator"},
+                    ],
+                }
+            ],
+        }
+    }
+
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Authorization", f"Basic {auth}")
+    req.add_header("Content-Type", "application/json")
+
+    try:
+        resp = urllib.request.urlopen(req, timeout=15)
+        log(f"Комментарий добавлен в {issue_key} (HTTP {resp.status})")
+        return True
+    except Exception as e:
+        log(f"Ошибка добавления комментария в {issue_key}: {e}")
+        return False
+
+
+def telegram_poll_loop():
+    """Поллинг Telegram getUpdates — пересылает сообщения в Jira."""
+    if not TELEGRAM_BOT_TOKEN:
+        log("Telegram polling: TELEGRAM_BOT_TOKEN не задан, поллинг отключён")
+        return
+
+    offset = 0
+    poll_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates"
+    log("Telegram polling запущен")
+
+    while True:
+        params = urllib.parse.urlencode({
+            "offset": offset,
+            "timeout": 30,
+            "allowed_updates": json.dumps(["message"]),
+        })
+        try:
+            req = urllib.request.Request(f"{poll_url}?{params}")
+            resp = urllib.request.urlopen(req, timeout=60)
+            data = json.loads(resp.read().decode())
+        except Exception as e:
+            log(f"Telegram polling ошибка: {e}")
+            time.sleep(5)
+            continue
+
+        if not data.get("ok"):
+            time.sleep(5)
+            continue
+
+        for update in data.get("result", []):
+            offset = update["update_id"] + 1
+            message = update.get("message", {})
+            text = message.get("text", "")
+            chat = message.get("chat", {})
+            chat_id = str(chat.get("id", ""))
+            from_user = message.get("from", {})
+            username = from_user.get("username", "")
+            first_name = from_user.get("first_name", "")
+            display = f"@{username}" if username else first_name
+
+            if not text:
+                continue
+
+            # Фильтруем: только сообщения из целевого чата
+            if TELEGRAM_CHAT_ID and chat_id != TELEGRAM_CHAT_ID:
+                continue
+
+            log(f"Telegram сообщение от {display}: {text[:100]}")
+
+            comment_text = f"[Telegram] {display}: {text}"
+            ok = add_jira_comment(JIRA_TARGET_ISSUE, comment_text)
+
+            if ok:
+                send_telegram(f"✅ Сообщение переслано в {JIRA_TARGET_ISSUE}")
+            else:
+                send_telegram(f"❌ Не удалось переслать в {JIRA_TARGET_ISSUE}")
+
+
 class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0]
@@ -342,6 +448,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # Запускаем Telegram polling в отдельном потоке (daemon — умрёт вместе с процессом)
+    poll_thread = threading.Thread(target=telegram_poll_loop, daemon=True)
+    poll_thread.start()
+
     server = HTTPServer(("127.0.0.1", PORT), WebhookHandler)
     log(f"Webhook-сервер запущен на порту {PORT}")
     try:
