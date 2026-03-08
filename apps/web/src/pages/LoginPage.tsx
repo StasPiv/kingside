@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 
@@ -7,6 +7,8 @@ export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const location = useLocation();
+  const returnUrl = (location.state as { returnUrl?: string })?.returnUrl || '/lobby';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -18,7 +20,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(username, password);
-      navigate('/lobby');
+      navigate(returnUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('auth.login.error'));
     } finally {

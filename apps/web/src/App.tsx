@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -17,8 +17,9 @@ import { useAuth } from './context/AuthContext';
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { t } = useTranslation();
+  const location = useLocation();
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" state={{ returnUrl: location.pathname }} replace />;
   return <>{children}</>;
 }
 
