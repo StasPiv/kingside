@@ -34,13 +34,7 @@ export class PuzzleRushService {
     return `puzzle_rush:${userId}:session`;
   }
 
-  async startSession(userId: string, timeMode: string): Promise<{
-    sessionId: string;
-    puzzle: { fen: string; setupMove: string; rating: number };
-    timeMode: string;
-    durationMs: number;
-    lives: number;
-  }> {
+  async startSession(userId: string, timeMode: string) {
     const existing = await this.redis.get(this.sessionKey(userId));
     if (existing) {
       throw new BadRequestException('Active Puzzle Rush session already exists');
@@ -60,7 +54,9 @@ export class PuzzleRushService {
     // In Lichess puzzles, first move is the "setup" move (opponent's last move).
     // The puzzle position is AFTER the first move is played.
     // User moves start from index 1.
-    const setupMove = moves[0];
+
+    const now = new Date();
+    const timeLimitSec = durationMs / 1000;
 
     const session: PuzzleRushSession = {
       userId,
@@ -79,15 +75,25 @@ export class PuzzleRushService {
       this.sessionKey(userId),
       JSON.stringify(session),
       'EX',
-      durationMs / 1000 + 60, // TTL slightly longer than session
+      timeLimitSec + 60, // TTL slightly longer than session
     );
 
     return {
-      sessionId: userId,
-      puzzle: { fen: puzzle.fen, setupMove, rating: puzzle.rating },
-      timeMode,
-      durationMs,
-      lives: MAX_LIVES,
+      session: {
+        id: userId,
+        solved: 0,
+        failed: 0,
+        timeLimitSec,
+        startedAt: now.toISOString(),
+        finishedAt: null,
+      },
+      puzzle: {
+        id: puzzle.id,
+        fen: puzzle.fen,
+        moves: puzzle.moves.split(' '),
+        rating: puzzle.rating,
+        themes: puzzle.themes.split(' ').filter(Boolean),
+      },
     };
   }
 
