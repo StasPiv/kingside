@@ -1,19 +1,13 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import { testI18n } from './test/test-utils';
 import { App } from './App';
 
+const mockUseAuth = vi.fn();
 vi.mock('./context/AuthContext', () => ({
-  useAuth: () => ({
-    user: null,
-    loading: false,
-    token: null,
-    login: vi.fn(),
-    register: vi.fn(),
-    logout: vi.fn(),
-  }),
+  useAuth: (...args: unknown[]) => mockUseAuth(...args),
 }));
 
 vi.mock('./layouts/MainLayout', () => ({
@@ -55,6 +49,10 @@ vi.mock('./pages/PuzzleRushLeaderboardPage', () => ({
   PuzzleRushLeaderboardPage: () => <div>Rush Leaderboard</div>,
 }));
 
+vi.mock('./pages/ProfilePage', () => ({
+  ProfilePage: () => <div>Profile</div>,
+}));
+
 function renderApp(route: string) {
   return render(
     <I18nextProvider i18n={testI18n}>
@@ -66,6 +64,17 @@ function renderApp(route: string) {
 }
 
 describe('App routing', () => {
+  beforeEach(() => {
+    mockUseAuth.mockReturnValue({
+      user: null,
+      loading: false,
+      token: null,
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+    });
+  });
+
   it('renders login page at /login for unauthenticated user', () => {
     renderApp('/login');
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
@@ -85,5 +94,23 @@ describe('App routing', () => {
   it('renders /puzzle-rush/leaderboard without auth (no redirect)', () => {
     renderApp('/puzzle-rush/leaderboard');
     expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
+  });
+
+  it('redirects /profile to /login when not authenticated', () => {
+    renderApp('/profile');
+    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  });
+
+  it('renders /profile for authenticated user', () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u1', username: 'Test' },
+      loading: false,
+      token: 'tok',
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderApp('/profile');
+    expect(screen.getByText('Profile')).toBeInTheDocument();
   });
 });
