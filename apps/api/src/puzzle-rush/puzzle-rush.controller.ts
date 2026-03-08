@@ -19,7 +19,7 @@ export class PuzzleRushController {
 
   @Post()
   start(@Request() req: any, @Body() dto: StartPuzzleRushDto) {
-    return this.puzzleRushService.startSession(req.user.id, dto.timeMode);
+    return this.puzzleRushService.startSession(req.user.id, dto.timeLimitSec);
   }
 
   @Get('session')
@@ -44,17 +44,19 @@ export class PuzzleRushController {
 
   @Get('leaderboard')
   getLeaderboard(
-    @Query('timeMode') timeMode: string = '3',
+    @Query('timeLimitSec') timeLimitSec: string = '180',
     @Query('limit') limit: string = '20',
   ) {
+    const timeMode = String(parseInt(timeLimitSec, 10) / 60);
     return this.puzzleRushService.getLeaderboard(timeMode, parseInt(limit, 10));
   }
 
   @Get('best')
   getUserBest(
     @Request() req: any,
-    @Query('timeMode') timeMode: string = '3',
+    @Query('timeLimitSec') timeLimitSec: string = '180',
   ) {
+    const timeMode = String(parseInt(timeLimitSec, 10) / 60);
     return this.puzzleRushService.getUserBest(req.user.id, timeMode);
   }
 }

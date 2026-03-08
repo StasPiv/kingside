@@ -23,10 +23,6 @@ interface PuzzleRushSession {
 }
 
 const MAX_LIVES = 3;
-const TIME_MODES: Record<string, number> = {
-  '3': 3 * 60 * 1000,
-  '5': 5 * 60 * 1000,
-};
 
 @Injectable()
 export class PuzzleRushService {
@@ -41,8 +37,8 @@ export class PuzzleRushService {
     return `puzzle_rush:${userId}:session`;
   }
 
-  async startSession(userId: string, timeMode: string) {
-    this.logger.log(`Starting Puzzle Rush session: userId=${userId}, timeMode=${timeMode}`);
+  async startSession(userId: string, timeLimitSec: number) {
+    this.logger.log(`Starting Puzzle Rush session: userId=${userId}, timeLimitSec=${timeLimitSec}`);
 
     let existing: string | null;
     try {
@@ -60,11 +56,7 @@ export class PuzzleRushService {
       throw new BadRequestException('Active Puzzle Rush session already exists');
     }
 
-    const durationMs = TIME_MODES[timeMode];
-    if (!durationMs) {
-      this.logger.warn(`Invalid time mode: ${timeMode}, userId=${userId}`);
-      throw new BadRequestException('Invalid time mode');
-    }
+    const durationMs = timeLimitSec * 1000;
 
     let puzzle: Awaited<ReturnType<typeof this.getRandomPuzzle>>;
     try {
@@ -88,11 +80,10 @@ export class PuzzleRushService {
     // User moves start from index 1.
 
     const now = new Date();
-    const timeLimitSec = durationMs / 1000;
 
     const session: PuzzleRushSession = {
       userId,
-      timeMode,
+      timeMode: String(timeLimitSec / 60),
       score: 0,
       lives: MAX_LIVES,
       currentPuzzleId: puzzle.id,
@@ -119,7 +110,7 @@ export class PuzzleRushService {
     }
 
     this.logger.log(
-      `Puzzle Rush started for ${userId}: mode=${timeMode}, puzzleId=${puzzle.id}, rating=${puzzle.rating}`,
+      `Puzzle Rush started for ${userId}: timeLimitSec=${timeLimitSec}, puzzleId=${puzzle.id}, rating=${puzzle.rating}`,
     );
 
     return {
@@ -144,7 +135,7 @@ export class PuzzleRushService {
   async getSession(userId: string): Promise<{
     score: number;
     lives: number;
-    timeMode: string;
+    timeLimitSec: number;
     elapsedMs: number;
     durationMs: number;
     puzzle: { fen: string } | null;
@@ -158,7 +149,7 @@ export class PuzzleRushService {
     return {
       score: session.score,
       lives: session.lives,
-      timeMode: session.timeMode,
+      timeLimitSec: parseInt(session.timeMode, 10) * 60,
       elapsedMs: Date.now() - session.startedAt,
       durationMs: session.durationMs,
       puzzle: puzzle ? { fen: puzzle.fen } : null,
@@ -308,14 +299,14 @@ export class PuzzleRushService {
 
   async endSession(userId: string): Promise<{
     score: number;
-    timeMode: string;
+    timeLimitSec: number;
     isHighScore: boolean;
   }> {
     const session = await this.loadSession(userId);
     const result = await this.finishSession(session, 'manual');
     return {
       score: result.score,
-      timeMode: session.timeMode,
+      timeLimitSec: parseInt(session.timeMode, 10) * 60,
       isHighScore: false, // Will be checked in finishSession
     };
   }

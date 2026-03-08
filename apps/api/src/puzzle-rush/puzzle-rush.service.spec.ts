@@ -65,7 +65,7 @@ describe('PuzzleRushService', () => {
 
   describe('startSession', () => {
     it('should start a new session with 3-minute mode', async () => {
-      const result = await service.startSession(userId, '3');
+      const result = await service.startSession(userId, 180);
 
       expect(result.session.timeLimitSec).toBe(180);
       expect(result.session.solved).toBe(0);
@@ -77,7 +77,7 @@ describe('PuzzleRushService', () => {
     });
 
     it('should start a new session with 5-minute mode', async () => {
-      const result = await service.startSession(userId, '5');
+      const result = await service.startSession(userId, 300);
 
       expect(result.session.timeLimitSec).toBe(300);
     });
@@ -85,13 +85,7 @@ describe('PuzzleRushService', () => {
     it('should throw BadRequestException if session already exists', async () => {
       redis.get.mockResolvedValue(JSON.stringify({ userId }));
 
-      await expect(service.startSession(userId, '3')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('should throw BadRequestException for invalid time mode', async () => {
-      await expect(service.startSession(userId, '10')).rejects.toThrow(
+      await expect(service.startSession(userId, 180)).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -99,7 +93,7 @@ describe('PuzzleRushService', () => {
     it('should throw NotFoundException when no puzzles available', async () => {
       prisma.puzzle.findMany.mockResolvedValue([]);
 
-      await expect(service.startSession(userId, '3')).rejects.toThrow(
+      await expect(service.startSession(userId, 180)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -107,7 +101,7 @@ describe('PuzzleRushService', () => {
     it('should throw ServiceUnavailableException when Redis fails on get', async () => {
       redis.get.mockRejectedValue(new Error('Connection refused'));
 
-      await expect(service.startSession(userId, '3')).rejects.toThrow(
+      await expect(service.startSession(userId, 180)).rejects.toThrow(
         ServiceUnavailableException,
       );
     });
@@ -115,7 +109,7 @@ describe('PuzzleRushService', () => {
     it('should throw InternalServerErrorException when Prisma fails on puzzle fetch', async () => {
       prisma.puzzle.count.mockRejectedValue(new Error('Database connection lost'));
 
-      await expect(service.startSession(userId, '3')).rejects.toThrow(
+      await expect(service.startSession(userId, 180)).rejects.toThrow(
         InternalServerErrorException,
       );
     });
@@ -123,7 +117,7 @@ describe('PuzzleRushService', () => {
     it('should throw ServiceUnavailableException when Redis fails on set', async () => {
       redis.set.mockRejectedValue(new Error('Connection refused'));
 
-      await expect(service.startSession(userId, '3')).rejects.toThrow(
+      await expect(service.startSession(userId, 180)).rejects.toThrow(
         ServiceUnavailableException,
       );
     });
@@ -274,7 +268,7 @@ describe('PuzzleRushService', () => {
 
       expect(result.score).toBe(5);
       expect(result.lives).toBe(2);
-      expect(result.timeMode).toBe('3');
+      expect(result.timeLimitSec).toBe(180);
       expect(result.elapsedMs).toBeGreaterThan(0);
     });
 
