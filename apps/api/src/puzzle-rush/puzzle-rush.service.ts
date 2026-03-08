@@ -302,31 +302,55 @@ export class PuzzleRushService {
   async getLeaderboard(timeMode: string, limit = 20): Promise<{
     entries: { userId: string; username: string; score: number; createdAt: Date }[];
   }> {
-    const scores = await this.prisma.puzzleRushScore.findMany({
-      where: { timeMode },
-      orderBy: { score: 'desc' },
-      take: limit,
-      include: {
-        user: { select: { username: true } },
-      },
-    });
+    if (!TIME_MODES[timeMode]) {
+      throw new BadRequestException({
+        message: 'Invalid time mode',
+        errorCode: 'INVALID_TIME_MODE',
+      });
+    }
 
-    return {
-      entries: scores.map((s) => ({
-        userId: s.userId,
-        username: s.user.username,
-        score: s.score,
-        createdAt: s.createdAt,
-      })),
-    };
+    // Use DISTINCT ON to get the best score per user, then sort by score desc.
+    const entries = await this.prisma.$queryRaw<
+      Array<{ userId: string; username: string; score: number; createdAt: Date }>
+    >`
+      SELECT sub.user_id AS "userId", sub.username, sub.score, sub.created_at AS "createdAt"
+      FROM (
+        SELECT DISTINCT ON (prs.user_id)
+          prs.user_id, u.username, prs.score, prs.created_at
+        FROM puzzle_rush_scores prs
+        JOIN users u ON u.id = prs.user_id
+        WHERE prs.time_mode = ${timeMode}
+        ORDER BY prs.user_id, prs.score DESC
+      ) sub
+      ORDER BY sub.score DESC
+      LIMIT ${limit}
+    `;
+
+    return { entries };
   }
 
-  async getUserBest(userId: string, timeMode: string): Promise<number> {
+  async getUserBest(userId: string, timeMode: string): Promise<{
+    score: number;
+    timeMode: string;
+    createdAt: Date | null;
+  }> {
+    if (!TIME_MODES[timeMode]) {
+      throw new BadRequestException({
+        message: 'Invalid time mode',
+        errorCode: 'INVALID_TIME_MODE',
+      });
+    }
+
     const best = await this.prisma.puzzleRushScore.findFirst({
       where: { userId, timeMode },
       orderBy: { score: 'desc' },
     });
-    return best?.score ?? 0;
+
+    return {
+      score: best?.score ?? 0,
+      timeMode,
+      createdAt: best?.createdAt ?? null,
+    };
   }
 
   private async loadSession(userId: string): Promise<PuzzleRushSession> {

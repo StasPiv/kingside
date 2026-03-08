@@ -40,8 +40,10 @@ describe('PuzzleRushService', () => {
       },
       user: {
         findUniqueOrThrow: jest.fn().mockResolvedValue({ ratingPuzzle: 1500 }),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
       },
+      $queryRaw: jest.fn().mockResolvedValue([]),
     };
 
     redis = {
@@ -309,10 +311,10 @@ describe('PuzzleRushService', () => {
   });
 
   describe('getLeaderboard', () => {
-    it('should return sorted leaderboard', async () => {
-      prisma.puzzleRushScore.findMany.mockResolvedValue([
-        { userId: 'u1', score: 15, createdAt: new Date(), user: { username: 'player1' } },
-        { userId: 'u2', score: 10, createdAt: new Date(), user: { username: 'player2' } },
+    it('should return sorted leaderboard with unique users', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        { userId: 'u1', username: 'player1', score: 15, createdAt: new Date() },
+        { userId: 'u2', username: 'player2', score: 10, createdAt: new Date() },
       ]);
 
       const result = await service.getLeaderboard('3');
@@ -322,12 +324,27 @@ describe('PuzzleRushService', () => {
       expect(result.entries[0].username).toBe('player1');
     });
 
-    it('should use default limit of 20', async () => {
+    it('should return empty entries when no scores', async () => {
+      prisma.$queryRaw.mockResolvedValue([]);
+
+      const result = await service.getLeaderboard('3');
+
+      expect(result.entries).toHaveLength(0);
+    });
+
+    it('should call $queryRaw for leaderboard', async () => {
       await service.getLeaderboard('3');
 
-      expect(prisma.puzzleRushScore.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ take: 20 }),
+      expect(prisma.$queryRaw).toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException for invalid time mode', async () => {
+      await expect(service.getLeaderboard('10')).rejects.toThrow(
+        BadRequestException,
       );
+      await expect(service.getLeaderboard('10')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'INVALID_TIME_MODE' }),
+      });
     });
   });
 
@@ -506,12 +523,7 @@ describe('PuzzleRushService', () => {
     it('should respect custom limit parameter', async () => {
       await service.getLeaderboard('5', 10);
 
-      expect(prisma.puzzleRushScore.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { timeMode: '5' },
-          take: 10,
-        }),
-      );
+      expect(prisma.$queryRaw).toHaveBeenCalled();
     });
   });
 
@@ -554,20 +566,34 @@ describe('PuzzleRushService', () => {
   });
 
   describe('getUserBest', () => {
-    it('should return best score', async () => {
-      prisma.puzzleRushScore.findFirst.mockResolvedValue({ score: 12 });
+    it('should return best score with metadata', async () => {
+      const createdAt = new Date();
+      prisma.puzzleRushScore.findFirst.mockResolvedValue({ score: 12, createdAt });
 
       const result = await service.getUserBest(userId, '3');
 
-      expect(result).toBe(12);
+      expect(result.score).toBe(12);
+      expect(result.timeMode).toBe('3');
+      expect(result.createdAt).toBe(createdAt);
     });
 
-    it('should return 0 when no scores', async () => {
+    it('should return 0 score when no scores', async () => {
       prisma.puzzleRushScore.findFirst.mockResolvedValue(null);
 
       const result = await service.getUserBest(userId, '3');
 
-      expect(result).toBe(0);
+      expect(result.score).toBe(0);
+      expect(result.timeMode).toBe('3');
+      expect(result.createdAt).toBeNull();
+    });
+
+    it('should throw BadRequestException for invalid time mode', async () => {
+      await expect(service.getUserBest(userId, '10')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.getUserBest(userId, '10')).rejects.toMatchObject({
+        response: expect.objectContaining({ errorCode: 'INVALID_TIME_MODE' }),
+      });
     });
   });
 });

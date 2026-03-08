@@ -199,6 +199,8 @@ model PuzzleRushScore {
 
   @@index([userId])
   @@index([score])
+  @@index([timeMode, score])
+  @@index([userId, timeMode])
   @@map("puzzle_rush_scores")
 }
 
