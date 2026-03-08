@@ -18,31 +18,25 @@ export type DailyPuzzleResponse = {
 };
 
 export type PuzzleRushStartRequest = {
-  timeLimitSec: number;
+  timeMode: '3' | '5';
 };
 
 export type PuzzleRushSession = {
   id: string;
   solved: number;
   failed: number;
-  timeLimitSec: number;
+  timeMode: '3' | '5';
   startedAt: string;
   finishedAt: string | null;
 };
 
-export type PuzzleRushNextResponse = {
-  puzzle: PuzzleDto;
+export type PuzzleRushSolveRequest = {
+  uci: string;
 };
 
-export type PuzzleRushResultRequest = {
-  result: PuzzleAttemptResult;
-  timeMs: number;
-};
-
-export type PuzzleRushResultResponse = {
-  session: PuzzleRushSession;
-  attempt: PuzzleAttempt;
-  nextPuzzle: PuzzleDto | null;
+export type PuzzleRushLeaderboardParams = {
+  timeMode?: '3' | '5';
+  limit?: number;
 };
 
 // --- API client ---
@@ -68,20 +62,32 @@ export const puzzleApi = {
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>
-    api.post<{ session: PuzzleRushSession; puzzle: PuzzleDto }>('/api/puzzles/rush', body),
+    api.post('/api/puzzle-rush/start', body),
 
-  /** Submit puzzle rush attempt and get next puzzle */
-  submitRushResult: (sessionId: string, body: PuzzleRushResultRequest) =>
-    api.post<PuzzleRushResultResponse>(
-      `/api/puzzles/rush/${encodeURIComponent(sessionId)}/attempts`,
-      body,
-    ),
+  /** Get current puzzle rush session */
+  getRushSession: () =>
+    api.get('/api/puzzle-rush/session'),
 
-  /** Get puzzle rush session history */
-  getRushSessions: () =>
-    api.get<PuzzleRushSession[]>('/api/puzzles/rush/history'),
+  /** Submit a move in puzzle rush */
+  solveRush: (body: PuzzleRushSolveRequest) =>
+    api.post('/api/puzzle-rush/solve', body),
 
-  /** Get puzzle rush session by ID */
-  getRushSession: (sessionId: string) =>
-    api.get<PuzzleRushSession>(`/api/puzzles/rush/${encodeURIComponent(sessionId)}`),
+  /** End current puzzle rush session */
+  endRushSession: () =>
+    api.delete('/api/puzzle-rush/session'),
+
+  /** Get puzzle rush leaderboard */
+  getRushLeaderboard: (params?: PuzzleRushLeaderboardParams) => {
+    const query = new URLSearchParams();
+    if (params?.timeMode) query.set('timeMode', params.timeMode);
+    if (params?.limit) query.set('limit', String(params.limit));
+    const qs = query.toString();
+    return api.get(`/api/puzzle-rush/leaderboard${qs ? `?${qs}` : ''}`);
+  },
+
+  /** Get user's best puzzle rush result */
+  getRushBest: (timeMode?: '3' | '5') => {
+    const query = timeMode ? `?timeMode=${timeMode}` : '';
+    return api.get(`/api/puzzle-rush/best${query}`);
+  },
 };
