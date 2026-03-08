@@ -6,30 +6,19 @@ import { Chessboard } from 'react-chessboard';
 
 const MemoChessboard = memo(Chessboard);
 import type { Square } from 'chess.js';
-import { INITIAL_FEN } from '@kingside/shared';
+import {
+  INITIAL_FEN,
+  GameEvents,
+  type ClockPayload,
+  type WsGameStatePayload,
+  type WsGameMoveServerPayload,
+  type WsGameEndPayload,
+  type WsChatMessagePayload,
+  type WsErrorPayload,
+} from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { socket } from '../socket';
-
-type ClockPayload = { whiteMs: number; blackMs: number };
-
-type GameState = {
-  fen: string;
-  moves: string[];
-  clocks: ClockPayload;
-  status: string;
-  result?: string;
-  players?: { white: string; black: string };
-  isBot?: boolean;
-  botLevel?: number | null;
-};
-
-type ChatMessage = {
-  userId: string;
-  username: string;
-  content: string;
-  timestamp: string;
-};
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
   return {
@@ -57,7 +46,7 @@ export function GamePage() {
   const [status, setStatus] = useState('active');
   const [result, setResult] = useState<string | null>(null);
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>(routeColor ?? 'white');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<WsChatMessagePayload[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [players, setPlayers] = useState<{ white: string; black: string }>({ white: '', black: '' });
   const [drawOffered, setDrawOffered] = useState(false);
@@ -79,7 +68,7 @@ export function GamePage() {
   }, [moves]);
 
   const updateFromState = useCallback(
-    (state: GameState) => {
+    (state: WsGameStatePayload) => {
       game.load(state.fen);
       setFen(state.fen);
       setMoves(state.moves);
@@ -91,7 +80,7 @@ export function GamePage() {
   );
 
   useEffect(() => {
-    const onGameState = (state: GameState & { color?: 'white' | 'black' }) => {
+    const onGameState = (state: WsGameStatePayload) => {
       if (state.color) setPlayerColor(state.color);
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
@@ -99,40 +88,40 @@ export function GamePage() {
       updateFromState(state);
     };
 
-    const onGameMove = (data: { uci: string; san: string; fen: string; clocks: ClockPayload }) => {
+    const onGameMove = (data: WsGameMoveServerPayload) => {
       game.load(data.fen);
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
     };
 
-    const onGameEnd = (data: { result: string }) => {
+    const onGameEnd = (data: WsGameEndPayload) => {
       setStatus('finished');
       setResult(data.result);
     };
 
     const onDrawOffered = () => setDrawOffered(true);
-    const onChatMessage = (msg: ChatMessage) => setMessages((prev) => [...prev, msg]);
-    const onError = (data: { message: string }) => {
+    const onChatMessage = (msg: WsChatMessagePayload) => setMessages((prev) => [...prev, msg]);
+    const onError = (data: WsErrorPayload) => {
       console.error('Game error:', data.message);
     };
 
-    socket.on('game:state', onGameState);
-    socket.on('game:move', onGameMove);
-    socket.on('game:end', onGameEnd);
-    socket.on('game:draw:offered', onDrawOffered);
-    socket.on('chat:message', onChatMessage);
-    socket.on('error', onError);
+    socket.on(GameEvents.STATE, onGameState);
+    socket.on(GameEvents.MOVE_SERVER, onGameMove);
+    socket.on(GameEvents.END, onGameEnd);
+    socket.on(GameEvents.DRAW_OFFERED, onDrawOffered);
+    socket.on(GameEvents.CHAT_MESSAGE, onChatMessage);
+    socket.on(GameEvents.ERROR, onError);
 
-    socket.emit('game:join', { gameId });
+    socket.emit(GameEvents.JOIN, { gameId });
 
     return () => {
-      socket.off('game:state', onGameState);
-      socket.off('game:move', onGameMove);
-      socket.off('game:end', onGameEnd);
-      socket.off('game:draw:offered', onDrawOffered);
-      socket.off('chat:message', onChatMessage);
-      socket.off('error', onError);
+      socket.off(GameEvents.STATE, onGameState);
+      socket.off(GameEvents.MOVE_SERVER, onGameMove);
+      socket.off(GameEvents.END, onGameEnd);
+      socket.off(GameEvents.DRAW_OFFERED, onDrawOffered);
+      socket.off(GameEvents.CHAT_MESSAGE, onChatMessage);
+      socket.off(GameEvents.ERROR, onError);
     };
   }, [gameId, game, updateFromState]);
 
@@ -165,7 +154,7 @@ export function GamePage() {
       setFen(game.fen());
       setMoves((prev) => [...prev, move.san]);
 
-      socket.emit('game:move', {
+      socket.emit(GameEvents.MOVE, {
         gameId,
         uci: `${sourceSquare}${targetSquare}`,
       });
@@ -177,26 +166,26 @@ export function GamePage() {
   }, [game, gameId, playerColor, status]);
 
   const handleResign = () => {
-    socket.emit('game:resign', { gameId });
+    socket.emit(GameEvents.RESIGN, { gameId });
   };
 
   const handleDrawOffer = () => {
-    socket.emit('game:draw:offer', { gameId });
+    socket.emit(GameEvents.DRAW_OFFER, { gameId });
   };
 
   const handleDrawAccept = () => {
-    socket.emit('game:draw:accept', { gameId });
+    socket.emit(GameEvents.DRAW_ACCEPT, { gameId });
     setDrawOffered(false);
   };
 
   const handleDrawDecline = () => {
-    socket.emit('game:draw:decline', { gameId });
+    socket.emit(GameEvents.DRAW_DECLINE, { gameId });
     setDrawOffered(false);
   };
 
   const handleChatSend = () => {
     if (!chatInput.trim()) return;
-    socket.emit('chat:send', { gameId, content: chatInput.trim() });
+    socket.emit(GameEvents.CHAT_SEND, { gameId, content: chatInput.trim() });
     setChatInput('');
   };
 
