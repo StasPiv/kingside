@@ -4,7 +4,8 @@
     "logout": "Выход",
     "login": "Вход",
     "register": "Регистрация",
-    "puzzles": "Задачи"
+    "puzzles": "Задачи",
+    "puzzleRush": "Puzzle Rush"
   },
   "settings": {
     "title": "Настройки",
@@ -109,6 +110,23 @@
       "hasAccount": "Уже есть аккаунт?",
       "loginLink": "Войти"
     }
+  },
+  "puzzleRush": {
+    "title": "Puzzle Rush",
+    "description": "Решите как можно больше задач до истечения времени или 3 ошибок!",
+    "selectTime": "Выберите время",
+    "start": "Начать Rush",
+    "highScores": "Лучшие результаты",
+    "rating": "Рейтинг: {{rating}}",
+    "correct": "Верно!",
+    "wrong": "Неверно!",
+    "finished": "Время вышло!",
+    "puzzlesSolved": "задач решено",
+    "mistakes": "Ошибки",
+    "timeUsed": "Время",
+    "playAgain": "Играть снова",
+    "errorLoading": "Не удалось загрузить задачу",
+    "errorStarting": "Не удалось начать сессию"
   },
   "game": {
     "moves": "Ходы",

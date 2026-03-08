@@ -4,7 +4,8 @@
     "logout": "Logout",
     "login": "Login",
     "register": "Register",
-    "puzzles": "Puzzles"
+    "puzzles": "Puzzles",
+    "puzzleRush": "Puzzle Rush"
   },
   "settings": {
     "title": "Settings",
@@ -109,6 +110,23 @@
       "hasAccount": "Already have an account?",
       "loginLink": "Sign In"
     }
+  },
+  "puzzleRush": {
+    "title": "Puzzle Rush",
+    "description": "Solve as many puzzles as you can before time runs out or you make 3 mistakes!",
+    "selectTime": "Select time limit",
+    "start": "Start Rush",
+    "highScores": "High Scores",
+    "rating": "Rating: {{rating}}",
+    "correct": "Correct!",
+    "wrong": "Wrong!",
+    "finished": "Time's up!",
+    "puzzlesSolved": "puzzles solved",
+    "mistakes": "Mistakes",
+    "timeUsed": "Time used",
+    "playAgain": "Play Again",
+    "errorLoading": "Failed to load puzzle",
+    "errorStarting": "Failed to start session"
   },
   "game": {
     "moves": "Moves",
