@@ -14,7 +14,14 @@ import { I18nService } from 'nestjs-i18n';
 import { MatchmakingService } from './matchmaking.service';
 import { JoinQueueDto } from './dto/join-queue.dto';
 import { JwtPayload } from '../auth/jwt.strategy';
-import { classifyTimeControl, type TimeControlCategory } from '@kingside/shared';
+import {
+  classifyTimeControl,
+  MatchmakingEvents,
+  type TimeControlCategory,
+  type WsMatchmakingJoinPayload,
+  type WsMatchmakingFoundPayload,
+  type WsErrorPayload,
+} from '@kingside/shared';
 
 @WebSocketGateway({ namespace: '/matchmaking', cors: { origin: '*' } })
 export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -46,7 +53,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
   }
 
   @UsePipes(new ValidationPipe({ transform: true }))
-  @SubscribeMessage('matchmaking:join')
+  @SubscribeMessage(MatchmakingEvents.JOIN)
   async handleJoin(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: JoinQueueDto,
@@ -55,7 +62,8 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
     if (!user) return;
 
     if (this.playerQueues.has(user.id)) {
-      client.emit('error', { code: 'ALREADY_IN_QUEUE', message: this.i18n.t('messages.matchmaking.alreadyInQueue') });
+      const errorPayload: WsErrorPayload = { code: 'ALREADY_IN_QUEUE', message: this.i18n.t('messages.matchmaking.alreadyInQueue') };
+      client.emit(MatchmakingEvents.ERROR, errorPayload);
       return;
     }
 
@@ -85,7 +93,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
         increment: data.increment,
       };
 
-      client.emit('matchmaking:found', {
+      client.emit(MatchmakingEvents.FOUND, {
         ...matchData,
         color: result.color,
         opponent: result.opponent,
@@ -98,7 +106,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
 
       if (opponentSocket) {
         this.playerQueues.delete(result.opponent.id);
-        opponentSocket.emit('matchmaking:found', {
+        opponentSocket.emit(MatchmakingEvents.FOUND, {
           ...matchData,
           color: result.color === 'white' ? 'black' : 'white',
           opponent: { id: user.id, username: user.username },
@@ -109,7 +117,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
     }
   }
 
-  @SubscribeMessage('matchmaking:leave')
+  @SubscribeMessage(MatchmakingEvents.LEAVE)
   async handleLeave(@ConnectedSocket() client: Socket) {
     const user = client.data.user;
     if (!user) return;

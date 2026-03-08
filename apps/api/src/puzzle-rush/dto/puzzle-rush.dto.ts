@@ -1,7 +1,9 @@
 import { IsIn, IsString } from 'class-validator';
-import type { PuzzleRushStartRequest, PuzzleRushAnswerRequest } from '@kingside/shared';
+import type { PuzzleRushAnswerRequest } from '@kingside/shared';
 
-export class StartPuzzleRushDto implements PuzzleRushStartRequest {
+// NOTE: StartPuzzleRushDto uses timeMode: '3'|'5' while shared contract
+// uses timeLimitSec: 180|300. Field mismatch — needs architect decision.
+export class StartPuzzleRushDto {
   @IsIn(['3', '5'])
   timeMode!: '3' | '5';
 }

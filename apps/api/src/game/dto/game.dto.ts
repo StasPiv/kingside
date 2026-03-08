@@ -1,5 +1,5 @@
 import { IsIn, IsInt, IsString, IsUUID, Max, Min } from 'class-validator';
-import type { WsGameMovePayload, CreateGameWithBotRequest } from '@kingside/shared';
+import type { WsGameMovePayload, WsGameJoinPayload, CreateGameWithBotRequest } from '@kingside/shared';
 
 export class MoveDto implements WsGameMovePayload {
   @IsUUID()
@@ -9,7 +9,7 @@ export class MoveDto implements WsGameMovePayload {
   uci!: string;
 }
 
-export class GameIdDto {
+export class GameIdDto implements WsGameJoinPayload {
   @IsUUID()
   gameId!: string;
 }
