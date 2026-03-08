@@ -1,6 +1,7 @@
 import { IsString, IsInt, IsOptional, Min, Max, MaxLength } from 'class-validator';
+import type { CreateTimeControlRequest } from '@kingside/shared';
 
-export class CreateTimeControlDto {
+export class CreateTimeControlDto implements CreateTimeControlRequest {
   @IsOptional()
   @IsString()
   @MaxLength(50)

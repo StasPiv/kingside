@@ -7,8 +7,9 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { FindPuzzlesQuery } from '@kingside/shared';
 
-export class FindPuzzlesDto {
+export class FindPuzzlesDto implements FindPuzzlesQuery {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })

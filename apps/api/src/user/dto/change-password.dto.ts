@@ -1,6 +1,7 @@
 import { IsString, MinLength } from 'class-validator';
+import type { ChangePasswordRequest } from '@kingside/shared';
 
-export class ChangePasswordDto {
+export class ChangePasswordDto implements ChangePasswordRequest {
   @IsString()
   currentPassword!: string;
 
