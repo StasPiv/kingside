@@ -1,8 +1,8 @@
-import { test, expect } from '../fixtures/auth.fixture';
+import { test, expect, navigateTo } from '../fixtures/auth.fixture';
 
 test.describe('Game', () => {
   test('should redirect to lobby if game not found', async ({ authenticatedPage: page }) => {
-    await page.goto('/game/nonexistent-id');
+    await navigateTo(page, '/game/nonexistent-id');
 
     // Should show an error or redirect back
     await page.waitForTimeout(2000);

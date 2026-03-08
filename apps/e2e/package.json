@@ -5,6 +5,8 @@
   "scripts": {
     "test": "echo \"Use test:e2e to run E2E tests\"",
     "test:e2e": "playwright test",
+    "test:e2e:integration": "playwright test --grep-invert 'mocked'",
+    "test:e2e:mocked": "playwright test tests/puzzle-rush-mocked.spec.ts",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
     "test:report": "playwright show-report"

@@ -5,16 +5,17 @@ test.describe('Lobby', () => {
     await expect(page).toHaveURL(/\/lobby/);
   });
 
-  test('should show game creation controls', async ({ authenticatedPage: page }) => {
+  test('should show play button', async ({ authenticatedPage: page }) => {
     await expect(
-      page.getByRole('button', { name: /создать|create|new game/i }),
+      page.getByRole('button', { name: 'Play', exact: true }),
     ).toBeVisible();
   });
 
-  test('should create a new game', async ({ authenticatedPage: page }) => {
-    await page.getByRole('button', { name: /создать|create|new game/i }).click();
+  test('should start searching for a game', async ({ authenticatedPage: page }) => {
+    await page.getByRole('button', { name: 'Play', exact: true }).click();
 
-    // Should either navigate to a game page or show a waiting state
+    // Should either navigate to a game page or show a waiting/searching state
+    await page.waitForTimeout(2000);
     await expect(page).toHaveURL(/\/game\/|\/lobby/);
   });
 });
