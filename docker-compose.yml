@@ -26,6 +26,12 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-3001}:3001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+        tag: "kingside-api"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}
       REDIS_HOST: redis
