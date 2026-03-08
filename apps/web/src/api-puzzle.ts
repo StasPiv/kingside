@@ -60,7 +60,7 @@ export const puzzleApi = {
 
   /** Submit puzzle attempt result */
   submitAttempt: (puzzleId: string, body: PuzzleAttemptRequest) =>
-    api.post<PuzzleAttempt>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempts`, body),
+    api.post<PuzzleAttempt>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempt`, body),
 
   /** Get today's daily puzzle */
   getDaily: () =>
