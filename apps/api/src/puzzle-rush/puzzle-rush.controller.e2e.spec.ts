@@ -4,13 +4,13 @@
  * to catch contract mismatches between frontend and backend.
  *
  * Contract:
- *   POST /api/puzzles/rush       { timeMode: '3' | '5' }
+ *   POST /api/puzzles/rush       { timeLimitSec: 180 | 300 }
  *   POST /api/puzzles/rush/answer { uci: string }
  *   GET  /api/puzzles/rush/session
  *   GET  /api/puzzles/rush/next
  *   DELETE /api/puzzles/rush/session
- *   GET  /api/puzzles/rush/leaderboard?timeMode=&limit=
- *   GET  /api/puzzles/rush/best?timeMode=
+ *   GET  /api/puzzles/rush/leaderboard?timeLimitSec=&limit=
+ *   GET  /api/puzzles/rush/best?timeLimitSec=
  */
 import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -86,35 +86,35 @@ describe('PuzzleRush Controller E2E', () => {
   });
 
   describe(`POST ${BASE}`, () => {
-    it('should accept timeMode "3"', async () => {
+    it('should accept timeLimitSec 180', async () => {
       const res = await request(app.getHttpServer())
         .post(`${BASE}`)
-        .send({ timeMode: '3' });
+        .send({ timeLimitSec: 180 });
 
       expect(res.status).toBe(201);
       expect(res.body).toEqual(mockStartResponse);
-      expect(mockService.startSession).toHaveBeenCalledWith(mockUserId, '3');
+      expect(mockService.startSession).toHaveBeenCalledWith(mockUserId, 180);
     });
 
-    it('should accept timeMode "5"', async () => {
+    it('should accept timeLimitSec 300', async () => {
       const res = await request(app.getHttpServer())
         .post(`${BASE}`)
-        .send({ timeMode: '5' });
+        .send({ timeLimitSec: 300 });
 
       expect(res.status).toBe(201);
-      expect(mockService.startSession).toHaveBeenCalledWith(mockUserId, '5');
+      expect(mockService.startSession).toHaveBeenCalledWith(mockUserId, 300);
     });
 
-    it('should reject invalid timeMode', async () => {
+    it('should reject invalid timeLimitSec', async () => {
       const res = await request(app.getHttpServer())
         .post(`${BASE}`)
-        .send({ timeMode: '10' });
+        .send({ timeLimitSec: 600 });
 
       expect(res.status).toBe(400);
       expect(mockService.startSession).not.toHaveBeenCalled();
     });
 
-    it('should reject missing timeMode', async () => {
+    it('should reject missing timeLimitSec', async () => {
       const res = await request(app.getHttpServer())
         .post(`${BASE}`)
         .send({});
@@ -123,19 +123,19 @@ describe('PuzzleRush Controller E2E', () => {
       expect(mockService.startSession).not.toHaveBeenCalled();
     });
 
-    it('should reject old format (timeLimitSec instead of timeMode)', async () => {
+    it('should reject old format (timeMode instead of timeLimitSec)', async () => {
       const res = await request(app.getHttpServer())
         .post(`${BASE}`)
-        .send({ timeLimitSec: 180 });
+        .send({ timeMode: '3' });
 
       expect(res.status).toBe(400);
       expect(mockService.startSession).not.toHaveBeenCalled();
     });
 
-    it('should reject numeric timeMode', async () => {
+    it('should reject string timeLimitSec', async () => {
       const res = await request(app.getHttpServer())
         .post(`${BASE}`)
-        .send({ timeMode: 3 });
+        .send({ timeLimitSec: '180' });
 
       expect(res.status).toBe(400);
       expect(mockService.startSession).not.toHaveBeenCalled();
@@ -201,9 +201,9 @@ describe('PuzzleRush Controller E2E', () => {
       expect(mockService.getLeaderboard).toHaveBeenCalledWith('3', 20);
     });
 
-    it('should accept custom timeMode and limit', async () => {
+    it('should accept custom timeLimitSec and limit', async () => {
       const res = await request(app.getHttpServer())
-        .get(`${BASE}/leaderboard?timeMode=5&limit=10`);
+        .get(`${BASE}/leaderboard?timeLimitSec=300&limit=10`);
 
       expect(res.status).toBe(200);
       expect(mockService.getLeaderboard).toHaveBeenCalledWith('5', 10);
@@ -224,7 +224,7 @@ describe('PuzzleRush Controller E2E', () => {
     it('should NOT respond on old route /puzzle-rush/start', async () => {
       const res = await request(app.getHttpServer())
         .post('/puzzle-rush/start')
-        .send({ timeMode: '3' });
+        .send({ timeLimitSec: 180 });
 
       expect(res.status).toBe(404);
     });
@@ -232,7 +232,7 @@ describe('PuzzleRush Controller E2E', () => {
     it('should NOT respond on /puzzle-rush', async () => {
       const res = await request(app.getHttpServer())
         .post('/puzzle-rush')
-        .send({ timeMode: '3' });
+        .send({ timeLimitSec: 180 });
 
       expect(res.status).toBe(404);
     });
@@ -266,7 +266,7 @@ describe('PuzzleRush Controller E2E', () => {
     it('should reject unauthenticated request', async () => {
       const res = await request(appNoAuth.getHttpServer())
         .post(`${BASE}`)
-        .send({ timeMode: '3' });
+        .send({ timeLimitSec: 180 });
 
       expect(res.status).toBe(403);
     });

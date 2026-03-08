@@ -63,12 +63,12 @@ export const puzzleApi = {
     api.delete<PuzzleRushEndResponse>('/api/puzzles/rush/session'),
 
   /** Get rush leaderboard */
-  getRushLeaderboard: (timeMode = '3', limit = 20) =>
+  getRushLeaderboard: (timeLimitSec = 180, limit = 20) =>
     api.get<PuzzleRushLeaderboardResponse>(
-      `/api/puzzles/rush/leaderboard?timeMode=${timeMode}&limit=${limit}`,
+      `/api/puzzles/rush/leaderboard?timeLimitSec=${timeLimitSec}&limit=${limit}`,
     ),
 
   /** Get user's best rush score */
-  getRushBest: (timeMode = '3') =>
-    api.get<number>(`/api/puzzles/rush/best?timeMode=${timeMode}`),
+  getRushBest: (timeLimitSec = 180) =>
+    api.get<number>(`/api/puzzles/rush/best?timeLimitSec=${timeLimitSec}`),
 };
