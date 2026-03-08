@@ -5,7 +5,8 @@
     "login": "Вход",
     "register": "Регистрация",
     "puzzles": "Задачи",
-    "puzzleRush": "Puzzle Rush"
+    "puzzleRush": "Puzzle Rush",
+    "rushLeaderboard": "Таблица лидеров"
   },
   "settings": {
     "title": "Настройки",
@@ -199,6 +200,14 @@
       "threeMinutes": "3 минуты",
       "fiveMinutes": "5 минут"
     }
+  },
+  "rushLeaderboard": {
+    "title": "Таблица лидеров Puzzle Rush",
+    "player": "Игрок",
+    "score": "Рекорд",
+    "empty": "Результатов пока нет",
+    "error": "Не удалось загрузить таблицу лидеров",
+    "backToRush": "Назад к Puzzle Rush"
   },
   "puzzleBrowser": {
     "title": "Задачи",

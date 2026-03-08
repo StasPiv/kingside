@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
@@ -263,6 +264,10 @@ export function PuzzleRushPage() {
         >
           {loading ? t('common.loading') : t('puzzle.rush.start')}
         </button>
+
+        <Link to="/puzzle-rush/leaderboard" className="rush-leaderboard-link">
+          {t('nav.rushLeaderboard')}
+        </Link>
       </div>
     );
   }
@@ -295,6 +300,10 @@ export function PuzzleRushPage() {
           <button className="play-btn" onClick={() => setScreen('start')}>
             {t('puzzle.rush.playAgain')}
           </button>
+
+          <Link to="/puzzle-rush/leaderboard" className="rush-leaderboard-link">
+            {t('nav.rushLeaderboard')}
+          </Link>
         </div>
       </div>
     );
