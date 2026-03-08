@@ -162,6 +162,59 @@ describe('PuzzleRushService', () => {
     });
   });
 
+  describe('getNextPuzzle', () => {
+    it('should return current puzzle with session state', async () => {
+      const session = {
+        userId,
+        timeMode: '3',
+        score: 3,
+        lives: 2,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5'],
+        currentMoveIndex: 0,
+        startedAt: Date.now() - 60000,
+        durationMs: 180000,
+        solvedPuzzleIds: [],
+      };
+      redis.get.mockResolvedValue(JSON.stringify(session));
+      prisma.puzzle.findUnique.mockResolvedValue(mockPuzzle);
+
+      const result = await service.getNextPuzzle(userId);
+
+      expect(result.puzzle.id).toBe('puzzle-1');
+      expect(result.puzzle.fen).toBe(mockPuzzle.fen);
+      expect(result.puzzle.rating).toBe(1400);
+      expect(result.score).toBe(3);
+      expect(result.lives).toBe(2);
+      expect(result.elapsedMs).toBeGreaterThan(0);
+      expect(result.durationMs).toBe(180000);
+    });
+
+    it('should throw NotFoundException when no active session', async () => {
+      redis.get.mockResolvedValue(null);
+
+      await expect(service.getNextPuzzle(userId)).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException when session expired', async () => {
+      const session = {
+        userId,
+        timeMode: '3',
+        score: 3,
+        lives: 2,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5'],
+        currentMoveIndex: 0,
+        startedAt: Date.now() - 200000,
+        durationMs: 180000,
+        solvedPuzzleIds: [],
+      };
+      redis.get.mockResolvedValue(JSON.stringify(session));
+
+      await expect(service.getNextPuzzle(userId)).rejects.toThrow(BadRequestException);
+    });
+  });
+
   describe('getSession', () => {
     it('should return current session state', async () => {
       const session = {

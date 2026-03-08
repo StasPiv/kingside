@@ -114,6 +114,38 @@ export class PuzzleRushService {
     };
   }
 
+  async getNextPuzzle(userId: string): Promise<{
+    puzzle: { id: string; fen: string; rating: number };
+    score: number;
+    lives: number;
+    elapsedMs: number;
+    durationMs: number;
+  }> {
+    const session = await this.loadSession(userId);
+
+    const elapsed = Date.now() - session.startedAt;
+    if (elapsed >= session.durationMs) {
+      await this.finishSession(session, 'time');
+      throw new BadRequestException('Session has expired');
+    }
+
+    const puzzle = await this.prisma.puzzle.findUnique({
+      where: { id: session.currentPuzzleId },
+    });
+
+    if (!puzzle) {
+      throw new NotFoundException('Current puzzle not found');
+    }
+
+    return {
+      puzzle: { id: puzzle.id, fen: puzzle.fen, rating: puzzle.rating },
+      score: session.score,
+      lives: session.lives,
+      elapsedMs: elapsed,
+      durationMs: session.durationMs,
+    };
+  }
+
   async submitAnswer(userId: string, uci: string): Promise<{
     correct: boolean;
     score: number;

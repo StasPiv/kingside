@@ -27,6 +27,16 @@ export class PuzzleRushController {
     return this.puzzleRushService.getSession(req.user.id);
   }
 
+  @Get('next')
+  getNextPuzzle(@Request() req: any) {
+    return this.puzzleRushService.getNextPuzzle(req.user.id);
+  }
+
+  @Post('answer')
+  answer(@Request() req: any, @Body() dto: SubmitPuzzleAnswerDto) {
+    return this.puzzleRushService.submitAnswer(req.user.id, dto.uci);
+  }
+
   @Post('solve')
   solve(@Request() req: any, @Body() dto: SubmitPuzzleAnswerDto) {
     return this.puzzleRushService.submitAnswer(req.user.id, dto.uci);
