@@ -116,19 +116,19 @@ export function PuzzleRushPage() {
     try {
       const timeLimitSec = timeMode === '3' ? 180 : 300;
       const data = await puzzleApi.startRush({ timeLimitSec });
+      const sessionDurationMs = data.session.timeLimitSec * 1000;
       setSolved(0);
-      setLives(data.lives);
-      setDurationMs(data.durationMs);
-      setTimeLeft(Math.floor(data.durationMs / 1000));
+      setLives(MAX_LIVES);
+      setDurationMs(sessionDurationMs);
+      setTimeLeft(data.session.timeLimitSec);
       setNextPuzzle(null);
 
-      // GET /next returns full puzzle with moves for local validation
-      const next = await puzzleApi.getRushNext();
+      // First puzzle is returned with the session start response
       initPuzzle({
-        id: next.puzzle.id,
-        fen: next.puzzle.fen,
-        moves: next.puzzle.moves,
-        rating: next.puzzle.rating,
+        id: data.puzzle.id,
+        fen: data.puzzle.fen,
+        moves: data.puzzle.moves,
+        rating: data.puzzle.rating,
       });
       setScreen('playing');
       // Preload the following puzzle

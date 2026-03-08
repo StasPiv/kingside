@@ -31,11 +31,15 @@ export type PuzzleRushStartRequest = {
 };
 
 export type PuzzleRushStartResponse = {
-  sessionId: string;
-  puzzle: { fen: string; setupMove: string; rating: number };
-  timeMode: string;
-  durationMs: number;
-  lives: number;
+  session: {
+    id: string;
+    solved: number;
+    failed: number;
+    timeLimitSec: number;
+    startedAt: string;
+    finishedAt: string | null;
+  };
+  puzzle: { id: string; fen: string; moves: string[]; rating: number; themes: string[] };
 };
 
 export type PuzzleRushSessionResponse = {
