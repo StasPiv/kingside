@@ -41,8 +41,7 @@ export function PuzzlePage() {
     setLoading(true);
     setError('');
     try {
-      const idToLoad = specificId || puzzleId;
-      const url = idToLoad ? `/api/puzzles/${idToLoad}` : '/api/puzzles/next';
+      const url = specificId ? `/api/puzzles/${specificId}` : '/api/puzzles/next';
       const data = await api.get<PuzzleDto>(url);
       setPuzzle(data);
       const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
@@ -67,11 +66,11 @@ export function PuzzlePage() {
     } finally {
       setLoading(false);
     }
-  }, [puzzleId]);
+  }, []);
 
   useEffect(() => {
-    loadPuzzle();
-  }, [loadPuzzle]);
+    loadPuzzle(puzzleId);
+  }, [loadPuzzle, puzzleId]);
 
   const submitAttemptResult = useCallback(async (solved: boolean) => {
     if (!puzzle || attemptSubmittedRef.current) return;
@@ -151,7 +150,8 @@ export function PuzzlePage() {
     [game, onPieceDrop, boardOrientation],
   );
 
-  const handleNext = () => {
+  const handleNext = async () => {
+    await submitAttemptResult(status === 'correct');
     loadPuzzle();
   };
 
