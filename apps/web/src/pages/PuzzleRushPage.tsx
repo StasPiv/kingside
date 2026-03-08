@@ -93,12 +93,9 @@ export function PuzzleRushPage() {
       setupPuzzle(data.puzzle.fen, moves[0]);
       setScreen('playing');
     } catch (err: unknown) {
-      const apiMessage =
-        err != null &&
-        typeof err === 'object' &&
-        'response' in err &&
-        (err as { response?: { data?: { message?: string } } }).response?.data?.message;
-      setError(apiMessage || t('puzzleRush.errorStarting'));
+      const message =
+        err instanceof Error ? err.message : String(err || '');
+      setError(message || t('puzzleRush.errorStarting'));
     } finally {
       setLoading(false);
     }
