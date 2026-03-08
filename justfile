@@ -1,7 +1,7 @@
 # Kingside - chess platform
 
 # Start the entire project
-up: _env _deps _build-shared _infra _dev
+up: _env _infra _deps _migrate _build-shared _dev
 
 # Stop infrastructure
 down:
@@ -37,13 +37,12 @@ _env:
         echo "Created apps/api/.env from .env.example"
     fi
 
-# Start postgres, redis and api
+# Start postgres and redis
 _infra:
     #!/usr/bin/env bash
     set -euo pipefail
     PG_PORT="${POSTGRES_PORT:-5432}"
     RD_PORT="${REDIS_PORT:-6380}"
-    API_PORT="${PORT:-3001}"
 
     pg_ok=false
     redis_ok=false
@@ -57,7 +56,7 @@ _infra:
     if $pg_ok && $redis_ok; then
         echo "PostgreSQL and Redis already running on ports $PG_PORT/$RD_PORT, skipping docker compose up"
     else
-        docker compose up -d --build
+        docker compose up -d
         echo "Waiting for PostgreSQL..."
         until docker compose exec -T postgres pg_isready -U "${POSTGRES_USER:-kingside}" > /dev/null 2>&1; do sleep 1; done
         echo "PostgreSQL is ready"
@@ -65,10 +64,6 @@ _infra:
         until docker compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 1; done
         echo "Redis is ready"
     fi
-
-    echo "Waiting for API..."
-    until curl -sf "http://localhost:${API_PORT}/api/health" > /dev/null 2>&1; do sleep 2; done
-    echo "API is ready"
 
 # Install dependencies
 _deps:
@@ -82,9 +77,9 @@ _migrate:
 _build-shared:
     npx tsc --build packages/shared
 
-# Start web dev server (API runs in Docker)
+# Start dev servers
 _dev:
-    npx turbo run dev --filter=web
+    npx turbo run dev
 
 # Start webhook server + SSH tunnel
 webhook:
