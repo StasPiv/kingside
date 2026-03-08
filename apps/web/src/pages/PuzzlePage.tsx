@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { api } from '../api';
+import { puzzleApi } from '../api-puzzle';
 import type { PuzzleDto } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
@@ -78,7 +79,7 @@ export function PuzzlePage() {
     attemptSubmittedRef.current = true;
     const timeMs = Date.now() - startTimeRef.current;
     try {
-      await api.post(`/api/puzzles/${encodeURIComponent(puzzle.id)}/attempt`, { solved, timeMs });
+      await puzzleApi.submitAttempt(puzzle.id, { result: solved ? 'solved' : 'failed', timeMs });
     } catch {
       // non-critical: attempt recording failed, don't block UX
     }

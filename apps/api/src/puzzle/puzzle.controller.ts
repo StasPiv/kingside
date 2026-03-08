@@ -70,7 +70,7 @@ export class PuzzleController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post(':id/attempt')
+  @Post(':id/attempts')
   submitAttempt(
     @Request() req: any,
     @Param('id') id: string,
