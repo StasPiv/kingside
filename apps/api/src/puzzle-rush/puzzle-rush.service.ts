@@ -42,6 +42,8 @@ export class PuzzleRushService {
   }
 
   async startSession(userId: string, timeMode: string) {
+    this.logger.log(`Starting Puzzle Rush session: userId=${userId}, timeMode=${timeMode}`);
+
     let existing: string | null;
     try {
       existing = await this.redis.get(this.sessionKey(userId));
@@ -54,11 +56,13 @@ export class PuzzleRushService {
     }
 
     if (existing) {
+      this.logger.warn(`Session already exists for userId=${userId}`);
       throw new BadRequestException('Active Puzzle Rush session already exists');
     }
 
     const durationMs = TIME_MODES[timeMode];
     if (!durationMs) {
+      this.logger.warn(`Invalid time mode: ${timeMode}, userId=${userId}`);
       throw new BadRequestException('Invalid time mode');
     }
 
@@ -74,6 +78,7 @@ export class PuzzleRushService {
     }
 
     if (!puzzle) {
+      this.logger.warn(`No puzzles available for userId=${userId}`);
       throw new NotFoundException('No puzzles available');
     }
 
@@ -112,6 +117,10 @@ export class PuzzleRushService {
       );
       throw new ServiceUnavailableException('Failed to create session');
     }
+
+    this.logger.log(
+      `Puzzle Rush started for ${userId}: mode=${timeMode}, puzzleId=${puzzle.id}, rating=${puzzle.rating}`,
+    );
 
     return {
       session: {
