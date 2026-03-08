@@ -69,15 +69,66 @@ describe('PuzzleRushService', () => {
       expect(result.durationMs).toBe(300000);
     });
 
-    it('should throw BadRequestException with SESSION_EXISTS errorCode if session already exists', async () => {
-      redis.get.mockResolvedValue(JSON.stringify({ userId }));
+    it('should auto-finish existing session and start new one', async () => {
+      const oldSession = {
+        userId,
+        timeMode: '3',
+        score: 5,
+        lives: 2,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5'],
+        currentMoveIndex: 0,
+        startedAt: Date.now() - 60000,
+        durationMs: 180000,
+        solvedPuzzleIds: [],
+      };
+      // First get returns existing session, second returns null (after del)
+      redis.get.mockResolvedValueOnce(JSON.stringify(oldSession)).mockResolvedValueOnce(null);
 
-      await expect(service.startSession(userId, '3')).rejects.toThrow(
-        BadRequestException,
+      const result = await service.startSession(userId, '3');
+
+      expect(prisma.puzzleRushScore.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ userId, score: 5 }),
+        }),
       );
-      await expect(service.startSession(userId, '3')).rejects.toMatchObject({
-        response: expect.objectContaining({ errorCode: 'SESSION_EXISTS' }),
-      });
+      expect(redis.del).toHaveBeenCalled();
+      expect(result.durationMs).toBe(180000);
+      expect(result.lives).toBe(3);
+    });
+
+    it('should auto-finish expired session with time reason', async () => {
+      const expiredSession = {
+        userId,
+        timeMode: '3',
+        score: 3,
+        lives: 1,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5'],
+        currentMoveIndex: 0,
+        startedAt: Date.now() - 300000, // expired
+        durationMs: 180000,
+        solvedPuzzleIds: [],
+      };
+      redis.get.mockResolvedValueOnce(JSON.stringify(expiredSession)).mockResolvedValueOnce(null);
+
+      const result = await service.startSession(userId, '3');
+
+      expect(prisma.puzzleRushScore.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ userId, score: 3 }),
+        }),
+      );
+      expect(result.lives).toBe(3);
+    });
+
+    it('should force-delete stale session if auto-finish fails', async () => {
+      redis.get.mockResolvedValueOnce('invalid-json').mockResolvedValueOnce(null);
+
+      const result = await service.startSession(userId, '3');
+
+      expect(redis.del).toHaveBeenCalledWith(`puzzle_rush:${userId}:session`);
+      expect(result.durationMs).toBe(180000);
     });
 
     it('should throw BadRequestException with INVALID_TIME_MODE errorCode for invalid time mode', async () => {

@@ -55,11 +55,19 @@ export class PuzzleRushService {
     }
 
     if (existing) {
-      this.logger.warn(`Session already exists for user ${userId}`);
-      throw new BadRequestException({
-        message: 'Active Puzzle Rush session already exists',
-        errorCode: 'SESSION_EXISTS',
-      });
+      this.logger.warn(`Existing session found for user ${userId}, auto-finishing`);
+      try {
+        const oldSession: PuzzleRushSession = JSON.parse(existing);
+        const elapsed = Date.now() - oldSession.startedAt;
+        const reason = elapsed >= oldSession.durationMs ? 'time' : 'superseded';
+        await this.finishSession(oldSession, reason);
+      } catch (error: any) {
+        this.logger.error(`Failed to auto-finish old session for user ${userId}`, error?.stack || error);
+        // Force-delete the stale session so the user is not permanently blocked
+        try {
+          await this.redis.del(this.sessionKey(userId));
+        } catch { /* already logged */ }
+      }
     }
 
     const durationMs = TIME_MODES[timeMode];
