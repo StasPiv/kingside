@@ -103,6 +103,18 @@ async function setLocale(page: import('@playwright/test').Page, locale: 'en' | '
 }
 
 test.describe('Profile Page', () => {
+  test('should open /profile without redirect to /lobby (KS-239 regression)', async ({
+    authenticatedPage: page,
+  }) => {
+    const userId = await getUserId(page);
+    await setupProfileMocks(page, userId);
+    await navigateTo(page, '/profile');
+
+    await expect(page).toHaveURL(/\/profile/);
+    await expect(page).not.toHaveURL(/\/lobby/);
+    await expect(page.locator('.profile-page')).toBeVisible();
+  });
+
   test('should open /profile page and display username and registration date', async ({
     authenticatedPage: page,
   }) => {
