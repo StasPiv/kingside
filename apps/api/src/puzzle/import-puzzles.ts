@@ -14,50 +14,9 @@
 import * as fs from 'fs';
 import * as readline from 'readline';
 import { PrismaClient, Prisma } from '../generated/prisma/client';
+import { parseLine } from './parse-puzzle-csv';
 
 const prisma = new PrismaClient();
-
-interface PuzzleRecord {
-  id: string;
-  fen: string;
-  moves: string;
-  rating: number;
-  ratingDev: number;
-  popularity: number;
-  nbPlays: number;
-  themes: string;
-  gameUrl: string;
-  openingTags: string;
-}
-
-function parseLine(line: string): PuzzleRecord | null {
-  const parts = line.split(',');
-  if (parts.length < 9) return null;
-
-  const [id, fen, moves, rating, ratingDev, popularity, nbPlays, themes, gameUrl, ...openingParts] = parts;
-
-  const ratingNum = parseInt(rating, 10);
-  const ratingDevNum = parseInt(ratingDev, 10);
-  const popularityNum = parseInt(popularity, 10);
-  const nbPlaysNum = parseInt(nbPlays, 10);
-
-  if ([ratingNum, ratingDevNum, popularityNum, nbPlaysNum].some(Number.isNaN)) {
-    return null;
-  }
-
-  return {
-    id,
-    fen,
-    moves,
-    rating: ratingNum,
-    ratingDev: ratingDevNum,
-    popularity: popularityNum,
-    nbPlays: nbPlaysNum,
-    themes,
-    gameUrl,
-    openingTags: openingParts.join(',') || '',
-  };
-}
 
 async function importPuzzles(csvPath: string, limit: number) {
   if (!fs.existsSync(csvPath)) {
@@ -114,18 +73,20 @@ async function importPuzzles(csvPath: string, limit: number) {
   console.log(`Done. Total imported: ${count}, skipped: ${skipped}.`);
 }
 
-const args = process.argv.slice(2);
-const csvPath = args[0];
-const limit = parseInt(args[1] || '0', 10);
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  const csvPath = args[0];
+  const limit = parseInt(args[1] || '0', 10);
 
-if (!csvPath) {
-  console.error('Usage: npx ts-node src/puzzle/import-puzzles.ts <csv-path> [limit]');
-  process.exit(1);
-}
-
-importPuzzles(csvPath, limit)
-  .catch((e) => {
-    console.error('Import failed:', e);
+  if (!csvPath) {
+    console.error('Usage: npx ts-node src/puzzle/import-puzzles.ts <csv-path> [limit]');
     process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+  }
+
+  importPuzzles(csvPath, limit)
+    .catch((e) => {
+      console.error('Import failed:', e);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

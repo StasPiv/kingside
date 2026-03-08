@@ -39,8 +39,6 @@ const THEME_CATEGORIES = {
   ] as PuzzleTheme[],
 };
 
-type PuzzleListResponse = PuzzleDto[];
-
 const PAGE_SIZE = 20;
 
 export function PuzzleBrowserPage() {
@@ -69,9 +67,10 @@ export function PuzzleBrowserPage() {
         params.set('ratingMin', String(range.min));
         params.set('ratingMax', String(range.max));
       }
-      const data = await api.get<PuzzleListResponse>(`/api/puzzles?${params.toString()}`);
-      setPuzzles(data);
-      setTotal(data.length);
+      const data = await api.get<PuzzleDto[]>(`/api/puzzles?${params.toString()}`);
+      const list = Array.isArray(data) ? data : [];
+      setPuzzles(list);
+      setTotal(list.length);
     } catch {
       setError(t('puzzleBrowser.error'));
     } finally {
@@ -182,7 +181,7 @@ export function PuzzleBrowserPage() {
                 </div>
                 <button
                   className="puzzle-solve-btn"
-                  onClick={() => window.location.href = `/puzzles/${puzzle.id}`}
+                  onClick={() => window.location.href = `/puzzle/${puzzle.id}`}
                 >
                   {t('puzzleBrowser.solve')}
                 </button>

@@ -21,6 +21,7 @@ model User {
   createdAt       DateTime @default(now()) @map("created_at")
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
   locale          String   @default("en") @map("locale")
+  isBot           Boolean  @default(false) @map("is_bot")
 
   whiteGames       Game[]             @relation("WhitePlayer")
   blackGames       Game[]             @relation("BlackPlayer")
