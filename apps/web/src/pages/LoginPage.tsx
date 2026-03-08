@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnUrl = (location.state as { returnUrl?: string })?.returnUrl || '/lobby';
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -16,7 +18,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       await login(username, password);
-      navigate('/lobby');
+      navigate(returnUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Ошибка входа');
     } finally {
