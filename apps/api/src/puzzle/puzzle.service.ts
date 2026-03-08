@@ -178,12 +178,23 @@ export class PuzzleService {
       `Puzzle ${puzzleId} ${solved ? 'solved' : 'failed'} by user ${userId}: rating ${ratingChange.userRatingBefore} -> ${ratingChange.userRatingAfter}`,
     );
 
+    // Fetch next puzzle atomically to avoid race condition (KS-177):
+    // the attempt is already persisted, so getNextPuzzle will correctly
+    // exclude this puzzle if it was solved.
+    let nextPuzzle = null;
+    try {
+      nextPuzzle = await this.getNextPuzzle(userId, puzzleId);
+    } catch {
+      // no puzzles available — not critical
+    }
+
     return {
       solved,
       puzzleRating: ratingChange.puzzleRatingAfter,
       userRatingBefore: ratingChange.userRatingBefore,
       userRatingAfter: ratingChange.userRatingAfter,
       correctMoves: puzzle.moves.split(' '),
+      nextPuzzle,
     };
   }
 

@@ -175,6 +175,50 @@ describe('PuzzleService', () => {
     });
   });
 
+  describe('submitAttempt', () => {
+    const mockPuzzle = { id: 'p1', fen: 'fen', moves: 'e2e4 e7e5', rating: 1500, themes: 'fork' };
+
+    it('should return nextPuzzle in response to avoid race condition', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(mockPuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1200,
+        userRatingAfter: 1210,
+        puzzleRatingAfter: 1495,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      // Mock getNextPuzzle dependencies
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1210 });
+      prisma.puzzleAttempt.findMany.mockResolvedValue([{ puzzleId: 'p1' }]);
+      const nextPuzzle = { id: 'p2', fen: 'fen2', moves: 'e2e4', rating: 1300, themes: 'pin' };
+      prisma.puzzle.findMany.mockResolvedValue([nextPuzzle]);
+
+      const result = await service.submitAttempt('user-1', 'p1', true, 5000);
+
+      expect(result.nextPuzzle).toBeDefined();
+      expect(result.nextPuzzle?.id).toBe('p2');
+      expect(result.solved).toBe(true);
+    });
+
+    it('should return nextPuzzle=null when no puzzles available', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(mockPuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1200,
+        userRatingAfter: 1190,
+        puzzleRatingAfter: 1505,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1190 });
+      prisma.puzzleAttempt.findMany.mockResolvedValue([]);
+      prisma.puzzle.findMany.mockResolvedValue([]);
+      prisma.puzzle.findFirst.mockResolvedValue(null);
+
+      const result = await service.submitAttempt('user-1', 'p1', false, 3000);
+
+      expect(result.nextPuzzle).toBeNull();
+      expect(result.solved).toBe(false);
+    });
+  });
+
   describe('getPuzzle', () => {
     it('should return formatted puzzle when found', async () => {
       const puzzle = { id: 'abc123', fen: 'fen1', moves: 'e2e4 e7e5', rating: 1500, themes: 'fork pin' };

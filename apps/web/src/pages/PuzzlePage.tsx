@@ -40,13 +40,13 @@ export function PuzzlePage() {
     return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
   }, [puzzle, game]);
 
-  const loadPuzzle = useCallback(async (specificId?: string) => {
+  const loadPuzzle = useCallback(async (specificId?: string, excludeId?: string) => {
     setLoading(true);
     setError('');
     try {
       const data = specificId
         ? await puzzleApi.getById(specificId)
-        : await puzzleApi.getNext();
+        : await puzzleApi.getNext(excludeId ? { excludeId } : undefined);
       setPuzzle(data);
       const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
       setPuzzleMoves(moves);
@@ -162,7 +162,7 @@ export function PuzzlePage() {
 
   const handleNext = async () => {
     await submitAttemptResult(status === 'correct');
-    loadPuzzle();
+    loadPuzzle(undefined, puzzle?.id);
   };
 
   const handleRetry = () => {
