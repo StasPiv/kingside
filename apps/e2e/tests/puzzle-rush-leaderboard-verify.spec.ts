@@ -35,9 +35,18 @@ test.describe('KS-228: Puzzle Rush Leaderboard E2E Verification', () => {
 
   // --- Сценарий 2: Роут ---
 
-  test('page opens at /puzzle-rush/leaderboard and requires auth', async ({ page }) => {
+  test('page opens at /puzzle-rush/leaderboard without auth (KS-238)', async ({ page }) => {
+    await page.route('**/api/puzzle-rush/leaderboard*', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ entries: [] }),
+      }),
+    );
+
     await page.goto('/puzzle-rush/leaderboard');
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page).toHaveURL(/\/puzzle-rush\/leaderboard/);
+    await expect(page.locator('.rush-leaderboard-page')).toBeVisible();
   });
 
   test('authenticated user can access /puzzle-rush/leaderboard', async ({ authenticatedPage: page }) => {
