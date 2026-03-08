@@ -3,28 +3,18 @@ jest.mock('../prisma/prisma.service', () => ({
   PrismaService: jest.fn(),
 }));
 
-import { Test, TestingModule } from '@nestjs/testing';
 import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
 import { UserTimeControlService } from './user-time-control.service';
-import { PrismaService } from '../prisma/prisma.service';
 
 describe('UserTimeControlService', () => {
   let service: UserTimeControlService;
-  let prisma: {
-    userTimeControl: {
-      findMany: jest.Mock;
-      count: jest.Mock;
-      create: jest.Mock;
-      findUnique: jest.Mock;
-      delete: jest.Mock;
-    };
-  };
+  let prisma: any;
 
-  beforeEach(async () => {
+  beforeEach(() => {
     prisma = {
       userTimeControl: {
         findMany: jest.fn(),
@@ -35,14 +25,7 @@ describe('UserTimeControlService', () => {
       },
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        UserTimeControlService,
-        { provide: PrismaService, useValue: prisma },
-      ],
-    }).compile();
-
-    service = module.get(UserTimeControlService);
+    service = new UserTimeControlService(prisma);
   });
 
   describe('findAllByUser', () => {
