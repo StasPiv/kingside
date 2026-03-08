@@ -4,13 +4,13 @@
  * to catch contract mismatches between frontend and backend.
  *
  * Contract:
- *   POST /api/puzzle-rush/start  { timeMode: '3' | '5' }
- *   POST /api/puzzle-rush/answer { uci: string }
- *   GET  /api/puzzle-rush/session
- *   GET  /api/puzzle-rush/next
- *   DELETE /api/puzzle-rush/session
- *   GET  /api/puzzle-rush/leaderboard?timeMode=&limit=
- *   GET  /api/puzzle-rush/best?timeMode=
+ *   POST /api/puzzles/rush       { timeMode: '3' | '5' }
+ *   POST /api/puzzles/rush/answer { uci: string }
+ *   GET  /api/puzzles/rush/session
+ *   GET  /api/puzzles/rush/next
+ *   DELETE /api/puzzles/rush/session
+ *   GET  /api/puzzles/rush/leaderboard?timeMode=&limit=
+ *   GET  /api/puzzles/rush/best?timeMode=
  */
 import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -53,7 +53,7 @@ describe('PuzzleRush Controller E2E', () => {
     getUserBest: jest.fn().mockResolvedValue(0),
   };
 
-  const BASE = '/puzzle-rush';
+  const BASE = '/puzzles/rush';
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -85,10 +85,10 @@ describe('PuzzleRush Controller E2E', () => {
     jest.clearAllMocks();
   });
 
-  describe(`POST ${BASE}/start`, () => {
+  describe(`POST ${BASE}`, () => {
     it('should accept timeMode "3"', async () => {
       const res = await request(app.getHttpServer())
-        .post(`${BASE}/start`)
+        .post(`${BASE}`)
         .send({ timeMode: '3' });
 
       expect(res.status).toBe(201);
@@ -98,7 +98,7 @@ describe('PuzzleRush Controller E2E', () => {
 
     it('should accept timeMode "5"', async () => {
       const res = await request(app.getHttpServer())
-        .post(`${BASE}/start`)
+        .post(`${BASE}`)
         .send({ timeMode: '5' });
 
       expect(res.status).toBe(201);
@@ -107,7 +107,7 @@ describe('PuzzleRush Controller E2E', () => {
 
     it('should reject invalid timeMode', async () => {
       const res = await request(app.getHttpServer())
-        .post(`${BASE}/start`)
+        .post(`${BASE}`)
         .send({ timeMode: '10' });
 
       expect(res.status).toBe(400);
@@ -116,7 +116,7 @@ describe('PuzzleRush Controller E2E', () => {
 
     it('should reject missing timeMode', async () => {
       const res = await request(app.getHttpServer())
-        .post(`${BASE}/start`)
+        .post(`${BASE}`)
         .send({});
 
       expect(res.status).toBe(400);
@@ -125,7 +125,7 @@ describe('PuzzleRush Controller E2E', () => {
 
     it('should reject old format (timeLimitSec instead of timeMode)', async () => {
       const res = await request(app.getHttpServer())
-        .post(`${BASE}/start`)
+        .post(`${BASE}`)
         .send({ timeLimitSec: 180 });
 
       expect(res.status).toBe(400);
@@ -134,7 +134,7 @@ describe('PuzzleRush Controller E2E', () => {
 
     it('should reject numeric timeMode', async () => {
       const res = await request(app.getHttpServer())
-        .post(`${BASE}/start`)
+        .post(`${BASE}`)
         .send({ timeMode: 3 });
 
       expect(res.status).toBe(400);
@@ -221,15 +221,15 @@ describe('PuzzleRush Controller E2E', () => {
   });
 
   describe('Route mismatch detection', () => {
-    it('should NOT respond on old route /puzzles/rush', async () => {
+    it('should NOT respond on old route /puzzle-rush/start', async () => {
       const res = await request(app.getHttpServer())
-        .post('/puzzles/rush')
+        .post('/puzzle-rush/start')
         .send({ timeMode: '3' });
 
       expect(res.status).toBe(404);
     });
 
-    it('should NOT respond on /puzzle-rush without /start', async () => {
+    it('should NOT respond on /puzzle-rush', async () => {
       const res = await request(app.getHttpServer())
         .post('/puzzle-rush')
         .send({ timeMode: '3' });
@@ -265,7 +265,7 @@ describe('PuzzleRush Controller E2E', () => {
 
     it('should reject unauthenticated request', async () => {
       const res = await request(appNoAuth.getHttpServer())
-        .post(`${BASE}/start`)
+        .post(`${BASE}`)
         .send({ timeMode: '3' });
 
       expect(res.status).toBe(403);
