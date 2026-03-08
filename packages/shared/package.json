@@ -7,6 +7,9 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint src/",
-    "test": "echo \"No tests yet\""
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }
