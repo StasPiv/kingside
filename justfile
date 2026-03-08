@@ -70,6 +70,18 @@ webhook:
         echo "Health check: FAIL"
     fi
 
+# View API logs (production)
+logs *ARGS:
+    docker compose logs api {{ARGS}}
+
+# View API logs with follow
+logs-follow:
+    docker compose logs -f --tail=100 api
+
+# View Puzzle Rush logs only
+logs-puzzle-rush:
+    docker compose logs api 2>&1 | grep -i "puzzle"
+
 # Stop webhook server
 webhook-stop:
     pkill -f "python3.*webhook-server.py" 2>/dev/null || true
