@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 import { testI18n } from './test/test-utils';
@@ -12,8 +12,16 @@ vi.mock('./context/AuthContext', () => ({
 
 vi.mock('./layouts/MainLayout', () => ({
   MainLayout: () => {
-    const { Outlet } = require('react-router-dom');
-    return <Outlet />;
+    const { Outlet, Link } = require('react-router-dom');
+    return (
+      <div>
+        <nav>
+          <Link to="/puzzle-rush">Puzzle Rush Nav</Link>
+          <Link to="/puzzle-rush/leaderboard">Leaderboard Nav</Link>
+        </nav>
+        <Outlet />
+      </div>
+    );
   },
 }));
 
@@ -190,5 +198,44 @@ describe('App routing', () => {
     });
     renderApp('/profile');
     expect(screen.getByText('Profile')).toBeInTheDocument();
+  });
+
+  // KS-267: Scenario 6 — client-side navigation to /puzzle-rush/leaderboard
+  it('navigates to /puzzle-rush/leaderboard via client-side link', () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u1', username: 'Test' },
+      loading: false,
+      token: 'tok',
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderApp('/puzzle-rush');
+    expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Leaderboard Nav'));
+    expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
+  });
+
+  // KS-267: Navigation from leaderboard back to /puzzle-rush (auth user)
+  it('navigates from /puzzle-rush/leaderboard to /puzzle-rush via link', () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u1', username: 'Test' },
+      loading: false,
+      token: 'tok',
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderApp('/puzzle-rush/leaderboard');
+    expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Puzzle Rush Nav'));
+    expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+  });
+
+  // KS-267: /puzzle-rush/leaderboard client-side nav without auth
+  it('navigates to /puzzle-rush/leaderboard via link without auth', () => {
+    renderApp('/lobby'); // redirected to /login
+    fireEvent.click(screen.getByText('Leaderboard Nav'));
+    expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
   });
 });
