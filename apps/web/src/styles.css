@@ -966,6 +966,63 @@ input:focus {
   text-align: center;
 }
 
+/* Puzzle page */
+.puzzle-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 20px;
+}
+
+.puzzle-page h1 {
+  margin-bottom: 12px;
+}
+
+.puzzle-stats {
+  display: flex;
+  gap: 20px;
+  color: #a0a0c0;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.puzzle-board-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.puzzle-status-bar {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+
+.puzzle-hint {
+  color: #a0a0c0;
+  font-size: 16px;
+}
+
+.puzzle-correct {
+  color: #22c55e;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.puzzle-incorrect {
+  color: #ef4444;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.puzzle-actions {
+  display: flex;
+  gap: 12px;
+  min-height: 48px;
+  align-items: center;
+}
+
 /* Responsive: tablets */
 @media (max-width: 768px) {
   .main {
