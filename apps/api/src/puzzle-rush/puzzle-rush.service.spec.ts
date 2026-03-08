@@ -194,6 +194,58 @@ describe('PuzzleRushService', () => {
     });
   });
 
+  describe('getNextPuzzle', () => {
+    it('should return current puzzle from active session', async () => {
+      const session = {
+        userId,
+        timeMode: '3',
+        score: 2,
+        lives: 2,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5', 'd2d4'],
+        currentMoveIndex: 0,
+        startedAt: Date.now() - 30000,
+        durationMs: 180000,
+        solvedPuzzleIds: [],
+      };
+      redis.get.mockResolvedValue(JSON.stringify(session));
+      prisma.puzzle.findUnique.mockResolvedValue(mockPuzzle);
+
+      const result = await service.getNextPuzzle(userId);
+
+      expect(result.puzzle.id).toBe('puzzle-1');
+      expect(result.puzzle.fen).toBe(mockPuzzle.fen);
+      expect(result.score).toBe(2);
+      expect(result.lives).toBe(2);
+      expect(result.elapsedMs).toBeGreaterThan(0);
+    });
+
+    it('should throw NotFoundException when no active session', async () => {
+      redis.get.mockResolvedValue(null);
+
+      await expect(service.getNextPuzzle(userId)).rejects.toThrow(NotFoundException);
+    });
+
+    it('should finish session and throw when time expired', async () => {
+      const session = {
+        userId,
+        timeMode: '3',
+        score: 5,
+        lives: 2,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5'],
+        currentMoveIndex: 0,
+        startedAt: Date.now() - 200000,
+        durationMs: 180000,
+        solvedPuzzleIds: [],
+      };
+      redis.get.mockResolvedValue(JSON.stringify(session));
+
+      await expect(service.getNextPuzzle(userId)).rejects.toThrow(NotFoundException);
+      expect(prisma.puzzleRushScore.create).toHaveBeenCalled();
+    });
+  });
+
   describe('getLeaderboard', () => {
     it('should return sorted leaderboard', async () => {
       prisma.puzzleRushScore.findMany.mockResolvedValue([

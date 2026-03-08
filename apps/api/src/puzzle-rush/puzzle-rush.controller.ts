@@ -27,8 +27,13 @@ export class PuzzleRushController {
     return this.puzzleRushService.getSession(req.user.id);
   }
 
-  @Post('solve')
-  solve(@Request() req: any, @Body() dto: SubmitPuzzleAnswerDto) {
+  @Get('next')
+  getNextPuzzle(@Request() req: any) {
+    return this.puzzleRushService.getNextPuzzle(req.user.id);
+  }
+
+  @Post('answer')
+  answer(@Request() req: any, @Body() dto: SubmitPuzzleAnswerDto) {
     return this.puzzleRushService.submitAnswer(req.user.id, dto.uci);
   }
 
