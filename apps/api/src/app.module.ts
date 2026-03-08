@@ -13,10 +13,7 @@ import { UserModule } from './user/user.module';
 import { GameModule } from './game/game.module';
 import { MatchmakingModule } from './matchmaking/matchmaking.module';
 import { PuzzleModule } from './puzzle/puzzle.module';
-<<<<<<< HEAD
 import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
-=======
->>>>>>> feature/KS-140
 
 @Module({
   imports: [
@@ -42,10 +39,7 @@ import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
     GameModule,
     MatchmakingModule,
     PuzzleModule,
-<<<<<<< HEAD
     PuzzleRushModule,
-=======
->>>>>>> feature/KS-140
   ],
 })
 export class AppModule {}

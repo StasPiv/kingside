@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-<<<<<<< HEAD
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface RatingChange {
@@ -8,13 +7,10 @@ export interface RatingChange {
   puzzleRatingBefore: number;
   puzzleRatingAfter: number;
 }
-=======
->>>>>>> feature/KS-140
 
 @Injectable()
 export class PuzzleRatingService {
   private readonly logger = new Logger(PuzzleRatingService.name);
-<<<<<<< HEAD
   private readonly K_USER = 32;
   private readonly K_PUZZLE = 8;
 
@@ -40,7 +36,7 @@ export class PuzzleRatingService {
       }),
       this.prisma.puzzle.findUniqueOrThrow({
         where: { id: puzzleId },
-        select: { rating: true, ratingDeviation: true },
+        select: { rating: true, ratingDev: true },
       }),
     ]);
 
@@ -80,19 +76,5 @@ export class PuzzleRatingService {
       puzzleRatingBefore: puzzleRating,
       puzzleRatingAfter: newPuzzleRating,
     };
-=======
-
-  private readonly K = 32;
-
-  calculateNewRating(
-    playerRating: number,
-    puzzleRating: number,
-    solved: boolean,
-  ): number {
-    const expected = 1 / (1 + Math.pow(10, (puzzleRating - playerRating) / 400));
-    const score = solved ? 1 : 0;
-    const newRating = Math.round(playerRating + this.K * (score - expected));
-    return Math.max(100, newRating);
->>>>>>> feature/KS-140
   }
 }

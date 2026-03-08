@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
@@ -16,42 +15,11 @@ export class PuzzleService {
    * Excludes puzzles the user has already attempted.
    */
   async getNextPuzzle(userId: string) {
-=======
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { I18nService } from 'nestjs-i18n';
-import { PrismaService } from '../prisma/prisma.service';
-import { PuzzleRatingService } from './puzzle-rating.service';
-
-@Injectable()
-export class PuzzleService {
-  private readonly logger = new Logger(PuzzleService.name);
-
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly i18n: I18nService,
-    private readonly puzzleRatingService: PuzzleRatingService,
-  ) {}
-
-  async getPuzzleById(id: string) {
-    const puzzle = await this.prisma.puzzle.findUnique({
-      where: { id },
-    });
-
-    if (!puzzle) {
-      throw new NotFoundException(this.i18n.t('messages.puzzle.notFound'));
-    }
-
-    return puzzle;
-  }
-
-  async getRandomPuzzle(userId: string) {
->>>>>>> feature/KS-140
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { ratingPuzzle: true },
     });
 
-<<<<<<< HEAD
     const range = 200;
     const minRating = user.ratingPuzzle - range;
     const maxRating = user.ratingPuzzle + range;
@@ -61,19 +29,6 @@ export class PuzzleService {
       select: { puzzleId: true },
     });
     const excludeIds = attemptedIds.map((a) => a.puzzleId);
-=======
-    const ratingRange = 200;
-    const minRating = user.ratingPuzzle - ratingRange;
-    const maxRating = user.ratingPuzzle + ratingRange;
-
-    const solvedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId },
-      select: { puzzleId: true },
-      distinct: ['puzzleId'],
-    });
-
-    const excludeIds = solvedIds.map((a) => a.puzzleId);
->>>>>>> feature/KS-140
 
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
@@ -81,7 +36,6 @@ export class PuzzleService {
         id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
       },
       take: 10,
-<<<<<<< HEAD
       orderBy: { rating: 'asc' },
     });
 
@@ -100,6 +54,80 @@ export class PuzzleService {
     }
 
     // Pick a random puzzle from the candidates
+    const picked = puzzles[Math.floor(Math.random() * puzzles.length)];
+    return this.formatPuzzle(picked);
+  }
+
+  /**
+   * Search puzzles by theme and/or difficulty range.
+   * Themes are stored as a space-separated string, so we use `contains` for filtering.
+   */
+  async findPuzzles(params: {
+    themes?: string[];
+    ratingMin?: number;
+    ratingMax?: number;
+    limit?: number;
+  }) {
+    const { themes, ratingMin, ratingMax, limit } = params;
+    const take = limit ?? 10;
+
+    const where: Record<string, any> = {};
+
+    if (ratingMin !== undefined || ratingMax !== undefined) {
+      where.rating = {};
+      if (ratingMin !== undefined) where.rating.gte = ratingMin;
+      if (ratingMax !== undefined) where.rating.lte = ratingMax;
+    }
+
+    if (themes && themes.length > 0) {
+      where.AND = themes.map((theme) => ({
+        themes: { contains: theme },
+      }));
+    }
+
+    const puzzles = await this.prisma.puzzle.findMany({
+      where,
+      take,
+      orderBy: { rating: 'asc' },
+    });
+
+    return puzzles.map((p) => this.formatPuzzle(p));
+  }
+
+  /**
+   * Get next puzzle for user filtered by a specific theme.
+   * Matches user rating ±200 and excludes already attempted puzzles.
+   */
+  async getNextPuzzleByTheme(userId: string, theme: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { ratingPuzzle: true },
+    });
+
+    const range = 200;
+    const minRating = user.ratingPuzzle - range;
+    const maxRating = user.ratingPuzzle + range;
+
+    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId },
+      select: { puzzleId: true },
+    });
+    const excludeIds = attemptedIds.map((a) => a.puzzleId);
+
+    const puzzles = await this.prisma.puzzle.findMany({
+      where: {
+        rating: { gte: minRating, lte: maxRating },
+        themes: { contains: theme },
+        id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
+      },
+      take: 10,
+      orderBy: { rating: 'asc' },
+    });
+
+    if (puzzles.length === 0) {
+      throw new NotFoundException('No puzzles available for this theme');
+    }
+
     const picked = puzzles[Math.floor(Math.random() * puzzles.length)];
     return this.formatPuzzle(picked);
   }
@@ -150,34 +178,11 @@ export class PuzzleService {
    * Get puzzle statistics for a user.
    */
   async getStats(userId: string): Promise<PuzzleStats> {
-=======
-      orderBy: { popularity: 'desc' },
-    });
-
-    if (puzzles.length === 0) {
-      throw new NotFoundException(this.i18n.t('messages.puzzle.noPuzzlesAvailable'));
-    }
-
-    const index = Math.floor(Math.random() * puzzles.length);
-    return puzzles[index];
-  }
-
-  async submitAttempt(userId: string, puzzleId: string, solved: boolean) {
-    const puzzle = await this.prisma.puzzle.findUnique({
-      where: { id: puzzleId },
-    });
-
-    if (!puzzle) {
-      throw new NotFoundException(this.i18n.t('messages.puzzle.notFound'));
-    }
-
->>>>>>> feature/KS-140
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { ratingPuzzle: true },
     });
 
-<<<<<<< HEAD
     const [totalAttempted, totalSolved, bestRush] = await Promise.all([
       this.prisma.puzzleAttempt.count({ where: { userId } }),
       this.prisma.puzzleAttempt.count({ where: { userId, solved: true } }),
@@ -186,61 +191,10 @@ export class PuzzleService {
         orderBy: { solved: 'desc' },
         select: { solved: true },
       }),
-=======
-    const ratingBefore = user.ratingPuzzle;
-    const ratingAfter = this.puzzleRatingService.calculateNewRating(
-      ratingBefore,
-      puzzle.rating,
-      solved,
-    );
-
-    const attempt = await this.prisma.puzzleAttempt.create({
-      data: {
-        puzzleId,
-        userId,
-        solved,
-        ratingBefore,
-        ratingAfter,
-      },
-    });
-
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { ratingPuzzle: ratingAfter },
-    });
-
-    this.logger.log(
-      `Puzzle ${puzzleId} ${solved ? 'solved' : 'failed'} by user ${userId}: rating ${ratingBefore} -> ${ratingAfter}`,
-    );
-
-    return {
-      attemptId: attempt.id,
-      solved,
-      ratingBefore,
-      ratingAfter,
-      ratingDelta: ratingAfter - ratingBefore,
-    };
-  }
-
-  async getUserPuzzleStats(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { ratingPuzzle: true },
-    });
-
-    if (!user) {
-      throw new NotFoundException(this.i18n.t('messages.user.notFound'));
-    }
-
-    const [total, solved] = await Promise.all([
-      this.prisma.puzzleAttempt.count({ where: { userId } }),
-      this.prisma.puzzleAttempt.count({ where: { userId, solved: true } }),
->>>>>>> feature/KS-140
     ]);
 
     return {
       rating: user.ratingPuzzle,
-<<<<<<< HEAD
       totalSolved,
       totalAttempted,
       bestPuzzleRushScore: bestRush?.solved ?? null,
@@ -274,25 +228,5 @@ export class PuzzleService {
       rating: puzzle.rating,
       themes: puzzle.themes,
     };
-=======
-      totalAttempts: total,
-      solved,
-      failed: total - solved,
-    };
-  }
-
-  async getUserAttempts(userId: string, take = 20, skip = 0) {
-    return this.prisma.puzzleAttempt.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take,
-      skip,
-      include: {
-        puzzle: {
-          select: { id: true, fen: true, rating: true, themes: true },
-        },
-      },
-    });
->>>>>>> feature/KS-140
   }
 }
