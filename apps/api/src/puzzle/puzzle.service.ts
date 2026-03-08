@@ -15,7 +15,7 @@ export class PuzzleService {
 
   /**
    * Get a puzzle matching the user's current rating (±200 range).
-   * Excludes puzzles the user has already attempted.
+   * Excludes puzzles the user has already solved.
    */
   async getNextPuzzle(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -27,12 +27,12 @@ export class PuzzleService {
     const minRating = user.ratingPuzzle - range;
     const maxRating = user.ratingPuzzle + range;
 
-    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId },
+    const solvedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId, solved: true },
       select: { puzzleId: true },
       distinct: ['puzzleId'],
     });
-    const excludeIds = attemptedIds.map((a) => a.puzzleId);
+    const excludeIds = solvedIds.map((a) => a.puzzleId);
 
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
@@ -98,7 +98,7 @@ export class PuzzleService {
 
   /**
    * Get next puzzle for user filtered by a specific theme.
-   * Matches user rating ±200 and excludes already attempted puzzles.
+   * Matches user rating ±200 and excludes already solved puzzles.
    */
   async getNextPuzzleByTheme(userId: string, theme: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -110,12 +110,12 @@ export class PuzzleService {
     const minRating = user.ratingPuzzle - range;
     const maxRating = user.ratingPuzzle + range;
 
-    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId },
+    const solvedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId, solved: true },
       select: { puzzleId: true },
       distinct: ['puzzleId'],
     });
-    const excludeIds = attemptedIds.map((a) => a.puzzleId);
+    const excludeIds = solvedIds.map((a) => a.puzzleId);
 
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
