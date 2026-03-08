@@ -56,7 +56,7 @@ _infra:
     if $pg_ok && $redis_ok; then
         echo "PostgreSQL and Redis already running on ports $PG_PORT/$RD_PORT, skipping docker compose up"
     else
-        docker compose up -d
+        docker compose up -d postgres redis
         echo "Waiting for PostgreSQL..."
         until docker compose exec -T postgres pg_isready -U "${POSTGRES_USER:-kingside}" > /dev/null 2>&1; do sleep 1; done
         echo "PostgreSQL is ready"
