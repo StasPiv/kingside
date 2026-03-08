@@ -37,6 +37,11 @@ export class UserController {
     return this.userService.getProfile(id);
   }
 
+  @Get(':id/puzzle-rush-stats')
+  getPuzzleRushStats(@Param('id', ParseUUIDPipe) id: string) {
+    return this.userService.getPuzzleRushStats(id);
+  }
+
   @Get(':id/games')
   getUserGames(
     @Param('id', ParseUUIDPipe) id: string,

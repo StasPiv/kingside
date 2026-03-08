@@ -73,6 +73,39 @@ export class UserService {
     return user;
   }
 
+  async getPuzzleRushStats(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException(this.i18n.t('messages.user.notFound'));
+    }
+
+    const [best3, best5, totalSessions] = await Promise.all([
+      this.prisma.puzzleRushScore.findFirst({
+        where: { userId, timeMode: '3' },
+        orderBy: { score: 'desc' },
+        select: { score: true },
+      }),
+      this.prisma.puzzleRushScore.findFirst({
+        where: { userId, timeMode: '5' },
+        orderBy: { score: 'desc' },
+        select: { score: true },
+      }),
+      this.prisma.puzzleRushScore.count({
+        where: { userId },
+      }),
+    ]);
+
+    return {
+      best3: best3?.score ?? 0,
+      best5: best5?.score ?? 0,
+      totalSessions,
+    };
+  }
+
   async getUserGames(userId: string, take = 20, skip = 0) {
     const games = await this.prisma.game.findMany({
       where: {

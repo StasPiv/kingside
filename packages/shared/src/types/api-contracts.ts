@@ -187,6 +187,13 @@ export type PuzzleRushLeaderboardResponse = {
   entries: PuzzleRushLeaderboardEntry[];
 };
 
+/** GET /api/users/:id/puzzle-rush-stats */
+export type UserPuzzleRushStatsResponse = {
+  best3: number;
+  best5: number;
+  totalSessions: number;
+};
+
 // ─── WebSocket: /game namespace ─────────────────────────────────────
 
 /** Client → Server */

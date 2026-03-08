@@ -26,6 +26,10 @@ describe('UserService', () => {
       game: {
         findMany: jest.fn(),
       },
+      puzzleRushScore: {
+        findFirst: jest.fn(),
+        count: jest.fn(),
+      },
     } as any;
 
     i18n = {
@@ -124,6 +128,40 @@ describe('UserService', () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.getProfile(userId)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('getPuzzleRushStats', () => {
+    it('should return best scores and total sessions', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: userId });
+      prisma.puzzleRushScore.findFirst
+        .mockResolvedValueOnce({ score: 15 })
+        .mockResolvedValueOnce({ score: 22 });
+      prisma.puzzleRushScore.count.mockResolvedValue(10);
+
+      const result = await service.getPuzzleRushStats(userId);
+
+      expect(result).toEqual({ best3: 15, best5: 22, totalSessions: 10 });
+    });
+
+    it('should return zeros when no scores exist', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: userId });
+      prisma.puzzleRushScore.findFirst
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null);
+      prisma.puzzleRushScore.count.mockResolvedValue(0);
+
+      const result = await service.getPuzzleRushStats(userId);
+
+      expect(result).toEqual({ best3: 0, best5: 0, totalSessions: 0 });
+    });
+
+    it('should throw NotFoundException when user not found', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.getPuzzleRushStats(userId)).rejects.toThrow(
         NotFoundException,
       );
     });
