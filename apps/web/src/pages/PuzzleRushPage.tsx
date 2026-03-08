@@ -205,6 +205,8 @@ export function PuzzleRushPage() {
       onPieceDrop: onPieceDrop,
       boardOrientation: boardOrientation,
       animationDurationInMs: 150,
+      dragActivationDistance: 0,
+      draggingPieceStyle: { transform: 'scale(1)' },
       ...(boardStyle && { boardStyle }),
     }),
     [game, onPieceDrop, boardOrientation, boardStyle],
