@@ -37,9 +37,9 @@ export function PuzzlePage() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.get<PuzzleDto>('/api/puzzles/random');
+      const data = await api.get<PuzzleDto>('/api/puzzles/next');
       setPuzzle(data);
-      const moves = data.moves.split(' ');
+      const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
       setPuzzleMoves(moves);
 
       // Set up the position and play the first (opponent's) move
@@ -131,7 +131,7 @@ export function PuzzlePage() {
 
   const handleRetry = () => {
     if (!puzzle) return;
-    const moves = puzzle.moves.split(' ');
+    const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
     setPuzzleMoves(moves);
     const chess = new Chess(puzzle.fen);
     if (moves.length > 0) {

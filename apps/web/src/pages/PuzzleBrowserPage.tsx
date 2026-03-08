@@ -39,11 +39,6 @@ const THEME_CATEGORIES = {
   ] as PuzzleTheme[],
 };
 
-type PuzzleListResponse = {
-  puzzles: PuzzleDto[];
-  total: number;
-};
-
 const PAGE_SIZE = 20;
 
 export function PuzzleBrowserPage() {
@@ -73,9 +68,10 @@ export function PuzzleBrowserPage() {
         params.set('ratingMin', String(range.min));
         params.set('ratingMax', String(range.max));
       }
-      const data = await api.get<PuzzleListResponse>(`/api/puzzles?${params.toString()}`);
-      setPuzzles(data.puzzles);
-      setTotal(data.total);
+      const data = await api.get<PuzzleDto[]>(`/api/puzzles?${params.toString()}`);
+      const list = Array.isArray(data) ? data : [];
+      setPuzzles(list);
+      setTotal(list.length);
     } catch {
       setError(t('puzzleBrowser.error'));
     } finally {
