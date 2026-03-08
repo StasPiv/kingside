@@ -102,6 +102,24 @@ describe('AuthService', () => {
 
       expect(bcrypt.hash).toHaveBeenCalledWith('mypassword', 10);
     });
+
+    it('should check for duplicate by username and email', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue(mockUser);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed');
+
+      await service.register({
+        username: 'testuser',
+        email: 'test@example.com',
+        password: 'password123',
+      });
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: {
+          OR: [{ username: 'testuser' }, { email: 'test@example.com' }],
+        },
+      });
+    });
   });
 
   describe('login', () => {
@@ -148,6 +166,16 @@ describe('AuthService', () => {
         data: { lastSeenAt: expect.any(Date) },
       });
     });
+
+    it('should verify password with bcrypt.compare', async () => {
+      prisma.user.findUnique.mockResolvedValue(mockUser);
+      prisma.user.update.mockResolvedValue(mockUser);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      await service.login({ username: 'testuser', password: 'password123' });
+
+      expect(bcrypt.compare).toHaveBeenCalledWith('password123', mockUser.passwordHash);
+    });
   });
 
   describe('refresh', () => {
@@ -158,6 +186,17 @@ describe('AuthService', () => {
 
       expect(result.accessToken).toBe('mock-token');
       expect(result.refreshToken).toBe('mock-token');
+    });
+
+    it('should verify token with JWT_SECRET', async () => {
+      configService.get.mockReturnValue('my-secret');
+      jwtService.verify.mockReturnValue({ sub: mockUser.id, username: mockUser.username });
+
+      await service.refresh('some-token');
+
+      expect(jwtService.verify).toHaveBeenCalledWith('some-token', {
+        secret: 'my-secret',
+      });
     });
 
     it('should throw UnauthorizedException for invalid refresh token', async () => {
@@ -190,6 +229,35 @@ describe('AuthService', () => {
 
       expect(result).toEqual(profile);
       expect(result).not.toHaveProperty('passwordHash');
+    });
+
+    it('should query with correct select fields', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await service.getMe(mockUser.id);
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { id: mockUser.id },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          ratingBullet: true,
+          ratingBlitz: true,
+          ratingRapid: true,
+          ratingClassical: true,
+          createdAt: true,
+          locale: true,
+        },
+      });
+    });
+
+    it('should return null if user not found', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      const result = await service.getMe('non-existent-id');
+
+      expect(result).toBeNull();
     });
   });
 });
