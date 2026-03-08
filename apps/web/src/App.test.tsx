@@ -91,7 +91,51 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
   });
 
+  // KS-260: Scenario 1 — direct navigation to /puzzle-rush/leaderboard
   it('renders /puzzle-rush/leaderboard without auth (no redirect)', () => {
+    renderApp('/puzzle-rush/leaderboard');
+    expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
+  });
+
+  // KS-260: Scenario 2 — direct navigation to /puzzle-rush (protected)
+  it('renders /puzzle-rush for authenticated user', () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u1', username: 'Test' },
+      loading: false,
+      token: 'tok',
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderApp('/puzzle-rush');
+    expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+  });
+
+  // KS-260: Scenario 2b — /puzzle-rush redirects to login when not authenticated
+  it('redirects /puzzle-rush to /login when not authenticated', () => {
+    renderApp('/puzzle-rush');
+    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  });
+
+  // KS-260: Scenario 4 — /puzzle-rush/leaderboard accessible without auth
+  // (covered by first leaderboard test above)
+
+  // KS-260: Scenario 5 — /puzzle-rush/leaderboard accessible with auth
+  it('renders /puzzle-rush/leaderboard with auth', () => {
+    mockUseAuth.mockReturnValue({
+      user: { id: 'u1', username: 'Test' },
+      loading: false,
+      token: 'tok',
+      login: vi.fn(),
+      register: vi.fn(),
+      logout: vi.fn(),
+    });
+    renderApp('/puzzle-rush/leaderboard');
+    expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
+  });
+
+  // KS-260: Scenario 6 — page refresh on /puzzle-rush/leaderboard (simulated via direct entry)
+  it('renders /puzzle-rush/leaderboard on direct entry (simulates refresh)', () => {
     renderApp('/puzzle-rush/leaderboard');
     expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
   });
