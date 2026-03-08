@@ -60,9 +60,8 @@ export function PuzzleBrowserPage() {
     setError('');
     try {
       const params = new URLSearchParams();
-      params.set('page', String(p));
       params.set('limit', String(PAGE_SIZE));
-      if (selectedTheme) params.set('theme', selectedTheme);
+      if (selectedTheme) params.append('themes[]', selectedTheme);
       if (selectedDifficulty) {
         const range = DIFFICULTY_RANGES[selectedDifficulty];
         params.set('ratingMin', String(range.min));

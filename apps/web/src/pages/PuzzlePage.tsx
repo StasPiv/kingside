@@ -45,7 +45,11 @@ export function PuzzlePage() {
       // Set up the position and play the first (opponent's) move
       const chess = new Chess(data.fen);
       if (moves.length > 0) {
-        chess.move(moves[0]);
+        const uci = moves[0];
+        const from = uci.slice(0, 2);
+        const to = uci.slice(2, 4);
+        const promotion = uci.length > 4 ? uci[4] : undefined;
+        chess.move({ from, to, promotion });
       }
       setGame(chess);
       setMoveIndex(1);
@@ -135,7 +139,11 @@ export function PuzzlePage() {
     setPuzzleMoves(moves);
     const chess = new Chess(puzzle.fen);
     if (moves.length > 0) {
-      chess.move(moves[0]);
+      const uci = moves[0];
+      const from = uci.slice(0, 2);
+      const to = uci.slice(2, 4);
+      const promotion = uci.length > 4 ? uci[4] : undefined;
+      chess.move({ from, to, promotion });
     }
     setGame(chess);
     setMoveIndex(1);

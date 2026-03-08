@@ -420,20 +420,20 @@ class WebhookHandler(BaseHTTPRequestHandler):
             else:
                 comment_text = comment_body
 
-            # Пропускаем комментарии от агентов (начинаются с "AGENT: ")
+            # Определяем автора-агента (если комментарий начинается с "AGENT: ")
             valid_agents = get_valid_agents()
-            agent_prefixes = [a.upper() + ": " for a in valid_agents]
             stripped = comment_text.strip()
-            if any(stripped.startswith(p) for p in agent_prefixes):
-                log(f"Комментарий к {key}: от агента, пропуск (предотвращение цикла)")
-                self.send_response(200)
-                self.end_headers()
-                self.wfile.write(b'{"status":"skipped_agent_comment"}')
-                return
+            author_agent = None
+            for a in valid_agents:
+                if stripped.startswith(a.upper() + ": "):
+                    author_agent = a
+                    break
 
             # Парсим все @agentName из текста комментария
+            # Исключаем автора-агента, чтобы не запускать его повторно
             mentions = re.findall(r"@(\w+)", comment_text)
-            agents = [m.lower() for m in mentions if m.lower() in valid_agents]
+            agents = [m.lower() for m in mentions
+                      if m.lower() in valid_agents and m.lower() != author_agent]
 
             if not agents:
                 log(f"Комментарий к {key}: нет @agent в тексте, пропуск")
