@@ -8,6 +8,7 @@ import { GamePage } from './pages/GamePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DailyPuzzlePage } from './pages/DailyPuzzlePage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
+import { PuzzleRushPage } from './pages/PuzzleRushPage';
 import { PuzzlePage } from './pages/PuzzlePage';
 import { useAuth } from './context/AuthContext';
 
@@ -37,6 +38,7 @@ export function App() {
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
+        <Route path="/puzzle-rush" element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
         <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />

@@ -12,6 +12,7 @@ export function MainLayout() {
         <nav>
           <Link to="/lobby" className="logo">Kingside</Link>
           <Link to="/puzzles">{t('nav.puzzles')}</Link>
+          <Link to="/puzzle-rush">{t('nav.puzzleRush')}</Link>
           <div className="nav-links">
             {user ? (
               <>
