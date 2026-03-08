@@ -210,7 +210,11 @@
     "rapid": "Рапид",
     "classical": "Классика",
     "recentGames": "Последние партии",
-    "vs": "vs {{opponent}}"
+    "vs": "vs {{opponent}}",
+    "puzzleRush": "Рекорды Puzzle Rush",
+    "rushBest3": "Лучший (3 мин)",
+    "rushBest5": "Лучший (5 мин)",
+    "rushTotalSessions": "Всего сессий"
   },
   "rushLeaderboard": {
     "title": "Таблица лидеров Puzzle Rush",

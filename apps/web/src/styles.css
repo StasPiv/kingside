@@ -1424,6 +1424,42 @@ input:focus {
 }
 
 
+.profile-puzzle-rush {
+  margin-bottom: 32px;
+}
+
+.profile-puzzle-rush h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+.rush-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.rush-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #16213e;
+  padding: 14px 18px;
+  border-radius: 8px;
+}
+
+.rush-stat-label {
+  color: #a0a0c0;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.rush-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+}
+
 .profile-games h2 {
   font-size: 18px;
   margin-bottom: 12px;

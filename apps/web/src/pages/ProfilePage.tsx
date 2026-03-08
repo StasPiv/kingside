@@ -14,6 +14,12 @@ type UserProfile = {
   lastSeenAt: string;
 };
 
+type PuzzleRushStats = {
+  best3: number;
+  best5: number;
+  totalSessions: number;
+};
+
 type GameRecord = {
   id: string;
   white: { id: string; username: string };
@@ -28,6 +34,7 @@ export function ProfilePage() {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [games, setGames] = useState<GameRecord[]>([]);
+  const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -36,12 +43,14 @@ export function ProfilePage() {
 
     const fetchProfile = async () => {
       try {
-        const [profileData, gamesData] = await Promise.all([
+        const [profileData, gamesData, rushData] = await Promise.all([
           api.get<UserProfile>(`/api/users/${user.id}`),
           api.get<GameRecord[]>(`/api/users/${user.id}/games?take=10`),
+          api.get<PuzzleRushStats>(`/api/users/${user.id}/puzzle-rush-stats`),
         ]);
         setProfile(profileData);
         setGames(gamesData);
+        setRushStats(rushData);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('profile.loadError'));
       } finally {
@@ -89,6 +98,26 @@ export function ProfilePage() {
           ))}
         </div>
       </div>
+
+      {rushStats && (rushStats.best3 > 0 || rushStats.best5 > 0 || rushStats.totalSessions > 0) && (
+        <div className="profile-puzzle-rush">
+          <h2>{t('profile.puzzleRush')}</h2>
+          <div className="rush-stats-grid">
+            <div className="rush-stat-card">
+              <span className="rush-stat-label">{t('profile.rushBest3')}</span>
+              <span className="rush-stat-value">{rushStats.best3}</span>
+            </div>
+            <div className="rush-stat-card">
+              <span className="rush-stat-label">{t('profile.rushBest5')}</span>
+              <span className="rush-stat-value">{rushStats.best5}</span>
+            </div>
+            <div className="rush-stat-card">
+              <span className="rush-stat-label">{t('profile.rushTotalSessions')}</span>
+              <span className="rush-stat-value">{rushStats.totalSessions}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {games.length > 0 && (
         <div className="profile-games">

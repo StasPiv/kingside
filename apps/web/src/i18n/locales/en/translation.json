@@ -210,7 +210,11 @@
     "rapid": "Rapid",
     "classical": "Classical",
     "recentGames": "Recent games",
-    "vs": "vs {{opponent}}"
+    "vs": "vs {{opponent}}",
+    "puzzleRush": "Puzzle Rush Records",
+    "rushBest3": "Best (3 min)",
+    "rushBest5": "Best (5 min)",
+    "rushTotalSessions": "Total sessions"
   },
   "rushLeaderboard": {
     "title": "Puzzle Rush Leaderboard",
