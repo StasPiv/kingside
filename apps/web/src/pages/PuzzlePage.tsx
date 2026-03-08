@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
-import { api } from '../api';
+import { puzzleApi } from '../api-puzzle';
 import type { PuzzleDto } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
@@ -41,8 +41,9 @@ export function PuzzlePage() {
     setLoading(true);
     setError('');
     try {
-      const url = specificId ? `/api/puzzles/${specificId}` : '/api/puzzles/next';
-      const data = await api.get<PuzzleDto>(url);
+      const data = specificId
+        ? await puzzleApi.getById(specificId)
+        : await puzzleApi.getNext();
       setPuzzle(data);
       const moves = Array.isArray(data.moves) ? data.moves : data.moves.split(' ');
       setPuzzleMoves(moves);
@@ -77,7 +78,7 @@ export function PuzzlePage() {
     attemptSubmittedRef.current = true;
     const timeMs = Date.now() - startTimeRef.current;
     try {
-      await api.post(`/api/puzzles/${encodeURIComponent(puzzle.id)}/attempt`, { result: solved ? 'solved' : 'failed', timeMs });
+      await puzzleApi.submitAttempt(puzzle.id, { solved, timeMs });
     } catch {
       // non-critical: attempt recording failed, don't block UX
     }
