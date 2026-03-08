@@ -1,7 +1,7 @@
 # Kingside - chess platform
 
 # Start the entire project
-up: _env _infra _deps _migrate _build-shared _dev
+up: _env _deps _build-shared _infra _dev
 
 # Stop infrastructure
 down:
@@ -25,15 +25,18 @@ _env:
         echo "Created apps/api/.env from .env.example"
     fi
 
-# Start postgres and redis
+# Start postgres, redis and api
 _infra:
-    docker compose up -d
+    docker compose up -d --build
     @echo "Waiting for PostgreSQL..."
     @until docker compose exec -T postgres pg_isready -U kingside > /dev/null 2>&1; do sleep 1; done
     @echo "PostgreSQL is ready"
     @echo "Waiting for Redis..."
     @until docker compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 1; done
     @echo "Redis is ready"
+    @echo "Waiting for API..."
+    @until curl -sf http://localhost:${PORT:-3001}/api/health > /dev/null 2>&1; do sleep 2; done
+    @echo "API is ready"
 
 # Install dependencies
 _deps:
@@ -47,9 +50,9 @@ _migrate:
 _build-shared:
     npx tsc --build packages/shared
 
-# Start dev servers
+# Start web dev server (API runs in Docker)
 _dev:
-    npx turbo run dev
+    npx turbo run dev --filter=web
 
 # Start webhook server + SSH tunnel
 webhook:

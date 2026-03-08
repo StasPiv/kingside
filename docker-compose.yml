@@ -45,8 +45,6 @@ services:
     depends_on:
       - postgres
       - redis
-    profiles:
-      - full
 
   loki:
     image: grafana/loki:3.4.2
