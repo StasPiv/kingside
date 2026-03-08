@@ -6,6 +6,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
 import { SettingsPage } from './pages/SettingsPage';
+import { PuzzleRushPage } from './pages/PuzzleRushPage';
 import { useAuth } from './context/AuthContext';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -33,6 +34,7 @@ export function App() {
         <Route path="/lobby" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+        <Route path="/puzzles/rush" element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Route>
     </Routes>
