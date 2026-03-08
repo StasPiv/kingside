@@ -88,9 +88,12 @@ export function PuzzleRushPage() {
       setLives(MAX_LIVES);
       setTimeLeft(timeLimit);
 
-      const moves = Array.isArray(data.puzzle.moves)
-        ? data.puzzle.moves
-        : data.puzzle.moves.split(' ');
+      const rawMoves = data.puzzle.moves;
+      if (!rawMoves) {
+        setError(t('puzzleRush.errorStarting'));
+        return;
+      }
+      const moves = Array.isArray(rawMoves) ? rawMoves : rawMoves.split(' ');
       setupPuzzle(data.puzzle.fen, moves[0]);
       setScreen('playing');
     } catch (err: unknown) {

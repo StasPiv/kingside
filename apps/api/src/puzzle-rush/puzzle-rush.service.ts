@@ -36,7 +36,7 @@ export class PuzzleRushService {
 
   async startSession(userId: string, timeMode: string): Promise<{
     sessionId: string;
-    puzzle: { fen: string; rating: number };
+    puzzle: { fen: string; rating: number; moves: string };
     timeMode: string;
     durationMs: number;
     lives: number;
@@ -127,7 +127,7 @@ export class PuzzleRushService {
 
     return {
       sessionId: userId,
-      puzzle: { fen: setupFen, rating: puzzle.rating },
+      puzzle: { fen: setupFen, rating: puzzle.rating, moves: puzzle.moves },
       timeMode,
       durationMs,
       lives: MAX_LIVES,
