@@ -92,8 +92,13 @@ export function PuzzleRushPage() {
         : data.puzzle.moves.split(' ');
       setupPuzzle(data.puzzle.fen, moves[0]);
       setScreen('playing');
-    } catch {
-      setError(t('puzzleRush.errorStarting'));
+    } catch (err: unknown) {
+      const apiMessage =
+        err != null &&
+        typeof err === 'object' &&
+        'response' in err &&
+        (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setError(apiMessage || t('puzzleRush.errorStarting'));
     } finally {
       setLoading(false);
     }
