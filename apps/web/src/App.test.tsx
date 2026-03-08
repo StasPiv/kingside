@@ -47,6 +47,14 @@ vi.mock('./pages/PuzzlePage', () => ({
   PuzzlePage: () => <div>Puzzle</div>,
 }));
 
+vi.mock('./pages/PuzzleRushPage', () => ({
+  PuzzleRushPage: () => <div>Puzzle Rush</div>,
+}));
+
+vi.mock('./pages/PuzzleRushLeaderboardPage', () => ({
+  PuzzleRushLeaderboardPage: () => <div>Rush Leaderboard</div>,
+}));
+
 function renderApp(route: string) {
   return render(
     <I18nextProvider i18n={testI18n}>
@@ -72,5 +80,10 @@ describe('App routing', () => {
   it('redirects protected routes to /login when not authenticated', () => {
     renderApp('/lobby');
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+  });
+
+  it('renders /puzzle-rush/leaderboard without auth (no redirect)', () => {
+    renderApp('/puzzle-rush/leaderboard');
+    expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
   });
 });
