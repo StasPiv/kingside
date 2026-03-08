@@ -164,7 +164,7 @@ export type PuzzleRushNextResponse = {
 export type PuzzleRushSessionResponse = {
   score: number;
   lives: number;
-  timeMode: string;
+  timeLimitSec: number;
   elapsedMs: number;
   durationMs: number;
   puzzle: { fen: string } | null;
@@ -172,7 +172,7 @@ export type PuzzleRushSessionResponse = {
 
 export type PuzzleRushEndResponse = {
   score: number;
-  timeMode: string;
+  timeLimitSec: number;
   isHighScore: boolean;
 };
 

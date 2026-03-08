@@ -68,7 +68,7 @@ export type PuzzleRushNextResponse = {
 export type PuzzleRushSessionResponse = {
   score: number;
   lives: number;
-  timeMode: string;
+  timeLimitSec: number;
   elapsedMs: number;
   durationMs: number;
   puzzle: { fen: string } | null;
@@ -116,15 +116,15 @@ export const puzzleApi = {
 
   /** End rush session manually */
   endRushSession: () =>
-    api.delete<{ score: number; timeMode: string; isHighScore: boolean }>('/api/puzzles/rush/session'),
+    api.delete<{ score: number; timeLimitSec: number; isHighScore: boolean }>('/api/puzzles/rush/session'),
 
   /** Get rush leaderboard */
-  getRushLeaderboard: (timeMode = '3', limit = 20) =>
+  getRushLeaderboard: (timeLimitSec = 180, limit = 20) =>
     api.get<{ entries: { userId: string; username: string; score: number; createdAt: string }[] }>(
-      `/api/puzzles/rush/leaderboard?timeMode=${timeMode}&limit=${limit}`,
+      `/api/puzzles/rush/leaderboard?timeLimitSec=${timeLimitSec}&limit=${limit}`,
     ),
 
   /** Get user's best rush score */
-  getRushBest: (timeMode = '3') =>
-    api.get<number>(`/api/puzzles/rush/best?timeMode=${timeMode}`),
+  getRushBest: (timeLimitSec = 180) =>
+    api.get<number>(`/api/puzzles/rush/best?timeLimitSec=${timeLimitSec}`),
 };
