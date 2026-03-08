@@ -110,7 +110,7 @@ export class PuzzleRushService {
       lives: MAX_LIVES,
       currentPuzzleId: puzzle.id,
       currentMoves: moves,
-      currentMoveIndex: 0,
+      currentMoveIndex: 1,
       startedAt: Date.now(),
       durationMs,
       solvedPuzzleIds: [],
@@ -191,7 +191,7 @@ export class PuzzleRushService {
     score: number;
     lives: number;
     finished: boolean;
-    nextPuzzle: { fen: string; rating: number } | null;
+    nextPuzzle: { fen: string; rating: number; setupMove?: string } | null;
     expectedMove?: string;
   }> {
     const session = await this.loadSession(userId);
@@ -241,7 +241,7 @@ export class PuzzleRushService {
 
       session.currentPuzzleId = nextPuzzle.id;
       session.currentMoves = nextPuzzle.moves.split(' ');
-      session.currentMoveIndex = 0;
+      session.currentMoveIndex = 1;
 
       await this.saveSession(session);
 
@@ -250,7 +250,7 @@ export class PuzzleRushService {
         score: session.score,
         lives: session.lives,
         finished: false,
-        nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating },
+        nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating, setupMove: session.currentMoves[0] },
       };
     }
 
@@ -271,7 +271,7 @@ export class PuzzleRushService {
 
     session.currentPuzzleId = nextPuzzle.id;
     session.currentMoves = nextPuzzle.moves.split(' ');
-    session.currentMoveIndex = 0;
+    session.currentMoveIndex = 1;
 
     await this.saveSession(session);
 
@@ -280,7 +280,7 @@ export class PuzzleRushService {
       score: session.score,
       lives: session.lives,
       finished: false,
-      nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating },
+      nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating, setupMove: session.currentMoves[0] },
       expectedMove,
     };
   }
