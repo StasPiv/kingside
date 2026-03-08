@@ -54,3 +54,21 @@
 - Они работают в разных файлах/модулях
 - Это явно указано координатором в описании задачи
 - Каждый работает в своей ветке
+
+## Shared-код
+
+### Что является shared-кодом
+
+- `packages/shared/` — типы, контракты, константы, утилиты
+- `docker-compose.yml`, `.github/` — инфраструктура
+- `tsconfig.base.json`, `turbo.json`, корневой `package.json` — конфигурация монорепо
+- `docs/adr/`, `docs/architecture/` — архитектурные документы
+
+### Правила изменения shared-кода
+
+1. **Одновременные изменения shared-кода разными агентами ЗАПРЕЩЕНЫ**
+2. Каждая shared-зона имеет ownership — см. [ADR-006](docs/adr/006-agent-coordination.md) (Правило 9)
+3. **Rebase на актуальный main обязателен перед каждым merge**
+4. Breaking changes в API-контрактах требуют обновления всех мест использования в рамках одной задачи
+
+Подробная процедура: [docs/architecture/shared-code-procedure.md](docs/architecture/shared-code-procedure.md)

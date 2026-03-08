@@ -87,4 +87,40 @@ Prompt-level правила выше — необходимый, но недос
 
 Изменения в shared-пакетах (контракты, типы) вносит один агент за раз. После merge в main остальные агенты подтягивают изменения. Одновременные изменения shared-кода разными агентами запрещены.
 
+### Правило 9: Ownership shared-зон
+
+Каждая shared-зона имеет определённый круг агентов, которым разрешено её изменять:
+
+| Зона | Разрешённые агенты |
+|------|-------------------|
+| `packages/shared/src/types/` | backend, frontend |
+| `packages/shared/src/constants.ts` | backend, frontend |
+| `packages/shared/src/utils/` | backend, frontend |
+| `docker-compose.yml`, `.github/` | devops |
+| `docs/adr/`, `docs/architecture/` | architect |
+| `tsconfig.base.json`, `turbo.json` | architect, devops |
+| Корневой `package.json` | devops, architect |
+
+Агент НЕ ДОЛЖЕН изменять файлы вне своей зоны ответственности.
+
+### Правило 10: Обратная совместимость API-контрактов
+
+При изменении типов в `packages/shared/src/types/`:
+- **Добавление** нового типа или optional-поля — допускается без согласования
+- **Удаление или переименование** поля/типа (breaking change) — агент обязан обновить все места использования в `apps/api/` и `apps/web/` в рамках одной задачи
+- **Изменение типа поля** — приравнивается к breaking change
+
+### Правило 11: Обязательный rebase перед merge
+
+Каждый агент перед merge своей ветки в main обязан:
+
+1. `git fetch origin main`
+2. `git rebase origin/main`
+3. Резолвить конфликты (если есть)
+4. При логическом конфликте в shared-коде — остановиться и сообщить координатору
+
+Merge без предварительного rebase на актуальный main **запрещён**.
+
+Детальная процедура: [docs/architecture/shared-code-procedure.md](../architecture/shared-code-procedure.md)
+
 Детальный анализ подходов: [docs/architecture/agent-coordination.md](../architecture/agent-coordination.md)
