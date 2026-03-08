@@ -126,7 +126,12 @@
     "timeUsed": "Время",
     "playAgain": "Играть снова",
     "errorLoading": "Не удалось загрузить задачу",
-    "errorStarting": "Не удалось начать сессию"
+    "errorStarting": "Не удалось начать сессию",
+    "errors": {
+      "SESSION_EXISTS": "У вас уже есть активная сессия Puzzle Rush",
+      "INVALID_TIME_MODE": "Недопустимый режим времени",
+      "NO_PUZZLES": "Нет доступных задач"
+    }
   },
   "game": {
     "moves": "Ходы",

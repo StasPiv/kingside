@@ -126,7 +126,12 @@
     "timeUsed": "Time used",
     "playAgain": "Play Again",
     "errorLoading": "Failed to load puzzle",
-    "errorStarting": "Failed to start session"
+    "errorStarting": "Failed to start session",
+    "errors": {
+      "SESSION_EXISTS": "You already have an active Puzzle Rush session",
+      "INVALID_TIME_MODE": "Invalid time mode",
+      "NO_PUZZLES": "No puzzles available"
+    }
   },
   "game": {
     "moves": "Moves",
