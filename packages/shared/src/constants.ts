@@ -1,6 +1,6 @@
 export const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-export const INITIAL_RATING = 1200;
+export const INITIAL_RATING = 1500;
 
 export const SUPPORTED_LANGUAGES = ['en', 'ru'] as const;
 
