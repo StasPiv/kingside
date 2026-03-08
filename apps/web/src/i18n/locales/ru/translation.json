@@ -201,6 +201,17 @@
       "fiveMinutes": "5 минут"
     }
   },
+  "profile": {
+    "loadError": "Ошибка загрузки профиля",
+    "memberSince": "На сайте с {{date}}",
+    "ratings": "Рейтинги",
+    "bullet": "Пуля",
+    "blitz": "Блиц",
+    "rapid": "Рапид",
+    "classical": "Классика",
+    "recentGames": "Последние партии",
+    "vs": "vs {{opponent}}"
+  },
   "rushLeaderboard": {
     "title": "Таблица лидеров Puzzle Rush",
     "player": "Игрок",
