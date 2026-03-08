@@ -16,6 +16,7 @@ export function MainLayout() {
             {user ? (
               <>
                 <span className="nav-user">{user.username}{user.ratingBlitz != null && ` (${user.ratingBlitz})`}</span>
+                <Link to="/puzzles/rush">{t('nav.puzzleRush')}</Link>
                 <Link to="/settings">{t('nav.settings')}</Link>
                 <button className="nav-btn" onClick={logout}>{t('nav.logout')}</button>
               </>
