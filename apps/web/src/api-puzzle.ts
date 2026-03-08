@@ -107,7 +107,7 @@ export const puzzleApi = {
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>
-    api.post<PuzzleRushStartResponse>('/api/puzzles/rush/start', body),
+    api.post<PuzzleRushStartResponse>('/api/puzzles/rush', body),
 
   /** Get current session state */
   getRushSession: () =>
