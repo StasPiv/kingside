@@ -1,8 +1,9 @@
-import { IsBoolean, IsInt, Min } from 'class-validator';
+import { IsIn, IsInt, IsString, Min } from 'class-validator';
 
 export class SubmitAttemptDto {
-  @IsBoolean()
-  solved!: boolean;
+  @IsString()
+  @IsIn(['solved', 'failed'])
+  result!: 'solved' | 'failed';
 
   @IsInt()
   @Min(0)
