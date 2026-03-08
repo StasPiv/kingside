@@ -7,66 +7,66 @@ import { GameClockService, ClockState } from './game-clock.service';
 describe('GameClockService', () => {
   let service: GameClockService;
   let redis: any;
-  const gameId = 'game-1';
+
+  const gameId = 'game-001';
 
   beforeEach(() => {
     redis = {
-      hset: jest.fn().mockResolvedValue(1),
+      hset: jest.fn().mockResolvedValue(undefined),
       hgetall: jest.fn(),
-      del: jest.fn().mockResolvedValue(1),
+      del: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new GameClockService(redis);
   });
 
   describe('initClocks', () => {
-    it('should initialize clocks with given time', async () => {
+    it('should store initial clock state in redis', async () => {
       const result = await service.initClocks(gameId, 300000);
 
+      expect(redis.hset).toHaveBeenCalledWith(`game:${gameId}:clocks`, {
+        white_ms: '300000',
+        black_ms: '300000',
+        last_tick: expect.any(String),
+        running: '0',
+      });
       expect(result.whiteMs).toBe(300000);
       expect(result.blackMs).toBe(300000);
       expect(result.running).toBe(false);
-      expect(redis.hset).toHaveBeenCalledWith(
-        `game:${gameId}:clocks`,
-        expect.objectContaining({
-          white_ms: '300000',
-          black_ms: '300000',
-          running: '0',
-        }),
-      );
     });
   });
 
   describe('startClock', () => {
-    it('should set running flag to 1', async () => {
+    it('should set running flag and update last_tick', async () => {
       await service.startClock(gameId);
 
-      expect(redis.hset).toHaveBeenCalledWith(
-        `game:${gameId}:clocks`,
-        expect.objectContaining({ running: '1' }),
-      );
+      expect(redis.hset).toHaveBeenCalledWith(`game:${gameId}:clocks`, {
+        last_tick: expect.any(String),
+        running: '1',
+      });
     });
   });
 
   describe('switchClock', () => {
-    it('should deduct elapsed time from moving player and add increment', async () => {
+    it('should subtract elapsed time from mover and add increment', async () => {
       const now = Date.now();
       redis.hgetall.mockResolvedValue({
         white_ms: '300000',
         black_ms: '300000',
-        last_tick: String(now - 5000), // 5 seconds ago
+        last_tick: String(now - 5000),
         running: '1',
       });
 
       const result = await service.switchClock(gameId, 'white', 2000);
 
-      // White had 300000ms, 5000ms elapsed, +2000ms increment = 297000ms
-      expect(result.whiteMs).toBeLessThanOrEqual(297000 + 100); // small tolerance for test execution time
+      // white moved, elapsed ~5000ms, increment 2000ms => ~297000ms remaining
+      expect(result.whiteMs).toBeLessThanOrEqual(297100);
+      expect(result.whiteMs).toBeGreaterThanOrEqual(296900);
       expect(result.blackMs).toBe(300000);
       expect(result.running).toBe(true);
     });
 
-    it('should not go below 0ms', async () => {
+    it('should not go below 0 ms', async () => {
       const now = Date.now();
       redis.hgetall.mockResolvedValue({
         white_ms: '1000',
@@ -80,57 +80,63 @@ describe('GameClockService', () => {
       expect(result.whiteMs).toBe(0);
     });
 
-    it('should switch black clock correctly', async () => {
+    it('should handle black moving', async () => {
       const now = Date.now();
       redis.hgetall.mockResolvedValue({
         white_ms: '300000',
-        black_ms: '250000',
+        black_ms: '300000',
         last_tick: String(now - 3000),
         running: '1',
       });
 
-      const result = await service.switchClock(gameId, 'black', 5000);
+      const result = await service.switchClock(gameId, 'black', 1000);
 
-      // Black had 250000ms, 3000ms elapsed, +5000ms increment = 252000ms
-      expect(result.blackMs).toBeLessThanOrEqual(252000 + 100);
+      expect(result.blackMs).toBeLessThanOrEqual(298100);
+      expect(result.blackMs).toBeGreaterThanOrEqual(297900);
       expect(result.whiteMs).toBe(300000);
     });
   });
 
   describe('getClocks', () => {
-    it('should return clock state from Redis', async () => {
+    it('should return clock state from redis', async () => {
       redis.hgetall.mockResolvedValue({
-        white_ms: '290000',
-        black_ms: '285000',
+        white_ms: '250000',
+        black_ms: '280000',
         last_tick: '1700000000000',
         running: '1',
       });
 
       const result = await service.getClocks(gameId);
 
-      expect(result.whiteMs).toBe(290000);
-      expect(result.blackMs).toBe(285000);
-      expect(result.running).toBe(true);
+      expect(result).toEqual({
+        whiteMs: 250000,
+        blackMs: 280000,
+        lastTick: 1700000000000,
+        running: true,
+      });
     });
 
-    it('should return zeroed state when no data', async () => {
+    it('should return zeros when no clock data exists', async () => {
       redis.hgetall.mockResolvedValue({});
 
       const result = await service.getClocks(gameId);
 
-      expect(result.whiteMs).toBe(0);
-      expect(result.blackMs).toBe(0);
-      expect(result.running).toBe(false);
+      expect(result).toEqual({
+        whiteMs: 0,
+        blackMs: 0,
+        lastTick: 0,
+        running: false,
+      });
     });
   });
 
   describe('checkTimeout', () => {
-    it('should detect timeout when time expired', async () => {
+    it('should detect timeout when time is exhausted', async () => {
       const now = Date.now();
       redis.hgetall.mockResolvedValue({
         white_ms: '1000',
         black_ms: '300000',
-        last_tick: String(now - 5000), // 5 seconds ago, white only had 1s
+        last_tick: String(now - 5000),
         running: '1',
       });
 
@@ -140,7 +146,7 @@ describe('GameClockService', () => {
       expect(result.clocks.whiteMs).toBe(0);
     });
 
-    it('should not timeout when time remaining', async () => {
+    it('should not timeout when time remains', async () => {
       const now = Date.now();
       redis.hgetall.mockResolvedValue({
         white_ms: '300000',
@@ -155,12 +161,33 @@ describe('GameClockService', () => {
       expect(result.clocks.whiteMs).toBeGreaterThan(0);
     });
 
-    it('should return no timeout when no clock data', async () => {
+    it('should return defaults when no clock data', async () => {
       redis.hgetall.mockResolvedValue({});
 
       const result = await service.checkTimeout(gameId, 'white');
 
       expect(result.timedOut).toBe(false);
+      expect(result.clocks).toEqual({
+        whiteMs: 0,
+        blackMs: 0,
+        lastTick: 0,
+        running: false,
+      });
+    });
+
+    it('should only subtract from active color', async () => {
+      const now = Date.now();
+      redis.hgetall.mockResolvedValue({
+        white_ms: '100000',
+        black_ms: '200000',
+        last_tick: String(now - 2000),
+        running: '1',
+      });
+
+      const result = await service.checkTimeout(gameId, 'black');
+
+      expect(result.clocks.whiteMs).toBe(100000);
+      expect(result.clocks.blackMs).toBeLessThan(200000);
     });
   });
 
@@ -175,16 +202,16 @@ describe('GameClockService', () => {
 
       const result = await service.stopClock(gameId);
 
+      expect(redis.hset).toHaveBeenCalledWith(`game:${gameId}:clocks`, {
+        running: '0',
+      });
       expect(result.running).toBe(false);
-      expect(redis.hset).toHaveBeenCalledWith(
-        `game:${gameId}:clocks`,
-        { running: '0' },
-      );
+      expect(result.whiteMs).toBe(250000);
     });
   });
 
   describe('deleteClock', () => {
-    it('should remove clock data from Redis', async () => {
+    it('should delete the clock key from redis', async () => {
       await service.deleteClock(gameId);
 
       expect(redis.del).toHaveBeenCalledWith(`game:${gameId}:clocks`);
