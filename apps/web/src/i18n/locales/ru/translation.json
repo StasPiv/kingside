@@ -122,5 +122,18 @@
     "chat": "Чат",
     "chatPlaceholder": "Сообщение...",
     "chatSend": "Отправить"
+  },
+  "dailyPuzzle": {
+    "title": "Задача дня",
+    "rating": "Рейтинг",
+    "whiteToMove": "Ход белых",
+    "blackToMove": "Ход чёрных",
+    "correct": "Верно!",
+    "wrong": "Неверный ход",
+    "retry": "Повторить",
+    "tryAgain": "Попробовать снова",
+    "showSolution": "Показать решение",
+    "themes": "Темы",
+    "loadError": "Не удалось загрузить задачу"
   }
 }
