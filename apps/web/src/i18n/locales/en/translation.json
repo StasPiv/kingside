@@ -113,7 +113,7 @@
   },
   "puzzleRush": {
     "title": "Puzzle Rush",
-    "description": "Solve as many puzzles as you can before time runs out or you make 3 mistakes!",
+    "description": "Solve as many puzzles as you can before time runs out or you make 2 mistakes!",
     "selectTime": "Select time limit",
     "start": "Start Rush",
     "highScores": "High Scores",

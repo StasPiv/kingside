@@ -11,7 +11,7 @@ const MemoChessboard = memo(Chessboard);
 type RushScreen = 'start' | 'playing' | 'result';
 type TimeLimitOption = 180 | 300;
 
-const MAX_LIVES = 3;
+const MAX_LIVES = 2;
 
 export function PuzzleRushPage() {
   const { t } = useTranslation();
