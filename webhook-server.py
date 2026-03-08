@@ -374,28 +374,27 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"status":"skipped"}')
                 return
 
-            # Парсим @agentName из текста комментария
+            # Парсим все @agentName из текста комментария
             valid_agents = get_valid_agents()
-            match = re.search(r"@(\w+)", comment_body)
-            agent = match.group(1).lower() if match else None
-            if agent and agent not in valid_agents:
-                agent = None
+            mentions = re.findall(r"@(\w+)", comment_body)
+            agents = [m.lower() for m in mentions if m.lower() in valid_agents]
 
-            if not agent:
+            if not agents:
                 log(f"Комментарий к {key}: нет @agent в тексте, пропуск")
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b'{"status":"skipped"}')
                 return
 
-            prompt = (
-                f"Задача {key}: {summary}\n\n"
-                f"Получен новый комментарий:\n{comment_body}\n\n"
-                f"1. Прочитай комментарий и выполни то, что в нём написано\n"
-                f"2. Добавь комментарий в Jira с результатом через MCP jira-personal"
-            )
-            log(f"Комментарий к {key} -> агент {agent}")
-            launch_agent(key, summary, agent, prompt)
+            for agent in agents:
+                prompt = (
+                    f"Задача {key}: {summary}\n\n"
+                    f"Получен новый комментарий:\n{comment_body}\n\n"
+                    f"1. Прочитай комментарий и выполни то, что в нём написано\n"
+                    f"2. Добавь комментарий в Jira с результатом через MCP jira-personal"
+                )
+                log(f"Комментарий к {key} -> агент {agent}")
+                launch_agent(key, summary, agent, prompt)
 
             self.send_response(200)
             self.end_headers()
