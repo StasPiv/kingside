@@ -1,3 +1,5 @@
+import { ApiError } from './ApiError';
+
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 let refreshPromise: Promise<string> | null = null;
@@ -46,7 +48,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       const retry = await fetch(`${API_URL}${path}`, { ...options, headers });
       if (!retry.ok) {
         const body = await retry.json().catch(() => ({}));
-        throw new Error(body.message ?? `Request failed: ${retry.status}`);
+        throw new ApiError(body.message ?? `Request failed: ${retry.status}`, body.errorCode);
       }
       return retry.json();
     } catch {
@@ -56,7 +58,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `Request failed: ${res.status}`);
+    throw new ApiError(body.message ?? `Request failed: ${res.status}`, body.errorCode);
   }
 
   if (res.status === 204) {

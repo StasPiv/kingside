@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
+import { ApiError } from '../ApiError';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 
 const MemoChessboard = memo(Chessboard);
@@ -93,9 +94,15 @@ export function PuzzleRushPage() {
       setupPuzzle(data.puzzle.fen, moves[0]);
       setScreen('playing');
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : String(err || '');
-      setError(message || t('puzzleRush.errorStarting'));
+      if (err instanceof ApiError && err.errorCode) {
+        const key = `puzzleRush.errors.${err.errorCode}`;
+        const localized = t(key);
+        setError(localized !== key ? localized : err.message);
+      } else {
+        const message =
+          err instanceof Error ? err.message : String(err || '');
+        setError(message || t('puzzleRush.errorStarting'));
+      }
     } finally {
       setLoading(false);
     }

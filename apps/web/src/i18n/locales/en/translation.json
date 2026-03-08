@@ -126,7 +126,14 @@
     "timeUsed": "Time used",
     "playAgain": "Play Again",
     "errorLoading": "Failed to load puzzle",
-    "errorStarting": "Failed to start session"
+    "errorStarting": "Failed to start session",
+    "errors": {
+      "SESSION_EXISTS": "You already have an active session",
+      "INVALID_TIME_MODE": "Invalid time mode selected",
+      "NO_PUZZLES": "No puzzles available",
+      "SESSION_NOT_FOUND": "Session not found",
+      "INTERNAL_ERROR": "Internal server error. Please try again later"
+    }
   },
   "game": {
     "moves": "Moves",
