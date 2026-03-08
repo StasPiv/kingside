@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import type { Square } from 'chess.js';
 import { api } from '../api';
+import { useContainerWidth } from '../hooks/useContainerWidth';
 
 const MemoChessboard = memo(Chessboard);
 
@@ -28,6 +29,8 @@ export function DailyPuzzlePage() {
   const [solutionMoves, setSolutionMoves] = useState<string[]>([]);
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
   const [playedMoves, setPlayedMoves] = useState<string[]>([]);
+  const boardContainerRef = useRef<HTMLDivElement>(null);
+  const boardWidth = useContainerWidth(boardContainerRef);
 
   useEffect(() => {
     api
@@ -185,6 +188,11 @@ export function DailyPuzzlePage() {
     setState('correct');
   }, [game, puzzle, solutionMoves]);
 
+  const boardStyle = useMemo(
+    () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
+    [boardWidth],
+  );
+
   const boardOptions = useMemo(
     () => ({
       position: fen,
@@ -193,8 +201,9 @@ export function DailyPuzzlePage() {
       animationDurationInMs: 200,
       dragActivationDistance: 0,
       draggingPieceStyle: { transform: 'scale(1)' },
+      ...(boardStyle && { boardStyle }),
     }),
-    [fen, handlePieceDrop, playerColor],
+    [fen, handlePieceDrop, playerColor, boardStyle],
   );
 
   const themes = puzzle?.themes
@@ -226,7 +235,7 @@ export function DailyPuzzlePage() {
             {t('puzzle.puzzleRating', { rating: puzzle.rating })}
           </div>
         </div>
-        <div className="board-container">
+        <div className="board-container" ref={boardContainerRef}>
           <MemoChessboard options={boardOptions} />
         </div>
         <div className="puzzle-status">

@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
+import { useContainerWidth } from '../hooks/useContainerWidth';
 import type { PuzzleDto } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
@@ -143,15 +144,20 @@ export function PuzzlePage() {
     [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
   );
 
+  const boardStyle = useMemo(
+    () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
+    [boardWidth],
+  );
+
   const boardOptions = useMemo(
     () => ({
       position: game?.fen() ?? '',
       onPieceDrop: onPieceDrop,
       boardOrientation: boardOrientation,
       animationDurationInMs: 200,
-      ...(boardWidth > 0 && { boardWidth }),
+      ...(boardStyle && { boardStyle }),
     }),
-    [game, onPieceDrop, boardOrientation, boardWidth],
+    [game, onPieceDrop, boardOrientation, boardStyle],
   );
 
   const handleNext = async () => {
@@ -212,7 +218,7 @@ export function PuzzlePage() {
           )}
         </div>
 
-        <div className="board-container">
+        <div className="board-container" ref={boardContainerRef}>
           {game && (
             <MemoChessboard options={boardOptions} />
           )}
