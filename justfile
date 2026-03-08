@@ -39,16 +39,36 @@ _env:
 
 # Start postgres, redis and api
 _infra:
-    docker compose up -d --build
-    @echo "Waiting for PostgreSQL..."
-    @until docker compose exec -T postgres pg_isready -U kingside > /dev/null 2>&1; do sleep 1; done
-    @echo "PostgreSQL is ready"
-    @echo "Waiting for Redis..."
-    @until docker compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 1; done
-    @echo "Redis is ready"
-    @echo "Waiting for API..."
-    @until curl -sf http://localhost:${PORT:-3001}/api/health > /dev/null 2>&1; do sleep 2; done
-    @echo "API is ready"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    PG_PORT="${POSTGRES_PORT:-5432}"
+    RD_PORT="${REDIS_PORT:-6380}"
+    API_PORT="${PORT:-3001}"
+
+    pg_ok=false
+    redis_ok=false
+    if pg_isready -h 127.0.0.1 -p "$PG_PORT" -U "${POSTGRES_USER:-kingside}" > /dev/null 2>&1; then
+        pg_ok=true
+    fi
+    if redis-cli -p "$RD_PORT" ping 2>/dev/null | grep -q PONG; then
+        redis_ok=true
+    fi
+
+    if $pg_ok && $redis_ok; then
+        echo "PostgreSQL and Redis already running on ports $PG_PORT/$RD_PORT, skipping docker compose up"
+    else
+        docker compose up -d --build
+        echo "Waiting for PostgreSQL..."
+        until docker compose exec -T postgres pg_isready -U "${POSTGRES_USER:-kingside}" > /dev/null 2>&1; do sleep 1; done
+        echo "PostgreSQL is ready"
+        echo "Waiting for Redis..."
+        until docker compose exec -T redis redis-cli ping 2>/dev/null | grep -q PONG; do sleep 1; done
+        echo "Redis is ready"
+    fi
+
+    echo "Waiting for API..."
+    until curl -sf "http://localhost:${API_PORT}/api/health" > /dev/null 2>&1; do sleep 2; done
+    echo "API is ready"
 
 # Install dependencies
 _deps:
