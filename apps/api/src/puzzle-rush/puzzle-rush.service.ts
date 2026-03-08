@@ -36,7 +36,7 @@ export class PuzzleRushService {
 
   async startSession(userId: string, timeMode: string): Promise<{
     sessionId: string;
-    puzzle: { fen: string; rating: number };
+    puzzle: { fen: string; setupMove: string; rating: number };
     timeMode: string;
     durationMs: number;
     lives: number;
@@ -59,7 +59,8 @@ export class PuzzleRushService {
     const moves = puzzle.moves.split(' ');
     // In Lichess puzzles, first move is the "setup" move (opponent's last move).
     // The puzzle position is AFTER the first move is played.
-    const setupFen = puzzle.fen;
+    // User moves start from index 1.
+    const setupMove = moves[0];
 
     const session: PuzzleRushSession = {
       userId,
@@ -68,7 +69,7 @@ export class PuzzleRushService {
       lives: MAX_LIVES,
       currentPuzzleId: puzzle.id,
       currentMoves: moves,
-      currentMoveIndex: 0,
+      currentMoveIndex: 1,
       startedAt: Date.now(),
       durationMs,
       solvedPuzzleIds: [],
@@ -83,7 +84,7 @@ export class PuzzleRushService {
 
     return {
       sessionId: userId,
-      puzzle: { fen: setupFen, rating: puzzle.rating },
+      puzzle: { fen: puzzle.fen, setupMove, rating: puzzle.rating },
       timeMode,
       durationMs,
       lives: MAX_LIVES,
@@ -151,7 +152,7 @@ export class PuzzleRushService {
     score: number;
     lives: number;
     finished: boolean;
-    nextPuzzle: { fen: string; rating: number } | null;
+    nextPuzzle: { fen: string; setupMove: string; rating: number } | null;
     expectedMove?: string;
   }> {
     const session = await this.loadSession(userId);
@@ -199,9 +200,10 @@ export class PuzzleRushService {
         return this.finishSession(session, 'no_puzzles');
       }
 
+      const nextMoves = nextPuzzle.moves.split(' ');
       session.currentPuzzleId = nextPuzzle.id;
-      session.currentMoves = nextPuzzle.moves.split(' ');
-      session.currentMoveIndex = 0;
+      session.currentMoves = nextMoves;
+      session.currentMoveIndex = 1;
 
       await this.saveSession(session);
 
@@ -210,7 +212,7 @@ export class PuzzleRushService {
         score: session.score,
         lives: session.lives,
         finished: false,
-        nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating },
+        nextPuzzle: { fen: nextPuzzle.fen, setupMove: nextMoves[0], rating: nextPuzzle.rating },
       };
     }
 
@@ -229,9 +231,10 @@ export class PuzzleRushService {
       return this.finishSession(session, 'no_puzzles');
     }
 
+    const nextMoves = nextPuzzle.moves.split(' ');
     session.currentPuzzleId = nextPuzzle.id;
-    session.currentMoves = nextPuzzle.moves.split(' ');
-    session.currentMoveIndex = 0;
+    session.currentMoves = nextMoves;
+    session.currentMoveIndex = 1;
 
     await this.saveSession(session);
 
@@ -240,7 +243,7 @@ export class PuzzleRushService {
       score: session.score,
       lives: session.lives,
       finished: false,
-      nextPuzzle: { fen: nextPuzzle.fen, rating: nextPuzzle.rating },
+      nextPuzzle: { fen: nextPuzzle.fen, setupMove: nextMoves[0], rating: nextPuzzle.rating },
       expectedMove,
     };
   }

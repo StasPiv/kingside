@@ -60,6 +60,7 @@ describe('PuzzleRushService', () => {
       expect(result.durationMs).toBe(180000);
       expect(result.lives).toBe(3);
       expect(result.timeMode).toBe('3');
+      expect(result.puzzle.setupMove).toBe('e7e5');
       expect(redis.set).toHaveBeenCalled();
     });
 
@@ -100,7 +101,7 @@ describe('PuzzleRushService', () => {
       lives: 3,
       currentPuzzleId: 'puzzle-1',
       currentMoves: ['e7e5', 'd2d4'],
-      currentMoveIndex: 0,
+      currentMoveIndex: 1,
       startedAt: Date.now(),
       durationMs: 180000,
       solvedPuzzleIds: [],
@@ -111,7 +112,7 @@ describe('PuzzleRushService', () => {
       redis.get.mockResolvedValue(JSON.stringify(makeSession()));
       prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
 
-      const result = await service.submitAnswer(userId, 'e7e5');
+      const result = await service.submitAnswer(userId, 'd2d4');
 
       expect(result.correct).toBe(true);
       expect(result.score).toBe(1);
@@ -127,7 +128,7 @@ describe('PuzzleRushService', () => {
 
       expect(result.correct).toBe(false);
       expect(result.lives).toBe(2);
-      expect(result.expectedMove).toBe('e7e5');
+      expect(result.expectedMove).toBe('d2d4');
     });
 
     it('should finish session when lives reach 0', async () => {
