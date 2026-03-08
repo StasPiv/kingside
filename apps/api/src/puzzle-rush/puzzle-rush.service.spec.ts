@@ -5,7 +5,12 @@ jest.mock('../redis/redis.service', () => ({
   RedisService: jest.fn(),
 }));
 
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  NotFoundException,
+  BadRequestException,
+  ServiceUnavailableException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { PuzzleRushService } from './puzzle-rush.service';
 
 describe('PuzzleRushService', () => {
@@ -96,6 +101,30 @@ describe('PuzzleRushService', () => {
 
       await expect(service.startSession(userId, '3')).rejects.toThrow(
         NotFoundException,
+      );
+    });
+
+    it('should throw ServiceUnavailableException when Redis fails on get', async () => {
+      redis.get.mockRejectedValue(new Error('Connection refused'));
+
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
+
+    it('should throw InternalServerErrorException when Prisma fails on puzzle fetch', async () => {
+      prisma.puzzle.count.mockRejectedValue(new Error('Database connection lost'));
+
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+
+    it('should throw ServiceUnavailableException when Redis fails on set', async () => {
+      redis.set.mockRejectedValue(new Error('Connection refused'));
+
+      await expect(service.startSession(userId, '3')).rejects.toThrow(
+        ServiceUnavailableException,
       );
     });
   });

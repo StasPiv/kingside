@@ -1,4 +1,11 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  InternalServerErrorException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -35,7 +42,17 @@ export class PuzzleRushService {
   }
 
   async startSession(userId: string, timeMode: string) {
-    const existing = await this.redis.get(this.sessionKey(userId));
+    let existing: string | null;
+    try {
+      existing = await this.redis.get(this.sessionKey(userId));
+    } catch (error) {
+      this.logger.error(
+        `Redis error checking existing session for user ${userId}: ${error.message}`,
+        error.stack,
+      );
+      throw new ServiceUnavailableException('Session service temporarily unavailable');
+    }
+
     if (existing) {
       throw new BadRequestException('Active Puzzle Rush session already exists');
     }
@@ -45,7 +62,17 @@ export class PuzzleRushService {
       throw new BadRequestException('Invalid time mode');
     }
 
-    const puzzle = await this.getRandomPuzzle(userId, []);
+    let puzzle: Awaited<ReturnType<typeof this.getRandomPuzzle>>;
+    try {
+      puzzle = await this.getRandomPuzzle(userId, []);
+    } catch (error) {
+      this.logger.error(
+        `Prisma error fetching random puzzle for user ${userId}: ${error.message}`,
+        error.stack,
+      );
+      throw new InternalServerErrorException('Failed to load puzzle data');
+    }
+
     if (!puzzle) {
       throw new NotFoundException('No puzzles available');
     }
@@ -71,12 +98,20 @@ export class PuzzleRushService {
       solvedPuzzleIds: [],
     };
 
-    await this.redis.set(
-      this.sessionKey(userId),
-      JSON.stringify(session),
-      'EX',
-      timeLimitSec + 60, // TTL slightly longer than session
-    );
+    try {
+      await this.redis.set(
+        this.sessionKey(userId),
+        JSON.stringify(session),
+        'EX',
+        timeLimitSec + 60, // TTL slightly longer than session
+      );
+    } catch (error) {
+      this.logger.error(
+        `Redis error saving session for user ${userId}: ${error.message}`,
+        error.stack,
+      );
+      throw new ServiceUnavailableException('Failed to create session');
+    }
 
     return {
       session: {
