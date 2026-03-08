@@ -5,6 +5,7 @@ import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../ApiError';
 import { useContainerWidth } from '../hooks/useContainerWidth';
+import { useFastDrag } from '../hooks/useFastDrag';
 
 const MemoChessboard = memo(Chessboard);
 
@@ -194,6 +195,12 @@ export function PuzzleRushPage() {
     [game, screen, feedback, submitting, endGame, loadNextPuzzle],
   );
 
+  useFastDrag(boardContainerRef, {
+    onPieceDrop: onPieceDrop,
+    boardOrientation: boardOrientation,
+    enabled: screen === 'playing' && !feedback && !submitting,
+  });
+
   const boardStyle = useMemo(
     () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
     [boardWidth],
@@ -202,14 +209,12 @@ export function PuzzleRushPage() {
   const boardOptions = useMemo(
     () => ({
       position: game?.fen() ?? '',
-      onPieceDrop: onPieceDrop,
       boardOrientation: boardOrientation,
       animationDurationInMs: 150,
-      dragActivationDistance: 0,
-      draggingPieceStyle: { transform: 'scale(1)' },
+      allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [game, onPieceDrop, boardOrientation, boardStyle],
+    [game, boardOrientation, boardStyle],
   );
 
   const formatTime = (seconds: number): string => {

@@ -18,6 +18,7 @@ import {
 } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { useContainerWidth } from '../hooks/useContainerWidth';
+import { useFastDrag } from '../hooks/useFastDrag';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -204,17 +205,21 @@ export function GamePage() {
     [boardWidth],
   );
 
+  useFastDrag(boardContainerRef, {
+    onPieceDrop: handlePieceDrop,
+    boardOrientation: playerColor,
+    enabled: status === 'active',
+  });
+
   const boardOptions = useMemo(
     () => ({
       position: fen,
-      onPieceDrop: handlePieceDrop,
       boardOrientation: playerColor,
       animationDurationInMs: 0,
-      dragActivationDistance: 0,
-      draggingPieceStyle: { transform: 'scale(1)' },
+      allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [fen, handlePieceDrop, playerColor, boardStyle],
+    [fen, playerColor, boardStyle],
   );
 
   return (
