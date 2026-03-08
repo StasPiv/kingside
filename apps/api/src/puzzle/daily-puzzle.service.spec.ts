@@ -14,8 +14,8 @@ describe('DailyPuzzleService', () => {
     fen: 'r1bqkbnr/pppppppp/2n5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 1 2',
     moves: 'e2e4 e7e5',
     rating: 1500,
-    ratingDeviation: 100,
-    themes: ['fork', 'pin'],
+    ratingDev: 100,
+    themes: 'fork pin',
   };
 
   const mockDaily = {
