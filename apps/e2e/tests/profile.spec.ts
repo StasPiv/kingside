@@ -83,12 +83,19 @@ async function getUserId(page: import('@playwright/test').Page): Promise<string>
   return info ?? 'unknown';
 }
 
+async function setLocale(page: import('@playwright/test').Page, locale: 'en' | 'ru') {
+  await page.evaluate((loc) => {
+    localStorage.setItem('locale', loc);
+  }, locale);
+}
+
 test.describe('Profile Page', () => {
   test('should open /profile page and display username and registration date', async ({
     authenticatedPage: page,
   }) => {
     const userId = await getUserId(page);
     await setupProfileMocks(page, userId);
+    await setLocale(page, 'en');
     await navigateTo(page, '/profile');
 
     await expect(page.locator('.profile-page')).toBeVisible();
@@ -100,6 +107,7 @@ test.describe('Profile Page', () => {
   test('should display all four rating categories', async ({ authenticatedPage: page }) => {
     const userId = await getUserId(page);
     await setupProfileMocks(page, userId);
+    await setLocale(page, 'en');
     await navigateTo(page, '/profile');
 
     const cards = page.locator('.rating-card');
@@ -110,10 +118,10 @@ test.describe('Profile Page', () => {
     await expect(cards.nth(2).locator('.rating-value')).toHaveText('1500');
     await expect(cards.nth(3).locator('.rating-value')).toHaveText('1600');
 
-    await expect(cards.nth(0).locator('.rating-label')).toHaveText('Пуля');
-    await expect(cards.nth(1).locator('.rating-label')).toHaveText('Блиц');
-    await expect(cards.nth(2).locator('.rating-label')).toHaveText('Рапид');
-    await expect(cards.nth(3).locator('.rating-label')).toHaveText('Классика');
+    await expect(cards.nth(0).locator('.rating-label')).toHaveText('Bullet');
+    await expect(cards.nth(1).locator('.rating-label')).toHaveText('Blitz');
+    await expect(cards.nth(2).locator('.rating-label')).toHaveText('Rapid');
+    await expect(cards.nth(3).locator('.rating-label')).toHaveText('Classical');
   });
 
   test('should display recent games with opponent, time control, result', async ({
@@ -121,9 +129,10 @@ test.describe('Profile Page', () => {
   }) => {
     const userId = await getUserId(page);
     await setupProfileMocks(page, userId);
+    await setLocale(page, 'en');
     await navigateTo(page, '/profile');
 
-    await expect(page.locator('.profile-games h2')).toHaveText('Последние партии');
+    await expect(page.locator('.profile-games h2')).toHaveText('Recent games');
 
     const records = page.locator('.game-record');
     await expect(records).toHaveCount(3);
