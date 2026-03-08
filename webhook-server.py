@@ -6,6 +6,8 @@ import re
 import subprocess
 import os
 import sys
+import urllib.request
+import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime
 
@@ -14,6 +16,9 @@ LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9876
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
@@ -54,6 +59,90 @@ def log(msg):
     print(line)
     with open(os.path.join(LOG_DIR, "webhook.log"), "a") as f:
         f.write(line + "\n")
+
+
+def send_telegram(text):
+    """Отправляет сообщение в Telegram. Не бросает исключений."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    data = urllib.parse.urlencode({
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": "true",
+    }).encode()
+    try:
+        req = urllib.request.Request(url, data=data)
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        log(f"Ошибка отправки в Telegram: {e}")
+
+
+def format_telegram_issue(event_type, payload):
+    """Форматирует Jira-событие в текст для Telegram."""
+    issue = payload.get("issue", {})
+    key = issue.get("key", "?")
+    fields = issue.get("fields", {})
+    summary = fields.get("summary", "")
+    status = fields.get("status", {}).get("name", "")
+    assignee = fields.get("assignee", {})
+    assignee_name = assignee.get("displayName", "не назначен") if assignee else "не назначен"
+    user = payload.get("user", {}).get("displayName", "")
+    jira_url = f"https://staspivovartsev.atlassian.net/browse/{key}"
+
+    if event_type == "jira:issue_created":
+        return (
+            f"🆕 <b>Создана задача</b>\n"
+            f"<a href=\"{jira_url}\">{key}</a>: {summary}\n"
+            f"Статус: {status}\n"
+            f"Исполнитель: {assignee_name}\n"
+            f"Создал: {user}"
+        )
+
+    if event_type == "jira:issue_updated":
+        changelog = payload.get("changelog", {}).get("items", [])
+        changes = []
+        for item in changelog:
+            field = item.get("field", "")
+            from_val = item.get("fromString", "") or ""
+            to_val = item.get("toString", "") or ""
+            if field == "status":
+                changes.append(f"Статус: {from_val} → {to_val}")
+            elif field == "assignee":
+                changes.append(f"Исполнитель: {from_val or '—'} → {to_val or '—'}")
+            elif field == "priority":
+                changes.append(f"Приоритет: {from_val} → {to_val}")
+            elif field == "labels":
+                changes.append(f"Метки: {from_val or '—'} → {to_val or '—'}")
+        changes_text = "\n".join(changes) if changes else "обновлены поля"
+        return (
+            f"✏️ <b>Обновлена задача</b>\n"
+            f"<a href=\"{jira_url}\">{key}</a>: {summary}\n"
+            f"{changes_text}\n"
+            f"Изменил: {user}"
+        )
+
+    if event_type == "comment_created":
+        comment_author = payload.get("comment", {}).get("author", {}).get("displayName", "")
+        comment_body = payload.get("comment", {}).get("body", "")
+        if isinstance(comment_body, dict):
+            # ADF format — извлекаем текст
+            texts = []
+            for block in comment_body.get("content", []):
+                for item in block.get("content", []):
+                    if item.get("type") == "text":
+                        texts.append(item.get("text", ""))
+            comment_body = " ".join(texts)
+        preview = comment_body[:200] + ("..." if len(comment_body) > 200 else "")
+        return (
+            f"💬 <b>Новый комментарий</b>\n"
+            f"<a href=\"{jira_url}\">{key}</a>: {summary}\n"
+            f"Автор: {comment_author}\n"
+            f"{preview}"
+        )
+
+    return None
 
 
 def extract_task(payload):
@@ -161,6 +250,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
         event = payload.get("webhookEvent", "")
         log(f"Получен webhook: {event}")
+
+        # Отправляем Telegram-уведомление для всех событий
+        tg_text = format_telegram_issue(event, payload)
+        if tg_text:
+            send_telegram(tg_text)
 
         if event == "comment_created":
             issue = payload.get("issue", {})
