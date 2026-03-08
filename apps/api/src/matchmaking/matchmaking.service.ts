@@ -25,6 +25,7 @@ export class MatchmakingService {
     userId: string,
     timeInitialSec: number,
     timeIncrementSec: number,
+    isOnline?: (userId: string) => Promise<boolean>,
   ): Promise<{ gameId: string; color: string; opponent: any } | null> {
     const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
 
@@ -52,6 +53,12 @@ export class MatchmakingService {
         candidate.timeInitialSec !== timeInitialSec ||
         candidate.timeIncrementSec !== timeIncrementSec
       ) {
+        continue;
+      }
+
+      // Check if candidate is still online
+      if (isOnline && !(await isOnline(candidate.userId))) {
+        await this.redis.zrem(queueKey, candidateData);
         continue;
       }
 
