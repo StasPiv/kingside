@@ -79,7 +79,7 @@ export class PuzzleController {
     return this.puzzleService.submitAttempt(
       req.user.id,
       id,
-      dto.solved,
+      dto.result === 'solved',
       dto.timeMs,
     );
   }
