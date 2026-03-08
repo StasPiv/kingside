@@ -3,7 +3,8 @@
     "settings": "Settings",
     "logout": "Logout",
     "login": "Login",
-    "register": "Register"
+    "register": "Register",
+    "puzzles": "Puzzles"
   },
   "settings": {
     "title": "Settings",
