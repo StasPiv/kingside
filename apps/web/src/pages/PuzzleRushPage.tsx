@@ -114,7 +114,8 @@ export function PuzzleRushPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await puzzleApi.startRush({ timeMode });
+      const timeLimitSec = timeMode === '3' ? 180 : 300;
+      const data = await puzzleApi.startRush({ timeLimitSec });
       setSolved(0);
       setLives(data.lives);
       setDurationMs(data.durationMs);

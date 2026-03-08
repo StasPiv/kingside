@@ -27,7 +27,7 @@ export type DailyPuzzleResponse = {
 };
 
 export type PuzzleRushStartRequest = {
-  timeMode: '3' | '5';
+  timeLimitSec: 180 | 300;
 };
 
 export type PuzzleRushStartResponse = {
@@ -107,31 +107,31 @@ export const puzzleApi = {
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>
-    api.post<PuzzleRushStartResponse>('/api/puzzle-rush/start', body),
+    api.post<PuzzleRushStartResponse>('/api/puzzles/rush/start', body),
 
   /** Get current session state */
   getRushSession: () =>
-    api.get<PuzzleRushSessionResponse>('/api/puzzle-rush/session'),
+    api.get<PuzzleRushSessionResponse>('/api/puzzles/rush/session'),
 
   /** Prefetch current puzzle + session state */
   getRushNext: () =>
-    api.get<PuzzleRushNextResponse>('/api/puzzle-rush/next'),
+    api.get<PuzzleRushNextResponse>('/api/puzzles/rush/next'),
 
   /** Submit answer (UCI move) */
   submitRushAnswer: (body: PuzzleRushAnswerRequest) =>
-    api.post<PuzzleRushAnswerResponse>('/api/puzzle-rush/answer', body),
+    api.post<PuzzleRushAnswerResponse>('/api/puzzles/rush/answer', body),
 
   /** End session manually */
   endRush: () =>
-    api.delete<PuzzleRushEndResponse>('/api/puzzle-rush/session'),
+    api.delete<PuzzleRushEndResponse>('/api/puzzles/rush/session'),
 
   /** Get leaderboard */
   getRushLeaderboard: (timeMode: string = '3', limit: number = 20) =>
     api.get<{ entries: PuzzleRushLeaderboardEntry[] }>(
-      `/api/puzzle-rush/leaderboard?timeMode=${timeMode}&limit=${limit}`,
+      `/api/puzzles/rush/leaderboard?timeMode=${timeMode}&limit=${limit}`,
     ),
 
   /** Get user's best score */
   getRushBest: (timeMode: string = '3') =>
-    api.get<number>(`/api/puzzle-rush/best?timeMode=${timeMode}`),
+    api.get<number>(`/api/puzzles/rush/best?timeMode=${timeMode}`),
 };
