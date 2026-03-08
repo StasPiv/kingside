@@ -13,6 +13,7 @@ import { UserModule } from './user/user.module';
 import { GameModule } from './game/game.module';
 import { MatchmakingModule } from './matchmaking/matchmaking.module';
 import { PuzzleModule } from './puzzle/puzzle.module';
+import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { PuzzleModule } from './puzzle/puzzle.module';
     GameModule,
     MatchmakingModule,
     PuzzleModule,
+    PuzzleRushModule,
   ],
 })
 export class AppModule {}

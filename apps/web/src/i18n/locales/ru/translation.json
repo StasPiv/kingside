@@ -148,6 +148,11 @@
     "easy": "Легко",
     "medium": "Средне",
     "hard": "Сложно",
+    "whiteToMove": "Ход белых",
+    "blackToMove": "Ход чёрных",
+    "wrong": "Неверный ход",
+    "tryAgain": "Попробовать снова",
+    "loadError": "Не удалось загрузить задачу",
     "daily": {
       "title": "Задача дня",
       "completed": "Задача дня решена!",
@@ -169,18 +174,5 @@
       "threeMinutes": "3 минуты",
       "fiveMinutes": "5 минут"
     }
-  },
-  "dailyPuzzle": {
-    "title": "Задача дня",
-    "rating": "Рейтинг",
-    "whiteToMove": "Ход белых",
-    "blackToMove": "Ход чёрных",
-    "correct": "Верно!",
-    "wrong": "Неверный ход",
-    "retry": "Повторить",
-    "tryAgain": "Попробовать снова",
-    "showSolution": "Показать решение",
-    "themes": "Темы",
-    "loadError": "Не удалось загрузить задачу"
   }
 }
