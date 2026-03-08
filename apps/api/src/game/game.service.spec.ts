@@ -438,5 +438,257 @@ describe('GameService', () => {
       const color = await service.getPlayerColor('game-1', 'other-id');
       expect(color).toBeNull();
     });
+
+    it('should return null when game not found', async () => {
+      prisma.game.findUnique.mockResolvedValue(null);
+
+      const color = await service.getPlayerColor('game-1', userId);
+      expect(color).toBeNull();
+    });
+  });
+
+  describe('initGame', () => {
+    const gameId = 'game-1';
+
+    it('should initialize game state in redis and start clocks', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        id: gameId,
+        timeInitialSec: 300,
+      } as any);
+      prisma.game.update.mockResolvedValue({} as any);
+
+      const state = await service.initGame(gameId);
+
+      expect(state).toEqual({
+        fen: INITIAL_FEN,
+        moves: [],
+        status: 'active',
+        activeColor: 'white',
+      });
+      expect(redis.hset).toHaveBeenCalledWith(`game:${gameId}:state`, {
+        fen: INITIAL_FEN,
+        moves: '[]',
+        status: 'active',
+        active_color: 'white',
+      });
+      expect(clockService.initClocks).toHaveBeenCalledWith(gameId, 300000);
+      expect(clockService.startClock).toHaveBeenCalledWith(gameId);
+    });
+
+    it('should update game status to active in database', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        id: gameId,
+        timeInitialSec: 600,
+      } as any);
+      prisma.game.update.mockResolvedValue({} as any);
+
+      await service.initGame(gameId);
+
+      expect(prisma.game.update).toHaveBeenCalledWith({
+        where: { id: gameId },
+        data: { status: 'active', startedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('getGameState', () => {
+    const gameId = 'game-1';
+
+    it('should return state from redis when available', async () => {
+      redis.hgetall.mockResolvedValue({
+        fen: INITIAL_FEN,
+        moves: '[{"uci":"e2e4","san":"e4"}]',
+        status: 'active',
+        active_color: 'white',
+      });
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        isBot: true,
+        botLevel: 3,
+        white: { username: 'player1' },
+        black: { username: 'Stockfish Bot' },
+      } as any);
+
+      const result = await service.getGameState(gameId);
+
+      expect(result.state.fen).toBe(INITIAL_FEN);
+      expect(result.state.moves).toEqual([{ uci: 'e2e4', san: 'e4' }]);
+      expect(result.whiteId).toBe(userId);
+      expect(result.isBot).toBe(true);
+      expect(result.players).toEqual({ white: 'player1', black: 'Stockfish Bot' });
+    });
+
+    it('should fallback to database when redis has no data', async () => {
+      redis.hgetall.mockResolvedValue({});
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        finalFen: 'final-fen',
+        status: 'finished',
+        isBot: true,
+        botLevel: 5,
+        moves: [{ uci: 'e2e4', san: 'e4' }],
+        white: { username: 'player1' },
+        black: { username: 'Stockfish Bot' },
+      } as any);
+
+      const result = await service.getGameState(gameId);
+
+      expect(result.state.fen).toBe('final-fen');
+      expect(result.state.status).toBe('finished');
+    });
+  });
+
+  describe('handleDrawOffer', () => {
+    const gameId = 'game-1';
+
+    it('should store draw offer in redis', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        status: 'active',
+      } as any);
+
+      await service.handleDrawOffer(gameId, userId);
+
+      expect(redis.set).toHaveBeenCalledWith(
+        `game:${gameId}:draw_offer`,
+        userId,
+        'EX',
+        120,
+      );
+    });
+
+    it('should reject draw offer for non-active game', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        status: 'finished',
+      } as any);
+
+      await expect(service.handleDrawOffer(gameId, userId)).rejects.toThrow(
+        'messages.game.notActive',
+      );
+    });
+
+    it('should reject draw offer from non-participant', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        status: 'active',
+      } as any);
+
+      await expect(
+        service.handleDrawOffer(gameId, 'other-user'),
+      ).rejects.toThrow('messages.game.notAPlayer');
+    });
+  });
+
+  describe('handleDrawAccept', () => {
+    const gameId = 'game-1';
+
+    it('should end game as draw on valid accept', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        status: 'active',
+      } as any);
+      redis.get.mockResolvedValue(userId); // offerer is userId
+      redis.hgetall.mockResolvedValue({ fen: INITIAL_FEN });
+      prisma.game.update.mockResolvedValue({} as any);
+
+      const result = await service.handleDrawAccept(gameId, STOCKFISH_BOT_ID);
+
+      expect(result.result).toBe('draw');
+      expect(result.termination).toBe('draw_agreement');
+      expect(clockService.stopClock).toHaveBeenCalledWith(gameId);
+    });
+
+    it('should reject if no draw offer exists', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        status: 'active',
+      } as any);
+      redis.get.mockResolvedValue(null);
+
+      await expect(
+        service.handleDrawAccept(gameId, STOCKFISH_BOT_ID),
+      ).rejects.toThrow('messages.game.noDrawOffer');
+    });
+
+    it('should reject if accepter is the offerer', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        status: 'active',
+      } as any);
+      redis.get.mockResolvedValue(userId);
+
+      await expect(
+        service.handleDrawAccept(gameId, userId),
+      ).rejects.toThrow('messages.game.noDrawOffer');
+    });
+  });
+
+  describe('handleDrawDecline', () => {
+    it('should delete draw offer from redis', async () => {
+      await service.handleDrawDecline('game-1', userId);
+
+      expect(redis.del).toHaveBeenCalledWith('game:game-1:draw_offer');
+    });
+  });
+
+  describe('createGame', () => {
+    it('should create game with correct parameters', async () => {
+      prisma.game.create.mockResolvedValue({ id: 'game-1' } as any);
+
+      await service.createGame(userId, STOCKFISH_BOT_ID, 300, 0);
+
+      expect(prisma.game.create).toHaveBeenCalledWith({
+        data: {
+          whiteId: userId,
+          blackId: STOCKFISH_BOT_ID,
+          timeControlType: 'blitz',
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+          status: 'waiting',
+        },
+      });
+    });
+  });
+
+  describe('getGame', () => {
+    it('should return game with player data', async () => {
+      const game = {
+        id: 'game-1',
+        white: { id: userId, username: 'player1' },
+        black: { id: STOCKFISH_BOT_ID, username: 'Stockfish Bot' },
+      };
+      prisma.game.findUniqueOrThrow.mockResolvedValue(game as any);
+
+      const result = await service.getGame('game-1');
+
+      expect(result).toEqual(game);
+    });
+  });
+
+  describe('getGameMoves', () => {
+    it('should return moves ordered by moveNumber', async () => {
+      const moves = [
+        { moveNumber: 1, san: 'e4' },
+        { moveNumber: 2, san: 'e5' },
+      ];
+      prisma.move.findMany.mockResolvedValue(moves);
+
+      const result = await service.getGameMoves('game-1');
+
+      expect(result).toEqual(moves);
+      expect(prisma.move.findMany).toHaveBeenCalledWith({
+        where: { gameId: 'game-1' },
+        orderBy: { moveNumber: 'asc' },
+      });
+    });
   });
 });
