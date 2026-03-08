@@ -23,6 +23,14 @@ logs-follow:
 logs-grep pattern:
     docker compose logs api --no-color | grep -i "{{pattern}}"
 
+# Run E2E tests against running dev-server (just up first)
+e2e project="chromium":
+    npm run test:e2e -w @kingside/e2e -- --project={{project}}
+
+# Run only integration E2E tests (no mocks)
+e2e-integration project="chromium":
+    npm run test:e2e:integration -w @kingside/e2e -- --project={{project}}
+
 # --- internal recipes ---
 
 # Copy .env files if missing

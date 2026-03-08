@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const API_URL = process.env.E2E_API_URL || 'http://localhost:3001';
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
@@ -28,11 +30,19 @@ export default defineConfig({
 
   webServer: process.env.CI
     ? undefined
-    : {
-        command: 'npm run dev',
-        cwd: '../../',
-        url: 'http://localhost:5173',
-        reuseExistingServer: true,
-        timeout: 60_000,
-      },
+    : [
+        {
+          command: 'npx turbo run dev',
+          cwd: '../../',
+          url: 'http://localhost:5173',
+          reuseExistingServer: true,
+          timeout: 120_000,
+        },
+        {
+          command: `echo "Waiting for API at ${API_URL}"`,
+          url: `${API_URL}/api/auth/me`,
+          reuseExistingServer: true,
+          timeout: 120_000,
+        },
+      ],
 });

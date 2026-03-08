@@ -12,7 +12,7 @@ async function loginUser(browser: Browser, baseURL: string) {
   const page = await context.newPage();
 
   // Register via API
-  const response = await context.request.post(`${API_URL}/auth/register`, {
+  const response = await context.request.post(`${API_URL}/api/auth/register`, {
     data: {
       username: user.username,
       email: user.email,
@@ -23,9 +23,9 @@ async function loginUser(browser: Browser, baseURL: string) {
 
   // Login via UI
   await page.goto('/login');
-  await page.getByPlaceholder(/email/i).fill(user.email);
+  await page.getByPlaceholder(/имя пользователя|username/i).fill(user.username);
   await page.getByPlaceholder(/пароль|password/i).fill(user.password);
-  await page.getByRole('button', { name: /войти|login/i }).click();
+  await page.getByRole('button', { name: /войти|sign in|login/i }).click();
   await page.waitForURL('**/lobby');
 
   return { page, context, user };
@@ -55,7 +55,7 @@ test.describe('Multiplayer', () => {
 
     // Player 1 creates a game
     await player1.page
-      .getByRole('button', { name: /создать|create|new game/i })
+      .getByRole('button', { name: 'Play', exact: true })
       .click();
 
     // Wait for the game to appear or navigate

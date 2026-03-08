@@ -77,14 +77,14 @@ jobs:
 
       - name: Wait for servers
         run: |
-          npx wait-on http://localhost:3000 http://localhost:5173 --timeout 30000
+          npx wait-on tcp:3001 http://localhost:5173 --timeout 30000
 
       - name: Run E2E tests
         run: npm run test -w @kingside/e2e -- --project=chromium
         env:
           CI: true
           E2E_BASE_URL: http://localhost:5173
-          E2E_API_URL: http://localhost:3000
+          E2E_API_URL: http://localhost:3001
 
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}
