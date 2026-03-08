@@ -375,9 +375,30 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"status":"skipped"}')
                 return
 
-            # Парсим все @agentName из текста комментария
+            # Извлекаем текст из ADF формата (dict) или используем как строку
+            if isinstance(comment_body, dict):
+                texts = []
+                for block in comment_body.get("content", []):
+                    for item in block.get("content", []):
+                        if item.get("type") == "text":
+                            texts.append(item.get("text", ""))
+                comment_text = " ".join(texts)
+            else:
+                comment_text = comment_body
+
+            # Пропускаем комментарии от агентов (начинаются с "AGENT: ")
             valid_agents = get_valid_agents()
-            mentions = re.findall(r"@(\w+)", comment_body)
+            agent_prefixes = [a.upper() + ": " for a in valid_agents]
+            stripped = comment_text.strip()
+            if any(stripped.startswith(p) for p in agent_prefixes):
+                log(f"Комментарий к {key}: от агента, пропуск (предотвращение цикла)")
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status":"skipped_agent_comment"}')
+                return
+
+            # Парсим все @agentName из текста комментария
+            mentions = re.findall(r"@(\w+)", comment_text)
             agents = [m.lower() for m in mentions if m.lower() in valid_agents]
 
             if not agents:
@@ -391,7 +412,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 role = agent.upper()
                 prompt = (
                     f"Задача {key}: {summary}\n\n"
-                    f"Получен новый комментарий:\n{comment_body}\n\n"
+                    f"Получен новый комментарий:\n{comment_text}\n\n"
                     f"1. Прочитай комментарий и выполни то, что в нём написано\n"
                     f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
                     f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '"
