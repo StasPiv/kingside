@@ -158,6 +158,26 @@ export class PuzzleRushService {
     };
   }
 
+  async getNextPuzzle(userId: string): Promise<{
+    fen: string;
+    rating: number;
+  }> {
+    const session = await this.loadSession(userId);
+
+    const puzzle = await this.prisma.puzzle.findUnique({
+      where: { id: session.currentPuzzleId },
+    });
+
+    if (!puzzle) {
+      throw new NotFoundException({
+        message: 'Current puzzle not found',
+        errorCode: 'PUZZLE_NOT_FOUND',
+      });
+    }
+
+    return { fen: puzzle.fen, rating: puzzle.rating };
+  }
+
   async submitAnswer(userId: string, uci: string): Promise<{
     correct: boolean;
     score: number;

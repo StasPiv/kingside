@@ -19,7 +19,8 @@ export class PuzzleRushController {
 
   @Post()
   start(@Request() req: any, @Body() dto: StartPuzzleRushDto) {
-    return this.puzzleRushService.startSession(req.user.id, dto.timeLimitSec);
+    const timeMode = String(dto.timeLimitSec / 60);
+    return this.puzzleRushService.startSession(req.user.id, timeMode);
   }
 
   @Get('session')
