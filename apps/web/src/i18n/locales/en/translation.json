@@ -3,7 +3,8 @@
     "settings": "Settings",
     "logout": "Logout",
     "login": "Login",
-    "register": "Register"
+    "register": "Register",
+    "puzzles": "Puzzles"
   },
   "settings": {
     "title": "Settings",
@@ -122,5 +123,50 @@
     "chat": "Chat",
     "chatPlaceholder": "Message...",
     "chatSend": "Send"
+  },
+  "puzzle": {
+    "title": "Puzzles",
+    "rating": "Rating: {{rating}}",
+    "solve": "Solve",
+    "next": "Next",
+    "retry": "Retry",
+    "hint": "Hint",
+    "showSolution": "Show Solution",
+    "correct": "Correct!",
+    "incorrect": "Incorrect",
+    "yourTurn": "Your turn",
+    "findBestMove": "Find the best move",
+    "puzzleRating": "Puzzle rating: {{rating}}",
+    "solved": "Solved",
+    "failed": "Failed",
+    "streak": "Streak: {{count}}",
+    "bestStreak": "Best streak: {{count}}",
+    "totalSolved": "Solved: {{count}}",
+    "themes": "Themes",
+    "difficulty": "Difficulty",
+    "easy": "Easy",
+    "medium": "Medium",
+    "hard": "Hard",
+    "daily": {
+      "title": "Daily Puzzle",
+      "completed": "Today's puzzle completed!",
+      "comeBack": "Come back tomorrow for a new puzzle",
+      "streakDays": "Day streak: {{count}}"
+    },
+    "rush": {
+      "title": "Puzzle Rush",
+      "start": "Start",
+      "timeLeft": "Time left: {{time}}",
+      "score": "Score: {{score}}",
+      "bestScore": "Best: {{score}}",
+      "gameOver": "Game Over",
+      "finalScore": "Final score: {{score}}",
+      "newRecord": "New record!",
+      "playAgain": "Play Again",
+      "lives": "Lives: {{count}}",
+      "survival": "Survival",
+      "threeMinutes": "3 Minutes",
+      "fiveMinutes": "5 Minutes"
+    }
   }
 }
