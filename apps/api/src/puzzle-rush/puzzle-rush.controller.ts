@@ -12,15 +12,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PuzzleRushService } from './puzzle-rush.service';
 import { StartPuzzleRushDto, SubmitPuzzleAnswerDto } from './dto/puzzle-rush.dto';
 
-@Controller('puzzles/rush')
+@Controller('puzzle-rush')
 @UseGuards(JwtAuthGuard)
 export class PuzzleRushController {
   constructor(private readonly puzzleRushService: PuzzleRushService) {}
 
-  @Post()
+  @Post('start')
   start(@Request() req: any, @Body() dto: StartPuzzleRushDto) {
-    const timeMode = String(dto.timeLimitSec / 60);
-    return this.puzzleRushService.startSession(req.user.id, timeMode);
+    return this.puzzleRushService.startSession(req.user.id, dto.timeMode);
   }
 
   @Get('session')
