@@ -12,6 +12,15 @@ export type PuzzleAttemptRequest = {
   timeMs: number;
 };
 
+export type PuzzleAttemptResponse = {
+  solved: boolean;
+  puzzleRating: number;
+  userRatingBefore: number;
+  userRatingAfter: number;
+  correctMoves: string[];
+  nextPuzzle: PuzzleDto | null;
+};
+
 export type DailyPuzzleResponse = {
   puzzle: PuzzleDto;
   date: string;
@@ -63,7 +72,7 @@ export const puzzleApi = {
 
   /** Submit puzzle attempt result */
   submitAttempt: (puzzleId: string, body: PuzzleAttemptRequest) =>
-    api.post<PuzzleAttempt>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempt`, body),
+    api.post<PuzzleAttemptResponse>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempts`, body),
 
   /** Get today's daily puzzle */
   getDaily: () =>
