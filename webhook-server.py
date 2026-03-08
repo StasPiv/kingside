@@ -204,6 +204,7 @@ def launch_agent(key, summary, agent, prompt=None):
     worktree = setup_worktree(key)
 
     if not prompt:
+        role = agent.upper()
         prompt = (
             f"Ты работаешь над задачей {key}: {summary}\n\n"
             f"1. Сначала переведи задачу в статус 'In Progress' через MCP jira-personal\n"
@@ -211,7 +212,7 @@ def launch_agent(key, summary, agent, prompt=None):
             f"3. Выполни задачу\n"
             f"4. Коммитни изменения в ветку feature/{key}\n"
             f"5. Смержи ветку в main: git checkout main && git merge feature/{key}\n"
-            f"6. Добавь комментарий в Jira с результатом\n"
+            f"6. Добавь комментарий в Jira с результатом. Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
             f"7. Переведи задачу в статус 'Done'"
         )
 
@@ -387,11 +388,13 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 return
 
             for agent in agents:
+                role = agent.upper()
                 prompt = (
                     f"Задача {key}: {summary}\n\n"
                     f"Получен новый комментарий:\n{comment_body}\n\n"
                     f"1. Прочитай комментарий и выполни то, что в нём написано\n"
-                    f"2. Добавь комментарий в Jira с результатом через MCP jira-personal"
+                    f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
+                    f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '"
                 )
                 log(f"Комментарий к {key} -> агент {agent}")
                 launch_agent(key, summary, agent, prompt)
