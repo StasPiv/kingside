@@ -11,6 +11,7 @@ body {
   background: #1a1a2e;
   color: #e0e0e0;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 a {
@@ -65,6 +66,8 @@ input:focus {
   padding: 12px 24px;
   background: #16213e;
   border-bottom: 1px solid #1a1a3e;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .logo {
@@ -1188,6 +1191,8 @@ input:focus {
   justify-content: center;
   width: 400px;
   height: 400px;
+  max-width: 100%;
+  aspect-ratio: 1;
   cursor: pointer;
 }
 
@@ -1789,13 +1794,19 @@ input:focus {
 @media (max-width: 480px) {
   .main {
     padding: 8px;
+    overflow-x: hidden;
   }
 
   .header nav {
     padding: 8px 12px;
     flex-wrap: wrap;
     gap: 4px 12px;
-    font-size: 14px;
+    font-size: 13px;
+  }
+
+  .header nav a {
+    white-space: nowrap;
+    font-size: 13px;
   }
 
   .logo {
@@ -1820,6 +1831,27 @@ input:focus {
 
   .puzzle-page .board-container {
     width: min(calc(100vh - 310px), calc(100vw - 16px));
+  }
+
+  .puzzle-rush-page .board-container {
+    width: min(calc(100vh - 200px), calc(100vw - 16px));
+  }
+
+  .puzzle-rush-header {
+    gap: 16px;
+  }
+
+  .rush-time {
+    font-size: 24px;
+  }
+
+  .puzzle-rush-page {
+    padding-top: 16px;
+  }
+
+  .puzzle-board-placeholder {
+    width: 100%;
+    height: auto;
   }
 
   .game-sidebar,
