@@ -63,10 +63,16 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
     this.playerQueues.set(user.id, timeControlType);
     this.logger.log(`${user.username} joined ${timeControlType} queue (${data.timeInitial}+${data.increment})`);
 
+    const isOnline = async (userId: string): Promise<boolean> => {
+      const sockets = await this.server.fetchSockets();
+      return sockets.some((s) => s.data.user?.id === userId);
+    };
+
     const result = await this.matchmakingService.joinQueue(
       user.id,
       data.timeInitial,
       data.increment,
+      isOnline,
     );
 
     if (result) {
