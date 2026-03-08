@@ -115,21 +115,35 @@ def log(msg):
 
 
 def send_telegram(text):
-    """Отправляет сообщение в Telegram. Не бросает исключений."""
+    """Отправляет сообщение в Telegram. Не бросает исключений.
+    Если сообщение превышает 4096 символов — разбивает на части."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
+    MAX_LENGTH = 4096
+    parts = []
+    while text:
+        if len(text) <= MAX_LENGTH:
+            parts.append(text)
+            break
+        # Ищем последний перенос строки в пределах лимита
+        cut = text[:MAX_LENGTH].rfind("\n")
+        if cut <= 0:
+            cut = MAX_LENGTH
+        parts.append(text[:cut])
+        text = text[cut:].lstrip("\n")
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    data = urllib.parse.urlencode({
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": "true",
-    }).encode()
-    try:
-        req = urllib.request.Request(url, data=data)
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:
-        log(f"Ошибка отправки в Telegram: {e}")
+    for part in parts:
+        data = urllib.parse.urlencode({
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": part,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": "true",
+        }).encode()
+        try:
+            req = urllib.request.Request(url, data=data)
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            log(f"Ошибка отправки в Telegram: {e}")
 
 
 def format_telegram_issue(event_type, payload):
@@ -181,12 +195,11 @@ def format_telegram_issue(event_type, payload):
         comment_body = payload.get("comment", {}).get("body", "")
         if isinstance(comment_body, dict):
             comment_body = extract_text_from_adf(comment_body)
-        preview = comment_body[:200] + ("..." if len(comment_body) > 200 else "")
         return (
             f"💬 <b>Новый комментарий</b>\n"
             f"<a href=\"{jira_url}\">{key}</a>: {summary}\n"
             f"Автор: {comment_author}\n"
-            f"{preview}"
+            f"{comment_body}"
         )
 
     return None
