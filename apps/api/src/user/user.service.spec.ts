@@ -168,10 +168,15 @@ describe('UserService', () => {
   });
 
   describe('getUserGames', () => {
-    it('should return finished games for user', async () => {
+    it('should return formatted games for user', async () => {
+      const now = new Date();
       const games = [
         {
           id: 'game-1',
+          result: 'white',
+          timeInitialSec: 300,
+          timeIncrementSec: 3,
+          createdAt: now,
           white: { id: userId, username: 'player1' },
           black: { id: 'other', username: 'player2' },
         },
@@ -180,7 +185,16 @@ describe('UserService', () => {
 
       const result = await service.getUserGames(userId);
 
-      expect(result).toEqual(games);
+      expect(result).toEqual([
+        {
+          id: 'game-1',
+          white: { id: userId, username: 'player1' },
+          black: { id: 'other', username: 'player2' },
+          result: '1-0',
+          timeControl: '5+3',
+          createdAt: now,
+        },
+      ]);
       expect(prisma.game.findMany).toHaveBeenCalledWith({
         where: {
           OR: [{ whiteId: userId }, { blackId: userId }],
@@ -189,11 +203,37 @@ describe('UserService', () => {
         orderBy: { createdAt: 'desc' },
         take: 20,
         skip: 0,
-        include: {
+        select: {
+          id: true,
+          result: true,
+          timeInitialSec: true,
+          timeIncrementSec: true,
+          createdAt: true,
           white: { select: { id: true, username: true } },
           black: { select: { id: true, username: true } },
         },
       });
+    });
+
+    it('should format all result types correctly', async () => {
+      const games = [
+        { id: 'g1', result: 'white', timeInitialSec: 60, timeIncrementSec: 0, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g2', result: 'black', timeInitialSec: 180, timeIncrementSec: 2, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g3', result: 'draw', timeInitialSec: 600, timeIncrementSec: 5, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g4', result: null, timeInitialSec: 900, timeIncrementSec: 10, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+      ];
+      prisma.game.findMany.mockResolvedValue(games);
+
+      const result = await service.getUserGames(userId);
+
+      expect(result[0].result).toBe('1-0');
+      expect(result[0].timeControl).toBe('1+0');
+      expect(result[1].result).toBe('0-1');
+      expect(result[1].timeControl).toBe('3+2');
+      expect(result[2].result).toBe('1/2-1/2');
+      expect(result[2].timeControl).toBe('10+5');
+      expect(result[3].result).toBe('*');
+      expect(result[3].timeControl).toBe('15+10');
     });
 
     it('should respect take and skip parameters', async () => {

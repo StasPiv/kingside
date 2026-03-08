@@ -115,12 +115,38 @@ export class UserService {
       orderBy: { createdAt: 'desc' },
       take,
       skip,
-      include: {
+      select: {
+        id: true,
+        result: true,
+        timeInitialSec: true,
+        timeIncrementSec: true,
+        createdAt: true,
         white: { select: { id: true, username: true } },
         black: { select: { id: true, username: true } },
       },
     });
 
-    return games;
+    return games.map((game) => ({
+      id: game.id,
+      white: game.white,
+      black: game.black,
+      result: this.formatResult(game.result),
+      timeControl: this.formatTimeControl(game.timeInitialSec, game.timeIncrementSec),
+      createdAt: game.createdAt,
+    }));
+  }
+
+  private formatResult(result: string | null): string {
+    switch (result) {
+      case 'white': return '1-0';
+      case 'black': return '0-1';
+      case 'draw': return '1/2-1/2';
+      default: return '*';
+    }
+  }
+
+  private formatTimeControl(initialSec: number, incrementSec: number): string {
+    const minutes = Math.floor(initialSec / 60);
+    return `${minutes}+${incrementSec}`;
   }
 }
