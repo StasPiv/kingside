@@ -148,7 +148,7 @@ describe('PuzzleService', () => {
       );
     });
 
-    it('should exclude already attempted puzzles', async () => {
+    it('should exclude only solved puzzles', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
       prisma.puzzleAttempt.findMany.mockResolvedValue([
         { puzzleId: 'p1' },
@@ -160,6 +160,11 @@ describe('PuzzleService', () => {
 
       await service.getNextPuzzleByTheme('user-1', 'fork');
 
+      expect(prisma.puzzleAttempt.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-1', solved: true },
+        }),
+      );
       expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
