@@ -22,12 +22,22 @@ model User {
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
   locale          String   @default("en") @map("locale")
 
+<<<<<<< HEAD
   whiteGames       Game[]             @relation("WhitePlayer")
   blackGames       Game[]             @relation("BlackPlayer")
   chatMessages     ChatMessage[]
   timeControls     UserTimeControl[]
   puzzleAttempts   PuzzleAttempt[]
   puzzleRushScores PuzzleRushScore[]
+=======
+  ratingPuzzle    Int      @default(1500) @map("rating_puzzle")
+
+  whiteGames     Game[]          @relation("WhitePlayer")
+  blackGames     Game[]          @relation("BlackPlayer")
+  chatMessages   ChatMessage[]
+  timeControls   UserTimeControl[]
+  puzzleAttempts PuzzleAttempt[]
+>>>>>>> feature/KS-140
 
   @@map("users")
 }
@@ -149,6 +159,7 @@ model UserTimeControl {
 }
 
 model Puzzle {
+<<<<<<< HEAD
   id          String @id
   fen         String
   moves       String
@@ -159,10 +170,26 @@ model Puzzle {
   themes      String
   gameUrl     String @map("game_url")
   openingTags String @default("") @map("opening_tags")
+=======
+  id          String  @id
+  fen         String
+  moves       String
+  rating      Int
+  ratingDev   Int     @map("rating_dev")
+  popularity  Int
+  nbPlays     Int     @map("nb_plays")
+  themes      String
+  gameUrl     String  @map("game_url")
+  openingTags String  @map("opening_tags")
+>>>>>>> feature/KS-140
 
   attempts PuzzleAttempt[]
 
   @@index([rating])
+<<<<<<< HEAD
+=======
+  @@index([themes])
+>>>>>>> feature/KS-140
   @@map("puzzles")
 }
 
@@ -171,7 +198,10 @@ model PuzzleAttempt {
   puzzleId     String   @map("puzzle_id")
   userId       String   @map("user_id") @db.Uuid
   solved       Boolean
+<<<<<<< HEAD
   timeMs       Int      @map("time_ms")
+=======
+>>>>>>> feature/KS-140
   ratingBefore Int      @map("rating_before")
   ratingAfter  Int      @map("rating_after")
   createdAt    DateTime @default(now()) @map("created_at")
@@ -181,6 +211,7 @@ model PuzzleAttempt {
 
   @@index([userId])
   @@index([puzzleId])
+<<<<<<< HEAD
   @@index([userId, createdAt])
   @@map("puzzle_attempts")
 }
@@ -198,3 +229,7 @@ model PuzzleRushScore {
   @@index([score])
   @@map("puzzle_rush_scores")
 }
+=======
+  @@map("puzzle_attempts")
+}
+>>>>>>> feature/KS-140
