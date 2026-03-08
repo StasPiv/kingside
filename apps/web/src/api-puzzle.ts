@@ -30,29 +30,18 @@ export type PuzzleRushStartRequest = {
   timeLimitSec: 180 | 300;
 };
 
+export type PuzzleRushSessionInfo = {
+  id: string;
+  solved: number;
+  failed: number;
+  timeLimitSec: number;
+  startedAt: string;
+  finishedAt: string | null;
+};
+
 export type PuzzleRushStartResponse = {
-  sessionId: string;
-  puzzle: { fen: string; setupMove: string; rating: number };
-  timeMode: string;
-  durationMs: number;
-  lives: number;
-};
-
-export type PuzzleRushSessionResponse = {
-  score: number;
-  lives: number;
-  timeMode: string;
-  elapsedMs: number;
-  durationMs: number;
-  puzzle: { fen: string } | null;
-};
-
-export type PuzzleRushNextResponse = {
-  puzzle: { id: string; fen: string; moves: string[]; rating: number };
-  score: number;
-  lives: number;
-  elapsedMs: number;
-  durationMs: number;
+  session: PuzzleRushSessionInfo;
+  puzzle: PuzzleDto;
 };
 
 export type PuzzleRushAnswerRequest = {
@@ -68,17 +57,21 @@ export type PuzzleRushAnswerResponse = {
   expectedMove?: string;
 };
 
-export type PuzzleRushLeaderboardEntry = {
-  userId: string;
-  username: string;
+export type PuzzleRushNextResponse = {
+  puzzle: { id: string; fen: string; rating: number };
   score: number;
-  createdAt: string;
+  lives: number;
+  elapsedMs: number;
+  durationMs: number;
 };
 
-export type PuzzleRushEndResponse = {
+export type PuzzleRushSessionResponse = {
   score: number;
+  lives: number;
   timeMode: string;
-  isHighScore: boolean;
+  elapsedMs: number;
+  durationMs: number;
+  puzzle: { fen: string } | null;
 };
 
 // --- API client ---
@@ -109,29 +102,29 @@ export const puzzleApi = {
   startRush: (body: PuzzleRushStartRequest) =>
     api.post<PuzzleRushStartResponse>('/api/puzzles/rush', body),
 
-  /** Get current session state */
-  getRushSession: () =>
-    api.get<PuzzleRushSessionResponse>('/api/puzzles/rush/session'),
-
-  /** Prefetch current puzzle + session state */
-  getRushNext: () =>
-    api.get<PuzzleRushNextResponse>('/api/puzzles/rush/next'),
-
-  /** Submit answer (UCI move) */
+  /** Submit a move (UCI) in puzzle rush */
   submitRushAnswer: (body: PuzzleRushAnswerRequest) =>
     api.post<PuzzleRushAnswerResponse>('/api/puzzles/rush/answer', body),
 
-  /** End session manually */
-  endRush: () =>
-    api.delete<PuzzleRushEndResponse>('/api/puzzles/rush/session'),
+  /** Get current rush session state */
+  getRushSession: () =>
+    api.get<PuzzleRushSessionResponse>('/api/puzzles/rush/session'),
 
-  /** Get leaderboard */
-  getRushLeaderboard: (timeMode: string = '3', limit: number = 20) =>
-    api.get<{ entries: PuzzleRushLeaderboardEntry[] }>(
+  /** Get next puzzle in rush session */
+  getRushNext: () =>
+    api.get<PuzzleRushNextResponse>('/api/puzzles/rush/next'),
+
+  /** End rush session manually */
+  endRushSession: () =>
+    api.delete<{ score: number; timeMode: string; isHighScore: boolean }>('/api/puzzles/rush/session'),
+
+  /** Get rush leaderboard */
+  getRushLeaderboard: (timeMode = '3', limit = 20) =>
+    api.get<{ entries: { userId: string; username: string; score: number; createdAt: string }[] }>(
       `/api/puzzles/rush/leaderboard?timeMode=${timeMode}&limit=${limit}`,
     ),
 
-  /** Get user's best score */
-  getRushBest: (timeMode: string = '3') =>
+  /** Get user's best rush score */
+  getRushBest: (timeMode = '3') =>
     api.get<number>(`/api/puzzles/rush/best?timeMode=${timeMode}`),
 };
