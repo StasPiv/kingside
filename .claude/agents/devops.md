@@ -28,7 +28,7 @@ model: inherit
 - Ты работаешь в git worktree — отдельной рабочей директории для своей задачи
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
-- После завершения задачи: смержи ветку в main (`git checkout main && git merge feature/KS-XX`)
+- После завершения задачи: выполни merge из worktree: `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
 - При конфликте merge — резолви самостоятельно
 - Без коммита задача не считается выполненной
 
