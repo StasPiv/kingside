@@ -8,6 +8,7 @@ const MemoChessboard = memo(Chessboard);
 import type { Square } from 'chess.js';
 import { INITIAL_FEN } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
+import { useContainerWidth } from '../hooks/useContainerWidth';
 import { socket } from '../socket';
 
 type ClockPayload = { whiteMs: number; blackMs: number };
@@ -64,6 +65,8 @@ export function GamePage() {
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
+  const boardContainerRef = useRef<HTMLDivElement>(null);
+  const boardWidth = useContainerWidth(boardContainerRef);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -207,6 +210,11 @@ export function GamePage() {
     [onDrop],
   );
 
+  const boardStyle = useMemo(
+    () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
+    [boardWidth],
+  );
+
   const boardOptions = useMemo(
     () => ({
       position: fen,
@@ -215,8 +223,9 @@ export function GamePage() {
       animationDurationInMs: 0,
       dragActivationDistance: 0,
       draggingPieceStyle: { transform: 'scale(1)' },
+      ...(boardStyle && { boardStyle }),
     }),
-    [fen, handlePieceDrop, playerColor],
+    [fen, handlePieceDrop, playerColor, boardStyle],
   );
 
   return (
@@ -232,7 +241,7 @@ export function GamePage() {
           </span>
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
-        <div className="board-container">
+        <div className="board-container" ref={boardContainerRef}>
           <MemoChessboard options={boardOptions} />
         </div>
         <div className="player-info player-info-self">

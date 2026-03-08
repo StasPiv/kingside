@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { api } from '../api';
+import { useContainerWidth } from '../hooks/useContainerWidth';
 import type { PuzzleDto } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
@@ -22,6 +23,8 @@ export function PuzzlePage() {
   const [error, setError] = useState('');
   const [streak, setStreak] = useState(0);
   const [totalSolved, setTotalSolved] = useState(0);
+  const boardContainerRef = useRef<HTMLDivElement>(null);
+  const boardWidth = useContainerWidth(boardContainerRef);
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -123,14 +126,20 @@ export function PuzzlePage() {
     [game, puzzle, status, moveIndex, puzzleMoves],
   );
 
+  const boardStyle = useMemo(
+    () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
+    [boardWidth],
+  );
+
   const boardOptions = useMemo(
     () => ({
       position: game?.fen() ?? '',
       onPieceDrop: onPieceDrop,
       boardOrientation: boardOrientation,
       animationDurationInMs: 200,
+      ...(boardStyle && { boardStyle }),
     }),
-    [game, onPieceDrop, boardOrientation],
+    [game, onPieceDrop, boardOrientation, boardStyle],
   );
 
   const handleNext = () => {
@@ -190,7 +199,7 @@ export function PuzzlePage() {
           )}
         </div>
 
-        <div className="board-container">
+        <div className="board-container" ref={boardContainerRef}>
           {game && (
             <MemoChessboard options={boardOptions} />
           )}
