@@ -43,6 +43,7 @@ export function App() {
         <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle-rush" element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
         <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />
+        <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
