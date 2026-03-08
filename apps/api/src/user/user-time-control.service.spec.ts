@@ -1,3 +1,8 @@
+// Mock Prisma to avoid loading native binary
+jest.mock('../prisma/prisma.service', () => ({
+  PrismaService: jest.fn(),
+}));
+
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   BadRequestException,
