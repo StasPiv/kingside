@@ -56,6 +56,8 @@ export function GamePage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
+  const boardAreaRef = useRef<HTMLDivElement>(null);
+  const gamePageRef = useRef<HTMLDivElement>(null);
   const boardWidth = useResponsiveBoardSize();
 
   useEffect(() => {
@@ -67,6 +69,19 @@ export function GamePage() {
       movesRef.current.scrollTop = movesRef.current.scrollHeight;
     }
   }, [moves]);
+
+  useEffect(() => {
+    const el = boardAreaRef.current;
+    const page = gamePageRef.current;
+    if (!el || !page) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        page.style.setProperty('--board-area-height', `${entry.contentRect.height}px`);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const updateFromState = useCallback(
     (state: WsGameStatePayload) => {
@@ -256,9 +271,9 @@ export function GamePage() {
   );
 
   return (
-    <div className="game-page">
+    <div className="game-page" ref={gamePageRef}>
       <Link to="/" className="back-nav-link">&larr; {t('game.backToLobby')}</Link>
-      <div className="game-board-area">
+      <div className="game-board-area" ref={boardAreaRef}>
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
           <span className="player-name">
