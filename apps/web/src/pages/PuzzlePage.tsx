@@ -5,6 +5,7 @@ import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { useContainerWidth } from '../hooks/useContainerWidth';
+import { useFastDrag } from '../hooks/useFastDrag';
 import type { PuzzleDto } from '@kingside/shared';
 
 const MemoChessboard = memo(Chessboard);
@@ -149,6 +150,12 @@ export function PuzzlePage() {
     [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
   );
 
+  useFastDrag(boardContainerRef, {
+    onPieceDrop: onPieceDrop,
+    boardOrientation: boardOrientation,
+    enabled: status === 'thinking',
+  });
+
   const boardStyle = useMemo(
     () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
     [boardWidth],
@@ -157,14 +164,12 @@ export function PuzzlePage() {
   const boardOptions = useMemo(
     () => ({
       position: game?.fen() ?? '',
-      onPieceDrop: onPieceDrop,
       boardOrientation: boardOrientation,
       animationDurationInMs: 200,
-      dragActivationDistance: 0,
-      draggingPieceStyle: { transform: 'scale(1)' },
+      allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [game, onPieceDrop, boardOrientation, boardStyle],
+    [game, boardOrientation, boardStyle],
   );
 
   const handleNext = useCallback(async () => {
