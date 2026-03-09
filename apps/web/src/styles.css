@@ -822,6 +822,7 @@ input:focus {
   background: #16213e;
   border-radius: 8px;
   padding: 12px;
+  box-sizing: border-box;
 }
 
 .stockfish-panel-header {
@@ -837,12 +838,15 @@ input:focus {
   flex-direction: column;
   gap: 6px;
   margin-top: 8px;
+  min-height: 72px;
 }
 
 .stockfish-line {
   display: flex;
   gap: 8px;
   font-size: 13px;
+  height: 20px;
+  overflow: hidden;
 }
 
 .stockfish-eval {
