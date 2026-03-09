@@ -89,6 +89,8 @@ export function useFastDrag(
       const ghost = pieceEl.cloneNode(true) as HTMLElement;
       ghost.style.cssText = `
         position: fixed;
+        top: 0;
+        left: 0;
         pointer-events: none;
         z-index: 9999;
         width: ${squareSize}px;
