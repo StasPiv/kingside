@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 
@@ -129,12 +130,12 @@ export function ProfilePage() {
               const date = new Date(game.createdAt).toLocaleDateString(locale);
 
               return (
-                <div key={game.id} className="game-record">
+                <Link key={game.id} to={`/game/${game.id}/review`} className="game-record game-record-link">
                   <span className="game-opponent">{t('profile.vs', { opponent })}</span>
                   <span className="game-tc">{game.timeControl}</span>
                   <span className="game-result-badge">{game.result}</span>
                   <span className="game-date">{date}</span>
-                </div>
+                </Link>
               );
             })}
           </div>

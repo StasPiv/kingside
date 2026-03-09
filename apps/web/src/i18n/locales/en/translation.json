@@ -149,7 +149,16 @@
     "blackWins": "Black wins",
     "chat": "Chat",
     "chatPlaceholder": "Message...",
-    "chatSend": "Send"
+    "chatSend": "Send",
+    "analyze": "Analyze"
+  },
+  "review": {
+    "loadError": "Failed to load game",
+    "toStart": "Go to start",
+    "back": "Previous move",
+    "forward": "Next move",
+    "toEnd": "Go to end",
+    "backToProfile": "Back to profile"
   },
   "puzzle": {
     "title": "Puzzles",

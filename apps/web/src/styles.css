@@ -546,6 +546,70 @@ input:focus {
   text-decoration: none;
 }
 
+/* Review page */
+.review-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.review-move {
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.review-move:hover {
+  background: rgba(124, 131, 255, 0.15);
+}
+
+.review-move.active {
+  background: #7c83ff;
+  color: #fff;
+}
+
+.review-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.review-controls button {
+  flex: 1;
+  padding: 10px;
+  font-size: 18px;
+  background: #16213e;
+  color: #e0e0e0;
+  border: 1px solid #333;
+}
+
+.review-controls button:hover:not(:disabled) {
+  background: #7c83ff;
+  color: #fff;
+  border-color: #7c83ff;
+}
+
+.review-back-link {
+  display: block;
+  text-align: center;
+  padding: 8px;
+  color: #a0a0c0;
+  font-size: 14px;
+}
+
+.game-record-link {
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.2s;
+}
+
+.game-record-link:hover {
+  background: #1a1a3e;
+  text-decoration: none;
+}
+
 /* Chat */
 .chat {
   background: #16213e;

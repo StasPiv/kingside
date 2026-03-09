@@ -149,7 +149,16 @@
     "blackWins": "Черные победили",
     "chat": "Чат",
     "chatPlaceholder": "Сообщение...",
-    "chatSend": "Отправить"
+    "chatSend": "Отправить",
+    "analyze": "Анализ"
+  },
+  "review": {
+    "loadError": "Не удалось загрузить партию",
+    "toStart": "В начало",
+    "back": "Предыдущий ход",
+    "forward": "Следующий ход",
+    "toEnd": "В конец",
+    "backToProfile": "Назад к профилю"
   },
   "puzzle": {
     "title": "Задачи",
