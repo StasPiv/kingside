@@ -141,21 +141,6 @@ export function useFastDrag(
 
       const targetSquare = findSquareFromPoint(e.clientX, e.clientY);
 
-      // Determine the landing square for the snap animation
-      const landingSquare = (targetSquare && targetSquare !== state.sourceSquare)
-        ? targetSquare
-        : state.sourceSquare;
-
-      // Calculate landing position (center of the target square)
-      const file = landingSquare.charCodeAt(0) - 97; // a=0 .. h=7
-      const rank = parseInt(landingSquare[1], 10);    // 1-8
-      const orientation = optionsRef.current.boardOrientation;
-      const col = orientation === 'white' ? file : 7 - file;
-      const row = orientation === 'white' ? 8 - rank : rank - 1;
-      const landX = state.boardRect.left + col * state.squareSize;
-      const landY = state.boardRect.top + row * state.squareSize;
-
-      // Clear drag state immediately so new drags can start
       dragStateRef.current = null;
 
       // Call handler; if the move is accepted the board will re-render with
@@ -170,24 +155,37 @@ export function useFastDrag(
         });
       }
 
-      // Animate ghost to landing position for smooth drop
-      const ghost = state.ghost;
-      ghost.style.transition = 'transform 100ms ease-out';
-      ghost.style.transform = `translate3d(${landX}px, ${landY}px, 0)`;
+      // Snap-to-square animation: smoothly move ghost to target square center,
+      // then remove it. For rejected moves, snap back to source square.
+      const snapSquare = accepted ? targetSquare! : state.sourceSquare;
+      const { boardRect, squareSize } = state;
+      const orientation = optionsRef.current.boardOrientation;
+
+      const file = snapSquare.charCodeAt(0) - 97; // a=0, h=7
+      const rank = parseInt(snapSquare[1], 10);    // 1-8
+
+      const col = orientation === 'white' ? file : 7 - file;
+      const row = orientation === 'white' ? 8 - rank : rank - 1;
+
+      const snapX = boardRect.left + col * squareSize;
+      const snapY = boardRect.top + row * squareSize;
+
+      state.ghost.style.transition = 'transform 80ms ease-out';
+      state.ghost.style.transform = `translate3d(${snapX}px, ${snapY}px, 0)`;
 
       let cleaned = false;
       const cleanup = () => {
         if (cleaned) return;
         cleaned = true;
+        state.ghost.remove();
         if (!accepted) {
           state.pieceEl.style.opacity = '';
         }
-        ghost.remove();
       };
 
-      ghost.addEventListener('transitionend', cleanup, { once: true });
-      // Fallback: remove ghost after timeout in case transitionend doesn't fire
-      setTimeout(cleanup, 150);
+      state.ghost.addEventListener('transitionend', cleanup, { once: true });
+      // Fallback in case transitionend doesn't fire
+      setTimeout(cleanup, 120);
     };
 
     const onPointerCancel = () => {
