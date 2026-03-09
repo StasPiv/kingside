@@ -110,8 +110,9 @@ export function useStockfish(options: UseStockfishOptions = {}) {
         if (initTimerRef.current) {
           clearTimeout(initTimerRef.current);
           initTimerRef.current = null;
+          setState('ready');
+          return;
         }
-
         // If we were waiting for readyok after stop, dispatch pending eval
         if (waitingForReadyRef.current) {
           waitingForReadyRef.current = false;
@@ -205,7 +206,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       engineRef.current.postMessage(`position fen ${fen}`);
       engineRef.current.postMessage(`go depth ${depth}`);
     },
-    [depth, multiPv],
+    [],
   );
 
   const stop = useCallback(() => {
