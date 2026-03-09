@@ -22,7 +22,7 @@ type GameData = {
 type MoveData = {
   san: string;
   uci: string;
-  fen: string;
+  fenAfter: string;
 };
 
 function formatEval(line: EvalLine): string {
@@ -107,7 +107,7 @@ export function GameReviewPage() {
 
   const currentFen = useMemo(() => {
     if (currentMoveIndex < 0) return INITIAL_FEN;
-    return moves[currentMoveIndex]?.fen ?? INITIAL_FEN;
+    return moves[currentMoveIndex]?.fenAfter ?? INITIAL_FEN;
   }, [currentMoveIndex, moves]);
 
   useEffect(() => {
