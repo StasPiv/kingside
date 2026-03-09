@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { useStablePosition } from '../hooks/useStablePosition';
+import { useStockfish } from '../hooks/useStockfish';
+import type { EvalLine } from '../hooks/useStockfish';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { INITIAL_FEN } from '@kingside/shared';
 import { api } from '../api';
@@ -23,6 +25,44 @@ type MoveData = {
   fen: string;
 };
 
+function formatEval(line: EvalLine): string {
+  if (line.score.type === 'mate') {
+    return line.score.value === 0 ? '#' : `M${Math.abs(line.score.value)}`;
+  }
+  const cp = line.score.value / 100;
+  return (cp >= 0 ? '+' : '') + cp.toFixed(1);
+}
+
+function evalToPercent(lines: EvalLine[]): number {
+  if (lines.length === 0) return 50;
+  const line = lines[0];
+  if (line.score.type === 'mate') {
+    return line.score.value > 0 ? 95 : line.score.value < 0 ? 5 : 50;
+  }
+  const cp = line.score.value;
+  const pct = 50 + 50 * (2 / (1 + Math.exp(-0.004 * cp)) - 1);
+  return Math.max(2, Math.min(98, pct));
+}
+
+function formatPv(pv: string, fen: string): string {
+  try {
+    const chess = new Chess(fen);
+    const uciMoves = pv.split(' ');
+    const sanMoves: string[] = [];
+    for (const uci of uciMoves.slice(0, 8)) {
+      const from = uci.slice(0, 2);
+      const to = uci.slice(2, 4);
+      const promotion = uci.length > 4 ? uci[4] : undefined;
+      const move = chess.move({ from, to, promotion });
+      if (!move) break;
+      sanMoves.push(move.san);
+    }
+    return sanMoves.join(' ');
+  } catch {
+    return pv.split(' ').slice(0, 8).join(' ');
+  }
+}
+
 export function GameReviewPage() {
   const { id: gameId } = useParams<{ id: string }>();
   const { t } = useTranslation();
@@ -33,9 +73,14 @@ export function GameReviewPage() {
   const [error, setError] = useState('');
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
-  const movesEndRef = useRef<HTMLDivElement>(null);
+  const movesContainerRef = useRef<HTMLDivElement>(null);
 
   const game = useMemo(() => new Chess(), []);
+
+  const { lines, evaluate, isReady, state: sfState } = useStockfish({
+    depth: 18,
+    multiPv: 3,
+  });
 
   useEffect(() => {
     if (!gameId) return;
@@ -68,6 +113,13 @@ export function GameReviewPage() {
     game.load(currentFen);
   }, [currentFen, game]);
 
+  // Auto-evaluate when position changes
+  useEffect(() => {
+    if (isReady && currentFen) {
+      evaluate(currentFen);
+    }
+  }, [currentFen, isReady, evaluate]);
+
   const goToStart = useCallback(() => setCurrentMoveIndex(-1), []);
   const goToEnd = useCallback(() => setCurrentMoveIndex(moves.length - 1), [moves.length]);
   const goBack = useCallback(() => setCurrentMoveIndex((i) => Math.max(-1, i - 1)), []);
@@ -94,10 +146,11 @@ export function GameReviewPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goBack, goForward, goToStart, goToEnd]);
 
+  // Scroll active move into view
   useEffect(() => {
-    const activeMove = document.querySelector('.review-move.active');
-    if (activeMove) {
-      activeMove.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (movesContainerRef.current) {
+      const active = movesContainerRef.current.querySelector('.analysis-move.active');
+      active?.scrollIntoView({ block: 'nearest' });
     }
   }, [currentMoveIndex]);
 
@@ -119,6 +172,8 @@ export function GameReviewPage() {
     [stablePosition, boardStyle],
   );
 
+  const whitePercent = evalToPercent(lines);
+
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
   if (!gameData) return null;
@@ -130,72 +185,110 @@ export function GameReviewPage() {
       : t('game.blackWins');
 
   return (
-    <div className="game-page">
-      <div className="game-board-area">
-        <div className="player-info opponent-info">
-          <span className="color-indicator black" />
-          <span className="player-name">{gameData.black.username}</span>
-        </div>
-        <div className="board-container" ref={boardContainerRef}>
-          <MemoChessboard options={boardOptions} />
-        </div>
-        <div className="player-info player-info-self">
-          <span className="color-indicator white" />
-          <span className="player-name">{gameData.white.username}</span>
+    <div className="analysis-page">
+      <div className="analysis-board-area">
+        <div className="analysis-board-wrapper">
+          <div className="analysis-player-info">
+            <span className="color-indicator black" />
+            <span className="player-name">{gameData.black.username}</span>
+          </div>
+
+          <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
+            <div className="eval-bar-container">
+              <div className="eval-bar">
+                <div
+                  className="eval-bar-white"
+                  style={{ height: `${whitePercent}%` }}
+                />
+                <div className="eval-bar-label">
+                  {lines.length > 0 ? formatEval(lines[0]) : '0.0'}
+                </div>
+              </div>
+            </div>
+            <div className="board-container" ref={boardContainerRef}>
+              <MemoChessboard options={boardOptions} />
+            </div>
+          </div>
+
+          <div className="analysis-player-info">
+            <span className="color-indicator white" />
+            <span className="player-name">{gameData.white.username}</span>
+          </div>
+
+          <div className="analysis-board-controls">
+            <button onClick={goToStart} disabled={currentMoveIndex < 0} title={t('review.toStart')}>&#x21E4;</button>
+            <button onClick={goBack} disabled={currentMoveIndex < 0} title={t('review.back')}>&#x2190;</button>
+            <button onClick={goForward} disabled={currentMoveIndex >= moves.length - 1} title={t('review.forward')}>&#x2192;</button>
+            <button onClick={goToEnd} disabled={currentMoveIndex >= moves.length - 1} title={t('review.toEnd')}>&#x21E5;</button>
+          </div>
         </div>
       </div>
 
-      <div className="game-sidebar">
-        <div className="game-result">
+      <div className="analysis-sidebar">
+        {/* Engine analysis panel */}
+        <div className="analysis-progress">
+          <div className="analysis-progress-text">
+            Stockfish 18 {sfState === 'analyzing' && lines.length > 0
+              ? `· ${t('analysis.depth')} ${lines[0].depth}`
+              : sfState === 'loading'
+                ? `· ${t('common.loading')}`
+                : ''}
+          </div>
+          {lines.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+              {lines.map((line) => (
+                <div key={line.multipv} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
+                  <span style={{
+                    minWidth: 44,
+                    fontWeight: 700,
+                    color: line.score.type === 'mate'
+                      ? '#ef4444'
+                      : (line.multipv === 1 ? '#fff' : '#a0a0c0'),
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    {formatEval(line)}
+                  </span>
+                  <span style={{ color: '#a0a0c0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {formatPv(line.pv, currentFen)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Game result */}
+        <div className="analysis-result">
           <h3>{t('game.finished')}</h3>
           <p>{resultText}</p>
-          <span className="game-tc">{gameData.timeControl}</span>
         </div>
 
-        <div className="move-list">
-          <h3>{t('game.moves')}</h3>
-          <div className="review-moves">
-            {moves.map((move, i) =>
-              i % 2 === 0 ? (
-                <div key={i} className="move-pair">
-                  <span className="move-number">{Math.floor(i / 2) + 1}.</span>
+        {/* Move list */}
+        <div className="analysis-moves" ref={movesContainerRef}>
+          {moves.map((move, i) =>
+            i % 2 === 0 ? (
+              <div key={i} className="analysis-move-pair">
+                <span className="move-number">{Math.floor(i / 2) + 1}.</span>
+                <span
+                  className={`analysis-move${currentMoveIndex === i ? ' active' : ''}`}
+                  onClick={() => setCurrentMoveIndex(i)}
+                >
+                  {move.san}
+                </span>
+                {moves[i + 1] && (
                   <span
-                    className={`review-move${currentMoveIndex === i ? ' active' : ''}`}
-                    onClick={() => setCurrentMoveIndex(i)}
+                    className={`analysis-move${currentMoveIndex === i + 1 ? ' active' : ''}`}
+                    onClick={() => setCurrentMoveIndex(i + 1)}
                   >
-                    {move.san}
+                    {moves[i + 1].san}
                   </span>
-                  {moves[i + 1] && (
-                    <span
-                      className={`review-move${currentMoveIndex === i + 1 ? ' active' : ''}`}
-                      onClick={() => setCurrentMoveIndex(i + 1)}
-                    >
-                      {moves[i + 1].san}
-                    </span>
-                  )}
-                </div>
-              ) : null,
-            )}
-            <div ref={movesEndRef} />
-          </div>
+                )}
+              </div>
+            ) : null,
+          )}
         </div>
 
-        <div className="review-controls">
-          <button onClick={goToStart} disabled={currentMoveIndex < 0} title={t('review.toStart')}>
-            &#x23EE;
-          </button>
-          <button onClick={goBack} disabled={currentMoveIndex < 0} title={t('review.back')}>
-            &#x25C0;
-          </button>
-          <button onClick={goForward} disabled={currentMoveIndex >= moves.length - 1} title={t('review.forward')}>
-            &#x25B6;
-          </button>
-          <button onClick={goToEnd} disabled={currentMoveIndex >= moves.length - 1} title={t('review.toEnd')}>
-            &#x23ED;
-          </button>
-        </div>
-
-        <Link to="/profile" className="review-back-link">{t('review.backToProfile')}</Link>
+        <Link to="/profile" className="analysis-back-link">{t('review.backToProfile')}</Link>
       </div>
     </div>
   );

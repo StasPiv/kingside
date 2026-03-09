@@ -160,6 +160,10 @@
     "toEnd": "Go to end",
     "backToProfile": "Back to profile"
   },
+  "analysis": {
+    "depth": "Depth",
+    "backToLobby": "Back to lobby"
+  },
   "puzzle": {
     "title": "Puzzles",
     "rating": "Rating: {{rating}}",

@@ -160,6 +160,10 @@
     "toEnd": "В конец",
     "backToProfile": "Назад к профилю"
   },
+  "analysis": {
+    "depth": "Глубина",
+    "backToLobby": "Вернуться в лобби"
+  },
   "puzzle": {
     "title": "Задачи",
     "rating": "Рейтинг: {{rating}}",
