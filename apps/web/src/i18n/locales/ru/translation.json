@@ -247,7 +247,18 @@
     "rushBest5": "Лучший (5 мин)",
     "rushTotalSessions": "Всего сессий",
     "playPuzzleRush": "Играть Puzzle Rush",
-    "play": "Играть"
+    "play": "Играть",
+    "moves": "ходов",
+    "noGames": "Партии не найдены",
+    "filterOpponent": "Имя соперника",
+    "filterResultAll": "Все результаты",
+    "filterResultWin": "Победы",
+    "filterResultLoss": "Поражения",
+    "filterResultDraw": "Ничьи",
+    "filterColorAll": "Все цвета",
+    "filterColorWhite": "Белые",
+    "filterColorBlack": "Чёрные",
+    "filterEco": "ECO"
   },
   "rushLeaderboard": {
     "title": "Таблица лидеров Puzzle Rush",

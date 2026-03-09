@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -23,38 +23,79 @@ type PuzzleRushStats = {
 
 type GameRecord = {
   id: string;
-  white: { id: string; username: string };
-  black: { id: string; username: string };
+  playerColor: 'white' | 'black';
+  playerResult: 'win' | 'loss' | 'draw';
+  opponent: { id: string; username: string; ratingBefore: number | null };
+  ecoCode: string | null;
+  openingName: string | null;
   result: string;
+  termination: string | null;
+  timeControlType: string | null;
   timeControl: string;
+  totalMoves: number;
   createdAt: string;
+  finishedAt: string | null;
   whiteRatingBefore: number | null;
   whiteRatingAfter: number | null;
   blackRatingBefore: number | null;
   blackRatingAfter: number | null;
 };
 
+type GamesResponse = {
+  data: GameRecord[];
+  total: number;
+  hasMore: boolean;
+};
+
+type Filters = {
+  opponent: string;
+  result: '' | 'win' | 'loss' | 'draw';
+  color: '' | 'white' | 'black';
+  eco: string;
+};
+
+const PAGE_SIZE = 20;
+
 export function ProfilePage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [games, setGames] = useState<GameRecord[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
+  const [filters, setFilters] = useState<Filters>({ opponent: '', result: '', color: '', eco: '' });
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const skipRef = useRef(0);
+
+  const buildQuery = useCallback((f: Filters, skip: number) => {
+    const params = new URLSearchParams();
+    params.set('take', String(PAGE_SIZE));
+    params.set('skip', String(skip));
+    if (f.opponent) params.set('opponent', f.opponent);
+    if (f.result) params.set('result', f.result);
+    if (f.color) params.set('color', f.color);
+    if (f.eco) params.set('eco', f.eco);
+    return params.toString();
+  }, []);
 
   useEffect(() => {
     if (!user) return;
 
     const fetchProfile = async () => {
       try {
+        const query = buildQuery(filters, 0);
         const [profileData, gamesData, rushData] = await Promise.all([
           api.get<UserProfile>(`/api/users/${user.id}`),
-          api.get<GameRecord[]>(`/api/users/${user.id}/games?take=10`),
+          api.get<GamesResponse>(`/api/users/${user.id}/games?${query}`),
           api.get<PuzzleRushStats>(`/api/users/${user.id}/puzzle-rush-stats`),
         ]);
         setProfile(profileData);
-        setGames(gamesData);
+        setGames(gamesData.data);
+        setHasMore(gamesData.hasMore);
+        skipRef.current = gamesData.data.length;
         setRushStats(rushData);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('profile.loadError'));
@@ -65,6 +106,52 @@ export function ProfilePage() {
 
     fetchProfile();
   }, [user]);
+
+  // Reload games when filters change
+  useEffect(() => {
+    if (!user || !profile) return;
+
+    const fetchFiltered = async () => {
+      try {
+        const query = buildQuery(filters, 0);
+        const gamesData = await api.get<GamesResponse>(`/api/users/${user.id}/games?${query}`);
+        setGames(gamesData.data);
+        setHasMore(gamesData.hasMore);
+        skipRef.current = gamesData.data.length;
+      } catch {
+        // keep existing games on filter error
+      }
+    };
+
+    fetchFiltered();
+  }, [filters, user, profile, buildQuery]);
+
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    if (!hasMore || !user || !profile) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          setLoadingMore(true);
+          const query = buildQuery(filters, skipRef.current);
+          api.get<GamesResponse>(`/api/users/${user.id}/games?${query}`)
+            .then((res) => {
+              setGames((prev) => [...prev, ...res.data]);
+              setHasMore(res.hasMore);
+              skipRef.current += res.data.length;
+            })
+            .catch(() => {})
+            .finally(() => setLoadingMore(false));
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    const el = sentinelRef.current;
+    if (el) observer.observe(el);
+    return () => { if (el) observer.unobserve(el); };
+  }, [hasMore, loadingMore, filters, user, profile, buildQuery]);
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
@@ -84,6 +171,10 @@ export function ProfilePage() {
     month: 'long',
     day: 'numeric',
   });
+
+  const handleFilterChange = (key: keyof Filters, value: string) => {
+    setFilters((prev) => ({ ...prev, [key]: value }));
+  };
 
   return (
     <div className="profile-page">
@@ -127,38 +218,94 @@ export function ProfilePage() {
         </div>
       )}
 
-      {games.length > 0 && (
-        <div className="profile-games">
-          <div className="profile-section-header">
-            <h2>{t('profile.recentGames')}</h2>
-            <Link to="/lobby" className="profile-section-link">{t('profile.play')}</Link>
-          </div>
-          <div className="games-list">
-            {games.map((game) => {
-              const isWhite = game.white.id === profile.id;
-              const opponent = isWhite ? game.black.username : game.white.username;
-              const date = new Date(game.createdAt).toLocaleDateString(locale);
-              const ratingBefore = isWhite ? game.whiteRatingBefore : game.blackRatingBefore;
-              const ratingAfter = isWhite ? game.whiteRatingAfter : game.blackRatingAfter;
-              const ratingDiff = ratingBefore != null && ratingAfter != null ? ratingAfter - ratingBefore : null;
-
-              return (
-                <Link key={game.id} to={`/game/${game.id}/review`} className="game-record game-record-link">
-                  <span className="game-opponent">{t('profile.vs', { opponent })}</span>
-                  <span className="game-tc">{game.timeControl}</span>
-                  <span className="game-result-badge">{game.result}</span>
-                  {ratingDiff != null && (
-                    <span className={`game-rating-diff ${ratingDiff >= 0 ? 'rating-positive' : 'rating-negative'}`}>
-                      {ratingDiff >= 0 ? `+${ratingDiff}` : ratingDiff}
-                    </span>
-                  )}
-                  <span className="game-date">{date}</span>
-                </Link>
-              );
-            })}
-          </div>
+      <div className="profile-games">
+        <div className="profile-section-header">
+          <h2>{t('profile.recentGames')}</h2>
+          <Link to="/lobby" className="profile-section-link">{t('profile.play')}</Link>
         </div>
-      )}
+
+        <div className="games-filters">
+          <input
+            type="text"
+            className="games-filter-input"
+            placeholder={t('profile.filterOpponent')}
+            value={filters.opponent}
+            onChange={(e) => handleFilterChange('opponent', e.target.value)}
+          />
+          <select
+            className="games-filter-select"
+            value={filters.result}
+            onChange={(e) => handleFilterChange('result', e.target.value)}
+          >
+            <option value="">{t('profile.filterResultAll')}</option>
+            <option value="win">{t('profile.filterResultWin')}</option>
+            <option value="loss">{t('profile.filterResultLoss')}</option>
+            <option value="draw">{t('profile.filterResultDraw')}</option>
+          </select>
+          <select
+            className="games-filter-select"
+            value={filters.color}
+            onChange={(e) => handleFilterChange('color', e.target.value)}
+          >
+            <option value="">{t('profile.filterColorAll')}</option>
+            <option value="white">{t('profile.filterColorWhite')}</option>
+            <option value="black">{t('profile.filterColorBlack')}</option>
+          </select>
+          <input
+            type="text"
+            className="games-filter-input games-filter-eco"
+            placeholder={t('profile.filterEco')}
+            value={filters.eco}
+            onChange={(e) => handleFilterChange('eco', e.target.value)}
+          />
+        </div>
+
+        <div className="games-list">
+          {games.map((game) => {
+            const isWhite = game.playerColor === 'white';
+            const ratingBefore = isWhite ? game.whiteRatingBefore : game.blackRatingBefore;
+            const ratingAfter = isWhite ? game.whiteRatingAfter : game.blackRatingAfter;
+            const ratingDiff = ratingBefore != null && ratingAfter != null ? ratingAfter - ratingBefore : null;
+            const date = new Date(game.createdAt).toLocaleDateString(locale);
+
+            return (
+              <Link key={game.id} to={`/game/${game.id}/review`} className="game-record game-record-link">
+                <span className={`game-color-indicator ${isWhite ? 'color-white' : 'color-black'}`} />
+                <span className="game-opponent">
+                  {t('profile.vs', { opponent: game.opponent.username })}
+                  {game.opponent.ratingBefore != null && (
+                    <span className="game-opponent-rating"> ({game.opponent.ratingBefore})</span>
+                  )}
+                </span>
+                <span className="game-opening">
+                  {game.ecoCode && <span className="game-eco">{game.ecoCode}</span>}
+                  {game.openingName && <span className="game-opening-name">{game.openingName}</span>}
+                </span>
+                <span className="game-tc">{game.timeControlType || game.timeControl}</span>
+                <span className="game-moves-count">{game.totalMoves} {t('profile.moves')}</span>
+                <span className="game-result-badge">{game.result}</span>
+                {game.termination && (
+                  <span className="game-termination">{game.termination}</span>
+                )}
+                {ratingDiff != null && (
+                  <span className={`game-rating-diff ${ratingDiff >= 0 ? 'rating-positive' : 'rating-negative'}`}>
+                    {ratingDiff >= 0 ? `+${ratingDiff}` : ratingDiff}
+                  </span>
+                )}
+                <span className="game-date">{date}</span>
+              </Link>
+            );
+          })}
+          {games.length === 0 && (
+            <div className="games-empty">{t('profile.noGames')}</div>
+          )}
+        </div>
+        {hasMore && (
+          <div ref={sentinelRef} className="games-load-more">
+            {loadingMore && <span>{t('common.loading')}</span>}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -247,7 +247,18 @@
     "rushBest5": "Best (5 min)",
     "rushTotalSessions": "Total sessions",
     "playPuzzleRush": "Play Puzzle Rush",
-    "play": "Play"
+    "play": "Play",
+    "moves": "moves",
+    "noGames": "No games found",
+    "filterOpponent": "Opponent name",
+    "filterResultAll": "All results",
+    "filterResultWin": "Wins",
+    "filterResultLoss": "Losses",
+    "filterResultDraw": "Draws",
+    "filterColorAll": "All colors",
+    "filterColorWhite": "White",
+    "filterColorBlack": "Black",
+    "filterEco": "ECO"
   },
   "rushLeaderboard": {
     "title": "Puzzle Rush Leaderboard",
