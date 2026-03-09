@@ -8,12 +8,12 @@ vi.mock('../context/AuthContext', () => ({
 }));
 
 /**
- * KS-263: Реверификация фиксов Puzzle Rush
+ * KS-329: Убрано дублирование ссылки на Leaderboard из header
  *
- * KS-252: Навигационная ссылка на /puzzle-rush/leaderboard
- * KS-253: Ссылка Rush Leaderboard в навигации
+ * Ссылка на /puzzle-rush/leaderboard удалена из навигации,
+ * оставлена только внутри PuzzleRushPage.
  */
-describe('KS-252/253: навигация Puzzle Rush Leaderboard', () => {
+describe('KS-329: навигация Puzzle Rush', () => {
   beforeEach(() => {
     mockUseAuth.mockReturnValue({
       user: { id: 'u1', username: 'TestUser', ratingBlitz: 1500 },
@@ -22,13 +22,11 @@ describe('KS-252/253: навигация Puzzle Rush Leaderboard', () => {
     });
   });
 
-  it('навигация содержит ссылку на /puzzle-rush/leaderboard', () => {
+  it('навигация НЕ содержит ссылку на /puzzle-rush/leaderboard', () => {
     renderWithProviders(<MainLayout />, { route: '/lobby' });
 
-    const link = screen.getByText('Leaderboard');
-    expect(link).toBeInTheDocument();
-    expect(link.tagName).toBe('A');
-    expect(link).toHaveAttribute('href', '/puzzle-rush/leaderboard');
+    const link = screen.queryByText('Leaderboard');
+    expect(link).not.toBeInTheDocument();
   });
 
   it('навигация содержит ссылку на /puzzle-rush', () => {
