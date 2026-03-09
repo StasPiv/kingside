@@ -74,6 +74,13 @@
       "title": "Custom time control",
       "savedTitle": "Saved controls"
     },
+    "ratingFilter": {
+      "title": "Rating filter",
+      "relative": "Relative",
+      "absolute": "Absolute",
+      "from": "From",
+      "to": "To"
+    },
     "playBot": "Play Bot",
     "startingBot": "Starting...",
     "difficulty": "Difficulty",

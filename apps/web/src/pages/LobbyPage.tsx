@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 import { api } from '../api';
-import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse } from '@kingside/shared';
+import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse, type RatingFilterMode } from '@kingside/shared';
 
 type PieceColor = 'white' | 'black' | 'random';
 type TimeControlCategory = 'bullet' | 'blitz' | 'rapid' | 'classical';
@@ -59,6 +59,11 @@ export function LobbyPage() {
   const [savedControls, setSavedControls] = useState<CustomTimeControl[]>([]);
   const [activeTab, setActiveTab] = useState<TimeControlCategory | 'custom'>('blitz');
   const [lobbyMode, setLobbyMode] = useState<LobbyMode>('online');
+  const [ratingFilterMode, setRatingFilterMode] = useState<RatingFilterMode>('none');
+  const [ratingMin, setRatingMin] = useState(800);
+  const [ratingMax, setRatingMax] = useState(2200);
+  const [ratingMinus, setRatingMinus] = useState(200);
+  const [ratingPlus, setRatingPlus] = useState(200);
 
   const loadSavedControls = useCallback(async () => {
     if (!user) return;
@@ -104,10 +109,17 @@ export function LobbyPage() {
       matchmakingSocket.emit(MatchmakingEvents.LEAVE);
       setSearching(false);
     } else {
-      matchmakingSocket.emit(MatchmakingEvents.JOIN, {
+      const payload: Record<string, unknown> = {
         timeInitial: selectedMinutes * 60,
         increment: selectedIncrement,
-      });
+      };
+      if (ratingFilterMode === 'absolute') {
+        payload.ratingMin = ratingMin;
+        payload.ratingMax = ratingMax;
+      } else if (ratingFilterMode === 'relative') {
+        payload.ratingDelta = Math.max(ratingMinus, ratingPlus);
+      }
+      matchmakingSocket.emit(MatchmakingEvents.JOIN, payload);
       setSearching(true);
     }
   };
@@ -300,6 +312,95 @@ export function LobbyPage() {
         {selectedIncrement > 0
           ? `${selectedMinutes} + ${selectedIncrement}`
           : `${selectedMinutes} min`}
+      </div>
+
+      <div className="rating-filter">
+        <div className="rating-filter__header">
+          <label className="rating-filter__toggle">
+            <input
+              type="checkbox"
+              checked={ratingFilterMode !== 'none'}
+              onChange={(e) => setRatingFilterMode(e.target.checked ? 'relative' : 'none')}
+              disabled={searching}
+            />
+            {t('lobby.ratingFilter.title')}
+          </label>
+        </div>
+
+        {ratingFilterMode !== 'none' && (
+          <div className="rating-filter__body">
+            <div className="rating-filter__modes">
+              <button
+                className={`rating-filter__mode-btn ${ratingFilterMode === 'relative' ? 'active' : ''}`}
+                onClick={() => setRatingFilterMode('relative')}
+                disabled={searching}
+              >
+                {t('lobby.ratingFilter.relative')}
+              </button>
+              <button
+                className={`rating-filter__mode-btn ${ratingFilterMode === 'absolute' ? 'active' : ''}`}
+                onClick={() => setRatingFilterMode('absolute')}
+                disabled={searching}
+              >
+                {t('lobby.ratingFilter.absolute')}
+              </button>
+            </div>
+
+            {ratingFilterMode === 'relative' && (
+              <div className="rating-filter__fields">
+                <label>
+                  <span>−</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000}
+                    value={ratingMinus}
+                    onChange={(e) => setRatingMinus(Math.max(0, Math.min(1000, Number(e.target.value))))}
+                    disabled={searching}
+                  />
+                </label>
+                <label>
+                  <span>+</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000}
+                    value={ratingPlus}
+                    onChange={(e) => setRatingPlus(Math.max(0, Math.min(1000, Number(e.target.value))))}
+                    disabled={searching}
+                  />
+                </label>
+              </div>
+            )}
+
+            {ratingFilterMode === 'absolute' && (
+              <div className="rating-filter__fields">
+                <label>
+                  <span>{t('lobby.ratingFilter.from')}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={4000}
+                    value={ratingMin}
+                    onChange={(e) => setRatingMin(Math.max(0, Math.min(4000, Number(e.target.value))))}
+                    disabled={searching}
+                  />
+                </label>
+                <label>
+                  <span>{t('lobby.ratingFilter.to')}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={4000}
+                    value={ratingMax}
+                    onChange={(e) => setRatingMax(Math.max(0, Math.min(4000, Number(e.target.value))))}
+                    disabled={searching}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <button className="play-btn" onClick={handleSearch}>
