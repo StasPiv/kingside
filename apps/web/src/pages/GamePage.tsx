@@ -63,7 +63,7 @@ export function GamePage() {
 
   useEffect(() => {
     if (movesRef.current) {
-      movesRef.current.scrollLeft = movesRef.current.scrollWidth;
+      movesRef.current.scrollTop = movesRef.current.scrollHeight;
     }
   }, [moves]);
 

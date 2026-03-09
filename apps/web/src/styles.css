@@ -2104,7 +2104,10 @@ input:focus {
   .game-sidebar {
     width: 100%;
     max-width: 480px;
-    max-height: none;
+  }
+
+  .moves {
+    max-height: 200px;
   }
 
   .player-info {
