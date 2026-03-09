@@ -150,25 +150,15 @@ export function useFastDrag(
 
       dragStateRef.current = null;
 
-      // Call handler; if the move is accepted the board will re-render with
-      // a new FEN so the old piece element is replaced — no need to restore
-      // its opacity. Restoring it before the re-render caused a single-frame
-      // flash where the piece was visible at the source square.
-      let accepted = false;
-      if (targetSquare && targetSquare !== state.sourceSquare) {
-        try {
-          accepted = optionsRef.current.onPieceDrop({
-            sourceSquare: state.sourceSquare,
-            targetSquare,
-          });
-        } catch {
-          accepted = false;
-        }
-      }
+      // Determine whether this is a valid drop attempt (different square).
+      const isDropAttempt = !!(targetSquare && targetSquare !== state.sourceSquare);
 
-      // Snap-to-square animation: smoothly move ghost to target square center,
-      // then remove it. For rejected moves, snap back to source square.
-      const snapSquare = accepted ? targetSquare! : state.sourceSquare;
+      // Snap-to-square animation: smoothly move ghost to target square center.
+      // For non-drop attempts, snap back to source square.
+      // IMPORTANT: onPieceDrop is deferred until AFTER the snap animation
+      // completes, so the board does not re-render while the ghost is
+      // still mid-flight (which caused a visual glitch — KS-296).
+      const snapSquare = isDropAttempt ? targetSquare! : state.sourceSquare;
       const { boardRect, squareSize } = state;
       const orientation = optionsRef.current.boardOrientation;
 
@@ -193,6 +183,21 @@ export function useFastDrag(
         if (cleaned) return;
         cleaned = true;
         state.ghost.remove();
+
+        // Call the drop handler AFTER the snap animation so the board
+        // re-render happens only when the ghost has already been removed.
+        let accepted = false;
+        if (isDropAttempt) {
+          try {
+            accepted = optionsRef.current.onPieceDrop({
+              sourceSquare: state.sourceSquare,
+              targetSquare: targetSquare!,
+            });
+          } catch {
+            accepted = false;
+          }
+        }
+
         if (!accepted) {
           // Restore opacity on the original piece element
           state.pieceEl.style.opacity = '';
