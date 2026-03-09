@@ -1,46 +1,23 @@
-import {
-  IsInt,
-  Min,
-  Max,
-  IsOptional,
-  ValidateNested,
-  IsIn,
-} from 'class-validator';
+import { IsInt, IsOptional, Min, Max, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MAX_INITIAL_TIME_SEC, MAX_INCREMENT_SEC } from '@kingside/shared';
-import type { WsMatchmakingJoinPayload } from '@kingside/shared';
+import type { WsMatchmakingJoinPayload, RatingFilter } from '@kingside/shared';
 
-export class RatingRangeDto {
-  @IsIn(['absolute', 'relative'])
-  mode!: 'absolute' | 'relative';
-
-  /** absolute mode: minimum rating */
+export class RatingFilterDto implements RatingFilter {
   @IsOptional()
   @IsInt()
   @Min(0)
-  @Max(4000)
-  min?: number;
+  minRating?: number;
 
-  /** absolute mode: maximum rating */
   @IsOptional()
   @IsInt()
   @Min(0)
-  @Max(4000)
-  max?: number;
+  maxRating?: number;
 
-  /** relative mode: points below own rating (positive number) */
   @IsOptional()
   @IsInt()
   @Min(0)
-  @Max(2000)
-  below?: number;
-
-  /** relative mode: points above own rating (positive number) */
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(2000)
-  above?: number;
+  ratingDelta?: number;
 }
 
 export class JoinQueueDto implements WsMatchmakingJoinPayload {
@@ -56,6 +33,6 @@ export class JoinQueueDto implements WsMatchmakingJoinPayload {
 
   @IsOptional()
   @ValidateNested()
-  @Type(() => RatingRangeDto)
-  ratingRange?: RatingRangeDto;
+  @Type(() => RatingFilterDto)
+  ratingFilter?: RatingFilterDto;
 }

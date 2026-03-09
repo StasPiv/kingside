@@ -81,7 +81,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
       data.timeInitial,
       data.increment,
       isOnline,
-      data.ratingRange,
+      data.ratingFilter,
     );
 
     if (result) {

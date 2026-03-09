@@ -2,19 +2,29 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { classifyTimeControl, type TimeControlCategory, type RatingRange } from '@kingside/shared';
+import {
+  classifyTimeControl,
+  type TimeControlCategory,
+  type RatingFilter,
+} from '@kingside/shared';
+
+interface RatingRange {
+  min: number;
+  max: number;
+}
 
 interface QueueEntry {
   userId: string;
   rating: number;
   timeInitialSec: number;
   timeIncrementSec: number;
+  /** Resolved absolute rating range filter (if set by the player) */
   ratingRange?: RatingRange;
 }
 
 @Injectable()
 export class MatchmakingService {
-  private readonly DEFAULT_RATING_RANGE = 200;
+  private readonly RATING_RANGE = 200;
 
   constructor(
     private readonly redis: RedisService,
@@ -27,7 +37,7 @@ export class MatchmakingService {
     timeInitialSec: number,
     timeIncrementSec: number,
     isOnline?: (userId: string) => Promise<boolean>,
-    ratingRange?: RatingRange,
+    ratingFilter?: RatingFilter,
   ): Promise<{ gameId: string; color: string; opponent: any } | null> {
     const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
 
@@ -38,15 +48,16 @@ export class MatchmakingService {
     const ratingField = this.ratingFieldForCategory(timeControlType);
     const rating = user[ratingField];
 
-    const { minRating, maxRating } = this.resolveRatingBounds(rating, ratingRange);
+    // Resolve rating filter to absolute range
+    const ratingRange = this.resolveRatingRange(rating, ratingFilter);
 
     const queueKey = `matchmaking:${timeControlType}`;
 
     // Look for opponent in rating range
     const candidates = await this.redis.zrangebyscore(
       queueKey,
-      minRating,
-      maxRating,
+      rating - this.RATING_RANGE,
+      rating + this.RATING_RANGE,
     );
 
     for (const candidateData of candidates) {
@@ -60,10 +71,8 @@ export class MatchmakingService {
         continue;
       }
 
-      // Check mutual rating range compatibility:
-      // Our rating must also fall within the candidate's acceptable range
-      const candidateBounds = this.resolveRatingBounds(candidate.rating, candidate.ratingRange);
-      if (rating < candidateBounds.minRating || rating > candidateBounds.maxRating) {
+      // Check mutual rating filter: both players must accept each other
+      if (!this.isMatchAllowedByFilters(rating, ratingRange, candidate)) {
         continue;
       }
 
@@ -133,29 +142,61 @@ export class MatchmakingService {
     return false;
   }
 
-  private resolveRatingBounds(
+  /**
+   * Resolve a RatingFilter into an absolute { min, max } range.
+   * If no filter is provided, returns undefined (no restriction).
+   */
+  private resolveRatingRange(
     playerRating: number,
-    ratingRange?: RatingRange,
-  ): { minRating: number; maxRating: number } {
-    if (!ratingRange) {
+    filter?: RatingFilter,
+  ): RatingRange | undefined {
+    if (!filter) return undefined;
+
+    const { minRating, maxRating, ratingDelta } = filter;
+
+    // ratingDelta takes precedence when set
+    if (ratingDelta !== undefined) {
       return {
-        minRating: playerRating - this.DEFAULT_RATING_RANGE,
-        maxRating: playerRating + this.DEFAULT_RATING_RANGE,
+        min: playerRating - ratingDelta,
+        max: playerRating + ratingDelta,
       };
     }
 
-    if (ratingRange.mode === 'absolute') {
+    if (minRating !== undefined || maxRating !== undefined) {
       return {
-        minRating: ratingRange.min,
-        maxRating: ratingRange.max,
+        min: minRating ?? 0,
+        max: maxRating ?? Infinity,
       };
     }
 
-    // relative mode
-    return {
-      minRating: playerRating - ratingRange.below,
-      maxRating: playerRating + ratingRange.above,
-    };
+    return undefined;
+  }
+
+  /**
+   * Check whether a match is allowed considering both players' rating filters.
+   * The joining player's rating must be accepted by the candidate's filter,
+   * and the candidate's rating must be accepted by the joining player's filter.
+   */
+  private isMatchAllowedByFilters(
+    joinerRating: number,
+    joinerRange: RatingRange | undefined,
+    candidate: QueueEntry,
+  ): boolean {
+    // Joiner's filter rejects candidate?
+    if (joinerRange) {
+      if (candidate.rating < joinerRange.min || candidate.rating > joinerRange.max) {
+        return false;
+      }
+    }
+
+    // Candidate's filter rejects joiner?
+    if (candidate.ratingRange) {
+      if (joinerRating < candidate.ratingRange.min || joinerRating > candidate.ratingRange.max) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private ratingFieldForCategory(
