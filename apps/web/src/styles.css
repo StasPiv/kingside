@@ -816,6 +816,30 @@ input:focus {
   background: #1e2d50;
 }
 
+.analysis-engine-panel {
+  background: #16213e;
+  border-radius: 8px;
+  padding: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.analysis-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  min-height: 72px;
+}
+
+.analysis-line {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  height: 20px;
+  overflow: hidden;
+}
+
 .analysis-sidebar {
   display: flex;
   flex-direction: column;

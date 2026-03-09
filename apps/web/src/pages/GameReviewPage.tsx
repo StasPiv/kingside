@@ -254,69 +254,69 @@ export function GameReviewPage() {
             <button onClick={goForward} disabled={currentMoveIndex >= moves.length - 1} title={t('review.forward')}>&#x2192;</button>
             <button onClick={goToEnd} disabled={currentMoveIndex >= moves.length - 1} title={t('review.toEnd')}>&#x21E5;</button>
           </div>
+
+          {/* Engine analysis panel — under the board */}
+          <div className="analysis-engine-panel">
+            <div className="analysis-progress-text" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>
+                Stockfish 18 {analysisEnabled && sfState === 'analyzing' && lines.length > 0
+                  ? `· ${t('analysis.depth')} ${lines[0].depth}`
+                  : analysisEnabled && sfState === 'loading'
+                    ? `· ${t('common.loading')}`
+                    : analysisEnabled && sfState === 'error'
+                      ? ` · ${t('analysis.engineError', 'Engine error')}`
+                      : analysisEnabled && sfState === 'ready' && lines.length === 0
+                        ? ` · ${t('analysis.ready', 'Ready')}`
+                        : !analysisEnabled
+                          ? ` · ${t('analysis.off', 'Off')}`
+                          : ''}
+              </span>
+              <button
+                className="analysis-toggle-btn"
+                onClick={toggleAnalysis}
+                title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : t('analysis.start', 'Start analysis')}
+                data-testid="stockfish-toggle"
+                style={{
+                  padding: '2px 10px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                  border: '1px solid #555',
+                  background: analysisEnabled ? '#dc2626' : '#16a34a',
+                  color: '#fff',
+                  marginLeft: 8,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+              </button>
+            </div>
+            {analysisEnabled && lines.length > 0 && (
+              <div className="analysis-lines">
+                {lines.map((line) => (
+                  <div key={line.multipv} className="analysis-line">
+                    <span style={{
+                      minWidth: 44,
+                      fontWeight: 700,
+                      color: line.score.type === 'mate'
+                        ? '#ef4444'
+                        : (line.multipv === 1 ? '#fff' : '#a0a0c0'),
+                      fontVariantNumeric: 'tabular-nums',
+                    }}>
+                      {formatEval(line)}
+                    </span>
+                    <span style={{ color: '#a0a0c0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {formatPv(line.pv, currentFen)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="analysis-sidebar">
-        {/* Engine analysis panel */}
-        <div className="analysis-progress">
-          <div className="analysis-progress-text" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>
-              Stockfish 18 {analysisEnabled && sfState === 'analyzing' && lines.length > 0
-                ? `· ${t('analysis.depth')} ${lines[0].depth}`
-                : analysisEnabled && sfState === 'loading'
-                  ? `· ${t('common.loading')}`
-                  : analysisEnabled && sfState === 'error'
-                    ? ` · ${t('analysis.engineError', 'Engine error')}`
-                    : analysisEnabled && sfState === 'ready' && lines.length === 0
-                      ? ` · ${t('analysis.ready', 'Ready')}`
-                      : !analysisEnabled
-                        ? ` · ${t('analysis.off', 'Off')}`
-                        : ''}
-            </span>
-            <button
-              className="analysis-toggle-btn"
-              onClick={toggleAnalysis}
-              title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : t('analysis.start', 'Start analysis')}
-              data-testid="stockfish-toggle"
-              style={{
-                padding: '2px 10px',
-                fontSize: 13,
-                cursor: 'pointer',
-                borderRadius: 4,
-                border: '1px solid #555',
-                background: analysisEnabled ? '#dc2626' : '#16a34a',
-                color: '#fff',
-                marginLeft: 8,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
-            </button>
-          </div>
-          {analysisEnabled && lines.length > 0 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-              {lines.map((line) => (
-                <div key={line.multipv} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
-                  <span style={{
-                    minWidth: 44,
-                    fontWeight: 700,
-                    color: line.score.type === 'mate'
-                      ? '#ef4444'
-                      : (line.multipv === 1 ? '#fff' : '#a0a0c0'),
-                    fontVariantNumeric: 'tabular-nums',
-                  }}>
-                    {formatEval(line)}
-                  </span>
-                  <span style={{ color: '#a0a0c0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {formatPv(line.pv, currentFen)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         {/* Game result */}
         <div className="analysis-result">
           <h3>{t('game.finished')}</h3>
