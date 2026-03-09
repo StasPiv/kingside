@@ -15,6 +15,13 @@ interface GameState {
   activeColor: 'white' | 'black';
 }
 
+export interface RatingChange {
+  whiteRatingBefore: number;
+  whiteRatingAfter: number;
+  blackRatingBefore: number;
+  blackRatingAfter: number;
+}
+
 interface MoveResult {
   san: string;
   fen: string;
@@ -22,12 +29,14 @@ interface MoveResult {
   gameOver: boolean;
   result?: 'white' | 'black' | 'draw';
   termination?: string;
+  ratingChange?: RatingChange | null;
 }
 
 interface EndResult {
   result: 'white' | 'black' | 'draw';
   termination: string;
   clocks: ClockState;
+  ratingChange?: RatingChange | null;
 }
 
 @Injectable()
@@ -241,11 +250,12 @@ export class GameService {
       gameOver = true;
     }
 
+    let ratingChange: RatingChange | null | undefined;
     if (gameOver && result && termination) {
-      await this.endGame(gameId, result, termination);
+      ratingChange = await this.endGame(gameId, result, termination);
     }
 
-    return { san: move.san, fen: newFen, clocks, gameOver, result, termination };
+    return { san: move.san, fen: newFen, clocks, gameOver, result, termination, ratingChange };
   }
 
   async resign(gameId: string, userId: string): Promise<EndResult> {
@@ -263,9 +273,9 @@ export class GameService {
 
     const result = userId === game.whiteId ? 'black' : 'white';
     const clocks = await this.clockService.stopClock(gameId);
-    await this.endGame(gameId, result, 'resignation');
+    const ratingChange = await this.endGame(gameId, result, 'resignation');
 
-    return { result, termination: 'resignation', clocks };
+    return { result, termination: 'resignation', clocks, ratingChange };
   }
 
   async handleDrawOffer(gameId: string, userId: string): Promise<void> {
@@ -297,10 +307,10 @@ export class GameService {
     }
 
     const clocks = await this.clockService.stopClock(gameId);
-    await this.endGame(gameId, 'draw', 'draw_agreement');
+    const ratingChange = await this.endGame(gameId, 'draw', 'draw_agreement');
     await this.redis.del(`game:${gameId}:draw_offer`);
 
-    return { result: 'draw', termination: 'draw_agreement', clocks };
+    return { result: 'draw', termination: 'draw_agreement', clocks, ratingChange };
   }
 
   async handleDrawDecline(gameId: string, userId: string): Promise<void> {
@@ -311,7 +321,7 @@ export class GameService {
     gameId: string,
     result: GameResult,
     termination: Termination,
-  ): Promise<void> {
+  ): Promise<RatingChange | null> {
     await this.redis.hset(this.stateKey(gameId), { status: 'finished' });
     await this.clockService.stopClock(gameId);
 
@@ -332,8 +342,9 @@ export class GameService {
     await this.clockService.deleteClock(gameId);
     await this.redis.del(`game:${gameId}:draw_offer`);
 
-    await this.ratingService.updateRatingsAfterGame(gameId, result);
+    const ratingChange = await this.ratingService.updateRatingsAfterGame(gameId, result);
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
+    return ratingChange;
   }
 
   async createGame(

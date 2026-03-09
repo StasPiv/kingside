@@ -10,7 +10,7 @@ export class RatingService {
   async updateRatingsAfterGame(
     gameId: string,
     result: 'white' | 'black' | 'draw',
-  ): Promise<void> {
+  ): Promise<{ whiteRatingBefore: number; whiteRatingAfter: number; blackRatingBefore: number; blackRatingAfter: number } | null> {
     const game = await this.prisma.game.findUniqueOrThrow({
       where: { id: gameId },
       select: {
@@ -21,7 +21,7 @@ export class RatingService {
       },
     });
 
-    if (game.isBot) return;
+    if (game.isBot) return null;
 
     const ratingField = this.ratingFieldForType(game.timeControlType);
 
@@ -58,6 +58,13 @@ export class RatingService {
     ]);
 
     this.logger.log(`Ratings updated for game ${gameId}: white ${whiteRating}->${newWhiteRating}, black ${blackRating}->${newBlackRating}`);
+
+    return {
+      whiteRatingBefore: whiteRating,
+      whiteRatingAfter: newWhiteRating,
+      blackRatingBefore: blackRating,
+      blackRatingAfter: newBlackRating,
+    };
   }
 
   private ratingFieldForType(type: string): string {
