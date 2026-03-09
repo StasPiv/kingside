@@ -166,14 +166,67 @@ export function useFastDrag(
       // Determine whether this is a valid drop attempt (different square).
       const isDropAttempt = !!(targetSquare && targetSquare !== state.sourceSquare);
 
-      // Snap-to-square animation: smoothly move ghost to target square center.
-      // For non-drop attempts, snap back to source square.
-      const snapSquare = isDropAttempt ? targetSquare! : state.sourceSquare;
       const orientation = optionsRef.current.boardOrientation;
 
-      const file = snapSquare.charCodeAt(0) - 97; // a=0, h=7
-      const rank = parseInt(snapSquare[1], 10);    // 1-8
+      // For accepted drops: skip snap-transition entirely — call handler
+      // immediately, then keep ghost aligned with the actual board position
+      // until React has painted.  This avoids the "jerk" caused by layout
+      // shift between snap position and post-render board position.
+      if (isDropAttempt) {
+        let accepted = false;
+        try {
+          accepted = optionsRef.current.onPieceDrop({
+            sourceSquare: state.sourceSquare,
+            targetSquare: targetSquare!,
+          });
+        } catch {
+          accepted = false;
+        }
 
+        if (accepted) {
+          // Snap ghost to the target square instantly (no transition)
+          // using the freshest board rect — this covers the board while
+          // React re-renders.
+          const file = targetSquare!.charCodeAt(0) - 97;
+          const rank = parseInt(targetSquare![1], 10);
+          const col = orientation === 'white' ? file : 7 - file;
+          const row = orientation === 'white' ? 8 - rank : rank - 1;
+
+          state.ghost.style.transition = 'none';
+          const snapX = freshBoardRect.left + col * freshSquareSize;
+          const snapY = freshBoardRect.top + row * freshSquareSize;
+          state.ghost.style.transform = `translate3d(${snapX}px, ${snapY}px, 0)`;
+          // Sync ghost size in case board resized since pointerdown
+          state.ghost.style.width = `${freshSquareSize}px`;
+          state.ghost.style.height = `${freshSquareSize}px`;
+
+          // Wait for React commit + browser paint, realign once more
+          // in case layout shifted during re-render, then remove ghost.
+          requestAnimationFrame(() => {
+            if (boardEl) {
+              const postRect = boardEl.getBoundingClientRect();
+              const postSq = postRect.width / 8;
+              const newSnapX = postRect.left + col * postSq;
+              const newSnapY = postRect.top + row * postSq;
+              state.ghost.style.transform = `translate3d(${newSnapX}px, ${newSnapY}px, 0)`;
+              state.ghost.style.width = `${postSq}px`;
+              state.ghost.style.height = `${postSq}px`;
+            }
+            requestAnimationFrame(() => {
+              state.ghost.remove();
+            });
+          });
+          return;
+        }
+
+        // Drop was rejected — fall through to snap-back
+      }
+
+      // Snap-back animation: smoothly return ghost to source square.
+      const snapSquare = state.sourceSquare;
+
+      const file = snapSquare.charCodeAt(0) - 97;
+      const rank = parseInt(snapSquare[1], 10);
       const col = orientation === 'white' ? file : 7 - file;
       const row = orientation === 'white' ? 8 - rank : rank - 1;
 
@@ -192,55 +245,16 @@ export function useFastDrag(
         if (cleaned) return;
         cleaned = true;
 
-        // Call the drop handler while ghost is STILL visible at the target
-        // position. This way the ghost visually "covers" the board during
-        // React re-render, preventing the flash/glitch when DOM is updated.
-        let accepted = false;
-        if (isDropAttempt) {
-          try {
-            accepted = optionsRef.current.onPieceDrop({
-              sourceSquare: state.sourceSquare,
-              targetSquare: targetSquare!,
-            });
-          } catch {
-            accepted = false;
-          }
-        }
-
-        if (accepted) {
-          // Ghost stays on screen until React has painted the new board
-          // position. Double-rAF waits for: (1) React commit, (2) browser
-          // paint — only then is it safe to remove the ghost without a
-          // visible gap between ghost removal and new piece appearance.
-          requestAnimationFrame(() => {
-            // After React commit: realign ghost to the actual board
-            // position in case layout shifted during re-render (e.g.
-            // flex-wrap reflow).  This prevents the "jerk" when the
-            // ghost is removed and reveals the piece at a different spot.
-            if (boardEl) {
-              const postRect = boardEl.getBoundingClientRect();
-              const postSq = postRect.width / 8;
-              const newSnapX = postRect.left + col * postSq;
-              const newSnapY = postRect.top + row * postSq;
-              state.ghost.style.transition = 'none';
-              state.ghost.style.transform = `translate3d(${newSnapX}px, ${newSnapY}px, 0)`;
-            }
-            requestAnimationFrame(() => {
-              state.ghost.remove();
-            });
-          });
-        } else {
-          state.ghost.remove();
-          // Restore opacity on the original piece element
-          state.pieceEl.style.opacity = '';
-          // Fallback: if React re-rendered and replaced the DOM element,
-          // find the piece at the source square and restore its opacity too
-          const ctr = containerRef.current;
-          if (ctr) {
-            const sqEl = ctr.querySelector<HTMLElement>(`[data-square="${state.sourceSquare}"] [data-piece]`);
-            if (sqEl && sqEl !== state.pieceEl) {
-              sqEl.style.opacity = '';
-            }
+        state.ghost.remove();
+        // Restore opacity on the original piece element
+        state.pieceEl.style.opacity = '';
+        // Fallback: if React re-rendered and replaced the DOM element,
+        // find the piece at the source square and restore its opacity too
+        const ctr = containerRef.current;
+        if (ctr) {
+          const sqEl = ctr.querySelector<HTMLElement>(`[data-square="${state.sourceSquare}"] [data-piece]`);
+          if (sqEl && sqEl !== state.pieceEl) {
+            sqEl.style.opacity = '';
           }
         }
       };
