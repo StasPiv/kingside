@@ -233,7 +233,11 @@ export function GameReviewPage() {
               ? `· ${t('analysis.depth')} ${lines[0].depth}`
               : sfState === 'loading'
                 ? `· ${t('common.loading')}`
-                : ''}
+                : sfState === 'error'
+                  ? ` · ${t('analysis.engineError', 'Engine error')}`
+                  : sfState === 'ready' && lines.length === 0
+                    ? ` · ${t('analysis.ready', 'Ready')}`
+                    : ''}
           </div>
           {lines.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>

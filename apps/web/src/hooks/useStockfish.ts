@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { InfoLine } from '../workers/stockfish.worker';
 
 export type EvalLine = {
   depth: number;
@@ -18,29 +17,62 @@ type UseStockfishOptions = {
   autoStart?: boolean;
 };
 
-type OutMessage =
-  | { type: 'ready' }
-  | { type: 'info'; data: InfoLine }
-  | { type: 'bestmove'; move: string }
-  | { type: 'error'; message: string };
+const INIT_TIMEOUT_MS = 15_000;
 
+function parseInfoLine(line: string): EvalLine | null {
+  const depthMatch = line.match(/\bdepth (\d+)/);
+  const multipvMatch = line.match(/\bmultipv (\d+)/);
+  const cpMatch = line.match(/\bscore cp (-?\d+)/);
+  const mateMatch = line.match(/\bscore mate (-?\d+)/);
+  const pvMatch = line.match(/\bpv (.+)/);
+  const nodesMatch = line.match(/\bnodes (\d+)/);
+  const npsMatch = line.match(/\bnps (\d+)/);
+
+  if (!depthMatch || !pvMatch) return null;
+  if (!cpMatch && !mateMatch) return null;
+
+  return {
+    depth: Number(depthMatch[1]),
+    multipv: Number(multipvMatch?.[1] ?? 1),
+    score: mateMatch
+      ? { type: 'mate', value: Number(mateMatch[1]) }
+      : { type: 'cp', value: Number(cpMatch![1]) },
+    pv: pvMatch[1],
+    nodes: nodesMatch ? Number(nodesMatch[1]) : undefined,
+    nps: npsMatch ? Number(npsMatch[1]) : undefined,
+  };
+}
+
+/**
+ * Stockfish hook that loads the engine directly as a single Web Worker.
+ * No nested workers — avoids browser compatibility issues where creating
+ * a Worker from within another Worker fails silently.
+ */
 export function useStockfish(options: UseStockfishOptions = {}) {
   const { depth = 20, multiPv = 3, autoStart = true } = options;
 
   const [state, setState] = useState<StockfishState>('idle');
   const [lines, setLines] = useState<EvalLine[]>([]);
   const [bestMove, setBestMove] = useState<string | null>(null);
-  const workerRef = useRef<Worker | null>(null);
+  const engineRef = useRef<Worker | null>(null);
   const fenRef = useRef<string | null>(null);
   const linesBuffer = useRef<Map<number, EvalLine>>(new Map());
   const stateRef = useRef<StockfishState>(state);
+  const initTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisGenRef = useRef(0);
   stateRef.current = state;
 
   const cleanup = useCallback(() => {
-    if (workerRef.current) {
-      workerRef.current.postMessage({ type: 'quit' });
-      workerRef.current.terminate();
-      workerRef.current = null;
+    if (initTimerRef.current) {
+      clearTimeout(initTimerRef.current);
+      initTimerRef.current = null;
+    }
+    if (engineRef.current) {
+      try {
+        engineRef.current.postMessage('quit');
+      } catch { /* worker may already be dead */ }
+      engineRef.current.terminate();
+      engineRef.current = null;
     }
   }, []);
 
@@ -48,53 +80,69 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     cleanup();
     setState('loading');
 
-    const worker = new Worker(
-      new URL('../workers/stockfish.worker.ts', import.meta.url),
-      { type: 'module' },
-    );
+    let engine: Worker;
+    try {
+      engine = new Worker('/stockfish/stockfish-18-single.js');
+    } catch (err) {
+      console.error('[Stockfish] Failed to create engine worker:', err);
+      setState('error');
+      return;
+    }
 
-    worker.onmessage = (e: MessageEvent<OutMessage>) => {
-      const msg = e.data;
-      switch (msg.type) {
-        case 'ready':
-          setState('ready');
-          break;
+    initTimerRef.current = setTimeout(() => {
+      if (stateRef.current === 'loading') {
+        console.warn('[Stockfish] Init timeout — engine did not respond within', INIT_TIMEOUT_MS, 'ms');
+        setState('error');
+      }
+    }, INIT_TIMEOUT_MS);
 
-        case 'info': {
-          const line: EvalLine = {
-            depth: msg.data.depth,
-            multipv: msg.data.multipv,
-            score: msg.data.score,
-            pv: msg.data.pv,
-            nodes: msg.data.nodes,
-            nps: msg.data.nps,
-          };
-          linesBuffer.current.set(line.multipv, line);
+    engine.onmessage = (e: MessageEvent) => {
+      const line = typeof e.data === 'string' ? e.data : String(e.data);
+
+      if (line === 'uciok') {
+        engine.postMessage('isready');
+        return;
+      }
+
+      if (line === 'readyok') {
+        if (initTimerRef.current) {
+          clearTimeout(initTimerRef.current);
+          initTimerRef.current = null;
+        }
+        setState('ready');
+        return;
+      }
+
+      if (line.startsWith('info') && line.includes(' pv ')) {
+        const info = parseInfoLine(line);
+        if (info) {
+          linesBuffer.current.set(info.multipv, info);
           const sorted = Array.from(linesBuffer.current.values()).sort(
             (a, b) => a.multipv - b.multipv,
           );
           setLines(sorted);
-          break;
         }
+        return;
+      }
 
-        case 'bestmove':
-          setBestMove(msg.move);
+      if (line.startsWith('bestmove')) {
+        const move = line.split(' ')[1] ?? '';
+        setBestMove(move);
+        // Only return to 'ready' if still in 'analyzing' state
+        // (a new evaluate() call may have already set a new analysis)
+        if (stateRef.current === 'analyzing') {
           setState('ready');
-          break;
-
-        case 'error':
-          console.error('Stockfish error:', msg.message);
-          setState('error');
-          break;
+        }
       }
     };
 
-    worker.onerror = () => {
+    engine.onerror = (err) => {
+      console.error('[Stockfish] Engine error:', err);
       setState('error');
     };
 
-    workerRef.current = worker;
-    worker.postMessage({ type: 'init' });
+    engineRef.current = engine;
+    engine.postMessage('uci');
   }, [cleanup]);
 
   useEffect(() => {
@@ -106,20 +154,25 @@ export function useStockfish(options: UseStockfishOptions = {}) {
 
   const evaluate = useCallback(
     (fen: string) => {
-      if (!workerRef.current || stateRef.current === 'loading') return;
+      const s = stateRef.current;
+      if (!engineRef.current || s === 'loading' || s === 'idle' || s === 'error') return;
       fenRef.current = fen;
       linesBuffer.current.clear();
       setLines([]);
       setBestMove(null);
+      analysisGenRef.current += 1;
       setState('analyzing');
-      workerRef.current.postMessage({ type: 'eval', fen, depth, multiPv });
+      engineRef.current.postMessage('stop');
+      engineRef.current.postMessage(`setoption name MultiPV value ${multiPv}`);
+      engineRef.current.postMessage(`position fen ${fen}`);
+      engineRef.current.postMessage(`go depth ${depth}`);
     },
     [depth, multiPv],
   );
 
   const stop = useCallback(() => {
-    if (!workerRef.current) return;
-    workerRef.current.postMessage({ type: 'stop' });
+    if (!engineRef.current) return;
+    engineRef.current.postMessage('stop');
   }, []);
 
   return {
