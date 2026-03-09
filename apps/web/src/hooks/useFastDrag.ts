@@ -117,8 +117,10 @@ export function useFastDrag(
         offsetY: squareSize / 2,
       };
 
-      // Capture pointer for smooth tracking
-      (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+      // Capture pointer on the container (not e.target) for reliable tracking.
+      // Using e.target (often a deep SVG child) can lose capture in Chrome
+      // when the element is re-rendered or removed by React.
+      container.setPointerCapture(e.pointerId);
       e.preventDefault();
     };
 
@@ -163,13 +165,37 @@ export function useFastDrag(
       dragStateRef.current = null;
     };
 
+    // Prevent Chrome's native HTML5 drag on images/SVGs inside pieces.
+    // Without this, Chrome can hijack the pointer sequence, causing
+    // pointerup to never fire and leaving the piece invisible.
+    const onDragStart = (e: Event) => {
+      if (dragStateRef.current) {
+        e.preventDefault();
+      }
+    };
+
+    // Safety net: if pointer capture is lost unexpectedly (e.g. due to
+    // DOM mutations from React re-renders), restore piece visibility.
+    const onLostPointerCapture = () => {
+      const state = dragStateRef.current;
+      if (!state) return;
+
+      state.pieceEl.style.opacity = '';
+      state.ghost.remove();
+      dragStateRef.current = null;
+    };
+
     container.addEventListener('pointerdown', onPointerDown, { passive: false });
+    container.addEventListener('dragstart', onDragStart);
+    container.addEventListener('lostpointercapture', onLostPointerCapture);
     document.addEventListener('pointermove', onPointerMove, { passive: true });
     document.addEventListener('pointerup', onPointerUp);
     document.addEventListener('pointercancel', onPointerCancel);
 
     return () => {
       container.removeEventListener('pointerdown', onPointerDown);
+      container.removeEventListener('dragstart', onDragStart);
+      container.removeEventListener('lostpointercapture', onLostPointerCapture);
       document.removeEventListener('pointermove', onPointerMove);
       document.removeEventListener('pointerup', onPointerUp);
       document.removeEventListener('pointercancel', onPointerCancel);
