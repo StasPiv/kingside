@@ -349,6 +349,50 @@ describe('GameService', () => {
       expect(result.san).toContain('a8=Q');
       expect(result.gameOver).toBe(false);
     });
+
+    it('should auto-promote to queen when promotion piece is missing', async () => {
+      redis.hgetall.mockResolvedValue({
+        fen: '4k3/P7/8/8/8/8/8/4K3 w - - 0 1',
+        moves: '[]',
+        active_color: 'white',
+        status: 'active',
+      });
+
+      const result = await service.makeMove(gameId, userId, 'a7a8');
+
+      expect(result.san).toContain('a8=Q');
+      expect(result.gameOver).toBe(false);
+      expect(prisma.move.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ uci: 'a7a8q' }),
+        }),
+      );
+    });
+
+    it('should auto-promote black pawn to queen when promotion piece is missing', async () => {
+      redis.hgetall.mockResolvedValue({
+        fen: '4K3/8/8/8/8/8/p7/4k3 b - - 0 1',
+        moves: '[]',
+        active_color: 'black',
+        status: 'active',
+      });
+
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId: userId,
+        blackId: STOCKFISH_BOT_ID,
+        timeIncrementSec: 0,
+        status: 'active',
+      } as any);
+
+      const result = await service.makeMove(gameId, STOCKFISH_BOT_ID, 'a2a1');
+
+      expect(result.san).toContain('a1=Q');
+      expect(prisma.move.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ uci: 'a2a1q' }),
+        }),
+      );
+    });
   });
 
   describe('resign', () => {
