@@ -816,6 +816,58 @@ input:focus {
   background: #1e2d50;
 }
 
+/* Stockfish analysis panel (below board) */
+.stockfish-panel {
+  width: 100%;
+  background: #16213e;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.stockfish-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #a0a0c0;
+}
+
+.stockfish-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stockfish-line {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.stockfish-eval {
+  min-width: 44px;
+  font-weight: 700;
+  color: #a0a0c0;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.stockfish-eval.best {
+  color: #fff;
+}
+
+.stockfish-eval.mate {
+  color: #ef4444;
+}
+
+.stockfish-pv {
+  color: #a0a0c0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .analysis-sidebar {
   display: flex;
   flex-direction: column;
