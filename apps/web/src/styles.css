@@ -502,6 +502,85 @@ input:focus {
   50% { opacity: 0.5; }
 }
 
+/* Rating filter */
+
+.rating-filter {
+  margin-bottom: 16px;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.rating-filter__header {
+  margin-bottom: 8px;
+}
+
+.rating-filter__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #a0a0c0;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.rating-filter__toggle input[type="checkbox"] {
+  width: auto;
+  cursor: pointer;
+}
+
+.rating-filter__body {
+  background: #1a1a3a;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.rating-filter__modes {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.rating-filter__mode-btn {
+  flex: 1;
+  background: transparent;
+  color: #a0a0c0;
+  padding: 6px 12px;
+  font-size: 13px;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+}
+
+.rating-filter__mode-btn.active {
+  color: #fff;
+  border-color: #7c83ff;
+  background: rgba(124, 131, 255, 0.1);
+}
+
+.rating-filter__fields {
+  display: flex;
+  gap: 12px;
+}
+
+.rating-filter__fields label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  font-size: 14px;
+  color: #a0a0c0;
+}
+
+.rating-filter__fields label span {
+  min-width: 20px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.rating-filter__fields input {
+  width: 100%;
+}
+
 /* Bot section (now inside lobby-panel) */
 
 .bot-option {
