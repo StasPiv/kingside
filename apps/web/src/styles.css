@@ -620,8 +620,6 @@ input:focus {
 .board-container {
   border-radius: 4px;
   overflow: hidden;
-  width: min(calc(100vh - 190px), calc(100vw - 32px));
-  max-width: 100%;
   aspect-ratio: 1;
   touch-action: none;
   -webkit-touch-callout: none;
@@ -2190,10 +2188,6 @@ input:focus {
   .daily-puzzle-page,
   .puzzle-page {
     gap: 12px;
-  }
-
-  .board-container {
-    width: min(calc(100vh - 190px), calc(100vw - 16px));
   }
 
   .puzzle-page .board-container {
