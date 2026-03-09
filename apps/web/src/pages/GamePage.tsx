@@ -37,7 +37,7 @@ export function GamePage() {
   const { id: gameId } = useParams<{ id: string }>();
   const location = useLocation();
   const routeColor = (location.state as { color?: 'white' | 'black' } | null)?.color;
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { t } = useTranslation();
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState(INITIAL_FEN);
@@ -120,6 +120,7 @@ export function GamePage() {
         setRatingChange(data.ratingChange);
       }
       setShowResultModal(true);
+      refreshUser();
     };
 
     const onDrawOffered = () => setDrawOffered(true);
@@ -145,7 +146,7 @@ export function GamePage() {
       socket.off(GameEvents.CHAT_MESSAGE, onChatMessage);
       socket.off(GameEvents.ERROR, onError);
     };
-  }, [gameId, game, updateFromState]);
+  }, [gameId, game, updateFromState, refreshUser]);
 
   useEffect(() => {
     if (status !== 'active') return;
