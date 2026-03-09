@@ -76,23 +76,12 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
       return sockets.some((s) => s.data.user?.id === userId);
     };
 
-    const ratingFilter =
-      data.ratingMin !== undefined ||
-      data.ratingMax !== undefined ||
-      data.ratingDelta !== undefined
-        ? {
-            ratingMin: data.ratingMin,
-            ratingMax: data.ratingMax,
-            ratingDelta: data.ratingDelta,
-          }
-        : undefined;
-
     const result = await this.matchmakingService.joinQueue(
       user.id,
       data.timeInitial,
       data.increment,
       isOnline,
-      ratingFilter,
+      data.ratingRange,
     );
 
     if (result) {

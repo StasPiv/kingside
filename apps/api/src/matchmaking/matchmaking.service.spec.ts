@@ -157,161 +157,124 @@ describe('MatchmakingService', () => {
       );
     });
 
-    it('should narrow search range with ratingDelta filter', async () => {
-      await service.joinQueue(userId, 300, 0, undefined, { ratingDelta: 100 });
+    describe('rating range filter', () => {
+      it('should use absolute rating range for Redis query', async () => {
+        await service.joinQueue(userId, 300, 0, undefined, {
+          mode: 'absolute',
+          min: 1400,
+          max: 2800,
+        });
 
-      expect(redis.zrangebyscore).toHaveBeenCalledWith(
-        'matchmaking:blitz',
-        1400,
-        1600,
-      );
-    });
-
-    it('should narrow search range with absolute ratingMin/ratingMax', async () => {
-      await service.joinQueue(userId, 300, 0, undefined, {
-        ratingMin: 1450,
-        ratingMax: 1550,
+        expect(redis.zrangebyscore).toHaveBeenCalledWith(
+          'matchmaking:blitz',
+          1400,
+          2800,
+        );
       });
 
-      expect(redis.zrangebyscore).toHaveBeenCalledWith(
-        'matchmaking:blitz',
-        1450,
-        1550,
-      );
-    });
+      it('should use relative rating range for Redis query', async () => {
+        await service.joinQueue(userId, 300, 0, undefined, {
+          mode: 'relative',
+          below: 100,
+          above: 200,
+        });
 
-    it('should not widen search range beyond default RATING_RANGE', async () => {
-      await service.joinQueue(userId, 300, 0, undefined, { ratingDelta: 500 });
-
-      // Default range is ±200, so delta=500 should not widen it
-      expect(redis.zrangebyscore).toHaveBeenCalledWith(
-        'matchmaking:blitz',
-        1300,
-        1700,
-      );
-    });
-
-    it('should skip candidate whose filter rejects current user', async () => {
-      // Candidate at 1450 with filter that only accepts ±50
-      const candidateEntry = JSON.stringify({
-        userId: opponentId,
-        rating: 1450,
-        timeInitialSec: 300,
-        timeIncrementSec: 0,
-        ratingFilter: { ratingDelta: 50 },
+        // rating=1500, so range is 1400..1700
+        expect(redis.zrangebyscore).toHaveBeenCalledWith(
+          'matchmaking:blitz',
+          1400,
+          1700,
+        );
       });
 
-      redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+      it('should use default ±200 range when no ratingRange provided', async () => {
+        await service.joinQueue(userId, 300, 0);
 
-      // User at 1500 is outside candidate's range (1450 ± 50 = 1400-1500)
-      // But wait, 1500 == 1500 so it should still match because 1500 <= 1500
-      // Actually candidate range: max(1450-200, 1450-50)=1400, min(1450+200, 1450+50)=1500
-      // So joiner at 1500 is within [1400, 1500]. Should match.
-      prisma.game.create.mockResolvedValue({ id: 'game-1' });
-      prisma.user.findUnique.mockResolvedValue({
-        id: opponentId,
-        username: 'opponent',
+        expect(redis.zrangebyscore).toHaveBeenCalledWith(
+          'matchmaking:blitz',
+          1300,
+          1700,
+        );
       });
 
-      const result = await service.joinQueue(userId, 300, 0);
-      expect(result).not.toBeNull();
-    });
+      it('should store ratingRange in queue entry', async () => {
+        const ratingRange = { mode: 'relative' as const, below: 100, above: 200 };
+        await service.joinQueue(userId, 300, 0, undefined, ratingRange);
 
-    it('should reject match when candidate filter excludes joiner', async () => {
-      // User at 1500, candidate at 1400 with ratingMax=1450
-      prisma.user.findUniqueOrThrow.mockResolvedValue({
-        id: userId,
-        ratingBlitz: 1500,
-        ratingBullet: 1500,
-        ratingRapid: 1500,
-        ratingClassical: 1500,
+        const storedEntry = JSON.parse(redis.zadd.mock.calls[0][2]);
+        expect(storedEntry.ratingRange).toEqual(ratingRange);
       });
 
-      const candidateEntry = JSON.stringify({
-        userId: opponentId,
-        rating: 1400,
-        timeInitialSec: 300,
-        timeIncrementSec: 0,
-        ratingFilter: { ratingMax: 1450 },
+      it('should skip candidate whose range excludes our rating', async () => {
+        // Candidate has rating 1450 with absolute range 1400-1460
+        // Our rating is 1500 — outside their range
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1450,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+          ratingRange: { mode: 'absolute', min: 1400, max: 1460 },
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+
+        const result = await service.joinQueue(userId, 300, 0);
+
+        expect(result).toBeNull();
+        expect(redis.zadd).toHaveBeenCalled();
       });
 
-      redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+      it('should match when both players rating ranges are compatible', async () => {
+        // Candidate has rating 1450 with relative range -100/+200
+        // So candidate accepts 1350..1650, our rating 1500 fits
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1450,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+          ratingRange: { mode: 'relative', below: 100, above: 200 },
+        });
 
-      const result = await service.joinQueue(userId, 300, 0);
-      // Candidate's filter: max(1400-200, -Inf)=1200, min(1400+200, 1450)=1450
-      // Joiner at 1500 > 1450, so should NOT match
-      expect(result).toBeNull();
-    });
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+        prisma.game.create.mockResolvedValue({ id: 'game-1' });
+        prisma.user.findUnique.mockResolvedValue({
+          id: opponentId,
+          username: 'opponent',
+        });
 
-    it('should store ratingFilter in queue entry', async () => {
-      const filter = { ratingDelta: 100 };
-      await service.joinQueue(userId, 300, 0, undefined, filter);
+        // Our range: absolute 1400..2800 — candidate's 1450 fits
+        const result = await service.joinQueue(userId, 300, 0, undefined, {
+          mode: 'absolute',
+          min: 1400,
+          max: 2800,
+        });
 
-      const storedEntry = JSON.parse(redis.zadd.mock.calls[0][2]);
-      expect(storedEntry.ratingFilter).toEqual(filter);
-    });
-
-    it('should not store ratingFilter when not provided', async () => {
-      await service.joinQueue(userId, 300, 0);
-
-      const storedEntry = JSON.parse(redis.zadd.mock.calls[0][2]);
-      expect(storedEntry.ratingFilter).toBeUndefined();
-    });
-  });
-
-  describe('resolveSearchRange', () => {
-    it('should return default range when no filter', () => {
-      const result = service.resolveSearchRange(1500);
-      expect(result).toEqual({ min: 1300, max: 1700 });
-    });
-
-    it('should narrow with ratingDelta', () => {
-      const result = service.resolveSearchRange(1500, { ratingDelta: 100 });
-      expect(result).toEqual({ min: 1400, max: 1600 });
-    });
-
-    it('should narrow with absolute bounds', () => {
-      const result = service.resolveSearchRange(1500, {
-        ratingMin: 1450,
-        ratingMax: 1600,
+        expect(result).not.toBeNull();
+        expect(result!.gameId).toBe('game-1');
       });
-      expect(result).toEqual({ min: 1450, max: 1600 });
-    });
 
-    it('should combine delta and absolute bounds', () => {
-      const result = service.resolveSearchRange(1500, {
-        ratingDelta: 100,
-        ratingMin: 1420,
+      it('should skip candidate with relative range that excludes our rating', async () => {
+        // Candidate rating 1450, relative range -50/+50 → accepts 1400..1500
+        // Our rating 1500 is at boundary — should match (inclusive)
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1700,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+          ratingRange: { mode: 'relative', below: 50, above: 50 },
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+
+        // Candidate accepts 1650..1750, our rating 1500 is outside
+        const result = await service.joinQueue(userId, 300, 0, undefined, {
+          mode: 'absolute',
+          min: 1000,
+          max: 2000,
+        });
+
+        expect(result).toBeNull();
       });
-      // delta: [1400, 1600], ratingMin: 1420 => [1420, 1600]
-      expect(result).toEqual({ min: 1420, max: 1600 });
-    });
-
-    it('should not widen beyond default range', () => {
-      const result = service.resolveSearchRange(1500, { ratingDelta: 500 });
-      expect(result).toEqual({ min: 1300, max: 1700 });
-    });
-  });
-
-  describe('isWithinFilter', () => {
-    it('should return true when no filter', () => {
-      expect(service.isWithinFilter(1500, 1400)).toBe(true);
-    });
-
-    it('should return true when within delta', () => {
-      expect(service.isWithinFilter(1500, 1450, { ratingDelta: 100 })).toBe(true);
-    });
-
-    it('should return false when outside delta', () => {
-      expect(service.isWithinFilter(1500, 1300, { ratingDelta: 50 })).toBe(false);
-    });
-
-    it('should check absolute ratingMax', () => {
-      expect(service.isWithinFilter(1500, 1400, { ratingMax: 1450 })).toBe(false);
-    });
-
-    it('should check absolute ratingMin', () => {
-      expect(service.isWithinFilter(1200, 1400, { ratingMin: 1300 })).toBe(false);
     });
   });
 
