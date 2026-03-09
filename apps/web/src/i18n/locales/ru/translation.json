@@ -149,7 +149,12 @@
     "blackWins": "Черные победили",
     "chat": "Чат",
     "chatPlaceholder": "Сообщение...",
-    "chatSend": "Отправить"
+    "chatSend": "Отправить",
+    "analyze": "Анализ"
+  },
+  "analysis": {
+    "depth": "Глубина",
+    "backToLobby": "Вернуться в лобби"
   },
   "puzzle": {
     "title": "Задачи",

@@ -149,7 +149,12 @@
     "blackWins": "Black wins",
     "chat": "Chat",
     "chatPlaceholder": "Message...",
-    "chatSend": "Send"
+    "chatSend": "Send",
+    "analyze": "Analyze"
+  },
+  "analysis": {
+    "depth": "Depth",
+    "backToLobby": "Back to lobby"
   },
   "puzzle": {
     "title": "Puzzles",
