@@ -150,14 +150,15 @@ export function useFastDrag(
 
       dragStateRef.current = null;
 
-      const isCandidate = !!(targetSquare && targetSquare !== state.sourceSquare);
+      // Determine whether this is a valid drop attempt (different square).
+      const isDropAttempt = !!(targetSquare && targetSquare !== state.sourceSquare);
 
-      // Snap ghost to target square center (or back to source if not a
-      // candidate move). The actual onPieceDrop call is deferred until
-      // the snap animation finishes — this prevents React from
-      // re-rendering the board while the ghost is still animating,
-      // which previously caused a single-frame flash / visual jump.
-      const snapSquare = isCandidate ? targetSquare! : state.sourceSquare;
+      // Snap-to-square animation: smoothly move ghost to target square center.
+      // For non-drop attempts, snap back to source square.
+      // IMPORTANT: onPieceDrop is deferred until AFTER the snap animation
+      // completes, so the board does not re-render while the ghost is
+      // still mid-flight (which caused a visual glitch — KS-296).
+      const snapSquare = isDropAttempt ? targetSquare! : state.sourceSquare;
       const { boardRect, squareSize } = state;
       const orientation = optionsRef.current.boardOrientation;
 
@@ -181,11 +182,12 @@ export function useFastDrag(
       const cleanup = () => {
         if (cleaned) return;
         cleaned = true;
+        state.ghost.remove();
 
-        // Try the move AFTER the snap animation completes so the board
-        // re-render (new FEN) doesn't race with the ghost transition.
+        // Call the drop handler AFTER the snap animation so the board
+        // re-render happens only when the ghost has already been removed.
         let accepted = false;
-        if (isCandidate) {
+        if (isDropAttempt) {
           try {
             accepted = optionsRef.current.onPieceDrop({
               sourceSquare: state.sourceSquare,
@@ -195,8 +197,6 @@ export function useFastDrag(
             accepted = false;
           }
         }
-
-        state.ghost.remove();
 
         if (!accepted) {
           // Restore opacity on the original piece element
