@@ -232,7 +232,9 @@
     "puzzleRush": "Рекорды Puzzle Rush",
     "rushBest3": "Лучший (3 мин)",
     "rushBest5": "Лучший (5 мин)",
-    "rushTotalSessions": "Всего сессий"
+    "rushTotalSessions": "Всего сессий",
+    "playPuzzleRush": "Играть Puzzle Rush",
+    "play": "Играть"
   },
   "rushLeaderboard": {
     "title": "Таблица лидеров Puzzle Rush",

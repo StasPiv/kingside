@@ -102,7 +102,10 @@ export function ProfilePage() {
 
       {rushStats && (rushStats.best3 > 0 || rushStats.best5 > 0 || rushStats.totalSessions > 0) && (
         <div className="profile-puzzle-rush">
-          <h2>{t('profile.puzzleRush')}</h2>
+          <div className="profile-section-header">
+            <h2>{t('profile.puzzleRush')}</h2>
+            <Link to="/puzzle-rush" className="profile-section-link">{t('profile.playPuzzleRush')}</Link>
+          </div>
           <div className="rush-stats-grid">
             <div className="rush-stat-card">
               <span className="rush-stat-label">{t('profile.rushBest3')}</span>
@@ -122,7 +125,10 @@ export function ProfilePage() {
 
       {games.length > 0 && (
         <div className="profile-games">
-          <h2>{t('profile.recentGames')}</h2>
+          <div className="profile-section-header">
+            <h2>{t('profile.recentGames')}</h2>
+            <Link to="/lobby" className="profile-section-link">{t('profile.play')}</Link>
+          </div>
           <div className="games-list">
             {games.map((game) => {
               const isWhite = game.white.id === profile.id;

@@ -232,7 +232,9 @@
     "puzzleRush": "Puzzle Rush Records",
     "rushBest3": "Best (3 min)",
     "rushBest5": "Best (5 min)",
-    "rushTotalSessions": "Total sessions"
+    "rushTotalSessions": "Total sessions",
+    "playPuzzleRush": "Play Puzzle Rush",
+    "play": "Play"
   },
   "rushLeaderboard": {
     "title": "Puzzle Rush Leaderboard",
