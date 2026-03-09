@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -43,6 +44,7 @@ const PAGE_SIZE = 20;
 
 export function PuzzleBrowserPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { user } = useAuth();
 
   const [puzzles, setPuzzles] = useState<PuzzleDto[]>([]);
@@ -181,7 +183,7 @@ export function PuzzleBrowserPage() {
                 </div>
                 <button
                   className="puzzle-solve-btn"
-                  onClick={() => window.location.href = `/puzzle/${puzzle.id}`}
+                  onClick={() => navigate(`/puzzle/${puzzle.id}`)}
                 >
                   {t('puzzleBrowser.solve')}
                 </button>
