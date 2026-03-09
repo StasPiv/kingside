@@ -78,8 +78,8 @@ export function useFastDrag(
       const sourceSquare = squareEl.getAttribute('data-square');
       if (!sourceSquare) return;
 
-      // Find the board element
-      const boardEl = container.querySelector<HTMLElement>('[data-column]')?.parentElement;
+      // Find the board element (the grid container with id ending in '-board')
+      const boardEl = container.querySelector<HTMLElement>('div[id$="-board"]');
       if (!boardEl) return;
 
       const boardRect = boardEl.getBoundingClientRect();
