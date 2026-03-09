@@ -35,6 +35,7 @@ describe('GameService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       move: {
         create: jest.fn(),
@@ -53,6 +54,7 @@ describe('GameService', () => {
       del: jest.fn().mockResolvedValue(1),
       set: jest.fn().mockResolvedValue('OK'),
       get: jest.fn().mockResolvedValue(null),
+      exists: jest.fn().mockResolvedValue(0),
     } as any;
 
     clockService = {

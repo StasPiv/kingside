@@ -353,6 +353,8 @@ export class GameService {
     botLevel: number,
     timeControl: 'bullet' | 'blitz' | 'rapid' | 'classical',
   ) {
+    await this.cleanupStaleBotGames(userId);
+
     const activeBotGames = await this.prisma.game.count({
       where: {
         isBot: true,
@@ -407,43 +409,6 @@ export class GameService {
     return this.prisma.move.findMany({
       where: { gameId },
       orderBy: { moveNumber: 'asc' },
-    });
-  }
-
-  private static readonly MAX_ACTIVE_BOT_GAMES = 1;
-
-  async createGameWithBot(
-    userId: string,
-    timeControlType: 'bullet' | 'blitz' | 'rapid' | 'classical',
-    timeInitialSec: number,
-    timeIncrementSec: number,
-    botId: string,
-  ) {
-    // Clean up stale bot games before checking the limit
-    await this.cleanupStaleBotGames(userId);
-
-    const activeBotGames = await this.prisma.game.count({
-      where: {
-        isBot: true,
-        status: 'active',
-        OR: [{ whiteId: userId }, { blackId: userId }],
-      },
-    });
-
-    if (activeBotGames >= GameService.MAX_ACTIVE_BOT_GAMES) {
-      throw new Error('Превышен лимит активных игр с ботом');
-    }
-
-    return this.prisma.game.create({
-      data: {
-        whiteId: userId,
-        blackId: botId,
-        timeControlType,
-        timeInitialSec,
-        timeIncrementSec,
-        status: 'waiting',
-        isBot: true,
-      },
     });
   }
 
