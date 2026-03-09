@@ -78,6 +78,13 @@ export function useFastDrag(
       const sourceSquare = squareEl.getAttribute('data-square');
       if (!sourceSquare) return;
 
+      // Prevent dragging opponent's pieces: data-piece starts with 'w' or 'b'
+      const dataPiece = pieceEl.getAttribute('data-piece');
+      if (dataPiece) {
+        const pieceColor = dataPiece[0] === 'w' ? 'white' : 'black';
+        if (pieceColor !== optionsRef.current.boardOrientation) return;
+      }
+
       // Find the board element (the grid container with id ending in '-board')
       const boardEl = container.querySelector<HTMLElement>('div[id$="-board"]');
       if (!boardEl) return;

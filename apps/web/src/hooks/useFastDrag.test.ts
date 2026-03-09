@@ -30,7 +30,13 @@ function createMockContainer(): HTMLDivElement {
       square.style.width = '50px';
       square.style.height = '50px';
 
-      // Add piece to e7 (black pawn)
+      // Add white piece to e2 (for player-color drag tests)
+      if (file === 'e' && rank === '2') {
+        const piece = document.createElement('div');
+        piece.setAttribute('data-piece', 'wP');
+        square.appendChild(piece);
+      }
+      // Add black piece to e7 (for opponent-color drag tests)
       if (file === 'e' && rank === '7') {
         const piece = document.createElement('div');
         piece.setAttribute('data-piece', 'bP');
@@ -68,8 +74,8 @@ describe('useFastDrag — enabled state (KS-273)', () => {
       }),
     );
 
-    // Simulate pointerdown on piece
-    const piece = container.querySelector('[data-piece]')!;
+    // Simulate pointerdown on own piece
+    const piece = container.querySelector('[data-piece="wP"]')!;
     piece.dispatchEvent(
       new PointerEvent('pointerdown', {
         clientX: 225,
@@ -110,7 +116,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
       }),
     );
 
-    const piece = container.querySelector('[data-piece]')!;
+    const piece = container.querySelector('[data-piece="wP"]')!;
     piece.dispatchEvent(
       new PointerEvent('pointerdown', {
         clientX: 225,
@@ -163,7 +169,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
     );
 
     // Pointerdown should be ignored when disabled
-    const piece = container.querySelector('[data-piece]')!;
+    const piece = container.querySelector('[data-piece="wP"]')!;
     piece.dispatchEvent(
       new PointerEvent('pointerdown', {
         clientX: 225,
@@ -234,7 +240,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
     // Switch to disabled (game ended, feedback showing, etc.)
     rerender({ enabled: false });
 
-    const piece = container.querySelector('[data-piece]')!;
+    const piece = container.querySelector('[data-piece="wP"]')!;
     piece.dispatchEvent(
       new PointerEvent('pointerdown', {
         clientX: 225,
@@ -276,7 +282,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
       { initialProps: { enabled: false } },
     );
 
-    const piece = container.querySelector('[data-piece]')!;
+    const piece = container.querySelector('[data-piece="wP"]')!;
 
     const tryDrag = (): number => {
       piece.dispatchEvent(
@@ -310,5 +316,46 @@ describe('useFastDrag — enabled state (KS-273)', () => {
     // Cycle 2: false -> true (restart scenario)
     rerender({ enabled: true });
     expect(tryDrag()).toBe(1); // enabled after second cycle
+  });
+
+  it('should not create ghost when dragging opponent piece (KS-291)', () => {
+    const onPieceDrop = vi.fn(() => true);
+    const ref = { current: container };
+
+    const boardEl = container.querySelector('div[id$="-board"]')!;
+    vi.spyOn(boardEl, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 400,
+      top: 0,
+      left: 0,
+      right: 400,
+      bottom: 400,
+      toJSON: () => {},
+    });
+
+    renderHook(() =>
+      useFastDrag(ref, {
+        onPieceDrop,
+        boardOrientation: 'white',
+        enabled: true,
+      }),
+    );
+
+    // Try to drag opponent's (black) piece
+    const opponentPiece = container.querySelector('[data-piece="bP"]')!;
+    opponentPiece.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        clientX: 225,
+        clientY: 75,
+        bubbles: true,
+        button: 0,
+        cancelable: true,
+      }),
+    );
+
+    const ghosts = document.querySelectorAll('[style*="z-index: 9999"]');
+    expect(ghosts.length).toBe(0);
   });
 });
