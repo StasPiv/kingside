@@ -114,10 +114,14 @@ export function LobbyPage() {
         increment: selectedIncrement,
       };
       if (ratingFilterMode === 'absolute') {
-        payload.ratingMin = ratingMin;
-        payload.ratingMax = ratingMax;
-      } else if (ratingFilterMode === 'relative') {
-        payload.ratingDelta = Math.max(ratingMinus, ratingPlus);
+        payload.ratingFilter = { minRating: ratingMin, maxRating: ratingMax };
+      } else if (ratingFilterMode === 'relative' && user) {
+        const ratingKey = `rating${activeTab !== 'custom' ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : 'Blitz'}` as keyof typeof user;
+        const myRating = Number(user[ratingKey]) || 1500;
+        payload.ratingFilter = {
+          minRating: myRating - ratingMinus,
+          maxRating: myRating + ratingPlus,
+        };
       }
       matchmakingSocket.emit(MatchmakingEvents.JOIN, payload);
       setSearching(true);
