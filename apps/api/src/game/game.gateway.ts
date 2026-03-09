@@ -133,6 +133,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         const endPayload: WsGameEndPayload = {
           result: result.result as GameResult,
           termination: result.termination!,
+          ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
         };
         this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
       } else {
@@ -169,6 +170,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const endPayload: WsGameEndPayload = {
         result: result.result as GameResult,
         termination: result.termination,
+        ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
       };
       this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
     } catch (e: any) {
@@ -208,6 +210,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const endPayload: WsGameEndPayload = {
         result: result.result as GameResult,
         termination: result.termination,
+        ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
       };
       this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
     } catch (e: any) {

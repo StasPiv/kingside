@@ -256,6 +256,12 @@ export type WsGameMoveServerPayload = {
 export type WsGameEndPayload = {
   result: GameResult;
   termination: string;
+  ratingChange?: {
+    whiteRatingBefore: number;
+    whiteRatingAfter: number;
+    blackRatingBefore: number;
+    blackRatingAfter: number;
+  };
 };
 
 export type WsGameDrawOfferedPayload = {
