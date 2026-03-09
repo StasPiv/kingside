@@ -48,16 +48,29 @@ function formatPv(pv: string, fen: string): string {
   try {
     const chess = new Chess(fen);
     const uciMoves = pv.split(' ');
-    const sanMoves: string[] = [];
+    const fenParts = fen.split(' ');
+    let isWhiteTurn = fenParts[1] === 'w';
+    let moveNumber = parseInt(fenParts[5] || '1', 10);
+    const parts: string[] = [];
     for (const uci of uciMoves.slice(0, 8)) {
       const from = uci.slice(0, 2);
       const to = uci.slice(2, 4);
       const promotion = uci.length > 4 ? uci[4] : undefined;
       const move = chess.move({ from, to, promotion });
       if (!move) break;
-      sanMoves.push(move.san);
+      if (isWhiteTurn) {
+        parts.push(`${moveNumber}. ${move.san}`);
+      } else if (parts.length === 0) {
+        parts.push(`${moveNumber}... ${move.san}`);
+      } else {
+        parts.push(move.san);
+      }
+      if (!isWhiteTurn) {
+        moveNumber++;
+      }
+      isWhiteTurn = !isWhiteTurn;
     }
-    return sanMoves.join(' ');
+    return parts.join(' ');
   } catch {
     return pv.split(' ').slice(0, 8).join(' ');
   }
