@@ -61,9 +61,9 @@ export function useFastDrag(
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    if (optionsRef.current.enabled === false) return;
 
     const onPointerDown = (e: PointerEvent) => {
+      if (optionsRef.current.enabled === false) return;
       if (e.button !== 0) return;
 
       const target = e.target as HTMLElement;
@@ -182,5 +182,5 @@ export function useFastDrag(
         dragStateRef.current = null;
       }
     };
-  }, [containerRef, findSquareFromPoint]);
+  }, [containerRef, findSquareFromPoint, options.enabled]);
 }
