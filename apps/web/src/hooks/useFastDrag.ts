@@ -141,20 +141,25 @@ export function useFastDrag(
 
       const targetSquare = findSquareFromPoint(e.clientX, e.clientY);
 
-      // Restore original piece visibility
-      state.pieceEl.style.opacity = '';
-
       // Remove ghost
       state.ghost.remove();
 
       dragStateRef.current = null;
 
-      // Call handler
+      // Call handler; if the move is accepted the board will re-render with
+      // a new FEN so the old piece element is replaced — no need to restore
+      // its opacity. Restoring it before the re-render caused a single-frame
+      // flash where the piece was visible at the source square.
+      let accepted = false;
       if (targetSquare && targetSquare !== state.sourceSquare) {
-        optionsRef.current.onPieceDrop({
+        accepted = optionsRef.current.onPieceDrop({
           sourceSquare: state.sourceSquare,
           targetSquare,
         });
+      }
+
+      if (!accepted) {
+        state.pieceEl.style.opacity = '';
       }
     };
 
