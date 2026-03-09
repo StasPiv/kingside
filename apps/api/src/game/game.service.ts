@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Chess } from 'chess.js';
+import { Chess, Square } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
@@ -149,7 +149,16 @@ export class GameService {
 
     const from = uci.substring(0, 2);
     const to = uci.substring(2, 4);
-    const promotion = uci.length > 4 ? uci[4] : undefined;
+    let promotion = uci.length > 4 ? uci[4] : undefined;
+
+    if (!promotion) {
+      const piece = chess.get(from as Square);
+      if (piece?.type === 'p' && (to[1] === '8' || to[1] === '1')) {
+        promotion = 'q';
+      }
+    }
+
+    const normalizedUci = promotion && uci.length <= 4 ? `${from}${to}${promotion}` : uci;
 
     const move = chess.move({ from, to, promotion });
     if (!move) {
@@ -158,7 +167,7 @@ export class GameService {
 
     const newFen = chess.fen();
     const moves = JSON.parse(raw.moves || '[]');
-    moves.push({ uci, san: move.san });
+    moves.push({ uci: normalizedUci, san: move.san });
     const nextColor = activeColor === 'white' ? 'black' : 'white';
 
     await this.redis.hset(this.stateKey(gameId), {
@@ -178,7 +187,7 @@ export class GameService {
         gameId,
         moveNumber: moves.length,
         color: activeColor,
-        uci,
+        uci: normalizedUci,
         san: move.san,
         fenAfter: newFen,
         timeLeftMs: activeColor === 'white' ? clocks.whiteMs : clocks.blackMs,
