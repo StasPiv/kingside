@@ -156,6 +156,159 @@ describe('MatchmakingService', () => {
         expect.any(String),
       );
     });
+
+    describe('rating filter', () => {
+      it('should skip candidate outside joiner absolute filter', async () => {
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1200,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+
+        const result = await service.joinQueue(
+          userId, 300, 0, undefined,
+          { minRating: 1400, maxRating: 1600 },
+        );
+
+        expect(result).toBeNull();
+        expect(redis.zadd).toHaveBeenCalled();
+      });
+
+      it('should match candidate inside joiner absolute filter', async () => {
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1450,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+        prisma.game.create.mockResolvedValue({ id: 'game-1' });
+        prisma.user.findUnique.mockResolvedValue({
+          id: opponentId,
+          username: 'opponent',
+        });
+
+        const result = await service.joinQueue(
+          userId, 300, 0, undefined,
+          { minRating: 1400, maxRating: 1600 },
+        );
+
+        expect(result).not.toBeNull();
+        expect(result!.gameId).toBe('game-1');
+      });
+
+      it('should skip candidate outside joiner ratingDelta filter', async () => {
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1350,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+
+        const result = await service.joinQueue(
+          userId, 300, 0, undefined,
+          { ratingDelta: 100 },
+        );
+
+        expect(result).toBeNull();
+      });
+
+      it('should match candidate inside joiner ratingDelta filter', async () => {
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1450,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+        prisma.game.create.mockResolvedValue({ id: 'game-1' });
+        prisma.user.findUnique.mockResolvedValue({
+          id: opponentId,
+          username: 'opponent',
+        });
+
+        const result = await service.joinQueue(
+          userId, 300, 0, undefined,
+          { ratingDelta: 100 },
+        );
+
+        expect(result).not.toBeNull();
+      });
+
+      it('should skip if candidate filter rejects joiner', async () => {
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1450,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+          ratingRange: { min: 1400, max: 1480 },
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+
+        const result = await service.joinQueue(userId, 300, 0);
+
+        expect(result).toBeNull();
+      });
+
+      it('should match when both filters accept each other', async () => {
+        const candidateEntry = JSON.stringify({
+          userId: opponentId,
+          rating: 1450,
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+          ratingRange: { min: 1400, max: 1600 },
+        });
+
+        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
+        prisma.game.create.mockResolvedValue({ id: 'game-1' });
+        prisma.user.findUnique.mockResolvedValue({
+          id: opponentId,
+          username: 'opponent',
+        });
+
+        const result = await service.joinQueue(
+          userId, 300, 0, undefined,
+          { minRating: 1400, maxRating: 1600 },
+        );
+
+        expect(result).not.toBeNull();
+      });
+
+      it('should store ratingRange in queue entry', async () => {
+        await service.joinQueue(
+          userId, 300, 0, undefined,
+          { ratingDelta: 100 },
+        );
+
+        const storedEntry = JSON.parse(redis.zadd.mock.calls[0][2]);
+        expect(storedEntry.ratingRange).toEqual({ min: 1400, max: 1600 });
+      });
+
+      it('should not store ratingRange when no filter', async () => {
+        await service.joinQueue(userId, 300, 0);
+
+        const storedEntry = JSON.parse(redis.zadd.mock.calls[0][2]);
+        expect(storedEntry.ratingRange).toBeUndefined();
+      });
+
+      it('ratingDelta takes precedence over minRating/maxRating', async () => {
+        await service.joinQueue(
+          userId, 300, 0, undefined,
+          { minRating: 1000, maxRating: 2000, ratingDelta: 50 },
+        );
+
+        const storedEntry = JSON.parse(redis.zadd.mock.calls[0][2]);
+        expect(storedEntry.ratingRange).toEqual({ min: 1450, max: 1550 });
+      });
+    });
   });
 
   describe('leaveQueue', () => {
