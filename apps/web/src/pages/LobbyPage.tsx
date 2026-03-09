@@ -44,6 +44,8 @@ function presetKey(minutes: number, increment: number): string {
   return `${minutes}+${increment}`;
 }
 
+type LobbyMode = 'online' | 'bot';
+
 export function LobbyPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -56,6 +58,7 @@ export function LobbyPage() {
   const [customIncrement, setCustomIncrement] = useState(0);
   const [savedControls, setSavedControls] = useState<CustomTimeControl[]>([]);
   const [activeTab, setActiveTab] = useState<TimeControlCategory | 'custom'>('blitz');
+  const [lobbyMode, setLobbyMode] = useState<LobbyMode>('online');
 
   const loadSavedControls = useCallback(async () => {
     if (!user) return;
@@ -165,14 +168,9 @@ export function LobbyPage() {
       ? []
       : PRESETS.filter((p) => p.category === activeTab);
 
-  return (
-    <div className="lobby-page">
-      <h1>{t('lobby.title')}</h1>
-      {user && (
-        <p className="user-info">
-          {user.username} &middot; {t('lobby.rating', { rating: user[`rating${activeTab !== 'custom' ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : 'Blitz'}` as keyof typeof user] })}
-        </p>
-      )}
+  const onlinePanel = (
+    <div className="lobby-panel lobby-panel--online">
+      <h2 className="lobby-panel__title">{t('lobby.play')}</h2>
 
       <div className="tc-tabs">
         {CATEGORIES.map((cat) => (
@@ -308,57 +306,96 @@ export function LobbyPage() {
         {searching ? t('lobby.cancelSearch') : t('lobby.play')}
       </button>
       {searching && <p className="searching">{t('lobby.searching')}</p>}
+    </div>
+  );
 
-      <div className="bot-section">
-        <h2>{t('lobby.playBot')}</h2>
+  const botPanel = (
+    <div className="lobby-panel lobby-panel--bot">
+      <h2 className="lobby-panel__title">{t('lobby.playBot')}</h2>
 
-        <div className="bot-option">
-          <label>{t('lobby.difficulty')}</label>
-          <div className="bot-level-picker">
-            <input
-              type="range"
-              min={1}
-              max={20}
-              value={botLevel}
-              onChange={(e) => setBotLevel(Number(e.target.value))}
-            />
-            <span className="bot-level-value">{botLevel}</span>
-          </div>
+      <div className="bot-option">
+        <label>{t('lobby.difficulty')}</label>
+        <div className="bot-level-picker">
+          <input
+            type="range"
+            min={1}
+            max={20}
+            value={botLevel}
+            onChange={(e) => setBotLevel(Number(e.target.value))}
+          />
+          <span className="bot-level-value">{botLevel}</span>
         </div>
+      </div>
 
-        <div className="bot-option">
-          <label>{t('lobby.color')}</label>
-          <div className="color-picker">
-            {(['white', 'black', 'random'] as PieceColor[]).map((c) => (
-              <button
-                key={c}
-                className={`color-btn ${botColor === c ? 'active' : ''}`}
-                onClick={() => setBotColor(c)}
-              >
-                {t(`lobby.color_${c}`)}
-              </button>
-            ))}
-          </div>
+      <div className="bot-option">
+        <label>{t('lobby.color')}</label>
+        <div className="color-picker">
+          {(['white', 'black', 'random'] as PieceColor[]).map((c) => (
+            <button
+              key={c}
+              className={`color-btn ${botColor === c ? 'active' : ''}`}
+              onClick={() => setBotColor(c)}
+            >
+              {t(`lobby.color_${c}`)}
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div className="bot-option">
-          <label>{t('lobby.timeControl')}</label>
-          <div className="time-controls">
-            {CATEGORIES.map((key) => (
-              <button
-                key={key}
-                className={`tc-btn ${botTC === key ? 'active' : ''}`}
-                onClick={() => setBotTC(key)}
-              >
-                {t(TC_LABEL_KEYS[key])}
-              </button>
-            ))}
-          </div>
+      <div className="bot-option">
+        <label>{t('lobby.timeControl')}</label>
+        <div className="time-controls">
+          {CATEGORIES.map((key) => (
+            <button
+              key={key}
+              className={`tc-btn ${botTC === key ? 'active' : ''}`}
+              onClick={() => setBotTC(key)}
+            >
+              {t(TC_LABEL_KEYS[key])}
+            </button>
+          ))}
         </div>
+      </div>
 
-        <button className="play-btn" onClick={handlePlayBot} disabled={startingBot}>
-          {startingBot ? t('lobby.startingBot') : t('lobby.playBot')}
+      <button className="play-btn" onClick={handlePlayBot} disabled={startingBot}>
+        {startingBot ? t('lobby.startingBot') : t('lobby.playBot')}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="lobby-page">
+      <h1>{t('lobby.title')}</h1>
+      {user && (
+        <p className="user-info">
+          {user.username} &middot; {t('lobby.rating', { rating: user[`rating${activeTab !== 'custom' ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : 'Blitz'}` as keyof typeof user] })}
+        </p>
+      )}
+
+      {/* Mobile tabs */}
+      <div className="lobby-mode-tabs">
+        <button
+          className={`lobby-mode-tab ${lobbyMode === 'online' ? 'active' : ''}`}
+          onClick={() => setLobbyMode('online')}
+        >
+          {t('lobby.play')}
         </button>
+        <button
+          className={`lobby-mode-tab ${lobbyMode === 'bot' ? 'active' : ''}`}
+          onClick={() => setLobbyMode('bot')}
+        >
+          {t('lobby.playBot')}
+        </button>
+      </div>
+
+      {/* Desktop: two columns, Mobile: active tab content */}
+      <div className="lobby-columns">
+        <div className={`lobby-column ${lobbyMode === 'online' ? 'lobby-column--active' : ''}`}>
+          {onlinePanel}
+        </div>
+        <div className={`lobby-column ${lobbyMode === 'bot' ? 'lobby-column--active' : ''}`}>
+          {botPanel}
+        </div>
       </div>
     </div>
   );

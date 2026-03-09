@@ -149,6 +149,8 @@ input:focus {
 .lobby-page {
   text-align: center;
   padding-top: 40px;
+  max-width: 900px;
+  margin: 0 auto;
 }
 
 .lobby-page h1 {
@@ -157,7 +159,83 @@ input:focus {
 
 .user-info {
   color: #a0a0c0;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
+}
+
+/* Lobby mode tabs (mobile only) */
+.lobby-mode-tabs {
+  display: flex;
+  gap: 0;
+  justify-content: center;
+  margin-bottom: 24px;
+  border-bottom: 2px solid #2a2a4a;
+}
+
+.lobby-mode-tab {
+  background: transparent;
+  color: #a0a0c0;
+  padding: 12px 24px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lobby-mode-tab.active {
+  color: #fff;
+  border-bottom-color: #7c83ff;
+}
+
+.lobby-mode-tab:hover:not(.active) {
+  color: #ccc;
+}
+
+/* Two-column layout */
+.lobby-columns {
+  display: flex;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.lobby-column {
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-panel {
+  background: #16213e;
+  border-radius: 16px;
+  padding: 32px 24px;
+}
+
+.lobby-panel__title {
+  margin-bottom: 24px;
+  font-size: 20px;
+}
+
+/* Desktop: hide mode tabs, show both columns */
+@media (min-width: 769px) {
+  .lobby-mode-tabs {
+    display: none;
+  }
+}
+
+/* Mobile: show mode tabs, hide inactive column */
+@media (max-width: 768px) {
+  .lobby-columns {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .lobby-column {
+    display: none;
+  }
+
+  .lobby-column--active {
+    display: block;
+  }
 }
 
 .time-controls {
@@ -318,16 +396,7 @@ input:focus {
   50% { opacity: 0.5; }
 }
 
-/* Bot section */
-.bot-section {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 1px solid #2a2a4a;
-}
-
-.bot-section h2 {
-  margin-bottom: 24px;
-}
+/* Bot section (now inside lobby-panel) */
 
 .bot-option {
   margin-bottom: 20px;
