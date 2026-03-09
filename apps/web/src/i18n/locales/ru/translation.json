@@ -6,7 +6,10 @@
     "register": "Регистрация",
     "puzzles": "Задачи",
     "puzzleRush": "Puzzle Rush",
-    "rushLeaderboard": "Таблица лидеров"
+    "rushLeaderboard": "Таблица лидеров",
+    "train": "Тренировка",
+    "dailyPuzzle": "Задача дня",
+    "profile": "Профиль"
   },
   "settings": {
     "title": "Настройки",
