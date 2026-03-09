@@ -450,7 +450,7 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  width: 280px;
+  width: 320px;
   min-width: 0;
   flex-shrink: 1;
 }
@@ -470,22 +470,23 @@ input:focus {
 
 .moves {
   display: flex;
-  flex-direction: row;
-  gap: 4px;
-  overflow-x: auto;
-  white-space: nowrap;
-  padding-bottom: 4px;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .move-pair {
   display: flex;
+  align-items: center;
   gap: 4px;
   font-size: 14px;
-  flex-shrink: 0;
+  padding: 2px 4px;
 }
 
 .move-number {
   color: #666;
+  min-width: 28px;
 }
 
 .move {
