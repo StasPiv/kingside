@@ -1,16 +1,22 @@
 import { useRef, useMemo } from 'react';
 
 /**
- * Map of square -> piece string used by react-chessboard.
- * e.g. { a1: 'wR', b1: 'wN', ... }
+ * Piece data matching react-chessboard's PositionDataType value shape.
  */
-export type PositionObject = Record<string, string>;
+type PieceData = { pieceType: string };
+
+/**
+ * Map of square -> piece data used by react-chessboard.
+ * e.g. { a1: { pieceType: 'wR' }, b1: { pieceType: 'wN' }, ... }
+ */
+export type PositionObject = Record<string, PieceData>;
 
 const FILES = 'abcdefgh';
 
 /**
  * Extract only piece placement from a FEN string, returning a
- * position object keyed by square name (e.g. "e4" -> "wP").
+ * position object keyed by square name matching react-chessboard's
+ * PositionDataType format.
  *
  * Ignores side-to-move, castling, en-passant, half-move and full-move
  * counters — those don't affect visual piece positions.
@@ -30,7 +36,7 @@ export function fenToPositionObject(fen: string): PositionObject {
         const color = ch === ch.toUpperCase() ? 'w' : 'b';
         const piece = ch.toUpperCase();
         const square = FILES[fileIdx] + rank;
-        pos[square] = color + piece;
+        pos[square] = { pieceType: color + piece };
         fileIdx++;
       }
     }
@@ -47,7 +53,7 @@ function positionsEqual(a: PositionObject, b: PositionObject): boolean {
   const keysB = Object.keys(b);
   if (keysA.length !== keysB.length) return false;
   for (const key of keysA) {
-    if (a[key] !== b[key]) return false;
+    if (a[key]?.pieceType !== b[key]?.pieceType) return false;
   }
   return true;
 }

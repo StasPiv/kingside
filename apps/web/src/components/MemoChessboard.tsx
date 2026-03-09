@@ -11,7 +11,7 @@ interface MemoChessboardProps {
 
 /**
  * Compare two position values (FEN string or position object).
- * Position objects are compared key-by-key; strings by identity.
+ * Position objects are compared key-by-key via pieceType; strings by identity.
  */
 function positionsEqual(
   a: string | Record<string, unknown> | undefined,
@@ -28,7 +28,16 @@ function positionsEqual(
   const keysB = Object.keys(objB);
   if (keysA.length !== keysB.length) return false;
   for (const key of keysA) {
-    if (objA[key] !== objB[key]) return false;
+    const valA = objA[key];
+    const valB = objB[key];
+    if (valA === valB) continue;
+    if (valA == null || valB == null) return false;
+    // Compare pieceType for PositionDataType objects
+    if (typeof valA === 'object' && typeof valB === 'object') {
+      if ((valA as { pieceType?: string }).pieceType !== (valB as { pieceType?: string }).pieceType) return false;
+    } else if (valA !== valB) {
+      return false;
+    }
   }
   return true;
 }

@@ -7,11 +7,11 @@ describe('fenToPositionObject', () => {
     const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     const pos = fenToPositionObject(fen);
 
-    expect(pos['a1']).toBe('wR');
-    expect(pos['e1']).toBe('wK');
-    expect(pos['d8']).toBe('bQ');
-    expect(pos['e2']).toBe('wP');
-    expect(pos['e7']).toBe('bP');
+    expect(pos['a1']).toEqual({ pieceType: 'wR' });
+    expect(pos['e1']).toEqual({ pieceType: 'wK' });
+    expect(pos['d8']).toEqual({ pieceType: 'bQ' });
+    expect(pos['e2']).toEqual({ pieceType: 'wP' });
+    expect(pos['e7']).toEqual({ pieceType: 'bP' });
     expect(Object.keys(pos)).toHaveLength(32);
   });
 
@@ -19,7 +19,7 @@ describe('fenToPositionObject', () => {
     const fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1';
     const pos = fenToPositionObject(fen);
 
-    expect(pos['e4']).toBe('wP');
+    expect(pos['e4']).toEqual({ pieceType: 'wP' });
     expect(pos['e2']).toBeUndefined();
     expect(Object.keys(pos)).toHaveLength(32);
   });
@@ -44,7 +44,7 @@ describe('useStablePosition', () => {
   it('returns position object from FEN', () => {
     const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
     const { result } = renderHook(() => useStablePosition(fen));
-    expect(result.current['e1']).toBe('wK');
+    expect(result.current['e1']).toEqual({ pieceType: 'wK' });
     expect(Object.keys(result.current)).toHaveLength(32);
   });
 
