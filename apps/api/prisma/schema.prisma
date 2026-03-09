@@ -81,6 +81,7 @@ model Game {
   timeInitialSec    Int              @map("time_initial_sec")
   timeIncrementSec  Int              @map("time_increment_sec")
   pgn               String?
+  eco               String?
   finalFen          String?          @map("final_fen")
   whiteRatingBefore Int?             @map("white_rating_before")
   blackRatingBefore Int?             @map("black_rating_before")

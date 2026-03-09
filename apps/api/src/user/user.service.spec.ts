@@ -174,8 +174,11 @@ describe('UserService', () => {
         {
           id: 'game-1',
           result: 'white',
+          termination: 'checkmate',
+          timeControlType: 'blitz',
           timeInitialSec: 300,
           timeIncrementSec: 3,
+          eco: 'B20',
           createdAt: now,
           whiteRatingBefore: 1500,
           whiteRatingAfter: 1515,
@@ -183,6 +186,7 @@ describe('UserService', () => {
           blackRatingAfter: 1585,
           white: { id: userId, username: 'player1' },
           black: { id: 'other', username: 'player2' },
+          _count: { moves: 42 },
         },
       ];
       prisma.game.findMany.mockResolvedValue(games);
@@ -195,7 +199,11 @@ describe('UserService', () => {
           white: { id: userId, username: 'player1' },
           black: { id: 'other', username: 'player2' },
           result: '1-0',
+          termination: 'checkmate',
+          timeControlType: 'blitz',
           timeControl: '5+3',
+          eco: 'B20',
+          totalMoves: 42,
           createdAt: now,
           whiteRatingBefore: 1500,
           whiteRatingAfter: 1515,
@@ -214,8 +222,11 @@ describe('UserService', () => {
         select: {
           id: true,
           result: true,
+          termination: true,
+          timeControlType: true,
           timeInitialSec: true,
           timeIncrementSec: true,
+          eco: true,
           createdAt: true,
           whiteRatingBefore: true,
           whiteRatingAfter: true,
@@ -223,16 +234,17 @@ describe('UserService', () => {
           blackRatingAfter: true,
           white: { select: { id: true, username: true } },
           black: { select: { id: true, username: true } },
+          _count: { select: { moves: true } },
         },
       });
     });
 
     it('should format all result types correctly', async () => {
       const games = [
-        { id: 'g1', result: 'white', timeInitialSec: 60, timeIncrementSec: 0, createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1515, blackRatingBefore: 1500, blackRatingAfter: 1485, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
-        { id: 'g2', result: 'black', timeInitialSec: 180, timeIncrementSec: 2, createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1485, blackRatingBefore: 1500, blackRatingAfter: 1515, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
-        { id: 'g3', result: 'draw', timeInitialSec: 600, timeIncrementSec: 5, createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1500, blackRatingBefore: 1500, blackRatingAfter: 1500, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
-        { id: 'g4', result: null, timeInitialSec: 900, timeIncrementSec: 10, createdAt: new Date(), whiteRatingBefore: null, whiteRatingAfter: null, blackRatingBefore: null, blackRatingAfter: null, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g1', result: 'white', termination: 'checkmate', timeControlType: 'bullet', timeInitialSec: 60, timeIncrementSec: 0, eco: 'C50', createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1515, blackRatingBefore: 1500, blackRatingAfter: 1485, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 30 } },
+        { id: 'g2', result: 'black', termination: 'resignation', timeControlType: 'blitz', timeInitialSec: 180, timeIncrementSec: 2, eco: 'B20', createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1485, blackRatingBefore: 1500, blackRatingAfter: 1515, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 25 } },
+        { id: 'g3', result: 'draw', termination: 'draw_agreement', timeControlType: 'rapid', timeInitialSec: 600, timeIncrementSec: 5, eco: 'D35', createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1500, blackRatingBefore: 1500, blackRatingAfter: 1500, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 40 } },
+        { id: 'g4', result: null, termination: null, timeControlType: 'classical', timeInitialSec: 900, timeIncrementSec: 10, eco: null, createdAt: new Date(), whiteRatingBefore: null, whiteRatingAfter: null, blackRatingBefore: null, blackRatingAfter: null, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 0 } },
       ];
       prisma.game.findMany.mockResolvedValue(games);
 
