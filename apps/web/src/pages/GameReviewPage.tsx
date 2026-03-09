@@ -17,6 +17,10 @@ type GameData = {
   result: string;
   timeControl: string;
   status: string;
+  ratings?: {
+    white: { before: number; after: number };
+    black: { before: number; after: number };
+  };
 };
 
 type MoveData = {
@@ -314,6 +318,30 @@ export function GameReviewPage() {
         <div className="analysis-result">
           <h3>{t('game.finished')}</h3>
           <p>{resultText}</p>
+          {gameData.ratings && (
+            <div className="analysis-ratings">
+              <div className="analysis-rating-row">
+                <span className="color-indicator white" />
+                <span>{gameData.white.username}</span>
+                <span className="rating-change-inline">
+                  {gameData.ratings.white.before} &rarr; {gameData.ratings.white.after}
+                  <span className={`rating-diff ${gameData.ratings.white.after - gameData.ratings.white.before > 0 ? 'positive' : gameData.ratings.white.after - gameData.ratings.white.before < 0 ? 'negative' : ''}`}>
+                    ({gameData.ratings.white.after - gameData.ratings.white.before > 0 ? '+' : ''}{gameData.ratings.white.after - gameData.ratings.white.before})
+                  </span>
+                </span>
+              </div>
+              <div className="analysis-rating-row">
+                <span className="color-indicator black" />
+                <span>{gameData.black.username}</span>
+                <span className="rating-change-inline">
+                  {gameData.ratings.black.before} &rarr; {gameData.ratings.black.after}
+                  <span className={`rating-diff ${gameData.ratings.black.after - gameData.ratings.black.before > 0 ? 'positive' : gameData.ratings.black.after - gameData.ratings.black.before < 0 ? 'negative' : ''}`}>
+                    ({gameData.ratings.black.after - gameData.ratings.black.before > 0 ? '+' : ''}{gameData.ratings.black.after - gameData.ratings.black.before})
+                  </span>
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Move list */}

@@ -156,6 +156,13 @@
     "analyze": "Анализ",
     "backToLobby": "Назад в лобби"
   },
+  "gameResult": {
+    "victory": "Победа!",
+    "defeat": "Поражение",
+    "rating": "Рейтинг",
+    "newGame": "Новая партия",
+    "home": "На главную"
+  },
   "review": {
     "loadError": "Не удалось загрузить партию",
     "toStart": "В начало",

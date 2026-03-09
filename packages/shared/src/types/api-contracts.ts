@@ -253,9 +253,18 @@ export type WsGameMoveServerPayload = {
   clocks: ClockPayload;
 };
 
+export type RatingChange = {
+  before: number;
+  after: number;
+};
+
 export type WsGameEndPayload = {
   result: GameResult;
   termination: string;
+  ratings?: {
+    white: RatingChange;
+    black: RatingChange;
+  };
 };
 
 export type WsGameDrawOfferedPayload = {

@@ -14,6 +14,7 @@ import {
   type WsGameEndPayload,
   type WsChatMessagePayload,
   type WsErrorPayload,
+  type RatingChange,
 } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
@@ -53,6 +54,8 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
+  const [ratings, setRatings] = useState<{ white: RatingChange; black: RatingChange } | null>(null);
+  const [showResultModal, setShowResultModal] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -114,6 +117,10 @@ export function GamePage() {
     const onGameEnd = (data: WsGameEndPayload) => {
       setStatus('finished');
       setResult(data.result);
+      if (data.ratings) {
+        setRatings(data.ratings);
+      }
+      setShowResultModal(true);
     };
 
     const onDrawOffered = () => setDrawOffered(true);
@@ -238,6 +245,9 @@ export function GamePage() {
 
   const opponentColor = playerColor === 'white' ? 'black' : 'white';
 
+  const playerRating = ratings?.[playerColor];
+  const ratingDiff = playerRating ? playerRating.after - playerRating.before : null;
+
   const handlePieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }) => {
       if (!targetSquare) return false;
@@ -354,7 +364,20 @@ export function GamePage() {
           <div className="game-result">
             <h3>{t('game.finished')}</h3>
             <p>{result === 'draw' ? t('game.draw') : result === 'white_wins' ? t('game.whiteWins') : t('game.blackWins')}</p>
-            <Link to={`/analysis/${gameId}`} className="analysis-link">{t('game.analyze')}</Link>
+            {playerRating && (
+              <div className="game-result-rating">
+                <span className="rating-before">{playerRating.before}</span>
+                <span className="rating-arrow">&rarr;</span>
+                <span className="rating-after">{playerRating.after}</span>
+                <span className={`rating-diff ${ratingDiff! > 0 ? 'positive' : ratingDiff! < 0 ? 'negative' : ''}`}>
+                  ({ratingDiff! > 0 ? '+' : ''}{ratingDiff})
+                </span>
+              </div>
+            )}
+            <div className="game-result-actions">
+              <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
+              <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
+            </div>
           </div>
         )}
 
@@ -382,6 +405,47 @@ export function GamePage() {
           </div>
         )}
       </div>
+
+      {showResultModal && status === 'finished' && result && (
+        <div className="game-result-modal-overlay" onClick={() => setShowResultModal(false)}>
+          <div className="game-result-modal" onClick={(e) => e.stopPropagation()}>
+            <div className={`result-modal-header ${
+              result === 'draw' ? 'draw' : (result === 'white_wins' && playerColor === 'white') || (result === 'black_wins' && playerColor === 'black') ? 'win' : 'loss'
+            }`}>
+              <h2>
+                {result === 'draw'
+                  ? t('game.draw')
+                  : (result === 'white_wins' && playerColor === 'white') || (result === 'black_wins' && playerColor === 'black')
+                    ? t('gameResult.victory')
+                    : t('gameResult.defeat')}
+              </h2>
+            </div>
+            <div className="result-modal-body">
+              <p className="result-modal-detail">
+                {result === 'draw' ? t('game.draw') : result === 'white_wins' ? t('game.whiteWins') : t('game.blackWins')}
+              </p>
+              {playerRating && (
+                <div className="result-modal-rating">
+                  <span className="rating-label">{t('gameResult.rating')}</span>
+                  <div className="rating-change-display">
+                    <span className="rating-before">{playerRating.before}</span>
+                    <span className="rating-arrow">&rarr;</span>
+                    <span className="rating-after">{playerRating.after}</span>
+                    <span className={`rating-diff ${ratingDiff! > 0 ? 'positive' : ratingDiff! < 0 ? 'negative' : ''}`}>
+                      {ratingDiff! > 0 ? '+' : ''}{ratingDiff}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="result-modal-actions">
+              <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
+              <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
+              <Link to="/" className="result-btn">{t('gameResult.home')}</Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
