@@ -43,16 +43,29 @@ function formatPv(pv: string, fen: string): string {
   try {
     const chess = new Chess(fen);
     const uciMoves = pv.split(' ');
-    const sanMoves: string[] = [];
+    const fenParts = fen.split(' ');
+    let isWhiteTurn = fenParts[1] === 'w';
+    let moveNumber = parseInt(fenParts[5] || '1', 10);
+    const parts: string[] = [];
     for (const uci of uciMoves.slice(0, 8)) {
       const from = uci.slice(0, 2);
       const to = uci.slice(2, 4);
       const promotion = uci.length > 4 ? uci[4] : undefined;
       const move = chess.move({ from, to, promotion });
       if (!move) break;
-      sanMoves.push(move.san);
+      if (isWhiteTurn) {
+        parts.push(`${moveNumber}. ${move.san}`);
+      } else if (parts.length === 0) {
+        parts.push(`${moveNumber}... ${move.san}`);
+      } else {
+        parts.push(move.san);
+      }
+      if (!isWhiteTurn) {
+        moveNumber++;
+      }
+      isWhiteTurn = !isWhiteTurn;
     }
-    return sanMoves.join(' ');
+    return parts.join(' ');
   } catch {
     return pv.split(' ').slice(0, 8).join(' ');
   }
@@ -178,34 +191,36 @@ describe('KS-308: evalToPercent', () => {
 
 // --- formatPv (UCI → SAN) ---
 
-describe('KS-308: formatPv — конвертация UCI в SAN', () => {
+describe('KS-322: formatPv — конвертация UCI в SAN с нумерацией ходов', () => {
   const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-  it('конвертирует простые ходы пешек', () => {
-    expect(formatPv('e2e4 e7e5', startFen)).toBe('e4 e5');
+  it('конвертирует простые ходы пешек с нумерацией', () => {
+    expect(formatPv('e2e4 e7e5', startFen)).toBe('1. e4 e5');
   });
 
-  it('конвертирует ходы коней', () => {
-    expect(formatPv('g1f3', startFen)).toBe('Nf3');
+  it('конвертирует ходы коней с нумерацией', () => {
+    expect(formatPv('g1f3', startFen)).toBe('1. Nf3');
   });
 
   it('обрезает линию до 8 ходов', () => {
     const longPv = 'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6 e1g1';
     const result = formatPv(longPv, startFen);
-    const moves = result.split(' ');
-    expect(moves.length).toBeLessThanOrEqual(8);
+    // С нумерацией: "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6"
+    // Считаем SAN-ходы (без номеров): должно быть <= 8
+    const sanMoves = result.replace(/\d+\.\s*/g, '').trim().split(/\s+/);
+    expect(sanMoves.length).toBeLessThanOrEqual(8);
   });
 
-  it('конвертирует превращение пешки', () => {
+  it('конвертирует превращение пешки с нумерацией', () => {
     // Позиция с пешкой на 7-й линии и королями
     const promoFen = '4k3/P7/8/8/8/8/8/4K3 w - - 0 1';
     // a8=Q+ (с шахом, т.к. ферзь атакует короля на e8)
-    expect(formatPv('a7a8q', promoFen)).toBe('a8=Q+');
+    expect(formatPv('a7a8q', promoFen)).toBe('1. a8=Q+');
   });
 
-  it('рокировка конвертируется корректно', () => {
+  it('рокировка конвертируется корректно с нумерацией', () => {
     const castleFen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
-    expect(formatPv('f1b5', castleFen)).toBe('Bb5');
+    expect(formatPv('f1b5', castleFen)).toBe('3. Bb5');
   });
 
   it('невалидные ходы — fallback на UCI', () => {
@@ -218,9 +233,19 @@ describe('KS-308: formatPv — конвертация UCI в SAN', () => {
     expect(result).toBe('e2e4 e7e5');
   });
 
-  it('взятие на проходе', () => {
+  it('взятие на проходе с нумерацией', () => {
     const epFen = 'rnbqkbnr/pppp1ppp/8/4pP2/8/8/PPPPP1PP/RNBQKBNR w KQkq e6 0 3';
-    expect(formatPv('f5e6', epFen)).toBe('fxe6');
+    expect(formatPv('f5e6', epFen)).toBe('3. fxe6');
+  });
+
+  it('первый ход черных — формат с многоточием', () => {
+    const blackFen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    expect(formatPv('e7e5 g1f3', blackFen)).toBe('1... e5 2. Nf3');
+  });
+
+  it('первый ход черных без продолжения', () => {
+    const blackFen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+    expect(formatPv('e7e5', blackFen)).toBe('1... e5');
   });
 });
 
