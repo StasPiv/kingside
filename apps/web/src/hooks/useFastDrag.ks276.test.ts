@@ -293,6 +293,38 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       }).not.toThrow();
     });
 
+    it('should IGNORE lostpointercapture bubbling from child (KS-278 root cause)', () => {
+      vi.spyOn(container, 'setPointerCapture').mockImplementation(() => {});
+      const ref = { current: container };
+
+      renderHook(() =>
+        useFastDrag(ref, {
+          onPieceDrop: vi.fn(() => true),
+          boardOrientation: 'white',
+          enabled: true,
+        }),
+      );
+
+      const piece = startDrag(container);
+
+      // Ghost should exist
+      expect(document.querySelectorAll('[style*="z-index: 9999"]').length).toBe(1);
+      expect(piece.style.opacity).toBe('0');
+
+      // Simulate lostpointercapture bubbling from child element (piece).
+      // This is what happens in browsers when container.setPointerCapture()
+      // releases implicit capture from e.target (the piece/SVG).
+      const childEvent = new PointerEvent('lostpointercapture', { bubbles: true });
+      Object.defineProperty(childEvent, 'target', { value: piece });
+      container.dispatchEvent(childEvent);
+
+      // Ghost should STILL exist — the drag must NOT be torn down
+      expect(document.querySelectorAll('[style*="z-index: 9999"]').length).toBe(1);
+      expect(piece.style.opacity).toBe('0');
+
+      endDrag();
+    });
+
     it('lostpointercapture is no-op when no drag is active', () => {
       const ref = { current: container };
 

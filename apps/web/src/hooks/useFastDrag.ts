@@ -178,7 +178,15 @@ export function useFastDrag(
 
     // Safety net: if pointer capture is lost unexpectedly (e.g. due to
     // DOM mutations from React re-renders), restore piece visibility.
-    const onLostPointerCapture = () => {
+    // IMPORTANT: only react when the container itself loses capture,
+    // not when a child loses implicit capture (which bubbles up).
+    // When we call container.setPointerCapture(), the browser releases
+    // implicit capture from e.target (the piece/SVG child), firing
+    // lostpointercapture on it. That event bubbles to the container
+    // and would incorrectly tear down the drag if we don't filter it.
+    const onLostPointerCapture = (e: PointerEvent) => {
+      if (e.target !== container) return;
+
       const state = dragStateRef.current;
       if (!state) return;
 
