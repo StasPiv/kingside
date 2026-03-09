@@ -75,6 +75,28 @@ export type UserProfileResponse = {
   isBot?: boolean;
 };
 
+// ─── User Games (REST) ──────────────────────────────────────────────
+
+/** GET /api/users/:id/games?take=20&skip=0 */
+export type UserGameItem = {
+  id: string;
+  white: { id: string; username: string };
+  black: { id: string; username: string };
+  result: string;
+  timeControl: string;
+  createdAt: string;
+  whiteRatingBefore: number | null;
+  whiteRatingAfter: number | null;
+  blackRatingBefore: number | null;
+  blackRatingAfter: number | null;
+};
+
+export type UserGamesResponse = {
+  data: UserGameItem[];
+  total: number;
+  hasMore: boolean;
+};
+
 // ─── Game (REST) ────────────────────────────────────────────────────
 
 export type CreateGameWithBotRequest = {

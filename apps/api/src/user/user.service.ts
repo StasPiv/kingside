@@ -119,30 +119,37 @@ export class UserService {
   }
 
   async getUserGames(userId: string, take = 20, skip = 0) {
-    const games = await this.prisma.game.findMany({
-      where: {
-        OR: [{ whiteId: userId }, { blackId: userId }],
-        status: 'finished',
-      },
-      orderBy: { createdAt: 'desc' },
-      take,
-      skip,
-      select: {
-        id: true,
-        result: true,
-        timeInitialSec: true,
-        timeIncrementSec: true,
-        createdAt: true,
-        whiteRatingBefore: true,
-        whiteRatingAfter: true,
-        blackRatingBefore: true,
-        blackRatingAfter: true,
-        white: { select: { id: true, username: true } },
-        black: { select: { id: true, username: true } },
-      },
-    });
+    const safeTake = Math.min(take, 50);
 
-    return games.map((game) => ({
+    const where = {
+      OR: [{ whiteId: userId }, { blackId: userId }],
+      status: 'finished' as const,
+    };
+
+    const [games, total] = await Promise.all([
+      this.prisma.game.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: safeTake,
+        skip,
+        select: {
+          id: true,
+          result: true,
+          timeInitialSec: true,
+          timeIncrementSec: true,
+          createdAt: true,
+          whiteRatingBefore: true,
+          whiteRatingAfter: true,
+          blackRatingBefore: true,
+          blackRatingAfter: true,
+          white: { select: { id: true, username: true } },
+          black: { select: { id: true, username: true } },
+        },
+      }),
+      this.prisma.game.count({ where }),
+    ]);
+
+    const data = games.map((game) => ({
       id: game.id,
       white: game.white,
       black: game.black,
@@ -154,6 +161,12 @@ export class UserService {
       blackRatingBefore: game.blackRatingBefore,
       blackRatingAfter: game.blackRatingAfter,
     }));
+
+    return {
+      data,
+      total,
+      hasMore: skip + safeTake < total,
+    };
   }
 
   private formatResult(result: string | null): string {
