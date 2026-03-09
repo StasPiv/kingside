@@ -146,18 +146,25 @@ export function useFastDrag(
       const state = dragStateRef.current;
       if (!state) return;
 
+      // Recalculate boardRect at drop time — the original rect captured on
+      // pointerdown may be stale if the page scrolled or layout shifted
+      // (e.g. flex-wrap reflow on .game-page).
+      const boardEl = container.querySelector<HTMLElement>('div[id$="-board"]');
+      const freshBoardRect = boardEl ? boardEl.getBoundingClientRect() : state.boardRect;
+      const freshSquareSize = freshBoardRect.width / 8;
+
+      // Update state so findSquareFromPoint uses the fresh rect, not the
+      // stale one from pointerdown — prevents wrong square detection when
+      // layout shifted during the drag.
+      state.boardRect = freshBoardRect;
+      state.squareSize = freshSquareSize;
+
       const targetSquare = findSquareFromPoint(e.clientX, e.clientY);
 
       dragStateRef.current = null;
 
       // Determine whether this is a valid drop attempt (different square).
       const isDropAttempt = !!(targetSquare && targetSquare !== state.sourceSquare);
-
-      // Recalculate boardRect at drop time — the original rect captured on
-      // pointerdown may be stale if the page scrolled or layout shifted.
-      const boardEl = container.querySelector<HTMLElement>('div[id$="-board"]');
-      const freshBoardRect = boardEl ? boardEl.getBoundingClientRect() : state.boardRect;
-      const freshSquareSize = freshBoardRect.width / 8;
 
       // Snap-to-square animation: smoothly move ghost to target square center.
       // For non-drop attempts, snap back to source square.
@@ -206,6 +213,18 @@ export function useFastDrag(
           // paint — only then is it safe to remove the ghost without a
           // visible gap between ghost removal and new piece appearance.
           requestAnimationFrame(() => {
+            // After React commit: realign ghost to the actual board
+            // position in case layout shifted during re-render (e.g.
+            // flex-wrap reflow).  This prevents the "jerk" when the
+            // ghost is removed and reveals the piece at a different spot.
+            if (boardEl) {
+              const postRect = boardEl.getBoundingClientRect();
+              const postSq = postRect.width / 8;
+              const newSnapX = postRect.left + col * postSq;
+              const newSnapY = postRect.top + row * postSq;
+              state.ghost.style.transition = 'none';
+              state.ghost.style.transform = `translate3d(${newSnapX}px, ${newSnapY}px, 0)`;
+            }
             requestAnimationFrame(() => {
               state.ghost.remove();
             });
