@@ -30,7 +30,7 @@ function formatTime(seconds: number): string {
 
 export function GamePage() {
   const { id: gameId } = useParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState(INITIAL_FEN);
   const [moves, setMoves] = useState<string[]>([]);
@@ -75,6 +75,7 @@ export function GamePage() {
     const onGameEnd = (data: { result: string }) => {
       setStatus('finished');
       setResult(data.result);
+      refreshUser();
     };
 
     const onDrawOffered = () => setDrawOffered(true);
@@ -100,7 +101,7 @@ export function GamePage() {
       socket.off('chat:message', onChatMessage);
       socket.off('error', onError);
     };
-  }, [gameId, game, updateFromState]);
+  }, [gameId, game, updateFromState, refreshUser]);
 
   useEffect(() => {
     if (status !== 'active') return;
