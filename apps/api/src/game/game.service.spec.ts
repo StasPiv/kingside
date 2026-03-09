@@ -33,7 +33,6 @@ describe('GameService', () => {
         create: jest.fn(),
         findUniqueOrThrow: jest.fn(),
         findUnique: jest.fn(),
-        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         count: jest.fn().mockResolvedValue(0),
