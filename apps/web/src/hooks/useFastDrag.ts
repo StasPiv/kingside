@@ -171,6 +171,10 @@ export function useFastDrag(
       const snapY = boardRect.top + row * squareSize;
 
       state.ghost.style.transition = 'transform 80ms ease-out';
+      // Force reflow so the browser registers the current transform before
+      // applying the new one — without this, both style changes are batched
+      // and the transition never fires (the ghost "teleports" instead).
+      void state.ghost.offsetHeight;
       state.ghost.style.transform = `translate3d(${snapX}px, ${snapY}px, 0)`;
 
       let cleaned = false;
