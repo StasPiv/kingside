@@ -1,14 +1,13 @@
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../ApiError';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
-
-const MemoChessboard = memo(Chessboard);
+import { useStablePosition } from '../hooks/useStablePosition';
+import { MemoChessboard } from '../components/MemoChessboard';
 
 type RushScreen = 'start' | 'playing' | 'result';
 type TimeLimitOption = 180 | 300;
@@ -207,15 +206,17 @@ export function PuzzleRushPage() {
     [boardWidth],
   );
 
+  const stablePosition = useStablePosition(game?.fen() ?? '');
+
   const boardOptions = useMemo(
     () => ({
-      position: game?.fen() ?? '',
+      position: stablePosition,
       boardOrientation: boardOrientation,
       animationDurationInMs: 150,
       allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [game, boardOrientation, boardStyle],
+    [stablePosition, boardOrientation, boardStyle],
   );
 
   const formatTime = (seconds: number): string => {

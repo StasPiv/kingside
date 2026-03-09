@@ -1,14 +1,13 @@
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import { Chessboard } from 'react-chessboard';
 import type { Square } from 'chess.js';
 import { api } from '../api';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
+import { useStablePosition } from '../hooks/useStablePosition';
+import { MemoChessboard } from '../components/MemoChessboard';
 import type { PuzzleDto, DailyPuzzleResponse } from '@kingside/shared';
-
-const MemoChessboard = memo(Chessboard);
 
 type PuzzleState = 'loading' | 'solving' | 'correct' | 'failed';
 
@@ -193,15 +192,17 @@ export function DailyPuzzlePage() {
     [boardWidth],
   );
 
+  const stablePosition = useStablePosition(fen);
+
   const boardOptions = useMemo(
     () => ({
-      position: fen,
+      position: stablePosition,
       boardOrientation: playerColor,
       animationDurationInMs: 200,
       allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [fen, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle],
   );
 
   const themes = puzzle?.themes ?? [];

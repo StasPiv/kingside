@@ -1,14 +1,13 @@
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
-import { Chessboard } from 'react-chessboard';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
+import { useStablePosition } from '../hooks/useStablePosition';
+import { MemoChessboard } from '../components/MemoChessboard';
 import type { PuzzleDto } from '@kingside/shared';
-
-const MemoChessboard = memo(Chessboard);
 
 type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
 
@@ -161,15 +160,17 @@ export function PuzzlePage() {
     [boardWidth],
   );
 
+  const stablePosition = useStablePosition(game?.fen() ?? '');
+
   const boardOptions = useMemo(
     () => ({
-      position: game?.fen() ?? '',
+      position: stablePosition,
       boardOrientation: boardOrientation,
       animationDurationInMs: 200,
       allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [game, boardOrientation, boardStyle],
+    [stablePosition, boardOrientation, boardStyle],
   );
 
   const handleNext = useCallback(async () => {

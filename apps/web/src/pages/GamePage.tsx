@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import { Chessboard } from 'react-chessboard';
-
-const MemoChessboard = memo(Chessboard);
 import type { Square } from 'chess.js';
+import { MemoChessboard } from '../components/MemoChessboard';
+import { useStablePosition } from '../hooks/useStablePosition';
 import {
   INITIAL_FEN,
   GameEvents,
@@ -211,15 +210,17 @@ export function GamePage() {
     enabled: status === 'active',
   });
 
+  const stablePosition = useStablePosition(fen);
+
   const boardOptions = useMemo(
     () => ({
-      position: fen,
+      position: stablePosition,
       boardOrientation: playerColor,
       animationDurationInMs: 0,
       allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [fen, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle],
   );
 
   return (
