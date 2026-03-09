@@ -1893,6 +1893,19 @@ input:focus {
   font-weight: 600;
 }
 
+.game-rating-diff {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.rating-positive {
+  color: #4caf50;
+}
+
+.rating-negative {
+  color: #f44336;
+}
+
 .game-date {
   color: #666;
   font-size: 13px;

@@ -25,6 +25,10 @@ const mockGames = [
     result: '1-0',
     timeControl: '5+3',
     createdAt: '2026-03-07T18:00:00Z',
+    whiteRatingBefore: 1350,
+    whiteRatingAfter: 1366,
+    blackRatingBefore: 1400,
+    blackRatingAfter: 1384,
   },
   {
     id: 'g2',
@@ -33,6 +37,10 @@ const mockGames = [
     result: '0-1',
     timeControl: '3+0',
     createdAt: '2026-03-06T15:00:00Z',
+    whiteRatingBefore: 1300,
+    whiteRatingAfter: 1316,
+    blackRatingBefore: 1350,
+    blackRatingAfter: 1334,
   },
   {
     id: 'g3',
@@ -41,6 +49,10 @@ const mockGames = [
     result: '1/2-1/2',
     timeControl: '10+5',
     createdAt: '2026-03-05T12:00:00Z',
+    whiteRatingBefore: 1500,
+    whiteRatingAfter: 1500,
+    blackRatingBefore: 1500,
+    blackRatingAfter: 1500,
   },
 ];
 
