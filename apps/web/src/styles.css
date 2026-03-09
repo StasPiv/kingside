@@ -546,10 +546,22 @@ input:focus {
 /* Game page */
 .game-page {
   display: flex;
-  flex-wrap: wrap;
   gap: 24px;
   justify-content: center;
   align-items: flex-start;
+  min-height: calc(100vh - 48px);
+}
+
+@media (max-width: 899px) {
+  .game-page {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .game-sidebar {
+    width: 100%;
+    max-width: 480px;
+  }
 }
 
 .game-board-area {
@@ -2119,14 +2131,12 @@ input:focus {
     padding: 16px;
   }
 
-  .game-page,
   .analysis-page,
   .daily-puzzle-page {
     flex-direction: column;
     align-items: center;
   }
 
-  .game-sidebar,
   .analysis-sidebar,
   .puzzle-sidebar {
     width: 100%;
