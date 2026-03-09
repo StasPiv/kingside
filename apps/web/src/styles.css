@@ -204,6 +204,11 @@ input:focus {
   padding: 24px;
 }
 
+.main:has(.game-page) {
+  max-width: none;
+  padding: 0;
+}
+
 /* Auth pages */
 .auth-page {
   display: flex;
