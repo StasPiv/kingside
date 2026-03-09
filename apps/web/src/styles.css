@@ -229,14 +229,17 @@ input:focus {
   flex-direction: column;
   gap: 16px;
   width: 280px;
+  height: var(--board-area-height);
+  overflow: hidden;
 }
 
 .move-list {
   background: #16213e;
   border-radius: 8px;
   padding: 16px;
-  max-height: 300px;
+  flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .move-list h3 {
@@ -311,6 +314,8 @@ input:focus {
   padding: 16px;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  max-height: 40%;
 }
 
 .chat h3 {
@@ -320,7 +325,8 @@ input:focus {
 }
 
 .chat-messages {
-  max-height: 200px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   margin-bottom: 8px;
   display: flex;

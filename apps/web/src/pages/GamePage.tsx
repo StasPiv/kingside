@@ -42,10 +42,25 @@ export function GamePage() {
   const [chatInput, setChatInput] = useState('');
   const [drawOffered, setDrawOffered] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const boardAreaRef = useRef<HTMLDivElement>(null);
+  const gamePageRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  useEffect(() => {
+    const el = boardAreaRef.current;
+    const page = gamePageRef.current;
+    if (!el || !page) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        page.style.setProperty('--board-area-height', `${entry.contentRect.height}px`);
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const updateFromState = useCallback(
     (state: GameState) => {
@@ -169,8 +184,8 @@ export function GamePage() {
   const opponentColor = playerColor === 'white' ? 'black' : 'white';
 
   return (
-    <div className="game-page">
-      <div className="game-board-area">
+    <div className="game-page" ref={gamePageRef}>
+      <div className="game-board-area" ref={boardAreaRef}>
         <div className="clock opponent-clock">
           {formatTime(clocks[opponentColor])}
         </div>
