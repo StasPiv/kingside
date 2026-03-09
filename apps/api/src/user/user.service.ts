@@ -121,6 +121,10 @@ export class UserService {
         timeInitialSec: true,
         timeIncrementSec: true,
         createdAt: true,
+        whiteRatingBefore: true,
+        whiteRatingAfter: true,
+        blackRatingBefore: true,
+        blackRatingAfter: true,
         white: { select: { id: true, username: true } },
         black: { select: { id: true, username: true } },
       },
@@ -133,6 +137,10 @@ export class UserService {
       result: this.formatResult(game.result),
       timeControl: this.formatTimeControl(game.timeInitialSec, game.timeIncrementSec),
       createdAt: game.createdAt,
+      whiteRatingBefore: game.whiteRatingBefore,
+      whiteRatingAfter: game.whiteRatingAfter,
+      blackRatingBefore: game.blackRatingBefore,
+      blackRatingAfter: game.blackRatingAfter,
     }));
   }
 

@@ -177,6 +177,10 @@ describe('UserService', () => {
           timeInitialSec: 300,
           timeIncrementSec: 3,
           createdAt: now,
+          whiteRatingBefore: 1500,
+          whiteRatingAfter: 1515,
+          blackRatingBefore: 1600,
+          blackRatingAfter: 1585,
           white: { id: userId, username: 'player1' },
           black: { id: 'other', username: 'player2' },
         },
@@ -193,6 +197,10 @@ describe('UserService', () => {
           result: '1-0',
           timeControl: '5+3',
           createdAt: now,
+          whiteRatingBefore: 1500,
+          whiteRatingAfter: 1515,
+          blackRatingBefore: 1600,
+          blackRatingAfter: 1585,
         },
       ]);
       expect(prisma.game.findMany).toHaveBeenCalledWith({
@@ -209,6 +217,10 @@ describe('UserService', () => {
           timeInitialSec: true,
           timeIncrementSec: true,
           createdAt: true,
+          whiteRatingBefore: true,
+          whiteRatingAfter: true,
+          blackRatingBefore: true,
+          blackRatingAfter: true,
           white: { select: { id: true, username: true } },
           black: { select: { id: true, username: true } },
         },
@@ -217,10 +229,10 @@ describe('UserService', () => {
 
     it('should format all result types correctly', async () => {
       const games = [
-        { id: 'g1', result: 'white', timeInitialSec: 60, timeIncrementSec: 0, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
-        { id: 'g2', result: 'black', timeInitialSec: 180, timeIncrementSec: 2, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
-        { id: 'g3', result: 'draw', timeInitialSec: 600, timeIncrementSec: 5, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
-        { id: 'g4', result: null, timeInitialSec: 900, timeIncrementSec: 10, createdAt: new Date(), white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g1', result: 'white', timeInitialSec: 60, timeIncrementSec: 0, createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1515, blackRatingBefore: 1500, blackRatingAfter: 1485, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g2', result: 'black', timeInitialSec: 180, timeIncrementSec: 2, createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1485, blackRatingBefore: 1500, blackRatingAfter: 1515, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g3', result: 'draw', timeInitialSec: 600, timeIncrementSec: 5, createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1500, blackRatingBefore: 1500, blackRatingAfter: 1500, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
+        { id: 'g4', result: null, timeInitialSec: 900, timeIncrementSec: 10, createdAt: new Date(), whiteRatingBefore: null, whiteRatingAfter: null, blackRatingBefore: null, blackRatingAfter: null, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' } },
       ];
       prisma.game.findMany.mockResolvedValue(games);
 
