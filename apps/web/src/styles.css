@@ -1550,6 +1550,28 @@ input:focus {
 }
 
 
+.profile-section-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.profile-section-header h2 {
+  margin-bottom: 0;
+}
+
+.profile-section-link {
+  font-size: 14px;
+  color: #81b64c;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.profile-section-link:hover {
+  text-decoration: underline;
+}
+
 .profile-puzzle-rush {
   margin-bottom: 32px;
 }
