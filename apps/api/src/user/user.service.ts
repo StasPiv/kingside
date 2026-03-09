@@ -248,8 +248,10 @@ export class UserService {
       const sanMoves = game.moves.map((m: { san: string }) => m.san);
       const opening = this.eco.classify(sanMoves);
 
-      let playerResult: 'win' | 'loss' | 'draw';
-      if (game.result === 'draw') {
+      let playerResult: 'win' | 'loss' | 'draw' | null;
+      if (game.result === null) {
+        playerResult = null;
+      } else if (game.result === 'draw') {
         playerResult = 'draw';
       } else if (game.result === playerColor) {
         playerResult = 'win';
@@ -268,7 +270,7 @@ export class UserService {
         },
         ecoCode: opening.code,
         openingName: opening.name,
-        result: this.formatResult(game.result),
+        result: this.formatPlayerResult(playerResult),
         termination: game.termination,
         timeControlType: game.timeControlType,
         timeControl: this.formatTimeControl(game.timeInitialSec, game.timeIncrementSec),
@@ -289,10 +291,10 @@ export class UserService {
     };
   }
 
-  private formatResult(result: string | null): string {
-    switch (result) {
-      case 'white': return '1-0';
-      case 'black': return '0-1';
+  private formatPlayerResult(playerResult: 'win' | 'loss' | 'draw' | null): string {
+    switch (playerResult) {
+      case 'win': return '1-0';
+      case 'loss': return '0-1';
       case 'draw': return '1/2-1/2';
       default: return '*';
     }

@@ -267,6 +267,7 @@ describe('UserService', () => {
 
       expect(result.data[0].playerColor).toBe('black');
       expect(result.data[0].playerResult).toBe('win');
+      expect(result.data[0].result).toBe('1-0');
       expect(result.data[0].opponent.id).toBe(otherId);
       expect(result.data[0].opponent.ratingBefore).toBe(1500);
     });
