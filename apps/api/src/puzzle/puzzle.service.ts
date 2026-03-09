@@ -27,12 +27,12 @@ export class PuzzleService {
     const minRating = user.ratingPuzzle - range;
     const maxRating = user.ratingPuzzle + range;
 
-    const solvedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId, solved: true },
+    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId },
       select: { puzzleId: true },
       distinct: ['puzzleId'],
     });
-    const excludeIds = solvedIds.map((a) => a.puzzleId);
+    const excludeIds = attemptedIds.map((a) => a.puzzleId);
     if (excludeId && !excludeIds.includes(excludeId)) {
       excludeIds.push(excludeId);
     }
@@ -101,7 +101,7 @@ export class PuzzleService {
 
   /**
    * Get next puzzle for user filtered by a specific theme.
-   * Matches user rating ±200 and excludes already solved puzzles.
+   * Matches user rating ±200 and excludes already attempted puzzles.
    */
   async getNextPuzzleByTheme(userId: string, theme: string, excludeId?: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -113,12 +113,12 @@ export class PuzzleService {
     const minRating = user.ratingPuzzle - range;
     const maxRating = user.ratingPuzzle + range;
 
-    const solvedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId, solved: true },
+    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId },
       select: { puzzleId: true },
       distinct: ['puzzleId'],
     });
-    const excludeIds = solvedIds.map((a) => a.puzzleId);
+    const excludeIds = attemptedIds.map((a) => a.puzzleId);
     if (excludeId && !excludeIds.includes(excludeId)) {
       excludeIds.push(excludeId);
     }

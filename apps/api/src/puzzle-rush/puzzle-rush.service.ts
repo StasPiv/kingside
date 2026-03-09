@@ -450,6 +450,19 @@ export class PuzzleRushService {
       select: { ratingPuzzle: true },
     });
 
+    // Exclude all previously attempted puzzles (KS-299)
+    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
+      where: { userId },
+      select: { puzzleId: true },
+      distinct: ['puzzleId'],
+    });
+    const allExcludeIds = [
+      ...new Set([
+        ...excludeIds,
+        ...attemptedIds.map((a) => a.puzzleId),
+      ]),
+    ];
+
     const ratingRange = 300;
     const minRating = user.ratingPuzzle - ratingRange;
     const maxRating = user.ratingPuzzle + ratingRange;
@@ -458,7 +471,7 @@ export class PuzzleRushService {
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
         rating: { gte: minRating, lte: maxRating },
-        id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
+        id: { notIn: allExcludeIds.length > 0 ? allExcludeIds : undefined },
       },
       take: 10,
       skip: Math.floor(Math.random() * 100),
@@ -468,7 +481,7 @@ export class PuzzleRushService {
       // Fallback: try without rating filter
       const fallback = await this.prisma.puzzle.findMany({
         where: {
-          id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
+          id: { notIn: allExcludeIds.length > 0 ? allExcludeIds : undefined },
         },
         take: 1,
         skip: Math.floor(Math.random() * 50),
