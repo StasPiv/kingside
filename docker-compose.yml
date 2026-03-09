@@ -42,6 +42,7 @@ services:
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
       STOCKFISH_PATH: ${STOCKFISH_PATH:-/usr/games/stockfish}
       STOCKFISH_MAX_INSTANCES: ${STOCKFISH_MAX_INSTANCES:-4}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
     depends_on:
       - postgres
       - redis
