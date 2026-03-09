@@ -438,6 +438,15 @@ class WebhookHandler(BaseHTTPRequestHandler):
             summary = issue.get("fields", {}).get("summary", "")
             comment_body = payload.get("comment", {}).get("body", "")
 
+            # Проверяем статус задачи — не запускаем агентов для завершённых задач
+            status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
+            if status_category == "done":
+                log(f"Пропуск {key}: задача в статусе Done")
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status":"skipped","reason":"done"}')
+                return
+
             if not key or not comment_body:
                 self.send_response(200)
                 self.end_headers()
@@ -501,6 +510,16 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         key, summary, agent, labels = extract_task(payload)
+
+        # Проверяем статус задачи — не запускаем агентов для завершённых задач
+        issue = payload.get("issue", {})
+        status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
+        if status_category == "done":
+            log(f"Пропуск {key}: задача в статусе Done")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b'{"status":"skipped","reason":"done"}')
+            return
 
         if not key or not agent:
             log(f"Пропуск {key}: нет подходящего label (labels={labels})")
