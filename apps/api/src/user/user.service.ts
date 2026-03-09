@@ -6,6 +6,7 @@ import {
 import { I18nService } from 'nestjs-i18n';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
+import { EcoService } from '../game/eco.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -14,6 +15,7 @@ export class UserService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly eco: EcoService,
   ) {}
 
   async updateSettings(userId: string, dto: UpdateSettingsDto) {
@@ -134,6 +136,8 @@ export class UserService {
         skip,
         select: {
           id: true,
+          whiteId: true,
+          blackId: true,
           result: true,
           termination: true,
           timeControlType: true,
@@ -141,34 +145,68 @@ export class UserService {
           timeIncrementSec: true,
           eco: true,
           createdAt: true,
+          finishedAt: true,
           whiteRatingBefore: true,
           whiteRatingAfter: true,
           blackRatingBefore: true,
           blackRatingAfter: true,
           white: { select: { id: true, username: true } },
           black: { select: { id: true, username: true } },
+          moves: {
+            orderBy: { moveNumber: 'asc' },
+            take: 20,
+            select: { san: true },
+          },
           _count: { select: { moves: true } },
         },
       }),
       this.prisma.game.count({ where }),
     ]);
 
-    const data = games.map((game) => ({
-      id: game.id,
-      white: game.white,
-      black: game.black,
-      result: this.formatResult(game.result),
-      termination: game.termination,
-      timeControlType: game.timeControlType,
-      timeControl: this.formatTimeControl(game.timeInitialSec, game.timeIncrementSec),
-      eco: game.eco,
-      totalMoves: game._count.moves,
-      createdAt: game.createdAt,
-      whiteRatingBefore: game.whiteRatingBefore,
-      whiteRatingAfter: game.whiteRatingAfter,
-      blackRatingBefore: game.blackRatingBefore,
-      blackRatingAfter: game.blackRatingAfter,
-    }));
+    const data = games.map((game) => {
+      const isWhite = game.whiteId === userId;
+      const playerColor = isWhite ? 'white' : 'black';
+      const opponent = isWhite ? game.black : game.white;
+      const opponentRatingBefore = isWhite
+        ? game.blackRatingBefore
+        : game.whiteRatingBefore;
+
+      const sanMoves = game.moves.map((m: { san: string }) => m.san);
+      const opening = this.eco.classify(sanMoves);
+
+      let playerResult: 'win' | 'loss' | 'draw';
+      if (game.result === 'draw') {
+        playerResult = 'draw';
+      } else if (game.result === playerColor) {
+        playerResult = 'win';
+      } else {
+        playerResult = 'loss';
+      }
+
+      return {
+        id: game.id,
+        playerColor,
+        playerResult,
+        opponent: {
+          id: opponent.id,
+          username: opponent.username,
+          ratingBefore: opponentRatingBefore,
+        },
+        ecoCode: game.eco ?? opening.code,
+        openingName: opening.name,
+        result: this.formatResult(game.result),
+        termination: game.termination,
+        timeControlType: game.timeControlType,
+        timeControl: this.formatTimeControl(game.timeInitialSec, game.timeIncrementSec),
+        totalMoves: game._count.moves,
+        createdAt: game.createdAt,
+        finishedAt: game.finishedAt,
+        whiteRatingBefore: game.whiteRatingBefore,
+        whiteRatingAfter: game.whiteRatingAfter,
+        blackRatingBefore: game.blackRatingBefore,
+        blackRatingAfter: game.blackRatingAfter,
+      };
+    });
 
     return {
       data,
