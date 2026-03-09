@@ -211,7 +211,12 @@ export function useStockfish(options: UseStockfishOptions = {}) {
 
   const stop = useCallback(() => {
     if (!engineRef.current) return;
+    pendingFenRef.current = null;
     engineRef.current.postMessage('stop');
+    // Transition to ready so UI reflects stopped state
+    if (stateRef.current === 'analyzing') {
+      setState('ready');
+    }
   }, []);
 
   return {
@@ -221,6 +226,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     evaluate,
     stop,
     init,
+    cleanup,
     isReady: state === 'ready' || state === 'analyzing',
   };
 }

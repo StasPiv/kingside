@@ -78,9 +78,12 @@ export function GameReviewPage() {
 
   const game = useMemo(() => new Chess(), []);
 
-  const { lines, evaluate, isReady, state: sfState } = useStockfish({
+  const [analysisEnabled, setAnalysisEnabled] = useState(true);
+
+  const { lines, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
     depth: 18,
     multiPv: 3,
+    autoStart: analysisEnabled,
   });
 
   useEffect(() => {
@@ -114,14 +117,28 @@ export function GameReviewPage() {
     game.load(currentFen);
   }, [currentFen, game]);
 
+  const toggleAnalysis = useCallback(() => {
+    setAnalysisEnabled((prev) => {
+      if (prev) {
+        // Turning off: stop engine and terminate worker
+        stopEngine();
+        cleanupEngine();
+      } else {
+        // Turning on: re-init engine
+        initEngine();
+      }
+      return !prev;
+    });
+  }, [stopEngine, cleanupEngine, initEngine]);
+
   // Auto-evaluate when position changes (debounced to avoid WASM crashes)
   useEffect(() => {
-    if (!isReady || !currentFen) return;
+    if (!analysisEnabled || !isReady || !currentFen) return;
     const timer = setTimeout(() => {
       evaluate(currentFen);
     }, 150);
     return () => clearTimeout(timer);
-  }, [currentFen, isReady, evaluate]);
+  }, [currentFen, isReady, evaluate, analysisEnabled]);
 
   const goToStart = useCallback(() => setCurrentMoveIndex(-1), []);
   const goToEnd = useCallback(() => setCurrentMoveIndex(moves.length - 1), [moves.length]);
@@ -230,18 +247,41 @@ export function GameReviewPage() {
       <div className="analysis-sidebar">
         {/* Engine analysis panel */}
         <div className="analysis-progress">
-          <div className="analysis-progress-text">
-            Stockfish 18 {sfState === 'analyzing' && lines.length > 0
-              ? `· ${t('analysis.depth')} ${lines[0].depth}`
-              : sfState === 'loading'
-                ? `· ${t('common.loading')}`
-                : sfState === 'error'
-                  ? ` · ${t('analysis.engineError', 'Engine error')}`
-                  : sfState === 'ready' && lines.length === 0
-                    ? ` · ${t('analysis.ready', 'Ready')}`
-                    : ''}
+          <div className="analysis-progress-text" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>
+              Stockfish 18 {analysisEnabled && sfState === 'analyzing' && lines.length > 0
+                ? `· ${t('analysis.depth')} ${lines[0].depth}`
+                : analysisEnabled && sfState === 'loading'
+                  ? `· ${t('common.loading')}`
+                  : analysisEnabled && sfState === 'error'
+                    ? ` · ${t('analysis.engineError', 'Engine error')}`
+                    : analysisEnabled && sfState === 'ready' && lines.length === 0
+                      ? ` · ${t('analysis.ready', 'Ready')}`
+                      : !analysisEnabled
+                        ? ` · ${t('analysis.off', 'Off')}`
+                        : ''}
+            </span>
+            <button
+              className="analysis-toggle-btn"
+              onClick={toggleAnalysis}
+              title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : t('analysis.start', 'Start analysis')}
+              data-testid="stockfish-toggle"
+              style={{
+                padding: '2px 10px',
+                fontSize: 13,
+                cursor: 'pointer',
+                borderRadius: 4,
+                border: '1px solid #555',
+                background: analysisEnabled ? '#dc2626' : '#16a34a',
+                color: '#fff',
+                marginLeft: 8,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+            </button>
           </div>
-          {lines.length > 0 && (
+          {analysisEnabled && lines.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
               {lines.map((line) => (
                 <div key={line.multipv} style={{ display: 'flex', gap: 8, fontSize: 13 }}>
