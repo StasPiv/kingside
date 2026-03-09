@@ -343,7 +343,12 @@ export class GameService {
     await this.clockService.deleteClock(gameId);
     await this.redis.del(`game:${gameId}:draw_offer`);
 
-    const ratingChange = await this.ratingService.updateRatingsAfterGame(gameId, result);
+    let ratingChange: RatingChange | null = null;
+    try {
+      ratingChange = await this.ratingService.updateRatingsAfterGame(gameId, result);
+    } catch (e: any) {
+      this.logger.error(`Rating update failed for game ${gameId}: ${e.message}`);
+    }
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
     return ratingChange;
   }

@@ -52,7 +52,6 @@ export class RatingProtectionService {
     );
     if (!pairResult.allowed) {
       this.logSuspiciousPattern(gameId, game.whiteId, game.blackId, pairResult.reason!);
-      return pairResult;
     }
 
     const loserId = game.result === 'white' ? game.blackId : game.result === 'black' ? game.whiteId : null;

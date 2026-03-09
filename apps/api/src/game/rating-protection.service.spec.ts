@@ -193,5 +193,22 @@ describe('RatingProtectionService', () => {
       const result = await service.validateGame(gameId);
       expect(result.allowed).toBe(true);
     });
+
+    it('should allow game even when pair limit exceeded', async () => {
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        id: gameId,
+        whiteId,
+        blackId,
+        result: 'white',
+        termination: 'resignation',
+        timeControlType: 'blitz',
+        moves: [{ id: '1' }, { id: '2' }, { id: '3' }],
+      });
+      prisma.game.count.mockResolvedValue(5);
+      prisma.game.findMany.mockResolvedValue([]);
+
+      const result = await service.validateGame(gameId);
+      expect(result.allowed).toBe(true);
+    });
   });
 });
