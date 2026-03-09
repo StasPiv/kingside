@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
+import type { Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../ApiError';
 import { useContainerWidth } from '../hooks/useContainerWidth';
@@ -35,6 +36,7 @@ export function PuzzleRushPage() {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
 
@@ -113,33 +115,37 @@ export function PuzzleRushPage() {
   };
 
   const loadNextPuzzle = useCallback(
-    (nextPuzzle: { fen: string; setupMove: string; rating: number }) => {
+    (nextPuzzle: { fen: string; setupMove?: string; rating: number }) => {
+      if (!nextPuzzle.setupMove) return;
       setTimeout(() => {
-        setupPuzzle(nextPuzzle.fen, nextPuzzle.setupMove);
+        setupPuzzle(nextPuzzle.fen, nextPuzzle.setupMove!);
       }, 300);
     },
     [setupPuzzle],
   );
 
-  const onPieceDrop = useCallback(
-    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
-      if (!targetSquare) return false;
-      if (!game || screen !== 'playing') return false;
-      if (feedback || submitting) return false;
+  const isPromotionMove = useCallback((from: string, to: string): boolean => {
+    if (!game) return false;
+    const piece = game.get(from as Square);
+    if (!piece || piece.type !== 'p') return false;
+    const targetRank = to[1];
+    return (piece.color === 'w' && targetRank === '8') || (piece.color === 'b' && targetRank === '1');
+  }, [game]);
 
-      // Try the move locally first for immediate visual feedback
+  const executeRushMove = useCallback(
+    (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
+      if (!game) return;
+
       const copy = new Chess(game.fen());
-      const move = copy.move({ from: sourceSquare, to: targetSquare });
-      if (!move) return false;
+      const move = copy.move({ from, to, promotion });
+      if (!move) return;
 
-      // Build UCI string
-      const uci = sourceSquare + targetSquare + (move.promotion ?? '');
+      const uci = from + to + (promotion ?? '');
 
       const prevFen = game.fen();
       setGame(copy);
       setSubmitting(true);
 
-      // Send to server for validation
       puzzleApi
         .solveRush({ uci })
         .then((response) => {
@@ -153,11 +159,9 @@ export function PuzzleRushPage() {
 
           if (response.correct) {
             if (response.nextPuzzle) {
-              // Puzzle fully solved, load next
               setFeedback('correct');
               loadNextPuzzle(response.nextPuzzle);
             } else if (response.expectedMove) {
-              // Intermediate move — animate opponent's response
               const opMove = response.expectedMove;
               setTimeout(() => {
                 const next = new Chess(copy.fen());
@@ -170,7 +174,6 @@ export function PuzzleRushPage() {
               }, 200);
             }
           } else {
-            // Wrong answer
             setFeedback('wrong');
             if (response.nextPuzzle) {
               loadNextPuzzle(response.nextPuzzle);
@@ -178,7 +181,89 @@ export function PuzzleRushPage() {
           }
         })
         .catch((err: unknown) => {
-          // Revert on error
+          setGame(new Chess(prevFen));
+          if (err instanceof ApiError && err.errorCode) {
+            const key = `puzzleRush.errors.${err.errorCode}`;
+            const localized = t(key);
+            setError(localized !== key ? localized : err.message);
+          }
+        })
+        .finally(() => {
+          setSubmitting(false);
+        });
+    },
+    [game, endGame, loadNextPuzzle],
+  );
+
+  const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
+    if (!pendingPromotion) return;
+    executeRushMove(pendingPromotion.from, pendingPromotion.to, piece);
+    setPendingPromotion(null);
+  }, [pendingPromotion, executeRushMove]);
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
+
+  const onPieceDrop = useCallback(
+    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
+      if (!targetSquare) return false;
+      if (!game || screen !== 'playing') return false;
+      if (feedback || submitting) return false;
+
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        const testGame = new Chess(game.fen());
+        const testMove = testGame.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
+        if (!testMove) return false;
+        setPendingPromotion({ from: sourceSquare as Square, to: targetSquare as Square });
+        return true;
+      }
+
+      const copy = new Chess(game.fen());
+      const move = copy.move({ from: sourceSquare, to: targetSquare });
+      if (!move) return false;
+
+      const uci = sourceSquare + targetSquare;
+
+      const prevFen = game.fen();
+      setGame(copy);
+      setSubmitting(true);
+
+      puzzleApi
+        .solveRush({ uci })
+        .then((response) => {
+          setScore(response.score);
+          setLives(response.lives);
+
+          if (response.finished) {
+            endGame();
+            return;
+          }
+
+          if (response.correct) {
+            if (response.nextPuzzle) {
+              setFeedback('correct');
+              loadNextPuzzle(response.nextPuzzle);
+            } else if (response.expectedMove) {
+              const opMove = response.expectedMove;
+              setTimeout(() => {
+                const next = new Chess(copy.fen());
+                next.move({
+                  from: opMove.slice(0, 2),
+                  to: opMove.slice(2, 4),
+                  promotion: opMove.length > 4 ? opMove[4] : undefined,
+                });
+                setGame(next);
+              }, 200);
+            }
+          } else {
+            setFeedback('wrong');
+            if (response.nextPuzzle) {
+              loadNextPuzzle(response.nextPuzzle);
+            }
+          }
+        })
+        .catch((err: unknown) => {
           setGame(new Chess(prevFen));
           if (err instanceof ApiError && err.errorCode) {
             const key = `puzzleRush.errors.${err.errorCode}`;
@@ -192,7 +277,7 @@ export function PuzzleRushPage() {
 
       return true;
     },
-    [game, screen, feedback, submitting, endGame, loadNextPuzzle],
+    [game, screen, feedback, submitting, endGame, loadNextPuzzle, isPromotionMove],
   );
 
   useFastDrag(boardContainerRef, {
@@ -339,6 +424,29 @@ export function PuzzleRushPage() {
 
         <div className="board-container" ref={boardContainerRef}>
           {game && <MemoChessboard options={boardOptions} />}
+          {pendingPromotion && (
+            <div className="promotion-overlay" onClick={handlePromotionCancel}>
+              <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
+                {(['q', 'r', 'b', 'n'] as const).map((piece) => {
+                  const color = boardOrientation === 'white' ? 'w' : 'b';
+                  const pieceNames: Record<string, string> = { q: 'Q', r: 'R', b: 'B', n: 'N' };
+                  return (
+                    <button
+                      key={piece}
+                      className="promotion-piece"
+                      onClick={() => handlePromotionChoice(piece)}
+                      data-piece={`${color}${pieceNames[piece]}`}
+                    >
+                      {piece === 'q' ? (boardOrientation === 'white' ? '\u2655' : '\u265B') : null}
+                      {piece === 'r' ? (boardOrientation === 'white' ? '\u2656' : '\u265C') : null}
+                      {piece === 'b' ? (boardOrientation === 'white' ? '\u2657' : '\u265D') : null}
+                      {piece === 'n' ? (boardOrientation === 'white' ? '\u2658' : '\u265E') : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

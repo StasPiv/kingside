@@ -34,6 +34,23 @@ export type PuzzleRushSolveRequest = {
   uci: string;
 };
 
+export type PuzzleRushStartResponse = {
+  sessionId: string;
+  puzzle: { fen: string; rating: number; moves: string };
+  timeMode: string;
+  durationMs: number;
+  lives: number;
+};
+
+export type PuzzleRushSolveResponse = {
+  correct: boolean;
+  score: number;
+  lives: number;
+  finished: boolean;
+  nextPuzzle: { fen: string; rating: number; setupMove?: string } | null;
+  expectedMove?: string;
+};
+
 export type PuzzleRushLeaderboardParams = {
   timeMode?: '3' | '5';
   limit?: number;
@@ -62,7 +79,7 @@ export const puzzleApi = {
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>
-    api.post('/api/puzzle-rush/start', body),
+    api.post<PuzzleRushStartResponse>('/api/puzzle-rush/start', body),
 
   /** Get current puzzle rush session */
   getRushSession: () =>
@@ -70,7 +87,7 @@ export const puzzleApi = {
 
   /** Submit a move in puzzle rush */
   solveRush: (body: PuzzleRushSolveRequest) =>
-    api.post('/api/puzzle-rush/solve', body),
+    api.post<PuzzleRushSolveResponse>('/api/puzzle-rush/solve', body),
 
   /** End current puzzle rush session */
   endRushSession: () =>
