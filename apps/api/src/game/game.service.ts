@@ -164,7 +164,7 @@ export class GameService {
     );
     if (timedOut) {
       const result = activeColor === 'white' ? 'black' : 'white';
-      await this.endGame(gameId, result, 'timeout');
+      const ratingChange = await this.endGame(gameId, result, 'timeout');
       return {
         san: '',
         fen: raw.fen,
@@ -172,6 +172,7 @@ export class GameService {
         gameOver: true,
         result,
         termination: 'timeout',
+        ratingChange,
       };
     }
 

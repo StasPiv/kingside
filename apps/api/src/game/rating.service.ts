@@ -29,11 +29,14 @@ export class RatingService {
       },
     });
 
-    if (game.isBot) return null;
+    if (game.isBot) {
+      this.logger.log(`Rating update skipped for game ${gameId}: bot game`);
+      return null;
+    }
 
     const check = await this.protection.validateGame(gameId);
     if (!check.allowed) {
-      this.logger.log(`Rating update skipped for game ${gameId}: ${check.reason}`);
+      this.logger.warn(`Rating update skipped for game ${gameId}: ${check.reason}`);
       return null;
     }
 
