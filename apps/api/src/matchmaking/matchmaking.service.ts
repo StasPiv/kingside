@@ -4,11 +4,18 @@ import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { classifyTimeControl, type TimeControlCategory } from '@kingside/shared';
 
+export interface RatingFilter {
+  ratingMin?: number;
+  ratingMax?: number;
+  ratingDelta?: number;
+}
+
 interface QueueEntry {
   userId: string;
   rating: number;
   timeInitialSec: number;
   timeIncrementSec: number;
+  ratingFilter?: RatingFilter;
 }
 
 @Injectable()
@@ -26,6 +33,7 @@ export class MatchmakingService {
     timeInitialSec: number,
     timeIncrementSec: number,
     isOnline?: (userId: string) => Promise<boolean>,
+    ratingFilter?: RatingFilter,
   ): Promise<{ gameId: string; color: string; opponent: any } | null> {
     const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
 
@@ -38,11 +46,17 @@ export class MatchmakingService {
 
     const queueKey = `matchmaking:${timeControlType}`;
 
+    // Resolve effective search range: intersection of default range and user filter
+    const { min: searchMin, max: searchMax } = this.resolveSearchRange(
+      rating,
+      ratingFilter,
+    );
+
     // Look for opponent in rating range
     const candidates = await this.redis.zrangebyscore(
       queueKey,
-      rating - this.RATING_RANGE,
-      rating + this.RATING_RANGE,
+      searchMin,
+      searchMax,
     );
 
     for (const candidateData of candidates) {
@@ -53,6 +67,11 @@ export class MatchmakingService {
         candidate.timeInitialSec !== timeInitialSec ||
         candidate.timeIncrementSec !== timeIncrementSec
       ) {
+        continue;
+      }
+
+      // Check mutual rating filter: candidate's filter must also accept current user
+      if (!this.isWithinFilter(rating, candidate.rating, candidate.ratingFilter)) {
         continue;
       }
 
@@ -100,6 +119,9 @@ export class MatchmakingService {
       rating,
       timeInitialSec,
       timeIncrementSec,
+      ...(ratingFilter && Object.keys(ratingFilter).length > 0
+        ? { ratingFilter }
+        : {}),
     };
 
     await this.redis.zadd(queueKey, rating, JSON.stringify(entry));
@@ -119,6 +141,50 @@ export class MatchmakingService {
     }
 
     return false;
+  }
+
+  /**
+   * Resolve the effective search range for Redis ZRANGEBYSCORE.
+   * Intersects default ±RATING_RANGE with user-specified filter.
+   */
+  resolveSearchRange(
+    rating: number,
+    filter?: RatingFilter,
+  ): { min: number; max: number } {
+    let min = rating - this.RATING_RANGE;
+    let max = rating + this.RATING_RANGE;
+
+    if (!filter) return { min, max };
+
+    if (filter.ratingDelta !== undefined) {
+      min = Math.max(min, rating - filter.ratingDelta);
+      max = Math.min(max, rating + filter.ratingDelta);
+    }
+
+    if (filter.ratingMin !== undefined) {
+      min = Math.max(min, filter.ratingMin);
+    }
+
+    if (filter.ratingMax !== undefined) {
+      max = Math.min(max, filter.ratingMax);
+    }
+
+    return { min, max };
+  }
+
+  /**
+   * Check if the joining player's rating is acceptable to the candidate's filter.
+   * candidateRating is used to resolve relative (delta) filters.
+   */
+  isWithinFilter(
+    joinerRating: number,
+    candidateRating: number,
+    candidateFilter?: RatingFilter,
+  ): boolean {
+    if (!candidateFilter) return true;
+
+    const { min, max } = this.resolveSearchRange(candidateRating, candidateFilter);
+    return joinerRating >= min && joinerRating <= max;
   }
 
   private ratingFieldForCategory(

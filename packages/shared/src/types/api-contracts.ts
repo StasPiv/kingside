@@ -320,6 +320,12 @@ export type WsErrorPayload = {
 export type WsMatchmakingJoinPayload = {
   timeInitial: number;
   increment: number;
+  /** Absolute filter: minimum opponent rating */
+  ratingMin?: number;
+  /** Absolute filter: maximum opponent rating */
+  ratingMax?: number;
+  /** Relative filter: ± delta from current rating */
+  ratingDelta?: number;
 };
 
 /** Server → Client */

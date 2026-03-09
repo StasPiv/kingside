@@ -1,4 +1,4 @@
-import { IsInt, Min, Max } from 'class-validator';
+import { IsInt, IsOptional, Min, Max } from 'class-validator';
 import { MAX_INITIAL_TIME_SEC, MAX_INCREMENT_SEC } from '@kingside/shared';
 import type { WsMatchmakingJoinPayload } from '@kingside/shared';
 
@@ -12,4 +12,22 @@ export class JoinQueueDto implements WsMatchmakingJoinPayload {
   @Min(0)
   @Max(MAX_INCREMENT_SEC)
   increment!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(4000)
+  ratingMin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(4000)
+  ratingMax?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2000)
+  ratingDelta?: number;
 }
