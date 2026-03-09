@@ -162,7 +162,12 @@
   },
   "analysis": {
     "depth": "Depth",
-    "backToLobby": "Back to lobby"
+    "backToLobby": "Back to lobby",
+    "stop": "Stop",
+    "start": "Start",
+    "off": "Off",
+    "engineError": "Engine error",
+    "ready": "Ready"
   },
   "puzzle": {
     "title": "Puzzles",

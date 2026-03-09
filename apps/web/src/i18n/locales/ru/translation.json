@@ -162,7 +162,12 @@
   },
   "analysis": {
     "depth": "Глубина",
-    "backToLobby": "Вернуться в лобби"
+    "backToLobby": "Вернуться в лобби",
+    "stop": "Стоп",
+    "start": "Старт",
+    "off": "Выключен",
+    "engineError": "Ошибка движка",
+    "ready": "Готов"
   },
   "puzzle": {
     "title": "Задачи",
