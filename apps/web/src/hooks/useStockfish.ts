@@ -33,6 +33,8 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   const workerRef = useRef<Worker | null>(null);
   const fenRef = useRef<string | null>(null);
   const linesBuffer = useRef<Map<number, EvalLine>>(new Map());
+  const stateRef = useRef<StockfishState>(state);
+  stateRef.current = state;
 
   const cleanup = useCallback(() => {
     if (workerRef.current) {
@@ -104,7 +106,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
 
   const evaluate = useCallback(
     (fen: string) => {
-      if (!workerRef.current || state === 'loading') return;
+      if (!workerRef.current || stateRef.current === 'loading') return;
       fenRef.current = fen;
       linesBuffer.current.clear();
       setLines([]);
@@ -112,7 +114,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       setState('analyzing');
       workerRef.current.postMessage({ type: 'eval', fen, depth, multiPv });
     },
-    [state, depth, multiPv],
+    [depth, multiPv],
   );
 
   const stop = useCallback(() => {
