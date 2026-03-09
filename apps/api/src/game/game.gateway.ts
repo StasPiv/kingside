@@ -61,8 +61,23 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
+    const userId = client.data.user?.id;
     this.logger.log(`Client disconnected: ${client.id}`);
+
+    if (userId) {
+      try {
+        const endedGameIds = await this.gameService.endBotGameOnDisconnect(userId);
+        for (const gameId of endedGameIds) {
+          this.server.to(`game:${gameId}`).emit('game:end', {
+            result: 'black',
+            termination: 'abandon',
+          });
+        }
+      } catch (e: any) {
+        this.logger.error(`Failed to end bot games on disconnect: ${e.message}`);
+      }
+    }
   }
 
   @SubscribeMessage(GameEvents.JOIN)
