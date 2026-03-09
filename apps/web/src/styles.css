@@ -555,8 +555,9 @@ input:focus {
   gap: 24px;
   justify-content: center;
   align-items: flex-start;
-  min-height: calc(100vh - 48px);
+  height: calc(100vh - 48px);
   padding: 12px;
+  overflow: hidden;
 }
 
 .game-board-area {
@@ -2099,11 +2100,15 @@ input:focus {
     flex-direction: column;
     align-items: center;
     gap: 12px;
+    height: auto;
+    min-height: calc(100vh - 48px);
+    overflow-y: auto;
   }
 
   .game-sidebar {
     width: 100%;
     max-width: 480px;
+    max-height: none;
   }
 
   .moves {
