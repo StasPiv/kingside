@@ -150,7 +150,8 @@
     "chat": "Chat",
     "chatPlaceholder": "Message...",
     "chatSend": "Send",
-    "analyze": "Analyze"
+    "analyze": "Analyze",
+    "backToLobby": "Back to Lobby"
   },
   "review": {
     "loadError": "Failed to load game",
@@ -158,7 +159,8 @@
     "back": "Previous move",
     "forward": "Next move",
     "toEnd": "Go to end",
-    "backToProfile": "Back to profile"
+    "backToProfile": "Back to profile",
+    "backToGame": "Back to Game"
   },
   "analysis": {
     "depth": "Depth",
@@ -197,6 +199,7 @@
     "wrong": "Wrong move",
     "tryAgain": "Try Again",
     "loadError": "Failed to load puzzle",
+    "backToPuzzles": "Back to Puzzles",
     "daily": {
       "title": "Daily Puzzle",
       "completed": "Today's puzzle completed!",

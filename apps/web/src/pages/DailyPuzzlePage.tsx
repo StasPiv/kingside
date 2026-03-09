@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
+import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
@@ -225,6 +226,7 @@ export function DailyPuzzlePage() {
 
   return (
     <div className="daily-puzzle-page">
+      <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
       <div className="puzzle-board-area">
         <div className="puzzle-header">
           <h1>{t('puzzle.daily.title')}</h1>

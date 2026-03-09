@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { useContainerWidth } from '../hooks/useContainerWidth';
@@ -224,6 +224,7 @@ export function PuzzlePage() {
 
   return (
     <div className="puzzle-page">
+      <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
       <h1>{t('puzzle.title')}</h1>
 
       <div className="puzzle-stats">
