@@ -7,8 +7,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: 'autoUpdate',
       includeAssets: ['icon.svg'],
+      devOptions: {
+        enabled: false,
+      },
       manifest: {
         name: 'Kingside — Online Chess',
         short_name: 'Kingside',
@@ -29,6 +32,8 @@ export default defineConfig({
         ],
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         globIgnores: ['**/stockfish/**'],
         navigateFallback: 'index.html',
