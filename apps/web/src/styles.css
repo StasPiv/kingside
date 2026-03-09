@@ -204,6 +204,11 @@ input:focus {
   padding: 24px;
 }
 
+.main:has(.game-page) {
+  max-width: none;
+  padding: 0;
+}
+
 /* Auth pages */
 .auth-page {
   display: flex;
@@ -546,10 +551,11 @@ input:focus {
 /* Game page */
 .game-page {
   display: flex;
-  flex-wrap: wrap;
   gap: 24px;
   justify-content: center;
   align-items: flex-start;
+  min-height: calc(100vh - 48px);
+  padding: 12px;
 }
 
 .game-board-area {
@@ -603,8 +609,6 @@ input:focus {
 .board-container {
   border-radius: 4px;
   overflow: hidden;
-  width: min(calc(100vh - 190px), calc(100vw - 32px));
-  max-width: 100%;
   aspect-ratio: 1;
   touch-action: none;
   -webkit-touch-callout: none;
@@ -616,10 +620,12 @@ input:focus {
 .game-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  width: 320px;
+  gap: 12px;
+  width: 280px;
   min-width: 0;
-  flex-shrink: 1;
+  flex-shrink: 0;
+  max-height: calc(100vh - 48px - 24px);
+  overflow: hidden;
 }
 
 .move-list {
@@ -627,6 +633,10 @@ input:focus {
   border-radius: 8px;
   padding: 12px;
   overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .move-list h3 {
@@ -639,7 +649,8 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 400px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -785,6 +796,8 @@ input:focus {
   padding: 16px;
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .chat h3 {
@@ -794,7 +807,8 @@ input:focus {
 }
 
 .chat-messages {
-  max-height: 200px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   margin-bottom: 8px;
   display: flex;
@@ -2076,6 +2090,26 @@ input:focus {
   align-items: center;
 }
 
+/* Responsive: game page breakpoint */
+@media (max-width: 899px) {
+  .game-page {
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .game-sidebar {
+    width: 100%;
+    max-width: 480px;
+    max-height: none;
+  }
+
+  .player-info {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 /* Responsive: tablets */
 @media (max-width: 768px) {
   .hamburger {
@@ -2119,23 +2153,16 @@ input:focus {
     padding: 16px;
   }
 
-  .game-page,
   .analysis-page,
   .daily-puzzle-page {
     flex-direction: column;
     align-items: center;
   }
 
-  .game-sidebar,
   .analysis-sidebar,
   .puzzle-sidebar {
     width: 100%;
     max-width: 480px;
-  }
-
-  .player-info {
-    min-width: 0;
-    width: 100%;
   }
 
   .puzzle-list {
@@ -2164,15 +2191,10 @@ input:focus {
     font-size: 16px;
   }
 
-  .game-page,
   .analysis-page,
   .daily-puzzle-page,
   .puzzle-page {
     gap: 12px;
-  }
-
-  .board-container {
-    width: min(calc(100vh - 190px), calc(100vw - 16px));
   }
 
   .puzzle-page .board-container {
@@ -2200,7 +2222,6 @@ input:focus {
     height: auto;
   }
 
-  .game-sidebar,
   .analysis-sidebar,
   .puzzle-sidebar {
     gap: 10px;

@@ -16,7 +16,7 @@ import {
   type WsErrorPayload,
 } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
-import { useContainerWidth } from '../hooks/useContainerWidth';
+import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { socket } from '../socket';
 
@@ -55,7 +55,7 @@ export function GamePage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
-  const boardWidth = useContainerWidth(boardContainerRef);
+  const boardWidth = useResponsiveBoardSize();
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
