@@ -225,6 +225,7 @@ export function GamePage() {
 
   return (
     <div className="game-page">
+      <Link to="/" className="back-nav-link">&larr; {t('game.backToLobby')}</Link>
       <div className="game-board-area">
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />

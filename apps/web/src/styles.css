@@ -380,6 +380,7 @@ input:focus {
 /* Game page */
 .game-page {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
   justify-content: center;
   align-items: flex-start;
@@ -1073,9 +1074,29 @@ input:focus {
   text-decoration: none;
 }
 
+.analysis-back-link + .analysis-back-link {
+  margin-top: 8px;
+}
+
+/* Back navigation link */
+.back-nav-link {
+  display: block;
+  width: 100%;
+  margin-bottom: -12px;
+  color: #7c83ff;
+  font-size: 14px;
+  text-decoration: none;
+  flex-basis: 100%;
+}
+
+.back-nav-link:hover {
+  text-decoration: underline;
+}
+
 /* Daily Puzzle page */
 .daily-puzzle-page {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
   justify-content: center;
   align-items: flex-start;

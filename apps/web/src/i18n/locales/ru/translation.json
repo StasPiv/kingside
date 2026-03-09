@@ -150,7 +150,8 @@
     "chat": "Чат",
     "chatPlaceholder": "Сообщение...",
     "chatSend": "Отправить",
-    "analyze": "Анализ"
+    "analyze": "Анализ",
+    "backToLobby": "Назад в лобби"
   },
   "review": {
     "loadError": "Не удалось загрузить партию",
@@ -158,7 +159,8 @@
     "back": "Предыдущий ход",
     "forward": "Следующий ход",
     "toEnd": "В конец",
-    "backToProfile": "Назад к профилю"
+    "backToProfile": "Назад к профилю",
+    "backToGame": "Назад к партии"
   },
   "analysis": {
     "depth": "Глубина",
@@ -197,6 +199,7 @@
     "wrong": "Неверный ход",
     "tryAgain": "Попробовать снова",
     "loadError": "Не удалось загрузить задачу",
+    "backToPuzzles": "Назад к задачам",
     "daily": {
       "title": "Задача дня",
       "completed": "Задача дня решена!",

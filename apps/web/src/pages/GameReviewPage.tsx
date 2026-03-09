@@ -341,6 +341,7 @@ export function GameReviewPage() {
           )}
         </div>
 
+        <Link to={`/game/${gameId}`} className="analysis-back-link">{t('review.backToGame')}</Link>
         <Link to="/profile" className="analysis-back-link">{t('review.backToProfile')}</Link>
       </div>
     </div>
