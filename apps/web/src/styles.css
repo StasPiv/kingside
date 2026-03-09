@@ -66,7 +66,6 @@ input:focus {
   padding: 12px 24px;
   background: #16213e;
   border-bottom: 1px solid #1a1a3e;
-  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -80,14 +79,112 @@ input:focus {
   text-decoration: none;
 }
 
+.hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  background: transparent;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.hamburger span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: #e0e0e0;
+  border-radius: 1px;
+}
+
+.hamburger:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.nav-menu {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  justify-content: space-between;
+}
+
 .nav-links {
   display: flex;
   align-items: center;
   gap: 16px;
 }
 
-.nav-user {
+/* Dropdown */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-toggle {
+  background: transparent;
+  color: #7c83ff;
+  padding: 6px 12px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dropdown-toggle:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-toggle.nav-user {
   color: #a0a0c0;
+}
+
+.dropdown-toggle.nav-user:hover {
+  color: #fff;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #1e2a4a;
+  border: 1px solid #2a3a5e;
+  border-radius: 8px;
+  min-width: 180px;
+  padding: 4px 0;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.dropdown-menu--right {
+  left: auto;
+  right: 0;
+}
+
+.dropdown-menu a,
+.dropdown-menu button {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  color: #e0e0e0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.dropdown-menu a:hover,
+.dropdown-menu button:hover {
+  background: rgba(124, 131, 255, 0.15);
+  color: #fff;
+  text-decoration: none;
 }
 
 .nav-btn {
@@ -1981,13 +2078,41 @@ input:focus {
 
 /* Responsive: tablets */
 @media (max-width: 768px) {
+  .hamburger {
+    display: flex;
+  }
+
+  .nav-menu {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    gap: 4px;
+    padding-top: 8px;
+  }
+
+  .nav-menu--open {
+    display: flex;
+  }
+
   .header nav {
     flex-wrap: wrap;
     gap: 4px 16px;
   }
 
   .nav-links {
-    gap: 10px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .dropdown-menu {
+    position: static;
+    box-shadow: none;
+    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    margin-top: 2px;
   }
 
   .main {
@@ -2031,23 +2156,12 @@ input:focus {
 
   .header nav {
     padding: 8px 12px;
-    flex-wrap: wrap;
     gap: 4px 12px;
-    font-size: 13px;
-  }
-
-  .header nav a {
-    white-space: nowrap;
     font-size: 13px;
   }
 
   .logo {
     font-size: 16px;
-  }
-
-  .nav-links {
-    gap: 8px;
-    font-size: 13px;
   }
 
   .game-page,

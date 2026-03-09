@@ -6,7 +6,10 @@
     "register": "Register",
     "puzzles": "Puzzles",
     "puzzleRush": "Puzzle Rush",
-    "rushLeaderboard": "Leaderboard"
+    "rushLeaderboard": "Leaderboard",
+    "train": "Train",
+    "dailyPuzzle": "Daily Puzzle",
+    "profile": "Profile"
   },
   "settings": {
     "title": "Settings",
