@@ -153,13 +153,15 @@ export function useFastDrag(
       // Determine whether this is a valid drop attempt (different square).
       const isDropAttempt = !!(targetSquare && targetSquare !== state.sourceSquare);
 
+      // Recalculate boardRect at drop time — the original rect captured on
+      // pointerdown may be stale if the page scrolled or layout shifted.
+      const boardEl = container.querySelector<HTMLElement>('div[id$="-board"]');
+      const freshBoardRect = boardEl ? boardEl.getBoundingClientRect() : state.boardRect;
+      const freshSquareSize = freshBoardRect.width / 8;
+
       // Snap-to-square animation: smoothly move ghost to target square center.
       // For non-drop attempts, snap back to source square.
-      // IMPORTANT: onPieceDrop is deferred until AFTER the snap animation
-      // completes, so the board does not re-render while the ghost is
-      // still mid-flight (which caused a visual glitch — KS-296).
       const snapSquare = isDropAttempt ? targetSquare! : state.sourceSquare;
-      const { boardRect, squareSize } = state;
       const orientation = optionsRef.current.boardOrientation;
 
       const file = snapSquare.charCodeAt(0) - 97; // a=0, h=7
@@ -168,8 +170,8 @@ export function useFastDrag(
       const col = orientation === 'white' ? file : 7 - file;
       const row = orientation === 'white' ? 8 - rank : rank - 1;
 
-      const snapX = boardRect.left + col * squareSize;
-      const snapY = boardRect.top + row * squareSize;
+      const snapX = freshBoardRect.left + col * freshSquareSize;
+      const snapY = freshBoardRect.top + row * freshSquareSize;
 
       state.ghost.style.transition = 'transform 80ms ease-out';
       // Force reflow so the browser registers the current transform before
@@ -182,10 +184,10 @@ export function useFastDrag(
       const cleanup = () => {
         if (cleaned) return;
         cleaned = true;
-        state.ghost.remove();
 
-        // Call the drop handler AFTER the snap animation so the board
-        // re-render happens only when the ghost has already been removed.
+        // Call the drop handler while ghost is STILL visible at the target
+        // position. This way the ghost visually "covers" the board during
+        // React re-render, preventing the flash/glitch when DOM is updated.
         let accepted = false;
         if (isDropAttempt) {
           try {
@@ -198,7 +200,18 @@ export function useFastDrag(
           }
         }
 
-        if (!accepted) {
+        if (accepted) {
+          // Ghost stays on screen until React has painted the new board
+          // position. Double-rAF waits for: (1) React commit, (2) browser
+          // paint — only then is it safe to remove the ghost without a
+          // visible gap between ghost removal and new piece appearance.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              state.ghost.remove();
+            });
+          });
+        } else {
+          state.ghost.remove();
           // Restore opacity on the original piece element
           state.pieceEl.style.opacity = '';
           // Fallback: if React re-rendered and replaced the DOM element,
