@@ -112,7 +112,7 @@ describe('UserService', () => {
   });
 
   describe('getProfile', () => {
-    it('should return user profile', async () => {
+    it('should return user profile with provisional flags', async () => {
       const profile = {
         id: userId,
         username: 'player1',
@@ -120,6 +120,10 @@ describe('UserService', () => {
         ratingBlitz: 1500,
         ratingRapid: 1500,
         ratingClassical: 1500,
+        gamesPlayedBullet: 5,
+        gamesPlayedBlitz: 25,
+        gamesPlayedRapid: 0,
+        gamesPlayedClassical: 20,
         createdAt: new Date(),
         lastSeenAt: new Date(),
       };
@@ -127,7 +131,10 @@ describe('UserService', () => {
 
       const result = await service.getProfile(userId);
 
-      expect(result).toEqual(profile);
+      expect(result.provisionalBullet).toBe(true);
+      expect(result.provisionalBlitz).toBe(false);
+      expect(result.provisionalRapid).toBe(true);
+      expect(result.provisionalClassical).toBe(false);
     });
 
     it('should throw NotFoundException when user not found', async () => {
@@ -270,6 +277,41 @@ describe('UserService', () => {
       expect(result.data[0].result).toBe('1-0');
       expect(result.data[0].opponent.id).toBe(otherId);
       expect(result.data[0].opponent.ratingBefore).toBe(1500);
+    });
+
+    it('should show "0-1" when black player loses (white wins)', async () => {
+      const now = new Date();
+      const games = [
+        {
+          id: 'game-3',
+          whiteId: otherId,
+          blackId: userId,
+          result: 'white',
+          termination: 'checkmate',
+          timeControlType: 'blitz',
+          timeInitialSec: 300,
+          timeIncrementSec: 0,
+          eco: null,
+          createdAt: now,
+          finishedAt: now,
+          whiteRatingBefore: 1530,
+          whiteRatingAfter: 1545,
+          blackRatingBefore: 1470,
+          blackRatingAfter: 1455,
+          white: { id: otherId, username: 'Stas' },
+          black: { id: userId, username: 'Stas1' },
+          moves: [{ san: 'e4' }, { san: 'e5' }],
+          _count: { moves: 8 },
+        },
+      ];
+      prisma.game.findMany.mockResolvedValue(games);
+      prisma.game.count.mockResolvedValue(1);
+
+      const result = await service.getUserGames(userId);
+
+      expect(result.data[0].playerColor).toBe('black');
+      expect(result.data[0].playerResult).toBe('loss');
+      expect(result.data[0].result).toBe('0-1');
     });
 
     it('should format all result types correctly', async () => {
