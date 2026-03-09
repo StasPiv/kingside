@@ -25,15 +25,14 @@ describe('RatingProtectionService', () => {
   });
 
   describe('checkMinimumMoves', () => {
-    it('should reject games with too few moves on resignation', () => {
+    it('should allow games with few moves on resignation', () => {
       const result = service.checkMinimumMoves(3, 'resignation');
-      expect(result.allowed).toBe(false);
-      expect(result.reason).toContain('too few moves');
+      expect(result.allowed).toBe(true);
     });
 
-    it('should reject games with too few moves on timeout', () => {
+    it('should allow games with few moves on timeout', () => {
       const result = service.checkMinimumMoves(2, 'timeout');
-      expect(result.allowed).toBe(false);
+      expect(result.allowed).toBe(true);
     });
 
     it('should allow games with enough moves', () => {
@@ -161,7 +160,7 @@ describe('RatingProtectionService', () => {
   });
 
   describe('validateGame', () => {
-    it('should reject game with too few moves', async () => {
+    it('should allow game with few moves', async () => {
       prisma.game.findUniqueOrThrow.mockResolvedValue({
         id: gameId,
         whiteId,
@@ -171,9 +170,11 @@ describe('RatingProtectionService', () => {
         timeControlType: 'blitz',
         moves: [{ id: '1' }, { id: '2' }],
       });
+      prisma.game.count.mockResolvedValue(0);
+      prisma.game.findMany.mockResolvedValue([]);
 
       const result = await service.validateGame(gameId);
-      expect(result.allowed).toBe(false);
+      expect(result.allowed).toBe(true);
     });
 
     it('should allow valid game', async () => {

@@ -6,7 +6,6 @@ export interface ProtectionResult {
   reason?: string;
 }
 
-const MIN_MOVES_FOR_RATING = 5;
 const MAX_PAIR_GAMES_PER_DAY = 3;
 const SANDBAGGING_WINDOW = 20;
 const SANDBAGGING_LOSS_THRESHOLD = 15;
@@ -73,21 +72,9 @@ export class RatingProtectionService {
   }
 
   checkMinimumMoves(
-    moveCount: number,
-    termination: string | null,
+    _moveCount: number,
+    _termination: string | null,
   ): ProtectionResult {
-    const naturalEndings = ['checkmate', 'stalemate', 'insufficient', 'repetition', 'fifty_moves'];
-    if (termination && naturalEndings.includes(termination)) {
-      return { allowed: true };
-    }
-
-    if (moveCount < MIN_MOVES_FOR_RATING) {
-      return {
-        allowed: false,
-        reason: `too few moves (${moveCount}/${MIN_MOVES_FOR_RATING})`,
-      };
-    }
-
     return { allowed: true };
   }
 
