@@ -626,7 +626,7 @@ input:focus {
   width: 280px;
   min-width: 0;
   flex-shrink: 0;
-  max-height: calc(100vh - 48px - 24px);
+  max-height: calc(100vh - 48px - 24px - 36px);
   overflow: hidden;
 }
 
@@ -2108,11 +2108,11 @@ input:focus {
   .game-sidebar {
     width: 100%;
     max-width: 480px;
-    max-height: none;
+    max-height: 50vh;
   }
 
   .moves {
-    max-height: 200px;
+    max-height: 150px;
   }
 
   .player-info {
