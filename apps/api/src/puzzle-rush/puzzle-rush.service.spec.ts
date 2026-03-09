@@ -32,6 +32,7 @@ describe('PuzzleRushService', () => {
       },
       puzzleAttempt: {
         create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       puzzleRushScore: {
         create: jest.fn(),
@@ -594,6 +595,129 @@ describe('PuzzleRushService', () => {
       await expect(service.getUserBest(userId, '10')).rejects.toMatchObject({
         response: expect.objectContaining({ errorCode: 'INVALID_TIME_MODE' }),
       });
+    });
+  });
+
+  describe('KS-299: Puzzle Rush excludes all attempted puzzles', () => {
+    it('should exclude previously attempted puzzles from getRandomPuzzle during session', async () => {
+      // User has previously attempted puzzle-old-1 and puzzle-old-2
+      prisma.puzzleAttempt = {
+        ...prisma.puzzleAttempt,
+        findMany: jest.fn().mockResolvedValue([
+          { puzzleId: 'puzzle-old-1' },
+          { puzzleId: 'puzzle-old-2' },
+        ]),
+      };
+
+      const newPuzzle = {
+        id: 'puzzle-new',
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        moves: 'e2e4 e7e5',
+        rating: 1400,
+        ratingDeviation: 100,
+      };
+      prisma.puzzle.findMany.mockResolvedValue([newPuzzle]);
+
+      const result = await service.startSession(userId, '3');
+
+      // Verify puzzleAttempt.findMany was called without solved filter
+      expect(prisma.puzzleAttempt.findMany).toHaveBeenCalledWith({
+        where: { userId },
+        select: { puzzleId: true },
+        distinct: ['puzzleId'],
+      });
+      // Verify puzzle query excludes attempted IDs
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: { notIn: expect.arrayContaining(['puzzle-old-1', 'puzzle-old-2']) },
+          }),
+        }),
+      );
+      expect(result.puzzle).toBeDefined();
+    });
+
+    it('should combine session excludeIds with attempted puzzleIds', async () => {
+      // Simulate: user solved puzzle-1 in current session, and previously attempted puzzle-old
+      prisma.puzzleAttempt = {
+        ...prisma.puzzleAttempt,
+        findMany: jest.fn().mockResolvedValue([
+          { puzzleId: 'puzzle-old' },
+        ]),
+      };
+      const session = {
+        userId,
+        timeMode: '3',
+        score: 1,
+        lives: 3,
+        currentPuzzleId: 'puzzle-1',
+        currentMoves: ['e7e5', 'd2d4'],
+        currentMoveIndex: 0,
+        startedAt: Date.now(),
+        durationMs: 180000,
+        solvedPuzzleIds: ['puzzle-session-1'],
+      };
+      redis.get.mockResolvedValue(JSON.stringify(session));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+      const nextPuzzle = {
+        id: 'puzzle-fresh',
+        fen: 'fen-fresh',
+        moves: 'a2a4 a7a5',
+        rating: 1400,
+        ratingDeviation: 100,
+      };
+      prisma.puzzle.findMany.mockResolvedValue([nextPuzzle]);
+
+      const result = await service.submitAnswer(userId, 'e7e5');
+
+      // After solving, getRandomPuzzle should exclude both session-solved AND previously attempted
+      expect(prisma.puzzleAttempt.findMany).toHaveBeenCalledWith({
+        where: { userId },
+        select: { puzzleId: true },
+        distinct: ['puzzleId'],
+      });
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: {
+              notIn: expect.arrayContaining(['puzzle-session-1', 'puzzle-1', 'puzzle-old']),
+            },
+          }),
+        }),
+      );
+      expect(result.correct).toBe(true);
+    });
+
+    it('should finish session when all puzzles have been attempted', async () => {
+      prisma.puzzleAttempt = {
+        ...prisma.puzzleAttempt,
+        findMany: jest.fn().mockResolvedValue([
+          { puzzleId: 'p1' },
+          { puzzleId: 'p2' },
+          { puzzleId: 'p3' },
+        ]),
+      };
+      const session = {
+        userId,
+        timeMode: '3',
+        score: 3,
+        lives: 3,
+        currentPuzzleId: 'p4',
+        currentMoves: ['e7e5', 'd2d4'],
+        currentMoveIndex: 0,
+        startedAt: Date.now(),
+        durationMs: 180000,
+        solvedPuzzleIds: ['p1', 'p2', 'p3'],
+      };
+      redis.get.mockResolvedValue(JSON.stringify(session));
+      prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
+      // No puzzles left
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      const result = await service.submitAnswer(userId, 'e7e5');
+
+      expect(result.finished).toBe(true);
+      expect(result.score).toBe(4);
     });
   });
 });
