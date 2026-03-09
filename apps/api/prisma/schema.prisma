@@ -86,7 +86,6 @@ model Game {
   botLevel          Int?             @map("bot_level")
   createdAt         DateTime         @default(now()) @map("created_at")
   startedAt         DateTime?        @map("started_at")
-  isBot             Boolean          @default(false) @map("is_bot")
   finishedAt        DateTime?        @map("finished_at")
 
   white        User          @relation("WhitePlayer", fields: [whiteId], references: [id])
