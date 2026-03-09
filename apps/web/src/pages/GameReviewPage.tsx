@@ -64,7 +64,8 @@ function formatPv(pv: string, fen: string): string {
 }
 
 export function GameReviewPage() {
-  const { id: gameId } = useParams<{ id: string }>();
+  const params = useParams<{ id?: string; gameId?: string }>();
+  const gameId = params.id ?? params.gameId;
   const { t } = useTranslation();
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [moves, setMoves] = useState<MoveData[]>([]);
