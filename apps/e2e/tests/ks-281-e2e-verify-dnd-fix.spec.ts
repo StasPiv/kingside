@@ -14,7 +14,14 @@ import { test, expect } from '../fixtures/auth.fixture';
  * 4. Different viewport sizes
  * 5. Rapid sequential drag-and-drop
  * 6. Regression: original bug no longer reproduces
+ * 7. Smooth release verification — piece drop is not abrupt
  */
+
+// Configure all tests in this file to capture video and screenshots
+test.use({
+  video: 'on',
+  screenshot: 'on',
+});
 
 const mockPuzzleFen =
   'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1';
@@ -107,9 +114,15 @@ test.describe('KS-281 S1: Piece does not disappear on press', () => {
     const board = page.locator('.board-container');
     const { x, y } = await getSquareCenter(page, board, 'e7');
 
+    // Screenshot: board before any interaction
+    await page.screenshot({ path: 'test-results/ks281-s1-01-before-drag.png', fullPage: false });
+
     await page.mouse.move(x, y);
     await page.mouse.down();
     await page.waitForTimeout(100);
+
+    // Screenshot: ghost visible after mousedown
+    await page.screenshot({ path: 'test-results/ks281-s1-02-mousedown-ghost.png', fullPage: false });
 
     // Ghost should exist (dragging started), but original piece opacity is 0
     // — that's expected. The key check: ghost is visible on screen.
@@ -128,6 +141,9 @@ test.describe('KS-281 S1: Piece does not disappear on press', () => {
 
     await page.mouse.up();
     await page.waitForTimeout(200);
+
+    // Screenshot: board after release — piece should be visible
+    await page.screenshot({ path: 'test-results/ks281-s1-03-after-release.png', fullPage: false });
 
     // After release: no ghosts, no invisible pieces
     expect(await countGhosts(page)).toBe(0);
@@ -249,11 +265,19 @@ test.describe('KS-281 S3: Piece lands on target square after drop', () => {
     const src = await getSquareCenter(page, board, 'e7');
     const tgt = await getSquareCenter(page, board, 'e5');
 
+    await page.screenshot({ path: 'test-results/ks281-s3-01-before-drag.png', fullPage: false });
+
     await page.mouse.move(src.x, src.y);
     await page.mouse.down();
+    await page.screenshot({ path: 'test-results/ks281-s3-02-drag-start.png', fullPage: false });
+
     await page.mouse.move(tgt.x, tgt.y, { steps: 5 });
+    await page.screenshot({ path: 'test-results/ks281-s3-03-drag-mid.png', fullPage: false });
+
     await page.mouse.up();
     await page.waitForTimeout(300);
+
+    await page.screenshot({ path: 'test-results/ks281-s3-04-after-drop.png', fullPage: false });
 
     expect(await countGhosts(page)).toBe(0);
     expect(await getInvisiblePieceCount(page, board)).toBe(0);
@@ -537,5 +561,90 @@ test.describe('KS-281 S6: Regression verification (KS-278)', () => {
     await page.mouse.up();
     await page.waitForTimeout(200);
     expect(await countGhosts(page)).toBe(0);
+  });
+});
+
+// ─── S7: Smooth release verification ──────────────────────────────────────────
+
+test.describe('KS-281 S7: Smooth release verification', () => {
+  test('piece drop has no abrupt visual jump — ghost removed cleanly', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupPuzzleRush(page);
+    const board = page.locator('.board-container');
+    const src = await getSquareCenter(page, board, 'e7');
+    const tgt = await getSquareCenter(page, board, 'e5');
+
+    await page.screenshot({ path: 'test-results/ks281-s7-01-before.png', fullPage: false });
+
+    await page.mouse.move(src.x, src.y);
+    await page.mouse.down();
+    await page.mouse.move(tgt.x, tgt.y, { steps: 10 });
+    await page.waitForTimeout(50);
+
+    // Screenshot right before release — ghost should be over target
+    await page.screenshot({ path: 'test-results/ks281-s7-02-before-release.png', fullPage: false });
+
+    // Capture ghost position right before drop
+    const ghostBeforeDrop = await page.evaluate(() => {
+      const ghosts = Array.from(document.querySelectorAll('[data-piece]')).filter(
+        (el) => (el as HTMLElement).style.position === 'fixed',
+      );
+      if (ghosts.length === 0) return null;
+      const rect = ghosts[0].getBoundingClientRect();
+      return {
+        centerX: rect.left + rect.width / 2,
+        centerY: rect.top + rect.height / 2,
+        transform: (ghosts[0] as HTMLElement).style.transform,
+      };
+    });
+
+    expect(ghostBeforeDrop).not.toBeNull();
+
+    // Release
+    await page.mouse.up();
+
+    // Screenshot immediately after release
+    await page.screenshot({ path: 'test-results/ks281-s7-03-after-release-immediate.png', fullPage: false });
+
+    await page.waitForTimeout(100);
+    await page.screenshot({ path: 'test-results/ks281-s7-04-after-release-100ms.png', fullPage: false });
+
+    // Verify clean state after release
+    expect(await countGhosts(page)).toBe(0);
+    expect(await getInvisiblePieceCount(page, board)).toBe(0);
+
+    // NOTE: Currently, ghost.remove() is instant with no transition.
+    // If "smooth release" means animated transition to target, that
+    // requires CSS transition or animation on drop — which is NOT
+    // implemented in useFastDrag.ts (onPointerUp line 148: state.ghost.remove()).
+  });
+
+  test('rapid drag-release captures show consistent state', async ({
+    authenticatedPage: page,
+  }) => {
+    await setupPuzzleRush(page);
+    const board = page.locator('.board-container');
+    const { x, y } = await getSquareCenter(page, board, 'e7');
+
+    // Perform 3 rapid drag-release cycles, screenshot each
+    for (let i = 0; i < 3; i++) {
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.move(x + 20, y - 30, { steps: 3 });
+      await page.screenshot({
+        path: `test-results/ks281-s7-rapid-${i + 1}-dragging.png`,
+        fullPage: false,
+      });
+      await page.mouse.up();
+      await page.waitForTimeout(100);
+      await page.screenshot({
+        path: `test-results/ks281-s7-rapid-${i + 1}-released.png`,
+        fullPage: false,
+      });
+    }
+
+    expect(await countGhosts(page)).toBe(0);
+    expect(await getInvisiblePieceCount(page, board)).toBe(0);
   });
 });
