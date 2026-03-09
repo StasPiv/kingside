@@ -141,13 +141,39 @@ export function useFastDrag(
 
       const targetSquare = findSquareFromPoint(e.clientX, e.clientY);
 
-      // Restore original piece visibility
-      state.pieceEl.style.opacity = '';
+      // Determine the landing square for the snap animation
+      const landingSquare = (targetSquare && targetSquare !== state.sourceSquare)
+        ? targetSquare
+        : state.sourceSquare;
 
-      // Remove ghost
-      state.ghost.remove();
+      // Calculate landing position (center of the target square)
+      const file = landingSquare.charCodeAt(0) - 97; // a=0 .. h=7
+      const rank = parseInt(landingSquare[1], 10);    // 1-8
+      const orientation = optionsRef.current.boardOrientation;
+      const col = orientation === 'white' ? file : 7 - file;
+      const row = orientation === 'white' ? 8 - rank : rank - 1;
+      const landX = state.boardRect.left + col * state.squareSize;
+      const landY = state.boardRect.top + row * state.squareSize;
 
+      // Clear drag state immediately so new drags can start
       dragStateRef.current = null;
+
+      // Animate ghost to landing position
+      const ghost = state.ghost;
+      ghost.style.transition = 'transform 100ms ease-out';
+      ghost.style.transform = `translate3d(${landX}px, ${landY}px, 0)`;
+
+      let cleaned = false;
+      const cleanup = () => {
+        if (cleaned) return;
+        cleaned = true;
+        state.pieceEl.style.opacity = '';
+        ghost.remove();
+      };
+
+      ghost.addEventListener('transitionend', cleanup, { once: true });
+      // Fallback: remove ghost after timeout in case transitionend doesn't fire
+      setTimeout(cleanup, 150);
 
       // Call handler
       if (targetSquare && targetSquare !== state.sourceSquare) {
