@@ -327,5 +327,132 @@ describe('UserService', () => {
       expect(result.hasMore).toBe(true);
       expect(result.total).toBe(30);
     });
+
+    it('should filter by color=white', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { color: 'white' });
+
+      expect(prisma.game.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ whiteId: userId }),
+        }),
+      );
+    });
+
+    it('should filter by color=black', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { color: 'black' });
+
+      expect(prisma.game.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ blackId: userId }),
+        }),
+      );
+    });
+
+    it('should filter by result=draw', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { result: 'draw' });
+
+      expect(prisma.game.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ result: 'draw' }),
+        }),
+      );
+    });
+
+    it('should filter by result=win', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { result: 'win' });
+
+      const call = prisma.game.findMany.mock.calls[0][0];
+      expect(call.where.AND).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            OR: [
+              { whiteId: userId, result: 'white' },
+              { blackId: userId, result: 'black' },
+            ],
+          }),
+        ]),
+      );
+    });
+
+    it('should filter by result=loss', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { result: 'loss' });
+
+      const call = prisma.game.findMany.mock.calls[0][0];
+      expect(call.where.AND).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            OR: [
+              { whiteId: userId, result: 'black' },
+              { blackId: userId, result: 'white' },
+            ],
+          }),
+        ]),
+      );
+    });
+
+    it('should filter by opponent name', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { opponent: 'magnus' });
+
+      const call = prisma.game.findMany.mock.calls[0][0];
+      expect(call.where.AND).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            OR: [
+              { white: { username: { contains: 'magnus', mode: 'insensitive' } } },
+              { black: { username: { contains: 'magnus', mode: 'insensitive' } } },
+            ],
+          }),
+        ]),
+      );
+    });
+
+    it('should filter by ECO code', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { eco: 'B20' });
+
+      expect(prisma.game.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            eco: { startsWith: 'B20', mode: 'insensitive' },
+          }),
+        }),
+      );
+    });
+
+    it('should filter by date range', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, {
+        dateFrom: '2026-01-01',
+        dateTo: '2026-03-01',
+      });
+
+      const call = prisma.game.findMany.mock.calls[0][0];
+      expect(call.where.createdAt).toEqual({
+        gte: new Date('2026-01-01'),
+        lte: new Date('2026-03-01'),
+      });
+    });
   });
 });

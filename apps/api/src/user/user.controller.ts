@@ -8,12 +8,11 @@ import {
   Request,
   UseGuards,
   ParseUUIDPipe,
-  ParseIntPipe,
-  DefaultValuePipe,
 } from '@nestjs/common';
 import { UserService } from './user.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { SearchGamesDto } from './dto/search-games.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('users')
@@ -45,9 +44,8 @@ export class UserController {
   @Get(':id/games')
   getUserGames(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query('take', new DefaultValuePipe(20), ParseIntPipe) take: number,
-    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+    @Query() dto: SearchGamesDto,
   ) {
-    return this.userService.getUserGames(id, take, skip);
+    return this.userService.getUserGames(id, dto);
   }
 }
