@@ -61,6 +61,10 @@ export class UserService {
         ratingBlitz: true,
         ratingRapid: true,
         ratingClassical: true,
+        gamesPlayedBullet: true,
+        gamesPlayedBlitz: true,
+        gamesPlayedRapid: true,
+        gamesPlayedClassical: true,
         createdAt: true,
         lastSeenAt: true,
       },
@@ -70,7 +74,15 @@ export class UserService {
       throw new NotFoundException(this.i18n.t('messages.user.notFound'));
     }
 
-    return user;
+    const PROVISIONAL_THRESHOLD = 20;
+
+    return {
+      ...user,
+      provisionalBullet: user.gamesPlayedBullet < PROVISIONAL_THRESHOLD,
+      provisionalBlitz: user.gamesPlayedBlitz < PROVISIONAL_THRESHOLD,
+      provisionalRapid: user.gamesPlayedRapid < PROVISIONAL_THRESHOLD,
+      provisionalClassical: user.gamesPlayedClassical < PROVISIONAL_THRESHOLD,
+    };
   }
 
   async getPuzzleRushStats(userId: string) {

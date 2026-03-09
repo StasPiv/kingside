@@ -37,10 +37,17 @@ describe('RatingService', () => {
     });
   }
 
-  function setupRatings(whiteRating: number, blackRating: number, field = 'ratingBlitz') {
+  function setupRatings(
+    whiteRating: number,
+    blackRating: number,
+    field = 'ratingBlitz',
+    whiteGamesPlayed = 30,
+    blackGamesPlayed = 30,
+    gamesPlayedField = 'gamesPlayedBlitz',
+  ) {
     prisma.user.findUniqueOrThrow
-      .mockResolvedValueOnce({ [field]: whiteRating })
-      .mockResolvedValueOnce({ [field]: blackRating });
+      .mockResolvedValueOnce({ [field]: whiteRating, [gamesPlayedField]: whiteGamesPlayed })
+      .mockResolvedValueOnce({ [field]: blackRating, [gamesPlayedField]: blackGamesPlayed });
   }
 
   describe('ELO calculation', () => {
@@ -61,7 +68,7 @@ describe('RatingService', () => {
       expect(blackUpdate[0].data.ratingBlitz).toBeLessThan(1500);
     });
 
-    it('should give equal rating change for equal-rated players', async () => {
+    it('should give equal rating change for equal-rated established players', async () => {
       setupGame();
       setupRatings(1500, 1500);
 
@@ -123,24 +130,109 @@ describe('RatingService', () => {
         },
       });
     });
+
+    it('should increment gamesPlayed counter', async () => {
+      setupGame();
+      setupRatings(1500, 1500);
+
+      await service.updateRatingsAfterGame(gameId, 'white');
+
+      const whiteUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === whiteId,
+      );
+      const blackUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === blackId,
+      );
+
+      expect(whiteUpdate[0].data.gamesPlayedBlitz).toEqual({ increment: 1 });
+      expect(blackUpdate[0].data.gamesPlayedBlitz).toEqual({ increment: 1 });
+    });
+  });
+
+  describe('provisional rating', () => {
+    it('should use K=40 for provisional players (< 20 games)', async () => {
+      setupGame();
+      setupRatings(1500, 1500, 'ratingBlitz', 5, 5);
+
+      await service.updateRatingsAfterGame(gameId, 'white');
+
+      const whiteUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === whiteId,
+      );
+      const blackUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === blackId,
+      );
+
+      // K=40, expected=0.5, score=1 => +20
+      expect(whiteUpdate[0].data.ratingBlitz).toBe(1520);
+      expect(blackUpdate[0].data.ratingBlitz).toBe(1480);
+    });
+
+    it('should use K=32 for established players (>= 20 games)', async () => {
+      setupGame();
+      setupRatings(1500, 1500, 'ratingBlitz', 20, 20);
+
+      await service.updateRatingsAfterGame(gameId, 'white');
+
+      const whiteUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === whiteId,
+      );
+
+      // K=32, expected=0.5, score=1 => +16
+      expect(whiteUpdate[0].data.ratingBlitz).toBe(1516);
+    });
+
+    it('should use different K-factors when one player is provisional and other is established', async () => {
+      setupGame();
+      setupRatings(1500, 1500, 'ratingBlitz', 5, 30);
+
+      await service.updateRatingsAfterGame(gameId, 'white');
+
+      const whiteUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === whiteId,
+      );
+      const blackUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === blackId,
+      );
+
+      // White: K=40 (provisional), expected=0.5 => +20
+      expect(whiteUpdate[0].data.ratingBlitz).toBe(1520);
+      // Black: K=32 (established), expected=0.5 => -16
+      expect(blackUpdate[0].data.ratingBlitz).toBe(1484);
+    });
+
+    it('should use K=40 for player at boundary (19 games)', async () => {
+      setupGame();
+      setupRatings(1500, 1500, 'ratingBlitz', 19, 30);
+
+      await service.updateRatingsAfterGame(gameId, 'white');
+
+      const whiteUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === whiteId,
+      );
+
+      // K=40 (still provisional at 19 games)
+      expect(whiteUpdate[0].data.ratingBlitz).toBe(1520);
+    });
   });
 
   describe('time control mapping', () => {
     it.each([
-      ['bullet', 'ratingBullet'],
-      ['blitz', 'ratingBlitz'],
-      ['rapid', 'ratingRapid'],
-      ['classical', 'ratingClassical'],
-    ])('should use %s field for %s time control', async (type, field) => {
+      ['bullet', 'ratingBullet', 'gamesPlayedBullet'],
+      ['blitz', 'ratingBlitz', 'gamesPlayedBlitz'],
+      ['rapid', 'ratingRapid', 'gamesPlayedRapid'],
+      ['classical', 'ratingClassical', 'gamesPlayedClassical'],
+    ])('should use %s fields for %s time control', async (type, ratingField, gpField) => {
       setupGame({ timeControlType: type });
-      setupRatings(1500, 1500, field);
+      setupRatings(1500, 1500, ratingField, 30, 30, gpField);
 
       await service.updateRatingsAfterGame(gameId, 'draw');
 
       const whiteUpdate = prisma.user.update.mock.calls.find(
         (c: any) => c[0].where.id === whiteId,
       );
-      expect(whiteUpdate[0].data).toHaveProperty(field);
+      expect(whiteUpdate[0].data).toHaveProperty(ratingField);
+      expect(whiteUpdate[0].data).toHaveProperty(gpField);
     });
 
     it('should default to blitz for unknown type', async () => {
@@ -153,6 +245,7 @@ describe('RatingService', () => {
         (c: any) => c[0].where.id === whiteId,
       );
       expect(whiteUpdate[0].data).toHaveProperty('ratingBlitz');
+      expect(whiteUpdate[0].data).toHaveProperty('gamesPlayedBlitz');
     });
   });
 
