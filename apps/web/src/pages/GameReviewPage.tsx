@@ -114,11 +114,13 @@ export function GameReviewPage() {
     game.load(currentFen);
   }, [currentFen, game]);
 
-  // Auto-evaluate when position changes
+  // Auto-evaluate when position changes (debounced to avoid WASM crashes)
   useEffect(() => {
-    if (isReady && currentFen) {
+    if (!isReady || !currentFen) return;
+    const timer = setTimeout(() => {
       evaluate(currentFen);
-    }
+    }, 150);
+    return () => clearTimeout(timer);
   }, [currentFen, isReady, evaluate]);
 
   const goToStart = useCallback(() => setCurrentMoveIndex(-1), []);

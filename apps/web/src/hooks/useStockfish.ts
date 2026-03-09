@@ -60,6 +60,8 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   const stateRef = useRef<StockfishState>(state);
   const initTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analysisGenRef = useRef(0);
+  const pendingFenRef = useRef<string | null>(null);
+  const waitingForReadyRef = useRef(false);
   stateRef.current = state;
 
   const cleanup = useCallback(() => {
@@ -109,6 +111,25 @@ export function useStockfish(options: UseStockfishOptions = {}) {
           clearTimeout(initTimerRef.current);
           initTimerRef.current = null;
         }
+
+        // If we were waiting for readyok after stop, dispatch pending eval
+        if (waitingForReadyRef.current) {
+          waitingForReadyRef.current = false;
+          const pendingFen = pendingFenRef.current;
+          if (pendingFen && engineRef.current) {
+            pendingFenRef.current = null;
+            linesBuffer.current.clear();
+            setLines([]);
+            setBestMove(null);
+            analysisGenRef.current += 1;
+            setState('analyzing');
+            engine.postMessage(`setoption name MultiPV value ${multiPv}`);
+            engine.postMessage(`position fen ${pendingFen}`);
+            engine.postMessage(`go depth ${depth}`);
+            return;
+          }
+        }
+
         setState('ready');
         return;
       }
@@ -128,8 +149,15 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       if (line.startsWith('bestmove')) {
         const move = line.split(' ')[1] ?? '';
         setBestMove(move);
+
+        // If there's a pending eval, sync via isready before starting it
+        if (pendingFenRef.current && engineRef.current) {
+          waitingForReadyRef.current = true;
+          engine.postMessage('isready');
+          return;
+        }
+
         // Only return to 'ready' if still in 'analyzing' state
-        // (a new evaluate() call may have already set a new analysis)
         if (stateRef.current === 'analyzing') {
           setState('ready');
         }
@@ -157,12 +185,22 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       const s = stateRef.current;
       if (!engineRef.current || s === 'loading' || s === 'idle' || s === 'error') return;
       fenRef.current = fen;
+
+      // If engine is currently analyzing, stop it and queue the new FEN.
+      // The bestmove handler will trigger isready → readyok → start new analysis.
+      if (s === 'analyzing') {
+        pendingFenRef.current = fen;
+        engineRef.current.postMessage('stop');
+        return;
+      }
+
+      // Engine is ready — start analysis immediately
+      pendingFenRef.current = null;
       linesBuffer.current.clear();
       setLines([]);
       setBestMove(null);
       analysisGenRef.current += 1;
       setState('analyzing');
-      engineRef.current.postMessage('stop');
       engineRef.current.postMessage(`setoption name MultiPV value ${multiPv}`);
       engineRef.current.postMessage(`position fen ${fen}`);
       engineRef.current.postMessage(`go depth ${depth}`);
