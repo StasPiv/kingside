@@ -551,6 +551,7 @@ input:focus {
 /* Game page */
 .game-page {
   display: flex;
+  flex-wrap: wrap;
   gap: 24px;
   justify-content: center;
   align-items: flex-start;
