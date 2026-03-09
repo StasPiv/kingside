@@ -268,7 +268,7 @@ export class UserService {
         },
         ecoCode: opening.code,
         openingName: opening.name,
-        result: this.formatResult(game.result),
+        result: this.formatResultForPlayer(game.result, playerColor),
         termination: game.termination,
         timeControlType: game.timeControlType,
         timeControl: this.formatTimeControl(game.timeInitialSec, game.timeIncrementSec),
@@ -289,13 +289,14 @@ export class UserService {
     };
   }
 
-  private formatResult(result: string | null): string {
-    switch (result) {
-      case 'white': return '1-0';
-      case 'black': return '0-1';
-      case 'draw': return '1/2-1/2';
-      default: return '*';
-    }
+  private formatResultForPlayer(
+    result: string | null,
+    playerColor: 'white' | 'black',
+  ): string {
+    if (result === 'draw') return '1/2-1/2';
+    if (result === playerColor) return '1-0';
+    if (result === 'white' || result === 'black') return '0-1';
+    return '*';
   }
 
   private formatTimeControl(initialSec: number, incrementSec: number): string {
