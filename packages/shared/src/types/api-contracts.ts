@@ -97,6 +97,18 @@ export type UserGamesResponse = {
   hasMore: boolean;
 };
 
+/** GET /api/users/:id/games/search */
+export type SearchGamesQuery = {
+  opponent?: string;
+  color?: 'white' | 'black';
+  result?: 'win' | 'loss' | 'draw';
+  eco?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  take?: number;
+  skip?: number;
+};
+
 // ─── Game (REST) ────────────────────────────────────────────────────
 
 export type CreateGameWithBotRequest = {

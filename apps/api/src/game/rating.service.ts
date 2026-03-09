@@ -34,7 +34,7 @@ export class RatingService {
     const check = await this.protection.validateGame(gameId);
     if (!check.allowed) {
       this.logger.log(`Rating update skipped for game ${gameId}: ${check.reason}`);
-      return;
+      return null;
     }
 
     const ratingField = this.ratingFieldForType(game.timeControlType);
