@@ -182,10 +182,12 @@ export function useFastDrag(
       const cleanup = () => {
         if (cleaned) return;
         cleaned = true;
-        state.ghost.remove();
 
-        // Call the drop handler AFTER the snap animation so the board
-        // re-render happens only when the ghost has already been removed.
+        // Call the drop handler while the ghost is still visible — this
+        // triggers React setState (setFen / setGame) which schedules a
+        // re-render. The ghost masks the board until React paints the
+        // new position, preventing a single-frame flash where neither
+        // the ghost nor the React-rendered piece is visible.
         let accepted = false;
         if (isDropAttempt) {
           try {
@@ -198,7 +200,17 @@ export function useFastDrag(
           }
         }
 
-        if (!accepted) {
+        if (accepted) {
+          // Wait for React to commit and paint the new board position
+          // before removing the ghost. Double-rAF ensures at least one
+          // browser paint cycle has occurred with the new DOM.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              state.ghost.remove();
+            });
+          });
+        } else {
+          state.ghost.remove();
           // Restore opacity on the original piece element
           state.pieceEl.style.opacity = '';
           // Fallback: if React re-rendered and replaced the DOM element,
