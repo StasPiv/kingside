@@ -52,6 +52,7 @@ export function GamePage() {
   const [drawOffered, setDrawOffered] = useState(false);
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
+  const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -137,33 +138,64 @@ export function GamePage() {
     return () => clearInterval(interval);
   }, [status, fen, game]);
 
-  const onDrop = useCallback((sourceSquare: Square, targetSquare: Square): boolean => {
-    if (status !== 'active') return false;
+  const isPromotionMove = useCallback((from: Square, to: Square): boolean => {
+    const piece = game.get(from);
+    if (!piece || piece.type !== 'p') return false;
+    const targetRank = to[1];
+    return (piece.color === 'w' && targetRank === '8') || (piece.color === 'b' && targetRank === '1');
+  }, [game]);
 
-    const turnColor = game.turn() === 'w' ? 'white' : 'black';
-    if (turnColor !== playerColor) return false;
-
+  const executeMove = useCallback((sourceSquare: Square, targetSquare: Square, promotion?: 'q' | 'r' | 'b' | 'n'): boolean => {
     try {
       const move = game.move({
         from: sourceSquare,
         to: targetSquare,
-        promotion: 'q',
+        promotion,
       });
       if (!move) return false;
 
       setFen(game.fen());
       setMoves((prev) => [...prev, move.san]);
 
-      socket.emit(GameEvents.MOVE, {
-        gameId,
-        uci: `${sourceSquare}${targetSquare}`,
-      });
+      const uci = promotion
+        ? `${sourceSquare}${targetSquare}${promotion}`
+        : `${sourceSquare}${targetSquare}`;
+
+      socket.emit(GameEvents.MOVE, { gameId, uci });
 
       return true;
     } catch {
       return false;
     }
-  }, [game, gameId, playerColor, status]);
+  }, [game, gameId]);
+
+  const onDrop = useCallback((sourceSquare: Square, targetSquare: Square): boolean => {
+    if (status !== 'active') return false;
+
+    const turnColor = game.turn() === 'w' ? 'white' : 'black';
+    if (turnColor !== playerColor) return false;
+
+    if (isPromotionMove(sourceSquare, targetSquare)) {
+      const testGame = new Chess(game.fen());
+      const testMove = testGame.move({ from: sourceSquare, to: targetSquare, promotion: 'q' });
+      if (!testMove) return false;
+
+      setPendingPromotion({ from: sourceSquare, to: targetSquare });
+      return true;
+    }
+
+    return executeMove(sourceSquare, targetSquare);
+  }, [game, gameId, playerColor, status, isPromotionMove, executeMove]);
+
+  const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
+    if (!pendingPromotion) return;
+    executeMove(pendingPromotion.from, pendingPromotion.to, piece);
+    setPendingPromotion(null);
+  }, [pendingPromotion, executeMove]);
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
 
   const handleResign = () => {
     socket.emit(GameEvents.RESIGN, { gameId });
@@ -239,6 +271,29 @@ export function GamePage() {
         </div>
         <div className="board-container" ref={boardContainerRef}>
           <MemoChessboard options={boardOptions} />
+          {pendingPromotion && (
+            <div className="promotion-overlay" onClick={handlePromotionCancel}>
+              <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
+                {(['q', 'r', 'b', 'n'] as const).map((piece) => {
+                  const color = playerColor === 'white' ? 'w' : 'b';
+                  const pieceNames: Record<string, string> = { q: 'Q', r: 'R', b: 'B', n: 'N' };
+                  return (
+                    <button
+                      key={piece}
+                      className="promotion-piece"
+                      onClick={() => handlePromotionChoice(piece)}
+                      data-piece={`${color}${pieceNames[piece]}`}
+                    >
+                      {piece === 'q' ? (playerColor === 'white' ? '\u2655' : '\u265B') : null}
+                      {piece === 'r' ? (playerColor === 'white' ? '\u2656' : '\u265C') : null}
+                      {piece === 'b' ? (playerColor === 'white' ? '\u2657' : '\u265D') : null}
+                      {piece === 'n' ? (playerColor === 'white' ? '\u2658' : '\u265E') : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
         <div className="player-info player-info-self">
           <span className={`color-indicator ${playerColor}`} />

@@ -558,7 +558,7 @@ input:focus {
   flex-wrap: wrap;
   gap: 24px;
   justify-content: center;
-  align-items: flex-start;
+  align-items: stretch;
   height: calc(100vh - 48px);
   padding: 12px;
   overflow: hidden;
@@ -622,6 +622,48 @@ input:focus {
   -webkit-user-select: none;
   user-select: none;
   will-change: transform;
+  position: relative;
+}
+
+.promotion-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.promotion-dialog {
+  display: flex;
+  gap: 4px;
+  background: #312e2b;
+  padding: 8px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.promotion-piece {
+  width: 64px;
+  height: 64px;
+  font-size: 48px;
+  line-height: 64px;
+  text-align: center;
+  background: #454240;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #fff;
+  padding: 0;
+  transition: background 0.15s;
+}
+
+.promotion-piece:hover {
+  background: #6a6562;
 }
 
 .game-sidebar {
@@ -638,10 +680,10 @@ input:focus {
 .move-list {
   background: #16213e;
   border-radius: 8px;
-  padding: 12px;
-  overflow: hidden;
+  padding: 16px;
   flex: 1;
   min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
