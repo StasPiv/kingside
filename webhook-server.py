@@ -86,24 +86,24 @@ def get_valid_agents():
     return agents
 
 
-# key -> {"agent": ..., "launched_at": ...}
-LAUNCHED_PATH = os.path.join(LOG_DIR, "launched.json")
+# key -> {"agent": ..., "proc": Popen, "launched_at": ...}
+# Трекинг живых процессов агентов
+running_agents = {}
 
 
-def load_launched():
-    try:
-        with open(LAUNCHED_PATH) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def save_launched(data):
-    with open(LAUNCHED_PATH, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-launched = load_launched()
+def is_agent_running(key):
+    """Проверяет, жив ли процесс агента для задачи. Собирает зомби через poll()."""
+    if key not in running_agents:
+        return False
+    proc = running_agents[key].get("proc")
+    if not proc:
+        del running_agents[key]
+        return False
+    if proc.poll() is not None:
+        # Процесс завершился, poll() собрал зомби
+        del running_agents[key]
+        return False
+    return True
 
 
 def log(msg):
@@ -259,11 +259,19 @@ def setup_worktree(key):
 
 def launch_agent(key, summary, agent, prompt=None):
     """Запускает claude агента в фоне."""
+    # Не запускать если для этой задачи уже работает агент (кроме coordinator)
+    if agent != "coordinator" and is_agent_running(key):
+        log(f"Пропуск {key}: агент {running_agents[key]['agent']} ещё работает (PID {running_agents[key]['proc'].pid})")
+        return
+
     log_file = os.path.join(LOG_DIR, "agents.log")
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
 
-    worktree = setup_worktree(key)
+    if agent == "coordinator":
+        worktree = PROJECT_DIR
+    else:
+        worktree = setup_worktree(key)
 
     if not prompt:
         role = agent.upper()
@@ -291,6 +299,12 @@ def launch_agent(key, summary, agent, prompt=None):
             cmd, cwd=worktree, env=env,
             stdout=lf, stderr=lf,
         )
+    if agent != "coordinator":
+        running_agents[key] = {
+            "agent": agent,
+            "proc": proc,
+            "launched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
     log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
 
 
@@ -511,14 +525,15 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
         key, summary, agent, labels = extract_task(payload)
 
-        # Проверяем статус задачи — не запускаем агентов для завершённых задач
+        # Проверяем статус задачи — запускаем агентов только для новых задач (To Do)
         issue = payload.get("issue", {})
+        status_name = issue.get("fields", {}).get("status", {}).get("name", "")
         status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
-        if status_category == "done":
-            log(f"Пропуск {key}: задача в статусе Done")
+        if status_category in ("done", "indeterminate"):
+            log(f"Пропуск {key}: задача в статусе '{status_name}' — агент уже работает или задача завершена")
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'{"status":"skipped","reason":"done"}')
+            self.wfile.write(b'{"status":"skipped","reason":"status"}')
             return
 
         if not key or not agent:
@@ -528,16 +543,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"status":"skipped"}')
             return
 
-        if key in launched:
-            log(f"Дубль {key}: агент уже запущен в {launched[key]['launched_at']}")
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "duplicate", "key": key}).encode())
-            return
-
         log(f"Задача {key}: {summary} -> агент {agent}")
-        launched[key] = {"agent": agent, "launched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-        save_launched(launched)
         launch_agent(key, summary, agent)
 
         self.send_response(200)

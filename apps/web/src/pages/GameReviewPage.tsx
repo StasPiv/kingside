@@ -17,6 +17,12 @@ type GameData = {
   result: string;
   timeControl: string;
   status: string;
+  ratingChange?: {
+    whiteRatingBefore: number;
+    whiteRatingAfter: number;
+    blackRatingBefore: number;
+    blackRatingAfter: number;
+  };
 };
 
 type MoveData = {
@@ -314,6 +320,30 @@ export function GameReviewPage() {
         <div className="analysis-result">
           <h3>{t('game.finished')}</h3>
           <p>{resultText}</p>
+          {gameData.ratingChange && (
+            <div className="analysis-ratings">
+              <div className="analysis-rating-row">
+                <span className="color-indicator white" />
+                <span>{gameData.white.username}</span>
+                <span className="rating-change-inline">
+                  {gameData.ratingChange.whiteRatingBefore} &rarr; {gameData.ratingChange.whiteRatingAfter}
+                  <span className={`rating-diff ${gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore > 0 ? 'positive' : gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore < 0 ? 'negative' : ''}`}>
+                    ({gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore > 0 ? '+' : ''}{gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore})
+                  </span>
+                </span>
+              </div>
+              <div className="analysis-rating-row">
+                <span className="color-indicator black" />
+                <span>{gameData.black.username}</span>
+                <span className="rating-change-inline">
+                  {gameData.ratingChange.blackRatingBefore} &rarr; {gameData.ratingChange.blackRatingAfter}
+                  <span className={`rating-diff ${gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore > 0 ? 'positive' : gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore < 0 ? 'negative' : ''}`}>
+                    ({gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore > 0 ? '+' : ''}{gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore})
+                  </span>
+                </span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Move list */}

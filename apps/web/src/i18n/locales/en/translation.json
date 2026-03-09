@@ -156,6 +156,13 @@
     "analyze": "Analyze",
     "backToLobby": "Back to Lobby"
   },
+  "gameResult": {
+    "victory": "Victory!",
+    "defeat": "Defeat",
+    "rating": "Rating",
+    "newGame": "New Game",
+    "home": "Home"
+  },
   "review": {
     "loadError": "Failed to load game",
     "toStart": "Go to start",
