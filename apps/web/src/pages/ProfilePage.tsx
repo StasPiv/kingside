@@ -28,6 +28,10 @@ type GameRecord = {
   result: string;
   timeControl: string;
   createdAt: string;
+  whiteRatingBefore: number | null;
+  whiteRatingAfter: number | null;
+  blackRatingBefore: number | null;
+  blackRatingAfter: number | null;
 };
 
 export function ProfilePage() {
@@ -134,12 +138,20 @@ export function ProfilePage() {
               const isWhite = game.white.id === profile.id;
               const opponent = isWhite ? game.black.username : game.white.username;
               const date = new Date(game.createdAt).toLocaleDateString(locale);
+              const ratingBefore = isWhite ? game.whiteRatingBefore : game.blackRatingBefore;
+              const ratingAfter = isWhite ? game.whiteRatingAfter : game.blackRatingAfter;
+              const ratingDiff = ratingBefore != null && ratingAfter != null ? ratingAfter - ratingBefore : null;
 
               return (
                 <Link key={game.id} to={`/game/${game.id}/review`} className="game-record game-record-link">
                   <span className="game-opponent">{t('profile.vs', { opponent })}</span>
                   <span className="game-tc">{game.timeControl}</span>
                   <span className="game-result-badge">{game.result}</span>
+                  {ratingDiff != null && (
+                    <span className={`game-rating-diff ${ratingDiff >= 0 ? 'rating-positive' : 'rating-negative'}`}>
+                      {ratingDiff >= 0 ? `+${ratingDiff}` : ratingDiff}
+                    </span>
+                  )}
                   <span className="game-date">{date}</span>
                 </Link>
               );
