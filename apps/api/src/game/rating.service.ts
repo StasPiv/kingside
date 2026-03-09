@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RatingProtectionService } from './rating-protection.service';
 
 @Injectable()
 export class RatingService {
   private readonly logger = new Logger(RatingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly protection: RatingProtectionService,
+  ) {}
 
   async updateRatingsAfterGame(
     gameId: string,
@@ -22,6 +26,12 @@ export class RatingService {
     });
 
     if (game.isBot) return;
+
+    const check = await this.protection.validateGame(gameId);
+    if (!check.allowed) {
+      this.logger.log(`Rating update skipped for game ${gameId}: ${check.reason}`);
+      return;
+    }
 
     const ratingField = this.ratingFieldForType(game.timeControlType);
 

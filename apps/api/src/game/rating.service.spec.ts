@@ -7,6 +7,7 @@ import { RatingService } from './rating.service';
 describe('RatingService', () => {
   let service: RatingService;
   let prisma: any;
+  let protection: any;
 
   const gameId = 'game-001';
   const whiteId = 'white-player';
@@ -24,7 +25,11 @@ describe('RatingService', () => {
       },
     };
 
-    service = new RatingService(prisma);
+    protection = {
+      validateGame: jest.fn().mockResolvedValue({ allowed: true }),
+    };
+
+    service = new RatingService(prisma, protection);
   });
 
   function setupGame(overrides: any = {}) {
@@ -164,6 +169,28 @@ describe('RatingService', () => {
 
       expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rating protection', () => {
+    it('should skip rating update when protection rejects', async () => {
+      setupGame();
+      protection.validateGame.mockResolvedValue({ allowed: false, reason: 'too few moves' });
+
+      await service.updateRatingsAfterGame(gameId, 'white');
+
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('should update ratings when protection allows', async () => {
+      setupGame();
+      setupRatings(1500, 1500);
+      protection.validateGame.mockResolvedValue({ allowed: true });
+
+      await service.updateRatingsAfterGame(gameId, 'white');
+
+      expect(prisma.user.update).toHaveBeenCalled();
     });
   });
 });
