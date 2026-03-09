@@ -120,13 +120,87 @@ export class UserService {
     };
   }
 
-  async getUserGames(userId: string, take = 20, skip = 0) {
+  async getUserGames(
+    userId: string,
+    filters: {
+      opponent?: string;
+      color?: 'white' | 'black';
+      result?: 'win' | 'loss' | 'draw';
+      eco?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      take?: number;
+      skip?: number;
+    } = {},
+  ) {
+    const {
+      opponent, color, result, eco, dateFrom, dateTo,
+      take = 20, skip = 0,
+    } = filters;
     const safeTake = Math.min(take, 50);
 
-    const where = {
-      OR: [{ whiteId: userId }, { blackId: userId }],
-      status: 'finished' as const,
-    };
+    const where: Record<string, any> = { status: 'finished' };
+
+    // Color filter: user played as white or black
+    if (color === 'white') {
+      where.whiteId = userId;
+    } else if (color === 'black') {
+      where.blackId = userId;
+    } else {
+      where.OR = [{ whiteId: userId }, { blackId: userId }];
+    }
+
+    // Opponent filter: search by username (case-insensitive)
+    if (opponent) {
+      const opponentCondition = {
+        username: { contains: opponent, mode: 'insensitive' as const },
+      };
+      if (color === 'white') {
+        where.black = opponentCondition;
+      } else if (color === 'black') {
+        where.white = opponentCondition;
+      } else {
+        where.AND = [
+          {
+            OR: [
+              { white: opponentCondition },
+              { black: opponentCondition },
+            ],
+          },
+        ];
+      }
+    }
+
+    // Result filter relative to the user
+    if (result) {
+      if (result === 'draw') {
+        where.result = 'draw';
+      } else if (result === 'win') {
+        const winConditions = [
+          { whiteId: userId, result: 'white' },
+          { blackId: userId, result: 'black' },
+        ];
+        where.AND = [...(where.AND || []), { OR: winConditions }];
+      } else if (result === 'loss') {
+        const lossConditions = [
+          { whiteId: userId, result: 'black' },
+          { blackId: userId, result: 'white' },
+        ];
+        where.AND = [...(where.AND || []), { OR: lossConditions }];
+      }
+    }
+
+    // ECO code filter
+    if (eco) {
+      where.eco = { startsWith: eco, mode: 'insensitive' };
+    }
+
+    // Date range filter
+    if (dateFrom || dateTo) {
+      where.createdAt = {};
+      if (dateFrom) where.createdAt.gte = new Date(dateFrom);
+      if (dateTo) where.createdAt.lte = new Date(dateTo);
+    }
 
     const [games, total] = await Promise.all([
       this.prisma.game.findMany({
@@ -166,7 +240,7 @@ export class UserService {
     const data = games.map((game) => {
       const isWhite = game.whiteId === userId;
       const playerColor = isWhite ? 'white' : 'black';
-      const opponent = isWhite ? game.black : game.white;
+      const gameOpponent = isWhite ? game.black : game.white;
       const opponentRatingBefore = isWhite
         ? game.blackRatingBefore
         : game.whiteRatingBefore;
@@ -188,11 +262,11 @@ export class UserService {
         playerColor,
         playerResult,
         opponent: {
-          id: opponent.id,
-          username: opponent.username,
+          id: gameOpponent.id,
+          username: gameOpponent.username,
           ratingBefore: opponentRatingBefore,
         },
-        ecoCode: game.eco ?? opening.code,
+        ecoCode: opening.code,
         openingName: opening.name,
         result: this.formatResult(game.result),
         termination: game.termination,

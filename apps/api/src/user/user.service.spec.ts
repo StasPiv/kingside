@@ -14,6 +14,7 @@ describe('UserService', () => {
   let service: UserService;
   let prisma: any;
   let i18n: any;
+  let ecoService: any;
 
   const userId = '11111111-1111-4111-a111-111111111111';
 
@@ -25,6 +26,7 @@ describe('UserService', () => {
       },
       game: {
         findMany: jest.fn(),
+        count: jest.fn(),
       },
       puzzleRushScore: {
         findFirst: jest.fn(),
@@ -36,7 +38,11 @@ describe('UserService', () => {
       t: jest.fn((key: string) => key),
     } as any;
 
-    service = new UserService(prisma, i18n);
+    ecoService = {
+      classify: jest.fn().mockReturnValue({ code: 'A00', name: 'Uncommon Opening' }),
+    } as any;
+
+    service = new UserService(prisma, i18n, ecoService);
   });
 
   describe('updateSettings', () => {
@@ -168,11 +174,15 @@ describe('UserService', () => {
   });
 
   describe('getUserGames', () => {
-    it('should return formatted games for user', async () => {
+    const otherId = '22222222-2222-4222-a222-222222222222';
+
+    it('should return formatted games with extended info', async () => {
       const now = new Date();
       const games = [
         {
           id: 'game-1',
+          whiteId: userId,
+          blackId: otherId,
           result: 'white',
           termination: 'checkmate',
           timeControlType: 'blitz',
@@ -180,94 +190,142 @@ describe('UserService', () => {
           timeIncrementSec: 3,
           eco: 'B20',
           createdAt: now,
+          finishedAt: now,
           whiteRatingBefore: 1500,
           whiteRatingAfter: 1515,
           blackRatingBefore: 1600,
           blackRatingAfter: 1585,
           white: { id: userId, username: 'player1' },
-          black: { id: 'other', username: 'player2' },
+          black: { id: otherId, username: 'player2' },
+          moves: [{ san: 'e4' }, { san: 'c5' }],
           _count: { moves: 42 },
         },
       ];
       prisma.game.findMany.mockResolvedValue(games);
+      prisma.game.count.mockResolvedValue(1);
+      ecoService.classify.mockReturnValue({ code: 'B20', name: 'Sicilian Defense' });
 
       const result = await service.getUserGames(userId);
 
-      expect(result).toEqual([
-        {
-          id: 'game-1',
-          white: { id: userId, username: 'player1' },
-          black: { id: 'other', username: 'player2' },
-          result: '1-0',
-          termination: 'checkmate',
-          timeControlType: 'blitz',
-          timeControl: '5+3',
-          eco: 'B20',
-          totalMoves: 42,
-          createdAt: now,
-          whiteRatingBefore: 1500,
-          whiteRatingAfter: 1515,
-          blackRatingBefore: 1600,
-          blackRatingAfter: 1585,
-        },
-      ]);
-      expect(prisma.game.findMany).toHaveBeenCalledWith({
-        where: {
-          OR: [{ whiteId: userId }, { blackId: userId }],
-          status: 'finished',
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-        skip: 0,
-        select: {
-          id: true,
-          result: true,
-          termination: true,
-          timeControlType: true,
-          timeInitialSec: true,
-          timeIncrementSec: true,
-          eco: true,
-          createdAt: true,
-          whiteRatingBefore: true,
-          whiteRatingAfter: true,
-          blackRatingBefore: true,
-          blackRatingAfter: true,
-          white: { select: { id: true, username: true } },
-          black: { select: { id: true, username: true } },
-          _count: { select: { moves: true } },
-        },
+      expect(result).toEqual({
+        data: [
+          {
+            id: 'game-1',
+            playerColor: 'white',
+            playerResult: 'win',
+            opponent: { id: otherId, username: 'player2', ratingBefore: 1600 },
+            ecoCode: 'B20',
+            openingName: 'Sicilian Defense',
+            result: '1-0',
+            termination: 'checkmate',
+            timeControlType: 'blitz',
+            timeControl: '5+3',
+            totalMoves: 42,
+            createdAt: now,
+            finishedAt: now,
+            whiteRatingBefore: 1500,
+            whiteRatingAfter: 1515,
+            blackRatingBefore: 1600,
+            blackRatingAfter: 1585,
+          },
+        ],
+        total: 1,
+        hasMore: false,
       });
+      expect(ecoService.classify).toHaveBeenCalledWith(['e4', 'c5']);
+    });
+
+    it('should compute playerColor and playerResult correctly for black', async () => {
+      const now = new Date();
+      const games = [
+        {
+          id: 'game-2',
+          whiteId: otherId,
+          blackId: userId,
+          result: 'black',
+          termination: 'resignation',
+          timeControlType: 'rapid',
+          timeInitialSec: 600,
+          timeIncrementSec: 5,
+          eco: null,
+          createdAt: now,
+          finishedAt: now,
+          whiteRatingBefore: 1500,
+          whiteRatingAfter: 1485,
+          blackRatingBefore: 1500,
+          blackRatingAfter: 1515,
+          white: { id: otherId, username: 'opponent' },
+          black: { id: userId, username: 'player1' },
+          moves: [{ san: 'd4' }],
+          _count: { moves: 20 },
+        },
+      ];
+      prisma.game.findMany.mockResolvedValue(games);
+      prisma.game.count.mockResolvedValue(1);
+
+      const result = await service.getUserGames(userId);
+
+      expect(result.data[0].playerColor).toBe('black');
+      expect(result.data[0].playerResult).toBe('win');
+      expect(result.data[0].opponent.id).toBe(otherId);
+      expect(result.data[0].opponent.ratingBefore).toBe(1500);
     });
 
     it('should format all result types correctly', async () => {
       const games = [
-        { id: 'g1', result: 'white', termination: 'checkmate', timeControlType: 'bullet', timeInitialSec: 60, timeIncrementSec: 0, eco: 'C50', createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1515, blackRatingBefore: 1500, blackRatingAfter: 1485, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 30 } },
-        { id: 'g2', result: 'black', termination: 'resignation', timeControlType: 'blitz', timeInitialSec: 180, timeIncrementSec: 2, eco: 'B20', createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1485, blackRatingBefore: 1500, blackRatingAfter: 1515, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 25 } },
-        { id: 'g3', result: 'draw', termination: 'draw_agreement', timeControlType: 'rapid', timeInitialSec: 600, timeIncrementSec: 5, eco: 'D35', createdAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1500, blackRatingBefore: 1500, blackRatingAfter: 1500, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 40 } },
-        { id: 'g4', result: null, termination: null, timeControlType: 'classical', timeInitialSec: 900, timeIncrementSec: 10, eco: null, createdAt: new Date(), whiteRatingBefore: null, whiteRatingAfter: null, blackRatingBefore: null, blackRatingAfter: null, white: { id: 'a', username: 'a' }, black: { id: 'b', username: 'b' }, _count: { moves: 0 } },
+        { id: 'g1', whiteId: userId, blackId: 'b', result: 'white', termination: 'checkmate', timeControlType: 'bullet', timeInitialSec: 60, timeIncrementSec: 0, eco: null, createdAt: new Date(), finishedAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1515, blackRatingBefore: 1500, blackRatingAfter: 1485, white: { id: userId, username: 'a' }, black: { id: 'b', username: 'b' }, moves: [], _count: { moves: 30 } },
+        { id: 'g2', whiteId: userId, blackId: 'b', result: 'black', termination: 'resignation', timeControlType: 'blitz', timeInitialSec: 180, timeIncrementSec: 2, eco: null, createdAt: new Date(), finishedAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1485, blackRatingBefore: 1500, blackRatingAfter: 1515, white: { id: userId, username: 'a' }, black: { id: 'b', username: 'b' }, moves: [], _count: { moves: 25 } },
+        { id: 'g3', whiteId: userId, blackId: 'b', result: 'draw', termination: 'draw_agreement', timeControlType: 'rapid', timeInitialSec: 600, timeIncrementSec: 5, eco: null, createdAt: new Date(), finishedAt: new Date(), whiteRatingBefore: 1500, whiteRatingAfter: 1500, blackRatingBefore: 1500, blackRatingAfter: 1500, white: { id: userId, username: 'a' }, black: { id: 'b', username: 'b' }, moves: [], _count: { moves: 40 } },
+        { id: 'g4', whiteId: userId, blackId: 'b', result: null, termination: null, timeControlType: 'classical', timeInitialSec: 900, timeIncrementSec: 10, eco: null, createdAt: new Date(), finishedAt: null, whiteRatingBefore: null, whiteRatingAfter: null, blackRatingBefore: null, blackRatingAfter: null, white: { id: userId, username: 'a' }, black: { id: 'b', username: 'b' }, moves: [], _count: { moves: 0 } },
       ];
       prisma.game.findMany.mockResolvedValue(games);
+      prisma.game.count.mockResolvedValue(4);
 
       const result = await service.getUserGames(userId);
 
-      expect(result[0].result).toBe('1-0');
-      expect(result[0].timeControl).toBe('1+0');
-      expect(result[1].result).toBe('0-1');
-      expect(result[1].timeControl).toBe('3+2');
-      expect(result[2].result).toBe('1/2-1/2');
-      expect(result[2].timeControl).toBe('10+5');
-      expect(result[3].result).toBe('*');
-      expect(result[3].timeControl).toBe('15+10');
+      expect(result.data[0].result).toBe('1-0');
+      expect(result.data[0].playerResult).toBe('win');
+      expect(result.data[0].timeControl).toBe('1+0');
+      expect(result.data[1].result).toBe('0-1');
+      expect(result.data[1].playerResult).toBe('loss');
+      expect(result.data[1].timeControl).toBe('3+2');
+      expect(result.data[2].result).toBe('1/2-1/2');
+      expect(result.data[2].playerResult).toBe('draw');
+      expect(result.data[2].timeControl).toBe('10+5');
+      expect(result.data[3].result).toBe('*');
+      expect(result.data[3].timeControl).toBe('15+10');
     });
 
-    it('should respect take and skip parameters', async () => {
+    it('should respect take and skip with safeTake limit', async () => {
       prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
 
-      await service.getUserGames(userId, 10, 5);
+      await service.getUserGames(userId, { take: 10, skip: 5 });
 
       expect(prisma.game.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 10, skip: 5 }),
       );
+    });
+
+    it('should cap take at 50', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(0);
+
+      await service.getUserGames(userId, { take: 100 });
+
+      expect(prisma.game.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 50 }),
+      );
+    });
+
+    it('should return hasMore when more games exist', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+      prisma.game.count.mockResolvedValue(30);
+
+      const result = await service.getUserGames(userId, { take: 10 });
+
+      expect(result.hasMore).toBe(true);
+      expect(result.total).toBe(30);
     });
   });
 });
