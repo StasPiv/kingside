@@ -2,18 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { classifyTimeControl, type TimeControlCategory } from '@kingside/shared';
+import { classifyTimeControl, type TimeControlCategory, type RatingRange } from '@kingside/shared';
 
 interface QueueEntry {
   userId: string;
   rating: number;
   timeInitialSec: number;
   timeIncrementSec: number;
+  ratingRange?: RatingRange;
 }
 
 @Injectable()
 export class MatchmakingService {
-  private readonly RATING_RANGE = 200;
+  private readonly DEFAULT_RATING_RANGE = 200;
 
   constructor(
     private readonly redis: RedisService,
@@ -26,6 +27,7 @@ export class MatchmakingService {
     timeInitialSec: number,
     timeIncrementSec: number,
     isOnline?: (userId: string) => Promise<boolean>,
+    ratingRange?: RatingRange,
   ): Promise<{ gameId: string; color: string; opponent: any } | null> {
     const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
 
@@ -36,13 +38,15 @@ export class MatchmakingService {
     const ratingField = this.ratingFieldForCategory(timeControlType);
     const rating = user[ratingField];
 
+    const { minRating, maxRating } = this.resolveRatingBounds(rating, ratingRange);
+
     const queueKey = `matchmaking:${timeControlType}`;
 
     // Look for opponent in rating range
     const candidates = await this.redis.zrangebyscore(
       queueKey,
-      rating - this.RATING_RANGE,
-      rating + this.RATING_RANGE,
+      minRating,
+      maxRating,
     );
 
     for (const candidateData of candidates) {
@@ -53,6 +57,13 @@ export class MatchmakingService {
         candidate.timeInitialSec !== timeInitialSec ||
         candidate.timeIncrementSec !== timeIncrementSec
       ) {
+        continue;
+      }
+
+      // Check mutual rating range compatibility:
+      // Our rating must also fall within the candidate's acceptable range
+      const candidateBounds = this.resolveRatingBounds(candidate.rating, candidate.ratingRange);
+      if (rating < candidateBounds.minRating || rating > candidateBounds.maxRating) {
         continue;
       }
 
@@ -100,6 +111,7 @@ export class MatchmakingService {
       rating,
       timeInitialSec,
       timeIncrementSec,
+      ratingRange,
     };
 
     await this.redis.zadd(queueKey, rating, JSON.stringify(entry));
@@ -119,6 +131,31 @@ export class MatchmakingService {
     }
 
     return false;
+  }
+
+  private resolveRatingBounds(
+    playerRating: number,
+    ratingRange?: RatingRange,
+  ): { minRating: number; maxRating: number } {
+    if (!ratingRange) {
+      return {
+        minRating: playerRating - this.DEFAULT_RATING_RANGE,
+        maxRating: playerRating + this.DEFAULT_RATING_RANGE,
+      };
+    }
+
+    if (ratingRange.mode === 'absolute') {
+      return {
+        minRating: ratingRange.min,
+        maxRating: ratingRange.max,
+      };
+    }
+
+    // relative mode
+    return {
+      minRating: playerRating - ratingRange.below,
+      maxRating: playerRating + ratingRange.above,
+    };
   }
 
   private ratingFieldForCategory(

@@ -316,10 +316,16 @@ export type WsErrorPayload = {
 
 // ─── WebSocket: /matchmaking namespace ──────────────────────────────
 
+/** Rating range filter for matchmaking */
+export type RatingRange =
+  | { mode: 'absolute'; min: number; max: number }
+  | { mode: 'relative'; below: number; above: number };
+
 /** Client → Server */
 export type WsMatchmakingJoinPayload = {
   timeInitial: number;
   increment: number;
+  ratingRange?: RatingRange;
 };
 
 /** Server → Client */
