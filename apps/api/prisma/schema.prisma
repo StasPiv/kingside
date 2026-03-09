@@ -50,6 +50,7 @@ enum Termination {
   repetition
   fifty_moves
   abort
+  abandon
 }
 
 enum TimeControlType {
@@ -77,6 +78,7 @@ model Game {
   blackRatingAfter  Int?             @map("black_rating_after")
   createdAt         DateTime         @default(now()) @map("created_at")
   startedAt         DateTime?        @map("started_at")
+  isBot             Boolean          @default(false) @map("is_bot")
   finishedAt        DateTime?        @map("finished_at")
 
   white        User          @relation("WhitePlayer", fields: [whiteId], references: [id])
@@ -88,6 +90,7 @@ model Game {
   @@index([blackId])
   @@index([status])
   @@index([createdAt])
+  @@index([isBot, status])
   @@map("games")
 }
 
