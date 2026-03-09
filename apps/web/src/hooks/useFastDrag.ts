@@ -156,10 +156,14 @@ export function useFastDrag(
       // flash where the piece was visible at the source square.
       let accepted = false;
       if (targetSquare && targetSquare !== state.sourceSquare) {
-        accepted = optionsRef.current.onPieceDrop({
-          sourceSquare: state.sourceSquare,
-          targetSquare,
-        });
+        try {
+          accepted = optionsRef.current.onPieceDrop({
+            sourceSquare: state.sourceSquare,
+            targetSquare,
+          });
+        } catch {
+          accepted = false;
+        }
       }
 
       // Snap-to-square animation: smoothly move ghost to target square center,
@@ -190,7 +194,17 @@ export function useFastDrag(
         cleaned = true;
         state.ghost.remove();
         if (!accepted) {
+          // Restore opacity on the original piece element
           state.pieceEl.style.opacity = '';
+          // Fallback: if React re-rendered and replaced the DOM element,
+          // find the piece at the source square and restore its opacity too
+          const ctr = containerRef.current;
+          if (ctr) {
+            const sqEl = ctr.querySelector<HTMLElement>(`[data-square="${state.sourceSquare}"] [data-piece]`);
+            if (sqEl && sqEl !== state.pieceEl) {
+              sqEl.style.opacity = '';
+            }
+          }
         }
       };
 
