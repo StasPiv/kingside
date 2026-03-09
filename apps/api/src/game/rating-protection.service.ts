@@ -101,6 +101,9 @@ export class RatingProtectionService {
     });
 
     if (recentPairGames >= MAX_PAIR_GAMES_PER_DAY) {
+      this.logger.warn(
+        `Pair limit: white=${whiteId} black=${blackId} recentGames=${recentPairGames} limit=${MAX_PAIR_GAMES_PER_DAY}`,
+      );
       return {
         allowed: false,
         reason: `pair limit exceeded (${recentPairGames + 1}/${MAX_PAIR_GAMES_PER_DAY})`,
