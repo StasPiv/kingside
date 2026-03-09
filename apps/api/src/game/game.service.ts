@@ -353,7 +353,6 @@ export class GameService {
     botLevel: number,
     timeControl: 'bullet' | 'blitz' | 'rapid' | 'classical',
   ) {
-    // Clean up stale bot games before checking the limit
     await this.cleanupStaleBotGames(userId);
 
     const activeBotGames = await this.prisma.game.count({
@@ -412,7 +411,6 @@ export class GameService {
       orderBy: { moveNumber: 'asc' },
     });
   }
-
 
   async cleanupStaleBotGames(userId: string): Promise<number> {
     const staleGames = await this.prisma.game.findMany({
