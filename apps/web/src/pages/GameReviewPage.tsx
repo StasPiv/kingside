@@ -114,11 +114,22 @@ export function GameReviewPage() {
     game.load(currentFen);
   }, [currentFen, game]);
 
-  // Auto-evaluate when position changes
+  // Auto-evaluate when position changes (debounced to avoid crashing Stockfish WASM)
+  const evalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (isReady && currentFen) {
-      evaluate(currentFen);
+    if (evalTimerRef.current) {
+      clearTimeout(evalTimerRef.current);
     }
+    if (isReady && currentFen) {
+      evalTimerRef.current = setTimeout(() => {
+        evaluate(currentFen);
+      }, 150);
+    }
+    return () => {
+      if (evalTimerRef.current) {
+        clearTimeout(evalTimerRef.current);
+      }
+    };
   }, [currentFen, isReady, evaluate]);
 
   const goToStart = useCallback(() => setCurrentMoveIndex(-1), []);

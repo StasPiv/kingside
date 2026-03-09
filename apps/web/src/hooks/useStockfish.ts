@@ -108,6 +108,12 @@ export function useStockfish(options: UseStockfishOptions = {}) {
         if (initTimerRef.current) {
           clearTimeout(initTimerRef.current);
           initTimerRef.current = null;
+          setState('ready');
+          return;
+        }
+        if (waitingReadyRef.current) {
+          onReadyForEvalRef.current();
+          return;
         }
         setState('ready');
         return;
@@ -152,6 +158,24 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     return cleanup;
   }, [autoStart, init, cleanup]);
 
+  const pendingFenRef = useRef<string | null>(null);
+  const waitingReadyRef = useRef(false);
+
+  // Handle readyok for synchronised evaluate flow
+  const onReadyForEval = useCallback(() => {
+    waitingReadyRef.current = false;
+    const fen = pendingFenRef.current;
+    if (!fen || !engineRef.current) return;
+    pendingFenRef.current = null;
+    engineRef.current.postMessage(`setoption name MultiPV value ${multiPv}`);
+    engineRef.current.postMessage(`position fen ${fen}`);
+    engineRef.current.postMessage(`go depth ${depth}`);
+  }, [depth, multiPv]);
+
+  // Patch into the existing onmessage — store ref so evaluate can use it
+  const onReadyForEvalRef = useRef(onReadyForEval);
+  onReadyForEvalRef.current = onReadyForEval;
+
   const evaluate = useCallback(
     (fen: string) => {
       const s = stateRef.current;
@@ -162,12 +186,12 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       setBestMove(null);
       analysisGenRef.current += 1;
       setState('analyzing');
+      pendingFenRef.current = fen;
+      waitingReadyRef.current = true;
       engineRef.current.postMessage('stop');
-      engineRef.current.postMessage(`setoption name MultiPV value ${multiPv}`);
-      engineRef.current.postMessage(`position fen ${fen}`);
-      engineRef.current.postMessage(`go depth ${depth}`);
+      engineRef.current.postMessage('isready');
     },
-    [depth, multiPv],
+    [],
   );
 
   const stop = useCallback(() => {
