@@ -37,6 +37,7 @@ describe('GameService E2E Scenarios', () => {
         create: jest.fn(),
         findUniqueOrThrow: jest.fn(),
         findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
         update: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
       },
@@ -453,6 +454,67 @@ describe('GameService E2E Scenarios', () => {
 
       expect(endResult.result).toBe('black');
       expect(endResult.termination).toBe('resignation');
+      expect(ratingService.updateRatingsAfterGame).toHaveBeenCalledWith('game-1', 'black');
+    });
+  });
+
+  describe('KS-362: Short game resignation rating update', () => {
+    it('should update ratings when white resigns after 4 moves', async () => {
+      const ratingChangeResult = {
+        whiteRatingBefore: 1530,
+        whiteRatingAfter: 1512,
+        blackRatingBefore: 1470,
+        blackRatingAfter: 1488,
+      };
+      ratingService.updateRatingsAfterGame.mockResolvedValue(ratingChangeResult);
+
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId,
+        blackId,
+        timeIncrementSec: 0,
+        status: 'active',
+      });
+      prisma.game.update.mockResolvedValue({});
+
+      // Play 4 moves: 1.e4 e5 2.Nf3 Nc6
+      const positions = [
+        { uci: 'e2e4', player: whiteId, color: 'white' },
+        { uci: 'e7e5', player: blackId, color: 'black' },
+        { uci: 'g1f3', player: whiteId, color: 'white' },
+        { uci: 'b8c6', player: blackId, color: 'black' },
+      ];
+
+      let currentFen = INITIAL_FEN;
+      let currentMoves: any[] = [];
+      let activeColor = 'white';
+
+      for (const pos of positions) {
+        redis.hgetall.mockResolvedValue({
+          fen: currentFen,
+          moves: JSON.stringify(currentMoves),
+          active_color: activeColor,
+          status: 'active',
+        });
+
+        const result = await service.makeMove('game-1', pos.player, pos.uci);
+        currentFen = result.fen;
+        currentMoves.push({ uci: pos.uci, san: result.san });
+        activeColor = activeColor === 'white' ? 'black' : 'white';
+      }
+
+      // White resigns after 4 moves
+      prisma.game.findUniqueOrThrow.mockResolvedValue({
+        whiteId,
+        blackId,
+        status: 'active',
+      });
+      redis.hgetall.mockResolvedValue({ fen: currentFen });
+
+      const endResult = await service.resign('game-1', whiteId);
+
+      expect(endResult.result).toBe('black');
+      expect(endResult.termination).toBe('resignation');
+      expect(endResult.ratingChange).toEqual(ratingChangeResult);
       expect(ratingService.updateRatingsAfterGame).toHaveBeenCalledWith('game-1', 'black');
     });
   });
