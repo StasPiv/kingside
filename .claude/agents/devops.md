@@ -18,6 +18,10 @@ model: inherit
 - Твоя метка: `devops`
 - Ищи свои задачи по JQL: `project = KS AND labels = devops AND status != Done`
 
+## Структура проекта
+- Корень проекта: `/home/pivovartsev/work/kingside`
+- Frontend: `apps/web/`, Backend: `apps/api/`
+
 ## Правила
 - Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `DEVOPS: `
 - Следуй архитектурным решениям из `docs/architecture/`

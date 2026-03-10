@@ -19,6 +19,10 @@ model: inherit
 - Твоя метка: `backend`
 - Ищи свои задачи по JQL: `project = KS AND labels = backend AND status != Done`
 
+## Структура проекта
+- Корень проекта: `/home/pivovartsev/work/kingside`
+- Backend-код: `apps/api/`
+
 ## Правила
 - Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `BACKEND: `
 - Следуй архитектурным решениям из `docs/architecture/`

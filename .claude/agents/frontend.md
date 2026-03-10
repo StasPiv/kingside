@@ -19,6 +19,10 @@ model: inherit
 - Твоя метка: `frontend`
 - Ищи свои задачи по JQL: `project = KS AND labels = frontend AND status != Done`
 
+## Структура проекта
+- Корень проекта: `/home/pivovartsev/work/kingside`
+- Frontend-код: `apps/web/`
+
 ## Правила
 - Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `FRONTEND: `
 - Следуй архитектурным решениям из `docs/architecture/`
