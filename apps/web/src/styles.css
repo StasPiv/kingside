@@ -1652,9 +1652,10 @@ input:focus {
   flex: 1;
   min-height: 120px;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 2px;
+  align-content: flex-start;
 }
 
 .analysis-move-pair {
@@ -1663,6 +1664,7 @@ input:focus {
   gap: 4px;
   font-size: 14px;
   padding: 2px 4px;
+  min-width: 0;
 }
 
 .analysis-move-pair .move-number {
