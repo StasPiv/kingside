@@ -91,6 +91,8 @@ function formatPv(pv: string, fen: string): string {
   }
 }
 
+const MULTI_PV = 3;
+
 export function GameReviewPage() {
   const params = useParams<{ id?: string; gameId?: string }>();
   const gameId = params.id ?? params.gameId;
@@ -109,7 +111,6 @@ export function GameReviewPage() {
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true);
 
-  const MULTI_PV = 3;
   const { lines, analysisFen, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
     depth: 18,
     multiPv: MULTI_PV,
