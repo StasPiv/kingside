@@ -9,6 +9,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import type { PuzzleDto, DailyPuzzleResponse } from '@kingside/shared';
 
 type PuzzleState = 'loading' | 'solving' | 'correct' | 'failed';
@@ -184,6 +185,26 @@ export function DailyPuzzlePage() {
     setState('correct');
   }, [game, puzzle, solutionMoves]);
 
+  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
+    game,
+    playerColor,
+    enabled: state === 'solving',
+  });
+
+  useEffect(() => {
+    if (moveIndex > 0 && solutionMoves[moveIndex - 1]) {
+      const uci = solutionMoves[moveIndex - 1];
+      setLastMove(uci.slice(0, 2) as Square, uci.slice(2, 4) as Square);
+    }
+  }, [moveIndex, solutionMoves, setLastMove]);
+
+  const handleSquareClick = useCallback(
+    ({ square }: { piece: unknown; square: string }) => {
+      onSquareClick(square as Square);
+    },
+    [onSquareClick],
+  );
+
   useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
@@ -204,11 +225,13 @@ export function DailyPuzzlePage() {
       animationDurationInMs: 200,
       allowDragging: false,
       showNotation: true,
+      squareStyles,
+      onSquareClick: handleSquareClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
       ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, playerColor, boardStyle, boardThemeOptions, customPieces],
+    [stablePosition, playerColor, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick],
   );
 
   const themes = puzzle?.themes ?? [];

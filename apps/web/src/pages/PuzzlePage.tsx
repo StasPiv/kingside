@@ -2,11 +2,13 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
+import type { Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { MemoChessboard } from '../components/MemoChessboard';
 import type { PuzzleDto } from '@kingside/shared';
 
@@ -151,6 +153,26 @@ export function PuzzlePage() {
     [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
   );
 
+  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
+    game: game ?? null,
+    playerColor: boardOrientation,
+    enabled: status === 'thinking',
+  });
+
+  useEffect(() => {
+    if (moveIndex > 0 && puzzleMoves[moveIndex - 1]) {
+      const uci = puzzleMoves[moveIndex - 1];
+      setLastMove(uci.slice(0, 2) as Square, uci.slice(2, 4) as Square);
+    }
+  }, [moveIndex, puzzleMoves, setLastMove]);
+
+  const handleSquareClick = useCallback(
+    ({ square }: { piece: unknown; square: string }) => {
+      onSquareClick(square as Square);
+    },
+    [onSquareClick],
+  );
+
   useFastDrag(boardContainerRef, {
     onPieceDrop: onPieceDrop,
     boardOrientation: boardOrientation,
@@ -171,11 +193,13 @@ export function PuzzlePage() {
       animationDurationInMs: 200,
       allowDragging: false,
       showNotation: true,
+      squareStyles,
+      onSquareClick: handleSquareClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
       ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick],
   );
 
   const handleNext = useCallback(async () => {

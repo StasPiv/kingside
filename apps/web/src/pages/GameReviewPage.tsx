@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
+import type { Square } from 'chess.js';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useStockfish } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { INITIAL_FEN } from '@kingside/shared';
 import { api } from '../api';
 
@@ -95,7 +97,7 @@ export function GameReviewPage() {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const movesContainerRef = useRef<HTMLDivElement>(null);
-  const { boardThemeOptions, customPieces } = useBoardTheme();
+  const { boardThemeOptions } = useBoardTheme();
 
   const game = useMemo(() => new Chess(), []);
 
@@ -202,6 +204,19 @@ export function GameReviewPage() {
     [boardWidth],
   );
 
+  const { squareStyles, setLastMove } = useBoardHighlights({
+    game,
+    playerColor: null,
+    enabled: false,
+  });
+
+  useEffect(() => {
+    if (currentMoveIndex >= 0 && moves[currentMoveIndex]) {
+      const uci = moves[currentMoveIndex].uci;
+      setLastMove(uci.slice(0, 2) as Square, uci.slice(2, 4) as Square);
+    }
+  }, [currentMoveIndex, moves, setLastMove]);
+
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
@@ -209,11 +224,11 @@ export function GameReviewPage() {
       animationDurationInMs: 200,
       allowDragging: false,
       showNotation: true,
+      squareStyles,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
-      ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardStyle, boardThemeOptions, customPieces],
+    [stablePosition, boardStyle, boardThemeOptions, squareStyles],
   );
 
   const whitePercent = evalToPercent(lines);
