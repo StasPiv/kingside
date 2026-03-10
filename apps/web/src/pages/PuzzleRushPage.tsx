@@ -299,6 +299,7 @@ export function PuzzleRushPage() {
       boardOrientation: boardOrientation,
       animationDurationInMs: 150,
       allowDragging: false,
+      showNotation: true,
       ...(boardStyle && { boardStyle }),
     }),
     [stablePosition, boardOrientation, boardStyle],

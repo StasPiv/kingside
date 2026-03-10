@@ -206,6 +206,7 @@ export function GameReviewPage() {
       boardOrientation: 'white' as const,
       animationDurationInMs: 200,
       allowDragging: false,
+      showNotation: true,
       ...(boardStyle && { boardStyle }),
     }),
     [stablePosition, boardStyle],

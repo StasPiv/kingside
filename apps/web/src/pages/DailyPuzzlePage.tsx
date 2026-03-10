@@ -201,6 +201,7 @@ export function DailyPuzzlePage() {
       boardOrientation: playerColor,
       animationDurationInMs: 200,
       allowDragging: false,
+      showNotation: true,
       ...(boardStyle && { boardStyle }),
     }),
     [stablePosition, playerColor, boardStyle],

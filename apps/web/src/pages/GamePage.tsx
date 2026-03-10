@@ -276,6 +276,7 @@ export function GamePage() {
       boardOrientation: playerColor,
       animationDurationInMs: 0,
       allowDragging: false,
+      showNotation: true,
       ...(boardStyle && { boardStyle }),
     }),
     [stablePosition, playerColor, boardStyle],

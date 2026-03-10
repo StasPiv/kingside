@@ -168,6 +168,7 @@ export function PuzzlePage() {
       boardOrientation: boardOrientation,
       animationDurationInMs: 200,
       allowDragging: false,
+      showNotation: true,
       ...(boardStyle && { boardStyle }),
     }),
     [stablePosition, boardOrientation, boardStyle],
