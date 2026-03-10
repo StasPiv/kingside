@@ -2839,6 +2839,11 @@ input:focus {
   .difficulty-filters {
     flex-wrap: wrap;
   }
+
+  /* Lobby: reduce top padding on tablets */
+  .lobby-page {
+    padding-top: 16px;
+  }
 }
 
 /* Responsive: mobile */
@@ -2895,8 +2900,68 @@ input:focus {
     gap: 10px;
   }
 
+  /* Clock: large enough to read on mobile */
   .clock {
-    font-size: 18px;
+    font-size: 22px;
+  }
+
+  /* Game board: full width, no horizontal overflow */
+  .game-board-area {
+    width: 100%;
+  }
+
+  .board-container {
+    max-width: calc(100vw - 16px);
+  }
+
+  /* Tap targets for game action buttons */
+  .game-actions button {
+    min-height: 44px;
+  }
+
+  /* Game sidebar: allow natural height (game-page itself scrolls) */
+  .game-sidebar {
+    max-height: none;
+  }
+
+  /* Constrain moves list height on mobile */
+  .moves {
+    max-height: 100px;
+  }
+
+  /* Constrain chat height on mobile */
+  .chat {
+    max-height: 180px;
+  }
+
+  /* Lobby: 2-column grid for time control buttons */
+  .time-controls {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tc-btn {
+    text-align: center;
+  }
+
+  /* Lobby panel: less padding */
+  .lobby-panel {
+    padding: 20px 16px;
+  }
+
+  /* Profile: rush stats 2 columns instead of 3 */
+  .rush-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Settings: less padding */
+  .settings-section {
+    padding: 16px;
+  }
+
+  /* Game review: shorter moves list */
+  .analysis-moves {
+    max-height: 200px;
   }
 
   /* Game page: allow body to scroll in stacked layout */
