@@ -484,9 +484,18 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
             # Парсим все @agentName из текста комментария
             # Исключаем автора-агента, чтобы не запускать его повторно
+            # Coding-агентов запускаем только если задача имеет их метку
+            labels = [l.get("name", "").lower() if isinstance(l, dict) else l.lower()
+                      for l in issue.get("fields", {}).get("labels", [])]
             mentions = re.findall(r"@(\w+)", comment_text)
-            agents = [m.lower() for m in mentions
-                      if m.lower() in valid_agents and m.lower() != author_agent]
+            agents = []
+            for m in mentions:
+                name = m.lower()
+                if name not in valid_agents or name == author_agent:
+                    continue
+                # coordinator — всегда ок; coding-агенты — только если их метка на задаче
+                if name == "coordinator" or name in labels:
+                    agents.append(name)
 
             # Coordinator получает все комментарии (если он не автор)
             if "coordinator" in valid_agents and author_agent != "coordinator" and "coordinator" not in agents:
