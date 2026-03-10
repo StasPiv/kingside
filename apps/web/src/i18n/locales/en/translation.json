@@ -185,7 +185,8 @@
     "forward": "Next move",
     "toEnd": "Go to end",
     "backToProfile": "Back to profile",
-    "backToGame": "Back to Game"
+    "backToGame": "Back to Game",
+    "backToGames": "My games"
   },
   "analysis": {
     "depth": "Depth",

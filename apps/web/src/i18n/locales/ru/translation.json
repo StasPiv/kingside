@@ -185,7 +185,8 @@
     "forward": "Следующий ход",
     "toEnd": "В конец",
     "backToProfile": "Назад к профилю",
-    "backToGame": "Назад к партии"
+    "backToGame": "Назад к партии",
+    "backToGames": "Мои партии"
   },
   "analysis": {
     "depth": "Глубина",

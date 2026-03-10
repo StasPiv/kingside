@@ -1384,9 +1384,8 @@ input:focus {
   border-radius: 8px;
   padding: 12px;
   box-sizing: border-box;
-  height: 136px;
   overflow: hidden;
-  contain: layout size;
+  contain: layout;
   flex-shrink: 0;
 }
 
@@ -1401,18 +1400,15 @@ input:focus {
 .stockfish-lines {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   margin-top: 8px;
-  height: 78px;
-  overflow: hidden;
 }
 
 .stockfish-line {
   display: flex;
   gap: 8px;
   font-size: 14px;
-  height: 22px;
-  overflow: hidden;
+  align-items: flex-start;
 }
 
 .stockfish-eval {
@@ -1421,6 +1417,7 @@ input:focus {
   color: #a0a0c0;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
+  padding-top: 1px;
 }
 
 .stockfish-eval.best {
@@ -1433,9 +1430,9 @@ input:focus {
 
 .stockfish-pv {
   color: #a0a0c0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .analysis-sidebar {
@@ -1443,6 +1440,7 @@ input:focus {
   flex-direction: column;
   gap: 12px;
   width: 300px;
+  align-self: stretch;
 }
 
 .analysis-progress {
@@ -1562,7 +1560,8 @@ input:focus {
   background: #16213e;
   border-radius: 8px;
   padding: 12px;
-  max-height: 400px;
+  flex: 1;
+  min-height: 120px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -1641,6 +1640,30 @@ input:focus {
 
 .analysis-back-link + .analysis-back-link {
   margin-top: 8px;
+}
+
+.analysis-back-link--top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 8px 12px;
+  background: #16213e;
+  border-radius: 8px;
+  color: #7c83ff;
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.analysis-back-link--top::before {
+  content: '\2190';
+  font-size: 16px;
+  line-height: 1;
+}
+
+.analysis-back-link--top:hover {
+  background: #1e2d50;
+  text-decoration: none;
 }
 
 /* Back navigation link */

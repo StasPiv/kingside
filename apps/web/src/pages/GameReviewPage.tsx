@@ -319,6 +319,9 @@ export function GameReviewPage() {
       </div>
 
       <div className="analysis-sidebar">
+        {/* Back navigation — top of sidebar for easy access */}
+        <Link to="/profile" className="analysis-back-link analysis-back-link--top">{t('review.backToGames')}</Link>
+
         {/* Engine analysis panel — in sidebar */}
         <div className="stockfish-panel">
           <div className="stockfish-panel-header">
@@ -424,8 +427,6 @@ export function GameReviewPage() {
           )}
         </div>
 
-        <Link to={`/game/${gameId}`} className="analysis-back-link">{t('review.backToGame')}</Link>
-        <Link to="/profile" className="analysis-back-link">{t('review.backToProfile')}</Link>
       </div>
     </div>
   );
