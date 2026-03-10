@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockfishService } from '../engine/stockfish.service';
-import { GameService } from './game.service';
+import { GameService, MoveFlags } from './game.service';
 import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
 
 @Injectable()
@@ -51,7 +51,7 @@ export class BotGameService implements OnModuleInit {
 
   async maybeBotReply(
     gameId: string,
-  ): Promise<{ uci: string; san: string; fen: string; clocks: any; gameOver: boolean; result?: string; termination?: string } | null> {
+  ): Promise<{ uci: string; san: string; fen: string; clocks: any; gameOver: boolean; result?: string; termination?: string; moveFlags?: MoveFlags } | null> {
     const game = await this.prisma.game.findUniqueOrThrow({
       where: { id: gameId },
       select: { whiteId: true, blackId: true, status: true, botLevel: true },
