@@ -109,7 +109,7 @@ export function GameReviewPage() {
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true);
 
-  const { lines, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
+  const { lines, analysisFen, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
     depth: 18,
     multiPv: 3,
     autoStart: analysisEnabled,
@@ -238,7 +238,11 @@ export function GameReviewPage() {
   );
 
   const isBlackTurn = currentFen.split(' ')[1] === 'b';
-  const whitePercent = evalToPercent(lines, isBlackTurn);
+  // Use isBlackTurn from the FEN for which lines were computed, not current FEN.
+  // This prevents the eval bar from briefly showing an inverted value when the
+  // position changes but Stockfish has not yet started analysing the new FEN.
+  const evalIsBlackTurn = analysisFen ? analysisFen.split(' ')[1] === 'b' : isBlackTurn;
+  const whitePercent = evalToPercent(lines, evalIsBlackTurn);
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
@@ -267,7 +271,7 @@ export function GameReviewPage() {
                   style={{ height: `${whitePercent}%` }}
                 />
                 <div className="eval-bar-label">
-                  {lines.length > 0 ? formatEval(lines[0], isBlackTurn) : '0.0'}
+                  {lines.length > 0 ? formatEval(lines[0], evalIsBlackTurn) : '0.0'}
                 </div>
               </div>
             </div>
