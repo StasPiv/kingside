@@ -22,6 +22,13 @@ export interface RatingChange {
   blackRatingAfter: number;
 }
 
+export interface MoveFlags {
+  captured: boolean;
+  isCheck: boolean;
+  isCastle: boolean;
+  isPromotion: boolean;
+}
+
 interface MoveResult {
   san: string;
   fen: string;
@@ -30,6 +37,7 @@ interface MoveResult {
   result?: 'white' | 'black' | 'draw';
   termination?: string;
   ratingChange?: RatingChange | null;
+  moveFlags?: MoveFlags;
 }
 
 interface EndResult {
@@ -196,6 +204,13 @@ export class GameService {
       throw new Error(this.i18n.t('messages.game.invalidMove'));
     }
 
+    const moveFlags: MoveFlags = {
+      captured: !!move.captured,
+      isCheck: chess.inCheck(),
+      isCastle: move.flags.includes('k') || move.flags.includes('q'),
+      isPromotion: move.flags.includes('p'),
+    };
+
     const newFen = chess.fen();
     const moves = JSON.parse(raw.moves || '[]');
     moves.push({ uci: normalizedUci, san: move.san });
@@ -256,7 +271,7 @@ export class GameService {
       ratingChange = await this.endGame(gameId, result, termination);
     }
 
-    return { san: move.san, fen: newFen, clocks, gameOver, result, termination, ratingChange };
+    return { san: move.san, fen: newFen, clocks, gameOver, result, termination, ratingChange, moveFlags };
   }
 
   async resign(gameId: string, userId: string): Promise<EndResult> {
