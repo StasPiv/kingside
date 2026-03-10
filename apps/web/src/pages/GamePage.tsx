@@ -50,6 +50,7 @@ export function GamePage() {
   const [chatInput, setChatInput] = useState('');
   const [players, setPlayers] = useState<{ white: string; black: string }>({ white: '', black: '' });
   const [drawOffered, setDrawOffered] = useState(false);
+  const [isOpponentMove, setIsOpponentMove] = useState(false);
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
@@ -71,6 +72,12 @@ export function GamePage() {
       movesRef.current.scrollTop = movesRef.current.scrollHeight;
     }
   }, [moves]);
+
+  useEffect(() => {
+    if (isOpponentMove) {
+      setIsOpponentMove(false);
+    }
+  }, [isOpponentMove]);
 
   useEffect(() => {
     const el = boardAreaRef.current;
@@ -108,6 +115,7 @@ export function GamePage() {
 
     const onGameMove = (data: WsGameMoveServerPayload) => {
       game.load(data.fen);
+      setIsOpponentMove(true);
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
@@ -274,11 +282,11 @@ export function GamePage() {
     () => ({
       position: stablePosition,
       boardOrientation: playerColor,
-      animationDurationInMs: 0,
+      animationDurationInMs: isOpponentMove ? 150 : 0,
       allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [stablePosition, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle, isOpponentMove],
   );
 
   return (
