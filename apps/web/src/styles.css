@@ -213,6 +213,11 @@ input:focus {
   padding: 0;
 }
 
+.main:has(.analysis-page) {
+  max-width: none;
+  padding: 0;
+}
+
 /* Auth pages */
 .auth-page {
   display: flex;
@@ -1315,9 +1320,12 @@ input:focus {
   display: flex;
   gap: 0;
   justify-content: flex-start;
-  align-items: flex-start;
+  align-items: stretch;
   overflow: hidden;
   width: 100%;
+  height: calc(100vh - 56px);
+  padding: 8px;
+  box-sizing: border-box;
 }
 
 .analysis-board-area {
@@ -1527,6 +1535,7 @@ input:focus {
   gap: 0;
   flex: 1;
   min-width: 280px;
+  min-height: 0;
   align-self: stretch;
   overflow: hidden;
 }
@@ -1649,7 +1658,7 @@ input:focus {
   border-radius: 8px;
   padding: 12px;
   flex: 1;
-  min-height: 120px;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-wrap: wrap;
@@ -1694,6 +1703,7 @@ input:focus {
   flex-direction: column;
   padding: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .vml-container {
@@ -1819,7 +1829,11 @@ input:focus {
 }
 
 .review-editor-panel {
-  flex: 0 0 auto;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
@@ -3398,11 +3412,12 @@ input:focus {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 120px;
+  min-height: 0;
   overflow: hidden;
   padding: 0;
   background: #16213e;
   border-radius: 8px;
+  position: relative;
 }
 
 .vml-container {

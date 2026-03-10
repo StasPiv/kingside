@@ -125,7 +125,7 @@ export function GameReviewPage() {
   // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
   const [boardAreaPx, setBoardAreaPx] = useState(() =>
-    Math.floor((Math.min(window.innerWidth, 1200) - 48 - 8) / 3),
+    Math.floor((window.innerWidth - 8) * 0.55),
   );
   const [enginePanelHeight, setEnginePanelHeight] = useState(140);
 
@@ -134,7 +134,7 @@ export function GameReviewPage() {
     if (!analysisPageRef.current) return;
     const total = analysisPageRef.current.clientWidth;
     if (total === 0) return;
-    setBoardAreaPx(Math.floor((total - 8) / 3));
+    setBoardAreaPx(Math.floor((total - 8) * 0.55));
   }, [loading]);
 
   const handleHResizerMouseDown = useCallback(
