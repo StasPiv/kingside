@@ -2,6 +2,7 @@
 """Webhook-сервер для Jira. Принимает POST от Jira и запускает соответствующего агента."""
 
 import json
+import queue
 import re
 import subprocess
 import os
@@ -86,24 +87,85 @@ def get_valid_agents():
     return agents
 
 
-# key -> {"agent": ..., "proc": Popen, "launched_at": ...}
-# Трекинг живых процессов агентов
-running_agents = {}
+# Очереди задач на каждого coding-агента (coordinator без очереди)
+# item: {"key": ..., "summary": ..., "agent": ..., "prompt": ...}
+agent_queues: dict[str, queue.Queue] = {}
+agent_queues_lock = threading.Lock()
+
+# Задачи, которые уже есть в очереди или выполняются — для дедупликации
+# key -> agent
+queued_tasks: dict[str, str] = {}
+queued_tasks_lock = threading.Lock()
 
 
-def is_agent_running(key):
-    """Проверяет, жив ли процесс агента для задачи. Собирает зомби через poll()."""
-    if key not in running_agents:
-        return False
-    proc = running_agents[key].get("proc")
-    if not proc:
-        del running_agents[key]
-        return False
-    if proc.poll() is not None:
-        # Процесс завершился, poll() собрал зомби
-        del running_agents[key]
-        return False
-    return True
+def get_or_create_queue(agent: str) -> queue.Queue:
+    with agent_queues_lock:
+        if agent not in agent_queues:
+            q: queue.Queue = queue.Queue()
+            agent_queues[agent] = q
+            t = threading.Thread(target=_agent_worker, args=(agent, q), daemon=True)
+            t.start()
+            log(f"Очередь и worker запущены для агента {agent}")
+        return agent_queues[agent]
+
+
+def _agent_worker(agent: str, q: queue.Queue):
+    """Worker-поток: последовательно выполняет задачи агента из очереди."""
+    while True:
+        item = q.get()
+        key = item["key"]
+        try:
+            _run_agent(item["key"], item["summary"], item["agent"], item["prompt"])
+        except Exception as e:
+            log(f"Worker {agent}: ошибка при запуске {key}: {e}")
+        finally:
+            with queued_tasks_lock:
+                queued_tasks.pop(key, None)
+            q.task_done()
+
+
+def _get_issue_status_category(key: str) -> str:
+    """Возвращает statusCategory.key задачи через Jira REST API."""
+    if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
+        return ""
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{key}?fields=status"
+    auth = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", f"Basic {auth}")
+    req.add_header("Accept", "application/json")
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read().decode())
+        return data.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
+    except Exception as e:
+        log(f"Ошибка проверки статуса {key}: {e}")
+        return ""
+
+
+def _run_agent(key: str, summary: str, agent: str, prompt: str):
+    """Синхронно запускает claude-агента и ждёт завершения."""
+    # Проверяем актуальный статус задачи перед запуском
+    status_category = _get_issue_status_category(key)
+    if status_category in ("done", "indeterminate"):
+        log(f"Пропуск {key} из очереди: задача уже в статусе '{status_category}'")
+        return
+
+    log_file = os.path.join(LOG_DIR, "agents.log")
+    env = os.environ.copy()
+    env.pop("CLAUDECODE", None)
+    worktree = setup_worktree(key)
+    cmd = [
+        "claude", "-p", prompt,
+        "--agent", agent,
+        "--dangerously-skip-permissions",
+        "--output-format", "stream-json",
+        "--verbose",
+    ]
+    with open(log_file, "a") as lf:
+        proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=lf, stderr=lf)
+    log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
+    proc.wait()
+    log(f"Агент {agent} завершил {key} (код: {proc.returncode})")
 
 
 def log(msg):
@@ -258,21 +320,7 @@ def setup_worktree(key):
 
 
 def launch_agent(key, summary, agent, prompt=None):
-    """Запускает claude агента в фоне."""
-    # Не запускать если для этой задачи уже работает агент (кроме coordinator)
-    if agent != "coordinator" and is_agent_running(key):
-        log(f"Пропуск {key}: агент {running_agents[key]['agent']} ещё работает (PID {running_agents[key]['proc'].pid})")
-        return
-
-    log_file = os.path.join(LOG_DIR, "agents.log")
-    env = os.environ.copy()
-    env.pop("CLAUDECODE", None)
-
-    if agent == "coordinator":
-        worktree = PROJECT_DIR
-    else:
-        worktree = setup_worktree(key)
-
+    """Ставит задачу в очередь агента (или запускает coordinator напрямую)."""
     if not prompt:
         role = agent.upper()
         prompt = (
@@ -286,26 +334,33 @@ def launch_agent(key, summary, agent, prompt=None):
             f"7. Переведи задачу в статус 'Done'"
         )
 
-    cmd = [
-        "claude", "-p", prompt,
-        "--agent", agent,
-        "--dangerously-skip-permissions",
-        "--output-format", "stream-json",
-        "--verbose",
-    ]
+    # Coordinator — запускаем напрямую в фоне, без очереди
+    if agent == "coordinator":
+        log_file = os.path.join(LOG_DIR, "agents.log")
+        env = os.environ.copy()
+        env.pop("CLAUDECODE", None)
+        cmd = [
+            "claude", "-p", prompt,
+            "--agent", agent,
+            "--dangerously-skip-permissions",
+            "--output-format", "stream-json",
+            "--verbose",
+        ]
+        with open(log_file, "a") as lf:
+            proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env, stdout=lf, stderr=lf)
+        log(f"Агент coordinator запущен для {key} (PID: {proc.pid})")
+        return
 
-    with open(log_file, "a") as lf:
-        proc = subprocess.Popen(
-            cmd, cwd=worktree, env=env,
-            stdout=lf, stderr=lf,
-        )
-    if agent != "coordinator":
-        running_agents[key] = {
-            "agent": agent,
-            "proc": proc,
-            "launched_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }
-    log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
+    # Coding-агенты — дедупликация и постановка в очередь
+    with queued_tasks_lock:
+        if key in queued_tasks:
+            log(f"Пропуск {key}: уже в очереди агента {queued_tasks[key]}")
+            return
+        queued_tasks[key] = agent
+
+    q = get_or_create_queue(agent)
+    q.put({"key": key, "summary": summary, "agent": agent, "prompt": prompt})
+    log(f"Задача {key} добавлена в очередь агента {agent} (размер очереди: {q.qsize()})")
 
 
 def add_jira_comment(issue_key, text):
