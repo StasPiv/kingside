@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { socket } from '../socket';
+import { useSounds, getSoundTypeFromSan } from '../hooks/useSounds';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
   return {
@@ -39,6 +40,9 @@ export function GamePage() {
   const routeColor = (location.state as { color?: 'white' | 'black' } | null)?.color;
   const { user, refreshUser } = useAuth();
   const { t } = useTranslation();
+  const soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
+  const { play } = useSounds(soundEnabled);
+  const gameStartedRef = useRef(false);
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState(INITIAL_FEN);
   const [moves, setMoves] = useState<string[]>([]);
@@ -104,6 +108,10 @@ export function GamePage() {
       if (state.isBot !== undefined) setIsBot(state.isBot);
       if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
       updateFromState(state);
+      if (state.status === 'active' && !gameStartedRef.current) {
+        gameStartedRef.current = true;
+        play('game-start');
+      }
     };
 
     const onGameMove = (data: WsGameMoveServerPayload) => {
@@ -111,11 +119,13 @@ export function GamePage() {
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
+      play(getSoundTypeFromSan(data.san));
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
       setStatus('finished');
       setResult(data.result);
+      play('game-end');
       if (data.ratingChange) {
         setRatingChange(data.ratingChange);
       }
@@ -146,7 +156,7 @@ export function GamePage() {
       socket.off(GameEvents.CHAT_MESSAGE, onChatMessage);
       socket.off(GameEvents.ERROR, onError);
     };
-  }, [gameId, game, updateFromState, refreshUser]);
+  }, [gameId, game, updateFromState, refreshUser, play]);
 
   useEffect(() => {
     if (status !== 'active') return;
@@ -178,6 +188,7 @@ export function GamePage() {
 
       setFen(game.fen());
       setMoves((prev) => [...prev, move.san]);
+      play(getSoundTypeFromSan(move.san));
 
       const uci = promotion
         ? `${sourceSquare}${targetSquare}${promotion}`
