@@ -12,8 +12,10 @@ import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { api } from '../api';
 import { useReviewState } from '../review/useReviewState';
+import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
+import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
 
 type GameData = {
@@ -112,6 +114,7 @@ export function GameReviewPage() {
     currentFen,
     isInVariation,
     loadMoves,
+    loadFromPgn,
     gotoMove,
     gotoFirst,
     gotoLast,
@@ -233,12 +236,33 @@ export function GameReviewPage() {
 
     const fetchData = async () => {
       try {
-        const [gData, mData] = await Promise.all([
+        const isAuthenticated = Boolean(localStorage.getItem('token'));
+
+        const requests: [
+          Promise<GameData>,
+          Promise<MoveData[]>,
+          Promise<{ analysisPgn: string | null } | null>,
+        ] = [
           api.get<GameData>(`/api/games/${gameId}`),
           api.get<MoveData[]>(`/api/games/${gameId}/moves`),
-        ]);
+          isAuthenticated
+            ? api.get<{ analysisPgn: string | null }>(`/api/games/${gameId}/analysis`).catch(() => null)
+            : Promise.resolve(null),
+        ];
+
+        const [gData, mData, analysisData] = await Promise.all(requests);
         setGameData(gData);
-        loadMoves(mData);
+
+        if (analysisData?.analysisPgn) {
+          try {
+            const parsedMoves = parseAnnotatedPgn(analysisData.analysisPgn);
+            loadFromPgn(parsedMoves);
+          } catch {
+            loadMoves(mData);
+          }
+        } else {
+          loadMoves(mData);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : t('review.loadError'));
       } finally {
@@ -247,7 +271,9 @@ export function GameReviewPage() {
     };
 
     fetchData();
-  }, [gameId, t, loadMoves]);
+  }, [gameId, t, loadMoves, loadFromPgn]);
+
+  useAnalysisPersistence(gameId, history);
 
   useEffect(() => {
     game.load(currentFen);
