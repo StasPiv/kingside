@@ -814,15 +814,19 @@ input:focus {
   gap: 4px;
   font-size: 14px;
   padding: 2px 4px;
+  flex: 0 0 calc(50% - 1px);
+  min-width: 0;
 }
 
 .move-number {
   color: #666;
-  min-width: 28px;
+  min-width: 24px;
+  flex-shrink: 0;
 }
 
 .move {
-  min-width: 56px;
+  min-width: 0;
+  flex: 1;
 }
 
 .game-actions-top {
