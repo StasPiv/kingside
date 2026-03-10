@@ -34,11 +34,13 @@ type MoveData = {
   fenAfter: string;
 };
 
-function formatEval(line: EvalLine): string {
+function formatEval(line: EvalLine, isBlackTurn = false): string {
+  const sign = isBlackTurn ? -1 : 1;
   if (line.score.type === 'mate') {
-    return line.score.value === 0 ? '#' : `M${Math.abs(line.score.value)}`;
+    const mateValue = sign * line.score.value;
+    return mateValue === 0 ? '#' : `M${Math.abs(mateValue)}`;
   }
-  const cp = line.score.value / 100;
+  const cp = sign * line.score.value / 100;
   return (cp >= 0 ? '+' : '') + cp.toFixed(1);
 }
 
@@ -265,7 +267,7 @@ export function GameReviewPage() {
                   style={{ height: `${whitePercent}%` }}
                 />
                 <div className="eval-bar-label">
-                  {lines.length > 0 ? formatEval(lines[0]) : '0.0'}
+                  {lines.length > 0 ? formatEval(lines[0], isBlackTurn) : '0.0'}
                 </div>
               </div>
             </div>
