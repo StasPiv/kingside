@@ -302,7 +302,7 @@ export function GameReviewPage() {
       targetSquare: string | null;
     }): boolean => {
       if (!targetSquare) return false;
-      return makeMove({ from: sourceSquare, to: targetSquare });
+      return makeMove(sourceSquare, targetSquare);
     },
     [makeMove],
   );
