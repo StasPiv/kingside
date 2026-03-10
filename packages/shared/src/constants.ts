@@ -8,3 +8,9 @@ export const TIME_CONTROLS = {
   rapid: { initialTime: 600, increment: 0 },
   classical: { initialTime: 1800, increment: 0 },
 } as const;
+
+export const BOARD_THEMES = ['default', 'green', 'blue', 'brown'] as const;
+export type BoardTheme = typeof BOARD_THEMES[number];
+
+export const PIECE_SETS = ['standard', 'cburnett', 'alpha', 'merida'] as const;
+export type PieceSet = typeof PIECE_SETS[number];
