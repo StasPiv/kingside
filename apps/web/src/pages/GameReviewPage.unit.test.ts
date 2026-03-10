@@ -28,13 +28,15 @@ function formatEval(line: EvalLine): string {
   return (cp >= 0 ? '+' : '') + cp.toFixed(1);
 }
 
-function evalToPercent(lines: EvalLine[]): number {
+function evalToPercent(lines: EvalLine[], isBlackTurn: boolean = false): number {
   if (lines.length === 0) return 50;
   const line = lines[0];
+  const sign = isBlackTurn ? -1 : 1;
   if (line.score.type === 'mate') {
-    return line.score.value > 0 ? 95 : line.score.value < 0 ? 5 : 50;
+    const mateValue = sign * line.score.value;
+    return mateValue > 0 ? 95 : mateValue < 0 ? 5 : 50;
   }
-  const cp = line.score.value;
+  const cp = sign * line.score.value;
   const pct = 50 + 50 * (2 / (1 + Math.exp(-0.004 * cp)) - 1);
   return Math.max(2, Math.min(98, pct));
 }
@@ -186,6 +188,26 @@ describe('KS-308: evalToPercent', () => {
   it('огромный минус ограничен 2%', () => {
     const pct = evalToPercent([line('cp', -10000)]);
     expect(pct).toBeGreaterThanOrEqual(2);
+  });
+
+  it('KS-390: при ходе черных cp>0 инвертируется → < 50%', () => {
+    // Stockfish даёт +200 (перевес стороны хода = чёрных) → должен быть < 50%
+    const pct = evalToPercent([line('cp', 200)], true);
+    expect(pct).toBeLessThan(50);
+  });
+
+  it('KS-390: при ходе черных cp<0 инвертируется → > 50%', () => {
+    // Stockfish даёт -200 (перевес белых с точки зрения чёрных) → должен быть > 50%
+    const pct = evalToPercent([line('cp', -200)], true);
+    expect(pct).toBeGreaterThan(50);
+  });
+
+  it('KS-390: при ходе черных мат+3 инвертируется → 5%', () => {
+    expect(evalToPercent([line('mate', 3)], true)).toBe(5);
+  });
+
+  it('KS-390: при ходе черных мат-2 инвертируется → 95%', () => {
+    expect(evalToPercent([line('mate', -2)], true)).toBe(95);
   });
 });
 
