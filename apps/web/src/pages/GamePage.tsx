@@ -61,6 +61,10 @@ export function GamePage() {
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const gamePageRef = useRef<HTMLDivElement>(null);
   const boardWidth = useResponsiveBoardSize();
+  const [animationDuration] = useState<number>(() => {
+    const saved = localStorage.getItem('pieceAnimationDuration');
+    return saved !== null ? parseInt(saved, 10) : 200;
+  });
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -274,11 +278,11 @@ export function GamePage() {
     () => ({
       position: stablePosition,
       boardOrientation: playerColor,
-      animationDurationInMs: 0,
+      animationDurationInMs: animationDuration,
       allowDragging: false,
       ...(boardStyle && { boardStyle }),
     }),
-    [stablePosition, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle, animationDuration],
   );
 
   return (

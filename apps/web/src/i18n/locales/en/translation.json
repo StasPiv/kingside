@@ -32,7 +32,11 @@
     "passwordMismatch": "Passwords do not match",
     "passwordChanged": "Password changed successfully",
     "passwordError": "Failed to change password",
-    "puzzleRating": "Puzzle Rating"
+    "puzzleRating": "Puzzle Rating",
+    "pieceAnimation": "Piece Animation",
+    "pieceAnimationNone": "No animation",
+    "pieceAnimationFast": "Fast (100ms)",
+    "pieceAnimationNormal": "Normal (200ms)"
   },
   "lobby": {
     "title": "Lobby",

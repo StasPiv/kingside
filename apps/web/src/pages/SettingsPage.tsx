@@ -14,6 +14,16 @@ export function SettingsPage() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [animationDuration, setAnimationDuration] = useState<number>(() => {
+    const saved = localStorage.getItem('pieceAnimationDuration');
+    return saved !== null ? parseInt(saved, 10) : 200;
+  });
+
+  const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = parseInt(e.target.value, 10);
+    setAnimationDuration(value);
+    localStorage.setItem('pieceAnimationDuration', String(value));
+  };
 
   const handleLanguageChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const locale = e.target.value as Locale;
@@ -78,6 +88,21 @@ export function SettingsPage() {
           >
             <option value="en">{t('settings.english')}</option>
             <option value="ru">{t('settings.russian')}</option>
+          </select>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>{t('settings.pieceAnimation')}</h2>
+        <div className="settings-field">
+          <select
+            id="animation-select"
+            value={animationDuration}
+            onChange={handleAnimationChange}
+          >
+            <option value={0}>{t('settings.pieceAnimationNone')}</option>
+            <option value={100}>{t('settings.pieceAnimationFast')}</option>
+            <option value={200}>{t('settings.pieceAnimationNormal')}</option>
           </select>
         </div>
       </section>

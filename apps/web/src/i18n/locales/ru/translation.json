@@ -32,7 +32,11 @@
     "passwordMismatch": "Пароли не совпадают",
     "passwordChanged": "Пароль успешно изменён",
     "passwordError": "Не удалось сменить пароль",
-    "puzzleRating": "Рейтинг задач"
+    "puzzleRating": "Рейтинг задач",
+    "pieceAnimation": "Анимация фигур",
+    "pieceAnimationNone": "Без анимации",
+    "pieceAnimationFast": "Быстрая (100мс)",
+    "pieceAnimationNormal": "Нормальная (200мс)"
   },
   "lobby": {
     "title": "Лобби",
