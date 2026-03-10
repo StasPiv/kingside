@@ -161,7 +161,9 @@
     "chatPlaceholder": "Message...",
     "chatSend": "Send",
     "analyze": "Analyze",
-    "backToLobby": "Back to Lobby"
+    "backToLobby": "Back to Lobby",
+    "mute": "Mute sound",
+    "unmute": "Unmute sound"
   },
   "gameResult": {
     "victory": "Victory!",

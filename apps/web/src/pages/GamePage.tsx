@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
+import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -61,6 +62,7 @@ export function GamePage() {
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const gamePageRef = useRef<HTMLDivElement>(null);
   const boardWidth = useResponsiveBoardSize();
+  const { playSound, muted, toggleMute } = useSounds();
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -111,6 +113,7 @@ export function GamePage() {
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
+      playSound(soundEventFromSan(data.san));
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
@@ -121,6 +124,7 @@ export function GamePage() {
       }
       setShowResultModal(true);
       refreshUser();
+      playSound('game-end');
     };
 
     const onDrawOffered = () => setDrawOffered(true);
@@ -146,7 +150,7 @@ export function GamePage() {
       socket.off(GameEvents.CHAT_MESSAGE, onChatMessage);
       socket.off(GameEvents.ERROR, onError);
     };
-  }, [gameId, game, updateFromState, refreshUser]);
+  }, [gameId, game, updateFromState, refreshUser, playSound]);
 
   useEffect(() => {
     if (status !== 'active') return;
@@ -178,6 +182,7 @@ export function GamePage() {
 
       setFen(game.fen());
       setMoves((prev) => [...prev, move.san]);
+      playSound(soundEventFromSan(move.san));
 
       const uci = promotion
         ? `${sourceSquare}${targetSquare}${promotion}`
@@ -189,7 +194,7 @@ export function GamePage() {
     } catch {
       return false;
     }
-  }, [game, gameId]);
+  }, [game, gameId, playSound]);
 
   const onDrop = useCallback((sourceSquare: Square, targetSquare: Square): boolean => {
     if (status !== 'active') return false;
@@ -342,6 +347,17 @@ export function GamePage() {
               ) : null,
             )}
           </div>
+        </div>
+
+        <div className="game-actions-top">
+          <button
+            className={`mute-toggle${muted ? ' muted' : ''}`}
+            onClick={toggleMute}
+            title={muted ? t('game.unmute') : t('game.mute')}
+            aria-label={muted ? t('game.unmute') : t('game.mute')}
+          >
+            {muted ? '🔇' : '🔊'}
+          </button>
         </div>
 
         {status === 'active' && (
