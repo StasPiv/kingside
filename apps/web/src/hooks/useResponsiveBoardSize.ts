@@ -2,16 +2,18 @@ import { useEffect, useState } from 'react';
 
 const HEADER_HEIGHT = 48;
 const CLOCKS_HEIGHT = 2 * 52;
-const PADDING = 48;
+const PADDING_DESKTOP = 48;
+const PADDING_MOBILE = 16;
 const SIDEBAR_WIDTH = 280;
 const SIDEBAR_GAP = 24;
-const MIN_BOARD_SIZE = 280;
+const MIN_BOARD_SIZE = 240;
 const MAX_BOARD_SIZE = 640;
 const MOBILE_BREAKPOINT = 900;
 
 /**
  * Calculates board size based on available viewport space.
  * Board-first approach: board size = min(maxByHeight, maxByWidth, MAX).
+ * Supports portrait/landscape orientation changes on mobile (min 320px).
  */
 export function useResponsiveBoardSize(): number {
   const [boardSize, setBoardSize] = useState(480);
@@ -20,17 +22,23 @@ export function useResponsiveBoardSize(): number {
     const calculate = () => {
       const vh = window.innerHeight;
       const vw = window.innerWidth;
-      const sidebarW = vw >= MOBILE_BREAKPOINT ? SIDEBAR_WIDTH + SIDEBAR_GAP : 0;
+      const isMobile = vw < MOBILE_BREAKPOINT;
+      const padding = isMobile ? PADDING_MOBILE : PADDING_DESKTOP;
+      const sidebarW = isMobile ? 0 : SIDEBAR_WIDTH + SIDEBAR_GAP;
 
-      const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - PADDING;
-      const maxByWidth = vw - sidebarW - PADDING;
+      const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding;
+      const maxByWidth = vw - sidebarW - padding;
       const size = Math.min(maxByHeight, maxByWidth, MAX_BOARD_SIZE);
       setBoardSize(Math.max(size, MIN_BOARD_SIZE));
     };
 
     calculate();
     window.addEventListener('resize', calculate);
-    return () => window.removeEventListener('resize', calculate);
+    window.addEventListener('orientationchange', calculate);
+    return () => {
+      window.removeEventListener('resize', calculate);
+      window.removeEventListener('orientationchange', calculate);
+    };
   }, []);
 
   return boardSize;
