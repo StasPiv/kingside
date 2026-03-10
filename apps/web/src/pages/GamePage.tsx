@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -68,6 +68,14 @@ export function GamePage() {
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const gamePageRef = useRef<HTMLDivElement>(null);
   const boardWidth = useResponsiveBoardSize();
+  const [sidebarWidth, setSidebarWidth] = useState(280);
+
+  useLayoutEffect(() => {
+    if (!gamePageRef.current) return;
+    const total = gamePageRef.current.clientWidth;
+    if (total === 0) return;
+    setSidebarWidth(Math.min(320, Math.max(200, Math.floor(total * 0.25))));
+  }, []);
   const [animationDuration] = useState<number>(() => {
     const saved = localStorage.getItem('pieceAnimationDuration');
     return saved !== null ? parseInt(saved, 10) : 200;
@@ -265,6 +273,26 @@ export function GamePage() {
     setPendingPromotion(null);
   }, []);
 
+  const handleResizerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    document.body.style.userSelect = 'none';
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - startX;
+      const total = gamePageRef.current?.clientWidth ?? 900;
+      const next = Math.max(200, Math.min(total - 300, startWidth - delta));
+      setSidebarWidth(next);
+    };
+    const onMouseUp = () => {
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [sidebarWidth]);
+
   const handleResign = () => {
     socket.emit(GameEvents.RESIGN, { gameId });
   };
@@ -401,7 +429,11 @@ export function GamePage() {
         </div>
       </div>
 
-      <div className="game-sidebar">
+      <div
+        className="game-h-resizer"
+        onMouseDown={handleResizerMouseDown}
+      />
+      <div className="game-sidebar" style={{ width: sidebarWidth }}>
         <div className="move-list">
           <h3>{t('game.moves')}</h3>
           <div className="moves" ref={movesRef}>

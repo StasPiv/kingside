@@ -635,7 +635,7 @@ input:focus {
 .game-page {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 24px 0;
   justify-content: center;
   align-items: stretch;
   height: calc(100vh - 48px);
@@ -750,10 +750,37 @@ input:focus {
   flex-direction: column;
   gap: 12px;
   width: 280px;
-  min-width: 0;
+  min-width: 200px;
   flex-shrink: 0;
   height: var(--board-area-height);
   overflow: hidden;
+}
+
+/* Horizontal resizer between board area and sidebar in game page */
+.game-h-resizer {
+  width: 8px;
+  flex-shrink: 0;
+  align-self: stretch;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 1;
+}
+
+.game-h-resizer::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #1e2d50;
+  border-radius: 1px;
+  transition: background 0.15s;
+}
+
+.game-h-resizer:hover::after {
+  background: #7c83ff;
 }
 
 .move-list {
@@ -2921,7 +2948,8 @@ input:focus {
     align-items: center;
   }
 
-  .analysis-h-resizer {
+  .analysis-h-resizer,
+  .game-h-resizer {
     display: none;
   }
 
