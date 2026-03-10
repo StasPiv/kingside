@@ -14,6 +14,7 @@ import { api } from '../api';
 import { useReviewState } from '../review/useReviewState';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
+import { classifyOpening } from '../utils/ecoClassify';
 
 type GameData = {
   id: string;
@@ -22,6 +23,8 @@ type GameData = {
   result: string;
   timeControl: string;
   status: string;
+  whiteRatingBefore?: number | null;
+  blackRatingBefore?: number | null;
   ratingChange?: {
     whiteRatingBefore: number;
     whiteRatingAfter: number;
@@ -364,6 +367,24 @@ export function GameReviewPage() {
         ? t('game.whiteWins')
         : t('game.blackWins');
 
+  const resultPgn =
+    gameData.result === 'draw' ? '½–½' : gameData.result === 'white_wins' ? '1–0' : '0–1';
+
+  const openingName = classifyOpening(history.map((m) => m.san));
+
+  const gameInfo = {
+    white: {
+      username: gameData.white.username,
+      rating: gameData.whiteRatingBefore ?? null,
+    },
+    black: {
+      username: gameData.black.username,
+      rating: gameData.blackRatingBefore ?? null,
+    },
+    opening: openingName || undefined,
+    result: resultPgn,
+  };
+
   return (
     <div className="analysis-page" ref={analysisPageRef}>
       <div
@@ -371,11 +392,6 @@ export function GameReviewPage() {
         style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}
       >
         <div className="analysis-board-wrapper">
-          <div className="analysis-player-info">
-            <span className="color-indicator black" />
-            <span className="player-name">{gameData.black.username}</span>
-          </div>
-
           <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
             <div className="eval-bar-container">
               <div className="eval-bar">
@@ -391,11 +407,6 @@ export function GameReviewPage() {
             <div className="board-container" ref={boardContainerRef}>
               <MemoChessboard options={boardOptions} />
             </div>
-          </div>
-
-          <div className="analysis-player-info">
-            <span className="color-indicator white" />
-            <span className="player-name">{gameData.white.username}</span>
           </div>
 
           <div className="analysis-board-controls">
@@ -539,6 +550,7 @@ export function GameReviewPage() {
             history={history}
             currentGlobalIndex={currentGlobalIndex}
             onMoveClick={gotoMove}
+            gameInfo={gameInfo}
           />
           {/* Variation editor — shown only when on a user-inserted variation move */}
           {isInVariation && currentMove && (
