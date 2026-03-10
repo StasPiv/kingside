@@ -2898,6 +2898,51 @@ input:focus {
   .clock {
     font-size: 18px;
   }
+
+  /* Game page: allow body to scroll in stacked layout */
+  body:has(.game-page) {
+    overflow-y: auto;
+  }
+
+  /* Game page: remove fixed height, allow natural flow */
+  .game-page {
+    height: auto;
+    overflow: visible;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  /* Sidebar: remove height constraint, expand naturally */
+  .game-sidebar {
+    height: auto;
+    max-height: none;
+    width: 100%;
+  }
+
+  /* Moves list: limit height so it doesn't push buttons off screen */
+  .moves {
+    max-height: 120px;
+  }
+
+  /* Touch-friendly button sizes (minimum 44x44px) */
+  .game-actions button {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+
+  .chat-input button {
+    min-height: 44px;
+    padding: 8px 14px;
+  }
+
+  .chat-input input {
+    min-height: 44px;
+  }
+
+  /* Chat: reduce max-height so it doesn't dominate the screen */
+  .chat {
+    max-height: 200px;
+  }
 }
 
 
