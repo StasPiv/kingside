@@ -76,6 +76,7 @@
   width: 100%;
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
   padding: 8px 8px 44px;
   box-sizing: border-box;
@@ -84,8 +85,9 @@
 .review-moves-list {
   font-size: 15px;
   line-height: 1.6;
-  white-space: pre-wrap;
+  white-space: normal;
   word-wrap: break-word;
+  overflow-wrap: break-word;
   color: #e0e0e0;
 }
 
