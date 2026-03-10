@@ -25,6 +25,9 @@ model User {
   createdAt       DateTime @default(now()) @map("created_at")
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
   locale          String   @default("en") @map("locale")
+  boardTheme      String   @default("default") @map("board_theme")
+  pieceSet        String   @default("standard") @map("piece_set")
+  soundEnabled    Boolean  @default(true) @map("sound_enabled")
   isBot           Boolean  @default(false) @map("is_bot")
 
   whiteGames       Game[]             @relation("WhitePlayer")
