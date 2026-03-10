@@ -8,6 +8,7 @@ import { ApiError } from '../ApiError';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
+import { useBoardTheme } from '../hooks/useBoardTheme';
 import { MemoChessboard } from '../components/MemoChessboard';
 
 type RushScreen = 'start' | 'playing' | 'result';
@@ -39,6 +40,7 @@ export function PuzzleRushPage() {
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
+  const { boardThemeOptions } = useBoardTheme();
 
   const setupPuzzle = useCallback((fen: string, setupMove: string) => {
     const chess = new Chess(fen);
@@ -301,8 +303,9 @@ export function PuzzleRushPage() {
       allowDragging: false,
       showNotation: true,
       ...(boardStyle && { boardStyle }),
+      ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions],
   );
 
   const formatTime = (seconds: number): string => {

@@ -6,6 +6,7 @@ import { puzzleApi } from '../api-puzzle';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
+import { useBoardTheme } from '../hooks/useBoardTheme';
 import { MemoChessboard } from '../components/MemoChessboard';
 import type { PuzzleDto } from '@kingside/shared';
 
@@ -27,6 +28,7 @@ export function PuzzlePage() {
   const attemptSubmittedRef = useRef(false);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
+  const { boardThemeOptions } = useBoardTheme();
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -170,8 +172,9 @@ export function PuzzlePage() {
       allowDragging: false,
       showNotation: true,
       ...(boardStyle && { boardStyle }),
+      ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions],
   );
 
   const handleNext = useCallback(async () => {

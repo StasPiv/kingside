@@ -1246,6 +1246,43 @@ input:focus {
   gap: 12px;
 }
 
+.board-theme-options {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.board-theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.board-theme-option input[type="radio"] {
+  display: none;
+}
+
+.board-theme-preview {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  border: 3px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.board-theme-option.active .board-theme-preview {
+  border-color: #81b64c;
+}
+
+.board-theme-label {
+  font-size: 12px;
+  color: #ccc;
+}
+
 /* Analysis page */
 .analysis-page {
   display: flex;
