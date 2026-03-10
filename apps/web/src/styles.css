@@ -1381,6 +1381,7 @@ input:focus {
   border-radius: 8px;
   padding: 12px;
   box-sizing: border-box;
+  min-height: 130px;
 }
 
 .stockfish-panel-header {

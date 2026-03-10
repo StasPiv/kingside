@@ -331,7 +331,7 @@ export function GameReviewPage() {
               {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
             </button>
           </div>
-          {analysisEnabled && lines.length > 0 && (
+          {analysisEnabled && (
             <div className="stockfish-lines">
               {lines.map((line) => (
                 <div key={line.multipv} className="stockfish-line">
