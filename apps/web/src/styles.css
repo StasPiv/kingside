@@ -1315,7 +1315,10 @@ input:focus {
 
 .eval-bar-white {
   background: #f0f0f0;
-  transition: height 0.3s ease;
+  height: 100%;
+  transform-origin: bottom center;
+  transition: transform 0.3s ease;
+  will-change: transform;
 }
 
 .eval-bar-label {
@@ -1383,6 +1386,8 @@ input:focus {
   box-sizing: border-box;
   height: 136px;
   overflow: hidden;
+  contain: layout size;
+  flex-shrink: 0;
 }
 
 .stockfish-panel-header {
