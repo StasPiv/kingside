@@ -206,19 +206,23 @@ export function GameReviewPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goBack, goForward, goToStart, goToEnd]);
 
-  // Scroll active move into view within the moves container only
+  // Scroll active move into view within the moves container only.
+  // Uses getBoundingClientRect for reliable cross-browser calculation.
   useEffect(() => {
     const container = movesContainerRef.current;
     if (!container) return;
     const active = container.querySelector('.analysis-move.active') as HTMLElement | null;
     if (!active) return;
-    const containerTop = container.scrollTop;
-    const containerBottom = containerTop + container.clientHeight;
-    const itemTop = active.offsetTop - container.offsetTop;
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    // Convert viewport-relative coords to scroll-space coords within container
+    const itemTop = activeRect.top - containerRect.top + container.scrollTop;
     const itemBottom = itemTop + active.offsetHeight;
-    if (itemTop < containerTop) {
+    const scrollTop = container.scrollTop;
+    const scrollBottom = scrollTop + container.clientHeight;
+    if (itemTop < scrollTop) {
       container.scrollTop = itemTop;
-    } else if (itemBottom > containerBottom) {
+    } else if (itemBottom > scrollBottom) {
       container.scrollTop = itemBottom - container.clientHeight;
     }
   }, [currentMoveIndex]);
@@ -288,7 +292,7 @@ export function GameReviewPage() {
               <div className="eval-bar">
                 <div
                   className="eval-bar-white"
-                  style={{ height: `${whitePercent}%` }}
+                  style={{ transform: `scaleY(${whitePercent / 100})` }}
                 />
                 <div className="eval-bar-label">
                   {displayedLines.length > 0 ? formatEval(displayedLines[0], evalIsBlackTurn) : '0.0'}
