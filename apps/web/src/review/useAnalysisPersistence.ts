@@ -10,6 +10,14 @@ export function useAnalysisPersistence(
   history: ChessMove[],
 ): void {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<boolean>(false);
+  const historyRef = useRef<ChessMove[]>(history);
+  const gameIdRef = useRef<string | undefined>(gameId);
+
+  useEffect(() => {
+    historyRef.current = history;
+    gameIdRef.current = gameId;
+  });
 
   useEffect(() => {
     if (!gameId) return;
@@ -22,7 +30,10 @@ export function useAnalysisPersistence(
       clearTimeout(timerRef.current);
     }
 
+    pendingSaveRef.current = true;
+
     timerRef.current = setTimeout(() => {
+      pendingSaveRef.current = false;
       const pgn = serializeToAnnotatedPgn(history);
       api.put(`/api/games/${gameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
     }, DEBOUNCE_MS);
@@ -33,4 +44,17 @@ export function useAnalysisPersistence(
       }
     };
   }, [gameId, history]);
+
+  useEffect(() => {
+    return () => {
+      if (!pendingSaveRef.current) return;
+      const currentGameId = gameIdRef.current;
+      const currentHistory = historyRef.current;
+      if (!currentGameId || currentHistory.length === 0) return;
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const pgn = serializeToAnnotatedPgn(currentHistory);
+      api.put(`/api/games/${currentGameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
+    };
+  }, []);
 }
