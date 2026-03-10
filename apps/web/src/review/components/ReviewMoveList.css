@@ -11,7 +11,7 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 8px;
+  padding: 8px 8px 44px;
   box-sizing: border-box;
 }
 
@@ -86,7 +86,11 @@
 
 /* GameEditorPanel styles */
 .review-editor-panel {
-  flex: 0 0 auto;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
   padding: 4px 8px;
   background: #1a1a2e;
   border-top: 1px solid #333;
