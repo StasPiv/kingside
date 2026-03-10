@@ -20,6 +20,12 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @UseGuards(JwtAuthGuard)
+  @Get('me/settings')
+  getSettings(@Request() req: any) {
+    return this.userService.getSettings(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch('me/settings')
   updateSettings(@Request() req: any, @Body() dto: UpdateSettingsDto) {
     return this.userService.updateSettings(req.user.id, dto);

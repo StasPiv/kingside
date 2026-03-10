@@ -1,18 +1,19 @@
 import { IsIn, IsBoolean, IsOptional } from 'class-validator';
-import type { UpdateSettingsRequest, Locale } from '@kingside/shared';
+import type { UpdateSettingsRequest } from '@kingside/shared';
+import { BOARD_THEMES, PIECE_SETS } from '@kingside/shared';
 
 export class UpdateSettingsDto implements UpdateSettingsRequest {
   @IsOptional()
   @IsIn(['en', 'ru'])
-  locale?: Locale;
+  locale?: 'en' | 'ru';
 
   @IsOptional()
-  @IsIn(['default', 'green', 'blue', 'brown'])
-  boardTheme?: string;
+  @IsIn(BOARD_THEMES)
+  boardTheme?: typeof BOARD_THEMES[number];
 
   @IsOptional()
-  @IsIn(['standard', 'neo', 'alpha', 'cburnett'])
-  pieceSet?: string;
+  @IsIn(PIECE_SETS)
+  pieceSet?: typeof PIECE_SETS[number];
 
   @IsOptional()
   @IsBoolean()

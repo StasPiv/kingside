@@ -18,6 +18,27 @@ export class UserService {
     private readonly eco: EcoService,
   ) {}
 
+  private readonly SETTINGS_SELECT = {
+    id: true,
+    locale: true,
+    boardTheme: true,
+    pieceSet: true,
+    soundEnabled: true,
+  } as const;
+
+  async getSettings(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: this.SETTINGS_SELECT,
+    });
+
+    if (!user) {
+      throw new NotFoundException(this.i18n.t('messages.user.notFound'));
+    }
+
+    return user;
+  }
+
   async updateSettings(userId: string, dto: UpdateSettingsDto) {
     const data: Record<string, unknown> = {};
     if (dto.locale !== undefined) data.locale = dto.locale;
@@ -28,13 +49,7 @@ export class UserService {
     const user = await this.prisma.user.update({
       where: { id: userId },
       data,
-      select: {
-        id: true,
-        locale: true,
-        boardTheme: true,
-        pieceSet: true,
-        soundEnabled: true,
-      },
+      select: this.SETTINGS_SELECT,
     });
     return user;
   }
