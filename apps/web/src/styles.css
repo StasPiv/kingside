@@ -801,19 +801,18 @@ input:focus {
 }
 
 .moves {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
+  display: flex;
+  flex-wrap: wrap;
   align-content: flex-start;
+  gap: 2px;
 }
 
 .move-pair {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 14px;
   padding: 2px 4px;
-  min-width: 0;
 }
 
 .move-number {
@@ -1652,19 +1651,18 @@ input:focus {
   flex: 1;
   min-height: 120px;
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2px;
+  display: flex;
+  flex-wrap: wrap;
   align-content: flex-start;
+  gap: 2px;
 }
 
 .analysis-move-pair {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 4px;
   font-size: 14px;
   padding: 2px 4px;
-  min-width: 0;
 }
 
 .analysis-move-pair .move-number {
