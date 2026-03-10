@@ -32,7 +32,9 @@
     "passwordMismatch": "Passwords do not match",
     "passwordChanged": "Password changed successfully",
     "passwordError": "Failed to change password",
-    "puzzleRating": "Puzzle Rating"
+    "puzzleRating": "Puzzle Rating",
+    "board": "Board",
+    "showNotation": "Show coordinates on the board"
   },
   "lobby": {
     "title": "Lobby",

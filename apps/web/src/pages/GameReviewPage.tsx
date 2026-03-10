@@ -7,6 +7,7 @@ import { useStablePosition } from '../hooks/useStablePosition';
 import { useStockfish } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
 import { useContainerWidth } from '../hooks/useContainerWidth';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 import { INITIAL_FEN } from '@kingside/shared';
 import { api } from '../api';
 
@@ -93,6 +94,7 @@ export function GameReviewPage() {
   const [error, setError] = useState('');
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
+  const { showNotation } = useBoardSettings();
   const movesContainerRef = useRef<HTMLDivElement>(null);
 
   const game = useMemo(() => new Chess(), []);
@@ -206,9 +208,10 @@ export function GameReviewPage() {
       boardOrientation: 'white' as const,
       animationDurationInMs: 200,
       allowDragging: false,
+      showNotation,
       ...(boardStyle && { boardStyle }),
     }),
-    [stablePosition, boardStyle],
+    [stablePosition, boardStyle, showNotation],
   );
 
   const whitePercent = evalToPercent(lines);

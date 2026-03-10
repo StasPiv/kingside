@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { Locale } from '@kingside/shared';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const { showNotation, setShowNotation } = useBoardSettings();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -79,6 +81,20 @@ export function SettingsPage() {
             <option value="en">{t('settings.english')}</option>
             <option value="ru">{t('settings.russian')}</option>
           </select>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>{t('settings.board')}</h2>
+        <div className="settings-field">
+          <label>
+            <input
+              type="checkbox"
+              checked={showNotation}
+              onChange={(e) => setShowNotation(e.target.checked)}
+            />
+            {' '}{t('settings.showNotation')}
+          </label>
         </div>
       </section>
 

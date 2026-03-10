@@ -18,6 +18,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -61,6 +62,7 @@ export function GamePage() {
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const gamePageRef = useRef<HTMLDivElement>(null);
   const boardWidth = useResponsiveBoardSize();
+  const { showNotation } = useBoardSettings();
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -276,9 +278,10 @@ export function GamePage() {
       boardOrientation: playerColor,
       animationDurationInMs: 0,
       allowDragging: false,
+      showNotation,
       ...(boardStyle && { boardStyle }),
     }),
-    [stablePosition, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle, showNotation],
   );
 
   return (
