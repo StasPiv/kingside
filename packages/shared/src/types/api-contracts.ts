@@ -280,11 +280,19 @@ export type WsGameStatePayload = {
   botLevel?: number | null;
 };
 
+export type WsMoveFlags = {
+  captured: boolean;
+  isCheck: boolean;
+  isCastle: boolean;
+  isPromotion: boolean;
+};
+
 export type WsGameMoveServerPayload = {
   uci: string;
   san: string;
   fen: string;
   clocks: ClockPayload;
+  moveFlags?: WsMoveFlags;
 };
 
 export type WsGameEndPayload = {

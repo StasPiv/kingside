@@ -190,11 +190,13 @@ describe('GameGateway', () => {
   describe('handleMove', () => {
     it('should broadcast move to room on success', async () => {
       const client = createMockClient();
+      const moveFlags = { captured: false, isCheck: false, isCastle: false, isPromotion: false };
       gameService.makeMove.mockResolvedValue({
         san: 'e4',
         fen: 'new-fen',
         clocks: mockClocks,
         gameOver: false,
+        moveFlags,
       });
 
       await gateway.handleMove(client, { gameId, uci: 'e2e4' });
@@ -205,7 +207,80 @@ describe('GameGateway', () => {
         san: 'e4',
         fen: 'new-fen',
         clocks: { whiteMs: mockClocks.whiteMs, blackMs: mockClocks.blackMs },
+        moveFlags,
       });
+    });
+
+    it('should include capture flag when piece is captured', async () => {
+      const client = createMockClient();
+      const moveFlags = { captured: true, isCheck: false, isCastle: false, isPromotion: false };
+      gameService.makeMove.mockResolvedValue({
+        san: 'exd5',
+        fen: 'capture-fen',
+        clocks: mockClocks,
+        gameOver: false,
+        moveFlags,
+      });
+
+      await gateway.handleMove(client, { gameId, uci: 'e4d5' });
+
+      expect(client.emit).toHaveBeenCalledWith('game:move',
+        expect.objectContaining({ moveFlags }),
+      );
+    });
+
+    it('should include check flag when move results in check', async () => {
+      const client = createMockClient();
+      const moveFlags = { captured: false, isCheck: true, isCastle: false, isPromotion: false };
+      gameService.makeMove.mockResolvedValue({
+        san: 'Qh5+',
+        fen: 'check-fen',
+        clocks: mockClocks,
+        gameOver: false,
+        moveFlags,
+      });
+
+      await gateway.handleMove(client, { gameId, uci: 'd1h5' });
+
+      expect(client.emit).toHaveBeenCalledWith('game:move',
+        expect.objectContaining({ moveFlags }),
+      );
+    });
+
+    it('should include castle flag when castling', async () => {
+      const client = createMockClient();
+      const moveFlags = { captured: false, isCheck: false, isCastle: true, isPromotion: false };
+      gameService.makeMove.mockResolvedValue({
+        san: 'O-O',
+        fen: 'castle-fen',
+        clocks: mockClocks,
+        gameOver: false,
+        moveFlags,
+      });
+
+      await gateway.handleMove(client, { gameId, uci: 'e1g1' });
+
+      expect(client.emit).toHaveBeenCalledWith('game:move',
+        expect.objectContaining({ moveFlags }),
+      );
+    });
+
+    it('should include promotion flag when pawn promotes', async () => {
+      const client = createMockClient();
+      const moveFlags = { captured: false, isCheck: false, isCastle: false, isPromotion: true };
+      gameService.makeMove.mockResolvedValue({
+        san: 'e8=Q',
+        fen: 'promo-fen',
+        clocks: mockClocks,
+        gameOver: false,
+        moveFlags,
+      });
+
+      await gateway.handleMove(client, { gameId, uci: 'e7e8q' });
+
+      expect(client.emit).toHaveBeenCalledWith('game:move',
+        expect.objectContaining({ moveFlags }),
+      );
     });
 
     it('should emit game:end on game over', async () => {
@@ -217,6 +292,7 @@ describe('GameGateway', () => {
         gameOver: true,
         result: 'black',
         termination: 'checkmate',
+        moveFlags: { captured: false, isCheck: true, isCastle: false, isPromotion: false },
       });
 
       await gateway.handleMove(client, { gameId, uci: 'd8h4' });

@@ -126,6 +126,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         san: result.san,
         fen: result.fen,
         clocks: { whiteMs: result.clocks.whiteMs, blackMs: result.clocks.blackMs },
+        moveFlags: result.moveFlags,
       };
       client.to(`game:${data.gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
 
@@ -261,6 +262,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         san: botResult.san,
         fen: botResult.fen,
         clocks: { whiteMs: botResult.clocks.whiteMs, blackMs: botResult.clocks.blackMs },
+        moveFlags: botResult.moveFlags,
       };
       this.server.to(`game:${gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
 
