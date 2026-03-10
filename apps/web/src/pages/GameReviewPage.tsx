@@ -115,11 +115,13 @@ export function GameReviewPage() {
   const [enginePanelHeight, setEnginePanelHeight] = useState(140);
 
   useLayoutEffect(() => {
+    if (loading) return;
     if (!analysisPageRef.current) return;
     const total = analysisPageRef.current.clientWidth;
+    if (total === 0) return;
     // Board area takes ~1/3, sidebar ~2/3 (engine panel ~2x wider than board)
     setBoardAreaPx(Math.floor((total - 8) / 3));
-  }, []);
+  }, [loading]);
 
   const handleHResizerMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
