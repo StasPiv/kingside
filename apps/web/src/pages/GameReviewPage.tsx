@@ -48,7 +48,7 @@ function formatEval(line: EvalLine, isBlackTurn = false): string {
     return mateValue === 0 ? '#' : `M${Math.abs(mateValue)}`;
   }
   const cp = (sign * line.score.value) / 100;
-  return (cp >= 0 ? '+' : '') + cp.toFixed(1);
+  return (cp >= 0 ? '+' : '') + cp.toFixed(2);
 }
 
 function evalToPercent(lines: EvalLine[], isBlackTurn: boolean): number {

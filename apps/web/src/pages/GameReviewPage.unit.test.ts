@@ -25,7 +25,7 @@ function formatEval(line: EvalLine): string {
     return line.score.value === 0 ? '#' : `M${Math.abs(line.score.value)}`;
   }
   const cp = line.score.value / 100;
-  return (cp >= 0 ? '+' : '') + cp.toFixed(1);
+  return (cp >= 0 ? '+' : '') + cp.toFixed(2);
 }
 
 function evalToPercent(lines: EvalLine[], isBlackTurn: boolean = false): number {
@@ -122,15 +122,14 @@ describe('KS-308: formatEval', () => {
   });
 
   it('положительная оценка в сантипешках', () => {
-    // 35/100 = 0.35, но IEEE 754: 0.34999... → toFixed(1) = '0.3'
-    expect(formatEval(line('cp', 35))).toBe('+0.3');
-    expect(formatEval(line('cp', 100))).toBe('+1.0');
-    expect(formatEval(line('cp', 0))).toBe('+0.0');
+    expect(formatEval(line('cp', 35))).toBe('+0.35');
+    expect(formatEval(line('cp', 100))).toBe('+1.00');
+    expect(formatEval(line('cp', 0))).toBe('+0.00');
   });
 
   it('отрицательная оценка в сантипешках', () => {
-    expect(formatEval(line('cp', -150))).toBe('-1.5');
-    expect(formatEval(line('cp', -50))).toBe('-0.5');
+    expect(formatEval(line('cp', -150))).toBe('-1.50');
+    expect(formatEval(line('cp', -50))).toBe('-0.50');
   });
 
   it('мат', () => {
