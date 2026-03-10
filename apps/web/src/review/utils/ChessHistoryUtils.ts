@@ -68,9 +68,9 @@ function processVariationsOnly(moves: any[]): void {
                 // Связываем ходы внутри вариации
                 linkMovesInArray(variation);
 
-                // Устанавливаем previous для первого хода вариации
-                if (variation.length > 0 && move.previous) {
-                    variation[0].previous = move.previous;
+                // Устанавливаем previous для первого хода вариации на ход-точку ветвления
+                if (variation.length > 0) {
+                    variation[0].previous = move;
                 }
 
                 // Рекурсивно обрабатываем подвариации
