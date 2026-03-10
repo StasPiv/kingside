@@ -95,7 +95,7 @@ export function GameReviewPage() {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const movesContainerRef = useRef<HTMLDivElement>(null);
-  const { boardThemeOptions } = useBoardTheme();
+  const { boardThemeOptions, customPieces } = useBoardTheme();
 
   const game = useMemo(() => new Chess(), []);
 
@@ -211,8 +211,9 @@ export function GameReviewPage() {
       showNotation: true,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
+      ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardStyle, boardThemeOptions],
+    [stablePosition, boardStyle, boardThemeOptions, customPieces],
   );
 
   const whitePercent = evalToPercent(lines);

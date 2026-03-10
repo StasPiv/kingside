@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { Locale } from '@kingside/shared';
+import { useBoardSettings, BOARD_THEMES, PIECE_SETS } from '../hooks/useBoardSettings';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const { boardTheme, pieceSet, selectTheme, selectPieceSet } = useBoardSettings();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -76,6 +78,56 @@ export function SettingsPage() {
             <span className="settings-value">{user.ratingPuzzle}</span>
           </div>
         )}
+      </section>
+
+      <section className="settings-section">
+        <h2>Доска</h2>
+
+        <div className="settings-field" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+          <label>Тема доски</label>
+          <div className="board-theme-options">
+            {BOARD_THEMES.map((theme) => (
+              <label
+                key={theme.id}
+                className={`board-theme-option${boardTheme === theme.id ? ' active' : ''}`}
+                onClick={() => selectTheme(theme.id)}
+              >
+                <span
+                  className="board-theme-preview"
+                  style={{
+                    background: `linear-gradient(135deg, ${theme.light} 50%, ${theme.dark} 50%)`,
+                  }}
+                />
+                <span className="board-theme-label">{theme.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="settings-field" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, marginTop: 16 }}>
+          <label>Набор фигур</label>
+          <div className="piece-set-options">
+            {PIECE_SETS.map((set) => (
+              <label
+                key={set.id}
+                className={`piece-set-option${pieceSet === set.id ? ' active' : ''}`}
+                onClick={() => selectPieceSet(set.id)}
+              >
+                <span className="piece-set-preview">
+                  {set.id === 'standard' ? (
+                    <span style={{ fontSize: 32, lineHeight: 1 }}>&#9822;</span>
+                  ) : (
+                    <img
+                      src={`/pieces/${set.id}/wN.svg`}
+                      alt={set.label}
+                    />
+                  )}
+                </span>
+                <span className="piece-set-label">{set.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       </section>
 
       <section className="settings-section">

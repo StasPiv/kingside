@@ -72,7 +72,7 @@ export function GamePage() {
     return saved !== null ? parseInt(saved, 10) : 200;
   });
   const { playSound, muted, toggleMute } = useSounds();
-  const { showNotation } = useBoardSettings();
+  const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -322,10 +322,13 @@ export function GamePage() {
       animationDurationInMs: isOpponentMove ? animationDuration : 0,
       allowDragging: false,
       showNotation,
+      darkSquareStyle,
+      lightSquareStyle,
+      ...(customPieces && { pieces: customPieces }),
       ...(boardStyle && { boardStyle }),
       ...(premoveSquareStyles && { squareStyles: premoveSquareStyles }),
     }),
-    [stablePosition, playerColor, boardStyle, animationDuration, premoveSquareStyles, showNotation, isOpponentMove],
+    [stablePosition, playerColor, boardStyle, animationDuration, premoveSquareStyles, showNotation, isOpponentMove, darkSquareStyle, lightSquareStyle, customPieces],
   );
 
   return (
