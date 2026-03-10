@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -65,14 +66,12 @@ export function GamePage() {
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const gamePageRef = useRef<HTMLDivElement>(null);
   const boardWidth = useResponsiveBoardSize();
-<<<<<<< HEAD
   const [animationDuration] = useState<number>(() => {
     const saved = localStorage.getItem('pieceAnimationDuration');
     return saved !== null ? parseInt(saved, 10) : 200;
   });
-=======
   const { playSound, muted, toggleMute } = useSounds();
->>>>>>> feature/KS-366
+  const { showNotation } = useBoardSettings();
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -123,15 +122,12 @@ export function GamePage() {
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
-<<<<<<< HEAD
       playSound(soundEventFromSan(data.san));
-=======
       const premove = pendingPremoveRef.current;
       if (premove) {
         setPendingPremove(null);
         executeMoveRef.current(premove.from, premove.to, premove.promotion);
       }
->>>>>>> feature/KS-385
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
@@ -317,15 +313,11 @@ export function GamePage() {
       boardOrientation: playerColor,
       animationDurationInMs: animationDuration,
       allowDragging: false,
-      showNotation: true,
+      showNotation,
       ...(boardStyle && { boardStyle }),
       ...(premoveSquareStyles && { squareStyles: premoveSquareStyles }),
     }),
-<<<<<<< HEAD
-    [stablePosition, playerColor, boardStyle, animationDuration],
-=======
-    [stablePosition, playerColor, boardStyle, premoveSquareStyles],
->>>>>>> feature/KS-385
+    [stablePosition, playerColor, boardStyle, animationDuration, premoveSquareStyles, showNotation],
   );
 
   return (
