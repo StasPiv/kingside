@@ -76,7 +76,12 @@ function formatPv(pv: string, fen: string): string {
       const from = uci.slice(0, 2);
       const to = uci.slice(2, 4);
       const promotion = uci.length > 4 ? uci[4] : undefined;
-      const move = chess.move({ from, to, promotion });
+      let move;
+      try {
+        move = chess.move({ from, to, promotion });
+      } catch {
+        break;
+      }
       if (!move) break;
       if (isWhiteTurn) {
         parts.push(`${moveNumber}. ${move.san}`);
@@ -90,7 +95,7 @@ function formatPv(pv: string, fen: string): string {
     }
     return parts.join(' ');
   } catch {
-    return pv.split(' ').slice(0, 8).join(' ');
+    return '';
   }
 }
 
