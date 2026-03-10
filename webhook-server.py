@@ -174,7 +174,7 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
         if elapsed >= check_interval:
             elapsed = 0
             sc = _get_issue_status_category(key)
-            if sc in ("done", "indeterminate"):
+            if sc == "done":
                 log(f"Задача {key} закрыта (статус '{sc}'), завершаем агента {agent} (PID: {proc.pid})")
                 proc.terminate()
                 try:
