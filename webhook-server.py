@@ -151,6 +151,9 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
         return
 
     log_file = os.path.join(LOG_DIR, "agents.log")
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(log_file, "a") as lf:
+        lf.write(f"\n[{ts}] === ЗАПУСК АГЕНТА: {agent.upper()} для {key} ===\n")
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     worktree = setup_worktree(key)
@@ -356,6 +359,9 @@ def launch_agent(key, summary, agent, prompt=None):
     # Coordinator — запускаем напрямую в фоне, без очереди
     if agent == "coordinator":
         log_file = os.path.join(LOG_DIR, "agents.log")
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_file, "a") as lf:
+            lf.write(f"\n[{ts}] === ЗАПУСК АГЕНТА: COORDINATOR для {key} ===\n")
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
         cmd = [
