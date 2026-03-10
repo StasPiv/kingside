@@ -164,7 +164,26 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
     with open(log_file, "a") as lf:
         proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=lf, stderr=lf)
     log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
-    proc.wait()
+
+    # Ждём завершения, периодически проверяя статус задачи
+    check_interval = 30  # секунд между проверками Jira
+    elapsed = 0
+    while proc.poll() is None:
+        time.sleep(5)
+        elapsed += 5
+        if elapsed >= check_interval:
+            elapsed = 0
+            sc = _get_issue_status_category(key)
+            if sc in ("done", "indeterminate"):
+                log(f"Задача {key} закрыта (статус '{sc}'), завершаем агента {agent} (PID: {proc.pid})")
+                proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                break
+
     log(f"Агент {agent} завершил {key} (код: {proc.returncode})")
 
 
