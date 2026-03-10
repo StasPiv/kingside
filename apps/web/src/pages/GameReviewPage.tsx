@@ -10,10 +10,10 @@ import type { EvalLine } from '../hooks/useStockfish';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { INITIAL_FEN } from '@kingside/shared';
 import { api } from '../api';
-import { useChessGame } from '../hooks/useChessGame';
-import { ReviewMoveList } from '../components/ReviewMoveList';
+import { useReviewState } from '../review/useReviewState';
+import { ReviewMoveList } from '../review/components/ReviewMoveList';
+import type { ChessMove } from '../review/types';
 
 type GameData = {
   id: string;
@@ -105,19 +105,20 @@ export function GameReviewPage() {
   const {
     history,
     currentMove,
-    currentMoveIndex,
-    fen: currentFen,
-    loadHistory,
+    currentGlobalIndex,
+    currentFen,
+    isInVariation,
+    loadMoves,
     gotoMove,
     gotoFirst,
     gotoLast,
     gotoPrevious,
     gotoNext,
-    makeMove,
+    makeVariantMove,
     removeVariation,
     truncateRemaining,
     promoteVariation,
-  } = useChessGame();
+  } = useReviewState();
 
   const game = useMemo(() => new Chess(), []);
 
@@ -211,7 +212,7 @@ export function GameReviewPage() {
           api.get<MoveData[]>(`/api/games/${gameId}/moves`),
         ]);
         setGameData(gData);
-        loadHistory(mData);
+        loadMoves(mData);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('review.loadError'));
       } finally {
@@ -220,7 +221,7 @@ export function GameReviewPage() {
     };
 
     fetchData();
-  }, [gameId, t, loadHistory]);
+  }, [gameId, t, loadMoves]);
 
   useEffect(() => {
     game.load(currentFen);
@@ -285,8 +286,8 @@ export function GameReviewPage() {
   // Highlight last move on board
   useEffect(() => {
     if (currentMove) {
-      const from = currentMove.uci.slice(0, 2) as Square;
-      const to = currentMove.uci.slice(2, 4) as Square;
+      const from = currentMove.from as Square;
+      const to = currentMove.to as Square;
       setLastMove(from, to);
     }
   }, [currentMove, setLastMove]);
@@ -302,9 +303,9 @@ export function GameReviewPage() {
       targetSquare: string | null;
     }): boolean => {
       if (!targetSquare) return false;
-      return makeMove(sourceSquare, targetSquare);
+      return makeVariantMove(sourceSquare, targetSquare);
     },
-    [makeMove],
+    [makeVariantMove],
   );
 
   const boardOptions = useMemo(
@@ -513,13 +514,35 @@ export function GameReviewPage() {
         <div className="analysis-moves analysis-moves--variants">
           <ReviewMoveList
             history={history}
-            currentMoveIndex={currentMoveIndex}
-            currentMove={currentMove}
+            currentGlobalIndex={currentGlobalIndex}
             onMoveClick={gotoMove}
-            onPromoteVariation={promoteVariation}
-            onDeleteVariation={removeVariation}
-            onTruncateRemaining={truncateRemaining}
           />
+          {/* Variation editor — shown only when on a user-inserted variation move */}
+          {isInVariation && currentMove && (
+            <div className="review-editor-panel">
+              <button
+                className="review-editor-btn"
+                onClick={() => promoteVariation(currentMove as ChessMove)}
+                title="Promote variation to main line"
+              >
+                &#x2191; Promote
+              </button>
+              <button
+                className="review-editor-btn review-editor-btn--danger"
+                onClick={() => removeVariation(currentMove as ChessMove)}
+                title="Delete this variation"
+              >
+                &#x2715; Delete
+              </button>
+              <button
+                className="review-editor-btn"
+                onClick={() => truncateRemaining(currentMove as ChessMove)}
+                title="Delete remaining moves"
+              >
+                ] Truncate
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

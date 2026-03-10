@@ -3,7 +3,10 @@ import { Chess } from 'chess.js';
 import { ChessMove } from './types';
 import { addMoveToHistory } from './utils/AddMoveToHistory';
 import { addVariationToHistory } from './utils/AddVariationToHistory';
-import { linkAllMovesRecursively } from './utils/ChessHistoryUtils';
+import { linkAllMovesRecursively, searchInHistory } from './utils/ChessHistoryUtils';
+import { promoteVariationLink } from './utils/PromoteVariationLink';
+import { deleteVariation as deleteVariationUtil } from './utils/DeleteVariation';
+import { deleteRemaining as deleteRemainingUtil } from './utils/DeleteRemaining';
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -27,7 +30,10 @@ type ReviewAction =
   | { type: 'GOTO_NEXT' }
   | { type: 'GOTO_LAST' }
   | { type: 'ADD_MOVE'; payload: ChessMove }
-  | { type: 'ADD_VARIATION'; payload: ChessMove };
+  | { type: 'ADD_VARIATION'; payload: ChessMove }
+  | { type: 'PROMOTE_VARIATION'; payload: ChessMove }
+  | { type: 'DELETE_VARIATION'; payload: ChessMove }
+  | { type: 'DELETE_REMAINING'; payload: ChessMove };
 
 function apiMovesToHistory(apiMoves: ApiMove[]): ChessMove[] {
   const history: ChessMove[] = apiMoves.map((m, i) => {
@@ -121,6 +127,34 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         nextGlobalIndex: state.nextGlobalIndex + 1,
       };
     }
+    case 'PROMOTE_VARIATION': {
+      const updatedHistory = promoteVariationLink(action.payload, state.history, true);
+      // Find the same move in the updated history
+      const found = searchInHistory(updatedHistory as ChessMove[], action.payload.globalIndex) as ChessMove | null;
+      return {
+        ...state,
+        history: updatedHistory as ChessMove[],
+        currentMove: found ?? state.currentMove,
+      };
+    }
+    case 'DELETE_VARIATION': {
+      const result = deleteVariationUtil(action.payload, state.history, true);
+      const newCurrentMove = result.newCurrentMove as ChessMove | null;
+      return {
+        ...state,
+        history: result.updatedHistory as ChessMove[],
+        currentMove: newCurrentMove,
+      };
+    }
+    case 'DELETE_REMAINING': {
+      const updatedHistory = deleteRemainingUtil(action.payload, state.history);
+      const found = searchInHistory(updatedHistory as ChessMove[], action.payload.globalIndex) as ChessMove | null;
+      return {
+        ...state,
+        history: updatedHistory as ChessMove[],
+        currentMove: found ?? state.currentMove,
+      };
+    }
     default:
       return state;
   }
@@ -154,7 +188,7 @@ export function useReviewState() {
         const move = chess.move({
           from,
           to,
-          promotion: (promotion as 'q' | 'r' | 'b' | 'n') ?? 'q',
+          promotion: (promotion as 'q' | 'r' | 'b' | 'n') ?? undefined,
         });
         if (!move) return false;
         const newFen = chess.fen();
@@ -188,14 +222,31 @@ export function useReviewState() {
     [state.currentMove, state.nextGlobalIndex],
   );
 
+  const promoteVariation = useCallback((move: ChessMove) => {
+    dispatch({ type: 'PROMOTE_VARIATION', payload: move });
+  }, []);
+
+  const removeVariation = useCallback((move: ChessMove) => {
+    dispatch({ type: 'DELETE_VARIATION', payload: move });
+  }, []);
+
+  const truncateRemaining = useCallback((move: ChessMove) => {
+    dispatch({ type: 'DELETE_REMAINING', payload: move });
+  }, []);
+
   const currentFen = state.currentMove?.fen ?? INITIAL_FEN;
   const currentGlobalIndex = state.currentMove?.globalIndex ?? -1;
+
+  // Check if current move is in a variation (globalIndex >= nextGlobalIndex/1000)
+  const isInVariation = state.currentMove !== null
+    && state.currentMove.globalIndex >= state.history.length;
 
   return {
     history: state.history,
     currentMove: state.currentMove,
     currentGlobalIndex,
     currentFen,
+    isInVariation,
     loadMoves,
     gotoMove,
     gotoFirst,
@@ -203,5 +254,8 @@ export function useReviewState() {
     gotoNext,
     gotoLast,
     makeVariantMove,
+    promoteVariation,
+    removeVariation,
+    truncateRemaining,
   };
 }
