@@ -11,4 +11,7 @@ export type User = {
   ratingPuzzle?: number;
   createdAt: string;
   locale?: Locale;
+  boardTheme?: 'default' | 'green' | 'blue' | 'brown';
+  pieceSet?: 'standard' | 'neo' | 'alpha' | 'cburnett';
+  soundEnabled?: boolean;
 };

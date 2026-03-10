@@ -19,10 +19,22 @@ export class UserService {
   ) {}
 
   async updateSettings(userId: string, dto: UpdateSettingsDto) {
+    const data: Record<string, unknown> = {};
+    if (dto.locale !== undefined) data.locale = dto.locale;
+    if (dto.boardTheme !== undefined) data.boardTheme = dto.boardTheme;
+    if (dto.pieceSet !== undefined) data.pieceSet = dto.pieceSet;
+    if (dto.soundEnabled !== undefined) data.soundEnabled = dto.soundEnabled;
+
     const user = await this.prisma.user.update({
       where: { id: userId },
-      data: { locale: dto.locale },
-      select: { id: true, locale: true },
+      data,
+      select: {
+        id: true,
+        locale: true,
+        boardTheme: true,
+        pieceSet: true,
+        soundEnabled: true,
+      },
     });
     return user;
   }

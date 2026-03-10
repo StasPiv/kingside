@@ -41,7 +41,10 @@ export type MeResponse = User;
 // ─── User / Settings ────────────────────────────────────────────────
 
 export type UpdateSettingsRequest = {
-  locale: Locale;
+  locale?: Locale;
+  boardTheme?: 'default' | 'green' | 'blue' | 'brown';
+  pieceSet?: 'standard' | 'neo' | 'alpha' | 'cburnett';
+  soundEnabled?: boolean;
 };
 
 export type ChangePasswordRequest = {
