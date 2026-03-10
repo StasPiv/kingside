@@ -20,6 +20,7 @@ import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useBoardSettings } from '../hooks/useBoardSettings';
+import { usePremove } from '../hooks/usePremove';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -56,9 +57,7 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
-  const [pendingPremove, setPendingPremove] = useState<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
-  const pendingPremoveRef = useRef<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
-  pendingPremoveRef.current = pendingPremove;
+  const { premove, setPremove, clearPremove, tryExecutePremove, premoveSquareStyles } = usePremove();
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [showResultModal, setShowResultModal] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -131,15 +130,14 @@ export function GamePage() {
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
       playSound(soundEventFromSan(data.san));
-      const premove = pendingPremoveRef.current;
-      if (premove) {
-        setPendingPremove(null);
-        executeMoveRef.current(premove.from, premove.to, premove.promotion);
+      const pm = tryExecutePremove(game);
+      if (pm) {
+        executeMoveRef.current(pm.from, pm.to, 'q');
       }
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
-      setPendingPremove(null);
+      clearPremove();
       setStatus('finished');
       setResult(data.result);
       if (data.ratingChange) {
@@ -173,7 +171,7 @@ export function GamePage() {
       socket.off(GameEvents.CHAT_MESSAGE, onChatMessage);
       socket.off(GameEvents.ERROR, onError);
     };
-  }, [gameId, game, updateFromState, refreshUser, playSound]);
+  }, [gameId, game, updateFromState, refreshUser, playSound, tryExecutePremove, clearPremove]);
 
   useEffect(() => {
     if (status !== 'active') return;
@@ -229,8 +227,7 @@ export function GamePage() {
     const turnColor = game.turn() === 'w' ? 'white' : 'black';
 
     if (turnColor !== playerColor) {
-      const promotion = isPromotionMove(sourceSquare, targetSquare) ? ('q' as const) : undefined;
-      setPendingPremove({ from: sourceSquare, to: targetSquare, ...(promotion !== undefined && { promotion }) });
+      setPremove(sourceSquare, targetSquare);
       return true;
     }
 
@@ -244,7 +241,7 @@ export function GamePage() {
     }
 
     return executeMove(sourceSquare, targetSquare);
-  }, [game, playerColor, status, isPromotionMove, executeMove]);
+  }, [game, playerColor, status, isPromotionMove, executeMove, setPremove]);
 
   const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
     if (!pendingPromotion) return;
@@ -307,14 +304,6 @@ export function GamePage() {
 
   const stablePosition = useStablePosition(fen);
 
-  const premoveSquareStyles = useMemo(() => {
-    if (!pendingPremove) return undefined;
-    return {
-      [pendingPremove.from]: { backgroundColor: 'rgba(0,120,255,0.4)' },
-      [pendingPremove.to]: { backgroundColor: 'rgba(0,120,255,0.4)' },
-    };
-  }, [pendingPremove]);
-
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
@@ -323,9 +312,9 @@ export function GamePage() {
       allowDragging: false,
       showNotation,
       ...(boardStyle && { boardStyle }),
-      ...(premoveSquareStyles && { squareStyles: premoveSquareStyles }),
+      ...(premove && { squareStyles: premoveSquareStyles }),
     }),
-    [stablePosition, playerColor, boardStyle, animationDuration, premoveSquareStyles, showNotation, isOpponentMove],
+    [stablePosition, playerColor, boardStyle, animationDuration, premoveSquareStyles, showNotation, isOpponentMove, premove],
   );
 
   return (
@@ -342,7 +331,7 @@ export function GamePage() {
           </span>
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
-        <div className="board-container" ref={boardContainerRef} onContextMenu={(e) => { e.preventDefault(); setPendingPremove(null); }}>
+        <div className="board-container" ref={boardContainerRef} onContextMenu={(e) => { e.preventDefault(); clearPremove(); }}>
           <MemoChessboard options={boardOptions} />
           {pendingPromotion && (
             <div className="promotion-overlay" onClick={handlePromotionCancel}>
