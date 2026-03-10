@@ -42,13 +42,17 @@ function formatEval(line: EvalLine): string {
   return (cp >= 0 ? '+' : '') + cp.toFixed(1);
 }
 
-function evalToPercent(lines: EvalLine[]): number {
+function evalToPercent(lines: EvalLine[], isBlackTurn: boolean): number {
   if (lines.length === 0) return 50;
   const line = lines[0];
+  // Stockfish returns score from the perspective of the side to move.
+  // Invert when it's black's turn so the result is always from white's perspective.
+  const sign = isBlackTurn ? -1 : 1;
   if (line.score.type === 'mate') {
-    return line.score.value > 0 ? 95 : line.score.value < 0 ? 5 : 50;
+    const mateValue = sign * line.score.value;
+    return mateValue > 0 ? 95 : mateValue < 0 ? 5 : 50;
   }
-  const cp = line.score.value;
+  const cp = sign * line.score.value;
   const pct = 50 + 50 * (2 / (1 + Math.exp(-0.004 * cp)) - 1);
   return Math.max(2, Math.min(98, pct));
 }
@@ -231,7 +235,8 @@ export function GameReviewPage() {
     [stablePosition, boardStyle, boardThemeOptions, squareStyles],
   );
 
-  const whitePercent = evalToPercent(lines);
+  const isBlackTurn = currentFen.split(' ')[1] === 'b';
+  const whitePercent = evalToPercent(lines, isBlackTurn);
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
