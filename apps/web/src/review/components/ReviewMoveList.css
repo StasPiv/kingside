@@ -1,0 +1,135 @@
+.review-move-list-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.review-moves-container {
+  width: 100%;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+.review-moves-list {
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: #e0e0e0;
+}
+
+.review-no-moves {
+  padding: 16px;
+  color: #888;
+  font-size: 14px;
+}
+
+/* move-item styles (matching chessgpt logic) */
+.move-item {
+  display: inline;
+  cursor: pointer;
+  padding: 1px 3px;
+  border-radius: 3px;
+  transition: background-color 0.1s ease;
+  color: #e0e0e0;
+}
+
+.move-item:not(.variation-move) {
+  font-weight: 500;
+}
+
+.move-item.variation-move {
+  font-weight: 400;
+  font-size: 0.9em;
+}
+
+.move-item.current {
+  background-color: #1565c0 !important;
+  color: #fff !important;
+  font-weight: bold !important;
+  border-radius: 4px !important;
+  padding: 2px 6px !important;
+  margin: 1px 2px !important;
+  box-shadow: 0 2px 4px rgba(21, 101, 192, 0.4) !important;
+}
+
+.move-item:hover:not(.current) {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Variation levels */
+.variation-level-1 { color: #90caf9; }
+.variation-level-2 { color: #a5d6a7; }
+.variation-level-3 { color: #ffe082; }
+.variation-level-4 { color: #ef9a9a; }
+
+.variation-bracket {
+  display: inline;
+  color: #888;
+  font-size: 0.85em;
+  margin: 0 1px;
+}
+
+.variation-bracket-open {
+  margin-right: 2px;
+}
+
+.variation-bracket-close {
+  margin-left: 0;
+  margin-right: 4px;
+}
+
+/* GameEditorPanel styles */
+.review-editor-panel {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  background: #1a1a2e;
+  border-top: 1px solid #333;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.review-editor-btn {
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #2a2a3e;
+  color: #ccc;
+  transition: background-color 0.1s ease;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.review-editor-btn:hover:not(:disabled) {
+  background: #3a3a5e;
+  color: #fff;
+}
+
+.review-editor-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.review-editor-btn.promote-btn:hover:not(:disabled) {
+  border-color: #4caf50;
+  color: #4caf50;
+}
+
+.review-editor-btn.delete-variation-btn:hover:not(:disabled) {
+  border-color: #f44336;
+  color: #f44336;
+}
+
+.review-editor-btn.delete-remaining-btn:hover:not(:disabled) {
+  border-color: #ff9800;
+  color: #ff9800;
+}

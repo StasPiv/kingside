@@ -12,6 +12,8 @@ import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { INITIAL_FEN } from '@kingside/shared';
 import { api } from '../api';
+import { useChessGame } from '../hooks/useChessGame';
+import { ReviewMoveList } from '../components/ReviewMoveList';
 
 type GameData = {
   id: string;
@@ -40,15 +42,13 @@ function formatEval(line: EvalLine, isBlackTurn = false): string {
     const mateValue = sign * line.score.value;
     return mateValue === 0 ? '#' : `M${Math.abs(mateValue)}`;
   }
-  const cp = sign * line.score.value / 100;
+  const cp = (sign * line.score.value) / 100;
   return (cp >= 0 ? '+' : '') + cp.toFixed(1);
 }
 
 function evalToPercent(lines: EvalLine[], isBlackTurn: boolean): number {
   if (lines.length === 0) return 50;
   const line = lines[0];
-  // Stockfish returns score from the perspective of the side to move.
-  // Invert when it's black's turn so the result is always from white's perspective.
   const sign = isBlackTurn ? -1 : 1;
   if (line.score.type === 'mate') {
     const mateValue = sign * line.score.value;
@@ -80,9 +80,7 @@ function formatPv(pv: string, fen: string): string {
       } else {
         parts.push(move.san);
       }
-      if (!isWhiteTurn) {
-        moveNumber++;
-      }
+      if (!isWhiteTurn) moveNumber++;
       isWhiteTurn = !isWhiteTurn;
     }
     return parts.join(' ');
@@ -98,21 +96,36 @@ export function GameReviewPage() {
   const gameId = params.id ?? params.gameId;
   const { t } = useTranslation();
   const [gameData, setGameData] = useState<GameData | null>(null);
-  const [moves, setMoves] = useState<MoveData[]>([]);
-  const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
-  const movesContainerRef = useRef<HTMLDivElement>(null);
   const { boardThemeOptions } = useBoardTheme();
+
+  const {
+    history,
+    currentMove,
+    currentMoveIndex,
+    fen: currentFen,
+    loadHistory,
+    gotoMove,
+    gotoFirst,
+    gotoLast,
+    gotoPrevious,
+    gotoNext,
+    makeMove,
+    removeVariation,
+    truncateRemaining,
+    promoteVariation,
+  } = useChessGame();
 
   const game = useMemo(() => new Chess(), []);
 
   // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
-  // Initial board width: ~1/3 of available width so sidebar (engine) is ~2x wider
-  const [boardAreaPx, setBoardAreaPx] = useState(() => Math.floor((Math.min(window.innerWidth, 1200) - 48 - 8) / 3));
+  const [boardAreaPx, setBoardAreaPx] = useState(() =>
+    Math.floor((Math.min(window.innerWidth, 1200) - 48 - 8) / 3),
+  );
   const [enginePanelHeight, setEnginePanelHeight] = useState(140);
 
   useLayoutEffect(() => {
@@ -120,56 +133,68 @@ export function GameReviewPage() {
     if (!analysisPageRef.current) return;
     const total = analysisPageRef.current.clientWidth;
     if (total === 0) return;
-    // Board area takes ~1/3, sidebar ~2/3 (engine panel ~2x wider than board)
     setBoardAreaPx(Math.floor((total - 8) / 3));
   }, [loading]);
 
-  const handleHResizerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const startBoardPx = boardAreaPx;
-    document.body.style.userSelect = 'none';
-    const onMouseMove = (ev: MouseEvent) => {
-      const total = analysisPageRef.current?.clientWidth ?? 900;
-      const delta = ev.clientX - startX;
-      const next = Math.max(200, Math.min(total - 320, startBoardPx + delta));
-      setBoardAreaPx(next);
-    };
-    const onMouseUp = () => {
-      document.body.style.userSelect = '';
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [boardAreaPx]);
+  const handleHResizerMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startBoardPx = boardAreaPx;
+      document.body.style.userSelect = 'none';
+      const onMouseMove = (ev: MouseEvent) => {
+        const total = analysisPageRef.current?.clientWidth ?? 900;
+        const delta = ev.clientX - startX;
+        const next = Math.max(200, Math.min(total - 320, startBoardPx + delta));
+        setBoardAreaPx(next);
+      };
+      const onMouseUp = () => {
+        document.body.style.userSelect = '';
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [boardAreaPx],
+  );
 
-  const handleVResizerMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.clientY;
-    const startHeight = enginePanelHeight;
-    const onMouseMove = (ev: MouseEvent) => {
-      const delta = ev.clientY - startY;
-      setEnginePanelHeight(Math.max(80, Math.min(500, startHeight + delta)));
-    };
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, [enginePanelHeight]);
+  const handleVResizerMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startHeight = enginePanelHeight;
+      const onMouseMove = (ev: MouseEvent) => {
+        const delta = ev.clientY - startY;
+        setEnginePanelHeight(Math.max(80, Math.min(500, startHeight + delta)));
+      };
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [enginePanelHeight],
+  );
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true);
 
-  const { lines, analysisFen, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
+  const {
+    lines,
+    analysisFen,
+    evaluate,
+    stop: stopEngine,
+    cleanup: cleanupEngine,
+    init: initEngine,
+    isReady,
+    state: sfState,
+  } = useStockfish({
     depth: 18,
     multiPv: MULTI_PV,
     autoStart: analysisEnabled,
   });
 
-  // Keep last complete set of lines to avoid flicker when new analysis starts.
-  // Show the previous full set until the new analysis has all lines ready.
   const lastLinesRef = useRef<EvalLine[]>([]);
   if (lines.length === MULTI_PV) {
     lastLinesRef.current = lines;
@@ -186,8 +211,7 @@ export function GameReviewPage() {
           api.get<MoveData[]>(`/api/games/${gameId}/moves`),
         ]);
         setGameData(gData);
-        setMoves(mData);
-        setCurrentMoveIndex(mData.length - 1);
+        loadHistory(mData);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('review.loadError'));
       } finally {
@@ -196,12 +220,7 @@ export function GameReviewPage() {
     };
 
     fetchData();
-  }, [gameId, t]);
-
-  const currentFen = useMemo(() => {
-    if (currentMoveIndex < 0) return INITIAL_FEN;
-    return moves[currentMoveIndex]?.fenAfter ?? INITIAL_FEN;
-  }, [currentMoveIndex, moves]);
+  }, [gameId, t, loadHistory]);
 
   useEffect(() => {
     game.load(currentFen);
@@ -210,12 +229,10 @@ export function GameReviewPage() {
   const toggleAnalysis = useCallback(() => {
     setAnalysisEnabled((prev) => {
       if (prev) {
-        // Turning off: stop engine and terminate worker
         stopEngine();
         cleanupEngine();
         lastLinesRef.current = [];
       } else {
-        // Turning on: re-init engine
         initEngine();
       }
       return !prev;
@@ -231,52 +248,26 @@ export function GameReviewPage() {
     return () => clearTimeout(timer);
   }, [currentFen, isReady, evaluate, analysisEnabled]);
 
-  const goToStart = useCallback(() => setCurrentMoveIndex(-1), []);
-  const goToEnd = useCallback(() => setCurrentMoveIndex(moves.length - 1), [moves.length]);
-  const goBack = useCallback(() => setCurrentMoveIndex((i) => Math.max(-1, i - 1)), []);
-  const goForward = useCallback(() => setCurrentMoveIndex((i) => Math.min(moves.length - 1, i + 1)), [moves.length]);
-
+  // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        goBack();
+        gotoPrevious();
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
-        goForward();
+        gotoNext();
       } else if (e.key === 'Home') {
         e.preventDefault();
-        goToStart();
+        gotoFirst();
       } else if (e.key === 'End') {
         e.preventDefault();
-        goToEnd();
+        gotoLast();
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [goBack, goForward, goToStart, goToEnd]);
-
-  // Scroll active move into view within the moves container only.
-  // Uses getBoundingClientRect for reliable cross-browser calculation.
-  useEffect(() => {
-    const container = movesContainerRef.current;
-    if (!container) return;
-    const active = container.querySelector('.analysis-move.active') as HTMLElement | null;
-    if (!active) return;
-    const containerRect = container.getBoundingClientRect();
-    const activeRect = active.getBoundingClientRect();
-    // Convert viewport-relative coords to scroll-space coords within container
-    const itemTop = activeRect.top - containerRect.top + container.scrollTop;
-    const itemBottom = itemTop + active.offsetHeight;
-    const scrollTop = container.scrollTop;
-    const scrollBottom = scrollTop + container.clientHeight;
-    if (itemTop < scrollTop) {
-      container.scrollTop = itemTop;
-    } else if (itemBottom > scrollBottom) {
-      container.scrollTop = itemBottom - container.clientHeight;
-    }
-  }, [currentMoveIndex]);
+  }, [gotoPrevious, gotoNext, gotoFirst, gotoLast]);
 
   const stablePosition = useStablePosition(currentFen);
 
@@ -291,47 +282,70 @@ export function GameReviewPage() {
     enabled: false,
   });
 
+  // Highlight last move on board
   useEffect(() => {
-    if (currentMoveIndex >= 0 && moves[currentMoveIndex]) {
-      const uci = moves[currentMoveIndex].uci;
-      setLastMove(uci.slice(0, 2) as Square, uci.slice(2, 4) as Square);
+    if (currentMove) {
+      const from = currentMove.uci.slice(0, 2) as Square;
+      const to = currentMove.uci.slice(2, 4) as Square;
+      setLastMove(from, to);
     }
-  }, [currentMoveIndex, moves, setLastMove]);
+  }, [currentMove, setLastMove]);
+
+  // Handle piece drop — insert move or variation
+  const handlePieceDrop = useCallback(
+    ({
+      sourceSquare,
+      targetSquare,
+    }: {
+      piece: unknown;
+      sourceSquare: string;
+      targetSquare: string | null;
+    }): boolean => {
+      if (!targetSquare) return false;
+      return makeMove({ from: sourceSquare, to: targetSquare });
+    },
+    [makeMove],
+  );
 
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
       boardOrientation: 'white' as const,
       animationDurationInMs: 200,
-      allowDragging: false,
+      allowDragging: true,
       showNotation: true,
       squareStyles,
+      onPieceDrop: handlePieceDrop,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardStyle, boardThemeOptions, squareStyles],
+    [stablePosition, boardStyle, boardThemeOptions, squareStyles, handlePieceDrop],
   );
 
   const isBlackTurn = currentFen.split(' ')[1] === 'b';
-  // Use isBlackTurn from the FEN for which lines were computed, not current FEN.
-  // This prevents the eval bar from briefly showing an inverted value when the
-  // position changes but Stockfish has not yet started analysing the new FEN.
   const evalIsBlackTurn = analysisFen ? analysisFen.split(' ')[1] === 'b' : isBlackTurn;
   const whitePercent = evalToPercent(displayedLines, evalIsBlackTurn);
+
+  const isAtStart = currentMove === null;
+  const isAtEnd = currentMove !== null && !currentMove.next;
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
   if (!gameData) return null;
 
-  const resultText = gameData.result === 'draw'
-    ? t('game.draw')
-    : gameData.result === 'white_wins'
-      ? t('game.whiteWins')
-      : t('game.blackWins');
+  const resultText =
+    gameData.result === 'draw'
+      ? t('game.draw')
+      : gameData.result === 'white_wins'
+        ? t('game.whiteWins')
+        : t('game.blackWins');
 
   return (
     <div className="analysis-page" ref={analysisPageRef}>
-      <div className="analysis-board-area" style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}>
+      <div
+        className="analysis-board-area"
+        style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}
+      >
         <div className="analysis-board-wrapper">
           <div className="analysis-player-info">
             <span className="color-indicator black" />
@@ -361,28 +375,36 @@ export function GameReviewPage() {
           </div>
 
           <div className="analysis-board-controls">
-            <button onClick={goToStart} disabled={currentMoveIndex < 0} title={t('review.toStart')}>&#x21E4;</button>
-            <button onClick={goBack} disabled={currentMoveIndex < 0} title={t('review.back')}>&#x2190;</button>
-            <button onClick={goForward} disabled={currentMoveIndex >= moves.length - 1} title={t('review.forward')}>&#x2192;</button>
-            <button onClick={goToEnd} disabled={currentMoveIndex >= moves.length - 1} title={t('review.toEnd')}>&#x21E5;</button>
+            <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>
+              &#x21E4;
+            </button>
+            <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>
+              &#x2190;
+            </button>
+            <button onClick={gotoNext} disabled={isAtEnd} title={t('review.forward')}>
+              &#x2192;
+            </button>
+            <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>
+              &#x21E5;
+            </button>
           </div>
         </div>
       </div>
 
-      <div
-        className="analysis-h-resizer"
-        onMouseDown={handleHResizerMouseDown}
-      />
+      <div className="analysis-h-resizer" onMouseDown={handleHResizerMouseDown} />
 
       <div className="analysis-sidebar">
-        {/* Back navigation — top of sidebar for easy access */}
-        <Link to="/profile" className="analysis-back-link analysis-back-link--top">{t('review.backToGames')}</Link>
+        {/* Back navigation */}
+        <Link to="/profile" className="analysis-back-link analysis-back-link--top">
+          {t('review.backToGames')}
+        </Link>
 
-        {/* Engine analysis panel — in sidebar */}
+        {/* Engine analysis panel */}
         <div className="stockfish-panel" style={{ height: enginePanelHeight }}>
           <div className="stockfish-panel-header">
             <span>
-              Stockfish 18 {analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
+              Stockfish 18{' '}
+              {analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
                 ? `· ${t('analysis.depth')} ${displayedLines[0].depth}`
                 : analysisEnabled && sfState === 'loading'
                   ? `· ${t('common.loading')}`
@@ -397,7 +419,11 @@ export function GameReviewPage() {
             <button
               className="analysis-toggle-btn"
               onClick={toggleAnalysis}
-              title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : t('analysis.start', 'Start analysis')}
+              title={
+                analysisEnabled
+                  ? t('analysis.stop', 'Stop analysis')
+                  : t('analysis.start', 'Start analysis')
+              }
               data-testid="stockfish-toggle"
               style={{
                 padding: '2px 10px',
@@ -415,23 +441,21 @@ export function GameReviewPage() {
             </button>
           </div>
           <div className="stockfish-lines">
-            {analysisEnabled && displayedLines.map((line) => (
-              <div key={line.multipv} className="stockfish-line">
-                <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
-                  {formatEval(line)}
-                </span>
-                <span className="stockfish-pv">
-                  {formatPv(line.pv, currentFen)}
-                </span>
-              </div>
-            ))}
+            {analysisEnabled &&
+              displayedLines.map((line) => (
+                <div key={line.multipv} className="stockfish-line">
+                  <span
+                    className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}
+                  >
+                    {formatEval(line)}
+                  </span>
+                  <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
+                </div>
+              ))}
           </div>
         </div>
 
-        <div
-          className="analysis-v-resizer"
-          onMouseDown={handleVResizerMouseDown}
-        />
+        <div className="analysis-v-resizer" onMouseDown={handleVResizerMouseDown} />
 
         {/* Game result */}
         <div className="analysis-result">
@@ -443,9 +467,20 @@ export function GameReviewPage() {
                 <span className="color-indicator white" />
                 <span>{gameData.white.username}</span>
                 <span className="rating-change-inline">
-                  {gameData.ratingChange.whiteRatingBefore} &rarr; {gameData.ratingChange.whiteRatingAfter}
-                  <span className={`rating-diff ${gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore > 0 ? 'positive' : gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore < 0 ? 'negative' : ''}`}>
-                    ({gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore > 0 ? '+' : ''}{gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore})
+                  {gameData.ratingChange.whiteRatingBefore} &rarr;{' '}
+                  {gameData.ratingChange.whiteRatingAfter}
+                  <span
+                    className={`rating-diff ${gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore > 0 ? 'positive' : gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore < 0 ? 'negative' : ''}`}
+                  >
+                    (
+                    {gameData.ratingChange.whiteRatingAfter -
+                      gameData.ratingChange.whiteRatingBefore >
+                    0
+                      ? '+'
+                      : ''}
+                    {gameData.ratingChange.whiteRatingAfter -
+                      gameData.ratingChange.whiteRatingBefore}
+                    )
                   </span>
                 </span>
               </div>
@@ -453,9 +488,20 @@ export function GameReviewPage() {
                 <span className="color-indicator black" />
                 <span>{gameData.black.username}</span>
                 <span className="rating-change-inline">
-                  {gameData.ratingChange.blackRatingBefore} &rarr; {gameData.ratingChange.blackRatingAfter}
-                  <span className={`rating-diff ${gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore > 0 ? 'positive' : gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore < 0 ? 'negative' : ''}`}>
-                    ({gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore > 0 ? '+' : ''}{gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore})
+                  {gameData.ratingChange.blackRatingBefore} &rarr;{' '}
+                  {gameData.ratingChange.blackRatingAfter}
+                  <span
+                    className={`rating-diff ${gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore > 0 ? 'positive' : gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore < 0 ? 'negative' : ''}`}
+                  >
+                    (
+                    {gameData.ratingChange.blackRatingAfter -
+                      gameData.ratingChange.blackRatingBefore >
+                    0
+                      ? '+'
+                      : ''}
+                    {gameData.ratingChange.blackRatingAfter -
+                      gameData.ratingChange.blackRatingBefore}
+                    )
                   </span>
                 </span>
               </div>
@@ -463,31 +509,18 @@ export function GameReviewPage() {
           )}
         </div>
 
-        {/* Move list */}
-        <div className="analysis-moves" ref={movesContainerRef}>
-          {moves.map((move, i) =>
-            i % 2 === 0 ? (
-              <div key={i} className="analysis-move-pair">
-                <span className="move-number">{Math.floor(i / 2) + 1}.</span>
-                <span
-                  className={`analysis-move${currentMoveIndex === i ? ' active' : ''}`}
-                  onClick={() => setCurrentMoveIndex(i)}
-                >
-                  {move.san}
-                </span>
-                {moves[i + 1] && (
-                  <span
-                    className={`analysis-move${currentMoveIndex === i + 1 ? ' active' : ''}`}
-                    onClick={() => setCurrentMoveIndex(i + 1)}
-                  >
-                    {moves[i + 1].san}
-                  </span>
-                )}
-              </div>
-            ) : null,
-          )}
+        {/* Move list with variant support */}
+        <div className="analysis-moves analysis-moves--variants">
+          <ReviewMoveList
+            history={history}
+            currentMoveIndex={currentMoveIndex}
+            currentMove={currentMove}
+            onMoveClick={gotoMove}
+            onPromoteVariation={promoteVariation}
+            onDeleteVariation={removeVariation}
+            onTruncateRemaining={truncateRemaining}
+          />
         </div>
-
       </div>
     </div>
   );
