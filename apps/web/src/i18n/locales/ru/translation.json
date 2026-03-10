@@ -165,7 +165,9 @@
     "chatPlaceholder": "Сообщение...",
     "chatSend": "Отправить",
     "analyze": "Анализ",
-    "backToLobby": "Назад в лобби"
+    "backToLobby": "Назад в лобби",
+    "mute": "Выключить звук",
+    "unmute": "Включить звук"
   },
   "gameResult": {
     "victory": "Победа!",

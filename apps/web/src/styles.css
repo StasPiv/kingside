@@ -799,6 +799,33 @@ input:focus {
   min-width: 56px;
 }
 
+.game-actions-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.mute-toggle {
+  background: transparent;
+  border: 1px solid #2a2d3e;
+  color: #a0a0c0;
+  font-size: 1rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mute-toggle:hover {
+  background: #16213e;
+  color: #fff;
+}
+
+.mute-toggle.muted {
+  opacity: 0.5;
+}
+
 .game-actions {
   display: flex;
   gap: 8px;
