@@ -801,9 +801,8 @@ input:focus {
 }
 
 .moves {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 2px;
   align-content: flex-start;
 }
@@ -814,10 +813,7 @@ input:focus {
   gap: 4px;
   font-size: 14px;
   padding: 2px 4px;
-  width: calc(50% - 1px);
-  flex-shrink: 0;
   min-width: 0;
-  box-sizing: border-box;
 }
 
 .move-number {
