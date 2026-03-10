@@ -124,17 +124,33 @@ export function GameReviewPage() {
 
   // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
-  const [boardAreaPx, setBoardAreaPx] = useState(() =>
-    Math.floor((window.innerWidth - 8) * 0.55),
-  );
-  const [enginePanelHeight, setEnginePanelHeight] = useState(140);
+  const [boardAreaPx, setBoardAreaPx] = useState(() => {
+    const saved = localStorage.getItem('analysis-layout-boardAreaPx');
+    if (saved !== null) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return Math.floor((window.innerWidth - 8) * 0.55);
+  });
+  const [enginePanelHeight, setEnginePanelHeight] = useState(() => {
+    const saved = localStorage.getItem('analysis-layout-enginePanelHeight');
+    if (saved !== null) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed > 0) return parsed;
+    }
+    return 140;
+  });
 
   useLayoutEffect(() => {
     if (loading) return;
     if (!analysisPageRef.current) return;
     const total = analysisPageRef.current.clientWidth;
     if (total === 0) return;
-    setBoardAreaPx(Math.floor((total - 8) * 0.55));
+    // Only recalculate if no saved layout exists
+    const saved = localStorage.getItem('analysis-layout-boardAreaPx');
+    if (saved === null) {
+      setBoardAreaPx(Math.floor((total - 8) * 0.55));
+    }
   }, [loading]);
 
   const handleHResizerMouseDown = useCallback(
@@ -143,14 +159,17 @@ export function GameReviewPage() {
       const startX = e.clientX;
       const startBoardPx = boardAreaPx;
       document.body.style.userSelect = 'none';
+      let lastValue = startBoardPx;
       const onMouseMove = (ev: MouseEvent) => {
         const total = analysisPageRef.current?.clientWidth ?? 900;
         const delta = ev.clientX - startX;
         const next = Math.max(200, Math.min(total - 320, startBoardPx + delta));
+        lastValue = next;
         setBoardAreaPx(next);
       };
       const onMouseUp = () => {
         document.body.style.userSelect = '';
+        localStorage.setItem('analysis-layout-boardAreaPx', String(lastValue));
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
       };
@@ -165,11 +184,15 @@ export function GameReviewPage() {
       e.preventDefault();
       const startY = e.clientY;
       const startHeight = enginePanelHeight;
+      let lastValue = startHeight;
       const onMouseMove = (ev: MouseEvent) => {
         const delta = ev.clientY - startY;
-        setEnginePanelHeight(Math.max(80, Math.min(500, startHeight + delta)));
+        const next = Math.max(80, Math.min(500, startHeight + delta));
+        lastValue = next;
+        setEnginePanelHeight(next);
       };
       const onMouseUp = () => {
+        localStorage.setItem('analysis-layout-enginePanelHeight', String(lastValue));
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
       };
