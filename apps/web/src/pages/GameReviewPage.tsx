@@ -513,7 +513,7 @@ export function GameReviewPage() {
                   <span
                     className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}
                   >
-                    {formatEval(line)}
+                    {formatEval(line, evalIsBlackTurn)}
                   </span>
                   <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
                 </div>
