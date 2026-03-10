@@ -12,6 +12,7 @@
 import type { PieceColor, GameStatus, GameResult, TimeControl } from './game.js';
 import type { PuzzleDto, PuzzleAttemptResult, PuzzleTheme } from './puzzle.js';
 import type { Locale, User } from './user.js';
+import type { BoardTheme, PieceSet } from '../constants.js';
 
 // ─── Auth ────────────────────────────────────────────────────────────
 
@@ -40,12 +41,18 @@ export type MeResponse = User;
 
 // ─── User / Settings ────────────────────────────────────────────────
 
-export type UpdateSettingsRequest = {
-  locale?: Locale;
-  boardTheme?: 'default' | 'green' | 'blue' | 'brown';
-  pieceSet?: 'standard' | 'neo' | 'alpha' | 'cburnett';
-  soundEnabled?: boolean;
+export type UserSettings = {
+  boardTheme: BoardTheme;
+  pieceSet: PieceSet;
+  soundEnabled: boolean;
+  locale: Locale;
 };
+
+/** GET /api/users/me/settings */
+export type UserSettingsResponse = UserSettings;
+
+/** PATCH /api/users/me/settings */
+export type UpdateSettingsRequest = Partial<UserSettings>;
 
 export type ChangePasswordRequest = {
   currentPassword: string;
