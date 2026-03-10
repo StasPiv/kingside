@@ -814,8 +814,10 @@ input:focus {
   gap: 4px;
   font-size: 14px;
   padding: 2px 4px;
-  flex: 0 0 calc(50% - 1px);
+  width: calc(50% - 1px);
+  flex-shrink: 0;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .move-number {
