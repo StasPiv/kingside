@@ -1290,6 +1290,7 @@ input:focus {
   justify-content: flex-start;
   align-items: flex-start;
   overflow: hidden;
+  width: 100%;
 }
 
 .analysis-board-area {
@@ -1383,6 +1384,7 @@ input:focus {
 .analysis-h-resizer {
   width: 8px;
   flex-shrink: 0;
+  align-self: stretch;
   cursor: col-resize;
   background: transparent;
   position: relative;

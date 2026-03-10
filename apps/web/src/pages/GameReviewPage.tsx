@@ -111,7 +111,8 @@ export function GameReviewPage() {
 
   // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
-  const [boardAreaPx, setBoardAreaPx] = useState(0);
+  // Initial board width: ~1/3 of available width so sidebar (engine) is ~2x wider
+  const [boardAreaPx, setBoardAreaPx] = useState(() => Math.floor((Math.min(window.innerWidth, 1200) - 48 - 8) / 3));
   const [enginePanelHeight, setEnginePanelHeight] = useState(140);
 
   useLayoutEffect(() => {
@@ -127,6 +128,7 @@ export function GameReviewPage() {
     e.preventDefault();
     const startX = e.clientX;
     const startBoardPx = boardAreaPx;
+    document.body.style.userSelect = 'none';
     const onMouseMove = (ev: MouseEvent) => {
       const total = analysisPageRef.current?.clientWidth ?? 900;
       const delta = ev.clientX - startX;
@@ -134,6 +136,7 @@ export function GameReviewPage() {
       setBoardAreaPx(next);
     };
     const onMouseUp = () => {
+      document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
