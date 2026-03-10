@@ -109,11 +109,20 @@ export function GameReviewPage() {
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true);
 
+  const MULTI_PV = 3;
   const { lines, analysisFen, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
     depth: 18,
-    multiPv: 3,
+    multiPv: MULTI_PV,
     autoStart: analysisEnabled,
   });
+
+  // Keep last complete set of lines to avoid flicker when new analysis starts.
+  // Show the previous full set until the new analysis has all lines ready.
+  const lastLinesRef = useRef<EvalLine[]>([]);
+  if (lines.length === MULTI_PV) {
+    lastLinesRef.current = lines;
+  }
+  const displayedLines = lines.length === MULTI_PV ? lines : lastLinesRef.current;
 
   useEffect(() => {
     if (!gameId) return;
@@ -152,6 +161,7 @@ export function GameReviewPage() {
         // Turning off: stop engine and terminate worker
         stopEngine();
         cleanupEngine();
+        lastLinesRef.current = [];
       } else {
         // Turning on: re-init engine
         initEngine();
@@ -195,11 +205,20 @@ export function GameReviewPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goBack, goForward, goToStart, goToEnd]);
 
-  // Scroll active move into view
+  // Scroll active move into view within the moves container only
   useEffect(() => {
-    if (movesContainerRef.current) {
-      const active = movesContainerRef.current.querySelector('.analysis-move.active');
-      active?.scrollIntoView({ block: 'nearest' });
+    const container = movesContainerRef.current;
+    if (!container) return;
+    const active = container.querySelector('.analysis-move.active') as HTMLElement | null;
+    if (!active) return;
+    const containerTop = container.scrollTop;
+    const containerBottom = containerTop + container.clientHeight;
+    const itemTop = active.offsetTop - container.offsetTop;
+    const itemBottom = itemTop + active.offsetHeight;
+    if (itemTop < containerTop) {
+      container.scrollTop = itemTop;
+    } else if (itemBottom > containerBottom) {
+      container.scrollTop = itemBottom - container.clientHeight;
     }
   }, [currentMoveIndex]);
 
@@ -242,7 +261,7 @@ export function GameReviewPage() {
   // This prevents the eval bar from briefly showing an inverted value when the
   // position changes but Stockfish has not yet started analysing the new FEN.
   const evalIsBlackTurn = analysisFen ? analysisFen.split(' ')[1] === 'b' : isBlackTurn;
-  const whitePercent = evalToPercent(lines, evalIsBlackTurn);
+  const whitePercent = evalToPercent(displayedLines, evalIsBlackTurn);
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
@@ -271,7 +290,7 @@ export function GameReviewPage() {
                   style={{ height: `${whitePercent}%` }}
                 />
                 <div className="eval-bar-label">
-                  {lines.length > 0 ? formatEval(lines[0], evalIsBlackTurn) : '0.0'}
+                  {displayedLines.length > 0 ? formatEval(displayedLines[0], evalIsBlackTurn) : '0.0'}
                 </div>
               </div>
             </div>
@@ -299,13 +318,13 @@ export function GameReviewPage() {
         <div className="stockfish-panel">
           <div className="stockfish-panel-header">
             <span>
-              Stockfish 18 {analysisEnabled && sfState === 'analyzing' && lines.length > 0
-                ? `· ${t('analysis.depth')} ${lines[0].depth}`
+              Stockfish 18 {analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
+                ? `· ${t('analysis.depth')} ${displayedLines[0].depth}`
                 : analysisEnabled && sfState === 'loading'
                   ? `· ${t('common.loading')}`
                   : analysisEnabled && sfState === 'error'
                     ? ` · ${t('analysis.engineError', 'Engine error')}`
-                    : analysisEnabled && sfState === 'ready' && lines.length === 0
+                    : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
                       ? ` · ${t('analysis.ready', 'Ready')}`
                       : !analysisEnabled
                         ? ` · ${t('analysis.off', 'Off')}`
@@ -332,7 +351,7 @@ export function GameReviewPage() {
             </button>
           </div>
           <div className="stockfish-lines">
-            {analysisEnabled && lines.map((line) => (
+            {analysisEnabled && displayedLines.map((line) => (
               <div key={line.multipv} className="stockfish-line">
                 <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
                   {formatEval(line)}
