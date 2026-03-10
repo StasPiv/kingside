@@ -802,11 +802,10 @@ input:focus {
 
 .moves {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
   gap: 2px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  align-content: flex-start;
 }
 
 .move-pair {
