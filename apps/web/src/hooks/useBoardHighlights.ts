@@ -1,0 +1,117 @@
+import { useState, useCallback, useMemo } from 'react';
+import { Chess } from 'chess.js';
+import type { Square } from 'chess.js';
+
+// Colors for last-move highlight
+const LAST_MOVE_COLOR = 'rgba(255, 213, 0, 0.45)';
+
+// Colors for legal move highlights
+const MOVE_DOT_COLOR = 'rgba(0, 0, 0, 0.22)';
+const CAPTURE_COLOR = 'rgba(220, 38, 38, 0.38)';
+const CASTLING_COLOR = 'rgba(99, 102, 241, 0.45)';
+const EN_PASSANT_COLOR = 'rgba(234, 88, 12, 0.45)';
+
+// Selected square highlight
+const SELECTED_COLOR = 'rgba(255, 213, 0, 0.55)';
+
+interface UseBoardHighlightsOptions {
+  /** Current chess.js instance with the active position (may be null while loading) */
+  game: Chess | null;
+  /** Color of the player who can interact (for filtering moves) */
+  playerColor?: 'white' | 'black' | null;
+  /** Whether interaction is enabled (e.g. game is active) */
+  enabled?: boolean;
+}
+
+interface UseBoardHighlightsResult {
+  /** squareStyles to pass to MemoChessboard boardOptions */
+  squareStyles: Record<string, React.CSSProperties>;
+  /** Call when a square/piece is clicked */
+  onSquareClick: (square: Square) => void;
+  /** Call after a move is made to record the last move */
+  setLastMove: (from: Square, to: Square) => void;
+  /** Clear selected square (e.g. after a drag drop) */
+  clearSelection: () => void;
+}
+
+export function useBoardHighlights({
+  game,
+  playerColor,
+  enabled = true,
+}: UseBoardHighlightsOptions): UseBoardHighlightsResult {
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const [lastMove, setLastMoveState] = useState<{ from: Square; to: Square } | null>(null);
+
+  const setLastMove = useCallback((from: Square, to: Square) => {
+    setLastMoveState({ from, to });
+    setSelectedSquare(null);
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedSquare(null);
+  }, []);
+
+  const onSquareClick = useCallback(
+    (square: Square) => {
+      if (!enabled || !game) return;
+
+      const piece = game.get(square);
+
+      // If clicking on own piece — select it
+      if (piece) {
+        const pieceColor = piece.color === 'w' ? 'white' : 'black';
+        if (!playerColor || pieceColor === playerColor) {
+          setSelectedSquare(square);
+          return;
+        }
+      }
+
+      // If clicking elsewhere — deselect
+      setSelectedSquare(null);
+    },
+    [enabled, game, playerColor],
+  );
+
+  const squareStyles = useMemo(() => {
+    const styles: Record<string, React.CSSProperties> = {};
+
+    // Last move highlight
+    if (lastMove) {
+      styles[lastMove.from] = { backgroundColor: LAST_MOVE_COLOR };
+      styles[lastMove.to] = { backgroundColor: LAST_MOVE_COLOR };
+    }
+
+    // Selected square + legal moves
+    if (selectedSquare && enabled && game) {
+      styles[selectedSquare] = {
+        ...styles[selectedSquare],
+        backgroundColor: SELECTED_COLOR,
+      };
+
+      const moves = game.moves({ square: selectedSquare, verbose: true });
+      for (const move of moves) {
+        const target = move.to;
+        const isCapture = !!move.captured;
+        const isEnPassant = move.flags.includes('e');
+        const isCastling = move.flags.includes('k') || move.flags.includes('q');
+
+        if (isEnPassant) {
+          styles[target] = { backgroundColor: EN_PASSANT_COLOR };
+        } else if (isCastling) {
+          styles[target] = { backgroundColor: CASTLING_COLOR };
+        } else if (isCapture) {
+          styles[target] = { backgroundColor: CAPTURE_COLOR };
+        } else {
+          // Regular move — dot overlay
+          styles[target] = {
+            background: `radial-gradient(circle, ${MOVE_DOT_COLOR} 28%, transparent 28%)`,
+          };
+        }
+      }
+    }
+
+    return styles;
+  }, [selectedSquare, lastMove, game, enabled]);
+
+  return { squareStyles, onSquareClick, setLastMove, clearSelection };
+}
