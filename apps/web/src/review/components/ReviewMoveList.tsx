@@ -63,31 +63,31 @@ export function ReviewMoveList({
 
     const processedItems = processMoveHierarchy(history, currentGlobalIndex);
 
-    return processedItems
-      .map((item, index) => {
-        if (isProcessedMove(item)) {
-          return (
-            <span
-              key={`move-${item.globalIndex}-${index}`}
-              className={getMoveClasses(item)}
-              onClick={() => handleMoveClick(item)}
-            >
-              {item.display}
-            </span>
-          );
-        } else if (isBracketItem(item)) {
-          return (
-            <span
-              key={`bracket-${item.bracketType}-${item.parentMoveIndex}-${item.variationIndex}-${index}`}
-              className={getBracketClasses(item)}
-            >
-              {item.bracketType === 'open' ? '(' : ')'}
-            </span>
-          );
-        }
-        return null;
-      })
-      .filter(Boolean);
+    return processedItems.flatMap((item, index) => {
+      if (isProcessedMove(item)) {
+        return [
+          <span
+            key={`move-${item.globalIndex}-${index}`}
+            className={getMoveClasses(item)}
+            onClick={() => handleMoveClick(item)}
+          >
+            {item.display}
+          </span>,
+          ' ',
+        ];
+      } else if (isBracketItem(item)) {
+        return [
+          <span
+            key={`bracket-${item.bracketType}-${item.parentMoveIndex}-${item.variationIndex}-${index}`}
+            className={getBracketClasses(item)}
+          >
+            {item.bracketType === 'open' ? '(' : ')'}
+          </span>,
+          ' ',
+        ];
+      }
+      return [];
+    });
   };
 
   return (
