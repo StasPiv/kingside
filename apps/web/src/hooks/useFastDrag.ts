@@ -9,6 +9,8 @@ interface FastDragOptions {
   onPieceDrop: DropHandler;
   boardOrientation: 'white' | 'black';
   enabled?: boolean;
+  onPiecePickup?: (sourceSquare: string) => void;
+  onPieceRelease?: () => void;
 }
 
 /**
@@ -126,6 +128,8 @@ export function useFastDrag(
         offsetY: squareSize / 2,
       };
 
+      optionsRef.current.onPiecePickup?.(sourceSquare);
+
       // Capture pointer on the container (not e.target) for reliable tracking.
       // Using e.target (often a deep SVG child) can lose capture in Chrome
       // when the element is re-rendered or removed by React.
@@ -162,6 +166,7 @@ export function useFastDrag(
       const targetSquare = findSquareFromPoint(e.clientX, e.clientY);
 
       dragStateRef.current = null;
+      optionsRef.current.onPieceRelease?.();
 
       // Determine whether this is a valid drop attempt (different square).
       const isDropAttempt = !!(targetSquare && targetSquare !== state.sourceSquare);
@@ -271,6 +276,7 @@ export function useFastDrag(
       state.pieceEl.style.opacity = '';
       state.ghost.remove();
       dragStateRef.current = null;
+      optionsRef.current.onPieceRelease?.();
     };
 
     // Prevent Chrome's native HTML5 drag on images/SVGs inside pieces.

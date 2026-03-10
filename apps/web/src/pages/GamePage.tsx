@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -53,6 +53,8 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
+  const [lastMove, setLastMove] = useState<{ from: Square; to: Square } | null>(null);
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [showResultModal, setShowResultModal] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -93,6 +95,8 @@ export function GamePage() {
       setClocks(msToSeconds(state.clocks));
       setStatus(state.status);
       if (state.result) setResult(state.result);
+      setLastMove(null);
+      setSelectedSquare(null);
     },
     [game],
   );
@@ -107,8 +111,15 @@ export function GamePage() {
     };
 
     const onGameMove = (data: WsGameMoveServerPayload) => {
-      game.load(data.fen);
-      setFen(data.fen);
+      const verboseMove = game.move(data.san);
+      if (verboseMove) {
+        setLastMove({ from: verboseMove.from as Square, to: verboseMove.to as Square });
+        setFen(game.fen());
+      } else {
+        game.load(data.fen);
+        setFen(data.fen);
+      }
+      setSelectedSquare(null);
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
     };
@@ -176,6 +187,8 @@ export function GamePage() {
       });
       if (!move) return false;
 
+      setLastMove({ from: sourceSquare, to: targetSquare });
+      setSelectedSquare(null);
       setFen(game.fen());
       setMoves((prev) => [...prev, move.san]);
 
@@ -257,6 +270,20 @@ export function GamePage() {
     [onDrop],
   );
 
+  const handlePiecePickup = useCallback(
+    (sourceSquare: string) => {
+      if (status !== 'active') return;
+      const turnColor = game.turn() === 'w' ? 'white' : 'black';
+      if (turnColor !== playerColor) return;
+      setSelectedSquare(sourceSquare as Square);
+    },
+    [status, game, playerColor],
+  );
+
+  const handlePieceRelease = useCallback(() => {
+    setSelectedSquare(null);
+  }, []);
+
   const boardStyle = useMemo(
     () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
     [boardWidth],
@@ -266,9 +293,43 @@ export function GamePage() {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
     enabled: status === 'active',
+    onPiecePickup: handlePiecePickup,
+    onPieceRelease: handlePieceRelease,
   });
 
   const stablePosition = useStablePosition(fen);
+
+  const playerChessColor = playerColor === 'white' ? 'w' : 'b';
+
+  const squareStyles = useMemo(() => {
+    const styles: Record<string, React.CSSProperties> = {};
+
+    if (lastMove) {
+      const yellow: React.CSSProperties = { backgroundColor: 'rgba(255, 255, 0, 0.3)' };
+      styles[lastMove.from] = yellow;
+      styles[lastMove.to] = yellow;
+    }
+
+    if (selectedSquare) {
+      const possibleMoves = game.moves({ square: selectedSquare, verbose: true });
+      for (const move of possibleMoves) {
+        const targetPiece = game.get(move.to as Square);
+        if (targetPiece && targetPiece.color !== playerChessColor) {
+          styles[move.to] = {
+            ...styles[move.to],
+            boxShadow: 'inset 0 0 0 4px rgba(0,0,0,0.35)',
+          };
+        } else {
+          styles[move.to] = {
+            ...styles[move.to],
+            background: 'radial-gradient(circle, rgba(0,0,0,0.2) 25%, transparent 25%)',
+          };
+        }
+      }
+    }
+
+    return styles;
+  }, [lastMove, selectedSquare, game, playerChessColor]);
 
   const boardOptions = useMemo(
     () => ({
@@ -276,9 +337,10 @@ export function GamePage() {
       boardOrientation: playerColor,
       animationDurationInMs: 0,
       allowDragging: false,
+      squareStyles,
       ...(boardStyle && { boardStyle }),
     }),
-    [stablePosition, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle, squareStyles],
   );
 
   return (
