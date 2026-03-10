@@ -28,7 +28,7 @@ export function PuzzlePage() {
   const attemptSubmittedRef = useRef(false);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
-  const { boardThemeOptions } = useBoardTheme();
+  const { boardThemeOptions, customPieces } = useBoardTheme();
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -173,8 +173,9 @@ export function PuzzlePage() {
       showNotation: true,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
+      ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces],
   );
 
   const handleNext = useCallback(async () => {

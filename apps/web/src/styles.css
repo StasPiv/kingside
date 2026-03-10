@@ -3010,4 +3010,62 @@ input:focus {
   }
 }
 
+/* ===================== Board themes ===================== */
+
+/* default (classic) — no extra rules, inline styles handle it */
+
+[data-board-theme="green"] .board-square-light  { background-color: #ffffdd; }
+[data-board-theme="green"] .board-square-dark   { background-color: #86a666; }
+
+[data-board-theme="blue"] .board-square-light   { background-color: #dde6ef; }
+[data-board-theme="blue"] .board-square-dark    { background-color: #4b7399; }
+
+[data-board-theme="brown"] .board-square-light  { background-color: #d4b896; }
+[data-board-theme="brown"] .board-square-dark   { background-color: #6b3a2a; }
+
+/* ===================== Piece set preview tiles ===================== */
+
+.piece-set-options {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.piece-set-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.piece-set-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  border: 3px solid transparent;
+  background: #2a2a4a;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.piece-set-preview img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.piece-set-option.active .piece-set-preview {
+  border-color: #81b64c;
+}
+
+.piece-set-label {
+  font-size: 12px;
+  color: #ccc;
+}
+
 

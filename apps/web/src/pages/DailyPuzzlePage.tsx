@@ -8,6 +8,7 @@ import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { MemoChessboard } from '../components/MemoChessboard';
+import { useBoardTheme } from '../hooks/useBoardTheme';
 import type { PuzzleDto, DailyPuzzleResponse } from '@kingside/shared';
 
 type PuzzleState = 'loading' | 'solving' | 'correct' | 'failed';
@@ -25,6 +26,7 @@ export function DailyPuzzlePage() {
   const [playedMoves, setPlayedMoves] = useState<string[]>([]);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
+  const { boardThemeOptions, customPieces } = useBoardTheme();
 
   useEffect(() => {
     api
@@ -203,8 +205,10 @@ export function DailyPuzzlePage() {
       allowDragging: false,
       showNotation: true,
       ...(boardStyle && { boardStyle }),
+      ...boardThemeOptions,
+      ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle, boardThemeOptions, customPieces],
   );
 
   const themes = puzzle?.themes ?? [];

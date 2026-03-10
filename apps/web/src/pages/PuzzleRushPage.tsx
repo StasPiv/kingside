@@ -40,7 +40,7 @@ export function PuzzleRushPage() {
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
-  const { boardThemeOptions } = useBoardTheme();
+  const { boardThemeOptions, customPieces } = useBoardTheme();
 
   const setupPuzzle = useCallback((fen: string, setupMove: string) => {
     const chess = new Chess(fen);
@@ -304,8 +304,9 @@ export function PuzzleRushPage() {
       showNotation: true,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
+      ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces],
   );
 
   const formatTime = (seconds: number): string => {

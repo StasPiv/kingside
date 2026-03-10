@@ -20,7 +20,7 @@ import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useBoardSettings } from '../hooks/useBoardSettings';
-import { usePremove } from '../hooks/usePremove';
+import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -57,7 +57,9 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
-  const { premove, setPremove, clearPremove, tryExecutePremove, premoveSquareStyles } = usePremove();
+  const [pendingPremove, setPendingPremove] = useState<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
+  const pendingPremoveRef = useRef<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
+  pendingPremoveRef.current = pendingPremove;
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [showResultModal, setShowResultModal] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -71,7 +73,12 @@ export function GamePage() {
     return saved !== null ? parseInt(saved, 10) : 200;
   });
   const { playSound, muted, toggleMute } = useSounds();
-  const { showNotation } = useBoardSettings();
+  const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
+  const { squareStyles: highlightStyles, onSquareClick, setLastMove, clearSelection } = useBoardHighlights({
+    game,
+    playerColor,
+    enabled: status === 'active',
+  });
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -130,14 +137,16 @@ export function GamePage() {
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
       playSound(soundEventFromSan(data.san));
-      const pm = tryExecutePremove(game);
-      if (pm) {
-        executeMoveRef.current(pm.from, pm.to, 'q');
+      setLastMove(data.uci.slice(0, 2) as Square, data.uci.slice(2, 4) as Square);
+      const premove = pendingPremoveRef.current;
+      if (premove) {
+        setPendingPremove(null);
+        executeMoveRef.current(premove.from, premove.to, premove.promotion);
       }
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
-      clearPremove();
+      setPendingPremove(null);
       setStatus('finished');
       setResult(data.result);
       if (data.ratingChange) {
@@ -171,7 +180,7 @@ export function GamePage() {
       socket.off(GameEvents.CHAT_MESSAGE, onChatMessage);
       socket.off(GameEvents.ERROR, onError);
     };
-  }, [gameId, game, updateFromState, refreshUser, playSound, tryExecutePremove, clearPremove]);
+  }, [gameId, game, updateFromState, refreshUser, playSound, setLastMove]);
 
   useEffect(() => {
     if (status !== 'active') return;
@@ -206,6 +215,7 @@ export function GamePage() {
       setFen(game.fen());
       setMoves((prev) => [...prev, move.san]);
       playSound(soundEventFromSan(move.san));
+      setLastMove(sourceSquare, targetSquare);
 
       const uci = promotion
         ? `${sourceSquare}${targetSquare}${promotion}`
@@ -217,7 +227,7 @@ export function GamePage() {
     } catch {
       return false;
     }
-  }, [game, gameId, playSound]);
+  }, [game, gameId, playSound, setLastMove]);
 
   executeMoveRef.current = executeMove;
 
@@ -227,7 +237,8 @@ export function GamePage() {
     const turnColor = game.turn() === 'w' ? 'white' : 'black';
 
     if (turnColor !== playerColor) {
-      setPremove(sourceSquare, targetSquare);
+      const promotion = isPromotionMove(sourceSquare, targetSquare) ? ('q' as const) : undefined;
+      setPendingPremove({ from: sourceSquare, to: targetSquare, ...(promotion !== undefined && { promotion }) });
       return true;
     }
 
@@ -240,8 +251,9 @@ export function GamePage() {
       return true;
     }
 
+    clearSelection();
     return executeMove(sourceSquare, targetSquare);
-  }, [game, playerColor, status, isPromotionMove, executeMove, setPremove]);
+  }, [game, playerColor, status, isPromotionMove, executeMove, clearSelection]);
 
   const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
     if (!pendingPromotion) return;
@@ -304,6 +316,27 @@ export function GamePage() {
 
   const stablePosition = useStablePosition(fen);
 
+  const premoveSquareStyles = useMemo(() => {
+    if (!pendingPremove) return undefined;
+    return {
+      [pendingPremove.from]: { backgroundColor: 'rgba(0,120,255,0.4)' },
+      [pendingPremove.to]: { backgroundColor: 'rgba(0,120,255,0.4)' },
+    };
+  }, [pendingPremove]);
+
+  const mergedSquareStyles = useMemo(() => {
+    const merged = { ...highlightStyles };
+    if (premoveSquareStyles) {
+      Object.assign(merged, premoveSquareStyles);
+    }
+    return merged;
+  }, [highlightStyles, premoveSquareStyles]);
+
+  const handleSquareClick = useCallback(
+    ({ square }: { piece?: unknown; square: string }) => onSquareClick(square as Square),
+    [onSquareClick],
+  );
+
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
@@ -311,10 +344,14 @@ export function GamePage() {
       animationDurationInMs: isOpponentMove ? animationDuration : 0,
       allowDragging: false,
       showNotation,
+      darkSquareStyle,
+      lightSquareStyle,
+      ...(customPieces && { pieces: customPieces }),
       ...(boardStyle && { boardStyle }),
-      ...(premove && { squareStyles: premoveSquareStyles }),
+      squareStyles: mergedSquareStyles,
+      onSquareClick: handleSquareClick,
     }),
-    [stablePosition, playerColor, boardStyle, animationDuration, premoveSquareStyles, showNotation, isOpponentMove, premove],
+    [stablePosition, playerColor, boardStyle, animationDuration, mergedSquareStyles, showNotation, isOpponentMove, handleSquareClick, darkSquareStyle, lightSquareStyle, customPieces],
   );
 
   return (
@@ -331,7 +368,7 @@ export function GamePage() {
           </span>
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
-        <div className="board-container" ref={boardContainerRef} onContextMenu={(e) => { e.preventDefault(); clearPremove(); }}>
+        <div className="board-container" ref={boardContainerRef} onContextMenu={(e) => { e.preventDefault(); setPendingPremove(null); }}>
           <MemoChessboard options={boardOptions} />
           {pendingPromotion && (
             <div className="promotion-overlay" onClick={handlePromotionCancel}>

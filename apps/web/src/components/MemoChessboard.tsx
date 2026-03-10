@@ -69,6 +69,7 @@ function areOptionsEqual(
   if (prevOpts.showNotation !== nextOpts.showNotation) return false;
   if (prevOpts.darkSquareStyle !== nextOpts.darkSquareStyle) return false;
   if (prevOpts.lightSquareStyle !== nextOpts.lightSquareStyle) return false;
+  if (prevOpts.pieces !== nextOpts.pieces) return false;
 
   return true;
 }
