@@ -36,6 +36,7 @@ model User {
   timeControls     UserTimeControl[]
   puzzleAttempts   PuzzleAttempt[]
   puzzleRushScores PuzzleRushScore[]
+  gameAnalyses     GameAnalysis[]
 
   @@map("users")
 }
@@ -96,10 +97,11 @@ model Game {
   startedAt         DateTime?        @map("started_at")
   finishedAt        DateTime?        @map("finished_at")
 
-  white        User          @relation("WhitePlayer", fields: [whiteId], references: [id])
-  black        User          @relation("BlackPlayer", fields: [blackId], references: [id])
+  white        User           @relation("WhitePlayer", fields: [whiteId], references: [id])
+  black        User           @relation("BlackPlayer", fields: [blackId], references: [id])
   moves        Move[]
   chatMessages ChatMessage[]
+  analyses     GameAnalysis[]
 
   @@index([whiteId])
   @@index([blackId])
@@ -223,4 +225,21 @@ model DailyPuzzle {
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
 
   @@map("daily_puzzles")
+}
+
+model GameAnalysis {
+  id          String   @id @default(uuid()) @db.Uuid
+  gameId      String   @map("game_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  analysisPgn String   @map("analysis_pgn") @db.Text
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  game Game @relation(fields: [gameId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([gameId, userId])
+  @@index([gameId])
+  @@index([userId])
+  @@map("game_analyses")
 }

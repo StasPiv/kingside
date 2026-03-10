@@ -514,4 +514,20 @@ export class GameService {
     if (game.blackId === userId) return 'black';
     return null;
   }
+
+  async getAnalysis(gameId: string, userId: string): Promise<{ analysisPgn: string | null }> {
+    const record = await this.prisma.gameAnalysis.findUnique({
+      where: { gameId_userId: { gameId, userId } },
+      select: { analysisPgn: true },
+    });
+    return { analysisPgn: record?.analysisPgn ?? null };
+  }
+
+  async saveAnalysis(gameId: string, userId: string, analysisPgn: string): Promise<void> {
+    await this.prisma.gameAnalysis.upsert({
+      where: { gameId_userId: { gameId, userId } },
+      update: { analysisPgn },
+      create: { gameId, userId, analysisPgn },
+    });
+  }
 }

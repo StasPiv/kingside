@@ -2,14 +2,17 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Request,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CreateGameWithBotDto } from './dto/game.dto';
+import { CreateGameWithBotDto, SaveAnalysisDto } from './dto/game.dto';
 import { GameService } from './game.service';
 
 @Controller('games')
@@ -35,5 +38,22 @@ export class GameController {
   @Get(':id/moves')
   getGameMoves(@Param('id', ParseUUIDPipe) id: string) {
     return this.gameService.getGameMoves(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/analysis')
+  getAnalysis(@Param('id', ParseUUIDPipe) id: string, @Request() req: any) {
+    return this.gameService.getAnalysis(id, req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/analysis')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  saveAnalysis(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: any,
+    @Body() dto: SaveAnalysisDto,
+  ) {
+    return this.gameService.saveAnalysis(id, req.user.id, dto.analysisPgn);
   }
 }

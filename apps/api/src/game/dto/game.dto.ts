@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsString, IsUUID, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import type { WsGameMovePayload, WsGameJoinPayload, CreateGameWithBotRequest } from '@kingside/shared';
 
 export class MoveDto implements WsGameMovePayload {
@@ -25,4 +25,13 @@ export class CreateGameWithBotDto implements CreateGameWithBotRequest {
 
   @IsIn(['bullet', 'blitz', 'rapid', 'classical'])
   timeControl!: 'bullet' | 'blitz' | 'rapid' | 'classical';
+}
+
+// 512KB = 524288 bytes; for string length we use same number as an approximation
+const MAX_ANALYSIS_PGN_LENGTH = 524288;
+
+export class SaveAnalysisDto {
+  @IsString()
+  @MaxLength(MAX_ANALYSIS_PGN_LENGTH)
+  analysisPgn!: string;
 }
