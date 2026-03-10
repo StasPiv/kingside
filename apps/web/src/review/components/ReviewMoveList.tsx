@@ -10,16 +10,25 @@ import {
 } from '../utils/ChessMoveProcessing';
 import './ReviewMoveList.css';
 
+export interface GameInfo {
+  white: { username: string; rating?: number | null };
+  black: { username: string; rating?: number | null };
+  opening?: string;
+  result?: string;
+}
+
 interface ReviewMoveListProps {
   history: ChessMove[];
   currentGlobalIndex: number;
   onMoveClick: (move: ChessMove) => void;
+  gameInfo?: GameInfo;
 }
 
 export function ReviewMoveList({
   history,
   currentGlobalIndex,
   onMoveClick,
+  gameInfo,
 }: ReviewMoveListProps) {
   const movesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -83,6 +92,33 @@ export function ReviewMoveList({
 
   return (
     <div className="review-move-list-wrapper">
+      {gameInfo && (
+        <div className="review-game-info">
+          {gameInfo.opening && (
+            <div className="review-game-info-opening">{gameInfo.opening}</div>
+          )}
+          <div className="review-game-info-players">
+            <span className="review-game-info-player">
+              <span className="review-game-info-color review-game-info-color--white" />
+              {gameInfo.white.username}
+              {gameInfo.white.rating != null && (
+                <span className="review-game-info-rating">({gameInfo.white.rating})</span>
+              )}
+            </span>
+            <span className="review-game-info-vs">vs</span>
+            <span className="review-game-info-player">
+              <span className="review-game-info-color review-game-info-color--black" />
+              {gameInfo.black.username}
+              {gameInfo.black.rating != null && (
+                <span className="review-game-info-rating">({gameInfo.black.rating})</span>
+              )}
+            </span>
+          </div>
+          {gameInfo.result && (
+            <div className="review-game-info-result">{gameInfo.result}</div>
+          )}
+        </div>
+      )}
       <div ref={movesContainerRef} className="review-moves-container">
         {!history || history.length === 0 ? (
           <div className="review-no-moves">No moves</div>

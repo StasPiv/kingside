@@ -6,6 +6,72 @@
   overflow: hidden;
 }
 
+/* Game info header in notation */
+.review-game-info {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.review-game-info-opening {
+  font-size: 12px;
+  color: #90caf9;
+  margin-bottom: 5px;
+  font-style: italic;
+}
+
+.review-game-info-players {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.review-game-info-player {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.review-game-info-color {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.review-game-info-color--white {
+  background: #f0d9b5;
+  border: 1px solid #888;
+}
+
+.review-game-info-color--black {
+  background: #b58863;
+  border: 1px solid #555;
+}
+
+.review-game-info-rating {
+  color: #aaa;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.review-game-info-vs {
+  color: #666;
+  font-size: 11px;
+}
+
+.review-game-info-result {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
 .review-moves-container {
   width: 100%;
   flex: 1;
