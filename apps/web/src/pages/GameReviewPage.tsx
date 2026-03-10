@@ -109,7 +109,7 @@ export function GameReviewPage() {
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true);
 
-  const { lines, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
+  const { lines, evaluatedFen, evaluate, stop: stopEngine, cleanup: cleanupEngine, init: initEngine, isReady, state: sfState } = useStockfish({
     depth: 18,
     multiPv: 3,
     autoStart: analysisEnabled,
@@ -237,8 +237,11 @@ export function GameReviewPage() {
     [stablePosition, boardStyle, boardThemeOptions, squareStyles],
   );
 
-  const isBlackTurn = currentFen.split(' ')[1] === 'b';
-  const whitePercent = evalToPercent(lines, isBlackTurn);
+  // Use the FEN that was actually evaluated for inversion, not the current display FEN.
+  // This prevents the bar from flickering when the position changes but lines
+  // still contain the result for the previous position.
+  const evalIsBlackTurn = (evaluatedFen ?? currentFen).split(' ')[1] === 'b';
+  const whitePercent = evalToPercent(lines, evalIsBlackTurn);
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
@@ -267,7 +270,7 @@ export function GameReviewPage() {
                   style={{ height: `${whitePercent}%` }}
                 />
                 <div className="eval-bar-label">
-                  {lines.length > 0 ? formatEval(lines[0], isBlackTurn) : '0.0'}
+                  {lines.length > 0 ? formatEval(lines[0], evalIsBlackTurn) : '0.0'}
                 </div>
               </div>
             </div>
