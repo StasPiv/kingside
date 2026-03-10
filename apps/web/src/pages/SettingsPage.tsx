@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { Locale } from '@kingside/shared';
+import { useBoardTheme, BOARD_THEMES } from '../hooks/useBoardTheme';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const { themeId, selectTheme } = useBoardTheme();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -79,6 +81,33 @@ export function SettingsPage() {
             <option value="en">{t('settings.english')}</option>
             <option value="ru">{t('settings.russian')}</option>
           </select>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>{t('settings.appearance')}</h2>
+        <div className="settings-field">
+          <label>{t('settings.boardTheme')}</label>
+          <div className="board-theme-options">
+            {BOARD_THEMES.map((theme) => (
+              <label key={theme.id} className={`board-theme-option${themeId === theme.id ? ' active' : ''}`}>
+                <input
+                  type="radio"
+                  name="boardTheme"
+                  value={theme.id}
+                  checked={themeId === theme.id}
+                  onChange={() => selectTheme(theme.id)}
+                />
+                <span
+                  className="board-theme-preview"
+                  style={{
+                    background: `linear-gradient(135deg, ${theme.lightSquare} 50%, ${theme.darkSquare} 50%)`,
+                  }}
+                />
+                <span className="board-theme-label">{theme.label}</span>
+              </label>
+            ))}
+          </div>
         </div>
       </section>
 

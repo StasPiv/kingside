@@ -67,6 +67,8 @@ function areOptionsEqual(
   if (prevOpts.allowDragging !== nextOpts.allowDragging) return false;
   if (prevOpts.arrows !== nextOpts.arrows) return false;
   if (prevOpts.showNotation !== nextOpts.showNotation) return false;
+  if (prevOpts.darkSquareStyle !== nextOpts.darkSquareStyle) return false;
+  if (prevOpts.lightSquareStyle !== nextOpts.lightSquareStyle) return false;
 
   return true;
 }

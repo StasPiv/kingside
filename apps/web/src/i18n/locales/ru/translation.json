@@ -32,7 +32,9 @@
     "passwordMismatch": "Пароли не совпадают",
     "passwordChanged": "Пароль успешно изменён",
     "passwordError": "Не удалось сменить пароль",
-    "puzzleRating": "Рейтинг задач"
+    "puzzleRating": "Рейтинг задач",
+    "appearance": "Внешний вид",
+    "boardTheme": "Тема доски"
   },
   "lobby": {
     "title": "Лобби",
