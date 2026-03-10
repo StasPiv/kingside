@@ -237,9 +237,9 @@ export function useReviewState() {
   const currentFen = state.currentMove?.fen ?? INITIAL_FEN;
   const currentGlobalIndex = state.currentMove?.globalIndex ?? -1;
 
-  // Check if current move is in a variation (globalIndex >= nextGlobalIndex/1000)
+  // Check if current move is in a variation (not in the top-level main-line history)
   const isInVariation = state.currentMove !== null
-    && state.currentMove.globalIndex >= state.history.length;
+    && !state.history.some(m => m.globalIndex === state.currentMove!.globalIndex);
 
   return {
     history: state.history,
