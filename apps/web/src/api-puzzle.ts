@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { PuzzleDto, PuzzleAttempt, PuzzleAttemptResult } from '@kingside/shared';
+import type { PuzzleDto, PuzzleAttemptResponse, PuzzleAttemptResult } from '@kingside/shared';
 
 // --- Request / Response types ---
 
@@ -71,7 +71,7 @@ export const puzzleApi = {
 
   /** Submit puzzle attempt result */
   submitAttempt: (puzzleId: string, body: PuzzleAttemptRequest) =>
-    api.post<PuzzleAttempt>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempt`, body),
+    api.post<PuzzleAttemptResponse>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempt`, body),
 
   /** Get today's daily puzzle */
   getDaily: () =>
