@@ -53,6 +53,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
 
   const [state, setState] = useState<StockfishState>('idle');
   const [lines, setLines] = useState<EvalLine[]>([]);
+  const [analysisFen, setAnalysisFen] = useState<string | null>(null);
   const [bestMove, setBestMove] = useState<string | null>(null);
   const engineRef = useRef<Worker | null>(null);
   const fenRef = useRef<string | null>(null);
@@ -121,6 +122,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
             pendingFenRef.current = null;
             linesBuffer.current.clear();
             setLines([]);
+            setAnalysisFen(pendingFen);
             setBestMove(null);
             analysisGenRef.current += 1;
             setState('analyzing');
@@ -199,6 +201,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       pendingFenRef.current = null;
       linesBuffer.current.clear();
       setLines([]);
+      setAnalysisFen(fen);
       setBestMove(null);
       analysisGenRef.current += 1;
       setState('analyzing');
@@ -222,6 +225,7 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   return {
     state,
     lines,
+    analysisFen,
     bestMove,
     evaluate,
     stop,
