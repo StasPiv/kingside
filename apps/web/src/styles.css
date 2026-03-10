@@ -1286,9 +1286,10 @@ input:focus {
 /* Analysis page */
 .analysis-page {
   display: flex;
-  gap: 24px;
-  justify-content: center;
+  gap: 0;
+  justify-content: flex-start;
   align-items: flex-start;
+  overflow: hidden;
 }
 
 .analysis-board-area {
@@ -1378,6 +1379,57 @@ input:focus {
   background: #1e2d50;
 }
 
+/* Horizontal resizer between board area and sidebar */
+.analysis-h-resizer {
+  width: 8px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  z-index: 1;
+}
+
+.analysis-h-resizer::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #1e2d50;
+  border-radius: 1px;
+  transition: background 0.15s;
+}
+
+.analysis-h-resizer:hover::after {
+  background: #7c83ff;
+}
+
+/* Vertical resizer within sidebar (between engine panel and moves) */
+.analysis-v-resizer {
+  height: 8px;
+  flex-shrink: 0;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+}
+
+.analysis-v-resizer::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #1e2d50;
+  border-radius: 1px;
+  transition: background 0.15s;
+}
+
+.analysis-v-resizer:hover::after {
+  background: #7c83ff;
+}
+
 /* Stockfish analysis panel (in sidebar) */
 .stockfish-panel {
   background: #16213e;
@@ -1387,6 +1439,8 @@ input:focus {
   overflow: hidden;
   contain: layout;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .stockfish-panel-header {
@@ -1402,6 +1456,9 @@ input:focus {
   flex-direction: column;
   gap: 8px;
   margin-top: 8px;
+  overflow-x: auto;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .stockfish-line {
@@ -1409,6 +1466,7 @@ input:focus {
   gap: 8px;
   font-size: 14px;
   align-items: flex-start;
+  min-width: max-content;
 }
 
 .stockfish-eval {
@@ -1430,17 +1488,18 @@ input:focus {
 
 .stockfish-pv {
   color: #a0a0c0;
-  white-space: normal;
-  word-break: break-word;
+  white-space: nowrap;
   line-height: 1.4;
 }
 
 .analysis-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 300px;
+  gap: 0;
+  flex: 1;
+  min-width: 280px;
   align-self: stretch;
+  overflow: hidden;
 }
 
 .analysis-progress {
@@ -1621,6 +1680,8 @@ input:focus {
   border-radius: 8px;
   text-align: center;
   font-weight: 600;
+  margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .analysis-back-link {
@@ -1653,6 +1714,7 @@ input:focus {
   color: #7c83ff;
   text-decoration: none;
   flex-shrink: 0;
+  margin-bottom: 8px;
 }
 
 .analysis-back-link--top::before {
@@ -2857,10 +2919,18 @@ input:focus {
     align-items: center;
   }
 
+  .analysis-h-resizer {
+    display: none;
+  }
+
   .analysis-sidebar,
   .puzzle-sidebar {
-    width: 100%;
+    width: 100% !important;
     max-width: 480px;
+  }
+
+  .analysis-board-area {
+    width: auto !important;
   }
 
   .puzzle-list {

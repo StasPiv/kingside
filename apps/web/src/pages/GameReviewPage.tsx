@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -108,6 +108,52 @@ export function GameReviewPage() {
   const { boardThemeOptions } = useBoardTheme();
 
   const game = useMemo(() => new Chess(), []);
+
+  // Resizable layout: horizontal split between board area and sidebar
+  const analysisPageRef = useRef<HTMLDivElement>(null);
+  const [boardAreaPx, setBoardAreaPx] = useState(0);
+  const [enginePanelHeight, setEnginePanelHeight] = useState(140);
+
+  useLayoutEffect(() => {
+    if (!analysisPageRef.current) return;
+    const total = analysisPageRef.current.clientWidth;
+    // Board area takes ~1/3, sidebar ~2/3 (engine panel ~2x wider than board)
+    setBoardAreaPx(Math.floor((total - 8) / 3));
+  }, []);
+
+  const handleHResizerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startBoardPx = boardAreaPx;
+    const onMouseMove = (ev: MouseEvent) => {
+      const total = analysisPageRef.current?.clientWidth ?? 900;
+      const delta = ev.clientX - startX;
+      const next = Math.max(200, Math.min(total - 320, startBoardPx + delta));
+      setBoardAreaPx(next);
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [boardAreaPx]);
+
+  const handleVResizerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = enginePanelHeight;
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = ev.clientY - startY;
+      setEnginePanelHeight(Math.max(80, Math.min(500, startHeight + delta)));
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [enginePanelHeight]);
 
   const [analysisEnabled, setAnalysisEnabled] = useState(true);
 
@@ -279,8 +325,8 @@ export function GameReviewPage() {
       : t('game.blackWins');
 
   return (
-    <div className="analysis-page">
-      <div className="analysis-board-area">
+    <div className="analysis-page" ref={analysisPageRef}>
+      <div className="analysis-board-area" style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}>
         <div className="analysis-board-wrapper">
           <div className="analysis-player-info">
             <span className="color-indicator black" />
@@ -318,12 +364,17 @@ export function GameReviewPage() {
         </div>
       </div>
 
+      <div
+        className="analysis-h-resizer"
+        onMouseDown={handleHResizerMouseDown}
+      />
+
       <div className="analysis-sidebar">
         {/* Back navigation — top of sidebar for easy access */}
         <Link to="/profile" className="analysis-back-link analysis-back-link--top">{t('review.backToGames')}</Link>
 
         {/* Engine analysis panel — in sidebar */}
-        <div className="stockfish-panel">
+        <div className="stockfish-panel" style={{ height: enginePanelHeight }}>
           <div className="stockfish-panel-header">
             <span>
               Stockfish 18 {analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
@@ -371,6 +422,11 @@ export function GameReviewPage() {
             ))}
           </div>
         </div>
+
+        <div
+          className="analysis-v-resizer"
+          onMouseDown={handleVResizerMouseDown}
+        />
 
         {/* Game result */}
         <div className="analysis-result">
