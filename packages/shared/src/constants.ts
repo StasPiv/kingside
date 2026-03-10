@@ -46,3 +46,9 @@ export const DAILY_TIME_CONTROLS = {
 
 export const MAX_INITIAL_TIME_SEC = 10800;
 export const MAX_INCREMENT_SEC = 600;
+
+export const BOARD_THEMES = ['default', 'green', 'blue', 'brown'] as const;
+export type BoardTheme = typeof BOARD_THEMES[number];
+
+export const PIECE_SETS = ['standard', 'cburnett', 'alpha', 'merida'] as const;
+export type PieceSet = typeof PIECE_SETS[number];
