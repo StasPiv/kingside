@@ -331,20 +331,18 @@ export function GameReviewPage() {
               {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
             </button>
           </div>
-          {analysisEnabled && (
-            <div className="stockfish-lines">
-              {lines.map((line) => (
-                <div key={line.multipv} className="stockfish-line">
-                  <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
-                    {formatEval(line)}
-                  </span>
-                  <span className="stockfish-pv">
-                    {formatPv(line.pv, currentFen)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="stockfish-lines">
+            {analysisEnabled && lines.map((line) => (
+              <div key={line.multipv} className="stockfish-line">
+                <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
+                  {formatEval(line)}
+                </span>
+                <span className="stockfish-pv">
+                  {formatPv(line.pv, currentFen)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Game result */}
