@@ -24,6 +24,7 @@ type ReviewState = {
 
 type ReviewAction =
   | { type: 'LOAD_MOVES'; payload: ApiMove[] }
+  | { type: 'LOAD_FROM_PGN'; payload: ChessMove[] }
   | { type: 'GOTO_MOVE'; payload: ChessMove }
   | { type: 'GOTO_FIRST' }
   | { type: 'GOTO_PREVIOUS' }
@@ -65,6 +66,20 @@ function followNextToEnd(move: ChessMove | null): ChessMove | null {
   return curr;
 }
 
+function maxGlobalIndexInHistory(moves: ChessMove[]): number {
+  let max = -1;
+  for (const move of moves) {
+    if (move.globalIndex > max) max = move.globalIndex;
+    if (move.variations) {
+      for (const variation of move.variations) {
+        const varMax = maxGlobalIndexInHistory(variation);
+        if (varMax > max) max = varMax;
+      }
+    }
+  }
+  return max;
+}
+
 function reducer(state: ReviewState, action: ReviewAction): ReviewState {
   switch (action.type) {
     case 'LOAD_MOVES': {
@@ -74,6 +89,16 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         history,
         currentMove: lastMove,
         nextGlobalIndex: history.length,
+      };
+    }
+    case 'LOAD_FROM_PGN': {
+      const history = action.payload;
+      const lastMove = history.length > 0 ? history[history.length - 1] : null;
+      const maxIdx = maxGlobalIndexInHistory(history);
+      return {
+        history,
+        currentMove: lastMove,
+        nextGlobalIndex: maxIdx + 1,
       };
     }
     case 'GOTO_MOVE': {
@@ -171,6 +196,10 @@ export function useReviewState() {
     dispatch({ type: 'LOAD_MOVES', payload: apiMoves });
   }, []);
 
+  const loadFromPgn = useCallback((moves: ChessMove[]) => {
+    dispatch({ type: 'LOAD_FROM_PGN', payload: moves });
+  }, []);
+
   const gotoMove = useCallback((move: ChessMove) => {
     dispatch({ type: 'GOTO_MOVE', payload: move });
   }, []);
@@ -248,6 +277,7 @@ export function useReviewState() {
     currentFen,
     isInVariation,
     loadMoves,
+    loadFromPgn,
     gotoMove,
     gotoFirst,
     gotoPrevious,
