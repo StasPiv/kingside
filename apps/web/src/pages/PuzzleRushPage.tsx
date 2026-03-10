@@ -9,6 +9,7 @@ import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { MemoChessboard } from '../components/MemoChessboard';
 
 type RushScreen = 'start' | 'playing' | 'result';
@@ -36,6 +37,7 @@ export function PuzzleRushPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [lastMoveUci, setLastMoveUci] = useState<string | null>(null);
 
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -55,6 +57,7 @@ export function PuzzleRushPage() {
     });
     setGame(chess);
     setFeedback(null);
+    setLastMoveUci(setupMove);
   }, []);
 
   const stopTimer = useCallback(() => {
@@ -146,6 +149,7 @@ export function PuzzleRushPage() {
 
       const prevFen = game.fen();
       setGame(copy);
+      setLastMoveUci(uci);
       setSubmitting(true);
 
       puzzleApi
@@ -173,6 +177,7 @@ export function PuzzleRushPage() {
                   promotion: opMove.length > 4 ? opMove[4] : undefined,
                 });
                 setGame(next);
+                setLastMoveUci(opMove);
               }, 200);
             }
           } else {
@@ -229,6 +234,7 @@ export function PuzzleRushPage() {
 
       const prevFen = game.fen();
       setGame(copy);
+      setLastMoveUci(uci);
       setSubmitting(true);
 
       puzzleApi
@@ -256,6 +262,7 @@ export function PuzzleRushPage() {
                   promotion: opMove.length > 4 ? opMove[4] : undefined,
                 });
                 setGame(next);
+                setLastMoveUci(opMove);
               }, 200);
             }
           } else {
@@ -282,6 +289,25 @@ export function PuzzleRushPage() {
     [game, screen, feedback, submitting, endGame, loadNextPuzzle, isPromotionMove],
   );
 
+  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
+    game: game ?? null,
+    playerColor: boardOrientation,
+    enabled: screen === 'playing' && !feedback && !submitting,
+  });
+
+  useEffect(() => {
+    if (lastMoveUci) {
+      setLastMove(lastMoveUci.slice(0, 2) as Square, lastMoveUci.slice(2, 4) as Square);
+    }
+  }, [lastMoveUci, setLastMove]);
+
+  const handleSquareClick = useCallback(
+    ({ square }: { piece: unknown; square: string }) => {
+      onSquareClick(square as Square);
+    },
+    [onSquareClick],
+  );
+
   useFastDrag(boardContainerRef, {
     onPieceDrop: onPieceDrop,
     boardOrientation: boardOrientation,
@@ -302,11 +328,13 @@ export function PuzzleRushPage() {
       animationDurationInMs: 150,
       allowDragging: false,
       showNotation: true,
+      squareStyles,
+      onSquareClick: handleSquareClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
       ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick],
   );
 
   const formatTime = (seconds: number): string => {
