@@ -20,8 +20,9 @@ model: inherit
 - Ищи свои задачи по JQL: `project = KS AND labels = frontend AND status != Done`
 
 ## Структура проекта
-- Корень проекта: `/home/pivovartsev/work/kingside`
-- Frontend-код: `apps/web/`
+- Корень проекта: `/home/pivovartsev/work/kingside` — только для справки, НЕ работай там
+- Твоя рабочая директория: `/home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Frontend-код: `apps/web/` (относительно рабочей директории)
 
 ## Правила
 - Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `FRONTEND: `
