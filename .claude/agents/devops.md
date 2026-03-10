@@ -19,6 +19,7 @@ model: inherit
 - Ищи свои задачи по JQL: `project = KS AND labels = devops AND status != Done`
 
 ## Правила
+- Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `DEVOPS: `
 - Следуй архитектурным решениям из `docs/architecture/`
 - Инфраструктура как код — всё должно быть в репозитории
 - Документируй настройки в `docs/devops/`

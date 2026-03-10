@@ -20,6 +20,7 @@ model: inherit
 - Ищи свои задачи по JQL: `project = KS AND labels = backend AND status != Done`
 
 ## Правила
+- Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `BACKEND: `
 - Следуй архитектурным решениям из `docs/architecture/`
 - Пиши тесты для критической логики
 - Код должен быть чистым и поддерживаемым
