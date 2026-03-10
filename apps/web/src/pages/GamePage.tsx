@@ -6,6 +6,7 @@ import type { Square } from 'chess.js';
 import { INITIAL_FEN } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
 import { socket } from '../socket';
+import { useSounds, getSoundTypeFromSan } from '../hooks/useSounds';
 
 type GameState = {
   fen: string;
@@ -31,6 +32,9 @@ function formatTime(seconds: number): string {
 export function GamePage() {
   const { id: gameId } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const soundEnabled = localStorage.getItem('soundEnabled') !== 'false';
+  const { play } = useSounds(soundEnabled);
+  const gameStartedRef = useRef(false);
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState(INITIAL_FEN);
   const [moves, setMoves] = useState<string[]>([]);
@@ -63,6 +67,10 @@ export function GamePage() {
     const onGameState = (state: GameState & { color?: 'white' | 'black' }) => {
       if (state.color) setPlayerColor(state.color);
       updateFromState(state);
+      if (state.status === 'active' && !gameStartedRef.current) {
+        gameStartedRef.current = true;
+        play('game-start');
+      }
     };
 
     const onGameMove = (data: { uci: string; san: string; fen: string; clocks: { white: number; black: number } }) => {
@@ -70,11 +78,13 @@ export function GamePage() {
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
       setClocks(data.clocks);
+      play(getSoundTypeFromSan(data.san));
     };
 
     const onGameEnd = (data: { result: string }) => {
       setStatus('finished');
       setResult(data.result);
+      play('game-end');
     };
 
     const onDrawOffered = () => setDrawOffered(true);
@@ -100,7 +110,7 @@ export function GamePage() {
       socket.off('chat:message', onChatMessage);
       socket.off('error', onError);
     };
-  }, [gameId, game, updateFromState]);
+  }, [gameId, game, updateFromState, play]);
 
   useEffect(() => {
     if (status !== 'active') return;
@@ -130,6 +140,7 @@ export function GamePage() {
 
       setFen(game.fen());
       setMoves((prev) => [...prev, move.san]);
+      play(getSoundTypeFromSan(move.san));
 
       socket.emit('game:move', {
         gameId,
