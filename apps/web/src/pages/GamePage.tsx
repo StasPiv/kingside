@@ -53,6 +53,9 @@ export function GamePage() {
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
+  const [pendingPremove, setPendingPremove] = useState<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
+  const pendingPremoveRef = useRef<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
+  pendingPremoveRef.current = pendingPremove;
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [showResultModal, setShowResultModal] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -111,9 +114,15 @@ export function GamePage() {
       setFen(data.fen);
       setMoves((prev) => [...prev, data.san]);
       setClocks(msToSeconds(data.clocks));
+      const premove = pendingPremoveRef.current;
+      if (premove) {
+        setPendingPremove(null);
+        executeMoveRef.current(premove.from, premove.to, premove.promotion);
+      }
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
+      setPendingPremove(null);
       setStatus('finished');
       setResult(data.result);
       if (data.ratingChange) {
@@ -167,6 +176,8 @@ export function GamePage() {
     return (piece.color === 'w' && targetRank === '8') || (piece.color === 'b' && targetRank === '1');
   }, [game]);
 
+  const executeMoveRef = useRef<(from: Square, to: Square, promotion?: 'q' | 'r' | 'b' | 'n') => boolean>(() => false);
+
   const executeMove = useCallback((sourceSquare: Square, targetSquare: Square, promotion?: 'q' | 'r' | 'b' | 'n'): boolean => {
     try {
       const move = game.move({
@@ -191,11 +202,18 @@ export function GamePage() {
     }
   }, [game, gameId]);
 
+  executeMoveRef.current = executeMove;
+
   const onDrop = useCallback((sourceSquare: Square, targetSquare: Square): boolean => {
     if (status !== 'active') return false;
 
     const turnColor = game.turn() === 'w' ? 'white' : 'black';
-    if (turnColor !== playerColor) return false;
+
+    if (turnColor !== playerColor) {
+      const promotion = isPromotionMove(sourceSquare, targetSquare) ? ('q' as const) : undefined;
+      setPendingPremove({ from: sourceSquare, to: targetSquare, ...(promotion !== undefined && { promotion }) });
+      return true;
+    }
 
     if (isPromotionMove(sourceSquare, targetSquare)) {
       const testGame = new Chess(game.fen());
@@ -207,7 +225,7 @@ export function GamePage() {
     }
 
     return executeMove(sourceSquare, targetSquare);
-  }, [game, gameId, playerColor, status, isPromotionMove, executeMove]);
+  }, [game, playerColor, status, isPromotionMove, executeMove]);
 
   const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
     if (!pendingPromotion) return;
@@ -270,6 +288,14 @@ export function GamePage() {
 
   const stablePosition = useStablePosition(fen);
 
+  const premoveSquareStyles = useMemo(() => {
+    if (!pendingPremove) return undefined;
+    return {
+      [pendingPremove.from]: { backgroundColor: 'rgba(0,120,255,0.4)' },
+      [pendingPremove.to]: { backgroundColor: 'rgba(0,120,255,0.4)' },
+    };
+  }, [pendingPremove]);
+
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
@@ -277,8 +303,9 @@ export function GamePage() {
       animationDurationInMs: 0,
       allowDragging: false,
       ...(boardStyle && { boardStyle }),
+      ...(premoveSquareStyles && { squareStyles: premoveSquareStyles }),
     }),
-    [stablePosition, playerColor, boardStyle],
+    [stablePosition, playerColor, boardStyle, premoveSquareStyles],
   );
 
   return (
@@ -295,7 +322,7 @@ export function GamePage() {
           </span>
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
-        <div className="board-container" ref={boardContainerRef}>
+        <div className="board-container" ref={boardContainerRef} onContextMenu={(e) => { e.preventDefault(); setPendingPremove(null); }}>
           <MemoChessboard options={boardOptions} />
           {pendingPromotion && (
             <div className="promotion-overlay" onClick={handlePromotionCancel}>
