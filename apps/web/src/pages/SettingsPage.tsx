@@ -3,10 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { Locale } from '@kingside/shared';
+import { useSounds } from '../hooks/useSounds';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const { muted, toggleMute } = useSounds();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -104,6 +106,19 @@ export function SettingsPage() {
             <option value={100}>{t('settings.pieceAnimationFast')}</option>
             <option value={200}>{t('settings.pieceAnimationNormal')}</option>
           </select>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>{t('settings.sound')}</h2>
+        <div className="settings-field">
+          <label htmlFor="sound-toggle">{t('settings.soundEffects')}</label>
+          <input
+            id="sound-toggle"
+            type="checkbox"
+            checked={!muted}
+            onChange={toggleMute}
+          />
         </div>
       </section>
 

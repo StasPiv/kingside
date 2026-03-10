@@ -71,9 +71,17 @@ function playGameEnd(ctx: AudioContext): void {
   });
 }
 
+const SOUND_MUTED_KEY = 'soundMuted';
+
 export function useSounds() {
   const ctxRef = useRef<AudioContext | null>(null);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(() => {
+    try {
+      return localStorage.getItem(SOUND_MUTED_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const ensureContext = useCallback((): AudioContext | null => {
     if (!ctxRef.current) {
@@ -115,7 +123,15 @@ export function useSounds() {
   );
 
   const toggleMute = useCallback(() => {
-    setMuted((prev) => !prev);
+    setMuted((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SOUND_MUTED_KEY, String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   }, []);
 
   return { playSound, muted, toggleMute };

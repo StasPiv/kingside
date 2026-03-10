@@ -36,7 +36,9 @@
     "pieceAnimation": "Piece Animation",
     "pieceAnimationNone": "No animation",
     "pieceAnimationFast": "Fast (100ms)",
-    "pieceAnimationNormal": "Normal (200ms)"
+    "pieceAnimationNormal": "Normal (200ms)",
+    "sound": "Sound",
+    "soundEffects": "Sound effects"
   },
   "lobby": {
     "title": "Lobby",

@@ -36,7 +36,9 @@
     "pieceAnimation": "Анимация фигур",
     "pieceAnimationNone": "Без анимации",
     "pieceAnimationFast": "Быстрая (100мс)",
-    "pieceAnimationNormal": "Нормальная (200мс)"
+    "pieceAnimationNormal": "Нормальная (200мс)",
+    "sound": "Звук",
+    "soundEffects": "Звуковые эффекты"
   },
   "lobby": {
     "title": "Лобби",
