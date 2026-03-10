@@ -1,7 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import type { User } from '@kingside/shared';
+import type { User, AuthTokenResponse } from '@kingside/shared';
 import { api } from '../api';
-import { socket } from '../socket';
+import { socket, matchmakingSocket } from '../socket';
+import i18n from '../i18n/index';
 
 type AuthState = {
   user: User | null;
@@ -13,6 +14,7 @@ type AuthContextType = AuthState & {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -27,9 +29,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchMe = useCallback(async () => {
     try {
       const user = await api.get<User>('/api/auth/me');
-      setState((s) => ({ ...s, user, loading: false }));
+      const currentToken = localStorage.getItem('token');
+      if (user.locale) {
+        i18n.changeLanguage(user.locale);
+        localStorage.setItem('locale', user.locale);
+      }
+      setState((s) => ({ ...s, user, token: currentToken, loading: false }));
     } catch {
       localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
       setState({ user: null, token: null, loading: false });
     }
   }, []);
@@ -46,30 +54,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (state.token) {
       socket.auth = { token: state.token };
       socket.connect();
+      matchmakingSocket.auth = { token: state.token };
+      matchmakingSocket.connect();
     } else {
       socket.disconnect();
+      matchmakingSocket.disconnect();
     }
   }, [state.token]);
 
   const login = async (username: string, password: string) => {
-    const { accessToken } = await api.post<{ accessToken: string }>('/api/auth/login', { username, password });
+    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/api/auth/login', { username, password });
     localStorage.setItem('token', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken }));
   };
 
   const register = async (username: string, email: string, password: string) => {
-    const { accessToken } = await api.post<{ accessToken: string }>('/api/auth/register', { username, email, password });
+    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/api/auth/register', { username, email, password });
     localStorage.setItem('token', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken }));
   };
 
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     setState({ user: null, token: null, loading: false });
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout }}>
+    <AuthContext.Provider value={{ ...state, login, register, logout, refreshUser: fetchMe }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,21 +1,33 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
+import { SettingsPage } from './pages/SettingsPage';
+import { DailyPuzzlePage } from './pages/DailyPuzzlePage';
+import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
+import { PuzzleRushPage } from './pages/PuzzleRushPage';
+import { PuzzlePage } from './pages/PuzzlePage';
+import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
+import { ProfilePage } from './pages/ProfilePage';
+import { GameReviewPage } from './pages/GameReviewPage';
 import { useAuth } from './context/AuthContext';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="loading">Загрузка...</div>;
-  if (!user) return <Navigate to="/login" replace />;
+  const { t } = useTranslation();
+  const location = useLocation();
+  if (loading) return <div className="loading">{t('common.loading')}</div>;
+  if (!user) return <Navigate to="/login" state={{ returnUrl: location.pathname }} replace />;
   return <>{children}</>;
 }
 
 function GuestRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  if (loading) return <div className="loading">Загрузка...</div>;
+  const { t } = useTranslation();
+  if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (user) return <Navigate to="/lobby" replace />;
   return <>{children}</>;
 }
@@ -28,6 +40,17 @@ export function App() {
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/lobby" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
+        <Route path="/game/:id/review" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+        <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
+        <Route path="/puzzle-rush" element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
+        <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />
+        <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
+        <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
+        <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
+        <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
+        <Route path="/analysis/:id" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Route>
     </Routes>

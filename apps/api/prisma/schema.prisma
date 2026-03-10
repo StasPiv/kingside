@@ -17,12 +17,25 @@ model User {
   ratingBlitz     Int      @default(1500) @map("rating_blitz")
   ratingRapid     Int      @default(1500) @map("rating_rapid")
   ratingClassical Int      @default(1500) @map("rating_classical")
+  ratingPuzzle    Int      @default(1500) @map("rating_puzzle")
+  gamesPlayedBullet    Int @default(0) @map("games_played_bullet")
+  gamesPlayedBlitz     Int @default(0) @map("games_played_blitz")
+  gamesPlayedRapid     Int @default(0) @map("games_played_rapid")
+  gamesPlayedClassical Int @default(0) @map("games_played_classical")
   createdAt       DateTime @default(now()) @map("created_at")
   lastSeenAt      DateTime @default(now()) @map("last_seen_at")
+  locale          String   @default("en") @map("locale")
+  boardTheme      String   @default("default") @map("board_theme")
+  pieceSet        String   @default("standard") @map("piece_set")
+  soundEnabled    Boolean  @default(true) @map("sound_enabled")
+  isBot           Boolean  @default(false) @map("is_bot")
 
-  whiteGames   Game[]        @relation("WhitePlayer")
-  blackGames   Game[]        @relation("BlackPlayer")
-  chatMessages ChatMessage[]
+  whiteGames       Game[]             @relation("WhitePlayer")
+  blackGames       Game[]             @relation("BlackPlayer")
+  chatMessages     ChatMessage[]
+  timeControls     UserTimeControl[]
+  puzzleAttempts   PuzzleAttempt[]
+  puzzleRushScores PuzzleRushScore[]
 
   @@map("users")
 }
@@ -50,6 +63,7 @@ enum Termination {
   repetition
   fifty_moves
   abort
+  abandon
 }
 
 enum TimeControlType {
@@ -70,11 +84,14 @@ model Game {
   timeInitialSec    Int              @map("time_initial_sec")
   timeIncrementSec  Int              @map("time_increment_sec")
   pgn               String?
+  eco               String?
   finalFen          String?          @map("final_fen")
   whiteRatingBefore Int?             @map("white_rating_before")
   blackRatingBefore Int?             @map("black_rating_before")
   whiteRatingAfter  Int?             @map("white_rating_after")
   blackRatingAfter  Int?             @map("black_rating_after")
+  isBot             Boolean          @default(false) @map("is_bot")
+  botLevel          Int?             @map("bot_level")
   createdAt         DateTime         @default(now()) @map("created_at")
   startedAt         DateTime?        @map("started_at")
   finishedAt        DateTime?        @map("finished_at")
@@ -88,6 +105,7 @@ model Game {
   @@index([blackId])
   @@index([status])
   @@index([createdAt])
+  @@index([isBot, status])
   @@map("games")
 }
 
@@ -125,4 +143,84 @@ model ChatMessage {
 
   @@index([gameId])
   @@map("chat_messages")
+}
+
+model UserTimeControl {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  name         String?
+  initialSec   Int      @map("initial_sec")
+  incrementSec Int      @map("increment_sec")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("user_time_controls")
+}
+
+model Puzzle {
+  id          String @id
+  fen         String
+  moves       String
+  rating      Int
+  ratingDev   Int    @map("rating_dev")
+  popularity  Int
+  nbPlays     Int    @map("nb_plays")
+  themes      String
+  gameUrl     String @map("game_url")
+  openingTags String @default("") @map("opening_tags")
+
+  attempts     PuzzleAttempt[]
+  dailyPuzzles DailyPuzzle[]
+
+  @@index([rating])
+  @@index([themes])
+  @@map("puzzles")
+}
+
+model PuzzleAttempt {
+  id           String   @id @default(uuid()) @db.Uuid
+  puzzleId     String   @map("puzzle_id")
+  userId       String   @map("user_id") @db.Uuid
+  solved       Boolean
+  timeMs       Int      @map("time_ms")
+  ratingBefore Int      @map("rating_before")
+  ratingAfter  Int      @map("rating_after")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([puzzleId])
+  @@index([userId, createdAt])
+  @@map("puzzle_attempts")
+}
+
+model PuzzleRushScore {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  score     Int
+  timeMode  String   @map("time_mode")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([score])
+  @@index([timeMode, score])
+  @@index([userId, timeMode])
+  @@map("puzzle_rush_scores")
+}
+
+model DailyPuzzle {
+  id       String   @id @default(uuid()) @db.Uuid
+  puzzleId String   @map("puzzle_id")
+  date     DateTime @unique @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  puzzle Puzzle @relation(fields: [puzzleId], references: [id])
+
+  @@map("daily_puzzles")
 }

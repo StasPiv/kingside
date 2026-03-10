@@ -1,6 +1,7 @@
 import { IsString } from 'class-validator';
+import type { LoginRequest } from '@kingside/shared';
 
-export class LoginDto {
+export class LoginDto implements LoginRequest {
   @IsString()
   username!: string;
 

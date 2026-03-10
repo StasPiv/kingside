@@ -2,13 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { TimeControlType } from '../generated/prisma/enums';
+import {
+  classifyTimeControl,
+  type TimeControlCategory,
+  type RatingFilter,
+} from '@kingside/shared';
+
+interface RatingRange {
+  min: number;
+  max: number;
+}
 
 interface QueueEntry {
   userId: string;
   rating: number;
   timeInitialSec: number;
   timeIncrementSec: number;
+  /** Resolved absolute rating range filter (if set by the player) */
+  ratingRange?: RatingRange;
 }
 
 @Injectable()
@@ -23,17 +34,22 @@ export class MatchmakingService {
 
   async joinQueue(
     userId: string,
-    timeControlType: TimeControlType,
     timeInitialSec: number,
     timeIncrementSec: number,
+    isOnline?: (userId: string) => Promise<boolean>,
+    ratingFilter?: RatingFilter,
   ): Promise<{ gameId: string; color: string; opponent: any } | null> {
+    const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
+
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
 
-    const ratingField = `rating${timeControlType.charAt(0).toUpperCase() + timeControlType.slice(1)}` as
-      'ratingBullet' | 'ratingBlitz' | 'ratingRapid' | 'ratingClassical';
+    const ratingField = this.ratingFieldForCategory(timeControlType);
     const rating = user[ratingField];
+
+    // Resolve rating filter to absolute range
+    const ratingRange = this.resolveRatingRange(rating, ratingFilter);
 
     const queueKey = `matchmaking:${timeControlType}`;
 
@@ -52,6 +68,17 @@ export class MatchmakingService {
         candidate.timeInitialSec !== timeInitialSec ||
         candidate.timeIncrementSec !== timeIncrementSec
       ) {
+        continue;
+      }
+
+      // Check mutual rating filter: both players must accept each other
+      if (!this.isMatchAllowedByFilters(rating, ratingRange, candidate)) {
+        continue;
+      }
+
+      // Check if candidate is still online
+      if (isOnline && !(await isOnline(candidate.userId))) {
+        await this.redis.zrem(queueKey, candidateData);
         continue;
       }
 
@@ -87,20 +114,21 @@ export class MatchmakingService {
       };
     }
 
-    // No match found — add to queue
+    // No match found - add to queue
     const entry: QueueEntry = {
       userId,
       rating,
       timeInitialSec,
       timeIncrementSec,
+      ratingRange,
     };
 
     await this.redis.zadd(queueKey, rating, JSON.stringify(entry));
     return null;
   }
 
-  async leaveQueue(userId: string, timeControlType: TimeControlType) {
-    const queueKey = `matchmaking:${timeControlType}`;
+  async leaveQueue(userId: string, category: TimeControlCategory) {
+    const queueKey = `matchmaking:${category}`;
     const members = await this.redis.zrange(queueKey, 0, -1);
 
     for (const member of members) {
@@ -112,5 +140,74 @@ export class MatchmakingService {
     }
 
     return false;
+  }
+
+  /**
+   * Resolve a RatingFilter into an absolute { min, max } range.
+   * If no filter is provided, returns undefined (no restriction).
+   */
+  private resolveRatingRange(
+    playerRating: number,
+    filter?: RatingFilter,
+  ): RatingRange | undefined {
+    if (!filter) return undefined;
+
+    const { minRating, maxRating, ratingDelta } = filter;
+
+    // ratingDelta takes precedence when set
+    if (ratingDelta !== undefined) {
+      return {
+        min: playerRating - ratingDelta,
+        max: playerRating + ratingDelta,
+      };
+    }
+
+    if (minRating !== undefined || maxRating !== undefined) {
+      return {
+        min: minRating ?? 0,
+        max: maxRating ?? Infinity,
+      };
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Check whether a match is allowed considering both players' rating filters.
+   * The joining player's rating must be accepted by the candidate's filter,
+   * and the candidate's rating must be accepted by the joining player's filter.
+   */
+  private isMatchAllowedByFilters(
+    joinerRating: number,
+    joinerRange: RatingRange | undefined,
+    candidate: QueueEntry,
+  ): boolean {
+    // Joiner's filter rejects candidate?
+    if (joinerRange) {
+      if (candidate.rating < joinerRange.min || candidate.rating > joinerRange.max) {
+        return false;
+      }
+    }
+
+    // Candidate's filter rejects joiner?
+    if (candidate.ratingRange) {
+      if (joinerRating < candidate.ratingRange.min || joinerRating > candidate.ratingRange.max) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private ratingFieldForCategory(
+    category: TimeControlCategory,
+  ): 'ratingBullet' | 'ratingBlitz' | 'ratingRapid' | 'ratingClassical' {
+    const map = {
+      bullet: 'ratingBullet' as const,
+      blitz: 'ratingBlitz' as const,
+      rapid: 'ratingRapid' as const,
+      classical: 'ratingClassical' as const,
+    };
+    return map[category];
   }
 }

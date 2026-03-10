@@ -1,6 +1,7 @@
 import { IsString, IsEmail, MinLength, MaxLength, Matches } from 'class-validator';
+import type { RegisterRequest } from '@kingside/shared';
 
-export class RegisterDto {
+export class RegisterDto implements RegisterRequest {
   @IsString()
   @MinLength(3)
   @MaxLength(20)

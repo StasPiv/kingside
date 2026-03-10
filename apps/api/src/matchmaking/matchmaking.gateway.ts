@@ -4,26 +4,56 @@ import {
   SubscribeMessage,
   ConnectedSocket,
   MessageBody,
+  OnGatewayConnection,
   OnGatewayDisconnect,
 } from '@nestjs/websockets';
 import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { JwtService } from '@nestjs/jwt';
+import { I18nService } from 'nestjs-i18n';
 import { MatchmakingService } from './matchmaking.service';
 import { JoinQueueDto } from './dto/join-queue.dto';
-import { TimeControlType } from '../generated/prisma/enums';
+import { JwtPayload } from '../auth/jwt.strategy';
+import {
+  classifyTimeControl,
+  MatchmakingEvents,
+  type TimeControlCategory,
+  type WsMatchmakingJoinPayload,
+  type WsMatchmakingFoundPayload,
+  type WsErrorPayload,
+} from '@kingside/shared';
 
-@WebSocketGateway({ namespace: '/game' })
-export class MatchmakingGateway implements OnGatewayDisconnect {
+@WebSocketGateway({ namespace: '/matchmaking', cors: { origin: '*' } })
+export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(MatchmakingGateway.name);
-  private playerQueues = new Map<string, TimeControlType>();
+  private playerQueues = new Map<string, TimeControlCategory>();
 
-  constructor(private readonly matchmakingService: MatchmakingService) {}
+  constructor(
+    private readonly matchmakingService: MatchmakingService,
+    private readonly jwtService: JwtService,
+    private readonly i18n: I18nService,
+  ) {}
+
+  async handleConnection(client: Socket) {
+    try {
+      const token = client.handshake.auth?.token || client.handshake.query?.token;
+      if (!token) {
+        client.disconnect();
+        return;
+      }
+      const payload = this.jwtService.verify<JwtPayload>(String(token));
+      client.data.user = { id: payload.sub, username: payload.username };
+      this.logger.log(`Matchmaking client connected: ${payload.username} (${client.id})`);
+    } catch {
+      client.disconnect();
+    }
+  }
 
   @UsePipes(new ValidationPipe({ transform: true }))
-  @SubscribeMessage('matchmaking:join')
+  @SubscribeMessage(MatchmakingEvents.JOIN)
   async handleJoin(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: JoinQueueDto,
@@ -32,18 +62,26 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
     if (!user) return;
 
     if (this.playerQueues.has(user.id)) {
-      client.emit('error', { code: 'ALREADY_IN_QUEUE', message: 'Already in matchmaking queue' });
+      const errorPayload: WsErrorPayload = { code: 'ALREADY_IN_QUEUE', message: this.i18n.t('messages.matchmaking.alreadyInQueue') };
+      client.emit(MatchmakingEvents.ERROR, errorPayload);
       return;
     }
 
-    this.playerQueues.set(user.id, data.timeControl);
-    this.logger.log(`${user.username} joined ${data.timeControl} queue`);
+    const timeControlType = classifyTimeControl(data.timeInitial, data.increment);
+    this.playerQueues.set(user.id, timeControlType);
+    this.logger.log(`${user.username} joined ${timeControlType} queue (${data.timeInitial}+${data.increment})`);
+
+    const isOnline = async (userId: string): Promise<boolean> => {
+      const sockets = await this.server.fetchSockets();
+      return sockets.some((s) => s.data.user?.id === userId);
+    };
 
     const result = await this.matchmakingService.joinQueue(
       user.id,
-      data.timeControl,
       data.timeInitial,
       data.increment,
+      isOnline,
+      data.ratingFilter,
     );
 
     if (result) {
@@ -51,12 +89,12 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
 
       const matchData = {
         gameId: result.gameId,
-        timeControl: data.timeControl,
+        timeControl: timeControlType,
         timeInitial: data.timeInitial,
         increment: data.increment,
       };
 
-      client.emit('matchmaking:found', {
+      client.emit(MatchmakingEvents.FOUND, {
         ...matchData,
         color: result.color,
         opponent: result.opponent,
@@ -69,7 +107,7 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
 
       if (opponentSocket) {
         this.playerQueues.delete(result.opponent.id);
-        opponentSocket.emit('matchmaking:found', {
+        opponentSocket.emit(MatchmakingEvents.FOUND, {
           ...matchData,
           color: result.color === 'white' ? 'black' : 'white',
           opponent: { id: user.id, username: user.username },
@@ -80,7 +118,7 @@ export class MatchmakingGateway implements OnGatewayDisconnect {
     }
   }
 
-  @SubscribeMessage('matchmaking:leave')
+  @SubscribeMessage(MatchmakingEvents.LEAVE)
   async handleLeave(@ConnectedSocket() client: Socket) {
     const user = client.data.user;
     if (!user) return;

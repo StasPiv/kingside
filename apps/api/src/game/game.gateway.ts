@@ -11,9 +11,28 @@ import {
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { GameService } from './game.service';
+import { BotGameService } from './bot-game.service';
+import { ChatService } from '../chat/chat.service';
 import { JwtPayload } from '../auth/jwt.strategy';
+import {
+  GameEvents,
+  type WsGameJoinPayload,
+  type WsGameMovePayload,
+  type WsGameResignPayload,
+  type WsGameDrawOfferPayload,
+  type WsGameDrawAcceptPayload,
+  type WsGameDrawDeclinePayload,
+  type WsChatSendPayload,
+  type WsGameStatePayload,
+  type WsGameMoveServerPayload,
+  type WsGameEndPayload,
+  type WsGameDrawOfferedPayload,
+  type WsErrorPayload,
+  type GameStatus,
+  type GameResult,
+} from '@kingside/shared';
 
-@WebSocketGateway({ namespace: '/game' })
+@WebSocketGateway({ namespace: '/game', cors: { origin: '*' } })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
@@ -22,7 +41,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   constructor(
     private readonly gameService: GameService,
+    private readonly botGameService: BotGameService,
     private readonly jwtService: JwtService,
+    private readonly chatService: ChatService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -40,34 +61,59 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  handleDisconnect(client: Socket) {
+  async handleDisconnect(client: Socket) {
+    const userId = client.data.user?.id;
     this.logger.log(`Client disconnected: ${client.id}`);
+
+    if (userId) {
+      try {
+        const endedGameIds = await this.gameService.endBotGameOnDisconnect(userId);
+        for (const gameId of endedGameIds) {
+          this.server.to(`game:${gameId}`).emit('game:end', {
+            result: 'black',
+            termination: 'abandon',
+          });
+        }
+      } catch (e: any) {
+        this.logger.error(`Failed to end bot games on disconnect: ${e.message}`);
+      }
+    }
   }
 
-  @SubscribeMessage('game:join')
+  @SubscribeMessage(GameEvents.JOIN)
   async handleJoinGame(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gameId: string },
+    @MessageBody() data: WsGameJoinPayload,
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
 
     await client.join(`game:${data.gameId}`);
 
-    const { state, clocks } = await this.gameService.getGameState(data.gameId);
-    client.emit('game:state', {
+    const { state, clocks, whiteId, blackId, players, isBot, botLevel } = await this.gameService.getGameState(data.gameId);
+    const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
+    const statePayload: WsGameStatePayload = {
       gameId: data.gameId,
       fen: state.fen,
-      moves: state.moves,
+      moves: state.moves.map((m) => m.san),
       clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
-      status: state.status,
-    });
+      status: state.status as GameStatus,
+      color,
+      players,
+      isBot,
+      botLevel,
+    };
+    client.emit(GameEvents.STATE, statePayload);
+
+    if (isBot && state.moves.length === 0 && state.status === 'active') {
+      this.triggerBotReply(data.gameId);
+    }
   }
 
-  @SubscribeMessage('game:move')
+  @SubscribeMessage(GameEvents.MOVE)
   async handleMove(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gameId: string; uci: string },
+    @MessageBody() data: WsGameMovePayload,
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
@@ -75,93 +121,109 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const result = await this.gameService.makeMove(data.gameId, userId, data.uci);
 
-      this.server.to(`game:${data.gameId}`).emit('game:move', {
+      const movePayload: WsGameMoveServerPayload = {
         uci: data.uci,
         san: result.san,
         fen: result.fen,
         clocks: { whiteMs: result.clocks.whiteMs, blackMs: result.clocks.blackMs },
-      });
+        moveFlags: result.moveFlags,
+      };
+      client.to(`game:${data.gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
 
       if (result.gameOver) {
-        this.server.to(`game:${data.gameId}`).emit('game:end', {
-          result: result.result,
-          termination: result.termination,
-        });
+        const endPayload: WsGameEndPayload = {
+          result: result.result as GameResult,
+          termination: result.termination!,
+          ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
+        };
+        this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
+      } else {
+        this.triggerBotReply(data.gameId);
       }
     } catch (e: any) {
-      client.emit('error', { code: 'INVALID_MOVE', message: e.message });
+      const errorPayload: WsErrorPayload = { code: 'INVALID_MOVE', message: e.message };
+      client.emit(GameEvents.ERROR, errorPayload);
 
       if (e.message === 'Invalid move') {
         const { state, clocks } = await this.gameService.getGameState(data.gameId);
-        client.emit('game:state', {
+        const statePayload: WsGameStatePayload = {
           gameId: data.gameId,
           fen: state.fen,
-          moves: state.moves,
+          moves: state.moves.map((m) => m.san),
           clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
-          status: state.status,
-        });
+          status: state.status as GameStatus,
+        };
+        client.emit(GameEvents.STATE, statePayload);
       }
     }
   }
 
-  @SubscribeMessage('game:resign')
+  @SubscribeMessage(GameEvents.RESIGN)
   async handleResign(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gameId: string },
+    @MessageBody() data: WsGameResignPayload,
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
 
     try {
       const result = await this.gameService.resign(data.gameId, userId);
-      this.server.to(`game:${data.gameId}`).emit('game:end', {
-        result: result.result,
+      const endPayload: WsGameEndPayload = {
+        result: result.result as GameResult,
         termination: result.termination,
-      });
+        ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
+      };
+      this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
     } catch (e: any) {
-      client.emit('error', { code: 'RESIGN_ERROR', message: e.message });
+      const errorPayload: WsErrorPayload = { code: 'RESIGN_ERROR', message: e.message };
+      client.emit(GameEvents.ERROR, errorPayload);
     }
   }
 
-  @SubscribeMessage('game:draw:offer')
+  @SubscribeMessage(GameEvents.DRAW_OFFER)
   async handleDrawOffer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gameId: string },
+    @MessageBody() data: WsGameDrawOfferPayload,
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
 
     try {
       await this.gameService.handleDrawOffer(data.gameId, userId);
-      client.to(`game:${data.gameId}`).emit('game:draw:offered', { gameId: data.gameId });
+      const offeredPayload: WsGameDrawOfferedPayload = { gameId: data.gameId };
+      client.to(`game:${data.gameId}`).emit(GameEvents.DRAW_OFFERED, offeredPayload);
     } catch (e: any) {
-      client.emit('error', { code: 'DRAW_OFFER_ERROR', message: e.message });
+      const errorPayload: WsErrorPayload = { code: 'DRAW_OFFER_ERROR', message: e.message };
+      client.emit(GameEvents.ERROR, errorPayload);
     }
   }
 
-  @SubscribeMessage('game:draw:accept')
+  @SubscribeMessage(GameEvents.DRAW_ACCEPT)
   async handleDrawAccept(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gameId: string },
+    @MessageBody() data: WsGameDrawAcceptPayload,
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
 
     try {
       const result = await this.gameService.handleDrawAccept(data.gameId, userId);
-      this.server.to(`game:${data.gameId}`).emit('game:end', {
-        result: result.result,
+      const endPayload: WsGameEndPayload = {
+        result: result.result as GameResult,
         termination: result.termination,
-      });
+        ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
+      };
+      this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
     } catch (e: any) {
-      client.emit('error', { code: 'DRAW_ACCEPT_ERROR', message: e.message });
+      const errorPayload: WsErrorPayload = { code: 'DRAW_ACCEPT_ERROR', message: e.message };
+      client.emit(GameEvents.ERROR, errorPayload);
     }
   }
 
-  @SubscribeMessage('game:draw:decline')
+  @SubscribeMessage(GameEvents.DRAW_DECLINE)
   async handleDrawDecline(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { gameId: string },
+    @MessageBody() data: WsGameDrawDeclinePayload,
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
@@ -169,7 +231,50 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.gameService.handleDrawDecline(data.gameId, userId);
   }
 
+  @SubscribeMessage(GameEvents.CHAT_SEND)
+  async handleChatSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WsChatSendPayload,
+  ) {
+    const userId = client.data.user?.id;
+    if (!userId) return;
+
+    try {
+      const message = await this.chatService.sendMessage(data.gameId, userId, data.content);
+      this.server.to(`game:${data.gameId}`).emit(GameEvents.CHAT_MESSAGE, message);
+    } catch (e: any) {
+      const errorPayload: WsErrorPayload = { code: 'CHAT_ERROR', message: e.message };
+      client.emit(GameEvents.ERROR, errorPayload);
+    }
+  }
+
   emitGameStart(gameId: string, payload: any) {
-    this.server.to(`game:${gameId}`).emit('game:state', payload);
+    this.server.to(`game:${gameId}`).emit(GameEvents.STATE, payload);
+  }
+
+  private async triggerBotReply(gameId: string): Promise<void> {
+    try {
+      const botResult = await this.botGameService.maybeBotReply(gameId);
+      if (!botResult) return;
+
+      const movePayload: WsGameMoveServerPayload = {
+        uci: botResult.uci,
+        san: botResult.san,
+        fen: botResult.fen,
+        clocks: { whiteMs: botResult.clocks.whiteMs, blackMs: botResult.clocks.blackMs },
+        moveFlags: botResult.moveFlags,
+      };
+      this.server.to(`game:${gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
+
+      if (botResult.gameOver) {
+        const endPayload: WsGameEndPayload = {
+          result: botResult.result as GameResult,
+          termination: botResult.termination!,
+        };
+        this.server.to(`game:${gameId}`).emit(GameEvents.END, endPayload);
+      }
+    } catch (e: any) {
+      this.logger.error(`Bot reply failed for game ${gameId}: ${e.message}`);
+    }
   }
 }
