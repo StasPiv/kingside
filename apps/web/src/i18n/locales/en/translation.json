@@ -144,12 +144,26 @@
     "playAgain": "Play Again",
     "errorLoading": "Failed to load puzzle",
     "errorStarting": "Failed to start session",
+    "reviewMistakes": "Review Mistakes",
     "errors": {
       "SESSION_EXISTS": "You already have an active Puzzle Rush session",
       "INVALID_TIME_MODE": "Invalid time mode",
       "NO_PUZZLES": "No puzzles available",
       "SESSION_NOT_FOUND": "Session not found",
       "INTERNAL_ERROR": "Internal server error. Please try again later"
+    },
+    "review": {
+      "title": "Session Review",
+      "score": "Score: {{score}}",
+      "puzzleList": "Puzzles",
+      "selectPuzzle": "Select a puzzle to view the best move",
+      "solved": "Solved",
+      "failed": "Not solved",
+      "rating": "{{rating}}",
+      "bestMoveHint": "Best move is highlighted",
+      "backToRush": "Back to Puzzle Rush",
+      "errorLoading": "Failed to load session review",
+      "errorBestMove": "Failed to load best move"
     }
   },
   "game": {

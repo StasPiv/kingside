@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -19,10 +19,12 @@ const MAX_LIVES = 3;
 
 export function PuzzleRushPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   // Screen state
   const [screen, setScreen] = useState<RushScreen>('start');
   const [timeLimit, setTimeLimit] = useState<TimeLimitOption>(180);
+  const [sessionId, setSessionId] = useState<string | null>(null);
 
   // Session state
   const [score, setScore] = useState(0);
@@ -95,6 +97,7 @@ export function PuzzleRushPage() {
       setScore(0);
       setLives(MAX_LIVES);
       setTimeLeft(timeLimit);
+      if (data.sessionId) setSessionId(data.sessionId);
 
       const rawMoves = data.puzzle.moves;
       if (!rawMoves) {
@@ -419,6 +422,15 @@ export function PuzzleRushPage() {
           <button className="play-btn" onClick={() => setScreen('start')}>
             {t('puzzle.rush.playAgain')}
           </button>
+
+          {sessionId && (
+            <button
+              className="rush-review-btn"
+              onClick={() => navigate(`/puzzle-rush/review/${sessionId}`)}
+            >
+              {t('puzzleRush.reviewMistakes')}
+            </button>
+          )}
 
           <Link to="/puzzle-rush/leaderboard" className="rush-leaderboard-link" data-testid="rush-leaderboard-link">
             {t('nav.rushLeaderboard')}

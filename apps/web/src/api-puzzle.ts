@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { PuzzleDto, PuzzleAttemptResponse, PuzzleAttemptResult } from '@kingside/shared';
+import type { PuzzleDto, PuzzleAttemptResponse, PuzzleAttemptResult, PuzzleRushReviewResponse, PuzzleRushBestMoveResponse } from '@kingside/shared';
 
 // --- Request / Response types ---
 
@@ -107,4 +107,12 @@ export const puzzleApi = {
     const query = timeMode ? `?timeMode=${timeMode}` : '';
     return api.get(`/api/puzzle-rush/best${query}`);
   },
+
+  /** Get review data for a completed puzzle rush session */
+  getRushReview: (scoreId: string) =>
+    api.get<PuzzleRushReviewResponse>(`/api/puzzle-rush/review/${encodeURIComponent(scoreId)}`),
+
+  /** Get best move for a specific puzzle in a review session */
+  getRushBestMove: (scoreId: string, puzzleId: string) =>
+    api.get<PuzzleRushBestMoveResponse>(`/api/puzzle-rush/review/${encodeURIComponent(scoreId)}/puzzle/${encodeURIComponent(puzzleId)}/best-move`),
 };

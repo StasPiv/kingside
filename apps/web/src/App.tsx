@@ -11,6 +11,7 @@ import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
 import { PuzzleRushPage } from './pages/PuzzleRushPage';
 import { PuzzlePage } from './pages/PuzzlePage';
 import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
+import { PuzzleRushReviewPage } from './pages/PuzzleRushReviewPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { GameReviewPage } from './pages/GameReviewPage';
 import { useAuth } from './context/AuthContext';
@@ -45,6 +46,7 @@ export function App() {
         <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle-rush" element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
         <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />
+        <Route path="/puzzle-rush/review/:scoreId" element={<ProtectedRoute><PuzzleRushReviewPage /></ProtectedRoute>} />
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
