@@ -21,6 +21,12 @@ interface UseBoardHighlightsOptions {
   playerColor?: 'white' | 'black' | null;
   /** Whether interaction is enabled (e.g. game is active) */
   enabled?: boolean;
+  /**
+   * If provided, enables two-click move mode: when a piece is selected and the
+   * user clicks a legal destination square, this callback is invoked.
+   * Intended for touch/mobile devices as an alternative to drag-and-drop.
+   */
+  onMove?: (from: Square, to: Square) => boolean;
 }
 
 interface UseBoardHighlightsResult {
@@ -38,6 +44,7 @@ export function useBoardHighlights({
   game,
   playerColor,
   enabled = true,
+  onMove,
 }: UseBoardHighlightsOptions): UseBoardHighlightsResult {
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const [lastMove, setLastMoveState] = useState<{ from: Square; to: Square } | null>(null);
@@ -55,9 +62,23 @@ export function useBoardHighlights({
     (square: Square) => {
       if (!enabled || !game) return;
 
+      // Two-click move mode: if a piece is selected and user clicks a legal target
+      if (onMove && selectedSquare && selectedSquare !== square) {
+        const legalMoves = game.moves({ square: selectedSquare, verbose: true });
+        const isLegalTarget = legalMoves.some((m) => m.to === square);
+
+        if (isLegalTarget) {
+          const moved = onMove(selectedSquare, square);
+          if (moved) {
+            // setLastMove / clearSelection will be called by the move handler
+            return;
+          }
+        }
+      }
+
       const piece = game.get(square);
 
-      // If clicking on own piece — select it
+      // If clicking on own piece — select it (or switch selection)
       if (piece) {
         const pieceColor = piece.color === 'w' ? 'white' : 'black';
         if (!playerColor || pieceColor === playerColor) {
@@ -69,7 +90,7 @@ export function useBoardHighlights({
       // If clicking elsewhere — deselect
       setSelectedSquare(null);
     },
-    [enabled, game, playerColor],
+    [enabled, game, playerColor, onMove, selectedSquare],
   );
 
   const squareStyles = useMemo(() => {

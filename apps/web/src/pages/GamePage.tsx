@@ -21,6 +21,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
+import { useIsTouchDevice } from '../hooks/useIsTouchDevice';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -67,6 +68,7 @@ export function GamePage() {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const gamePageRef = useRef<HTMLDivElement>(null);
+  const isTouchDevice = useIsTouchDevice();
   const boardWidth = useResponsiveBoardSize();
   const [sidebarWidth, setSidebarWidth] = useState(280);
 
@@ -82,10 +84,18 @@ export function GamePage() {
   });
   const { playSound, muted, toggleMute } = useSounds();
   const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
+  // Stable callback ref used to break the circular dependency between
+  // useBoardHighlights (needs onMove) and onDrop (needs clearSelection).
+  const onMoveForTouchRef = useRef<((from: Square, to: Square) => boolean) | undefined>(undefined);
+  const onMoveForTouch = useCallback(
+    (from: Square, to: Square) => (onMoveForTouchRef.current ? onMoveForTouchRef.current(from, to) : false),
+    [],
+  );
   const { squareStyles: highlightStyles, onSquareClick, setLastMove, clearSelection } = useBoardHighlights({
     game,
     playerColor,
     enabled: status === 'active',
+    onMove: isTouchDevice ? onMoveForTouch : undefined,
   });
 
   useEffect(() => {
@@ -263,6 +273,9 @@ export function GamePage() {
     return executeMove(sourceSquare, targetSquare);
   }, [game, playerColor, status, isPromotionMove, executeMove, clearSelection]);
 
+  // Keep the touch-move ref in sync so onMoveForTouch always calls the latest onDrop.
+  onMoveForTouchRef.current = onDrop;
+
   const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
     if (!pendingPromotion) return;
     executeMove(pendingPromotion.from, pendingPromotion.to, piece);
@@ -339,7 +352,8 @@ export function GamePage() {
   useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
-    enabled: status === 'active',
+    // On touch devices, two-click mode is used instead of drag-and-drop.
+    enabled: status === 'active' && !isTouchDevice,
   });
 
   const stablePosition = useStablePosition(fen);
