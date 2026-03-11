@@ -515,7 +515,7 @@ export function LobbyPage() {
       ) : dailyPuzzle ? (
         <div className="lobby-widget__content">
           <p className="lobby-widget__stat">
-            {t('lobby.rating')}: {dailyPuzzle.puzzle.rating}
+            {t('lobby.rating', { rating: dailyPuzzle.puzzle.rating })}
           </p>
           {dailyPuzzle.puzzle.themes.length > 0 && (
             <p className="lobby-widget__themes">
