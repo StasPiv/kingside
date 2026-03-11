@@ -10,7 +10,8 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NGINX_CONF="$REPO_DIR/infra/nginx/kingside.conf"
-NGINX_SITES="/etc/nginx/sites-available/kingside"
+NGINX_SITES_AVAIL="/etc/nginx/sites-available/kingside"
+NGINX_SITES_ENABLED="/etc/nginx/sites-enabled/kingside"
 
 echo "=== Применение nginx конфига ==="
 echo ""
@@ -21,10 +22,18 @@ cd "$REPO_DIR"
 git pull origin main
 echo "  Код обновлён."
 
-# 2. Скопировать конфиг
+# 2. Скопировать конфиг (sites-available + sites-enabled)
 echo "[2/3] Копирование конфига..."
-sudo cp "$NGINX_CONF" "$NGINX_SITES"
-echo "  Конфиг скопирован: $NGINX_SITES"
+sudo cp "$NGINX_CONF" "$NGINX_SITES_AVAIL"
+echo "  Конфиг скопирован: $NGINX_SITES_AVAIL"
+# Если sites-enabled — отдельный файл (не симлинк), обновить его тоже
+if [ -f "$NGINX_SITES_ENABLED" ] && [ ! -L "$NGINX_SITES_ENABLED" ]; then
+    sudo cp "$NGINX_CONF" "$NGINX_SITES_ENABLED"
+    echo "  Конфиг скопирован: $NGINX_SITES_ENABLED"
+elif [ ! -e "$NGINX_SITES_ENABLED" ]; then
+    sudo ln -sf "$NGINX_SITES_AVAIL" "$NGINX_SITES_ENABLED"
+    echo "  Симлинк создан: $NGINX_SITES_ENABLED"
+fi
 
 # 3. Проверить и перезагрузить nginx
 echo "[3/3] Перезагрузка nginx..."
