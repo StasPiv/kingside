@@ -436,16 +436,19 @@ export function GamePage() {
       <div className="game-sidebar" style={{ width: sidebarWidth }}>
         <div className="move-list">
           <h3>{t('game.moves')}</h3>
-          <div className="moves" ref={movesRef}>
-            {moves.map((move, i) =>
-              i % 2 === 0 ? (
-                <div key={i} className="move-pair">
-                  <span className="move-number">{Math.floor(i / 2) + 1}.</span>
-                  <span className="move">{move}</span>
-                  {moves[i + 1] && <span className="move">{moves[i + 1]}</span>}
-                </div>
-              ) : null,
-            )}
+          <div className="moves game-moves-inline" ref={movesRef}>
+            {moves.flatMap((move, i) => {
+              const isWhite = i % 2 === 0;
+              const moveNumber = Math.floor(i / 2) + 1;
+              const display = isWhite ? `${moveNumber}.${move}` : move;
+              const isLast = i === moves.length - 1;
+              return [
+                <span key={i} className={`game-move-item${isLast ? ' current' : ''}`}>
+                  {display}
+                </span>,
+                ' ',
+              ];
+            })}
           </div>
         </div>
 
