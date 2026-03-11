@@ -390,7 +390,10 @@ export class PuzzleRushService {
         errorCode: 'SESSION_NOT_FOUND',
       });
     }
-    return JSON.parse(raw);
+    const session: PuzzleRushSession = JSON.parse(raw);
+    // Backward compatibility: sessionPuzzles was added after initial release
+    session.sessionPuzzles = session.sessionPuzzles ?? [];
+    return session;
   }
 
   private async saveSession(session: PuzzleRushSession): Promise<void> {

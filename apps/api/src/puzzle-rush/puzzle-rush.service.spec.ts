@@ -35,9 +35,12 @@ describe('PuzzleRushService', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       puzzleRushScore: {
-        create: jest.fn(),
+        create: jest.fn().mockResolvedValue({ id: 'score-1' }),
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn(),
+      },
+      puzzleRushSessionPuzzle: {
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       user: {
         findUniqueOrThrow: jest.fn().mockResolvedValue({ ratingPuzzle: 1500 }),
@@ -191,6 +194,7 @@ describe('PuzzleRushService', () => {
       startedAt: Date.now(),
       durationMs: 180000,
       solvedPuzzleIds: [],
+      sessionPuzzles: [],
       ...overrides,
     });
 
@@ -362,6 +366,7 @@ describe('PuzzleRushService', () => {
       startedAt: Date.now(),
       durationMs: 180000,
       solvedPuzzleIds: [],
+      sessionPuzzles: [],
       ...overrides,
     });
 
@@ -419,6 +424,7 @@ describe('PuzzleRushService', () => {
         startedAt: Date.now() - 60000,
         durationMs: 180000,
         solvedPuzzleIds: ['p1', 'p2'],
+        sessionPuzzles: [],
       };
       redis.get.mockResolvedValue(JSON.stringify(session));
 
@@ -457,6 +463,7 @@ describe('PuzzleRushService', () => {
       startedAt: Date.now(),
       durationMs: 180000,
       solvedPuzzleIds: [],
+      sessionPuzzles: [],
       ...overrides,
     });
 
@@ -540,6 +547,7 @@ describe('PuzzleRushService', () => {
       startedAt: Date.now(),
       durationMs: 180000,
       solvedPuzzleIds: [],
+      sessionPuzzles: [],
       ...overrides,
     });
 
@@ -656,6 +664,7 @@ describe('PuzzleRushService', () => {
         startedAt: Date.now(),
         durationMs: 180000,
         solvedPuzzleIds: ['puzzle-session-1'],
+        sessionPuzzles: [],
       };
       redis.get.mockResolvedValue(JSON.stringify(session));
       prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
@@ -708,6 +717,7 @@ describe('PuzzleRushService', () => {
         startedAt: Date.now(),
         durationMs: 180000,
         solvedPuzzleIds: ['p1', 'p2', 'p3'],
+        sessionPuzzles: [],
       };
       redis.get.mockResolvedValue(JSON.stringify(session));
       prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1400 });
