@@ -98,7 +98,15 @@
     "bullet": "Пуля (1 мин)",
     "blitz": "Блиц (5 мин)",
     "rapid": "Рапид (10 мин)",
-    "classical": "Классика (30 мин)"
+    "classical": "Классика (30 мин)",
+    "dailyPuzzle": "Задача дня",
+    "puzzleRush": "Puzzle Rush",
+    "recentGames": "Последние партии",
+    "myRecord": "Рекорд",
+    "solve": "Решить",
+    "allGames": "Все партии",
+    "leaderboard": "Лидеры",
+    "min": "мин"
   },
   "common": {
     "loading": "Загрузка..."

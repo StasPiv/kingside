@@ -260,8 +260,150 @@ input:focus {
 .lobby-page {
   text-align: center;
   padding-top: 40px;
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
+}
+
+/* Two-column layout: PlayPanel + SidePanel */
+.lobby-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  align-items: stretch;
+}
+
+@media (min-width: 1024px) {
+  .lobby-layout {
+    display: grid;
+    grid-template-columns: 450px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+}
+
+.lobby-play-area {
+  min-width: 0;
+}
+
+/* Side panel widgets */
+.lobby-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.lobby-widget {
+  background: #16213e;
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.lobby-widget__title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #e0e0e0;
+}
+
+.lobby-widget__loading {
+  color: #a0a0c0;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.lobby-widget__content {
+  margin-bottom: 12px;
+}
+
+.lobby-widget__stat {
+  font-size: 14px;
+  color: #c0c0d8;
+  margin-bottom: 4px;
+}
+
+.lobby-widget__themes {
+  font-size: 13px;
+  color: #8080a0;
+  margin-bottom: 4px;
+  text-transform: capitalize;
+}
+
+.lobby-widget__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lobby-widget__btn {
+  display: inline-block;
+  padding: 8px 16px;
+  background: #7c83ff;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.lobby-widget__btn:hover {
+  background: #6366f1;
+  text-decoration: none;
+}
+
+.lobby-widget__btn--secondary {
+  background: #2a2a4a;
+  color: #a0a0c0;
+}
+
+.lobby-widget__btn--secondary:hover {
+  background: #3a3a5a;
+}
+
+.lobby-widget__game-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #2a2a4a;
+  font-size: 13px;
+  color: #c0c0d8;
+  text-decoration: none;
+}
+
+.lobby-widget__game-row:last-child {
+  border-bottom: none;
+}
+
+.lobby-widget__game-row:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+.lobby-widget__game-icon {
+  flex-shrink: 0;
+}
+
+.lobby-widget__game-opponent {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby-widget__game-meta {
+  color: #7080a0;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.lobby-widget__game-date {
+  color: #606080;
+  flex-shrink: 0;
+  font-size: 12px;
 }
 
 .lobby-page h1 {

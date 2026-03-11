@@ -98,7 +98,15 @@
     "bullet": "Bullet (1 min)",
     "blitz": "Blitz (5 min)",
     "rapid": "Rapid (10 min)",
-    "classical": "Classical (30 min)"
+    "classical": "Classical (30 min)",
+    "dailyPuzzle": "Daily Puzzle",
+    "puzzleRush": "Puzzle Rush",
+    "recentGames": "Recent Games",
+    "myRecord": "Best",
+    "solve": "Solve",
+    "allGames": "All games",
+    "leaderboard": "Leaderboard",
+    "min": "min"
   },
   "common": {
     "loading": "Loading..."

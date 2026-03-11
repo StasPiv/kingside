@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 import { api } from '../api';
-import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse, type RatingFilterMode } from '@kingside/shared';
+import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse, type RatingFilterMode, type DailyPuzzleResponse } from '@kingside/shared';
 
 type PieceColor = 'white' | 'black' | 'random';
 type TimeControlCategory = 'bullet' | 'blitz' | 'rapid' | 'classical';
@@ -46,6 +46,23 @@ function presetKey(minutes: number, increment: number): string {
 
 type LobbyMode = 'online' | 'bot';
 
+type PuzzleRushStats = {
+  best3: number;
+  best5: number;
+  totalSessions: number;
+};
+
+type GameRecord = {
+  id: string;
+  playerColor: 'white' | 'black';
+  playerResult: 'win' | 'loss' | 'draw';
+  opponent: { id: string; username: string; ratingBefore: number | null };
+  result: string;
+  timeControlType: string | null;
+  timeControl: string;
+  createdAt: string;
+};
+
 export function LobbyPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -65,6 +82,12 @@ export function LobbyPage() {
   const [ratingMinus, setRatingMinus] = useState(200);
   const [ratingPlus, setRatingPlus] = useState(200);
 
+  // Widget data
+  const [dailyPuzzle, setDailyPuzzle] = useState<DailyPuzzleResponse | null>(null);
+  const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
+  const [recentGames, setRecentGames] = useState<GameRecord[]>([]);
+  const [widgetsLoading, setWidgetsLoading] = useState(true);
+
   const loadSavedControls = useCallback(async () => {
     if (!user) return;
     try {
@@ -78,6 +101,22 @@ export function LobbyPage() {
   useEffect(() => {
     loadSavedControls();
   }, [loadSavedControls]);
+
+  useEffect(() => {
+    if (!user) {
+      setWidgetsLoading(false);
+      return;
+    }
+    Promise.all([
+      api.get<DailyPuzzleResponse>('/api/puzzles/daily').catch(() => null),
+      api.get<PuzzleRushStats>(`/api/users/${user.id}/puzzle-rush-stats`).catch(() => null),
+      api.get<{ data: GameRecord[] }>(`/api/users/${user.id}/games?take=3`).catch(() => null),
+    ]).then(([daily, rush, games]) => {
+      setDailyPuzzle(daily);
+      setRushStats(rush);
+      setRecentGames(games?.data ?? []);
+    }).finally(() => setWidgetsLoading(false));
+  }, [user]);
 
   const [botLevel, setBotLevel] = useState(3);
   const [botColor, setBotColor] = useState<PieceColor>('random');
@@ -468,6 +507,91 @@ export function LobbyPage() {
     </div>
   );
 
+  const dailyPuzzleWidget = (
+    <div className="lobby-widget">
+      <h3 className="lobby-widget__title">🧩 {t('lobby.dailyPuzzle')}</h3>
+      {widgetsLoading ? (
+        <p className="lobby-widget__loading">{t('common.loading')}</p>
+      ) : dailyPuzzle ? (
+        <div className="lobby-widget__content">
+          <p className="lobby-widget__stat">
+            {t('lobby.rating')}: {dailyPuzzle.puzzle.rating}
+          </p>
+          {dailyPuzzle.puzzle.themes.length > 0 && (
+            <p className="lobby-widget__themes">
+              {dailyPuzzle.puzzle.themes.slice(0, 3).join(', ')}
+            </p>
+          )}
+        </div>
+      ) : null}
+      <div className="lobby-widget__actions">
+        <Link to="/daily" className="lobby-widget__btn">
+          {t('lobby.solve')} →
+        </Link>
+      </div>
+    </div>
+  );
+
+  const puzzleRushWidget = (
+    <div className="lobby-widget">
+      <h3 className="lobby-widget__title">⚡ {t('lobby.puzzleRush')}</h3>
+      {widgetsLoading ? (
+        <p className="lobby-widget__loading">{t('common.loading')}</p>
+      ) : rushStats && (rushStats.best3 > 0 || rushStats.best5 > 0) ? (
+        <div className="lobby-widget__content">
+          <p className="lobby-widget__stat">
+            {t('lobby.myRecord')} 3 {t('lobby.min')}: {rushStats.best3}
+          </p>
+          <p className="lobby-widget__stat">
+            {t('lobby.myRecord')} 5 {t('lobby.min')}: {rushStats.best5}
+          </p>
+        </div>
+      ) : null}
+      <div className="lobby-widget__actions">
+        <Link to="/puzzle-rush" className="lobby-widget__btn">
+          {t('lobby.play')} →
+        </Link>
+        <Link to="/puzzle-rush/leaderboard" className="lobby-widget__btn lobby-widget__btn--secondary">
+          {t('lobby.leaderboard')} →
+        </Link>
+      </div>
+    </div>
+  );
+
+  const recentGamesWidget = (
+    <div className="lobby-widget">
+      <h3 className="lobby-widget__title">📋 {t('lobby.recentGames')}</h3>
+      {widgetsLoading ? (
+        <p className="lobby-widget__loading">{t('common.loading')}</p>
+      ) : recentGames.length > 0 ? (
+        <div className="lobby-widget__content">
+          {recentGames.map((game) => {
+            const icon = game.playerResult === 'win' ? '✅' : game.playerResult === 'loss' ? '❌' : '➖';
+            const date = new Date(game.createdAt).toLocaleDateString();
+            return (
+              <Link key={game.id} to={`/game/${game.id}/review`} className="lobby-widget__game-row">
+                <span className="lobby-widget__game-icon">{icon}</span>
+                <span className="lobby-widget__game-opponent">
+                  vs {game.opponent.username}
+                  {game.opponent.ratingBefore != null ? ` (${game.opponent.ratingBefore})` : ''}
+                </span>
+                <span className="lobby-widget__game-meta">
+                  {game.timeControlType ?? game.timeControl}
+                </span>
+                <span className="lobby-widget__game-date">{date}</span>
+              </Link>
+            );
+          })}
+        </div>
+      ) : null}
+      <div className="lobby-widget__actions">
+        <Link to="/profile" className="lobby-widget__btn">
+          {t('lobby.allGames')} →
+        </Link>
+      </div>
+    </div>
+  );
+
   return (
     <div className="lobby-page">
       <h1>{t('lobby.title')}</h1>
@@ -477,29 +601,41 @@ export function LobbyPage() {
         </p>
       )}
 
-      {/* Mobile tabs */}
-      <div className="lobby-mode-tabs">
-        <button
-          className={`lobby-mode-tab ${lobbyMode === 'online' ? 'active' : ''}`}
-          onClick={() => setLobbyMode('online')}
-        >
-          {t('lobby.play')}
-        </button>
-        <button
-          className={`lobby-mode-tab ${lobbyMode === 'bot' ? 'active' : ''}`}
-          onClick={() => setLobbyMode('bot')}
-        >
-          {t('lobby.playBot')}
-        </button>
-      </div>
+      <div className="lobby-layout">
+        {/* Left: Play Panel */}
+        <div className="lobby-play-area">
+          {/* Mobile tabs */}
+          <div className="lobby-mode-tabs">
+            <button
+              className={`lobby-mode-tab ${lobbyMode === 'online' ? 'active' : ''}`}
+              onClick={() => setLobbyMode('online')}
+            >
+              {t('lobby.play')}
+            </button>
+            <button
+              className={`lobby-mode-tab ${lobbyMode === 'bot' ? 'active' : ''}`}
+              onClick={() => setLobbyMode('bot')}
+            >
+              {t('lobby.playBot')}
+            </button>
+          </div>
 
-      {/* Desktop: two columns, Mobile: active tab content */}
-      <div className="lobby-columns">
-        <div className={`lobby-column ${lobbyMode === 'online' ? 'lobby-column--active' : ''}`}>
-          {onlinePanel}
+          {/* Desktop: two columns, Mobile: active tab content */}
+          <div className="lobby-columns">
+            <div className={`lobby-column ${lobbyMode === 'online' ? 'lobby-column--active' : ''}`}>
+              {onlinePanel}
+            </div>
+            <div className={`lobby-column ${lobbyMode === 'bot' ? 'lobby-column--active' : ''}`}>
+              {botPanel}
+            </div>
+          </div>
         </div>
-        <div className={`lobby-column ${lobbyMode === 'bot' ? 'lobby-column--active' : ''}`}>
-          {botPanel}
+
+        {/* Right: Side Panel with widgets */}
+        <div className="lobby-side-panel">
+          {dailyPuzzleWidget}
+          {puzzleRushWidget}
+          {recentGamesWidget}
         </div>
       </div>
     </div>
