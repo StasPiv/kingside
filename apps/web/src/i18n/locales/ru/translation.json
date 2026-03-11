@@ -274,7 +274,10 @@
     "filterColorAll": "Все цвета",
     "filterColorWhite": "Белые",
     "filterColorBlack": "Чёрные",
-    "filterEco": "ECO"
+    "filterEco": "ECO",
+    "resultWin": "Победа",
+    "resultLoss": "Поражение",
+    "resultDraw": "Ничья"
   },
   "rushLeaderboard": {
     "title": "Таблица лидеров Puzzle Rush",

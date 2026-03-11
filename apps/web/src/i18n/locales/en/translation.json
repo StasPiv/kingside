@@ -274,7 +274,10 @@
     "filterColorAll": "All colors",
     "filterColorWhite": "White",
     "filterColorBlack": "Black",
-    "filterEco": "ECO"
+    "filterEco": "ECO",
+    "resultWin": "Win",
+    "resultLoss": "Loss",
+    "resultDraw": "Draw"
   },
   "rushLeaderboard": {
     "title": "Puzzle Rush Leaderboard",

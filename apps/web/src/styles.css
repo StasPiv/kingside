@@ -2402,9 +2402,15 @@ input:focus {
 
 /* Profile page */
 .profile-page {
-  max-width: 640px;
+  max-width: 1100px;
   margin: 0 auto;
   padding-top: 24px;
+}
+
+.profile-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
 }
 
 .profile-header {
@@ -2538,7 +2544,6 @@ input:focus {
 }
 
 .game-opponent {
-  flex: 1;
   color: #e0e0e0;
 }
 
@@ -2547,8 +2552,27 @@ input:focus {
 }
 
 .game-result-badge {
-  color: #7c83ff;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.game-result-badge--win {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+}
+
+.game-result-badge--loss {
+  background: rgba(244, 67, 54, 0.2);
+  color: #f44336;
+}
+
+.game-result-badge--draw {
+  background: rgba(160, 160, 192, 0.2);
+  color: #a0a0c0;
 }
 
 .game-rating-diff {
@@ -2609,7 +2633,6 @@ input:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 140px;
 }
 
 .game-moves-count {
@@ -2618,7 +2641,7 @@ input:focus {
   white-space: nowrap;
 }
 
-.game-termination {
+.game-duration {
   color: #a0a0c0;
   font-size: 12px;
   white-space: nowrap;
@@ -2685,6 +2708,43 @@ input:focus {
   padding: 16px;
   color: #a0a0c0;
   font-size: 13px;
+}
+
+/* Profile: desktop 2-column layout */
+@media (min-width: 900px) {
+  .profile-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+}
+
+/* Profile games: grid table on desktop */
+@media (min-width: 768px) {
+  .game-record {
+    display: grid;
+    grid-template-columns: 56px 20px 1fr 1fr 64px 48px 56px 56px 80px;
+    flex-wrap: unset;
+    gap: 0 12px;
+  }
+
+  .game-opponent {
+    flex: unset;
+  }
+
+  .game-opening-name {
+    max-width: none;
+  }
+}
+
+/* Profile games: hide columns on mobile */
+@media (max-width: 767px) {
+  .game-opening,
+  .game-duration,
+  .game-rating-diff {
+    display: none;
+  }
 }
 
 .nav-user {

@@ -178,133 +178,148 @@ export function ProfilePage() {
 
   return (
     <div className="profile-page">
-      <div className="profile-header">
-        <h1>{profile.username}</h1>
-        <p className="profile-member-since">{t('profile.memberSince', { date: memberSince })}</p>
-      </div>
-
-      <div className="profile-ratings">
-        <h2>{t('profile.ratings')}</h2>
-        <div className="ratings-grid">
-          {ratings.map((r) => (
-            <div key={r.label} className="rating-card">
-              <span className="rating-label">{r.label}</span>
-              <span className="rating-value">{r.value}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {rushStats && (rushStats.best3 > 0 || rushStats.best5 > 0 || rushStats.totalSessions > 0) && (
-        <div className="profile-puzzle-rush">
-          <div className="profile-section-header">
-            <h2>{t('profile.puzzleRush')}</h2>
-            <Link to="/puzzle-rush" className="profile-section-link">{t('profile.playPuzzleRush')}</Link>
+      <div className="profile-layout">
+        <aside className="profile-sidebar">
+          <div className="profile-header">
+            <h1>{profile.username}</h1>
+            <p className="profile-member-since">{t('profile.memberSince', { date: memberSince })}</p>
           </div>
-          <div className="rush-stats-grid">
-            <div className="rush-stat-card">
-              <span className="rush-stat-label">{t('profile.rushBest3')}</span>
-              <span className="rush-stat-value">{rushStats.best3}</span>
-            </div>
-            <div className="rush-stat-card">
-              <span className="rush-stat-label">{t('profile.rushBest5')}</span>
-              <span className="rush-stat-value">{rushStats.best5}</span>
-            </div>
-            <div className="rush-stat-card">
-              <span className="rush-stat-label">{t('profile.rushTotalSessions')}</span>
-              <span className="rush-stat-value">{rushStats.totalSessions}</span>
+
+          <div className="profile-ratings">
+            <h2>{t('profile.ratings')}</h2>
+            <div className="ratings-grid">
+              {ratings.map((r) => (
+                <div key={r.label} className="rating-card">
+                  <span className="rating-label">{r.label}</span>
+                  <span className="rating-value">{r.value}</span>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
-      )}
 
-      <div className="profile-games">
-        <div className="profile-section-header">
-          <h2>{t('profile.recentGames')}</h2>
-          <Link to="/lobby" className="profile-section-link">{t('profile.play')}</Link>
-        </div>
-
-        <div className="games-filters">
-          <input
-            type="text"
-            className="games-filter-input"
-            placeholder={t('profile.filterOpponent')}
-            value={filters.opponent}
-            onChange={(e) => handleFilterChange('opponent', e.target.value)}
-          />
-          <select
-            className="games-filter-select"
-            value={filters.result}
-            onChange={(e) => handleFilterChange('result', e.target.value)}
-          >
-            <option value="">{t('profile.filterResultAll')}</option>
-            <option value="win">{t('profile.filterResultWin')}</option>
-            <option value="loss">{t('profile.filterResultLoss')}</option>
-            <option value="draw">{t('profile.filterResultDraw')}</option>
-          </select>
-          <select
-            className="games-filter-select"
-            value={filters.color}
-            onChange={(e) => handleFilterChange('color', e.target.value)}
-          >
-            <option value="">{t('profile.filterColorAll')}</option>
-            <option value="white">{t('profile.filterColorWhite')}</option>
-            <option value="black">{t('profile.filterColorBlack')}</option>
-          </select>
-          <input
-            type="text"
-            className="games-filter-input games-filter-eco"
-            placeholder={t('profile.filterEco')}
-            value={filters.eco}
-            onChange={(e) => handleFilterChange('eco', e.target.value)}
-          />
-        </div>
-
-        <div className="games-list">
-          {games.map((game) => {
-            const isWhite = game.playerColor === 'white';
-            const ratingBefore = isWhite ? game.whiteRatingBefore : game.blackRatingBefore;
-            const ratingAfter = isWhite ? game.whiteRatingAfter : game.blackRatingAfter;
-            const ratingDiff = ratingBefore != null && ratingAfter != null ? ratingAfter - ratingBefore : null;
-            const date = new Date(game.createdAt).toLocaleDateString(locale);
-
-            return (
-              <Link key={game.id} to={`/game/${game.id}/review`} className="game-record game-record-link">
-                <span className={`game-color-indicator ${isWhite ? 'color-white' : 'color-black'}`} />
-                <span className="game-opponent">
-                  {t('profile.vs', { opponent: game.opponent.username })}
-                  {game.opponent.ratingBefore != null && (
-                    <span className="game-opponent-rating"> ({game.opponent.ratingBefore})</span>
-                  )}
-                </span>
-                <span className="game-opening">
-                  {game.ecoCode && <span className="game-eco">{game.ecoCode}</span>}
-                  {game.openingName && <span className="game-opening-name">{game.openingName}</span>}
-                </span>
-                <span className="game-tc">{game.timeControlType || game.timeControl}</span>
-                <span className="game-moves-count">{game.totalMoves} {t('profile.moves')}</span>
-                <span className="game-result-badge">{game.result}</span>
-                {game.termination && (
-                  <span className="game-termination">{game.termination}</span>
-                )}
-                {ratingDiff != null && (
-                  <span className={`game-rating-diff ${ratingDiff >= 0 ? 'rating-positive' : 'rating-negative'}`}>
-                    {ratingDiff >= 0 ? `+${ratingDiff}` : ratingDiff}
-                  </span>
-                )}
-                <span className="game-date">{date}</span>
-              </Link>
-            );
-          })}
-          {games.length === 0 && (
-            <div className="games-empty">{t('profile.noGames')}</div>
+          {rushStats && (rushStats.best3 > 0 || rushStats.best5 > 0 || rushStats.totalSessions > 0) && (
+            <div className="profile-puzzle-rush">
+              <div className="profile-section-header">
+                <h2>{t('profile.puzzleRush')}</h2>
+                <Link to="/puzzle-rush" className="profile-section-link">{t('profile.playPuzzleRush')}</Link>
+              </div>
+              <div className="rush-stats-grid">
+                <div className="rush-stat-card">
+                  <span className="rush-stat-label">{t('profile.rushBest3')}</span>
+                  <span className="rush-stat-value">{rushStats.best3}</span>
+                </div>
+                <div className="rush-stat-card">
+                  <span className="rush-stat-label">{t('profile.rushBest5')}</span>
+                  <span className="rush-stat-value">{rushStats.best5}</span>
+                </div>
+                <div className="rush-stat-card">
+                  <span className="rush-stat-label">{t('profile.rushTotalSessions')}</span>
+                  <span className="rush-stat-value">{rushStats.totalSessions}</span>
+                </div>
+              </div>
+            </div>
           )}
-        </div>
-        {hasMore && (
-          <div ref={sentinelRef} className="games-load-more">
-            {loadingMore && <span>{t('common.loading')}</span>}
+        </aside>
+
+        <main className="profile-main">
+          <div className="profile-games">
+            <div className="profile-section-header">
+              <h2>{t('profile.recentGames')}</h2>
+              <Link to="/lobby" className="profile-section-link">{t('profile.play')}</Link>
+            </div>
+
+            <div className="games-filters">
+              <input
+                type="text"
+                className="games-filter-input"
+                placeholder={t('profile.filterOpponent')}
+                value={filters.opponent}
+                onChange={(e) => handleFilterChange('opponent', e.target.value)}
+              />
+              <select
+                className="games-filter-select"
+                value={filters.result}
+                onChange={(e) => handleFilterChange('result', e.target.value)}
+              >
+                <option value="">{t('profile.filterResultAll')}</option>
+                <option value="win">{t('profile.filterResultWin')}</option>
+                <option value="loss">{t('profile.filterResultLoss')}</option>
+                <option value="draw">{t('profile.filterResultDraw')}</option>
+              </select>
+              <select
+                className="games-filter-select"
+                value={filters.color}
+                onChange={(e) => handleFilterChange('color', e.target.value)}
+              >
+                <option value="">{t('profile.filterColorAll')}</option>
+                <option value="white">{t('profile.filterColorWhite')}</option>
+                <option value="black">{t('profile.filterColorBlack')}</option>
+              </select>
+              <input
+                type="text"
+                className="games-filter-input games-filter-eco"
+                placeholder={t('profile.filterEco')}
+                value={filters.eco}
+                onChange={(e) => handleFilterChange('eco', e.target.value)}
+              />
+            </div>
+
+            <div className="games-list">
+              {games.map((game) => {
+                const isWhite = game.playerColor === 'white';
+                const ratingBefore = isWhite ? game.whiteRatingBefore : game.blackRatingBefore;
+                const ratingAfter = isWhite ? game.whiteRatingAfter : game.blackRatingAfter;
+                const ratingDiff = ratingBefore != null && ratingAfter != null ? ratingAfter - ratingBefore : null;
+                const date = new Date(game.createdAt).toLocaleDateString(locale);
+                const durationMs = game.finishedAt
+                  ? new Date(game.finishedAt).getTime() - new Date(game.createdAt).getTime()
+                  : null;
+                const duration = durationMs != null
+                  ? `${Math.floor(durationMs / 60000)}:${Math.floor((durationMs % 60000) / 1000).toString().padStart(2, '0')}`
+                  : '—';
+                const resultKey = game.playerResult === 'win'
+                  ? 'profile.resultWin'
+                  : game.playerResult === 'loss'
+                    ? 'profile.resultLoss'
+                    : 'profile.resultDraw';
+
+                return (
+                  <Link key={game.id} to={`/game/${game.id}/review`} className="game-record game-record-link">
+                    <span className={`game-result-badge game-result-badge--${game.playerResult}`}>
+                      {t(resultKey)}
+                    </span>
+                    <span className={`game-color-indicator ${isWhite ? 'color-white' : 'color-black'}`} />
+                    <span className="game-opponent">
+                      {t('profile.vs', { opponent: game.opponent.username })}
+                      {game.opponent.ratingBefore != null && (
+                        <span className="game-opponent-rating"> ({game.opponent.ratingBefore})</span>
+                      )}
+                    </span>
+                    <span className="game-opening">
+                      {game.ecoCode && <span className="game-eco">{game.ecoCode}</span>}
+                      {game.openingName && <span className="game-opening-name">{game.openingName}</span>}
+                    </span>
+                    <span className="game-tc">{game.timeControlType || game.timeControl}</span>
+                    <span className="game-moves-count">{game.totalMoves}</span>
+                    <span className="game-duration">{duration}</span>
+                    <span className={`game-rating-diff ${ratingDiff != null && ratingDiff >= 0 ? 'rating-positive' : 'rating-negative'}`}>
+                      {ratingDiff != null ? (ratingDiff >= 0 ? `+${ratingDiff}` : ratingDiff) : '—'}
+                    </span>
+                    <span className="game-date">{date}</span>
+                  </Link>
+                );
+              })}
+              {games.length === 0 && (
+                <div className="games-empty">{t('profile.noGames')}</div>
+              )}
+            </div>
+            {hasMore && (
+              <div ref={sentinelRef} className="games-load-more">
+                {loadingMore && <span>{t('common.loading')}</span>}
+              </div>
+            )}
           </div>
-        )}
+        </main>
       </div>
     </div>
   );
