@@ -201,7 +201,7 @@ export function ProfilePage() {
             <div className="profile-puzzle-rush">
               <div className="profile-section-header">
                 <h2>{t('profile.puzzleRush')}</h2>
-                <Link to="/puzzle-rush" className="profile-section-link">{t('profile.playPuzzleRush')}</Link>
+                <Link to="/puzzle-rush" className="profile-action-btn profile-action-btn--green">{t('profile.playPuzzleRush')}</Link>
               </div>
               <div className="rush-stats-grid">
                 <div className="rush-stat-card">
@@ -225,7 +225,7 @@ export function ProfilePage() {
           <div className="profile-games">
             <div className="profile-section-header">
               <h2>{t('profile.recentGames')}</h2>
-              <Link to="/lobby" className="profile-section-link">{t('profile.play')}</Link>
+              <Link to="/lobby" className="profile-action-btn">{t('profile.play')}</Link>
             </div>
 
             <div className="games-filters">

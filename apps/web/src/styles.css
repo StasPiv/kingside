@@ -2485,6 +2485,40 @@ input:focus {
   text-decoration: underline;
 }
 
+.profile-action-btn {
+  display: inline-block;
+  background: #7c83ff;
+  color: #fff;
+  text-decoration: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.15s;
+}
+
+.profile-action-btn:hover {
+  background: #6366f1;
+  transform: translateY(-1px);
+}
+
+.profile-action-btn--green {
+  background: #81b64c;
+}
+
+.profile-action-btn--green:hover {
+  background: #6a9a3a;
+  transform: translateY(-1px);
+}
+
+@media (max-width: 600px) {
+  .profile-action-btn {
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+}
+
 .profile-puzzle-rush {
   margin-bottom: 32px;
 }
