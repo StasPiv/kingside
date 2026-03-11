@@ -171,7 +171,36 @@ bash scripts/nginx-hotfix.sh
 
 ---
 
-## 9. Риски
+## 9. Хотфикс API (404 на /api/*)
+
+Если на проде возвращается `404 Cannot POST /api/...` — контейнер запущен на устаревшем образе.
+
+```bash
+cd ~/kingside
+bash scripts/api-hotfix.sh
+```
+
+Скрипт выполняет:
+1. `git pull origin main`
+2. `docker compose build --no-cache api`
+3. `docker compose up -d --force-recreate api`
+4. Health check `GET /api/health`
+5. Проверку `POST /api/puzzle-rush/solve` (ожидается 401, не 404)
+
+### Исправление KS-442 (2026-03-11)
+
+Проблема: `POST /api/puzzle-rush/solve` возвращал 404 на проде.
+
+Причина: API-контейнер работал на устаревшем образе; скрипт `deploy.sh` проверял
+`http://localhost:3001/health` (без `/api/` префикса), поэтому health check всегда
+"тайм-аутил" и не подтверждал успешный деплой.
+
+Исправление: добавлен `GET /api/health` endpoint, исправлен URL в `deploy.sh`,
+создан `scripts/api-hotfix.sh` для быстрой пересборки API.
+
+---
+
+## 10. Риски
 
 | Риск | Уровень | Митигация |
 |------|---------|-----------|

@@ -49,15 +49,20 @@ docker compose pull postgres redis 2>/dev/null || true
 docker compose build api
 docker compose up -d postgres redis api
 
-# Ждём готовности API
+# Ждём готовности API (global prefix = /api)
 echo "  Ожидание готовности API..."
+API_READY=0
 for i in $(seq 1 30); do
-    if curl -sf http://localhost:3001/health &>/dev/null; then
+    if curl -sf http://localhost:3001/api/health &>/dev/null; then
         echo "  API готов."
+        API_READY=1
         break
     fi
     sleep 2
 done
+if [ "$API_READY" -eq 0 ]; then
+    echo "  WARN: API health check не прошёл за 60 сек — проверьте docker compose logs api"
+fi
 
 # 5. Перезагрузка nginx
 echo "[5/5] Перезагрузка nginx..."

@@ -14,8 +14,10 @@ import { GameModule } from './game/game.module';
 import { MatchmakingModule } from './matchmaking/matchmaking.module';
 import { PuzzleModule } from './puzzle/puzzle.module';
 import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
+import { HealthController } from './health.controller';
 
 @Module({
+  controllers: [HealthController],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
