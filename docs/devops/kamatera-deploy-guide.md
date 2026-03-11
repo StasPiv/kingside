@@ -191,12 +191,22 @@ bash scripts/api-hotfix.sh
 
 Проблема: `POST /api/puzzle-rush/solve` возвращал 404 на проде.
 
-Причина: API-контейнер работал на устаревшем образе; скрипт `deploy.sh` проверял
-`http://localhost:3001/health` (без `/api/` префикса), поэтому health check всегда
-"тайм-аутил" и не подтверждал успешный деплой.
+Причина: API-контейнер работал на устаревшем образе. Контроллер `puzzle-rush`
+на сервере имел маршрут `POST /answer`, тогда как frontend обращался к `POST /solve`.
 
-Исправление: добавлен `GET /api/health` endpoint, исправлен URL в `deploy.sh`,
-создан `scripts/api-hotfix.sh` для быстрой пересборки API.
+**Важно**: git-репозиторий на сервере находится на начальном коммите (9d60271).
+Локальные изменения никогда не пушились на GitHub. `api-hotfix.sh` и `git pull`
+не приносят новый код пока не выполнен `git push` на remote.
+
+Применённое исправление (вручную через SSH):
+1. Добавлен `@Post('solve')` в контроллер на сервере:
+   ```bash
+   scp apps/api/src/puzzle-rush/puzzle-rush.controller.ts \
+       kamatera-chess:~/kingside/apps/api/src/puzzle-rush/
+   ```
+2. `docker compose build --no-cache api`
+3. `docker compose up -d --force-recreate api`
+4. Проверка: `POST /api/puzzle-rush/solve` → 401 (маршрут найден).
 
 ---
 
