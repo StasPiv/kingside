@@ -47,16 +47,21 @@ export class DailyPuzzleService {
 
     const seed = this.dateSeed(date);
 
+    // Daily puzzle uses high-difficulty puzzles (Lichess DB, CC0 license).
+    // Rating >= 2000 ensures complex positions: deep mates, endgame studies,
+    // long tactical sequences — not puzzle-rush level.
+    const DAILY_MIN_RATING = 2000;
+
     const totalAvailable = await this.prisma.puzzle.count({
       where: {
         id: { notIn: excludeIds },
-        rating: { gte: 1200, lte: 2000 },
+        rating: { gte: DAILY_MIN_RATING },
       },
     });
 
     if (totalAvailable === 0) {
       return this.prisma.puzzle.findFirst({
-        where: { rating: { gte: 1200, lte: 2000 } },
+        where: { rating: { gte: DAILY_MIN_RATING } },
         orderBy: { rating: 'asc' },
       });
     }
@@ -66,7 +71,7 @@ export class DailyPuzzleService {
     return this.prisma.puzzle.findFirst({
       where: {
         id: { notIn: excludeIds },
-        rating: { gte: 1200, lte: 2000 },
+        rating: { gte: DAILY_MIN_RATING },
       },
       orderBy: { rating: 'asc' },
       skip,

@@ -75,7 +75,7 @@ describe('DailyPuzzleService', () => {
       );
     });
 
-    it('should select puzzle in rating range 1200-2000', async () => {
+    it('should select high-difficulty puzzle (rating >= 2000)', async () => {
       prisma.dailyPuzzle.findUnique.mockResolvedValue(null);
       prisma.dailyPuzzle.findMany.mockResolvedValue([]);
       prisma.puzzle.count.mockResolvedValue(5);
@@ -87,7 +87,7 @@ describe('DailyPuzzleService', () => {
       expect(prisma.puzzle.count).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
-            rating: { gte: 1200, lte: 2000 },
+            rating: { gte: 2000 },
           }),
         }),
       );
