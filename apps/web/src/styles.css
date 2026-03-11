@@ -595,8 +595,20 @@ input:focus {
   color: #a0a0c0;
 }
 
-.custom-tc-fields input {
+.custom-tc-fields input[type="number"] {
   width: 100%;
+  -webkit-appearance: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+  text-align: center;
+  padding: 8px 6px;
+  font-size: 16px;
+}
+
+.custom-tc-fields input[type="number"]::-webkit-inner-spin-button,
+.custom-tc-fields input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 .custom-tc-actions {
