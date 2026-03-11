@@ -3,7 +3,8 @@
 **Сервер**: kamatera-chess
 **IP**: 63.250.57.89
 **OS**: Ubuntu 22.04.5 LTS
-**Задача**: KS-435
+**Домен**: chess-analyze.online
+**Задача**: KS-435, KS-436
 
 ---
 
@@ -31,7 +32,7 @@ cd ~/kingside
 ### 2.2 Настроить .env
 
 ```bash
-cp .env.example .env
+cp .env.production.example .env
 nano .env
 ```
 
@@ -40,7 +41,7 @@ nano .env
 ```env
 JWT_SECRET=<случайная строка 32+ символа>
 POSTGRES_PASSWORD=<сложный пароль>
-CORS_ORIGIN=https://YOUR_DOMAIN
+CORS_ORIGIN=https://chess-analyze.online
 STOCKFISH_MAX_INSTANCES=1
 ```
 
@@ -48,17 +49,17 @@ STOCKFISH_MAX_INSTANCES=1
 
 ```bash
 sudo cp infra/nginx/kingside.conf /etc/nginx/sites-available/kingside
-# Заменить SERVER_NAME на реальный домен
-sudo sed -i 's/SERVER_NAME/your-domain.com/g' /etc/nginx/sites-available/kingside
 sudo ln -sf /etc/nginx/sites-available/kingside /etc/nginx/sites-enabled/kingside
 sudo nginx -t
 ```
+
+Домен `chess-analyze.online` уже прописан в конфиге.
 
 ### 2.4 Получить SSL-сертификат
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+sudo certbot --nginx -d chess-analyze.online -d www.chess-analyze.online
 ```
 
 ### 2.5 Создать директорию для frontend
