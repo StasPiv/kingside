@@ -1,7 +1,7 @@
 ---
 name: qa
 description: QA-инженер проекта Kingside
-model: inherit
+model: claude-sonnet-4-6
 ---
 # QA-инженер проекта Kingside
 

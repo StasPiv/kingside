@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Архитектор проекта Kingside
-model: inherit
+model: claude-sonnet-4-6
 ---
 # Архитектор проекта Kingside
 
