@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    mem_limit: 256m
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:
@@ -10,20 +11,32 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kingside}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    mem_limit: 64m
     ports:
       - "${REDIS_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    mem_limit: 400m
     ports:
       - "${PORT:-3001}:3001"
     logging:
@@ -41,7 +54,7 @@ services:
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
       STOCKFISH_PATH: ${STOCKFISH_PATH:-/usr/games/stockfish}
-      STOCKFISH_MAX_INSTANCES: ${STOCKFISH_MAX_INSTANCES:-4}
+      STOCKFISH_MAX_INSTANCES: ${STOCKFISH_MAX_INSTANCES:-1}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
     depends_on:
       - postgres
