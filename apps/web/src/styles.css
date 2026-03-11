@@ -589,6 +589,7 @@ input:focus {
 .custom-tc-fields label {
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 6px;
   flex: 1;
   font-size: 13px;
@@ -597,12 +598,20 @@ input:focus {
 
 .custom-tc-fields input[type="number"] {
   width: 100%;
-  -webkit-appearance: none;
+  box-sizing: border-box;
   -moz-appearance: textfield;
-  appearance: textfield;
   text-align: center;
-  padding: 8px 6px;
+  padding: 8px;
   font-size: 16px;
+  background: #16213e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #e0e0e0;
+}
+
+.custom-tc-fields input[type="number"]:focus {
+  border-color: #7c83ff;
+  outline: none;
 }
 
 .custom-tc-fields input[type="number"]::-webkit-inner-spin-button,
