@@ -122,6 +122,7 @@ export function LobbyPage() {
   const [botColor, setBotColor] = useState<PieceColor>('random');
   const [botTC, setBotTC] = useState<TimeControlCategory>('blitz');
   const [startingBot, setStartingBot] = useState(false);
+  const [showBotTCModal, setShowBotTCModal] = useState(false);
 
   useEffect(() => {
     const onMatchFound = (data: { gameId: string; color: 'white' | 'black' }) => {
@@ -474,35 +475,25 @@ export function LobbyPage() {
       <div className="bot-option">
         <label>{t('lobby.color')}</label>
         <div className="color-picker">
-          {(['white', 'black', 'random'] as PieceColor[]).map((c) => (
-            <button
-              key={c}
-              className={`color-btn ${botColor === c ? 'active' : ''}`}
-              onClick={() => setBotColor(c)}
-            >
-              {t(`lobby.color_${c}`)}
-            </button>
-          ))}
+          {(['white', 'black', 'random'] as PieceColor[]).map((c) => {
+            const icon = c === 'white' ? '♔' : c === 'black' ? '♚' : '⚄';
+            return (
+              <button
+                key={c}
+                className={`color-btn color-btn--icon color-btn--${c} ${botColor === c ? 'active' : ''}`}
+                onClick={() => setBotColor(c)}
+                title={t(`lobby.color_${c}`)}
+                aria-label={t(`lobby.color_${c}`)}
+              >
+                {icon}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="bot-option">
-        <label>{t('lobby.timeControl')}</label>
-        <div className="time-controls">
-          {CATEGORIES.map((key) => (
-            <button
-              key={key}
-              className={`tc-btn ${botTC === key ? 'active' : ''}`}
-              onClick={() => setBotTC(key)}
-            >
-              {t(TC_LABEL_KEYS[key])}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <button className="play-btn" onClick={handlePlayBot} disabled={startingBot}>
-        {startingBot ? t('lobby.startingBot') : t('lobby.playBot')}
+      <button className="play-btn" onClick={() => setShowBotTCModal(true)} disabled={startingBot}>
+        {t('lobby.playBot')}
       </button>
     </div>
   );
@@ -638,6 +629,32 @@ export function LobbyPage() {
           {recentGamesWidget}
         </div>
       </div>
+
+      {showBotTCModal && (
+        <div className="bot-tc-modal-overlay" onClick={() => setShowBotTCModal(false)}>
+          <div className="bot-tc-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 className="bot-tc-modal__title">{t('lobby.timeControl')}</h3>
+            <div className="time-controls">
+              {CATEGORIES.map((key) => (
+                <button
+                  key={key}
+                  className={`tc-btn ${botTC === key ? 'active' : ''}`}
+                  onClick={() => setBotTC(key)}
+                >
+                  {t(TC_LABEL_KEYS[key])}
+                </button>
+              ))}
+            </div>
+            <button
+              className="play-btn"
+              onClick={() => { setShowBotTCModal(false); handlePlayBot(); }}
+              disabled={startingBot}
+            >
+              {startingBot ? t('lobby.startingBot') : t('lobby.playBot')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

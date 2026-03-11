@@ -259,7 +259,7 @@ input:focus {
 /* Lobby */
 .lobby-page {
   text-align: center;
-  padding-top: 40px;
+  padding-top: 24px;
   max-width: 1200px;
   margin: 0 auto;
 }
@@ -460,12 +460,12 @@ input:focus {
 .lobby-panel {
   background: #16213e;
   border-radius: 16px;
-  padding: 32px 24px;
+  padding: 20px 16px;
 }
 
 .lobby-panel__title {
-  margin-bottom: 24px;
-  font-size: 20px;
+  margin-bottom: 16px;
+  font-size: 18px;
 }
 
 /* Desktop: hide mode tabs, show both columns */
@@ -493,16 +493,16 @@ input:focus {
 
 .time-controls {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   justify-content: center;
-  margin-bottom: 24px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
 .tc-btn {
   background: #16213e;
   color: #a0a0c0;
-  padding: 12px 20px;
+  padding: 8px 14px;
   border: 2px solid transparent;
 }
 
@@ -732,7 +732,7 @@ input:focus {
 /* Bot section (now inside lobby-panel) */
 
 .bot-option {
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .bot-option label {
@@ -763,7 +763,7 @@ input:focus {
 
 .color-picker {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   justify-content: center;
 }
 
@@ -777,6 +777,60 @@ input:focus {
 .color-btn.active {
   border-color: #7c83ff;
   color: #fff;
+}
+
+.color-btn--icon {
+  width: 52px;
+  height: 52px;
+  padding: 0;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+.color-btn--white {
+  background: #2a2a4a;
+  color: #fff;
+}
+
+.color-btn--black {
+  background: #0d0d1a;
+  color: #c0c0d0;
+}
+
+.color-btn--random {
+  background: linear-gradient(135deg, #2a2a4a 50%, #0d0d1a 50%);
+  color: #a0a0c0;
+}
+
+/* Bot time control modal */
+.bot-tc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.bot-tc-modal {
+  background: #16213e;
+  border-radius: 16px;
+  padding: 28px 24px;
+  min-width: 280px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+}
+
+.bot-tc-modal__title {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: #e0e0e0;
 }
 
 /* Game page */
