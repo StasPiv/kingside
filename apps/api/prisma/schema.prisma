@@ -173,8 +173,9 @@ model Puzzle {
   gameUrl     String @map("game_url")
   openingTags String @default("") @map("opening_tags")
 
-  attempts     PuzzleAttempt[]
-  dailyPuzzles DailyPuzzle[]
+  attempts            PuzzleAttempt[]
+  dailyPuzzles        DailyPuzzle[]
+  rushSessionPuzzles  PuzzleRushSessionPuzzle[]
 
   @@index([rating])
   @@index([themes])
@@ -207,13 +208,28 @@ model PuzzleRushScore {
   timeMode  String   @map("time_mode")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user User @relation(fields: [userId], references: [id])
+  user           User                    @relation(fields: [userId], references: [id])
+  sessionPuzzles PuzzleRushSessionPuzzle[]
 
   @@index([userId])
   @@index([score])
   @@index([timeMode, score])
   @@index([userId, timeMode])
   @@map("puzzle_rush_scores")
+}
+
+model PuzzleRushSessionPuzzle {
+  id       String  @id @default(uuid()) @db.Uuid
+  scoreId  String  @map("score_id") @db.Uuid
+  puzzleId String  @map("puzzle_id")
+  solved   Boolean
+  position Int
+
+  score  PuzzleRushScore @relation(fields: [scoreId], references: [id])
+  puzzle Puzzle          @relation(fields: [puzzleId], references: [id])
+
+  @@index([scoreId])
+  @@map("puzzle_rush_session_puzzles")
 }
 
 model DailyPuzzle {

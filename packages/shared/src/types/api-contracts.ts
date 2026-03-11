@@ -238,6 +238,34 @@ export type UserPuzzleRushStatsResponse = {
   totalSessions: number;
 };
 
+// ─── Puzzle Rush: session review ─────────────────────────────────────
+
+export type PuzzleRushReviewPuzzle = {
+  puzzleId: string;
+  fen: string;
+  moves: string;
+  rating: number;
+  solved: boolean;
+  position: number;
+};
+
+/** GET /api/puzzle-rush/review/:scoreId */
+export type PuzzleRushReviewResponse = {
+  scoreId: string;
+  score: number;
+  timeMode: string;
+  createdAt: string;
+  puzzles: PuzzleRushReviewPuzzle[];
+};
+
+/** GET /api/puzzle-rush/review/:scoreId/puzzle/:puzzleId/best-move */
+export type PuzzleRushBestMoveResponse = {
+  puzzleId: string;
+  fen: string;
+  setupMove: string;
+  bestMove: string;
+};
+
 // ─── WebSocket: /game namespace ─────────────────────────────────────
 
 /** Client → Server */

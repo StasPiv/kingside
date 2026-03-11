@@ -2,6 +2,12 @@ import { Injectable, Logger, NotFoundException, BadRequestException, InternalSer
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
+interface PuzzleRushSessionPuzzleEntry {
+  puzzleId: string;
+  solved: boolean;
+  position: number;
+}
+
 interface PuzzleRushSession {
   userId: string;
   timeMode: string;
@@ -13,6 +19,7 @@ interface PuzzleRushSession {
   startedAt: number;
   durationMs: number;
   solvedPuzzleIds: string[];
+  sessionPuzzles: PuzzleRushSessionPuzzleEntry[];
 }
 
 const MAX_LIVES = 3;
@@ -114,6 +121,7 @@ export class PuzzleRushService {
       startedAt: Date.now(),
       durationMs,
       solvedPuzzleIds: [],
+      sessionPuzzles: [],
     };
 
     try {
@@ -229,6 +237,11 @@ export class PuzzleRushService {
       // Puzzle fully solved
       session.score++;
       session.solvedPuzzleIds.push(session.currentPuzzleId);
+      session.sessionPuzzles.push({
+        puzzleId: session.currentPuzzleId,
+        solved: true,
+        position: session.sessionPuzzles.length,
+      });
 
       // Record attempt
       await this.recordAttempt(userId, session.currentPuzzleId, true);
@@ -256,6 +269,11 @@ export class PuzzleRushService {
 
     // Wrong answer
     session.lives--;
+    session.sessionPuzzles.push({
+      puzzleId: session.currentPuzzleId,
+      solved: false,
+      position: session.sessionPuzzles.length,
+    });
     await this.recordAttempt(userId, session.currentPuzzleId, false);
 
     if (session.lives <= 0) {
@@ -401,16 +419,30 @@ export class PuzzleRushService {
     lives: number;
     finished: boolean;
     nextPuzzle: null;
+    scoreId?: string;
   }> {
-    // Save score to DB
+    // Save score and session puzzles to DB
+    let scoreId: string | undefined;
     try {
-      await this.prisma.puzzleRushScore.create({
+      const scoreRecord = await this.prisma.puzzleRushScore.create({
         data: {
           userId: session.userId,
           score: session.score,
           timeMode: session.timeMode,
         },
       });
+      scoreId = scoreRecord.id;
+
+      if (session.sessionPuzzles.length > 0) {
+        await this.prisma.puzzleRushSessionPuzzle.createMany({
+          data: session.sessionPuzzles.map((p) => ({
+            scoreId: scoreRecord.id,
+            puzzleId: p.puzzleId,
+            solved: p.solved,
+            position: p.position,
+          })),
+        });
+      }
     } catch (error: any) {
       this.logger.error(`DB error saving score for user ${session.userId}`, error?.stack || error);
       throw new InternalServerErrorException({
@@ -437,6 +469,115 @@ export class PuzzleRushService {
       lives: session.lives,
       finished: true,
       nextPuzzle: null,
+      scoreId,
+    };
+  }
+
+  async getSessionReview(scoreId: string, userId: string): Promise<{
+    scoreId: string;
+    score: number;
+    timeMode: string;
+    createdAt: Date;
+    puzzles: {
+      puzzleId: string;
+      fen: string;
+      moves: string;
+      rating: number;
+      solved: boolean;
+      position: number;
+    }[];
+  }> {
+    const scoreRecord = await this.prisma.puzzleRushScore.findUnique({
+      where: { id: scoreId },
+      include: {
+        sessionPuzzles: {
+          include: { puzzle: true },
+          orderBy: { position: 'asc' },
+        },
+      },
+    });
+
+    if (!scoreRecord) {
+      throw new NotFoundException({
+        message: 'Session score not found',
+        errorCode: 'SCORE_NOT_FOUND',
+      });
+    }
+
+    if (scoreRecord.userId !== userId) {
+      throw new NotFoundException({
+        message: 'Session score not found',
+        errorCode: 'SCORE_NOT_FOUND',
+      });
+    }
+
+    return {
+      scoreId: scoreRecord.id,
+      score: scoreRecord.score,
+      timeMode: scoreRecord.timeMode,
+      createdAt: scoreRecord.createdAt,
+      puzzles: scoreRecord.sessionPuzzles.map((sp) => ({
+        puzzleId: sp.puzzleId,
+        fen: sp.puzzle.fen,
+        moves: sp.puzzle.moves,
+        rating: sp.puzzle.rating,
+        solved: sp.solved,
+        position: sp.position,
+      })),
+    };
+  }
+
+  async getSessionPuzzleBestMove(
+    scoreId: string,
+    puzzleId: string,
+    userId: string,
+  ): Promise<{
+    puzzleId: string;
+    fen: string;
+    setupMove: string;
+    bestMove: string;
+  }> {
+    const scoreRecord = await this.prisma.puzzleRushScore.findUnique({
+      where: { id: scoreId },
+    });
+
+    if (!scoreRecord || scoreRecord.userId !== userId) {
+      throw new NotFoundException({
+        message: 'Session score not found',
+        errorCode: 'SCORE_NOT_FOUND',
+      });
+    }
+
+    const sessionPuzzle = await this.prisma.puzzleRushSessionPuzzle.findFirst({
+      where: { scoreId, puzzleId },
+      include: { puzzle: true },
+    });
+
+    if (!sessionPuzzle) {
+      throw new NotFoundException({
+        message: 'Puzzle not found in session',
+        errorCode: 'PUZZLE_NOT_IN_SESSION',
+      });
+    }
+
+    const moves = sessionPuzzle.puzzle.moves.split(' ');
+    // moves[0] is the setup move (opponent's last move before puzzle starts)
+    // moves[1] is the best (first) move of the solution
+    const setupMove = moves[0];
+    const bestMove = moves[1];
+
+    if (!bestMove) {
+      throw new InternalServerErrorException({
+        message: 'Puzzle has no solution moves',
+        errorCode: 'INTERNAL_ERROR',
+      });
+    }
+
+    return {
+      puzzleId,
+      fen: sessionPuzzle.puzzle.fen,
+      setupMove,
+      bestMove,
     };
   }
 

@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Param,
   Post,
   Query,
   Request,
@@ -55,5 +56,21 @@ export class PuzzleRushController {
     @Query('timeMode') timeMode: string = '3',
   ) {
     return this.puzzleRushService.getUserBest(req.user.id, timeMode);
+  }
+
+  @Get('review/:scoreId')
+  @UseGuards(JwtAuthGuard)
+  getSessionReview(@Request() req: any, @Param('scoreId') scoreId: string) {
+    return this.puzzleRushService.getSessionReview(scoreId, req.user.id);
+  }
+
+  @Get('review/:scoreId/puzzle/:puzzleId/best-move')
+  @UseGuards(JwtAuthGuard)
+  getSessionPuzzleBestMove(
+    @Request() req: any,
+    @Param('scoreId') scoreId: string,
+    @Param('puzzleId') puzzleId: string,
+  ) {
+    return this.puzzleRushService.getSessionPuzzleBestMove(scoreId, puzzleId, req.user.id);
   }
 }
