@@ -148,7 +148,30 @@ docker compose down
 
 ---
 
-## 8. Риски
+## 8. Обновление только nginx конфига (hotfix)
+
+Если изменился только `infra/nginx/kingside.conf`, без полного редеплоя:
+
+```bash
+cd ~/kingside
+bash scripts/nginx-hotfix.sh
+```
+
+Скрипт выполняет:
+1. `git pull origin main`
+2. `sudo cp infra/nginx/kingside.conf /etc/nginx/sites-available/kingside`
+3. `sudo nginx -t && sudo systemctl reload nginx`
+4. Проверку `POST /api/auth/register`
+
+### Исправление KS-438 (2026-03-11)
+
+Проблема: trailing slash в `proxy_pass http://localhost:3001/` срезал `/api/` префикс — backend получал `/auth/register` вместо `/api/auth/register`.
+
+Исправление (коммит `014b24b`): `proxy_pass http://localhost:3001;` — без trailing slash.
+
+---
+
+## 9. Риски
 
 | Риск | Уровень | Митигация |
 |------|---------|-----------|
