@@ -106,7 +106,30 @@
     "solve": "Solve",
     "allGames": "All games",
     "leaderboard": "Leaderboard",
-    "min": "min"
+    "min": "min",
+    "teasers": {
+      "human": {
+        "title": "Play Online",
+        "description": "Challenge real players from around the world. Choose your time control and find a match.",
+        "cta": "Play Now"
+      },
+      "bot": {
+        "title": "Play vs Bot",
+        "description": "Practice against the computer. Adjust the difficulty from beginner to grandmaster level.",
+        "cta": "Play vs Bot"
+      },
+      "daily": {
+        "title": "Daily Puzzle",
+        "description": "Solve today's hand-picked chess puzzle. A new challenge awaits you every day.",
+        "cta": "Solve Puzzle"
+      },
+      "rush": {
+        "title": "Puzzle Rush",
+        "description": "Solve as many puzzles as you can before time runs out. Can you beat your personal record?",
+        "cta": "Start Rush",
+        "modalDesc": "Choose your time limit and start solving puzzles as fast as you can!"
+      }
+    }
   },
   "common": {
     "loading": "Loading..."

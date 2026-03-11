@@ -264,7 +264,128 @@ input:focus {
   margin: 0 auto;
 }
 
-/* Two-column layout: PlayPanel + SidePanel */
+/* Teasers grid */
+.lobby-teasers {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  margin-top: 32px;
+}
+
+@media (min-width: 900px) {
+  .lobby-teasers {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .lobby-teasers {
+    grid-template-columns: 1fr;
+  }
+}
+
+.lobby-teaser {
+  background: #16213e;
+  border-radius: 16px;
+  padding: 28px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.lobby-teaser:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.lobby-teaser__image {
+  font-size: 56px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.lobby-teaser__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e0e0e0;
+  margin: 0;
+}
+
+.lobby-teaser__desc {
+  font-size: 14px;
+  color: #a0a0c0;
+  line-height: 1.5;
+  flex: 1;
+  margin: 0;
+}
+
+.lobby-teaser__btn {
+  margin-top: 8px;
+  padding: 10px 24px;
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  width: 100%;
+}
+
+.lobby-teaser__btn:hover {
+  background: #6366f1;
+}
+
+/* Modal overlay */
+.lobby-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.lobby-modal {
+  background: #0f172a;
+  border-radius: 16px;
+  padding: 32px 24px 24px;
+  position: relative;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.lobby-modal__close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: transparent;
+  border: none;
+  color: #a0a0c0;
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
+.lobby-modal__close:hover {
+  color: #fff;
+}
+
+.lobby-modal__desc {
+  color: #a0a0c0;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+/* Two-column layout: PlayPanel + SidePanel (kept for reference) */
 .lobby-layout {
   display: flex;
   flex-direction: column;

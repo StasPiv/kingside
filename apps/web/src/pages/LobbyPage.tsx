@@ -45,6 +45,7 @@ function presetKey(minutes: number, increment: number): string {
 }
 
 type LobbyMode = 'online' | 'bot';
+type ModalId = 'human' | 'bot' | 'daily' | 'rush' | null;
 
 type PuzzleRushStats = {
   best3: number;
@@ -82,11 +83,11 @@ export function LobbyPage() {
   const [ratingMinus, setRatingMinus] = useState(200);
   const [ratingPlus, setRatingPlus] = useState(200);
 
-  // Widget data
   const [dailyPuzzle, setDailyPuzzle] = useState<DailyPuzzleResponse | null>(null);
   const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
-  const [recentGames, setRecentGames] = useState<GameRecord[]>([]);
   const [widgetsLoading, setWidgetsLoading] = useState(true);
+
+  const [activeModal, setActiveModal] = useState<ModalId>(null);
 
   const loadSavedControls = useCallback(async () => {
     if (!user) return;
@@ -110,11 +111,9 @@ export function LobbyPage() {
     Promise.all([
       api.get<DailyPuzzleResponse>('/api/puzzles/daily').catch(() => null),
       api.get<PuzzleRushStats>(`/api/users/${user.id}/puzzle-rush-stats`).catch(() => null),
-      api.get<{ data: GameRecord[] }>(`/api/users/${user.id}/games?take=3`).catch(() => null),
-    ]).then(([daily, rush, games]) => {
+    ]).then(([daily, rush]) => {
       setDailyPuzzle(daily);
       setRushStats(rush);
-      setRecentGames(games?.data ?? []);
     }).finally(() => setWidgetsLoading(false));
   }, [user]);
 
@@ -224,11 +223,13 @@ export function LobbyPage() {
       ? []
       : PRESETS.filter((p) => p.category === activeTab);
 
-  const onlinePanel = (
-    <div className="lobby-panel lobby-panel--online">
-      <h2 className="lobby-panel__title">{t('lobby.play')}</h2>
+  const closeModal = () => setActiveModal(null);
 
-      <div className="tc-tabs">
+  const onlineModalContent = (
+    <div className="lobby-panel lobby-panel--online">
+      <h2 className="lobby-panel__title">{t('lobby.teasers.human.title')}</h2>
+
+      <div className="lobby-mode-tabs lobby-mode-tabs--modal">
         {CATEGORIES.map((cat) => (
           <button
             key={cat}
@@ -276,25 +277,23 @@ export function LobbyPage() {
                   const mins = Math.floor(ctrl.initialSec / 60);
                   const inc = ctrl.incrementSec;
                   return (
-                  <div key={ctrl.id} className="saved-control-item">
-                    <button
-                      className={`tc-btn ${isSelected(mins, inc) ? 'active' : ''}`}
-                      onClick={() => handleSelectSaved(ctrl)}
-                      disabled={searching}
-                    >
-                      {inc > 0
-                        ? `${mins} | ${inc}`
-                        : `${mins} min`}
-                    </button>
-                    <button
-                      className="delete-btn"
-                      onClick={() => handleDeleteSaved(ctrl.id)}
-                      disabled={searching}
-                      title="Delete"
-                    >
-                      x
-                    </button>
-                  </div>
+                    <div key={ctrl.id} className="saved-control-item">
+                      <button
+                        className={`tc-btn ${isSelected(mins, inc) ? 'active' : ''}`}
+                        onClick={() => handleSelectSaved(ctrl)}
+                        disabled={searching}
+                      >
+                        {inc > 0 ? `${mins} | ${inc}` : `${mins} min`}
+                      </button>
+                      <button
+                        className="delete-btn"
+                        onClick={() => handleDeleteSaved(ctrl.id)}
+                        disabled={searching}
+                        title="Delete"
+                      >
+                        x
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -454,9 +453,9 @@ export function LobbyPage() {
     </div>
   );
 
-  const botPanel = (
+  const botModalContent = (
     <div className="lobby-panel lobby-panel--bot">
-      <h2 className="lobby-panel__title">{t('lobby.playBot')}</h2>
+      <h2 className="lobby-panel__title">{t('lobby.teasers.bot.title')}</h2>
 
       <div className="bot-option">
         <label>{t('lobby.difficulty')}</label>
@@ -498,9 +497,9 @@ export function LobbyPage() {
     </div>
   );
 
-  const dailyPuzzleWidget = (
-    <div className="lobby-widget">
-      <h3 className="lobby-widget__title">🧩 {t('lobby.dailyPuzzle')}</h3>
+  const dailyModalContent = (
+    <div className="lobby-panel">
+      <h2 className="lobby-panel__title">🧩 {t('lobby.teasers.daily.title')}</h2>
       {widgetsLoading ? (
         <p className="lobby-widget__loading">{t('common.loading')}</p>
       ) : dailyPuzzle ? (
@@ -516,16 +515,16 @@ export function LobbyPage() {
         </div>
       ) : null}
       <div className="lobby-widget__actions">
-        <Link to="/daily" className="lobby-widget__btn">
+        <Link to="/daily" className="lobby-widget__btn" onClick={closeModal}>
           {t('lobby.solve')} →
         </Link>
       </div>
     </div>
   );
 
-  const puzzleRushWidget = (
-    <div className="lobby-widget">
-      <h3 className="lobby-widget__title">⚡ {t('lobby.puzzleRush')}</h3>
+  const rushModalContent = (
+    <div className="lobby-panel">
+      <h2 className="lobby-panel__title">⚡ {t('lobby.teasers.rush.title')}</h2>
       {widgetsLoading ? (
         <p className="lobby-widget__loading">{t('common.loading')}</p>
       ) : rushStats && (rushStats.best3 > 0 || rushStats.best5 > 0) ? (
@@ -538,50 +537,55 @@ export function LobbyPage() {
           </p>
         </div>
       ) : null}
+      <p className="lobby-modal__desc">{t('lobby.teasers.rush.modalDesc')}</p>
       <div className="lobby-widget__actions">
-        <Link to="/puzzle-rush" className="lobby-widget__btn">
+        <Link to="/puzzle-rush" className="lobby-widget__btn" onClick={closeModal}>
           {t('lobby.play')} →
         </Link>
-        <Link to="/puzzle-rush/leaderboard" className="lobby-widget__btn lobby-widget__btn--secondary">
+        <Link to="/puzzle-rush/leaderboard" className="lobby-widget__btn lobby-widget__btn--secondary" onClick={closeModal}>
           {t('lobby.leaderboard')} →
         </Link>
       </div>
     </div>
   );
 
-  const recentGamesWidget = (
-    <div className="lobby-widget">
-      <h3 className="lobby-widget__title">📋 {t('lobby.recentGames')}</h3>
-      {widgetsLoading ? (
-        <p className="lobby-widget__loading">{t('common.loading')}</p>
-      ) : recentGames.length > 0 ? (
-        <div className="lobby-widget__content">
-          {recentGames.map((game) => {
-            const icon = game.playerResult === 'win' ? '✅' : game.playerResult === 'loss' ? '❌' : '➖';
-            const date = new Date(game.createdAt).toLocaleDateString();
-            return (
-              <Link key={game.id} to={`/game/${game.id}/review`} className="lobby-widget__game-row">
-                <span className="lobby-widget__game-icon">{icon}</span>
-                <span className="lobby-widget__game-opponent">
-                  vs {game.opponent.username}
-                  {game.opponent.ratingBefore != null ? ` (${game.opponent.ratingBefore})` : ''}
-                </span>
-                <span className="lobby-widget__game-meta">
-                  {game.timeControlType ?? game.timeControl}
-                </span>
-                <span className="lobby-widget__game-date">{date}</span>
-              </Link>
-            );
-          })}
-        </div>
-      ) : null}
-      <div className="lobby-widget__actions">
-        <Link to="/profile" className="lobby-widget__btn">
-          {t('lobby.allGames')} →
-        </Link>
-      </div>
-    </div>
-  );
+  const teasers = [
+    {
+      id: 'human' as const,
+      icon: '♟',
+      titleKey: 'lobby.teasers.human.title',
+      descKey: 'lobby.teasers.human.description',
+      ctaKey: 'lobby.teasers.human.cta',
+    },
+    {
+      id: 'bot' as const,
+      icon: '🤖',
+      titleKey: 'lobby.teasers.bot.title',
+      descKey: 'lobby.teasers.bot.description',
+      ctaKey: 'lobby.teasers.bot.cta',
+    },
+    {
+      id: 'daily' as const,
+      icon: '🧩',
+      titleKey: 'lobby.teasers.daily.title',
+      descKey: 'lobby.teasers.daily.description',
+      ctaKey: 'lobby.teasers.daily.cta',
+    },
+    {
+      id: 'rush' as const,
+      icon: '⚡',
+      titleKey: 'lobby.teasers.rush.title',
+      descKey: 'lobby.teasers.rush.description',
+      ctaKey: 'lobby.teasers.rush.cta',
+    },
+  ];
+
+  const modalContentMap: Record<NonNullable<ModalId>, React.ReactNode> = {
+    human: onlineModalContent,
+    bot: botModalContent,
+    daily: dailyModalContent,
+    rush: rushModalContent,
+  };
 
   return (
     <div className="lobby-page">
@@ -592,43 +596,32 @@ export function LobbyPage() {
         </p>
       )}
 
-      <div className="lobby-layout">
-        {/* Left: Play Panel */}
-        <div className="lobby-play-area">
-          {/* Mobile tabs */}
-          <div className="lobby-mode-tabs">
+      <div className="lobby-teasers">
+        {teasers.map((teaser) => (
+          <div key={teaser.id} className="lobby-teaser">
+            <div className="lobby-teaser__image">{teaser.icon}</div>
+            <h2 className="lobby-teaser__title">{t(teaser.titleKey)}</h2>
+            <p className="lobby-teaser__desc">{t(teaser.descKey)}</p>
             <button
-              className={`lobby-mode-tab ${lobbyMode === 'online' ? 'active' : ''}`}
-              onClick={() => setLobbyMode('online')}
+              className="lobby-teaser__btn"
+              onClick={() => setActiveModal(teaser.id)}
             >
-              {t('lobby.play')}
-            </button>
-            <button
-              className={`lobby-mode-tab ${lobbyMode === 'bot' ? 'active' : ''}`}
-              onClick={() => setLobbyMode('bot')}
-            >
-              {t('lobby.playBot')}
+              {t(teaser.ctaKey)}
             </button>
           </div>
-
-          {/* Desktop: two columns, Mobile: active tab content */}
-          <div className="lobby-columns">
-            <div className={`lobby-column ${lobbyMode === 'online' ? 'lobby-column--active' : ''}`}>
-              {onlinePanel}
-            </div>
-            <div className={`lobby-column ${lobbyMode === 'bot' ? 'lobby-column--active' : ''}`}>
-              {botPanel}
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Side Panel with widgets */}
-        <div className="lobby-side-panel">
-          {dailyPuzzleWidget}
-          {puzzleRushWidget}
-          {recentGamesWidget}
-        </div>
+        ))}
       </div>
+
+      {activeModal && (
+        <div className="lobby-modal-overlay" onClick={closeModal}>
+          <div className="lobby-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="lobby-modal__close" onClick={closeModal} aria-label="Close">
+              ×
+            </button>
+            {modalContentMap[activeModal]}
+          </div>
+        </div>
+      )}
 
       {showBotTCModal && (
         <div className="bot-tc-modal-overlay" onClick={() => setShowBotTCModal(false)}>
