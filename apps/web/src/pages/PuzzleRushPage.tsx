@@ -24,7 +24,7 @@ export function PuzzleRushPage() {
   // Screen state
   const [screen, setScreen] = useState<RushScreen>('start');
   const [timeLimit, setTimeLimit] = useState<TimeLimitOption>(180);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [scoreId, setScoreId] = useState<string | null>(null);
 
   // Session state
   const [score, setScore] = useState(0);
@@ -69,8 +69,9 @@ export function PuzzleRushPage() {
     }
   }, []);
 
-  const endGame = useCallback(() => {
+  const endGame = useCallback((id?: string) => {
     stopTimer();
+    if (id) setScoreId(id);
     setScreen('result');
   }, [stopTimer]);
 
@@ -89,6 +90,15 @@ export function PuzzleRushPage() {
     return () => stopTimer();
   }, [screen, endGame, stopTimer]);
 
+  // When the session ends via client-side timer expiry (no scoreId from solveRush),
+  // call endRushSession to save the session and obtain the scoreId for review.
+  useEffect(() => {
+    if (screen !== 'result' || scoreId !== null) return;
+    puzzleApi.endRushSession()
+      .then((data) => { if (data?.scoreId) setScoreId(data.scoreId); })
+      .catch(() => { /* session may already be finished on the server */ });
+  }, [screen, scoreId]);
+
   const handleStart = async () => {
     setLoading(true);
     setError('');
@@ -97,7 +107,7 @@ export function PuzzleRushPage() {
       setScore(0);
       setLives(MAX_LIVES);
       setTimeLeft(timeLimit);
-      if (data.sessionId) setSessionId(data.sessionId);
+      setScoreId(null);
 
       const rawMoves = data.puzzle.moves;
       if (!rawMoves) {
@@ -162,7 +172,7 @@ export function PuzzleRushPage() {
           setLives(response.lives);
 
           if (response.finished) {
-            endGame();
+            endGame(response.scoreId);
             return;
           }
 
@@ -247,7 +257,7 @@ export function PuzzleRushPage() {
           setLives(response.lives);
 
           if (response.finished) {
-            endGame();
+            endGame(response.scoreId);
             return;
           }
 
@@ -423,10 +433,10 @@ export function PuzzleRushPage() {
             {t('puzzle.rush.playAgain')}
           </button>
 
-          {sessionId && (
+          {scoreId && (
             <button
               className="rush-review-btn"
-              onClick={() => navigate(`/puzzle-rush/review/${sessionId}`)}
+              onClick={() => navigate(`/puzzle-rush/review/${scoreId}`)}
             >
               {t('puzzleRush.reviewMistakes')}
             </button>

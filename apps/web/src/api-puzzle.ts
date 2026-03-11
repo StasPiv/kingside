@@ -49,6 +49,7 @@ export type PuzzleRushSolveResponse = {
   finished: boolean;
   nextPuzzle: { fen: string; rating: number; setupMove?: string } | null;
   expectedMove?: string;
+  scoreId?: string;
 };
 
 export type PuzzleRushLeaderboardParams = {
@@ -91,7 +92,7 @@ export const puzzleApi = {
 
   /** End current puzzle rush session */
   endRushSession: () =>
-    api.delete('/api/puzzle-rush/session'),
+    api.delete<{ score: number; timeMode: string; isHighScore: boolean; scoreId?: string }>('/api/puzzle-rush/session'),
 
   /** Get puzzle rush leaderboard */
   getRushLeaderboard: (params?: PuzzleRushLeaderboardParams) => {

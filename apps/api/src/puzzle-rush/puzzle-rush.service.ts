@@ -307,6 +307,7 @@ export class PuzzleRushService {
     score: number;
     timeMode: string;
     isHighScore: boolean;
+    scoreId?: string;
   }> {
     const session = await this.loadSession(userId);
     const result = await this.finishSession(session, 'manual');
@@ -314,6 +315,7 @@ export class PuzzleRushService {
       score: result.score,
       timeMode: session.timeMode,
       isHighScore: false, // Will be checked in finishSession
+      scoreId: result.scoreId,
     };
   }
 
