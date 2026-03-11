@@ -8,6 +8,7 @@ build/
 # Environment
 .env
 .env.local
+.mcp.json
 .env.*.local
 
 # Turbo
