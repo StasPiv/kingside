@@ -248,6 +248,9 @@ describe('AuthService', () => {
           ratingClassical: true,
           createdAt: true,
           locale: true,
+          boardTheme: true,
+          pieceSet: true,
+          soundEnabled: true,
         },
       });
     });
