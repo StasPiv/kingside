@@ -60,6 +60,7 @@ echo "  Frontend задеплоен в /var/www/kingside."
 echo "[4/5] Пересборка и перезапуск API на сервере..."
 ssh "$REMOTE_HOST" "cd $REMOTE_DIR && \
     docker compose build --no-cache api && \
+    docker image prune -f && docker builder prune -f && \
     docker compose up -d --force-recreate api && \
     echo 'Ожидание готовности API...' && \
     for i in \$(seq 1 30); do \
