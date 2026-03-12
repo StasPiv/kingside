@@ -61,6 +61,12 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
+  preview: {
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
+  },
   resolve: {
     alias: {
       '@kingside/shared': path.resolve(__dirname, '../../packages/shared/src'),

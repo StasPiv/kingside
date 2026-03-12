@@ -240,7 +240,8 @@
     "start": "Start",
     "off": "Off",
     "engineError": "Engine error",
-    "ready": "Ready"
+    "ready": "Ready",
+    "notSupported": "Not supported"
   },
   "puzzle": {
     "title": "Puzzles",

@@ -213,7 +213,16 @@ export function GameReviewPage() {
     [enginePanelHeight],
   );
 
-  const [analysisEnabled, setAnalysisEnabled] = useState(true);
+  const wasmSupported = typeof WebAssembly !== 'undefined';
+  const [analysisEnabled, setAnalysisEnabled] = useState<boolean>(() => {
+    if (typeof WebAssembly === 'undefined') return false;
+    // On touch devices (mobile) the 113 MB WASM binary often fails to compile —
+    // don't auto-start the engine; the user can still start it manually.
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+      return false;
+    }
+    return true;
+  });
 
   const {
     lines,
@@ -470,41 +479,45 @@ export function GameReviewPage() {
           <div className="stockfish-panel-header">
             <span>
               Stockfish 18{' '}
-              {analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
-                ? `· ${t('analysis.depth')} ${displayedLines[0].depth}`
-                : analysisEnabled && sfState === 'loading'
-                  ? `· ${t('common.loading')}`
-                  : analysisEnabled && sfState === 'error'
-                    ? ` · ${t('analysis.engineError', 'Engine error')}`
-                    : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
-                      ? ` · ${t('analysis.ready', 'Ready')}`
-                      : !analysisEnabled
-                        ? ` · ${t('analysis.off', 'Off')}`
-                        : ''}
+              {!wasmSupported
+                ? ` · ${t('analysis.notSupported', 'Not supported')}`
+                : analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
+                  ? `· ${t('analysis.depth')} ${displayedLines[0].depth}`
+                  : analysisEnabled && sfState === 'loading'
+                    ? `· ${t('common.loading')}`
+                    : analysisEnabled && sfState === 'error'
+                      ? ` · ${t('analysis.engineError', 'Engine error')}`
+                      : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
+                        ? ` · ${t('analysis.ready', 'Ready')}`
+                        : !analysisEnabled
+                          ? ` · ${t('analysis.off', 'Off')}`
+                          : ''}
             </span>
-            <button
-              className="analysis-toggle-btn"
-              onClick={toggleAnalysis}
-              title={
-                analysisEnabled
-                  ? t('analysis.stop', 'Stop analysis')
-                  : t('analysis.start', 'Start analysis')
-              }
-              data-testid="stockfish-toggle"
-              style={{
-                padding: '2px 10px',
-                fontSize: 13,
-                cursor: 'pointer',
-                borderRadius: 4,
-                border: '1px solid #555',
-                background: analysisEnabled ? '#dc2626' : '#16a34a',
-                color: '#fff',
-                marginLeft: 8,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
-            </button>
+            {wasmSupported && (
+              <button
+                className="analysis-toggle-btn"
+                onClick={toggleAnalysis}
+                title={
+                  analysisEnabled
+                    ? t('analysis.stop', 'Stop analysis')
+                    : t('analysis.start', 'Start analysis')
+                }
+                data-testid="stockfish-toggle"
+                style={{
+                  padding: '2px 10px',
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  borderRadius: 4,
+                  border: '1px solid #555',
+                  background: analysisEnabled ? '#dc2626' : '#16a34a',
+                  color: '#fff',
+                  marginLeft: 8,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+              </button>
+            )}
           </div>
           <div className="stockfish-lines">
             {analysisEnabled &&
