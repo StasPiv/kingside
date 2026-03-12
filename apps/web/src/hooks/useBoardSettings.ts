@@ -10,4 +10,5 @@ export type {
   PieceSetId,
   BoardTheme,
   PieceSet,
+  InputMode,
 } from '../context/BoardSettingsContext';

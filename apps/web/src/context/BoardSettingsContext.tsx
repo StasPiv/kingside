@@ -10,6 +10,7 @@ import {
 
 export type BoardThemeId = 'default' | 'green' | 'blue' | 'brown';
 export type PieceSetId = 'standard' | 'cburnett' | 'alpha' | 'merida';
+export type InputMode = 'drag' | 'click';
 
 export interface BoardTheme {
   id: BoardThemeId;
@@ -40,6 +41,7 @@ export const PIECE_SETS: PieceSet[] = [
 const LS_THEME_KEY = 'boardTheme';
 const LS_PIECE_SET_KEY = 'pieceSet';
 const LS_NOTATION_KEY = 'showNotation';
+const LS_INPUT_MODE_KEY = 'inputMode';
 
 function readTheme(): BoardThemeId {
   const stored = localStorage.getItem(LS_THEME_KEY) as BoardThemeId | null;
@@ -57,6 +59,19 @@ function readShowNotation(): boolean {
   const stored = localStorage.getItem(LS_NOTATION_KEY);
   if (stored === null) return true;
   return stored === 'true';
+}
+
+function detectDefaultInputMode(): InputMode {
+  if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
+    return 'click';
+  }
+  return 'drag';
+}
+
+function readInputMode(): InputMode {
+  const stored = localStorage.getItem(LS_INPUT_MODE_KEY) as InputMode | null;
+  if (stored === 'drag' || stored === 'click') return stored;
+  return detectDefaultInputMode();
 }
 
 type PieceRenderer = (props?: {
@@ -95,9 +110,11 @@ interface BoardSettingsContextValue {
   boardTheme: BoardThemeId;
   pieceSet: PieceSetId;
   showNotation: boolean;
+  inputMode: InputMode;
   selectTheme: (id: BoardThemeId) => void;
   selectPieceSet: (id: PieceSetId) => void;
   setShowNotation: (value: boolean) => void;
+  setInputMode: (mode: InputMode) => void;
   currentTheme: BoardTheme;
   customPieces: CustomPieces | undefined;
   darkSquareStyle: React.CSSProperties;
@@ -110,6 +127,7 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const [boardTheme, setBoardTheme] = useState<BoardThemeId>(readTheme);
   const [pieceSet, setPieceSet] = useState<PieceSetId>(readPieceSet);
   const [showNotation, setShowNotationState] = useState<boolean>(readShowNotation);
+  const [inputMode, setInputModeState] = useState<InputMode>(readInputMode);
 
   useEffect(() => {
     document.body.setAttribute('data-board-theme', boardTheme);
@@ -128,6 +146,11 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const setShowNotation = useCallback((value: boolean) => {
     localStorage.setItem(LS_NOTATION_KEY, String(value));
     setShowNotationState(value);
+  }, []);
+
+  const setInputMode = useCallback((mode: InputMode) => {
+    localStorage.setItem(LS_INPUT_MODE_KEY, mode);
+    setInputModeState(mode);
   }, []);
 
   const currentTheme = useMemo(
@@ -155,9 +178,11 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       boardTheme,
       pieceSet,
       showNotation,
+      inputMode,
       selectTheme,
       selectPieceSet,
       setShowNotation,
+      setInputMode,
       currentTheme,
       customPieces,
       darkSquareStyle,
@@ -167,9 +192,11 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       boardTheme,
       pieceSet,
       showNotation,
+      inputMode,
       selectTheme,
       selectPieceSet,
       setShowNotation,
+      setInputMode,
       currentTheme,
       customPieces,
       darkSquareStyle,

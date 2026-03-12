@@ -21,7 +21,6 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { useIsTouchDevice } from '../hooks/useIsTouchDevice';
 import { socket } from '../socket';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
@@ -68,7 +67,6 @@ export function GamePage() {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardAreaRef = useRef<HTMLDivElement>(null);
   const gamePageRef = useRef<HTMLDivElement>(null);
-  const isTouchDevice = useIsTouchDevice();
   const boardWidth = useResponsiveBoardSize();
   const [sidebarWidth, setSidebarWidth] = useState(280);
 
@@ -83,7 +81,7 @@ export function GamePage() {
     return saved !== null ? parseInt(saved, 10) : 200;
   });
   const { playSound, muted, toggleMute } = useSounds();
-  const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
+  const { showNotation, customPieces, darkSquareStyle, lightSquareStyle, inputMode } = useBoardSettings();
   // Stable callback ref used to break the circular dependency between
   // useBoardHighlights (needs onMove) and onDrop (needs clearSelection).
   const onMoveForTouchRef = useRef<((from: Square, to: Square) => boolean) | undefined>(undefined);
@@ -95,7 +93,7 @@ export function GamePage() {
     game,
     playerColor,
     enabled: status === 'active',
-    onMove: isTouchDevice ? onMoveForTouch : undefined,
+    onMove: inputMode === 'click' ? onMoveForTouch : undefined,
   });
 
   useEffect(() => {
@@ -352,8 +350,8 @@ export function GamePage() {
   useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
-    // On touch devices, two-click mode is used instead of drag-and-drop.
-    enabled: status === 'active' && !isTouchDevice,
+    // In click mode, drag-and-drop is disabled.
+    enabled: status === 'active' && inputMode === 'drag',
   });
 
   const stablePosition = useStablePosition(fen);
