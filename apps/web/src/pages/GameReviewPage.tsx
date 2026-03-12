@@ -214,6 +214,8 @@ export function GameReviewPage() {
   );
 
   const wasmSupported = typeof WebAssembly !== 'undefined';
+  const isTouchDevice =
+    typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
   const [analysisEnabled, setAnalysisEnabled] = useState<boolean>(() => {
     if (typeof WebAssembly === 'undefined') return false;
     // On touch devices (mobile) the 113 MB WASM binary often fails to compile —
@@ -223,6 +225,7 @@ export function GameReviewPage() {
     }
     return true;
   });
+  const [engineFailed, setEngineFailed] = useState(false);
 
   const {
     lines,
@@ -294,10 +297,20 @@ export function GameReviewPage() {
     setAnalysisEnabled((prev) => {
       if (prev) {
         lastLinesRef.current = [];
+      } else {
+        setEngineFailed(false);
       }
       return !prev;
     });
   }, []);
+
+  // When engine errors out, auto-disable analysis so the UI resets to "Start"
+  useEffect(() => {
+    if (sfState === 'error' && analysisEnabled) {
+      setEngineFailed(true);
+      setAnalysisEnabled(false);
+    }
+  }, [sfState, analysisEnabled]);
 
   // Auto-evaluate when position changes (debounced to avoid WASM crashes)
   useEffect(() => {
@@ -482,9 +495,11 @@ export function GameReviewPage() {
                       ? ` · ${t('analysis.engineError', 'Engine error')}`
                       : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
                         ? ` · ${t('analysis.ready', 'Ready')}`
-                        : !analysisEnabled
-                          ? ` · ${t('analysis.off', 'Off')}`
-                          : ''}
+                        : !analysisEnabled && engineFailed
+                          ? ` · ${t('analysis.engineError', 'Engine error')}`
+                          : !analysisEnabled
+                            ? ` · ${t('analysis.off', 'Off')}`
+                            : ''}
             </span>
             {wasmSupported && (
               <button
@@ -493,7 +508,9 @@ export function GameReviewPage() {
                 title={
                   analysisEnabled
                     ? t('analysis.stop', 'Stop analysis')
-                    : t('analysis.start', 'Start analysis')
+                    : isTouchDevice
+                      ? t('analysis.startMobile', 'Start analysis (may not work on mobile)')
+                      : t('analysis.start', 'Start analysis')
                 }
                 data-testid="stockfish-toggle"
                 style={{

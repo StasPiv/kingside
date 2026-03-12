@@ -234,10 +234,10 @@ describe('KS-315: Парсинг UCI info строк в хуке', () => {
   });
 });
 
-// --- Сценарий 4: Таймаут инициализации (15с) ---
+// --- Сценарий 4: Таймаут инициализации (30с) ---
 
 describe('KS-315: Таймаут инициализации', () => {
-  it('state=error если движок не ответил за 15 секунд', () => {
+  it('state=error если движок не ответил за 30 секунд', () => {
     vi.useFakeTimers();
 
     const { result } = renderHook(() => useStockfish({ autoStart: true }));
@@ -246,10 +246,22 @@ describe('KS-315: Таймаут инициализации', () => {
 
     // Не отправляем uciok/readyok, ждём таймаут
     act(() => {
-      vi.advanceTimersByTime(15_000);
+      vi.advanceTimersByTime(30_000);
     });
 
     expect(result.current.state).toBe('error');
+  });
+
+  it('state!=error до истечения 30 секунд', () => {
+    vi.useFakeTimers();
+
+    const { result } = renderHook(() => useStockfish({ autoStart: true }));
+
+    act(() => {
+      vi.advanceTimersByTime(15_000);
+    });
+
+    expect(result.current.state).toBe('loading');
   });
 
   it('таймаут отменяется при успешной инициализации', () => {
@@ -266,7 +278,7 @@ describe('KS-315: Таймаут инициализации', () => {
 
     // Таймаут не должен сработать
     act(() => {
-      vi.advanceTimersByTime(15_000);
+      vi.advanceTimersByTime(30_000);
     });
 
     expect(result.current.state).toBe('ready');

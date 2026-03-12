@@ -17,8 +17,7 @@ type UseStockfishOptions = {
   autoStart?: boolean;
 };
 
-const INIT_TIMEOUT_MS = 15_000;
-const INIT_TIMEOUT_MOBILE_MS = 8_000;
+const INIT_TIMEOUT_MS = 30_000;
 
 function parseInfoLine(line: string): EvalLine | null {
   const depthMatch = line.match(/\bdepth (\d+)/);
@@ -93,14 +92,13 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       return;
     }
 
-    const isMobile = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
-    const timeoutMs = isMobile ? INIT_TIMEOUT_MOBILE_MS : INIT_TIMEOUT_MS;
     initTimerRef.current = setTimeout(() => {
+      initTimerRef.current = null;
       if (stateRef.current === 'loading') {
-        console.warn(`[Stockfish] Init timeout after ${timeoutMs}ms (mobile: ${isMobile}) — engine did not respond`);
+        console.warn(`[Stockfish] Init timeout after ${INIT_TIMEOUT_MS}ms — engine did not respond`);
         setState('error');
       }
-    }, timeoutMs);
+    }, INIT_TIMEOUT_MS);
 
     engine.onmessage = (e: MessageEvent) => {
       const line = typeof e.data === 'string' ? e.data : String(e.data);
