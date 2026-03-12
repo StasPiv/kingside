@@ -16,4 +16,4 @@ fi
 
 echo ""
 echo "=== [post-hook] Ветка main — запуск деплоя на kamatera-chess ==="
-bash "$REPO_DIR/scripts/deploy-local.sh" --skip-frontend-build
+bash "$REPO_DIR/scripts/deploy-local.sh"

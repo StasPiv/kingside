@@ -2,7 +2,7 @@
 
 ## Описание
 
-При каждом коммите или мерже в ветку `main` автоматически запускается деплой на сервер kamatera-chess (chess-analyze.online) через `scripts/deploy-local.sh --skip-frontend-build`.
+При каждом коммите или мерже в ветку `main` автоматически запускается деплой на сервер kamatera-chess (chess-analyze.online) через `scripts/deploy-local.sh`.
 
 ## Реализация
 
@@ -26,10 +26,17 @@ bash scripts/install-hooks.sh
 1. `post-commit` — срабатывает при каждом `git commit` на ветке `main`
 2. `post-merge` — срабатывает при `git merge <branch>` находясь на `main`
 
-Оба хука запускают `scripts/deploy-local.sh --skip-frontend-build`, который:
+Оба хука запускают `scripts/deploy-local.sh`, который:
+- Собирает frontend локально (`npm run build --workspace=apps/web`)
 - Синхронизирует исходники через rsync на kamatera-chess
+- Деплоит frontend статику в `/var/www/kingside`
 - Пересобирает и перезапускает API контейнер на сервере
 - Перезагружает nginx
+
+## Причина фикса (KS-451)
+
+До этого хук вызывал `deploy-local.sh --skip-frontend-build`. Из-за этого при мерже
+frontend-изменений в `main` старый `dist` попадал на прод без пересборки. Флаг убран.
 
 ## Требования
 
