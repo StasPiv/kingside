@@ -35,7 +35,8 @@ model: claude-sonnet-4-6
 ## Git Workflow
 - Ты работаешь в git worktree: `/home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - ЗАПРЕЩЕНО делать `cd /home/pivovartsev/work/kingside` — это основной репозиторий, не твой worktree
-- Все git-команды и изменения файлов выполняй только в своём worktree (текущая директория при запуске)
+- **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Все git-команды и изменения файлов выполняй только в своём worktree
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`

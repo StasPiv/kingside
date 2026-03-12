@@ -121,6 +121,7 @@ def _agent_worker(agent: str, q: queue.Queue):
         finally:
             with queued_tasks_lock:
                 queued_tasks.pop(key, None)
+                queued_tasks.pop(f"{key}-qa", None)
             q.task_done()
 
 
@@ -145,10 +146,12 @@ def _get_issue_status_category(key: str) -> str:
 def _run_agent(key: str, summary: str, agent: str, prompt: str):
     """Синхронно запускает claude-агента и ждёт завершения."""
     # Проверяем актуальный статус задачи перед запуском
-    status_category = _get_issue_status_category(key)
-    if status_category in ("done", "indeterminate"):
-        log(f"Пропуск {key} из очереди: задача уже в статусе '{status_category}'")
-        return
+    # QA специально запускается для Done-задач — пропускаем проверку для него
+    if agent != "qa":
+        status_category = _get_issue_status_category(key)
+        if status_category in ("done", "indeterminate"):
+            log(f"Пропуск {key} из очереди: задача уже в статусе '{status_category}'")
+            return
 
     log_file = os.path.join(LOG_DIR, "agents.log")
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -377,11 +380,13 @@ def launch_agent(key, summary, agent, prompt=None):
         return
 
     # Coding-агенты — дедупликация и постановка в очередь
+    # QA использует отдельный ключ чтобы не конфликтовать с другими агентами
+    dedup_key = f"{key}-qa" if agent == "qa" else key
     with queued_tasks_lock:
-        if key in queued_tasks:
-            log(f"Пропуск {key}: уже в очереди агента {queued_tasks[key]}")
+        if dedup_key in queued_tasks:
+            log(f"Пропуск {key}: уже в очереди агента {queued_tasks[dedup_key]}")
             return
-        queued_tasks[key] = agent
+        queued_tasks[dedup_key] = agent
 
     q = get_or_create_queue(agent)
     q.put({"key": key, "summary": summary, "agent": agent, "prompt": prompt})
@@ -618,6 +623,26 @@ class WebhookHandler(BaseHTTPRequestHandler):
         issue = payload.get("issue", {})
         status_name = issue.get("fields", {}).get("status", {}).get("name", "")
         status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
+        # Если задача только что перешла в Done — запускаем QA
+        if status_category == "done" and event == "jira:issue_updated":
+            changelog = payload.get("changelog", {}).get("items", [])
+            transitioned_to_done = any(
+                item.get("field") == "status"
+                for item in changelog
+            )
+            if transitioned_to_done:
+                log(f"Задача {key} закрыта — запускаем QA агента")
+                qa_prompt = (
+                    f"Задача {key} была только что закрыта: {summary}\n\n"
+                    f"Выполни sanity-проверку приложения после этого фикса:\n"
+                    f"1. Прочитай описание задачи {key} в Jira через MCP jira-personal — пойми что было исправлено\n"
+                    f"2. Выполни базовые проверки (prod: https://chess-analyze.online, локально: http://localhost:5173)\n"
+                    f"3. Проверь конкретную функциональность из задачи — с точки зрения пользователя\n"
+                    f"4. Если всё OK — добавь комментарий 'QA: ✓ Проверка пройдена. [что проверил]', задачу НЕ меняй\n"
+                    f"5. Если сломано — добавь комментарий 'QA: ✗ Не пройдена. [что сломано]' и переведи задачу в To Do"
+                )
+                launch_agent(key, summary, "qa", qa_prompt)
+
         if status_category in ("done", "indeterminate"):
             log(f"Пропуск {key}: задача в статусе '{status_name}' — агент уже работает или задача завершена")
             self.send_response(200)
