@@ -41,6 +41,7 @@ rsync -az --delete \
     --exclude='node_modules' \
     --exclude='.git' \
     --exclude='.worktrees' \
+    --exclude='.claude' \
     --exclude='apps/web/dist' \
     --exclude='.env' \
     --exclude='*.log' \
