@@ -241,7 +241,8 @@
     "off": "Off",
     "engineError": "Engine error",
     "ready": "Ready",
-    "notSupported": "Not supported"
+    "notSupported": "Not supported",
+    "notSupportedMobile": "Not supported on mobile"
   },
   "puzzle": {
     "title": "Puzzles",

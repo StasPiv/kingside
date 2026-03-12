@@ -487,21 +487,23 @@ export function GameReviewPage() {
               Stockfish 18{' '}
               {!wasmSupported
                 ? ` · ${t('analysis.notSupported', 'Not supported')}`
-                : analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
-                  ? `· ${t('analysis.depth')} ${displayedLines[0].depth}`
-                  : analysisEnabled && sfState === 'loading'
-                    ? `· ${t('common.loading')}`
-                    : analysisEnabled && sfState === 'error'
-                      ? ` · ${t('analysis.engineError', 'Engine error')}`
-                      : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
-                        ? ` · ${t('analysis.ready', 'Ready')}`
-                        : !analysisEnabled && engineFailed
-                          ? ` · ${t('analysis.engineError', 'Engine error')}`
-                          : !analysisEnabled
-                            ? ` · ${t('analysis.off', 'Off')}`
-                            : ''}
+                : isTouchDevice && engineFailed
+                  ? ` · ${t('analysis.notSupportedMobile', 'Not supported on mobile')}`
+                  : analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
+                    ? `· ${t('analysis.depth')} ${displayedLines[0].depth}`
+                    : analysisEnabled && sfState === 'loading'
+                      ? `· ${t('common.loading')}`
+                      : analysisEnabled && sfState === 'error'
+                        ? ` · ${t('analysis.engineError', 'Engine error')}`
+                        : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
+                          ? ` · ${t('analysis.ready', 'Ready')}`
+                          : !analysisEnabled && engineFailed
+                            ? ` · ${t('analysis.engineError', 'Engine error')}`
+                            : !analysisEnabled
+                              ? ` · ${t('analysis.off', 'Off')}`
+                              : ''}
             </span>
-            {wasmSupported && (
+            {wasmSupported && !(isTouchDevice && engineFailed) && (
               <button
                 className="analysis-toggle-btn"
                 onClick={toggleAnalysis}

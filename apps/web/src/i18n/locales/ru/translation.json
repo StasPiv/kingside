@@ -241,7 +241,8 @@
     "off": "Выключен",
     "engineError": "Ошибка движка",
     "ready": "Готов",
-    "notSupported": "Не поддерживается"
+    "notSupported": "Не поддерживается",
+    "notSupportedMobile": "Не поддерживается на мобильных"
   },
   "puzzle": {
     "title": "Задачи",
