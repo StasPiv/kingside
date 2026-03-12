@@ -228,9 +228,6 @@ export function GameReviewPage() {
     lines,
     analysisFen,
     evaluate,
-    stop: stopEngine,
-    cleanup: cleanupEngine,
-    init: initEngine,
     isReady,
     state: sfState,
   } = useStockfish({
@@ -296,15 +293,11 @@ export function GameReviewPage() {
   const toggleAnalysis = useCallback(() => {
     setAnalysisEnabled((prev) => {
       if (prev) {
-        stopEngine();
-        cleanupEngine();
         lastLinesRef.current = [];
-      } else {
-        initEngine();
       }
       return !prev;
     });
-  }, [stopEngine, cleanupEngine, initEngine]);
+  }, []);
 
   // Auto-evaluate when position changes (debounced to avoid WASM crashes)
   useEffect(() => {

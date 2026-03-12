@@ -18,6 +18,7 @@ type UseStockfishOptions = {
 };
 
 const INIT_TIMEOUT_MS = 15_000;
+const INIT_TIMEOUT_MOBILE_MS = 8_000;
 
 function parseInfoLine(line: string): EvalLine | null {
   const depthMatch = line.match(/\bdepth (\d+)/);
@@ -92,12 +93,14 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       return;
     }
 
+    const isMobile = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
+    const timeoutMs = isMobile ? INIT_TIMEOUT_MOBILE_MS : INIT_TIMEOUT_MS;
     initTimerRef.current = setTimeout(() => {
       if (stateRef.current === 'loading') {
-        console.warn('[Stockfish] Init timeout — engine did not respond within', INIT_TIMEOUT_MS, 'ms');
+        console.warn(`[Stockfish] Init timeout after ${timeoutMs}ms (mobile: ${isMobile}) — engine did not respond`);
         setState('error');
       }
-    }, INIT_TIMEOUT_MS);
+    }, timeoutMs);
 
     engine.onmessage = (e: MessageEvent) => {
       const line = typeof e.data === 'string' ? e.data : String(e.data);
@@ -168,7 +171,17 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     };
 
     engine.onerror = (err) => {
-      console.error('[Stockfish] Engine error:', err);
+      console.error('[Stockfish] Engine error:', {
+        message: err.message,
+        filename: err.filename,
+        lineno: err.lineno,
+        type: err.type,
+      });
+      setState('error');
+    };
+
+    engine.onmessageerror = (err) => {
+      console.error('[Stockfish] Engine message error:', err);
       setState('error');
     };
 
