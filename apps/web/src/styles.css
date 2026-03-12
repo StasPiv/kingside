@@ -3637,6 +3637,26 @@ input:focus {
     width: auto !important;
   }
 
+  /* Analysis review: allow page to scroll on mobile */
+  body:has(.analysis-page) {
+    overflow-y: auto;
+  }
+
+  .analysis-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .analysis-sidebar {
+    overflow: visible;
+  }
+
+  /* Notation block: fixed height so vml-container scrolls within it */
+  .analysis-moves--variants {
+    height: 250px;
+    overflow: hidden;
+  }
+
   .puzzle-list {
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   }
