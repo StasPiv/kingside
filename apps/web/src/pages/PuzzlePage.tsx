@@ -8,6 +8,7 @@ import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { MemoChessboard } from '../components/MemoChessboard';
 import type { PuzzleDto } from '@kingside/shared';
@@ -31,6 +32,7 @@ export function PuzzlePage() {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const { boardThemeOptions, customPieces } = useBoardTheme();
+  const { inputMode } = useBoardSettings();
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -153,10 +155,16 @@ export function PuzzlePage() {
     [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
   );
 
+  const onClickMove = useCallback(
+    (from: Square, to: Square): boolean => onPieceDrop({ sourceSquare: from, targetSquare: to }),
+    [onPieceDrop],
+  );
+
   const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
     game: game ?? null,
     playerColor: boardOrientation,
     enabled: status === 'thinking',
+    onMove: inputMode === 'click' ? onClickMove : undefined,
   });
 
   useEffect(() => {
@@ -176,7 +184,7 @@ export function PuzzlePage() {
   useFastDrag(boardContainerRef, {
     onPieceDrop: onPieceDrop,
     boardOrientation: boardOrientation,
-    enabled: status === 'thinking',
+    enabled: status === 'thinking' && inputMode === 'drag',
   });
 
   const boardStyle = useMemo(

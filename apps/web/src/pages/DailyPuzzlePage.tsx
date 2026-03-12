@@ -9,6 +9,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import type { PuzzleDto, DailyPuzzleResponse } from '@kingside/shared';
 
@@ -28,6 +29,7 @@ export function DailyPuzzlePage() {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const { boardThemeOptions, customPieces } = useBoardTheme();
+  const { inputMode } = useBoardSettings();
 
   useEffect(() => {
     api
@@ -189,6 +191,7 @@ export function DailyPuzzlePage() {
     game,
     playerColor,
     enabled: state === 'solving',
+    onMove: inputMode === 'click' ? onDrop : undefined,
   });
 
   useEffect(() => {
@@ -208,7 +211,7 @@ export function DailyPuzzlePage() {
   useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
-    enabled: state === 'solving',
+    enabled: state === 'solving' && inputMode === 'drag',
   });
 
   const boardStyle = useMemo(

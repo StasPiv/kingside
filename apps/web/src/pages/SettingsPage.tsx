@@ -106,7 +106,7 @@ export function SettingsPage() {
           </div>
         </div>
 
-        <div className="settings-field" style={{ marginTop: 16 }}>
+        <div className="settings-field" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, marginTop: 16 }}>
           <label>Режим ввода ходов</label>
           <select
             value={inputMode}
