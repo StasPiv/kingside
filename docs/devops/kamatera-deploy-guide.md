@@ -210,7 +210,48 @@ bash scripts/api-hotfix.sh
 
 ---
 
-## 10. Риски
+## 10. Исправление KS-452 (2026-03-12): VITE_API_URL не передавался при продакшен-сборке
+
+### Проблема
+
+После KS-451 (включение сборки frontend в `deploy-local.sh`) на проде перестали
+работать логин и регистрация.
+
+**Причина**: frontend собирался локально без явного `VITE_API_URL`.
+В коде `apps/web/src/api.ts`:
+
+```ts
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+```
+
+Если переменная не задана при сборке Vite, в бандл запекается `http://localhost:3001`.
+Браузер пользователя пытался обращаться к `localhost:3001` — запросы уходили в никуда.
+
+### Исправление
+
+В `scripts/deploy-local.sh` добавлена переменная `PROD_API_URL` и передача в сборку:
+
+```bash
+VITE_API_URL="$PROD_API_URL" npm run build --workspace=apps/web
+```
+
+По умолчанию `PROD_API_URL=https://chess-analyze.online`. Можно переопределить:
+
+```bash
+VITE_API_URL=https://другой-домен.com bash scripts/deploy-local.sh
+```
+
+### Как проверить корректность сборки
+
+После деплоя убедиться, что в бандле нет `localhost:3001`:
+
+```bash
+grep -o "localhost:3001" /var/www/kingside/assets/*.js && echo "BAD" || echo "OK"
+```
+
+---
+
+## 11. Риски
 
 | Риск | Уровень | Митигация |
 |------|---------|-----------|

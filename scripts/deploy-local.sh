@@ -17,6 +17,9 @@ REMOTE_DIR="~/kingside"
 WEB_DIST="$REPO_DIR/apps/web/dist"
 SKIP_FRONTEND_BUILD="${1:-}"
 
+# Продакшен URL — используется при сборке frontend
+PROD_API_URL="${VITE_API_URL:-https://chess-analyze.online}"
+
 echo "=== Деплой Kingside (direct rsync) ==="
 echo "Локальный репозиторий: $REPO_DIR"
 echo "Сервер: $REMOTE_HOST:$REMOTE_DIR"
@@ -24,8 +27,8 @@ echo ""
 
 # 1. Сборка frontend (локально)
 if [ "$SKIP_FRONTEND_BUILD" != "--skip-frontend-build" ]; then
-    echo "[1/5] Сборка frontend локально..."
-    npm run build --workspace=apps/web
+    echo "[1/5] Сборка frontend локально (VITE_API_URL=$PROD_API_URL)..."
+    VITE_API_URL="$PROD_API_URL" npm run build --workspace=apps/web
     echo "  Frontend собран: $WEB_DIST"
 else
     echo "[1/5] Сборка frontend пропущена (--skip-frontend-build)"
