@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 import { api } from '../api';
-import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse, type RatingFilterMode, type DailyPuzzleResponse } from '@kingside/shared';
+import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse, type RatingFilterMode } from '@kingside/shared';
 
 type PieceColor = 'white' | 'black' | 'random';
 type TimeControlCategory = 'bullet' | 'blitz' | 'rapid' | 'classical';
@@ -45,7 +45,7 @@ function presetKey(minutes: number, increment: number): string {
 }
 
 type LobbyMode = 'online' | 'bot';
-type ModalId = 'human' | 'bot' | 'daily' | 'rush' | null;
+type ModalId = 'human' | 'bot' | 'rush' | null;
 
 type PuzzleRushStats = {
   best3: number;
@@ -83,7 +83,6 @@ export function LobbyPage() {
   const [ratingMinus, setRatingMinus] = useState(200);
   const [ratingPlus, setRatingPlus] = useState(200);
 
-  const [dailyPuzzle, setDailyPuzzle] = useState<DailyPuzzleResponse | null>(null);
   const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
   const [widgetsLoading, setWidgetsLoading] = useState(true);
 
@@ -108,13 +107,11 @@ export function LobbyPage() {
       setWidgetsLoading(false);
       return;
     }
-    Promise.all([
-      api.get<DailyPuzzleResponse>('/api/puzzles/daily').catch(() => null),
-      api.get<PuzzleRushStats>(`/api/users/${user.id}/puzzle-rush-stats`).catch(() => null),
-    ]).then(([daily, rush]) => {
-      setDailyPuzzle(daily);
-      setRushStats(rush);
-    }).finally(() => setWidgetsLoading(false));
+    api.get<PuzzleRushStats>(`/api/users/${user.id}/puzzle-rush-stats`)
+      .catch(() => null)
+      .then((rush) => {
+        setRushStats(rush);
+      }).finally(() => setWidgetsLoading(false));
   }, [user]);
 
   const [botLevel, setBotLevel] = useState(3);
@@ -497,31 +494,6 @@ export function LobbyPage() {
     </div>
   );
 
-  const dailyModalContent = (
-    <div className="lobby-panel">
-      <h2 className="lobby-panel__title">🧩 {t('lobby.teasers.daily.title')}</h2>
-      {widgetsLoading ? (
-        <p className="lobby-widget__loading">{t('common.loading')}</p>
-      ) : dailyPuzzle ? (
-        <div className="lobby-widget__content">
-          <p className="lobby-widget__stat">
-            {t('lobby.rating', { rating: dailyPuzzle.puzzle.rating })}
-          </p>
-          {dailyPuzzle.puzzle.themes.length > 0 && (
-            <p className="lobby-widget__themes">
-              {dailyPuzzle.puzzle.themes.slice(0, 3).join(', ')}
-            </p>
-          )}
-        </div>
-      ) : null}
-      <div className="lobby-widget__actions">
-        <Link to="/daily" className="lobby-widget__btn" onClick={closeModal}>
-          {t('lobby.solve')} →
-        </Link>
-      </div>
-    </div>
-  );
-
   const rushModalContent = (
     <div className="lobby-panel">
       <h2 className="lobby-panel__title">⚡ {t('lobby.teasers.rush.title')}</h2>
@@ -565,13 +537,6 @@ export function LobbyPage() {
       ctaKey: 'lobby.teasers.bot.cta',
     },
     {
-      id: 'daily' as const,
-      icon: '🧩',
-      titleKey: 'lobby.teasers.daily.title',
-      descKey: 'lobby.teasers.daily.description',
-      ctaKey: 'lobby.teasers.daily.cta',
-    },
-    {
       id: 'rush' as const,
       icon: '⚡',
       titleKey: 'lobby.teasers.rush.title',
@@ -583,7 +548,6 @@ export function LobbyPage() {
   const modalContentMap: Record<NonNullable<ModalId>, React.ReactNode> = {
     human: onlineModalContent,
     bot: botModalContent,
-    daily: dailyModalContent,
     rush: rushModalContent,
   };
 
