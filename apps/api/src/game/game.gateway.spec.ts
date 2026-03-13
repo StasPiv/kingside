@@ -66,7 +66,8 @@ describe('GameGateway', () => {
       emit: jest.fn(),
     } as any;
 
-    gateway = new GameGateway(gameService, botGameService, jwtService, chatService);
+    const stockfishService = { streamAnalysis: jest.fn() } as any;
+    gateway = new GameGateway(gameService, botGameService, jwtService, chatService, stockfishService);
     gateway.server = mockServer;
   });
 
