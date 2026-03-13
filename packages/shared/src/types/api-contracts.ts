@@ -391,6 +391,32 @@ export type WsMatchmakingFoundPayload = {
 
 // ─── Event name constants ───────────────────────────────────────────
 
+// ─── WebSocket: streaming analysis ──────────────────────────────────
+
+/** Client → Server: start streaming analysis */
+export type WsAnalysisStartPayload = {
+  fen: string;
+  depth?: number;
+};
+
+/** Client → Server: stop streaming analysis */
+export type WsAnalysisStopPayload = Record<string, never>;
+
+/** Server → Client: one analysis info line */
+export type WsAnalysisLinePayload = {
+  depth: number;
+  score: { type: 'cp' | 'mate'; value: number };
+  bestMove: string;
+};
+
+/** Server → Client: analysis complete */
+export type WsAnalysisDonePayload = {
+  bestMove: string;
+  ponder?: string;
+  score?: { type: 'cp' | 'mate'; value: number };
+  depth?: number;
+};
+
 export const GameEvents = {
   // client → server
   JOIN: 'game:join',
@@ -400,6 +426,8 @@ export const GameEvents = {
   DRAW_ACCEPT: 'game:draw:accept',
   DRAW_DECLINE: 'game:draw:decline',
   CHAT_SEND: 'chat:send',
+  ANALYSIS_START: 'analysis:start',
+  ANALYSIS_STOP: 'analysis:stop',
   // server → client
   STATE: 'game:state',
   MOVE_SERVER: 'game:move',
@@ -407,6 +435,8 @@ export const GameEvents = {
   DRAW_OFFERED: 'game:draw:offered',
   CHAT_MESSAGE: 'chat:message',
   ERROR: 'error',
+  ANALYSIS_LINE: 'analysis:line',
+  ANALYSIS_DONE: 'analysis:done',
 } as const;
 
 export const MatchmakingEvents = {

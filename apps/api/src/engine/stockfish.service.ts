@@ -14,6 +14,12 @@ interface AnalysisResult {
   depth?: number;
 }
 
+export interface AnalysisLine {
+  depth: number;
+  score: { type: 'cp' | 'mate'; value: number };
+  bestMove: string;
+}
+
 interface LevelConfig {
   skillLevel: number;
   depth: number;
@@ -50,10 +56,13 @@ export class StockfishService implements OnModuleDestroy {
   private readonly poolSize: number;
   private readonly stockfishPath: string;
   private readonly waitQueue: Array<(worker: EngineWorker) => void> = [];
+  private readonly maxAnalysisSessions: number;
+  private activeAnalysisSessions = 0;
 
   constructor(private readonly config: ConfigService) {
     this.poolSize = this.config.get<number>('STOCKFISH_POOL_SIZE', 5);
     this.stockfishPath = this.config.get<string>('STOCKFISH_PATH', 'stockfish');
+    this.maxAnalysisSessions = this.config.get<number>('STOCKFISH_ANALYSIS_MAX_SESSIONS', 3);
   }
 
   private spawnWorker(): EngineWorker {
@@ -205,6 +214,110 @@ export class StockfishService implements OnModuleDestroy {
       } else {
         this.sendCommand(worker, `go depth ${cfg.depth}`);
       }
+    });
+  }
+
+  async streamAnalysis(
+    fen: string,
+    depth: number,
+    onLine: (line: AnalysisLine) => void,
+    signal: AbortSignal,
+  ): Promise<AnalysisResult> {
+    if (this.activeAnalysisSessions >= this.maxAnalysisSessions) {
+      throw new Error('Max concurrent analysis sessions reached');
+    }
+
+    const d = Math.max(1, Math.min(30, depth));
+    const worker = await this.acquireWorker();
+    this.activeAnalysisSessions++;
+
+    try {
+      this.sendCommand(worker, 'ucinewgame');
+      await this.waitForReady(worker);
+
+      this.sendCommand(worker, 'setoption name Skill Level value 20');
+      this.sendCommand(worker, `position fen ${fen}`);
+      await this.waitForReady(worker);
+
+      if (signal.aborted) {
+        return { bestMove: '(none)', depth: 0 };
+      }
+
+      return await this.searchStream(worker, d, onLine, signal);
+    } finally {
+      this.activeAnalysisSessions--;
+      this.releaseWorker(worker);
+    }
+  }
+
+  private searchStream(
+    worker: EngineWorker,
+    depth: number,
+    onLine: (line: AnalysisLine) => void,
+    signal: AbortSignal,
+  ): Promise<AnalysisResult> {
+    return new Promise((resolve, reject) => {
+      const timeoutMs = depth * 2000 + 15000;
+      const timeout = setTimeout(() => {
+        worker.process.stdout?.off('data', onData);
+        signal.removeEventListener('abort', onAbort);
+        reject(new Error('Stockfish streaming timeout'));
+      }, timeoutMs);
+
+      let lastScore: AnalysisResult['score'];
+      let lastDepth: number | undefined;
+
+      const onAbort = () => {
+        this.sendCommand(worker, 'stop');
+      };
+
+      if (signal.aborted) {
+        this.sendCommand(worker, 'stop');
+      } else {
+        signal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      const onData = (data: Buffer) => {
+        const lines = data.toString().split('\n');
+
+        for (const line of lines) {
+          const infoMatch = line.match(/^info depth (\d+) .*score (cp|mate) (-?\d+)(.*)/);
+          if (infoMatch) {
+            const lineDepth = parseInt(infoMatch[1], 10);
+            const scoreType = infoMatch[2] as 'cp' | 'mate';
+            const scoreValue = parseInt(infoMatch[3], 10);
+            const rest = infoMatch[4];
+
+            lastDepth = lineDepth;
+            lastScore = { type: scoreType, value: scoreValue };
+
+            const pvMatch = rest.match(/\bpv\s+(\S+)/);
+            if (pvMatch) {
+              onLine({
+                depth: lineDepth,
+                score: { type: scoreType, value: scoreValue },
+                bestMove: pvMatch[1],
+              });
+            }
+          }
+
+          const bestMatch = line.match(/^bestmove (\S+)(?: ponder (\S+))?/);
+          if (bestMatch) {
+            clearTimeout(timeout);
+            worker.process.stdout?.off('data', onData);
+            signal.removeEventListener('abort', onAbort);
+            resolve({
+              bestMove: bestMatch[1],
+              ponder: bestMatch[2] || undefined,
+              score: lastScore,
+              depth: lastDepth,
+            });
+          }
+        }
+      };
+
+      worker.process.stdout?.on('data', onData);
+      this.sendCommand(worker, `go depth ${depth}`);
     });
   }
 
