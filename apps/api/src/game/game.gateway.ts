@@ -13,6 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { GameService } from './game.service';
 import { BotGameService } from './bot-game.service';
 import { ChatService } from '../chat/chat.service';
+import { StockfishService } from '../engine/stockfish.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import {
   GameEvents,
@@ -28,6 +29,9 @@ import {
   type WsGameEndPayload,
   type WsGameDrawOfferedPayload,
   type WsErrorPayload,
+  type WsAnalysisStartPayload,
+  type WsAnalysisLinePayload,
+  type WsAnalysisDonePayload,
   type GameStatus,
   type GameResult,
 } from '@kingside/shared';
@@ -38,12 +42,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger = new Logger(GameGateway.name);
+  private readonly analysisSessions = new Map<string, AbortController>();
 
   constructor(
     private readonly gameService: GameService,
     private readonly botGameService: BotGameService,
     private readonly jwtService: JwtService,
     private readonly chatService: ChatService,
+    private readonly stockfishService: StockfishService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -64,6 +70,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(client: Socket) {
     const userId = client.data.user?.id;
     this.logger.log(`Client disconnected: ${client.id}`);
+
+    this.stopAnalysisSession(client.id);
 
     if (userId) {
       try {
@@ -245,6 +253,67 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (e: any) {
       const errorPayload: WsErrorPayload = { code: 'CHAT_ERROR', message: e.message };
       client.emit(GameEvents.ERROR, errorPayload);
+    }
+  }
+
+  @SubscribeMessage(GameEvents.ANALYSIS_START)
+  async handleAnalysisStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WsAnalysisStartPayload,
+  ) {
+    if (!client.data.user?.id) return;
+
+    // Stop any existing session for this client first
+    this.stopAnalysisSession(client.id);
+
+    const controller = new AbortController();
+    this.analysisSessions.set(client.id, controller);
+    const depth = data.depth ?? 20;
+
+    try {
+      const result = await this.stockfishService.streamAnalysis(
+        data.fen,
+        depth,
+        (line) => {
+          const linePayload: WsAnalysisLinePayload = {
+            depth: line.depth,
+            score: line.score,
+            bestMove: line.bestMove,
+          };
+          client.emit(GameEvents.ANALYSIS_LINE, linePayload);
+        },
+        controller.signal,
+      );
+
+      if (!controller.signal.aborted) {
+        const donePayload: WsAnalysisDonePayload = {
+          bestMove: result.bestMove,
+          ponder: result.ponder,
+          score: result.score,
+          depth: result.depth,
+        };
+        client.emit(GameEvents.ANALYSIS_DONE, donePayload);
+      }
+    } catch (e: any) {
+      if (!controller.signal.aborted) {
+        const errorPayload: WsErrorPayload = { code: 'ANALYSIS_ERROR', message: e.message };
+        client.emit(GameEvents.ERROR, errorPayload);
+      }
+    } finally {
+      this.analysisSessions.delete(client.id);
+    }
+  }
+
+  @SubscribeMessage(GameEvents.ANALYSIS_STOP)
+  handleAnalysisStop(@ConnectedSocket() client: Socket) {
+    this.stopAnalysisSession(client.id);
+  }
+
+  private stopAnalysisSession(clientId: string): void {
+    const controller = this.analysisSessions.get(clientId);
+    if (controller) {
+      controller.abort();
+      this.analysisSessions.delete(clientId);
     }
   }
 
