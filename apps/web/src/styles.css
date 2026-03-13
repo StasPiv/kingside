@@ -3788,14 +3788,54 @@ input:focus {
     padding: 16px;
   }
 
-  /* Game review: constrain board by viewport height so notation is visible */
+  /* Game review: constrain board so notation is visible below */
   .analysis-page .board-container {
-    width: min(calc(100vw - 54px), calc(100vh - 380px));
+    width: min(calc(100vw - 54px), calc(100vh - 430px));
   }
 
-  /* Game review: compact engine panel on mobile (no fixed height) */
+  /* Game review: compact engine panel on mobile (no fixed height, less padding) */
   .analysis-page .stockfish-panel {
     height: auto !important;
+    padding: 8px !important;
+  }
+
+  /* Game review: hide vertical resizer on mobile (touch users can't drag it) */
+  .analysis-page .analysis-v-resizer {
+    display: none;
+  }
+
+  /* Game review: compact result section — result on one line */
+  .analysis-page .analysis-result {
+    padding: 6px 8px;
+    margin-bottom: 4px;
+  }
+
+  .analysis-page .analysis-result h3 {
+    display: inline;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .analysis-page .analysis-result h3::after {
+    content: ' · ';
+    font-weight: 400;
+  }
+
+  .analysis-page .analysis-result > p {
+    display: inline;
+    font-size: 13px;
+    font-weight: 400;
+  }
+
+  .analysis-page .analysis-ratings {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+
+  /* Game review: compact back link */
+  .analysis-page .analysis-back-link--top {
+    padding: 5px 10px;
+    margin-bottom: 4px;
   }
 
   /* Game review: notation block — fixed height with scroll */
