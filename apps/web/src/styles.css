@@ -3788,9 +3788,31 @@ input:focus {
     padding: 16px;
   }
 
-  /* Game review: shorter moves list */
-  .analysis-moves {
-    max-height: 200px;
+  /* Game review: constrain board by viewport height so notation is visible */
+  .analysis-page .board-container {
+    width: min(calc(100vw - 54px), calc(100vh - 380px));
+  }
+
+  /* Game review: compact engine panel on mobile (no fixed height) */
+  .analysis-page .stockfish-panel {
+    height: auto !important;
+  }
+
+  /* Game review: notation block — fixed height with scroll */
+  .analysis-moves--variants {
+    height: 200px;
+    overflow-y: auto;
+  }
+
+  .analysis-moves--variants .review-move-list-wrapper {
+    overflow: visible;
+    height: auto;
+  }
+
+  .analysis-moves--variants .review-moves-container {
+    overflow: visible;
+    height: auto;
+    padding-bottom: 8px;
   }
 
   /* Game page: allow body to scroll in stacked layout */
