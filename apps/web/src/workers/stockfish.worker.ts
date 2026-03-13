@@ -26,6 +26,16 @@ export type InfoLine = {
 
 let engine: Worker | null = null;
 
+function isMultiThreaded(): boolean {
+  return typeof SharedArrayBuffer !== 'undefined' && (self as unknown as { crossOriginIsolated: boolean }).crossOriginIsolated;
+}
+
+function getEngineUrl(): string {
+  return isMultiThreaded()
+    ? '/stockfish/stockfish-18-lite.js'
+    : '/stockfish/stockfish-18-single.js';
+}
+
 function parseInfo(line: string): InfoLine | null {
   const depthMatch = line.match(/\bdepth (\d+)/);
   const seldepthMatch = line.match(/\bseldepth (\d+)/);
@@ -63,12 +73,17 @@ function initEngine() {
     engine.terminate();
   }
 
-  engine = new Worker('/stockfish/stockfish-18-single.js');
+  const multi = isMultiThreaded();
+  engine = new Worker(getEngineUrl());
 
   engine.onmessage = (e: MessageEvent<string>) => {
     const line = typeof e.data === 'string' ? e.data : String(e.data);
 
     if (line === 'uciok') {
+      if (multi) {
+        const threads = Math.max(1, ((self as unknown as { navigator: Navigator }).navigator?.hardwareConcurrency ?? 2) - 1);
+        engine!.postMessage(`setoption name Threads value ${threads}`);
+      }
       engine!.postMessage('isready');
       return;
     }

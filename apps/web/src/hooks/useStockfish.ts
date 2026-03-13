@@ -19,6 +19,18 @@ type UseStockfishOptions = {
 
 const INIT_TIMEOUT_MS = 30_000;
 
+/** Returns true if SharedArrayBuffer is available (COOP/COEP headers set). */
+function isMultiThreaded(): boolean {
+  return typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated;
+}
+
+/** Select engine file based on cross-origin isolation support. */
+function getEngineUrl(): string {
+  return isMultiThreaded()
+    ? '/stockfish/stockfish-18-lite.js'
+    : '/stockfish/stockfish-18-single.js';
+}
+
 function parseInfoLine(line: string): EvalLine | null {
   const depthMatch = line.match(/\bdepth (\d+)/);
   const multipvMatch = line.match(/\bmultipv (\d+)/);
@@ -83,9 +95,10 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     cleanup();
     setState('loading');
 
+    const multi = isMultiThreaded();
     let engine: Worker;
     try {
-      engine = new Worker('/stockfish/stockfish-18-single.js');
+      engine = new Worker(getEngineUrl());
     } catch (err) {
       console.error('[Stockfish] Failed to create engine worker:', err);
       setState('error');
@@ -104,6 +117,10 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       const line = typeof e.data === 'string' ? e.data : String(e.data);
 
       if (line === 'uciok') {
+        if (multi) {
+          const threads = Math.max(1, (navigator.hardwareConcurrency ?? 2) - 1);
+          engine.postMessage(`setoption name Threads value ${threads}`);
+        }
         engine.postMessage('isready');
         return;
       }
