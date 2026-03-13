@@ -133,6 +133,17 @@ export function GameReviewPage() {
 
   const game = useMemo(() => new Chess(), []);
 
+  // Panel collapse state
+  const [panelStates, setPanelStates] = useState({
+    gameInfo: true,
+    engine: true,
+    moves: true,
+  });
+
+  const togglePanel = useCallback((panel: 'gameInfo' | 'engine' | 'moves') => {
+    setPanelStates((prev) => ({ ...prev, [panel]: !prev[panel] }));
+  }, []);
+
   // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
   const [boardAreaPx, setBoardAreaPx] = useState(() => {
@@ -142,14 +153,6 @@ export function GameReviewPage() {
       if (!isNaN(parsed) && parsed > 0) return parsed;
     }
     return Math.floor((window.innerWidth - 8) * 0.55);
-  });
-  const [enginePanelHeight, setEnginePanelHeight] = useState(() => {
-    const saved = localStorage.getItem('analysis-layout-enginePanelHeight');
-    if (saved !== null) {
-      const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed) && parsed > 0) return parsed;
-    }
-    return 140;
   });
 
   useLayoutEffect(() => {
@@ -188,29 +191,6 @@ export function GameReviewPage() {
       document.addEventListener('mouseup', onMouseUp);
     },
     [boardAreaPx],
-  );
-
-  const handleVResizerMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const startY = e.clientY;
-      const startHeight = enginePanelHeight;
-      let lastValue = startHeight;
-      const onMouseMove = (ev: MouseEvent) => {
-        const delta = ev.clientY - startY;
-        const next = Math.max(80, Math.min(500, startHeight + delta));
-        lastValue = next;
-        setEnginePanelHeight(next);
-      };
-      const onMouseUp = () => {
-        localStorage.setItem('analysis-layout-enginePanelHeight', String(lastValue));
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-      };
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-    },
-    [enginePanelHeight],
   );
 
   const wasmSupported = typeof WebAssembly !== 'undefined';
@@ -406,13 +386,6 @@ export function GameReviewPage() {
   if (error) return <div className="error">{error}</div>;
   if (!gameData) return null;
 
-  const resultText =
-    gameData.result === 'draw'
-      ? t('game.draw')
-      : gameData.result === 'white_wins'
-        ? t('game.whiteWins')
-        : t('game.blackWins');
-
   const resultPgn =
     gameData.result === 'draw' ? '½–½' : gameData.result === 'white_wins' ? '1–0' : '0–1';
 
@@ -431,6 +404,24 @@ export function GameReviewPage() {
     result: resultPgn,
   };
 
+  const engineStatusSuffix = !wasmSupported
+    ? ` · ${t('analysis.notSupported', 'Not supported')}`
+    : isTouchDevice && engineFailed
+      ? ` · ${t('analysis.notSupportedMobile', 'Not supported on mobile')}`
+      : analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
+        ? ` · ${t('analysis.depth')} ${displayedLines[0].depth}`
+        : analysisEnabled && sfState === 'loading'
+          ? ` · ${t('common.loading')}`
+          : analysisEnabled && sfState === 'error'
+            ? ` · ${t('analysis.engineError', 'Engine error')}`
+            : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
+              ? ` · ${t('analysis.ready', 'Ready')}`
+              : !analysisEnabled && engineFailed
+                ? ` · ${t('analysis.engineError', 'Engine error')}`
+                : !analysisEnabled
+                  ? ` · ${t('analysis.off', 'Off')}`
+                  : '';
+
   return (
     <div className="analysis-page" ref={analysisPageRef}>
       <div
@@ -438,6 +429,15 @@ export function GameReviewPage() {
         style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}
       >
         <div className="analysis-board-wrapper">
+          {/* Black player row above board */}
+          <div className="analysis-player-row">
+            <span className="analysis-player-dot analysis-player-dot--black" />
+            <span className="analysis-player-name">{gameData.black.username}</span>
+            {gameData.blackRatingBefore != null && (
+              <span className="analysis-player-rating">{gameData.blackRatingBefore}</span>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
             <div className="eval-bar-container">
               <div className="eval-bar">
@@ -453,6 +453,15 @@ export function GameReviewPage() {
             <div className="board-container" ref={boardContainerRef}>
               <MemoChessboard options={boardOptions} />
             </div>
+          </div>
+
+          {/* White player row below board */}
+          <div className="analysis-player-row">
+            <span className="analysis-player-dot analysis-player-dot--white" />
+            <span className="analysis-player-name">{gameData.white.username}</span>
+            {gameData.whiteRatingBefore != null && (
+              <span className="analysis-player-rating">{gameData.whiteRatingBefore}</span>
+            )}
           </div>
 
           <div className="analysis-board-controls">
@@ -475,163 +484,220 @@ export function GameReviewPage() {
       <div className="analysis-h-resizer" onMouseDown={handleHResizerMouseDown} />
 
       <div className="analysis-sidebar">
-        {/* Back navigation */}
-        <Link to="/profile" className="analysis-back-link analysis-back-link--top">
-          {t('review.backToGames')}
-        </Link>
-
-        {/* Engine analysis panel */}
-        <div className="stockfish-panel" style={{ height: enginePanelHeight }}>
-          <div className="stockfish-panel-header">
-            <span>
-              Stockfish 18{' '}
-              {!wasmSupported
-                ? ` · ${t('analysis.notSupported', 'Not supported')}`
-                : isTouchDevice && engineFailed
-                  ? ` · ${t('analysis.notSupportedMobile', 'Not supported on mobile')}`
-                  : analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
-                    ? `· ${t('analysis.depth')} ${displayedLines[0].depth}`
-                    : analysisEnabled && sfState === 'loading'
-                      ? `· ${t('common.loading')}`
-                      : analysisEnabled && sfState === 'error'
-                        ? ` · ${t('analysis.engineError', 'Engine error')}`
-                        : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
-                          ? ` · ${t('analysis.ready', 'Ready')}`
-                          : !analysisEnabled && engineFailed
-                            ? ` · ${t('analysis.engineError', 'Engine error')}`
-                            : !analysisEnabled
-                              ? ` · ${t('analysis.off', 'Off')}`
-                              : ''}
+        {/* Game Information panel */}
+        <div className="analysis-panel">
+          <div
+            className="analysis-panel-header"
+            onClick={() => togglePanel('gameInfo')}
+          >
+            <span className="analysis-panel-header-left">
+              <span className="analysis-panel-icon">&#9432;</span>
+              <span className="analysis-panel-title">
+                {t('review.gameInfo', 'Game Information')}
+              </span>
             </span>
-            {wasmSupported && !(isTouchDevice && engineFailed) && (
-              <button
-                className="analysis-toggle-btn"
-                onClick={toggleAnalysis}
-                title={
-                  analysisEnabled
-                    ? t('analysis.stop', 'Stop analysis')
-                    : isTouchDevice
-                      ? t('analysis.startMobile', 'Start analysis (may not work on mobile)')
-                      : t('analysis.start', 'Start analysis')
-                }
-                data-testid="stockfish-toggle"
-                style={{
-                  padding: '2px 10px',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  borderRadius: 4,
-                  border: '1px solid #555',
-                  background: analysisEnabled ? '#dc2626' : '#16a34a',
-                  color: '#fff',
-                  marginLeft: 8,
-                  whiteSpace: 'nowrap',
-                }}
+            <span className="analysis-panel-header-right">
+              <Link
+                to="/profile"
+                className="analysis-panel-back-link"
+                onClick={(e) => e.stopPropagation()}
               >
-                {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
-              </button>
-            )}
+                {t('review.backToGames')}
+              </Link>
+              <span className="analysis-panel-chevron">
+                {panelStates.gameInfo ? '▾' : '▸'}
+              </span>
+            </span>
           </div>
-          <div className="stockfish-lines">
-            {analysisEnabled &&
-              displayedLines.map((line) => (
-                <div key={line.multipv} className="stockfish-line">
-                  <span
-                    className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}
-                  >
-                    {formatEval(line, evalIsBlackTurn)}
-                  </span>
-                  <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
+          {panelStates.gameInfo && (
+            <div className="analysis-panel-body">
+              <div className="analysis-game-players">
+                <div className="analysis-game-player">
+                  <span className="analysis-player-dot analysis-player-dot--white" />
+                  <span className="analysis-game-player-name">{gameData.white.username}</span>
+                  {gameData.ratingChange && (
+                    <span className="analysis-player-rating">
+                      {gameData.ratingChange.whiteRatingBefore}
+                      <span
+                        className={`rating-diff ${
+                          gameData.ratingChange.whiteRatingAfter -
+                            gameData.ratingChange.whiteRatingBefore >
+                          0
+                            ? 'positive'
+                            : gameData.ratingChange.whiteRatingAfter -
+                                gameData.ratingChange.whiteRatingBefore <
+                              0
+                              ? 'negative'
+                              : ''
+                        }`}
+                      >
+                        (
+                        {gameData.ratingChange.whiteRatingAfter -
+                          gameData.ratingChange.whiteRatingBefore >
+                        0
+                          ? '+'
+                          : ''}
+                        {gameData.ratingChange.whiteRatingAfter -
+                          gameData.ratingChange.whiteRatingBefore}
+                        )
+                      </span>
+                    </span>
+                  )}
                 </div>
-              ))}
-          </div>
-        </div>
-
-        <div className="analysis-v-resizer" onMouseDown={handleVResizerMouseDown} />
-
-        {/* Game result */}
-        <div className="analysis-result">
-          <h3>{t('game.finished')}</h3>
-          <p>{resultText}</p>
-          {gameData.ratingChange && (
-            <div className="analysis-ratings">
-              <div className="analysis-rating-row">
-                <span className="color-indicator white" />
-                <span>{gameData.white.username}</span>
-                <span className="rating-change-inline">
-                  {gameData.ratingChange.whiteRatingBefore} &rarr;{' '}
-                  {gameData.ratingChange.whiteRatingAfter}
-                  <span
-                    className={`rating-diff ${gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore > 0 ? 'positive' : gameData.ratingChange.whiteRatingAfter - gameData.ratingChange.whiteRatingBefore < 0 ? 'negative' : ''}`}
-                  >
-                    (
-                    {gameData.ratingChange.whiteRatingAfter -
-                      gameData.ratingChange.whiteRatingBefore >
-                    0
-                      ? '+'
-                      : ''}
-                    {gameData.ratingChange.whiteRatingAfter -
-                      gameData.ratingChange.whiteRatingBefore}
-                    )
-                  </span>
-                </span>
-              </div>
-              <div className="analysis-rating-row">
-                <span className="color-indicator black" />
-                <span>{gameData.black.username}</span>
-                <span className="rating-change-inline">
-                  {gameData.ratingChange.blackRatingBefore} &rarr;{' '}
-                  {gameData.ratingChange.blackRatingAfter}
-                  <span
-                    className={`rating-diff ${gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore > 0 ? 'positive' : gameData.ratingChange.blackRatingAfter - gameData.ratingChange.blackRatingBefore < 0 ? 'negative' : ''}`}
-                  >
-                    (
-                    {gameData.ratingChange.blackRatingAfter -
-                      gameData.ratingChange.blackRatingBefore >
-                    0
-                      ? '+'
-                      : ''}
-                    {gameData.ratingChange.blackRatingAfter -
-                      gameData.ratingChange.blackRatingBefore}
-                    )
-                  </span>
-                </span>
+                <span className="analysis-result-badge">{resultPgn}</span>
+                <div className="analysis-game-player">
+                  <span className="analysis-player-dot analysis-player-dot--black" />
+                  <span className="analysis-game-player-name">{gameData.black.username}</span>
+                  {gameData.ratingChange && (
+                    <span className="analysis-player-rating">
+                      {gameData.ratingChange.blackRatingBefore}
+                      <span
+                        className={`rating-diff ${
+                          gameData.ratingChange.blackRatingAfter -
+                            gameData.ratingChange.blackRatingBefore >
+                          0
+                            ? 'positive'
+                            : gameData.ratingChange.blackRatingAfter -
+                                gameData.ratingChange.blackRatingBefore <
+                              0
+                              ? 'negative'
+                              : ''
+                        }`}
+                      >
+                        (
+                        {gameData.ratingChange.blackRatingAfter -
+                          gameData.ratingChange.blackRatingBefore >
+                        0
+                          ? '+'
+                          : ''}
+                        {gameData.ratingChange.blackRatingAfter -
+                          gameData.ratingChange.blackRatingBefore}
+                        )
+                      </span>
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* Move list with variant support */}
-        <div className="analysis-moves analysis-moves--variants">
-          <ReviewMoveList
-            history={history}
-            currentGlobalIndex={currentGlobalIndex}
-            onMoveClick={gotoMove}
-            gameInfo={gameInfo}
-          />
-          {/* Variation editor — shown only when on a user-inserted variation move */}
-          {isInVariation && currentMove && (
-            <div className="review-editor-panel">
-              <button
-                className="review-editor-btn"
-                onClick={() => promoteVariation(currentMove as ChessMove)}
-                title="Promote variation to main line"
-              >
-                &#x2191; Promote
-              </button>
-              <button
-                className="review-editor-btn review-editor-btn--danger"
-                onClick={() => removeVariation(currentMove as ChessMove)}
-                title="Delete this variation"
-              >
-                &#x2715; Delete
-              </button>
-              <button
-                className="review-editor-btn"
-                onClick={() => truncateRemaining(currentMove as ChessMove)}
-                title="Delete remaining moves"
-              >
-                ] Truncate
-              </button>
+        {/* Engine panel */}
+        <div className="analysis-panel">
+          <div
+            className="analysis-panel-header"
+            onClick={() => togglePanel('engine')}
+          >
+            <span className="analysis-panel-header-left">
+              <span className="analysis-panel-icon">&#9881;</span>
+              <span className="analysis-panel-title">
+                Stockfish 18{engineStatusSuffix}
+              </span>
+            </span>
+            <span className="analysis-panel-header-right">
+              {wasmSupported && !(isTouchDevice && engineFailed) && (
+                <button
+                  className="analysis-toggle-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleAnalysis();
+                  }}
+                  title={
+                    analysisEnabled
+                      ? t('analysis.stop', 'Stop analysis')
+                      : isTouchDevice
+                        ? t('analysis.startMobile', 'Start analysis (may not work on mobile)')
+                        : t('analysis.start', 'Start analysis')
+                  }
+                  data-testid="stockfish-toggle"
+                  style={{
+                    padding: '2px 10px',
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    borderRadius: 4,
+                    border: '1px solid #555',
+                    background: analysisEnabled ? '#dc2626' : '#16a34a',
+                    color: '#fff',
+                    marginLeft: 8,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+                </button>
+              )}
+              <span className="analysis-panel-chevron">
+                {panelStates.engine ? '▾' : '▸'}
+              </span>
+            </span>
+          </div>
+          {panelStates.engine && (
+            <div className="analysis-panel-body">
+              <div className="stockfish-lines">
+                {analysisEnabled &&
+                  displayedLines.map((line) => (
+                    <div key={line.multipv} className="stockfish-line">
+                      <span
+                        className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}
+                      >
+                        {formatEval(line, evalIsBlackTurn)}
+                      </span>
+                      <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Moves panel — takes remaining space */}
+        <div className="analysis-panel analysis-panel--flex">
+          <div
+            className="analysis-panel-header"
+            onClick={() => togglePanel('moves')}
+          >
+            <span className="analysis-panel-header-left">
+              <span className="analysis-panel-icon">&#9776;</span>
+              <span className="analysis-panel-title">{t('review.moves', 'Moves')}</span>
+            </span>
+            <span className="analysis-panel-header-right">
+              <span className="analysis-panel-chevron">
+                {panelStates.moves ? '▾' : '▸'}
+              </span>
+            </span>
+          </div>
+          {panelStates.moves && (
+            <div className="analysis-panel-body analysis-panel-body--scroll">
+              <ReviewMoveList
+                history={history}
+                currentGlobalIndex={currentGlobalIndex}
+                onMoveClick={gotoMove}
+                gameInfo={gameInfo}
+              />
+              {isInVariation && currentMove && (
+                <div className="review-editor-panel">
+                  <button
+                    className="review-editor-btn"
+                    onClick={() => promoteVariation(currentMove as ChessMove)}
+                    title="Promote variation to main line"
+                  >
+                    &#x2191; Promote
+                  </button>
+                  <button
+                    className="review-editor-btn review-editor-btn--danger"
+                    onClick={() => removeVariation(currentMove as ChessMove)}
+                    title="Delete this variation"
+                  >
+                    &#x2715; Delete
+                  </button>
+                  <button
+                    className="review-editor-btn"
+                    onClick={() => truncateRemaining(currentMove as ChessMove)}
+                    title="Delete remaining moves"
+                  >
+                    ] Truncate
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
