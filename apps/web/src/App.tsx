@@ -58,9 +58,9 @@ export function App() {
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/analysis" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
         <Route path="/analysis/:id" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
-        <Route path="/workshop" element={<ProtectedRoute><WorkshopPage /></ProtectedRoute>} />
-        <Route path="/workshop/pgn-files" element={<ProtectedRoute><WorkshopPage /></ProtectedRoute>} />
-        <Route path="/workshop/pgn-files/:fileId" element={<ProtectedRoute><WorkshopPage /></ProtectedRoute>} />
+        <Route path="/workshop" element={<WorkshopPage />} />
+        <Route path="/workshop/pgn-files" element={<WorkshopPage />} />
+        <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />

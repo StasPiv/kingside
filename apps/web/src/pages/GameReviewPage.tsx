@@ -106,8 +106,10 @@ const MULTI_PV = 3;
 export function GameReviewPage() {
   const params = useParams<{ id?: string; gameId?: string }>();
   const rawGameId = params.id ?? params.gameId;
-  const isLocalAnalysisId = typeof rawGameId === 'string' && rawGameId.startsWith('local-');
-  const gameId = rawGameId === 'new' || isLocalAnalysisId ? undefined : rawGameId;
+  const isAnalysisRoute = params.id !== undefined;
+  const isGameRoute = params.gameId !== undefined;
+  const gameId = isGameRoute ? params.gameId : undefined;
+  const analysisId = isAnalysisRoute && rawGameId !== 'new' ? rawGameId : undefined;
   const location = useLocation();
   const { t } = useTranslation();
   const [gameData, setGameData] = useState<GameData | null>(null);
@@ -117,8 +119,7 @@ export function GameReviewPage() {
   // Standalone analysis state (only used when gameId is undefined)
   const { create: createAnalysis, update: updateAnalysis, getById } = useSavedAnalyses();
   const localIdRef = useRef<string | undefined>(
-    (location.state as { localId?: string } | null)?.localId ??
-      (isLocalAnalysisId ? rawGameId : undefined),
+    (location.state as { localId?: string } | null)?.localId ?? analysisId,
   );
   const breadcrumbRootTitle = (location.state as { breadcrumbRootTitle?: string } | null)?.breadcrumbRootTitle;
   const breadcrumbRootUrl = (location.state as { breadcrumbRootUrl?: string } | null)?.breadcrumbRootUrl;
@@ -140,7 +141,7 @@ export function GameReviewPage() {
   const [titleInput, setTitleInput] = useState(analysisTitle);
   // Sync URL to /analysis/{localId} without triggering React Router navigation
   useEffect(() => {
-    if (!gameId && localIdRef.current && !isLocalAnalysisId) {
+    if (!gameId && localIdRef.current && !analysisId) {
       window.history.replaceState(null, '', '/analysis/' + localIdRef.current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -192,7 +193,7 @@ export function GameReviewPage() {
     setAnalysisTitle(trimmed);
     setIsEditingTitle(false);
     if (localIdRef.current) {
-      updateAnalysis(localIdRef.current, { title: trimmed });
+      updateAnalysis(localIdRef.current, { title: trimmed }).catch(() => {});
     }
   }, [titleInput, updateAnalysis]);
 
@@ -321,20 +322,23 @@ export function GameReviewPage() {
         }
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
-        const saved = getById(localIdRef.current);
-        if (saved?.pgn) {
-          try {
-            const parsedMoves = parseAnnotatedPgn(saved.pgn);
-            loadFromPgn(parsedMoves);
-          } catch {
-            // ignore
+        getById(localIdRef.current).then((saved) => {
+          if (saved?.pgn) {
+            try {
+              const parsedMoves = parseAnnotatedPgn(saved.pgn);
+              loadFromPgn(parsedMoves);
+            } catch {
+              // ignore
+            }
+            setPgnHeaders(parsePgnHeaders(saved.pgn));
           }
-          setPgnHeaders(parsePgnHeaders(saved.pgn));
-        }
-        if (saved?.title) {
-          setAnalysisTitle(saved.title);
-          setTitleInput(saved.title);
-        }
+          if (saved?.title) {
+            setAnalysisTitle(saved.title);
+            setTitleInput(saved.title);
+          }
+          setLoading(false);
+        });
+        return;
       }
       setLoading(false);
       return;
@@ -381,7 +385,7 @@ export function GameReviewPage() {
 
   useAnalysisPersistence(gameId, history);
 
-  // Auto-save standalone analysis to localStorage
+  // Auto-save standalone analysis to API
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (gameId) return;
@@ -389,35 +393,26 @@ export function GameReviewPage() {
 
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
 
-    localSaveTimerRef.current = setTimeout(() => {
+    localSaveTimerRef.current = setTimeout(async () => {
       const pgn = serializeToAnnotatedPgn(history);
-      const opening = classifyOpening(history.map((m) => m.san)) ?? undefined;
 
       if (!localIdRef.current) {
-        const state = location.state as { pgn?: string } | null;
-        const headers = state?.pgn ? parsePgnHeaders(state.pgn) : {};
-        const entry = createAnalysis(pgn, analysisTitle, {
-          opening,
-          whitePgn: headers['White'] || undefined,
-          blackPgn: headers['Black'] || undefined,
-          breadcrumbRootTitle: breadcrumbRootTitle,
-          breadcrumbRootUrl: breadcrumbRootUrl,
-          breadcrumbSection: breadcrumbSection,
-          breadcrumbBackUrl: breadcrumbBackUrl,
-          breadcrumbFileName: breadcrumbFileName,
-          breadcrumbFileBackUrl: breadcrumbFileBackUrl,
-        });
-        localIdRef.current = entry.id;
-        window.history.replaceState(null, '', '/analysis/' + entry.id);
+        try {
+          const entry = await createAnalysis(pgn, analysisTitle);
+          localIdRef.current = entry.id;
+          window.history.replaceState(null, '', '/analysis/' + entry.id);
+        } catch {
+          // ignore save errors
+        }
       } else {
-        updateAnalysis(localIdRef.current, { pgn, opening });
+        updateAnalysis(localIdRef.current, { pgn }).catch(() => {});
       }
     }, 2000);
 
     return () => {
       if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
     };
-  }, [gameId, history, analysisTitle, createAnalysis, updateAnalysis, location.state]);
+  }, [gameId, history, analysisTitle, createAnalysis, updateAnalysis]);
 
   useEffect(() => {
     game.load(currentFen);

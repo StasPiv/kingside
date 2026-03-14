@@ -1,45 +1,8 @@
 import { useCallback } from 'react';
+import type { AnalysisResponse } from '@kingside/shared';
+import { api } from '../api';
 
-export type SavedAnalysis = {
-  id: string;
-  title: string;
-  pgn: string;
-  createdAt: string;
-  updatedAt: string;
-  opening?: string;
-  whitePgn?: string;
-  blackPgn?: string;
-  breadcrumbRootTitle?: string;
-  breadcrumbRootUrl?: string;
-  breadcrumbSection?: string;
-  breadcrumbBackUrl?: string;
-  breadcrumbFileName?: string;
-  breadcrumbFileBackUrl?: string;
-};
-
-const STORAGE_KEY = 'kingside-saved-analyses';
-
-function generateId(): string {
-  return 'local-' + Date.now() + '-' + Math.random().toString(36).slice(2, 9);
-}
-
-function loadAll(): SavedAnalysis[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as SavedAnalysis[];
-  } catch {
-    return [];
-  }
-}
-
-function saveAll(analyses: SavedAnalysis[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(analyses));
-  } catch {
-    // ignore storage errors
-  }
-}
+export type SavedAnalysis = AnalysisResponse;
 
 export function getDefaultTitle(): string {
   const now = new Date();
@@ -58,67 +21,34 @@ export function parsePgnHeaders(pgn: string): Record<string, string> {
 }
 
 export function useSavedAnalyses() {
-  const getAll = useCallback((): SavedAnalysis[] => {
-    return loadAll().sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
-  }, []);
-
   const create = useCallback(
-    (
-      pgn: string,
-      title?: string,
-      meta?: {
-        opening?: string;
-        whitePgn?: string;
-        blackPgn?: string;
-        breadcrumbRootTitle?: string;
-        breadcrumbRootUrl?: string;
-        breadcrumbSection?: string;
-        breadcrumbBackUrl?: string;
-        breadcrumbFileName?: string;
-        breadcrumbFileBackUrl?: string;
-      },
-    ): SavedAnalysis => {
-      const now = new Date().toISOString();
-      const entry: SavedAnalysis = {
-        id: generateId(),
-        title: title ?? getDefaultTitle(),
+    async (pgn: string, title?: string): Promise<AnalysisResponse> => {
+      return api.post<AnalysisResponse>('/api/analyses', {
         pgn,
-        createdAt: now,
-        updatedAt: now,
-        ...meta,
-      };
-      const all = loadAll();
-      all.push(entry);
-      saveAll(all);
-      return entry;
+        title: title ?? getDefaultTitle(),
+      });
     },
     [],
   );
 
   const update = useCallback(
-    (
-      id: string,
-      updates: Partial<Pick<SavedAnalysis, 'pgn' | 'title' | 'opening' | 'whitePgn' | 'blackPgn'>>,
-    ): void => {
-      const all = loadAll();
-      const idx = all.findIndex((a) => a.id === id);
-      if (idx === -1) return;
-      all[idx] = { ...all[idx], ...updates, updatedAt: new Date().toISOString() };
-      saveAll(all);
+    async (id: string, updates: { pgn?: string; title?: string }): Promise<void> => {
+      await api.put<AnalysisResponse>(`/api/analyses/${id}`, updates);
     },
     [],
   );
 
-  const remove = useCallback((id: string): void => {
-    const all = loadAll().filter((a) => a.id !== id);
-    saveAll(all);
+  const remove = useCallback(async (id: string): Promise<void> => {
+    await api.delete(`/api/analyses/${id}`);
   }, []);
 
-  const getById = useCallback((id: string): SavedAnalysis | null => {
-    return loadAll().find((a) => a.id === id) ?? null;
+  const getById = useCallback(async (id: string): Promise<AnalysisResponse | null> => {
+    try {
+      return await api.get<AnalysisResponse>(`/api/analyses/${id}`);
+    } catch {
+      return null;
+    }
   }, []);
 
-  return { getAll, create, update, remove, getById };
+  return { create, update, remove, getById };
 }

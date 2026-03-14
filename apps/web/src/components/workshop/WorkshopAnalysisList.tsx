@@ -1,27 +1,32 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useSavedAnalyses } from '../../hooks/useSavedAnalyses';
-import type { SavedAnalysis } from '../../hooks/useSavedAnalyses';
+import type { AnalysisListItem } from '@kingside/shared';
+import { useAuth } from '../../context/AuthContext';
+import { api } from '../../api';
 
 const PAGE_SIZE = 20;
 
 export function WorkshopAnalysisList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { getAll, remove } = useSavedAnalyses();
-  const [allAnalyses, setAllAnalyses] = useState<SavedAnalysis[]>([]);
+  const { user } = useAuth();
+  const [allAnalyses, setAllAnalyses] = useState<AnalysisListItem[]>([]);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const refresh = useCallback(() => {
-    setAllAnalyses(getAll());
-  }, [getAll]);
-
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    if (!user) return;
+    setLoading(true);
+    setError('');
+    api.get<AnalysisListItem[]>('/api/analyses')
+      .then((data) => setAllAnalyses(data))
+      .catch(() => setError(t('common.loadError', 'Failed to load analyses')))
+      .finally(() => setLoading(false));
+  }, [user, t]);
 
   const visibleAnalyses = allAnalyses.slice(0, visibleCount);
   const hasMore = visibleCount < allAnalyses.length;
@@ -46,26 +51,20 @@ export function WorkshopAnalysisList() {
     return () => { if (el) observer.unobserve(el); };
   }, [hasMore, loadingMore]);
 
-  const handleOpen = (analysis: SavedAnalysis) => {
+  const handleOpen = (analysis: AnalysisListItem) => {
     navigate('/analysis/' + analysis.id, {
       state: {
-        pgn: analysis.pgn,
-        localId: analysis.id,
-        title: analysis.title,
-        breadcrumbRootTitle: analysis.breadcrumbRootTitle,
-        breadcrumbRootUrl: analysis.breadcrumbRootUrl,
-        breadcrumbSection: analysis.breadcrumbSection,
-        breadcrumbBackUrl: analysis.breadcrumbBackUrl,
-        breadcrumbFileName: analysis.breadcrumbFileName,
-        breadcrumbFileBackUrl: analysis.breadcrumbFileBackUrl,
+        breadcrumbRootTitle: t('workshop.myAnalyses.title'),
+        breadcrumbRootUrl: '/workshop',
       },
     });
   };
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    remove(id);
-    refresh();
+    api.delete(`/api/analyses/${id}`)
+      .then(() => setAllAnalyses((prev) => prev.filter((a) => a.id !== id)))
+      .catch(() => {});
   };
 
   const formatDate = (iso: string) => {
@@ -77,7 +76,15 @@ export function WorkshopAnalysisList() {
   return (
     <section className="workshop-section-block">
       <h2 className="workshop-section-block__title">{t('workshop.myAnalyses.title')}</h2>
-      {allAnalyses.length === 0 ? (
+      {!user ? (
+        <p className="workshop-section-block__empty">
+          {t('workshop.myAnalyses.loginRequired', 'Sign in to save your analyses')}
+        </p>
+      ) : loading ? (
+        <p className="workshop-section-block__empty">{t('common.loading')}</p>
+      ) : error ? (
+        <p className="workshop-section-block__empty">{error}</p>
+      ) : allAnalyses.length === 0 ? (
         <p className="workshop-section-block__empty">{t('workshop.myAnalyses.empty')}</p>
       ) : (
         <>
@@ -97,11 +104,6 @@ export function WorkshopAnalysisList() {
                     <span className="workshop-analysis-item__date">{formatDate(analysis.createdAt)}</span>
                     {analysis.opening && (
                       <span className="workshop-analysis-item__opening">{analysis.opening}</span>
-                    )}
-                    {(analysis.whitePgn || analysis.blackPgn) && (
-                      <span className="workshop-analysis-item__players">
-                        {analysis.whitePgn ?? '?'} vs {analysis.blackPgn ?? '?'}
-                      </span>
                     )}
                   </div>
                 </div>
