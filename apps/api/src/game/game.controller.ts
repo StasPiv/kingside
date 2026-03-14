@@ -1,23 +1,40 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   Put,
+  Query,
   Request,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateGameWithBotDto, SaveAnalysisDto } from './dto/game.dto';
 import { GameService } from './game.service';
+import { UserService } from '../user/user.service';
 
 @Controller('games')
 export class GameController {
-  constructor(private readonly gameService: GameService) {}
+  constructor(
+    private readonly gameService: GameService,
+    private readonly userService: UserService,
+  ) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get('my')
+  getMyGames(
+    @Request() req: any,
+    @Query('take', new DefaultValuePipe(20), ParseIntPipe) take: number,
+    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+  ) {
+    return this.userService.getUserGames(req.user.id, { take, skip });
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post('bot')

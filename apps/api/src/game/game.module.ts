@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { ChatModule } from '../chat/chat.module';
+import { UserModule } from '../user/user.module';
 import { GameGateway } from './game.gateway';
 import { GameService } from './game.service';
 import { GameClockService } from './game-clock.service';
@@ -12,7 +13,7 @@ import { GameController } from './game.controller';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 
 @Module({
-  imports: [AuthModule, ChatModule],
+  imports: [AuthModule, ChatModule, UserModule],
   controllers: [GameController],
   providers: [GameGateway, GameService, GameClockService, RatingService, RatingProtectionService, BotGameService, StockfishService, WsJwtGuard],
   exports: [GameService, GameGateway, BotGameService, WsJwtGuard],
