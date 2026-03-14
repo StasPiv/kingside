@@ -3609,8 +3609,8 @@ input:focus {
   .game-sidebar {
     width: 100%;
     max-width: 480px;
+    height: 50vh;
     max-height: 50vh;
-    height: auto;
   }
 
   .moves {
