@@ -533,7 +533,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             summary = issue.get("fields", {}).get("summary", "")
             comment_body = payload.get("comment", {}).get("body", "")
 
-            # Проверяем статус задачи — не запускаем агентов для завершённых задач
+            # Статус задачи: coding-агенты только для "new" (To Do), coordinator — для любого кроме "done"
             status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
             if status_category == "done":
                 log(f"Пропуск {key}: задача в статусе Done")
@@ -574,8 +574,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 name = m.lower()
                 if name not in valid_agents or name == author_agent:
                     continue
-                # coordinator — всегда ок; coding-агенты — только если их метка на задаче
-                if name == "coordinator" or name in labels:
+                # coordinator — для любого не-done статуса
+                # coding-агенты — только если задача в статусе To Do (labels в comment payload пустые — не проверяем)
+                if name == "coordinator":
+                    agents.append(name)
+                elif status_category == "new":
                     agents.append(name)
 
             # Coordinator получает все комментарии (если он не автор)
@@ -591,13 +594,24 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
             for agent in agents:
                 role = agent.upper()
-                prompt = (
-                    f"Задача {key}: {summary}\n\n"
-                    f"Получен новый комментарий:\n{comment_text}\n\n"
-                    f"1. Прочитай комментарий и выполни то, что в нём написано\n"
-                    f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
-                    f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '"
-                )
+                if agent != "coordinator":
+                    prompt = (
+                        f"Задача {key}: {summary}\n\n"
+                        f"Получен новый комментарий:\n{comment_text}\n\n"
+                        f"1. Переведи задачу в статус 'In Progress' через MCP jira-personal\n"
+                        f"2. Прочитай комментарий и выполни то, что в нём написано\n"
+                        f"3. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
+                        f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
+                        f"4. Переведи задачу в статус 'Done'"
+                    )
+                else:
+                    prompt = (
+                        f"Задача {key}: {summary}\n\n"
+                        f"Получен новый комментарий:\n{comment_text}\n\n"
+                        f"1. Прочитай комментарий и выполни то, что в нём написано\n"
+                        f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
+                        f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '"
+                    )
                 log(f"Комментарий к {key} -> агент {agent}")
                 launch_agent(key, summary, agent, prompt)
 
@@ -613,32 +627,39 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"status":"ignored"}')
             return
 
-        key, summary, agent, labels = extract_task(payload)
-
-        # Проверяем статус задачи — запускаем агентов только для новых задач (To Do)
+        # Проверяем: переход в статус "В процессе проверки" → запускаем QA
         issue = payload.get("issue", {})
-        status_name = issue.get("fields", {}).get("status", {}).get("name", "")
-        status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
-        if status_category in ("done", "indeterminate"):
-            log(f"Пропуск {key}: задача в статусе '{status_name}' — агент уже работает или задача завершена")
+        key = issue.get("key", "")
+        summary = issue.get("fields", {}).get("summary", "")
+        changelog_items = payload.get("changelog", {}).get("items", [])
+        status_to = None
+        for item in changelog_items:
+            if item.get("field") == "status":
+                status_to = item.get("toString", "")
+                break
+
+        IN_REVIEW_STATUS = "В процессе проверки"
+        if status_to == IN_REVIEW_STATUS and key:
+            log(f"Задача {key} перешла в '{IN_REVIEW_STATUS}' — запускаем QA")
+            prompt = (
+                f"Задача {key}: {summary}\n\n"
+                f"Задача переведена в статус '{IN_REVIEW_STATUS}'.\n"
+                f"Проверь выполнение задачи:\n"
+                f"1. Прочитай описание и Gherkin-сценарии из Jira\n"
+                f"2. Если есть скриншоты — проверь их визуально\n"
+                f"3. Если скриншотов нет — сделай код-ревью изменений\n"
+                f"4. Вынеси вердикт: закрой задачу (Done) или верни (To Do) с комментарием @frontend"
+            )
+            launch_agent(key, summary, "qa", prompt)
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'{"status":"skipped","reason":"status"}')
+            self.wfile.write(json.dumps({"status": "qa_launched", "key": key}).encode())
             return
 
-        if not key or not agent:
-            log(f"Пропуск {key}: нет подходящего label (labels={labels})")
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{"status":"skipped"}')
-            return
-
-        log(f"Задача {key}: {summary} -> агент {agent}")
-        launch_agent(key, summary, agent)
-
+        log(f"Событие {event}: уведомление, запуск агентов не производится")
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(json.dumps({"status": "launched", "agent": agent, "key": key}).encode())
+        self.wfile.write(b'{"status":"notified"}')
 
     def do_GET(self):
         if self.path == "/health":
