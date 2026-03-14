@@ -20,7 +20,20 @@
     "statusInactive": "Завершена",
     "colTitle": "Турнир",
     "colStatus": "Статус",
-    "colDate": "Дата"
+    "colDate": "Дата",
+    "dgt": {
+      "urlPlaceholder": "Вставьте ссылку DGT LiveChess Cloud или ID турнира…",
+      "load": "Загрузить",
+      "errorTournament": "Не удалось загрузить турнир",
+      "errorRound": "Не удалось загрузить тур",
+      "timeControl": "Контроль времени",
+      "rounds": "Туры",
+      "round": "Тур",
+      "newTournament": "Новый турнир",
+      "backToRounds": "К турам",
+      "noGames": "Нет партий в этом туре",
+      "noMoves": "Ходов пока нет"
+    }
   },
   "broadcastRound": {
     "backToBroadcasts": "Все трансляции",

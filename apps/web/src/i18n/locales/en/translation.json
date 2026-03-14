@@ -20,7 +20,20 @@
     "statusInactive": "Ended",
     "colTitle": "Tournament",
     "colStatus": "Status",
-    "colDate": "Date"
+    "colDate": "Date",
+    "dgt": {
+      "urlPlaceholder": "Paste DGT LiveChess Cloud link or tournament ID…",
+      "load": "Load",
+      "errorTournament": "Failed to load tournament",
+      "errorRound": "Failed to load round",
+      "timeControl": "Time control",
+      "rounds": "Rounds",
+      "round": "Round",
+      "newTournament": "New tournament",
+      "backToRounds": "Rounds",
+      "noGames": "No games in this round",
+      "noMoves": "No moves yet"
+    }
   },
   "broadcastRound": {
     "backToBroadcasts": "All broadcasts",
