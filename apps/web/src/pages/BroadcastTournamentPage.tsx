@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
-import type { BroadcastItem, BroadcastRoundItem, BroadcastRoundsResponse } from '@kingside/shared';
+import type { DgtTournamentResult } from '../dgt.types';
 
 export function BroadcastTournamentPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
-  const [tournament, setTournament] = useState<BroadcastItem | null>(null);
-  const [rounds, setRounds] = useState<BroadcastRoundItem[]>([]);
+  const [data, setData] = useState<DgtTournamentResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -18,20 +18,17 @@ export function BroadcastTournamentPage() {
     let cancelled = false;
 
     setLoading(true);
-    Promise.all([
-      api.get<BroadcastItem>(`/api/broadcasts/${tournamentId}`),
-      api.get<BroadcastRoundsResponse>(`/api/broadcasts/${tournamentId}/rounds`),
-    ])
-      .then(([t, r]) => {
+    api
+      .get<DgtTournamentResult>(`/api/dgt/tournament/${tournamentId}`)
+      .then((result) => {
         if (!cancelled) {
-          setTournament(t);
-          setRounds(r.data ?? []);
+          setData(result);
           setLoading(false);
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!cancelled) {
-          setError(t('broadcasts.error'));
+          setError(err instanceof Error ? err.message : t('broadcasts.dgt.errorTournament'));
           setLoading(false);
         }
       });
@@ -45,44 +42,41 @@ export function BroadcastTournamentPage() {
   if (error) return <div className="error">{error}</div>;
 
   return (
-    <div className="broadcast-tournament-page">
-      <div className="broadcast-round-header">
-        <Link to="/broadcasts" className="broadcast-round-back">
-          ← {t('broadcastRound.backToBroadcasts')}
+    <div className="broadcasts-page">
+      <div className="dgt-tournament-header">
+        <div>
+          <div className="dgt-tournament-name">{data?.tournament.name}</div>
+          {(data?.tournament.location || data?.tournament.country) && (
+            <div className="dgt-tournament-meta">
+              {[data?.tournament.location, data?.tournament.country]
+                .filter(Boolean)
+                .join(', ')}
+            </div>
+          )}
+          {data && (
+            <div className="dgt-tournament-meta">
+              {t('broadcasts.dgt.timeControl')}: {data.tournament.timecontrol}
+              {' · '}
+              {t('broadcasts.dgt.rounds')}: {data.totalRounds}
+            </div>
+          )}
+        </div>
+        <Link to="/broadcasts" className="dgt-reset-btn">
+          {t('broadcasts.dgt.newTournament')}
         </Link>
       </div>
 
-      {tournament && (
-        <div className="broadcast-tournament-info">
-          <h1 className="broadcast-tournament-title">{tournament.title}</h1>
-          {tournament.description && (
-            <p className="broadcast-tournament-description">{tournament.description}</p>
-          )}
-        </div>
-      )}
-
-      {rounds.length === 0 ? (
-        <div className="broadcast-round-empty">{t('broadcasts.empty')}</div>
-      ) : (
-        <div className="broadcast-tournament-rounds">
-          <h2 className="broadcast-tournament-rounds-title">{t('broadcastTournament.rounds')}</h2>
-          <ul className="broadcast-tournament-rounds-list">
-            {rounds.map((round) => (
-              <li key={round.id} className="broadcast-tournament-round-item">
-                <Link
-                  to={`/broadcasts/${tournamentId}/${round.id}`}
-                  className="broadcast-tournament-round-link"
-                >
-                  {round.name}
-                </Link>
-                {round.startsAt && (
-                  <span className="broadcast-tournament-round-date">
-                    {new Date(round.startsAt).toLocaleDateString()}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
+      {data && data.totalRounds > 0 && (
+        <div className="dgt-rounds-row">
+          {Array.from({ length: data.totalRounds }, (_, i) => i + 1).map((r) => (
+            <button
+              key={r}
+              className="dgt-round-btn"
+              onClick={() => navigate(`/broadcasts/${tournamentId}/${r}`)}
+            >
+              {t('broadcasts.dgt.round')} {r}
+            </button>
+          ))}
         </div>
       )}
     </div>

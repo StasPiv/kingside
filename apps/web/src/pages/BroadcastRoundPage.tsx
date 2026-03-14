@@ -1,24 +1,34 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
-import { broadcastSocket } from '../socket';
-import type {
-  BroadcastRoundsResponse,
-  BroadcastRoundItem,
-  WsBroadcastSyncPayload,
-  WsBroadcastMovePayload,
-} from '@kingside/shared';
-import { BroadcastEvents } from '@kingside/shared';
+import type { DgtTournamentResult, DgtRoundResult } from '../dgt.types';
+import { formatPlayerName, formatResult } from '../dgt.types';
 
-interface GameState {
-  gameIndex: number;
-  fen: string;
-  whitePlayer: string;
-  blackPlayer: string;
-  result: string | null;
+function computeFen(pgn: string, moves: string[]): string {
+  if (pgn) {
+    try {
+      const chess = new Chess();
+      chess.loadPgn(pgn);
+      return chess.fen();
+    } catch {
+      // fall through
+    }
+  }
+  if (moves.length > 0) {
+    try {
+      const chess = new Chess();
+      for (const move of moves) {
+        chess.move(move);
+      }
+      return chess.fen();
+    } catch {
+      // fall through
+    }
+  }
+  return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 }
 
 export function BroadcastRoundPage() {
@@ -26,113 +36,40 @@ export function BroadcastRoundPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
-  const [rounds, setRounds] = useState<BroadcastRoundItem[]>([]);
-  const [roundsError, setRoundsError] = useState('');
-  const [games, setGames] = useState<GameState[]>([]);
-  const [connected, setConnected] = useState(false);
-  const [syncError, setSyncError] = useState('');
+  const [tournament, setTournament] = useState<DgtTournamentResult | null>(null);
+  const [round, setRound] = useState<DgtRoundResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const subscribedRoundRef = useRef<string | null>(null);
-
-  // Fetch rounds list
   useEffect(() => {
-    if (!tournamentId) return;
+    if (!tournamentId || !roundId) return;
     let cancelled = false;
-    api
-      .get<BroadcastRoundsResponse>(`/api/broadcasts/${tournamentId}/rounds`)
-      .then((res) => {
-        if (!cancelled) setRounds(res.data ?? []);
+
+    setLoading(true);
+    setRound(null);
+
+    Promise.all([
+      api.get<DgtTournamentResult>(`/api/dgt/tournament/${tournamentId}`),
+      api.get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`),
+    ])
+      .then(([t, r]) => {
+        if (!cancelled) {
+          setTournament(t);
+          setRound(r);
+          setLoading(false);
+        }
       })
-      .catch(() => {
-        if (!cancelled) setRoundsError(t('broadcastRound.roundsError'));
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : t('broadcasts.dgt.errorRound'));
+          setLoading(false);
+        }
       });
+
     return () => {
       cancelled = true;
     };
-  }, [tournamentId, t]);
-
-  // Auto-redirect to first round when no roundId is specified
-  useEffect(() => {
-    if (!roundId && rounds.length > 0 && tournamentId) {
-      navigate(`/broadcasts/${tournamentId}/${rounds[0].id}`, { replace: true });
-    }
-  }, [rounds, roundId, tournamentId, navigate]);
-
-  // WebSocket: connect and manage subscription
-  useEffect(() => {
-    if (!roundId) return;
-
-    broadcastSocket.connect();
-
-    const handleConnect = () => {
-      setConnected(true);
-      broadcastSocket.emit(BroadcastEvents.SUBSCRIBE, { roundId });
-      subscribedRoundRef.current = roundId;
-    };
-
-    const handleDisconnect = () => {
-      setConnected(false);
-    };
-
-    const handleSync = (payload: WsBroadcastSyncPayload) => {
-      if (payload.roundId !== roundId) return;
-      setGames(
-        payload.games.map((g: WsBroadcastSyncPayload['games'][number]) => ({
-          gameIndex: g.gameIndex,
-          fen: g.fen,
-          whitePlayer: g.whitePlayer,
-          blackPlayer: g.blackPlayer,
-          result: g.result,
-        })),
-      );
-    };
-
-    const handleMove = (payload: WsBroadcastMovePayload) => {
-      if (payload.roundId !== roundId) return;
-      setGames((prev) =>
-        prev.map((g) => {
-          if (g.gameIndex !== payload.gameIndex) return g;
-          try {
-            const chess = new Chess(g.fen);
-            const from = payload.uci.slice(0, 2);
-            const to = payload.uci.slice(2, 4);
-            const promotion = payload.uci.length === 5 ? payload.uci[4] : undefined;
-            chess.move({ from, to, promotion });
-            return { ...g, fen: chess.fen() };
-          } catch {
-            return { ...g, fen: payload.fen };
-          }
-        }),
-      );
-    };
-
-    const handleError = (err: { message?: string }) => {
-      setSyncError(err?.message ?? t('broadcastRound.syncError'));
-    };
-
-    if (broadcastSocket.connected) {
-      handleConnect();
-    }
-
-    broadcastSocket.on('connect', handleConnect);
-    broadcastSocket.on('disconnect', handleDisconnect);
-    broadcastSocket.on(BroadcastEvents.SYNC, handleSync);
-    broadcastSocket.on(BroadcastEvents.MOVE, handleMove);
-    broadcastSocket.on(BroadcastEvents.ERROR, handleError);
-
-    return () => {
-      if (subscribedRoundRef.current) {
-        broadcastSocket.emit(BroadcastEvents.UNSUBSCRIBE, { roundId: subscribedRoundRef.current });
-        subscribedRoundRef.current = null;
-      }
-      broadcastSocket.off('connect', handleConnect);
-      broadcastSocket.off('disconnect', handleDisconnect);
-      broadcastSocket.off(BroadcastEvents.SYNC, handleSync);
-      broadcastSocket.off(BroadcastEvents.MOVE, handleMove);
-      broadcastSocket.off(BroadcastEvents.ERROR, handleError);
-      broadcastSocket.disconnect();
-    };
-  }, [roundId, t]);
+  }, [tournamentId, roundId, t]);
 
   const handleBoardClick = useCallback(
     (gameIndex: number) => {
@@ -149,75 +86,75 @@ export function BroadcastRoundPage() {
         <Link to={`/broadcasts/${tournamentId}`} className="broadcast-round-back">
           ← {t('broadcastRound.backToTournament')}
         </Link>
-        <div className="broadcast-round-status">
-          <span
-            className={`broadcast-round-indicator broadcast-round-indicator--${connected ? 'live' : 'offline'}`}
-          />
-          {connected ? t('broadcastRound.live') : t('broadcastRound.connecting')}
-        </div>
       </div>
 
-      {roundsError && <div className="error">{roundsError}</div>}
-      {syncError && <div className="error">{syncError}</div>}
+      {error && <div className="error">{error}</div>}
 
-      {rounds.length > 0 && (
-        <div className="broadcast-round-tabs">
-          {rounds.map((round) => (
+      {tournament && tournament.totalRounds > 0 && (
+        <div className="dgt-rounds-row">
+          {Array.from({ length: tournament.totalRounds }, (_, i) => i + 1).map((r) => (
             <Link
-              key={round.id}
-              to={`/broadcasts/${tournamentId}/${round.id}`}
-              className={`broadcast-round-tab${round.id === roundId ? ' broadcast-round-tab--active' : ''}`}
+              key={r}
+              to={`/broadcasts/${tournamentId}/${r}`}
+              className={`dgt-round-btn${String(r) === roundId ? ' dgt-round-btn--active' : ''}`}
             >
-              {round.name}
+              {t('broadcasts.dgt.round')} {r}
             </Link>
           ))}
         </div>
       )}
 
-      {games.length === 0 && connected && (
-        <div className="broadcast-round-empty">{t('broadcastRound.noGames')}</div>
+      {loading && <div className="loading">{t('common.loading')}</div>}
+
+      {!loading && round && round.games.length === 0 && (
+        <div className="broadcasts-empty">{t('broadcasts.dgt.noGames')}</div>
       )}
 
-      {games.length === 0 && !connected && (
-        <div className="loading">{t('common.loading')}</div>
-      )}
+      {!loading && round && round.games.length > 0 && (
+        <div className="dgt-games">
+          <div className="dgt-boards-grid">
+            {round.games.map((game) => {
+              const white = formatPlayerName(game.white);
+              const black = formatPlayerName(game.black);
+              const result = formatResult(game.result);
+              const fen = computeFen(game.pgn, game.moves);
 
-      <div className="broadcast-round-boards">
-        {games.map((game) => (
-          <div
-            key={game.gameIndex}
-            className="broadcast-round-board-card"
-            onClick={() => handleBoardClick(game.gameIndex)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && handleBoardClick(game.gameIndex)}
-            aria-label={`${game.whitePlayer} vs ${game.blackPlayer}`}
-          >
-            <div className="broadcast-round-board-players">
-              <span className="broadcast-round-player broadcast-round-player--white">
-                ♙ {game.whitePlayer}
-              </span>
-              <span className="broadcast-round-player-sep">vs</span>
-              <span className="broadcast-round-player broadcast-round-player--black">
-                ♟ {game.blackPlayer}
-              </span>
-            </div>
-            <div className="broadcast-round-board-wrap">
-              <Chessboard
-                options={{
-                  position: game.fen,
-                  allowDragging: false,
-                  showNotation: false,
-                  animationDurationInMs: 200,
-                }}
-              />
-            </div>
-            {game.result && (
-              <div className="broadcast-round-result">{game.result}</div>
-            )}
+              return (
+                <div
+                  key={game.gameIndex}
+                  className="dgt-board-card"
+                  onClick={() => handleBoardClick(game.gameIndex)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && handleBoardClick(game.gameIndex)}
+                  aria-label={`${white} vs ${black}`}
+                >
+                  <div className="dgt-board-players">
+                    <span className="dgt-player dgt-player--black">♟ {black}</span>
+                  </div>
+                  <div className="dgt-board-wrap">
+                    <Chessboard
+                      options={{
+                        position: fen,
+                        allowDragging: false,
+                        showNotation: false,
+                        animationDurationInMs: 0,
+                      }}
+                    />
+                  </div>
+                  <div className="dgt-board-players">
+                    <span className="dgt-player dgt-player--white">♙ {white}</span>
+                  </div>
+                  <div className="dgt-board-footer">
+                    <span className="dgt-game-board-num">#{game.gameIndex}</span>
+                    <span className="dgt-game-result">{result}</span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
