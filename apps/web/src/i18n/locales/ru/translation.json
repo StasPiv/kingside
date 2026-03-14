@@ -257,7 +257,8 @@
     "engineError": "Ошибка движка",
     "ready": "Готов",
     "notSupported": "Не поддерживается",
-    "notSupportedMobile": "Не поддерживается на мобильных"
+    "notSupportedMobile": "Не поддерживается на мобильных",
+    "editTitle": "Нажмите для редактирования названия"
   },
   "puzzle": {
     "title": "Задачи",
@@ -357,6 +358,10 @@
       "prev": "Назад",
       "next": "Вперёд",
       "page": "Страница {{current}} из {{total}}"
+    },
+    "myAnalyses": {
+      "title": "Мои анализы",
+      "delete": "Удалить"
     },
     "tournaments": {
       "title": "Топ активных турниров",

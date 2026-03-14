@@ -4757,6 +4757,134 @@ input:focus {
   background: #3a3a6e;
 }
 
+/* Workshop: saved analyses list */
+.workshop-analyses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workshop-analysis-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #1e1e2e;
+  border: 1px solid #2e2e4e;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.workshop-analysis-item:hover {
+  background: #252540;
+}
+
+.workshop-analysis-item__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.workshop-analysis-item__title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workshop-analysis-item__meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.workshop-analysis-item__date {
+  font-size: 12px;
+  color: #888;
+}
+
+.workshop-analysis-item__opening {
+  font-size: 12px;
+  color: #a0a0c0;
+}
+
+.workshop-analysis-item__players {
+  font-size: 12px;
+  color: #80a0b0;
+}
+
+.workshop-analysis-item__delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.workshop-analysis-item__delete:hover {
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.1);
+}
+
+/* Analysis page: editable title */
+.analysis-title {
+  padding: 6px 0 8px;
+}
+
+.analysis-title__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #c0c0e0;
+  margin: 0;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.analysis-title__text:hover {
+  color: #e0e0ff;
+  border-bottom-color: #5555aa;
+}
+
+.analysis-title__edit-icon {
+  font-size: 13px;
+  color: #666;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.analysis-title__text:hover .analysis-title__edit-icon {
+  opacity: 1;
+}
+
+.analysis-title__input {
+  width: 100%;
+  background: #1a1a2e;
+  border: 1px solid #5555aa;
+  border-radius: 4px;
+  color: #e0e0f0;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.analysis-title__input:focus {
+  border-color: #8080cc;
+}
+
 @media (max-width: 600px) {
   .workshop-game-list-item__opening,
   .workshop-game-list-item__moves {
