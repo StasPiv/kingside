@@ -1098,6 +1098,8 @@ input:focus {
   min-width: 200px;
   flex-shrink: 0;
   overflow: hidden;
+  height: calc(100vh - 48px - 24px);
+  min-height: 0;
 }
 
 /* Horizontal resizer between board area and sidebar in game page */
