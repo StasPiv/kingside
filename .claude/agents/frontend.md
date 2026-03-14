@@ -44,6 +44,11 @@ model: claude-sonnet-4-6
 - **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - Все git-команды и изменения файлов выполняй только в своём worktree
 - **node_modules находятся в основном репозитории** `/home/pivovartsev/work/kingside`, а не в worktree. Это нормально — worktree разделяет файловую систему с основным репо через symlink. Команды `npm run dev`, `vite build` и т.д. запускай из своего worktree — они найдут node_modules автоматически.
+- **Запуск инструментов качества в worktree** — используй полный путь к бинарям:
+  - ESLint: `/home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/web/src`
+  - TypeScript: `/home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit`
+  - Или через npx из worktree: `npx --prefix /home/pivovartsev/work/kingside eslint apps/web/src`
+  - ЗАПРЕЩЕНО пропускать проверку линтером/компилятором со словами "это проблема окружения". Найди способ запустить.
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`

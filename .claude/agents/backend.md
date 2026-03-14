@@ -38,6 +38,11 @@ model: claude-sonnet-4-6
 - ЗАПРЕЩЕНО делать `cd /home/pivovartsev/work/kingside` — это основной репозиторий, не твой worktree
 - **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - Все git-команды и изменения файлов выполняй только в своём worktree
+- **node_modules находятся в основном репозитории** `/home/pivovartsev/work/kingside`. Запуск инструментов качества:
+  - TypeScript: `/home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit`
+  - ESLint: `/home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/api/src`
+  - Или: `npx --prefix /home/pivovartsev/work/kingside eslint apps/api/src`
+  - ЗАПРЕЩЕНО пропускать проверку со словами "это проблема окружения". Найди способ запустить.
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
