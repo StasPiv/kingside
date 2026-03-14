@@ -59,17 +59,29 @@ echo "  Frontend задеплоен в /var/www/kingside."
 # 4. Пересборка и перезапуск API на сервере
 echo "[4/5] Пересборка и перезапуск API на сервере..."
 ssh "$REMOTE_HOST" "cd $REMOTE_DIR && \
+    echo 'Очистка диска перед сборкой...' && \
+    bash scripts/disk-cleanup.sh && \
+    echo 'Сборка образа API...' && \
     docker compose build --no-cache api && \
-    docker image prune -f && docker builder prune -f && \
+    docker image prune -f && \
+    echo 'Перезапуск контейнера API...' && \
     docker compose up -d --force-recreate api && \
-    echo 'Ожидание готовности API...' && \
-    for i in \$(seq 1 30); do \
+    echo 'Ожидание готовности API (healthcheck)...' && \
+    API_READY=0 && \
+    for i in \$(seq 1 40); do \
+        STATUS=\$(docker compose ps --format json api 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get(\"Health\",\"\"))' 2>/dev/null || echo ''); \
         if curl -sf http://localhost:3001/api/health &>/dev/null; then \
             echo 'API готов.'; \
+            API_READY=1; \
             break; \
         fi; \
-        sleep 2; \
-    done"
+        sleep 3; \
+    done && \
+    if [ \"\$API_READY\" -eq 0 ]; then \
+        echo 'ERROR: API не стартовал за 120 сек. Логи:'; \
+        docker compose logs api --tail=50; \
+        exit 1; \
+    fi"
 
 # 5. Перезагрузка nginx
 echo "[5/5] Перезагрузка nginx..."

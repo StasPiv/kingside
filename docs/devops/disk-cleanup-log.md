@@ -1,5 +1,41 @@
 # Disk Cleanup Log — Kamatera Chess (63.250.57.89)
 
+## 2026-03-14 (KS-515)
+
+**Trigger:** Login на проде отдавал 502 Bad Gateway
+
+### Root cause
+Диск заполнился повторно (~85%+) из-за накопления Docker build cache и `.claude/worktrees/`
+после множественных деплоев (KS-500—KS-514). API контейнер не смог пересобраться/рестартовать.
+
+### Fix applied
+- Обновлён `scripts/disk-cleanup.sh`: добавлена очистка `.claude/worktrees/`, `.worktrees/`,
+  `.turbo/cache`, Docker build cache (`docker system prune -af`, `docker builder prune -f`),
+  снижен лимит journal до 50M
+- Добавлен `scripts/prod-502-fix.sh`: диагностика и восстановление при 502
+- Добавлен `scripts/install-disk-cron.sh`: ежедневная cron-очистка в 3:00
+- Добавлен `healthcheck` в `docker-compose.yml` для api-сервиса
+- Обновлён `scripts/api-hotfix.sh`: проверка диска перед сборкой, exit 1 при неудаче
+- Обновлён `scripts/deploy-local.sh`: очистка диска на сервере перед каждым деплоем
+
+### Recovery procedure
+```bash
+# На сервере:
+cd ~/kingside
+bash scripts/prod-502-fix.sh
+# При необходимости полной пересборки:
+bash scripts/api-hotfix.sh
+```
+
+### Prevention
+```bash
+# Установить cron (один раз):
+bash scripts/install-disk-cron.sh
+# Ежедневно в 3:00 будет запускаться disk-cleanup.sh
+```
+
+---
+
 ## 2026-03-12 (KS-448)
 
 **Trigger:** rsync деплой завершился с ошибкой "No space left on device" (диск 100%)
