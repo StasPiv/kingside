@@ -78,30 +78,15 @@ export function BroadcastRoundPage() {
     const handleSync = (payload: WsBroadcastSyncPayload) => {
       if (payload.roundId !== roundId) return;
       setGames(
-        payload.games.map((g: WsBroadcastSyncPayload['games'][number]) => {
-          let fen = g.fen;
-          if (g.pgn) {
-            try {
-              // Strip [FEN] header before loading: Lichess broadcast stream
-              // sets [FEN] to the current position (not starting position),
-              // so chess.js must start from the standard initial position
-              // and replay all moves to compute the correct current FEN.
-              const pgnWithoutFen = g.pgn.replace(/\[FEN "[^"]*"\]\s*/g, '');
-              const chess = new Chess();
-              chess.loadPgn(pgnWithoutFen);
-              fen = chess.fen();
-            } catch {
-              // fallback to g.fen
-            }
-          }
-          return {
-            gameIndex: g.gameIndex,
-            fen,
-            whitePlayer: g.whitePlayer,
-            blackPlayer: g.blackPlayer,
-            result: g.result,
-          };
-        }),
+        payload.games.map((g: WsBroadcastSyncPayload['games'][number]) => ({
+          gameIndex: g.gameIndex,
+          // g.fen is currentFen from the backend, extracted from the Lichess
+          // [FEN] header which always represents the current game position.
+          fen: g.fen,
+          whitePlayer: g.whitePlayer,
+          blackPlayer: g.blackPlayer,
+          result: g.result,
+        })),
       );
     };
 
