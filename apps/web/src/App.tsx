@@ -16,6 +16,7 @@ import { ProfilePage } from './pages/ProfilePage';
 import { GameReviewPage } from './pages/GameReviewPage';
 import { WorkshopPage } from './pages/WorkshopPage';
 import { BroadcastsPage } from './pages/BroadcastsPage';
+import { BroadcastRoundPage } from './pages/BroadcastRoundPage';
 import { useAuth } from './context/AuthContext';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -60,6 +61,7 @@ export function App() {
         <Route path="/workshop/pgn-files/:fileId" element={<ProtectedRoute><WorkshopPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
+        <Route path="/broadcasts/:id/rounds/:roundId" element={<BroadcastRoundPage />} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Route>
     </Routes>

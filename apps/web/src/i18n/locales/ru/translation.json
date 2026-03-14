@@ -19,6 +19,15 @@
     "statusActive": "Активна",
     "statusInactive": "Завершена"
   },
+  "broadcastRound": {
+    "backToBroadcasts": "Все трансляции",
+    "live": "Прямой эфир",
+    "connecting": "Подключение...",
+    "noGames": "Нет партий в этом туре",
+    "roundsError": "Не удалось загрузить туры",
+    "syncError": "Ошибка соединения",
+    "close": "Закрыть"
+  },
   "settings": {
     "title": "Настройки",
     "profile": "Профиль",

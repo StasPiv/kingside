@@ -19,6 +19,15 @@
     "statusActive": "Active",
     "statusInactive": "Ended"
   },
+  "broadcastRound": {
+    "backToBroadcasts": "All broadcasts",
+    "live": "Live",
+    "connecting": "Connecting...",
+    "noGames": "No games in this round",
+    "roundsError": "Failed to load rounds",
+    "syncError": "Connection error",
+    "close": "Close"
+  },
   "settings": {
     "title": "Settings",
     "profile": "Profile",

@@ -9,3 +9,7 @@ export const socket = io(`${API_URL}/game`, {
 export const matchmakingSocket = io(`${API_URL}/matchmaking`, {
   autoConnect: false,
 });
+
+export const broadcastSocket = io(`${API_URL}/broadcast`, {
+  autoConnect: false,
+});
