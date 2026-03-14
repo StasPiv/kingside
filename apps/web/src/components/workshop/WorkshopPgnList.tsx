@@ -203,6 +203,8 @@ function PgnFileGames({ file }: { file: PgnFile }) {
         pgn: game.pgn,
         title: `${game.white} vs ${game.black}`,
         breadcrumbSection: t('workshop.pgnFiles.title'),
+        breadcrumbBackUrl: `/workshop/pgn-files/${file.id}`,
+        breadcrumbBackState: { file },
       },
     });
   };

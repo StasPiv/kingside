@@ -121,6 +121,8 @@ export function GameReviewPage() {
       (isLocalAnalysisId ? rawGameId : undefined),
   );
   const breadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
+  const breadcrumbBackUrl = (location.state as { breadcrumbBackUrl?: string } | null)?.breadcrumbBackUrl;
+  const breadcrumbBackState = (location.state as { breadcrumbBackState?: unknown } | null)?.breadcrumbBackState;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
@@ -563,7 +565,11 @@ export function GameReviewPage() {
             {breadcrumbSection && (
               <>
                 <span className="analysis-breadcrumbs__sep"> / </span>
-                <Link to="/workshop" className="analysis-breadcrumbs__link">
+                <Link
+                  to={breadcrumbBackUrl ?? '/workshop'}
+                  state={breadcrumbBackState}
+                  className="analysis-breadcrumbs__link"
+                >
                   {breadcrumbSection}
                 </Link>
               </>
