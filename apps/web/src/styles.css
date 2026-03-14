@@ -5020,6 +5020,10 @@ input:focus {
   color: #8080cc;
   text-decoration: none;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20ch;
+  min-width: 0;
   transition: color 0.15s;
 }
 
@@ -5061,6 +5065,23 @@ input:focus {
 .analysis-breadcrumbs__input {
   flex: 1;
   min-width: 0;
+}
+
+/* Analysis page: Workshop shortcut link */
+.analysis-workshop-shortcut {
+  padding: 4px 0 2px;
+}
+
+.analysis-workshop-shortcut__link {
+  font-size: 12px;
+  color: #666;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.analysis-workshop-shortcut__link:hover {
+  color: #8080cc;
+  text-decoration: underline;
 }
 
 /* Analysis page: editable title */

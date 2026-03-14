@@ -14,7 +14,13 @@ export function WorkshopPgnUpload() {
     reader.onload = (ev) => {
       const pgn = ev.target?.result as string;
       if (pgn) {
-        navigate('/analysis', { state: { pgn } });
+        navigate('/analysis', {
+          state: {
+            pgn,
+            breadcrumbRootTitle: t('workshop.pgnUpload.title'),
+            breadcrumbRootUrl: '/workshop',
+          },
+        });
       }
     };
     reader.readAsText(file);

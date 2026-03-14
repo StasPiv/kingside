@@ -563,6 +563,12 @@ export function GameReviewPage() {
         style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}
       >
         {!gameId && (
+          <>
+          <div className="analysis-workshop-shortcut">
+            <Link to="/workshop" className="analysis-workshop-shortcut__link">
+              {t('workshop.title')}
+            </Link>
+          </div>
           <nav className="analysis-breadcrumbs">
             <Link to={breadcrumbRootUrl ?? '/workshop'} className="analysis-breadcrumbs__link">
               {breadcrumbRootTitle ?? t('workshop.title')}
@@ -613,6 +619,7 @@ export function GameReviewPage() {
               </span>
             )}
           </nav>
+          </>
         )}
         <div className="analysis-board-wrapper">
           {/* Black player row above board */}
