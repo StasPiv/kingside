@@ -17,17 +17,17 @@ describe('KS-254: мобильная вёрстка CSS', () => {
 
   it('.main имеет overflow-x: hidden для предотвращения горизонтального скролла', () => {
     // Ищем правило внутри media query
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('overflow-x: hidden');
   });
 
   it('навигация имеет flex-wrap для корректного переноса', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('flex-wrap: wrap');
   });
 
   it('.puzzle-rush-header имеет уменьшенный gap для мобильных', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('.puzzle-rush-header');
     // gap должен быть меньше десктопного (32px → 16px)
     const headerIdx = mobileSection.indexOf('.puzzle-rush-header');
@@ -36,7 +36,7 @@ describe('KS-254: мобильная вёрстка CSS', () => {
   });
 
   it('.rush-time имеет уменьшенный шрифт для мобильных', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('.rush-time');
     const timeIdx = mobileSection.indexOf('.rush-time');
     const timeBlock = mobileSection.slice(timeIdx, timeIdx + 100);
@@ -44,14 +44,14 @@ describe('KS-254: мобильная вёрстка CSS', () => {
   });
 
   it('.puzzle-rush-page имеет уменьшенный padding для мобильных', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     // Ищем именно .puzzle-rush-page { (без продолжения селектора)
     const regex = /\.puzzle-rush-page\s*\{[^}]*padding-top:\s*16px/;
     expect(mobileSection).toMatch(regex);
   });
 
   it('.puzzle-rush-page .board-container адаптивная ширина', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('.puzzle-rush-page .board-container');
   });
 });
@@ -63,14 +63,14 @@ describe('KS-388: мобильная вёрстка страниц', () => {
   const css = readFileSync(resolve(__dirname, 'styles.css'), 'utf-8');
 
   it('game-actions button имеет min-height 44px на мобильных', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('.game-actions button');
     // Find the rule specifically inside mobile media query
     expect(mobileSection).toContain('min-height: 44px');
   });
 
   it('.clock имеет font-size >= 20px на мобильных', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     const clockIdx = mobileSection.indexOf('.clock');
     const clockBlock = mobileSection.slice(clockIdx, clockIdx + 100);
     // should be 22px, not the old 18px
@@ -78,20 +78,20 @@ describe('KS-388: мобильная вёрстка страниц', () => {
   });
 
   it('.board-container имеет max-width для предотвращения overflow на 320px', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     // Specifically check for the max-width calc rule (not puzzle-page .board-container)
     expect(mobileSection).toContain('max-width: calc(100vw - 16px)');
   });
 
   it('.time-controls переключается на grid 2 колонки на мобильных', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     const idx = mobileSection.indexOf('.time-controls');
     const block = mobileSection.slice(idx, idx + 200);
     expect(block).toContain('grid-template-columns: repeat(2, 1fr)');
   });
 
   it('.rush-stats-grid на мобильных — 2 колонки', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('.rush-stats-grid');
     const idx = mobileSection.indexOf('.rush-stats-grid');
     const block = mobileSection.slice(idx, idx + 100);
@@ -99,7 +99,7 @@ describe('KS-388: мобильная вёрстка страниц', () => {
   });
 
   it('.game-sidebar не имеет ограничения max-height на мобильных', () => {
-    const mobileSection = css.slice(css.indexOf('@media (max-width: 480px)'));
+    const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
     expect(mobileSection).toContain('.game-sidebar');
     const idx = mobileSection.indexOf('.game-sidebar');
     const block = mobileSection.slice(idx, idx + 100);
