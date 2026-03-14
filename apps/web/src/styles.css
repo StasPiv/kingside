@@ -1097,7 +1097,6 @@ input:focus {
   width: 280px;
   min-width: 200px;
   flex-shrink: 0;
-  height: var(--board-area-height);
   overflow: hidden;
 }
 
