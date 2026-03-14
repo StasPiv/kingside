@@ -45,6 +45,7 @@ export function ReviewMoveList({
 }: ReviewMoveListProps) {
   const movesContainerRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFiredRef = useRef(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -112,15 +113,23 @@ export function ReviewMoveList({
     if (!processedMove.originalMove) return;
     const touch = e.touches[0];
     const move = processedMove.originalMove;
+    longPressFiredRef.current = false;
     longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true;
+      longPressTimerRef.current = null;
       showContextMenu({ clientX: touch.clientX, clientY: touch.clientY }, move);
     }, 500);
   };
 
-  const handleTouchEnd = (): void => {
+  const handleTouchEnd = (e: React.TouchEvent): void => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
+    }
+    if (longPressFiredRef.current) {
+      // Prevent synthetic click from immediately closing the context menu
+      e.preventDefault();
+      longPressFiredRef.current = false;
     }
   };
 
@@ -129,6 +138,7 @@ export function ReviewMoveList({
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
+    longPressFiredRef.current = false;
   };
 
   const renderMovesList = () => {
