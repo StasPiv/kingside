@@ -66,8 +66,6 @@ export function MainLayout() {
               )}
             </div>
 
-            <Link to="/broadcasts" className="nav-link" onClick={closeAll}>{t('nav.broadcasts')}</Link>
-
             <div className="nav-links">
               {user ? (
                 <div className="dropdown" ref={userMenuRef}>
