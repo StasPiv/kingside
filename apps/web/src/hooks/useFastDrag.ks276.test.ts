@@ -81,6 +81,8 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
 
   afterEach(() => {
     container.remove();
+    // Remove ghosts that were not cleaned up synchronously (RAF/setTimeout deferred)
+    document.querySelectorAll('[style*="z-index: 9999"]').forEach(el => el.remove());
   });
 
   // ── Fix 1: setPointerCapture on container ──────────────────────────────────
@@ -94,7 +96,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -125,7 +127,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -159,7 +161,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -183,7 +185,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -208,7 +210,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -234,7 +236,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -266,7 +268,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -300,7 +302,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -331,7 +333,7 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop: vi.fn(() => true),
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -349,14 +351,16 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
 
   describe('full drag lifecycle with KS-276 fixes', () => {
     it('drag completes correctly with all safety mechanisms in place', () => {
+      vi.useFakeTimers();
       vi.spyOn(container, 'setPointerCapture').mockImplementation(() => {});
-      const onPieceDrop = vi.fn(() => true);
+      // Rejected drop → snap-back path: cleanup via setTimeout(120ms)
+      const onPieceDrop = vi.fn(() => false);
       const ref = { current: container };
 
       renderHook(() =>
         useFastDrag(ref, {
           onPieceDrop,
-          boardOrientation: 'white',
+          boardOrientation: 'black',
           enabled: true,
         }),
       );
@@ -377,18 +381,23 @@ describe('useFastDrag — KS-276 Chrome drag fix', () => {
       container.dispatchEvent(dragEvent);
       expect(dragEvent.defaultPrevented).toBe(true);
 
-      // Complete drag normally
+      // Complete drag — rejected drop triggers snap-back
       document.dispatchEvent(
         new PointerEvent('pointerup', {
           clientX: 225, clientY: 225, bubbles: true,
         }),
       );
 
+      // Advance past snap-back cleanup timeout (120ms)
+      vi.advanceTimersByTime(150);
+
       // Piece visible, ghost removed
       expect(piece.style.opacity).toBe('');
       expect(
         document.querySelectorAll('[style*="z-index: 9999"]').length,
       ).toBe(0);
+
+      vi.useRealTimers();
     });
   });
 });

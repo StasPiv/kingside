@@ -60,6 +60,8 @@ describe('useFastDrag — enabled state (KS-273)', () => {
 
   afterEach(() => {
     container.remove();
+    // Remove ghosts that were not cleaned up synchronously (RAF/setTimeout deferred)
+    document.querySelectorAll('[style*="z-index: 9999"]').forEach(el => el.remove());
   });
 
   it('should not create ghost when enabled=false', () => {
@@ -303,6 +305,8 @@ describe('useFastDrag — enabled state (KS-273)', () => {
           bubbles: true,
         }),
       );
+      // Ghost cleanup is RAF/setTimeout deferred — remove manually for test isolation
+      document.querySelectorAll('[style*="z-index: 9999"]').forEach(el => el.remove());
       return count;
     };
 
