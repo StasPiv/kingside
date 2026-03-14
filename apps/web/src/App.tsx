@@ -61,6 +61,7 @@ export function App() {
         <Route path="/workshop/pgn-files/:fileId" element={<ProtectedRoute><WorkshopPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
+        <Route path="/broadcasts/:id/rounds" element={<BroadcastRoundPage />} />
         <Route path="/broadcasts/:id/rounds/:roundId" element={<BroadcastRoundPage />} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Route>
