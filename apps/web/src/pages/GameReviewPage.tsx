@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
@@ -103,7 +103,9 @@ const MULTI_PV = 3;
 
 export function GameReviewPage() {
   const params = useParams<{ id?: string; gameId?: string }>();
-  const gameId = params.id ?? params.gameId;
+  const rawGameId = params.id ?? params.gameId;
+  const gameId = rawGameId === 'new' ? undefined : rawGameId;
+  const location = useLocation();
   const { t } = useTranslation();
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -226,7 +228,19 @@ export function GameReviewPage() {
   const displayedLines = lines.length === MULTI_PV ? lines : lastLinesRef.current;
 
   useEffect(() => {
-    if (!gameId) return;
+    if (!gameId) {
+      const pgn = (location.state as { pgn?: string } | null)?.pgn;
+      if (pgn) {
+        try {
+          const parsedMoves = parseAnnotatedPgn(pgn);
+          loadFromPgn(parsedMoves);
+        } catch {
+          // ignore parse error — start with empty board
+        }
+      }
+      setLoading(false);
+      return;
+    }
 
     const fetchData = async () => {
       try {
@@ -265,7 +279,7 @@ export function GameReviewPage() {
     };
 
     fetchData();
-  }, [gameId, t, loadMoves, loadFromPgn]);
+  }, [gameId, location.state, t, loadMoves, loadFromPgn]);
 
   useAnalysisPersistence(gameId, history);
 
@@ -384,25 +398,28 @@ export function GameReviewPage() {
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
-  if (!gameData) return null;
+  if (gameId && !gameData) return null;
 
-  const resultPgn =
-    gameData.result === 'draw' ? '½–½' : gameData.result === 'white_wins' ? '1–0' : '0–1';
+  const resultPgn = gameData
+    ? gameData.result === 'draw' ? '½–½' : gameData.result === 'white_wins' ? '1–0' : '0–1'
+    : undefined;
 
-  const openingName = classifyOpening(history.map((m) => m.san));
+  const openingName = gameData ? classifyOpening(history.map((m) => m.san)) : undefined;
 
-  const gameInfo = {
-    white: {
-      username: gameData.white.username,
-      rating: gameData.whiteRatingBefore ?? null,
-    },
-    black: {
-      username: gameData.black.username,
-      rating: gameData.blackRatingBefore ?? null,
-    },
-    opening: openingName || undefined,
-    result: resultPgn,
-  };
+  const gameInfo = gameData
+    ? {
+        white: {
+          username: gameData.white.username,
+          rating: gameData.whiteRatingBefore ?? null,
+        },
+        black: {
+          username: gameData.black.username,
+          rating: gameData.blackRatingBefore ?? null,
+        },
+        opening: openingName || undefined,
+        result: resultPgn,
+      }
+    : undefined;
 
   const engineStatusSuffix = !wasmSupported
     ? ` · ${t('analysis.notSupported', 'Not supported')}`
@@ -430,13 +447,15 @@ export function GameReviewPage() {
       >
         <div className="analysis-board-wrapper">
           {/* Black player row above board */}
-          <div className="analysis-player-row">
-            <span className="analysis-player-dot analysis-player-dot--black" />
-            <span className="analysis-player-name">{gameData.black.username}</span>
-            {gameData.blackRatingBefore != null && (
-              <span className="analysis-player-rating">{gameData.blackRatingBefore}</span>
-            )}
-          </div>
+          {gameData && (
+            <div className="analysis-player-row">
+              <span className="analysis-player-dot analysis-player-dot--black" />
+              <span className="analysis-player-name">{gameData.black.username}</span>
+              {gameData.blackRatingBefore != null && (
+                <span className="analysis-player-rating">{gameData.blackRatingBefore}</span>
+              )}
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
             <div className="eval-bar-container">
@@ -456,13 +475,15 @@ export function GameReviewPage() {
           </div>
 
           {/* White player row below board */}
-          <div className="analysis-player-row">
-            <span className="analysis-player-dot analysis-player-dot--white" />
-            <span className="analysis-player-name">{gameData.white.username}</span>
-            {gameData.whiteRatingBefore != null && (
-              <span className="analysis-player-rating">{gameData.whiteRatingBefore}</span>
-            )}
-          </div>
+          {gameData && (
+            <div className="analysis-player-row">
+              <span className="analysis-player-dot analysis-player-dot--white" />
+              <span className="analysis-player-name">{gameData.white.username}</span>
+              {gameData.whiteRatingBefore != null && (
+                <span className="analysis-player-rating">{gameData.whiteRatingBefore}</span>
+              )}
+            </div>
+          )}
 
           <div className="analysis-board-controls">
             <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>
@@ -484,103 +505,105 @@ export function GameReviewPage() {
       <div className="analysis-h-resizer" onMouseDown={handleHResizerMouseDown} />
 
       <div className="analysis-sidebar">
-        {/* Game Information panel */}
-        <div className="analysis-panel">
-          <div
-            className="analysis-panel-header"
-            onClick={() => togglePanel('gameInfo')}
-          >
-            <span className="analysis-panel-header-left">
-              <span className="analysis-panel-icon">&#9432;</span>
-              <span className="analysis-panel-title">
-                {t('review.gameInfo', 'Game Information')}
+        {/* Game Information panel — only when game data is present */}
+        {gameData && (
+          <div className="analysis-panel">
+            <div
+              className="analysis-panel-header"
+              onClick={() => togglePanel('gameInfo')}
+            >
+              <span className="analysis-panel-header-left">
+                <span className="analysis-panel-icon">&#9432;</span>
+                <span className="analysis-panel-title">
+                  {t('review.gameInfo', 'Game Information')}
+                </span>
               </span>
-            </span>
-            <span className="analysis-panel-header-right">
-              <Link
-                to="/profile"
-                className="analysis-panel-back-link"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {t('review.backToGames')}
-              </Link>
-              <span className="analysis-panel-chevron">
-                {panelStates.gameInfo ? '▾' : '▸'}
+              <span className="analysis-panel-header-right">
+                <Link
+                  to="/profile"
+                  className="analysis-panel-back-link"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {t('review.backToGames')}
+                </Link>
+                <span className="analysis-panel-chevron">
+                  {panelStates.gameInfo ? '▾' : '▸'}
+                </span>
               </span>
-            </span>
-          </div>
-          {panelStates.gameInfo && (
-            <div className="analysis-panel-body">
-              <div className="analysis-game-players">
-                <div className="analysis-game-player">
-                  <span className="analysis-player-dot analysis-player-dot--white" />
-                  <span className="analysis-game-player-name">{gameData.white.username}</span>
-                  {gameData.ratingChange && (
-                    <span className="analysis-player-rating">
-                      {gameData.ratingChange.whiteRatingBefore}
-                      <span
-                        className={`rating-diff ${
-                          gameData.ratingChange.whiteRatingAfter -
+            </div>
+            {panelStates.gameInfo && (
+              <div className="analysis-panel-body">
+                <div className="analysis-game-players">
+                  <div className="analysis-game-player">
+                    <span className="analysis-player-dot analysis-player-dot--white" />
+                    <span className="analysis-game-player-name">{gameData.white.username}</span>
+                    {gameData.ratingChange && (
+                      <span className="analysis-player-rating">
+                        {gameData.ratingChange.whiteRatingBefore}
+                        <span
+                          className={`rating-diff ${
+                            gameData.ratingChange.whiteRatingAfter -
+                              gameData.ratingChange.whiteRatingBefore >
+                            0
+                              ? 'positive'
+                              : gameData.ratingChange.whiteRatingAfter -
+                                  gameData.ratingChange.whiteRatingBefore <
+                                0
+                                ? 'negative'
+                                : ''
+                          }`}
+                        >
+                          (
+                          {gameData.ratingChange.whiteRatingAfter -
                             gameData.ratingChange.whiteRatingBefore >
                           0
-                            ? 'positive'
-                            : gameData.ratingChange.whiteRatingAfter -
-                                gameData.ratingChange.whiteRatingBefore <
-                              0
-                              ? 'negative'
-                              : ''
-                        }`}
-                      >
-                        (
-                        {gameData.ratingChange.whiteRatingAfter -
-                          gameData.ratingChange.whiteRatingBefore >
-                        0
-                          ? '+'
-                          : ''}
-                        {gameData.ratingChange.whiteRatingAfter -
-                          gameData.ratingChange.whiteRatingBefore}
-                        )
+                            ? '+'
+                            : ''}
+                          {gameData.ratingChange.whiteRatingAfter -
+                            gameData.ratingChange.whiteRatingBefore}
+                          )
+                        </span>
                       </span>
-                    </span>
-                  )}
-                </div>
-                <span className="analysis-result-badge">{resultPgn}</span>
-                <div className="analysis-game-player">
-                  <span className="analysis-player-dot analysis-player-dot--black" />
-                  <span className="analysis-game-player-name">{gameData.black.username}</span>
-                  {gameData.ratingChange && (
-                    <span className="analysis-player-rating">
-                      {gameData.ratingChange.blackRatingBefore}
-                      <span
-                        className={`rating-diff ${
-                          gameData.ratingChange.blackRatingAfter -
+                    )}
+                  </div>
+                  <span className="analysis-result-badge">{resultPgn}</span>
+                  <div className="analysis-game-player">
+                    <span className="analysis-player-dot analysis-player-dot--black" />
+                    <span className="analysis-game-player-name">{gameData.black.username}</span>
+                    {gameData.ratingChange && (
+                      <span className="analysis-player-rating">
+                        {gameData.ratingChange.blackRatingBefore}
+                        <span
+                          className={`rating-diff ${
+                            gameData.ratingChange.blackRatingAfter -
+                              gameData.ratingChange.blackRatingBefore >
+                            0
+                              ? 'positive'
+                              : gameData.ratingChange.blackRatingAfter -
+                                  gameData.ratingChange.blackRatingBefore <
+                                0
+                                ? 'negative'
+                                : ''
+                          }`}
+                        >
+                          (
+                          {gameData.ratingChange.blackRatingAfter -
                             gameData.ratingChange.blackRatingBefore >
                           0
-                            ? 'positive'
-                            : gameData.ratingChange.blackRatingAfter -
-                                gameData.ratingChange.blackRatingBefore <
-                              0
-                              ? 'negative'
-                              : ''
-                        }`}
-                      >
-                        (
-                        {gameData.ratingChange.blackRatingAfter -
-                          gameData.ratingChange.blackRatingBefore >
-                        0
-                          ? '+'
-                          : ''}
-                        {gameData.ratingChange.blackRatingAfter -
-                          gameData.ratingChange.blackRatingBefore}
-                        )
+                            ? '+'
+                            : ''}
+                          {gameData.ratingChange.blackRatingAfter -
+                            gameData.ratingChange.blackRatingBefore}
+                          )
+                        </span>
                       </span>
-                    </span>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* Engine panel */}
         <div className="analysis-panel">

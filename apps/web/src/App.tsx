@@ -14,6 +14,7 @@ import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
 import { PuzzleRushReviewPage } from './pages/PuzzleRushReviewPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { GameReviewPage } from './pages/GameReviewPage';
+import { WorkshopPage } from './pages/WorkshopPage';
 import { useAuth } from './context/AuthContext';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -51,7 +52,9 @@ export function App() {
         <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
+        <Route path="/analysis" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
         <Route path="/analysis/:id" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
+        <Route path="/workshop" element={<ProtectedRoute><WorkshopPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Route>
