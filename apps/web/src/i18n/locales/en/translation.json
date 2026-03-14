@@ -150,6 +150,11 @@
         "title": "Workshop",
         "description": "Analyze your games, study positions, and upload PGN files to explore any game.",
         "cta": "Open Workshop"
+      },
+      "broadcasts": {
+        "title": "Broadcasts",
+        "description": "Follow top chess tournaments live. Watch moves in real time from the world's best players.",
+        "cta": "Watch Live"
       }
     },
     "workshop": {
