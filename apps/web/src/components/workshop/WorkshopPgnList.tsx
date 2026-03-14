@@ -51,7 +51,13 @@ function PgnFilesList({ onSelectFile }: { onSelectFile: (file: PgnFile) => void 
       });
       if (!res.ok) throw new Error();
       const data = await res.json();
-      setFiles(data.data ?? data);
+      const raw: any[] = data.data ?? data;
+      setFiles(raw.map((item) => ({
+        id: item.id,
+        name: item.fileName ?? item.name,
+        gameCount: item.gamesCount ?? item.gameCount,
+        uploadedAt: item.createdAt ?? item.uploadedAt,
+      })));
     } catch {
       setError(true);
     } finally {
