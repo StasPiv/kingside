@@ -124,7 +124,6 @@ export function BroadcastGamePage() {
     currentMove,
     currentGlobalIndex,
     currentFen,
-    isInVariation,
     loadFromPgn,
     gotoMove,
     gotoFirst,
@@ -579,33 +578,11 @@ export function BroadcastGamePage() {
                 history={history}
                 currentGlobalIndex={currentGlobalIndex}
                 onMoveClick={gotoMove}
+                onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
+                onDeleteVariation={(move) => removeVariation(move as ChessMove)}
+                onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
                 gameInfo={gameInfo}
               />
-              {isInVariation && currentMove && (
-                <div className="review-editor-panel">
-                  <button
-                    className="review-editor-btn"
-                    onClick={() => promoteVariation(currentMove as ChessMove)}
-                    title="Promote variation to main line"
-                  >
-                    &#x2191; Promote
-                  </button>
-                  <button
-                    className="review-editor-btn review-editor-btn--danger"
-                    onClick={() => removeVariation(currentMove as ChessMove)}
-                    title="Delete this variation"
-                  >
-                    &#x2715; Delete
-                  </button>
-                  <button
-                    className="review-editor-btn"
-                    onClick={() => truncateRemaining(currentMove as ChessMove)}
-                    title="Delete remaining moves"
-                  >
-                    ] Truncate
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>

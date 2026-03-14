@@ -152,6 +152,46 @@
   margin-right: 4px;
 }
 
+/* Context menu */
+.review-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: #1e1e2e;
+  border: 1px solid #444;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  min-width: 140px;
+  overflow: hidden;
+  padding: 4px 0;
+}
+
+.review-context-menu__item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.review-context-menu__item:hover {
+  background: #2a2a3e;
+  color: #fff;
+}
+
+.review-context-menu__item--danger {
+  color: #f44336;
+}
+
+.review-context-menu__item--danger:hover {
+  background: rgba(244, 67, 54, 0.15);
+  color: #f44336;
+}
+
 /* GameEditorPanel styles */
 .review-editor-panel {
   position: absolute;

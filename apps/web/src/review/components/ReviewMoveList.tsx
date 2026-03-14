@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { ChessMove } from '../types';
 import {
   processMoveHierarchy,
@@ -17,10 +17,20 @@ export interface GameInfo {
   result?: string;
 }
 
+interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  move: ChessMove | null;
+}
+
 interface ReviewMoveListProps {
   history: ChessMove[];
   currentGlobalIndex: number;
   onMoveClick: (move: ChessMove) => void;
+  onPromoteVariation: (move: ChessMove) => void;
+  onDeleteVariation: (move: ChessMove) => void;
+  onTruncateRemaining: (move: ChessMove) => void;
   gameInfo?: GameInfo;
 }
 
@@ -28,9 +38,19 @@ export function ReviewMoveList({
   history,
   currentGlobalIndex,
   onMoveClick,
+  onPromoteVariation,
+  onDeleteVariation,
+  onTruncateRemaining,
   gameInfo,
 }: ReviewMoveListProps) {
   const movesContainerRef = useRef<HTMLDivElement>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    move: null,
+  });
 
   useEffect(() => {
     const container = movesContainerRef.current;
@@ -50,9 +70,64 @@ export function ReviewMoveList({
     }
   }, [currentGlobalIndex]);
 
+  const closeContextMenu = useCallback(() => {
+    setContextMenu((prev) => ({ ...prev, visible: false, move: null }));
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu.visible) return;
+    const handleClose = () => closeContextMenu();
+    const timer = setTimeout(() => {
+      document.addEventListener('click', handleClose);
+      document.addEventListener('contextmenu', handleClose);
+    }, 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', handleClose);
+      document.removeEventListener('contextmenu', handleClose);
+    };
+  }, [contextMenu.visible, closeContextMenu]);
+
+  const showContextMenu = useCallback(
+    (coords: { clientX: number; clientY: number }, move: ChessMove) => {
+      setContextMenu({ visible: true, x: coords.clientX, y: coords.clientY, move });
+    },
+    [],
+  );
+
   const handleMoveClick = (processedMove: ProcessedMove): void => {
     if (processedMove.originalMove) {
       onMoveClick(processedMove.originalMove);
+    }
+  };
+
+  const handleMoveContextMenu = (e: React.MouseEvent, processedMove: ProcessedMove): void => {
+    e.preventDefault();
+    if (processedMove.originalMove) {
+      showContextMenu(e, processedMove.originalMove);
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, processedMove: ProcessedMove): void => {
+    if (!processedMove.originalMove) return;
+    const touch = e.touches[0];
+    const move = processedMove.originalMove;
+    longPressTimerRef.current = setTimeout(() => {
+      showContextMenu({ clientX: touch.clientX, clientY: touch.clientY }, move);
+    }, 500);
+  };
+
+  const handleTouchEnd = (): void => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handleTouchMove = (): void => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
     }
   };
 
@@ -70,6 +145,10 @@ export function ReviewMoveList({
             key={`move-${item.globalIndex}-${index}`}
             className={getMoveClasses(item)}
             onClick={() => handleMoveClick(item)}
+            onContextMenu={(e) => handleMoveContextMenu(e, item)}
+            onTouchStart={(e) => handleTouchStart(e, item)}
+            onTouchEnd={handleTouchEnd}
+            onTouchMove={handleTouchMove}
           >
             {item.display}
           </span>,
@@ -126,6 +205,42 @@ export function ReviewMoveList({
           <div className="review-moves-list">{renderMovesList()}</div>
         )}
       </div>
+
+      {contextMenu.visible && contextMenu.move && (
+        <div
+          className="review-context-menu"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="review-context-menu__item"
+            onClick={() => {
+              onPromoteVariation(contextMenu.move!);
+              closeContextMenu();
+            }}
+          >
+            ↑ Promote
+          </button>
+          <button
+            className="review-context-menu__item"
+            onClick={() => {
+              onTruncateRemaining(contextMenu.move!);
+              closeContextMenu();
+            }}
+          >
+            ] Truncate
+          </button>
+          <button
+            className="review-context-menu__item review-context-menu__item--danger"
+            onClick={() => {
+              onDeleteVariation(contextMenu.move!);
+              closeContextMenu();
+            }}
+          >
+            ✕ Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 }
