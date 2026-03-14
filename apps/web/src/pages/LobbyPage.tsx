@@ -518,8 +518,9 @@ export function LobbyPage() {
       titleKey: 'lobby.teasers.workshop.title',
       descKey: 'lobby.teasers.workshop.description',
       ctaKey: 'lobby.teasers.workshop.cta',
+      to: '/workshop',
     },
-  ];
+  ] as Array<{ id: NonNullable<ModalId>; icon: string; titleKey: string; descKey: string; ctaKey: string; to?: string }>;
 
   const modalContentMap: Record<NonNullable<ModalId>, React.ReactNode> = {
     human: onlineModalContent,
@@ -545,7 +546,7 @@ export function LobbyPage() {
             <p className="lobby-teaser__desc">{t(teaser.descKey)}</p>
             <button
               className="lobby-teaser__btn"
-              onClick={() => openModal(teaser.id)}
+              onClick={() => teaser.to ? navigate(teaser.to) : openModal(teaser.id)}
             >
               {t(teaser.ctaKey)}
             </button>
