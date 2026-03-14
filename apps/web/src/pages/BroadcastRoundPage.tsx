@@ -4,8 +4,28 @@ import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
-import type { DgtTournamentResult, DgtRoundResult } from '../dgt.types';
+import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types';
 import { formatPlayerName, formatResult } from '../dgt.types';
+
+function buildGamePgn(game: DgtGame, white: string, black: string): string {
+  const headerLines = `[White "${white}"]\n[Black "${black}"]`;
+  if (game.pgn) {
+    if (/\[White\s+"/.test(game.pgn)) return game.pgn;
+    return `${headerLines}\n\n${game.pgn}`;
+  }
+  if (game.moves.length > 0) {
+    try {
+      const chess = new Chess();
+      for (const san of game.moves) {
+        chess.move(san);
+      }
+      return `${headerLines}\n\n${chess.pgn()}`;
+    } catch {
+      // fall through
+    }
+  }
+  return `${headerLines}\n\n*`;
+}
 
 function computeFen(pgn: string, moves: string[]): string {
   if (pgn) {
@@ -72,12 +92,25 @@ export function BroadcastRoundPage() {
   }, [tournamentId, roundId, t]);
 
   const handleBoardClick = useCallback(
-    (gameIndex: number) => {
-      if (tournamentId && roundId) {
-        navigate(`/broadcasts/${tournamentId}/${roundId}/${gameIndex}`);
-      }
+    (game: DgtGame) => {
+      if (!tournamentId || !roundId) return;
+      const white = formatPlayerName(game.white);
+      const black = formatPlayerName(game.black);
+      const pgn = buildGamePgn(game, white, black);
+      navigate('/analysis', {
+        state: {
+          pgn,
+          title: `${white} vs ${black}`,
+          breadcrumbRootTitle: t('broadcasts.title'),
+          breadcrumbRootUrl: '/broadcasts',
+          breadcrumbSection: tournament?.tournament.name ?? '',
+          breadcrumbBackUrl: `/broadcasts/${tournamentId}`,
+          breadcrumbFileName: `${t('broadcasts.dgt.round')} ${roundId}`,
+          breadcrumbFileBackUrl: `/broadcasts/${tournamentId}/${roundId}`,
+        },
+      });
     },
-    [tournamentId, roundId, navigate],
+    [tournamentId, roundId, tournament, navigate, t],
   );
 
   return (
@@ -123,10 +156,10 @@ export function BroadcastRoundPage() {
                 <div
                   key={game.gameIndex}
                   className="dgt-board-card"
-                  onClick={() => handleBoardClick(game.gameIndex)}
+                  onClick={() => handleBoardClick(game)}
                   role="button"
                   tabIndex={0}
-                  onKeyDown={(e) => e.key === 'Enter' && handleBoardClick(game.gameIndex)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleBoardClick(game)}
                   aria-label={`${white} vs ${black}`}
                 >
                   <div className="dgt-board-players">

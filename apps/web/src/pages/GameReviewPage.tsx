@@ -120,6 +120,8 @@ export function GameReviewPage() {
     (location.state as { localId?: string } | null)?.localId ??
       (isLocalAnalysisId ? rawGameId : undefined),
   );
+  const breadcrumbRootTitle = (location.state as { breadcrumbRootTitle?: string } | null)?.breadcrumbRootTitle;
+  const breadcrumbRootUrl = (location.state as { breadcrumbRootUrl?: string } | null)?.breadcrumbRootUrl;
   const breadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
   const breadcrumbBackUrl = (location.state as { breadcrumbBackUrl?: string } | null)?.breadcrumbBackUrl;
   const breadcrumbBackState = (location.state as { breadcrumbBackState?: unknown } | null)?.breadcrumbBackState;
@@ -562,8 +564,8 @@ export function GameReviewPage() {
       >
         {!gameId && (
           <nav className="analysis-breadcrumbs">
-            <Link to="/workshop" className="analysis-breadcrumbs__link">
-              {t('workshop.title')}
+            <Link to={breadcrumbRootUrl ?? '/workshop'} className="analysis-breadcrumbs__link">
+              {breadcrumbRootTitle ?? t('workshop.title')}
             </Link>
             {breadcrumbSection && (
               <>
