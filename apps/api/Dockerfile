@@ -18,7 +18,7 @@ COPY apps/api ./apps/api
 COPY tsconfig.base.json ./
 RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
-RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate && npm run build
+RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 
 FROM base AS production
 WORKDIR /app
