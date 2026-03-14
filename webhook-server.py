@@ -124,6 +124,39 @@ def _agent_worker(agent: str, q: queue.Queue):
             q.task_done()
 
 
+def _get_issue_details(key: str) -> dict:
+    """Возвращает description и последние комментарии задачи."""
+    if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
+        return {}
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{key}?fields=description,comment,summary"
+    auth = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
+    req = urllib.request.Request(url)
+    req.add_header("Authorization", f"Basic {auth}")
+    req.add_header("Accept", "application/json")
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = json.loads(resp.read().decode())
+        fields = data.get("fields", {})
+
+        description = fields.get("description", "") or ""
+        if isinstance(description, dict):
+            description = extract_text_from_adf(description)
+
+        comments_raw = fields.get("comment", {}).get("comments", [])[-5:]
+        comments = []
+        for c in comments_raw:
+            author = c.get("author", {}).get("displayName", "")
+            body = c.get("body", "")
+            if isinstance(body, dict):
+                body = extract_text_from_adf(body)
+            comments.append(f"{author}: {body}")
+
+        return {"description": description, "comments": comments}
+    except Exception as e:
+        log(f"Ошибка получения деталей {key}: {e}")
+        return {}
+
+
 def _get_issue_status_category(key: str) -> str:
     """Возвращает statusCategory.key задачи через Jira REST API."""
     if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
@@ -592,11 +625,16 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"status":"skipped"}')
                 return
 
+            details = _get_issue_details(key)
+            description = details.get("description", "")
+            desc_block = f"\nОписание задачи:\n{description}\n" if description else ""
+
             for agent in agents:
                 role = agent.upper()
                 if agent != "coordinator":
                     prompt = (
-                        f"Задача {key}: {summary}\n\n"
+                        f"Задача {key}: {summary}\n"
+                        f"{desc_block}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Переведи задачу в статус 'In Progress' через MCP jira-personal\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
@@ -606,7 +644,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     )
                 else:
                     prompt = (
-                        f"Задача {key}: {summary}\n\n"
+                        f"Задача {key}: {summary}\n"
+                        f"{desc_block}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Прочитай комментарий и выполни то, что в нём написано\n"
                         f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
@@ -641,14 +680,18 @@ class WebhookHandler(BaseHTTPRequestHandler):
         IN_REVIEW_STATUS = "В процессе проверки"
         if status_to == IN_REVIEW_STATUS and key:
             log(f"Задача {key} перешла в '{IN_REVIEW_STATUS}' — запускаем QA")
+            details = _get_issue_details(key)
+            description = details.get("description", "")
+            comments = details.get("comments", [])
+            comments_text = "\n".join(comments) if comments else "(нет комментариев)"
             prompt = (
                 f"Задача {key}: {summary}\n\n"
-                f"Задача переведена в статус '{IN_REVIEW_STATUS}'.\n"
-                f"Проверь выполнение задачи:\n"
-                f"1. Прочитай описание и Gherkin-сценарии из Jira\n"
-                f"2. Если есть скриншоты — проверь их визуально\n"
-                f"3. Если скриншотов нет — сделай код-ревью изменений\n"
-                f"4. Вынеси вердикт: закрой задачу (Done) или верни (To Do) с комментарием @frontend"
+                f"Описание задачи:\n{description}\n\n"
+                f"Последние комментарии:\n{comments_text}\n\n"
+                f"Задача переведена в статус '{IN_REVIEW_STATUS}'. Проверь выполнение:\n"
+                f"1. Если есть скриншоты — проверь их визуально через jira_get_attachments\n"
+                f"2. Если скриншотов нет — сделай код-ревью изменений\n"
+                f"3. Вынеси вердикт: закрой задачу (Done) или верни (To Do) с комментарием @frontend"
             )
             launch_agent(key, summary, "qa", prompt)
             self.send_response(200)
