@@ -336,8 +336,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (this.gateway && game.uci) {
-        this.gateway.emitMove(roundId, {
-          roundId,
+        this.gateway.emitMove(round.id, {
+          roundId: round.id,
           gameIndex: game.index,
           uci: game.uci,
           fen: game.fen,

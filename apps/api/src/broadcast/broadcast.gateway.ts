@@ -57,7 +57,7 @@ export class BroadcastGateway implements OnGatewayConnection, OnGatewayDisconnec
 
     // Send current state of all games in the round
     const round = await this.prisma.broadcastRound.findUnique({
-      where: { lichessRoundId: roundId },
+      where: { id: roundId },
       include: { games: true },
     });
     if (!round) return;
