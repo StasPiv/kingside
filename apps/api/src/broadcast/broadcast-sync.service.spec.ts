@@ -3,6 +3,17 @@ jest.mock('../redis/redis.service', () => ({ RedisService: jest.fn() }));
 
 import { BroadcastSyncService } from './broadcast-sync.service';
 
+type ParsedGame = {
+  index: number;
+  white: string;
+  black: string;
+  result: string;
+  fen: string;
+  uci: string;
+  pgn: string;
+  lichessGameId: string | null;
+};
+
 describe('BroadcastSyncService', () => {
   let service: BroadcastSyncService;
   let prisma: any;
@@ -35,10 +46,8 @@ describe('BroadcastSyncService', () => {
   });
 
   describe('parsePgnGames (private)', () => {
-    const parse = (pgn: string) =>
-      (service as any).parsePgnGames(pgn) as ReturnType<
-        typeof service['parsePgnGames' & keyof typeof service]
-      >;
+    const parse = (pgn: string): ParsedGame[] =>
+      (service as any).parsePgnGames(pgn) as ParsedGame[];
 
     it('should return empty array for empty PGN', () => {
       expect(parse('')).toEqual([]);
