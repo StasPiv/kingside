@@ -13,6 +13,12 @@ describe('ChatService', () => {
 
   beforeEach(() => {
     prisma = {
+      game: {
+        findUniqueOrThrow: jest.fn().mockResolvedValue({
+          whiteId: userId,
+          blackId: 'other-player-id',
+        }),
+      },
       chatMessage: {
         create: jest.fn(),
       },
