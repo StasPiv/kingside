@@ -19,7 +19,7 @@ export function BroadcastsPage() {
       .get<BroadcastListResponse>('/api/broadcasts')
       .then((res) => {
         if (!cancelled) {
-          setBroadcasts(res.data ?? []);
+          setBroadcasts(res.data.data ?? []);
         }
       })
       .catch(() => {

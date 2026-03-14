@@ -42,7 +42,7 @@ export function BroadcastRoundPage() {
     api
       .get<BroadcastRoundsResponse>(`/api/broadcasts/${id}/rounds`)
       .then((res) => {
-        if (!cancelled) setRounds(res.data ?? []);
+        if (!cancelled) setRounds(res.data.data ?? []);
       })
       .catch(() => {
         if (!cancelled) setRoundsError(t('broadcastRound.roundsError'));
