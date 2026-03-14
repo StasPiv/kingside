@@ -309,3 +309,50 @@ model GameAnalysis {
   @@index([userId])
   @@map("game_analyses")
 }
+
+model Broadcast {
+  id          String   @id @default(uuid()) @db.Uuid
+  lichessId   String   @unique @map("lichess_id")
+  title       String
+  description String?
+  url         String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rounds BroadcastRound[]
+
+  @@index([isActive])
+  @@map("broadcasts")
+}
+
+model BroadcastRound {
+  id             String    @id @default(uuid()) @db.Uuid
+  broadcastId    String    @map("broadcast_id") @db.Uuid
+  lichessRoundId String    @unique @map("lichess_round_id")
+  name           String
+  startsAt       DateTime? @map("starts_at")
+  status         String    @default("pending")
+
+  broadcast Broadcast      @relation(fields: [broadcastId], references: [id])
+  games     BroadcastGame[]
+
+  @@index([broadcastId])
+  @@map("broadcast_rounds")
+}
+
+model BroadcastGame {
+  id            String    @id @default(uuid()) @db.Uuid
+  roundId       String    @map("round_id") @db.Uuid
+  lichessGameId String?   @map("lichess_game_id")
+  whitePlayer   String?   @map("white_player")
+  blackPlayer   String?   @map("black_player")
+  result        String?
+  pgn           String?   @db.Text
+  currentFen    String?   @map("current_fen")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  round BroadcastRound @relation(fields: [roundId], references: [id])
+
+  @@index([roundId])
+  @@map("broadcast_games")
+}
