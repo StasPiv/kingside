@@ -82,8 +82,13 @@ export function BroadcastRoundPage() {
           let fen = g.fen;
           if (g.pgn) {
             try {
+              // Strip [FEN] header before loading: Lichess broadcast stream
+              // sets [FEN] to the current position (not starting position),
+              // so chess.js must start from the standard initial position
+              // and replay all moves to compute the correct current FEN.
+              const pgnWithoutFen = g.pgn.replace(/\[FEN "[^"]*"\]\s*/g, '');
               const chess = new Chess();
-              chess.loadPgn(g.pgn);
+              chess.loadPgn(pgnWithoutFen);
               fen = chess.fen();
             } catch {
               // fallback to g.fen
