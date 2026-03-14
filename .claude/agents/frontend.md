@@ -36,6 +36,7 @@ model: claude-sonnet-4-6
 - ЗАПРЕЩЕНО делать `cd /home/pivovartsev/work/kingside` — это основной репозиторий, не твой worktree
 - **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - Все git-команды и изменения файлов выполняй только в своём worktree
+- **node_modules находятся в основном репозитории** `/home/pivovartsev/work/kingside`, а не в worktree. Это нормально — worktree разделяет файловую систему с основным репо через symlink. Команды `npm run dev`, `vite build` и т.д. запускай из своего worktree — они найдут node_modules автоматически.
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
