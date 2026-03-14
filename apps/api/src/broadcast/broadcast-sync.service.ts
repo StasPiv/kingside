@@ -7,6 +7,8 @@ const LICHESS_API = 'https://lichess.org/api';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
+const STARTING_FEN =
+  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 interface LichessBroadcast {
   tour: {
@@ -92,6 +94,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
                 `Max concurrent streams reached, skipping round ${round.id}`,
               );
             }
+          } else if (!isActive && round.finished) {
+            void this.fetchFinishedRoundGamesIfEmpty(round.id);
           }
         }
       }
@@ -182,6 +186,42 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         status,
       },
     });
+  }
+
+  private async fetchFinishedRoundGamesIfEmpty(
+    lichessRoundId: string,
+  ): Promise<void> {
+    const round = await this.prisma.broadcastRound.findUnique({
+      where: { lichessRoundId },
+    });
+    if (!round) return;
+
+    const existingCount = await this.prisma.broadcastGame.count({
+      where: { roundId: round.id },
+    });
+    if (existingCount > 0) return;
+
+    try {
+      const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        this.logger.warn(
+          `Failed to fetch PGN for finished round ${lichessRoundId}: ${res.status}`,
+        );
+        return;
+      }
+      const pgn = await res.text();
+      if (pgn.trim()) {
+        await this.processPgnUpdate(lichessRoundId, pgn);
+        this.logger.log(
+          `Fetched games for finished round ${lichessRoundId}`,
+        );
+      }
+    } catch (e: any) {
+      this.logger.error(
+        `Error fetching PGN for finished round ${lichessRoundId}: ${e.message}`,
+      );
+    }
   }
 
   private startStream(roundId: string): void {
@@ -300,8 +340,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     let index = 0;
 
     for (const section of gameSections) {
+      if (!section.trim()) continue;
       const headerMap: Record<string, string> = {};
       const headerLines = section.match(/\[(\w+)\s+"([^"]*)"\]/g) ?? [];
+      if (headerLines.length === 0) continue;
       for (const line of headerLines) {
         const m = line.match(/\[(\w+)\s+"([^"]*)"\]/);
         if (m) headerMap[m[1]] = m[2];
@@ -320,18 +362,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const site = headerMap['Site'] ?? '';
       const lichessGameId = site.split('/').pop() ?? null;
 
-      if (fenValue) {
-        games.push({
-          index,
-          white,
-          black,
-          result,
-          fen: fenValue,
-          uci: lastMove,
-          pgn: section.trim(),
-          lichessGameId: lichessGameId || null,
-        });
-      }
+      games.push({
+        index,
+        white,
+        black,
+        result,
+        fen: fenValue || STARTING_FEN,
+        uci: lastMove,
+        pgn: section.trim(),
+        lichessGameId: lichessGameId || null,
+      });
       index++;
     }
 

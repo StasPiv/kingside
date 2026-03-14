@@ -33,6 +33,7 @@ describe('BroadcastSyncService', () => {
         findFirst: jest.fn(),
         update: jest.fn().mockResolvedValue(undefined),
         create: jest.fn().mockResolvedValue(undefined),
+        count: jest.fn().mockResolvedValue(0),
       },
     };
     redis = {
@@ -98,14 +99,20 @@ describe('BroadcastSyncService', () => {
       expect(games[1].lichessGameId).toBe('game002');
     });
 
-    it('should skip games without FEN header', () => {
+    it('should use starting FEN when FEN header is absent', () => {
       const pgn = `[White "Player A"]
 [Black "Player B"]
+[Site "https://lichess.org/gameabc1"]
 
 1. e4 e5 *`;
 
       const games = parse(pgn);
-      expect(games).toHaveLength(0);
+      expect(games).toHaveLength(1);
+      expect(games[0].fen).toBe(
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      );
+      expect(games[0].white).toBe('Player A');
+      expect(games[0].black).toBe('Player B');
     });
 
     it('should use Unknown for missing player headers', () => {
@@ -128,6 +135,50 @@ describe('BroadcastSyncService', () => {
 
       const games = parse(pgn);
       expect(games[0].uci).toBe('');
+    });
+  });
+
+  describe('fetchFinishedRoundGamesIfEmpty (private)', () => {
+    const fetch = global.fetch as jest.Mock;
+
+    beforeEach(() => {
+      global.fetch = jest.fn();
+    });
+
+    afterEach(() => {
+      global.fetch = fetch;
+    });
+
+    it('should skip fetch when games already exist', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      prisma.broadcastGame.count.mockResolvedValue(5);
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should skip fetch when round not found', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue(null);
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should fetch PGN when round has no games', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      prisma.broadcastGame.count.mockResolvedValue(0);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        text: jest.fn().mockResolvedValue(''),
+      });
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'https://lichess.org/api/broadcast/round/lichess-round-id.pgn',
+      );
     });
   });
 
