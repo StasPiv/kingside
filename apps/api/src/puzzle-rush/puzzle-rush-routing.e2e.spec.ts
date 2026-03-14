@@ -1,7 +1,7 @@
 /**
  * Integration test: PuzzleRushController + PuzzleController registered together.
  * Verifies that route ordering does not cause conflicts between
- * /puzzles/:id and /puzzles/rush endpoints.
+ * /puzzles/:id and /puzzle-rush/* endpoints.
  */
 import 'reflect-metadata';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -34,7 +34,7 @@ describe('PuzzleRush + Puzzle route conflict test', () => {
 
   const mockPuzzleService = {
     findPuzzles: jest.fn().mockResolvedValue([]),
-    getPuzzle: jest.fn().mockResolvedValue({ id: 'rush', fen: '' }),
+    getPuzzle: jest.fn().mockResolvedValue({ id: 'abc123', fen: '' }),
     getNextPuzzle: jest.fn().mockResolvedValue(null),
     getNextPuzzleByTheme: jest.fn().mockResolvedValue(null),
     getStats: jest.fn().mockResolvedValue({}),
@@ -44,8 +44,6 @@ describe('PuzzleRush + Puzzle route conflict test', () => {
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      // Register PuzzleRushController BEFORE PuzzleController
-      // to ensure /puzzles/rush is matched before /puzzles/:id
       controllers: [PuzzleRushController, PuzzleController],
       providers: [
         { provide: PuzzleRushService, useValue: mockPuzzleRushService },
@@ -75,23 +73,21 @@ describe('PuzzleRush + Puzzle route conflict test', () => {
     jest.clearAllMocks();
   });
 
-  it('POST /puzzles/rush should hit PuzzleRushController, not PuzzleController', async () => {
+  it('POST /puzzle-rush/start should hit PuzzleRushController, not PuzzleController', async () => {
     const res = await request(app.getHttpServer())
-      .post('/puzzles/rush')
-      .send({ timeLimitSec: 180 });
+      .post('/puzzle-rush/start')
+      .send({ timeMode: '3' });
 
     expect(res.status).toBe(201);
     expect(mockPuzzleRushService.startSession).toHaveBeenCalledWith(
       mockUserId,
-      180,
+      '3',
     );
     expect(mockPuzzleService.submitAttempt).not.toHaveBeenCalled();
   });
 
-  it('GET /puzzles/rush/session should hit PuzzleRushController', async () => {
-    const res = await request(app.getHttpServer()).get(
-      '/puzzles/rush/session',
-    );
+  it('GET /puzzle-rush/session should hit PuzzleRushController', async () => {
+    const res = await request(app.getHttpServer()).get('/puzzle-rush/session');
 
     expect(res.status).toBe(200);
     expect(mockPuzzleRushService.getSession).toHaveBeenCalledWith(mockUserId);
@@ -101,6 +97,18 @@ describe('PuzzleRush + Puzzle route conflict test', () => {
     const res = await request(app.getHttpServer()).get('/puzzles/abc123');
 
     expect(res.status).toBe(200);
+    expect(mockPuzzleService.getPuzzle).toHaveBeenCalledWith('abc123');
+  });
+
+  it('/puzzle-rush/* and /puzzles/:id should not interfere with each other', async () => {
+    const rushRes = await request(app.getHttpServer())
+      .get('/puzzle-rush/leaderboard');
+    const puzzleRes = await request(app.getHttpServer())
+      .get('/puzzles/abc123');
+
+    expect(rushRes.status).toBe(200);
+    expect(puzzleRes.status).toBe(200);
+    expect(mockPuzzleRushService.getLeaderboard).toHaveBeenCalled();
     expect(mockPuzzleService.getPuzzle).toHaveBeenCalledWith('abc123');
   });
 });

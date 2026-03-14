@@ -13,6 +13,7 @@ const config: Config = {
   moduleNameMapper: {
     '^@kingside/shared$': '<rootDir>/../../../packages/shared/src',
     '^(\\.\\.?/.*)\\.js$': '$1',
+    '^.*/generated/prisma/client$': '<rootDir>/__mocks__/prisma-client.mock.ts',
   },
 };
 
