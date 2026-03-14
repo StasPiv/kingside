@@ -9,7 +9,15 @@
     "rushLeaderboard": "Таблица лидеров",
     "train": "Тренировка",
     "dailyPuzzle": "Задача дня",
-    "profile": "Профиль"
+    "profile": "Профиль",
+    "broadcasts": "Трансляции"
+  },
+  "broadcasts": {
+    "title": "Трансляции",
+    "empty": "Нет доступных трансляций",
+    "error": "Не удалось загрузить трансляции",
+    "statusActive": "Активна",
+    "statusInactive": "Завершена"
   },
   "settings": {
     "title": "Настройки",
