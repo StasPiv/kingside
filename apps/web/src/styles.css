@@ -4444,6 +4444,174 @@ input:focus {
 
 /* ─── WorkshopPage ─────────────────────────────────────────────────── */
 
+/* Workshop breadcrumbs */
+
+.workshop-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.workshop-breadcrumbs__link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #8080cc;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.workshop-breadcrumbs__link:hover {
+  color: #a0a0ee;
+  text-decoration: underline;
+}
+
+.workshop-breadcrumbs__sep {
+  color: #666;
+}
+
+.workshop-breadcrumbs__current {
+  color: #c0c0e0;
+  font-weight: 600;
+}
+
+/* Workshop section tabs */
+
+.workshop-section-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.workshop-section-tab {
+  background: #2a2a4e;
+  color: #a0a0c0;
+  border: 1px solid #3a3a6e;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.workshop-section-tab:hover {
+  background: #3a3a6e;
+  color: #e0e0ff;
+}
+
+.workshop-section-tab.active {
+  background: #7c83ff;
+  color: #fff;
+  border-color: #7c83ff;
+}
+
+/* Workshop section block header */
+
+.workshop-section-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.workshop-section-block__header .workshop-section-block__title {
+  margin-bottom: 0;
+}
+
+/* PGN files list */
+
+.workshop-pgn-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workshop-pgn-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #1e2a4a;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.workshop-pgn-file-item:hover {
+  background: #2a3a6a;
+}
+
+.workshop-pgn-file-item__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.workshop-pgn-file-item__meta {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.workshop-pgn-file-item__games {
+  font-size: 12px;
+  color: #a0a0c0;
+}
+
+.workshop-pgn-file-item__date {
+  font-size: 12px;
+  color: #808090;
+}
+
+/* PGN games list */
+
+.workshop-pgn-games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workshop-pgn-game-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #1e2a4a;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 14px;
+}
+
+.workshop-pgn-game-item:hover {
+  background: #2a3a6a;
+}
+
+.workshop-pgn-game-item__players {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.workshop-pgn-game-item__meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.workshop-pgn-game-item__result {
+  color: #a0a0c0;
+  font-size: 13px;
+}
+
+.workshop-pgn-game-item__date {
+  color: #808090;
+  font-size: 12px;
+}
+
 .workshop-page {
   max-width: 900px;
   margin: 0 auto;
