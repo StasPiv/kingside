@@ -222,6 +222,22 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
                 break
 
     log(f"Агент {agent} завершил {key} (код: {proc.returncode})")
+    _cleanup_worktree(key)
+
+
+def _cleanup_worktree(key: str):
+    """Удаляет git worktree задачи после завершения агента."""
+    worktree_path = os.path.join(PROJECT_DIR, ".worktrees", key)
+    if not os.path.isdir(worktree_path):
+        return
+    result = subprocess.run(
+        ["git", "worktree", "remove", "--force", worktree_path],
+        cwd=PROJECT_DIR, capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        log(f"Worktree удалён: {worktree_path}")
+    else:
+        log(f"Ошибка удаления worktree {worktree_path}: {result.stderr.strip()}")
 
 
 def log(msg):
