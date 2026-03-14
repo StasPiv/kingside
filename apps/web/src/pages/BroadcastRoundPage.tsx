@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
@@ -24,6 +24,7 @@ interface GameState {
 export function BroadcastRoundPage() {
   const { id, roundId } = useParams<{ id: string; roundId: string }>();
   const { t } = useTranslation();
+  const navigate = useNavigate();
 
   const [rounds, setRounds] = useState<BroadcastRoundItem[]>([]);
   const [roundsError, setRoundsError] = useState('');
@@ -50,6 +51,13 @@ export function BroadcastRoundPage() {
       cancelled = true;
     };
   }, [id, t]);
+
+  // Auto-redirect to first round when no roundId is specified
+  useEffect(() => {
+    if (!roundId && rounds.length > 0 && id) {
+      navigate(`/broadcasts/${id}/rounds/${rounds[0].id}`, { replace: true });
+    }
+  }, [rounds, roundId, id, navigate]);
 
   // WebSocket: connect and manage subscription
   useEffect(() => {
