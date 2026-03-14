@@ -16,7 +16,7 @@ export function BroadcastsPage() {
     setError('');
 
     api
-      .get<BroadcastListResponse>('/broadcasts')
+      .get<BroadcastListResponse>('/api/broadcasts')
       .then((res) => {
         if (!cancelled) {
           setBroadcasts(res.data ?? []);
