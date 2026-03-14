@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { BroadcastGateway } from './broadcast.gateway';
@@ -198,10 +199,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     });
     if (!round) return;
 
-    const existingCount = await this.prisma.broadcastGame.count({
-      where: { roundId: round.id },
+    const existingWithRealFen = await this.prisma.broadcastGame.count({
+      where: { roundId: round.id, currentFen: { not: STARTING_FEN } },
     });
-    if (existingCount > 0) return;
+    if (existingWithRealFen > 0) return;
 
     // Avoid repeated failures: skip if cooldown is active
     const cooldownKey = `broadcast:pgn-fetch-cooldown:${lichessRoundId}`;
@@ -383,12 +384,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const site = headerMap['Site'] ?? '';
       const lichessGameId = site.split('/').pop() ?? null;
 
+      const fen = fenValue || this.computeFenFromPgn(section) || STARTING_FEN;
+
       games.push({
         index,
         white,
         black,
         result,
-        fen: fenValue || STARTING_FEN,
+        fen,
         uci: lastMove,
         pgn: section.trim(),
         lichessGameId: lichessGameId || null,
@@ -397,6 +400,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }
 
     return games;
+  }
+
+  private computeFenFromPgn(pgnText: string): string | null {
+    try {
+      const chess = new Chess();
+      chess.loadPgn(pgnText);
+      return chess.fen();
+    } catch {
+      return null;
+    }
   }
 
   async getGameFens(roundId: string): Promise<Array<{ index: number; fen: string }>> {

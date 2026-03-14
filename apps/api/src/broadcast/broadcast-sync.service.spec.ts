@@ -99,7 +99,7 @@ describe('BroadcastSyncService', () => {
       expect(games[1].lichessGameId).toBe('game002');
     });
 
-    it('should use starting FEN when FEN header is absent', () => {
+    it('should compute FEN from moves when FEN header is absent', () => {
       const pgn = `[White "Player A"]
 [Black "Player B"]
 [Site "https://lichess.org/gameabc1"]
@@ -108,11 +108,27 @@ describe('BroadcastSyncService', () => {
 
       const games = parse(pgn);
       expect(games).toHaveLength(1);
+      // FEN should reflect position after 1. e4 e5, not starting FEN
       expect(games[0].fen).toBe(
-        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
       );
       expect(games[0].white).toBe('Player A');
       expect(games[0].black).toBe('Player B');
+    });
+
+    it('should fall back to starting FEN when no FEN header and no moves', () => {
+      const pgn = `[White "Player A"]
+[Black "Player B"]
+[Site "https://lichess.org/gameabc2"]
+[Result "*"]
+
+*`;
+
+      const games = parse(pgn);
+      expect(games).toHaveLength(1);
+      expect(games[0].fen).toBe(
+        'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      );
     });
 
     it('should use Unknown for missing player headers', () => {
@@ -149,8 +165,9 @@ describe('BroadcastSyncService', () => {
       global.fetch = fetch;
     });
 
-    it('should skip fetch when games already exist', async () => {
+    it('should skip fetch when games with real FEN already exist', async () => {
       prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      // count returns > 0, meaning games with non-starting FEN exist
       prisma.broadcastGame.count.mockResolvedValue(5);
       redis.get.mockResolvedValue(null);
 
