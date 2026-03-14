@@ -435,7 +435,9 @@ export function BroadcastGamePage() {
             {t('broadcasts.dgt.round')} {roundId}
           </Link>
           <span className="analysis-breadcrumbs__sep"> / </span>
-          <span className="analysis-breadcrumbs__current">{gameTitle}</span>
+          <span className="analysis-breadcrumbs__current">
+            <span className="analysis-breadcrumbs__current-text">{gameTitle}</span>
+          </span>
         </nav>
 
         <div className="analysis-board-wrapper">

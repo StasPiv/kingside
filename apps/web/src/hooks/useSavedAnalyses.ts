@@ -9,6 +9,12 @@ export type SavedAnalysis = {
   opening?: string;
   whitePgn?: string;
   blackPgn?: string;
+  breadcrumbRootTitle?: string;
+  breadcrumbRootUrl?: string;
+  breadcrumbSection?: string;
+  breadcrumbBackUrl?: string;
+  breadcrumbFileName?: string;
+  breadcrumbFileBackUrl?: string;
 };
 
 const STORAGE_KEY = 'kingside-saved-analyses';
@@ -62,7 +68,17 @@ export function useSavedAnalyses() {
     (
       pgn: string,
       title?: string,
-      meta?: { opening?: string; whitePgn?: string; blackPgn?: string },
+      meta?: {
+        opening?: string;
+        whitePgn?: string;
+        blackPgn?: string;
+        breadcrumbRootTitle?: string;
+        breadcrumbRootUrl?: string;
+        breadcrumbSection?: string;
+        breadcrumbBackUrl?: string;
+        breadcrumbFileName?: string;
+        breadcrumbFileBackUrl?: string;
+      },
     ): SavedAnalysis => {
       const now = new Date().toISOString();
       const entry: SavedAnalysis = {

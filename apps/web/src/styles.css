@@ -3807,6 +3807,8 @@ input:focus {
 
   .analysis-board-area {
     width: auto !important;
+    max-width: 100%;
+    overflow-x: hidden;
   }
 
   /* Analysis review: allow page to scroll on mobile */
@@ -5049,8 +5051,15 @@ input:focus {
   transition: border-color 0.15s, color 0.15s;
   min-width: 0;
   overflow: hidden;
+  max-width: 25ch;
+}
+
+.analysis-breadcrumbs__current-text {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 0;
 }
 
 .analysis-breadcrumbs__current:hover {

@@ -377,6 +377,12 @@ export function GameReviewPage() {
           opening,
           whitePgn: headers['White'] || undefined,
           blackPgn: headers['Black'] || undefined,
+          breadcrumbRootTitle: breadcrumbRootTitle,
+          breadcrumbRootUrl: breadcrumbRootUrl,
+          breadcrumbSection: breadcrumbSection,
+          breadcrumbBackUrl: breadcrumbBackUrl,
+          breadcrumbFileName: breadcrumbFileName,
+          breadcrumbFileBackUrl: breadcrumbFileBackUrl,
         });
         localIdRef.current = entry.id;
         window.history.replaceState(null, '', '/analysis/' + entry.id);
@@ -614,7 +620,7 @@ export function GameReviewPage() {
                 onClick={handleTitleClick}
                 title={t('analysis.editTitle', 'Click to edit title')}
               >
-                {analysisTitle}
+                <span className="analysis-breadcrumbs__current-text">{analysisTitle}</span>
                 <span className="analysis-title__edit-icon">✎</span>
               </span>
             )}

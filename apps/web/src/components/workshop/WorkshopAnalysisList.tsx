@@ -48,7 +48,17 @@ export function WorkshopAnalysisList() {
 
   const handleOpen = (analysis: SavedAnalysis) => {
     navigate('/analysis/' + analysis.id, {
-      state: { pgn: analysis.pgn, localId: analysis.id, title: analysis.title },
+      state: {
+        pgn: analysis.pgn,
+        localId: analysis.id,
+        title: analysis.title,
+        breadcrumbRootTitle: analysis.breadcrumbRootTitle,
+        breadcrumbRootUrl: analysis.breadcrumbRootUrl,
+        breadcrumbSection: analysis.breadcrumbSection,
+        breadcrumbBackUrl: analysis.breadcrumbBackUrl,
+        breadcrumbFileName: analysis.breadcrumbFileName,
+        breadcrumbFileBackUrl: analysis.breadcrumbFileBackUrl,
+      },
     });
   };
 
