@@ -39,6 +39,12 @@ services:
     mem_limit: 400m
     ports:
       - "${PORT:-3001}:3001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     logging:
       driver: json-file
       options:

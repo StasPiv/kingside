@@ -6,7 +6,7 @@
 # - репозиторий склонирован в ~/kingside
 # - docker compose запущен (postgres, redis работают)
 #
-# Использовать при: 404 на /api/*, контейнер запущен на старом образе
+# Использовать при: 404/502 на /api/*, контейнер упал или собран на старом образе
 
 set -euo pipefail
 
@@ -14,6 +14,14 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=== Хотфикс API (пересборка + перезапуск) ==="
 echo ""
+
+# 0. Проверить диск
+DISK_USED=$(df / | tail -1 | awk '{print $5}' | tr -d '%')
+echo "[0/4] Диск: ${DISK_USED}% занято"
+if [ "$DISK_USED" -ge 85 ]; then
+    echo "  WARN: Диск ${DISK_USED}% — запускаем очистку перед сборкой..."
+    bash "$REPO_DIR/scripts/disk-cleanup.sh"
+fi
 
 # 1. Обновить код
 echo "[1/4] Обновление кода..."
@@ -44,8 +52,9 @@ for i in $(seq 1 30); do
 done
 
 if [ "$API_READY" -eq 0 ]; then
-    echo "  WARN: health check не прошёл за 60 сек — проверьте логи:"
-    echo "  docker compose logs api --tail=50"
+    echo "  ERROR: health check не прошёл за 60 сек. Логи:"
+    docker compose logs api --tail=50
+    exit 1
 fi
 
 echo ""
