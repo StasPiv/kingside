@@ -123,6 +123,9 @@ export function GameReviewPage() {
   const breadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
   const breadcrumbBackUrl = (location.state as { breadcrumbBackUrl?: string } | null)?.breadcrumbBackUrl;
   const breadcrumbBackState = (location.state as { breadcrumbBackState?: unknown } | null)?.breadcrumbBackState;
+  const breadcrumbFileName = (location.state as { breadcrumbFileName?: string } | null)?.breadcrumbFileName;
+  const breadcrumbFileBackUrl = (location.state as { breadcrumbFileBackUrl?: string } | null)?.breadcrumbFileBackUrl;
+  const breadcrumbFileBackState = (location.state as { breadcrumbFileBackState?: unknown } | null)?.breadcrumbFileBackState;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
@@ -571,6 +574,18 @@ export function GameReviewPage() {
                   className="analysis-breadcrumbs__link"
                 >
                   {breadcrumbSection}
+                </Link>
+              </>
+            )}
+            {breadcrumbFileName && (
+              <>
+                <span className="analysis-breadcrumbs__sep"> / </span>
+                <Link
+                  to={breadcrumbFileBackUrl ?? '/workshop/pgn-files'}
+                  state={breadcrumbFileBackState}
+                  className="analysis-breadcrumbs__link"
+                >
+                  {breadcrumbFileName}
                 </Link>
               </>
             )}
