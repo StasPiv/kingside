@@ -17,6 +17,8 @@ import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
+import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
+import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 
 type GameData = {
   id: string;
@@ -110,6 +112,18 @@ export function GameReviewPage() {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Standalone analysis state (only used when gameId is undefined)
+  const { create: createAnalysis, update: updateAnalysis } = useSavedAnalyses();
+  const localIdRef = useRef<string | undefined>(
+    (location.state as { localId?: string } | null)?.localId,
+  );
+  const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
+    const state = location.state as { title?: string } | null;
+    return state?.title ?? getDefaultTitle();
+  });
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState(analysisTitle);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const { boardThemeOptions } = useBoardTheme();
@@ -145,6 +159,29 @@ export function GameReviewPage() {
   const togglePanel = useCallback((panel: 'gameInfo' | 'engine' | 'moves') => {
     setPanelStates((prev) => ({ ...prev, [panel]: !prev[panel] }));
   }, []);
+
+  const handleTitleClick = useCallback(() => {
+    if (gameId) return;
+    setTitleInput(analysisTitle);
+    setIsEditingTitle(true);
+  }, [gameId, analysisTitle]);
+
+  const handleTitleSave = useCallback(() => {
+    const trimmed = titleInput.trim() || getDefaultTitle();
+    setAnalysisTitle(trimmed);
+    setIsEditingTitle(false);
+    if (localIdRef.current) {
+      updateAnalysis(localIdRef.current, { title: trimmed });
+    }
+  }, [titleInput, updateAnalysis]);
+
+  const handleTitleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') handleTitleSave();
+      if (e.key === 'Escape') setIsEditingTitle(false);
+    },
+    [handleTitleSave],
+  );
 
   // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
@@ -282,6 +319,37 @@ export function GameReviewPage() {
   }, [gameId, location.state, t, loadMoves, loadFromPgn]);
 
   useAnalysisPersistence(gameId, history);
+
+  // Auto-save standalone analysis to localStorage
+  const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (gameId) return;
+    if (history.length === 0) return;
+
+    if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
+
+    localSaveTimerRef.current = setTimeout(() => {
+      const pgn = serializeToAnnotatedPgn(history);
+      const opening = classifyOpening(history.map((m) => m.san)) ?? undefined;
+
+      if (!localIdRef.current) {
+        const state = location.state as { pgn?: string } | null;
+        const headers = state?.pgn ? parsePgnHeaders(state.pgn) : {};
+        const entry = createAnalysis(pgn, analysisTitle, {
+          opening,
+          whitePgn: headers['White'] || undefined,
+          blackPgn: headers['Black'] || undefined,
+        });
+        localIdRef.current = entry.id;
+      } else {
+        updateAnalysis(localIdRef.current, { pgn, opening });
+      }
+    }, 2000);
+
+    return () => {
+      if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
+    };
+  }, [gameId, history, analysisTitle, createAnalysis, updateAnalysis, location.state]);
 
   useEffect(() => {
     game.load(currentFen);
@@ -445,6 +513,30 @@ export function GameReviewPage() {
         className="analysis-board-area"
         style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}
       >
+        {!gameId && (
+          <div className="analysis-title">
+            {isEditingTitle ? (
+              <input
+                className="analysis-title__input"
+                value={titleInput}
+                onChange={(e) => setTitleInput(e.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={handleTitleKeyDown}
+                autoFocus
+                maxLength={100}
+              />
+            ) : (
+              <h2
+                className="analysis-title__text"
+                onClick={handleTitleClick}
+                title={t('analysis.editTitle', 'Click to edit title')}
+              >
+                {analysisTitle}
+                <span className="analysis-title__edit-icon">✎</span>
+              </h2>
+            )}
+          </div>
+        )}
         <div className="analysis-board-wrapper">
           {/* Black player row above board */}
           {gameData && (

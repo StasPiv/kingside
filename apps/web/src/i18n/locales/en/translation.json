@@ -257,7 +257,8 @@
     "engineError": "Engine error",
     "ready": "Ready",
     "notSupported": "Not supported",
-    "notSupportedMobile": "Not supported on mobile"
+    "notSupportedMobile": "Not supported on mobile",
+    "editTitle": "Click to edit title"
   },
   "puzzle": {
     "title": "Puzzles",
@@ -357,6 +358,10 @@
       "prev": "Previous",
       "next": "Next",
       "page": "Page {{current}} of {{total}}"
+    },
+    "myAnalyses": {
+      "title": "My Analyses",
+      "delete": "Delete"
     },
     "tournaments": {
       "title": "Top Active Tournaments",
