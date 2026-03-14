@@ -118,6 +118,7 @@ export function GameReviewPage() {
   const localIdRef = useRef<string | undefined>(
     (location.state as { localId?: string } | null)?.localId,
   );
+  const breadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
@@ -518,6 +519,14 @@ export function GameReviewPage() {
             <Link to="/workshop" className="analysis-breadcrumbs__link">
               {t('workshop.title')}
             </Link>
+            {breadcrumbSection && (
+              <>
+                <span className="analysis-breadcrumbs__sep"> / </span>
+                <Link to="/workshop" className="analysis-breadcrumbs__link">
+                  {breadcrumbSection}
+                </Link>
+              </>
+            )}
             <span className="analysis-breadcrumbs__sep"> / </span>
             {isEditingTitle ? (
               <input

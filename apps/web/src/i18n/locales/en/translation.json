@@ -375,6 +375,17 @@
       "desc": "Upload a PGN file to analyze any game.",
       "button": "Choose PGN file...",
       "newAnalysis": "New Analysis"
+    },
+    "pgnFiles": {
+      "title": "Uploaded PGN",
+      "uploadButton": "Upload PGN",
+      "uploading": "Uploading...",
+      "uploadError": "Failed to upload file",
+      "empty": "No uploaded files",
+      "error": "Failed to load file list",
+      "gameCount": "{{count}} games",
+      "gamesEmpty": "No games in this file",
+      "gamesError": "Failed to load games"
     }
   },
   "rushLeaderboard": {
