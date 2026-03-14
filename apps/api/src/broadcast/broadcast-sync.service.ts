@@ -211,11 +211,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     try {
       const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
       const res = await fetch(url, {
+        headers: {
+          'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+          Accept: 'application/x-chess-pgn',
+        },
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!res.ok) {
+        const body = await res.text().catch(() => '');
         this.logger.warn(
-          `Failed to fetch PGN for finished round ${lichessRoundId}: ${res.status}`,
+          `Failed to fetch PGN for finished round ${lichessRoundId}: HTTP ${res.status} ${res.statusText}. Body: ${body.slice(0, 500)}`,
         );
         await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
         return;
@@ -231,8 +236,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
       }
     } catch (e: any) {
+      const cause =
+        e.cause instanceof Error ? e.cause.message : String(e.cause ?? '');
       this.logger.error(
-        `Error fetching PGN for finished round ${lichessRoundId}: ${e.message}`,
+        `Error fetching PGN for finished round ${lichessRoundId}: ${e.message}${cause ? ` (cause: ${cause})` : ''}`,
       );
       await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
     }
