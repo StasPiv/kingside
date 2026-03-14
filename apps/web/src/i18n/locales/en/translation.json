@@ -344,7 +344,32 @@
   "workshop": {
     "title": "Workshop",
     "comingSoon": "Full Workshop page is coming soon.",
-    "backToLobby": "Back to Lobby"
+    "backToLobby": "Back to Lobby",
+    "newGame": {
+      "title": "New Game",
+      "vsHuman": "vs Human",
+      "vsBot": "vs Bot"
+    },
+    "myGames": {
+      "title": "My Games",
+      "empty": "No games yet",
+      "error": "Failed to load games",
+      "prev": "Previous",
+      "next": "Next",
+      "page": "Page {{current}} of {{total}}"
+    },
+    "tournaments": {
+      "title": "Top Active Tournaments",
+      "empty": "No active tournaments",
+      "error": "Failed to load tournaments",
+      "activePlayers": "{{count}} players"
+    },
+    "pgnUpload": {
+      "title": "PGN Upload",
+      "desc": "Upload a PGN file to analyze any game.",
+      "button": "Choose PGN file...",
+      "newAnalysis": "New Analysis"
+    }
   },
   "rushLeaderboard": {
     "title": "Puzzle Rush Leaderboard",

@@ -2,50 +2,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { matchmakingSocket } from '../socket';
 import { api } from '../api';
-import { MatchmakingEvents, type CustomTimeControl, type CreateGameResponse, type RatingFilterMode } from '@kingside/shared';
-
-type PieceColor = 'white' | 'black' | 'random';
-type TimeControlCategory = 'bullet' | 'blitz' | 'rapid' | 'classical';
-
-type TimeControlPreset = {
-  minutes: number;
-  increment: number;
-  category: TimeControlCategory;
-};
-
-const TC_LABEL_KEYS: Record<TimeControlCategory, string> = {
-  bullet: 'lobby.bullet',
-  blitz: 'lobby.blitz',
-  rapid: 'lobby.rapid',
-  classical: 'lobby.classical',
-} as const;
-
-const PRESETS: TimeControlPreset[] = [
-  { minutes: 1, increment: 0, category: 'bullet' },
-  { minutes: 1, increment: 1, category: 'bullet' },
-  { minutes: 2, increment: 1, category: 'bullet' },
-  { minutes: 3, increment: 0, category: 'blitz' },
-  { minutes: 3, increment: 2, category: 'blitz' },
-  { minutes: 5, increment: 0, category: 'blitz' },
-  { minutes: 5, increment: 3, category: 'blitz' },
-  { minutes: 10, increment: 0, category: 'rapid' },
-  { minutes: 10, increment: 5, category: 'rapid' },
-  { minutes: 15, increment: 10, category: 'rapid' },
-  { minutes: 30, increment: 0, category: 'classical' },
-  { minutes: 30, increment: 20, category: 'classical' },
-  { minutes: 60, increment: 0, category: 'classical' },
-];
-
-const CATEGORIES: TimeControlCategory[] = ['bullet', 'blitz', 'rapid', 'classical'];
-
-function presetKey(minutes: number, increment: number): string {
-  return `${minutes}+${increment}`;
-}
-
-type LobbyMode = 'online' | 'bot';
-type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | null;
+import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../hooks/useTimeControl';
+import { useMatchmaking } from '../hooks/useMatchmaking';
+import { useBotGame } from '../hooks/useBotGame';
+import type { TimeControlCategory } from '../hooks/useTimeControl';
 
 type WorkshopGame = {
   id: string;
@@ -63,35 +24,16 @@ type PuzzleRushStats = {
   totalSessions: number;
 };
 
-type GameRecord = {
-  id: string;
-  playerColor: 'white' | 'black';
-  playerResult: 'win' | 'loss' | 'draw';
-  opponent: { id: string; username: string; ratingBefore: number | null };
-  result: string;
-  timeControlType: string | null;
-  timeControl: string;
-  createdAt: string;
-};
+type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | null;
 
 export function LobbyPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [searching, setSearching] = useState(false);
-  const [selectedMinutes, setSelectedMinutes] = useState(5);
-  const [selectedIncrement, setSelectedIncrement] = useState(0);
-  const [showCustomForm, setShowCustomForm] = useState(false);
-  const [customMinutes, setCustomMinutes] = useState(5);
-  const [customIncrement, setCustomIncrement] = useState(0);
-  const [savedControls, setSavedControls] = useState<CustomTimeControl[]>([]);
-  const [activeTab, setActiveTab] = useState<TimeControlCategory | 'custom'>('blitz');
-  const [lobbyMode, setLobbyMode] = useState<LobbyMode>('online');
-  const [ratingFilterMode, setRatingFilterMode] = useState<RatingFilterMode>('none');
-  const [ratingMin, setRatingMin] = useState(800);
-  const [ratingMax, setRatingMax] = useState(2200);
-  const [ratingMinus, setRatingMinus] = useState(200);
-  const [ratingPlus, setRatingPlus] = useState(200);
+
+  const tc = useTimeControl();
+  const matchmaking = useMatchmaking();
+  const bot = useBotGame();
 
   const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
   const [widgetsLoading, setWidgetsLoading] = useState(true);
@@ -101,20 +43,6 @@ export function LobbyPage() {
   const pgnInputRef = useRef<HTMLInputElement>(null);
 
   const [activeModal, setActiveModal] = useState<ModalId>(null);
-
-  const loadSavedControls = useCallback(async () => {
-    if (!user) return;
-    try {
-      const data = await api.get<CustomTimeControl[]>('/api/users/me/time-controls');
-      setSavedControls(data);
-    } catch {
-      // API may not be available yet
-    }
-  }, [user]);
-
-  useEffect(() => {
-    loadSavedControls();
-  }, [loadSavedControls]);
 
   useEffect(() => {
     if (!user) {
@@ -127,104 +55,6 @@ export function LobbyPage() {
         setRushStats(rush);
       }).finally(() => setWidgetsLoading(false));
   }, [user]);
-
-  const [botLevel, setBotLevel] = useState(3);
-  const [botColor, setBotColor] = useState<PieceColor>('random');
-  const [botTC, setBotTC] = useState<TimeControlCategory>('blitz');
-  const [startingBot, setStartingBot] = useState(false);
-  const [showBotTCModal, setShowBotTCModal] = useState(false);
-
-  useEffect(() => {
-    const onMatchFound = (data: { gameId: string; color: 'white' | 'black' }) => {
-      setSearching(false);
-      navigate(`/game/${data.gameId}`, { state: { color: data.color } });
-    };
-
-    matchmakingSocket.on(MatchmakingEvents.FOUND, onMatchFound);
-    return () => {
-      matchmakingSocket.off(MatchmakingEvents.FOUND, onMatchFound);
-      if (searching) {
-        matchmakingSocket.emit(MatchmakingEvents.LEAVE);
-      }
-    };
-  }, [navigate, searching]);
-
-  const handleSelectPreset = (minutes: number, increment: number) => {
-    setSelectedMinutes(minutes);
-    setSelectedIncrement(increment);
-  };
-
-  const handleSearch = () => {
-    if (searching) {
-      matchmakingSocket.emit(MatchmakingEvents.LEAVE);
-      setSearching(false);
-    } else {
-      const payload: Record<string, unknown> = {
-        timeInitial: selectedMinutes * 60,
-        increment: selectedIncrement,
-      };
-      if (ratingFilterMode === 'absolute') {
-        payload.ratingFilter = { minRating: ratingMin, maxRating: ratingMax };
-      } else if (ratingFilterMode === 'relative' && user) {
-        const ratingKey = `rating${activeTab !== 'custom' ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : 'Blitz'}` as keyof typeof user;
-        const myRating = Number(user[ratingKey]) || 1500;
-        payload.ratingFilter = {
-          minRating: myRating - ratingMinus,
-          maxRating: myRating + ratingPlus,
-        };
-      }
-      matchmakingSocket.emit(MatchmakingEvents.JOIN, payload);
-      setSearching(true);
-    }
-  };
-
-  const handlePlayBot = async () => {
-    setStartingBot(true);
-    try {
-      const game = await api.post<CreateGameResponse>('/api/games/bot', {
-        color: botColor,
-        botLevel,
-        timeControl: botTC,
-      });
-      navigate(`/game/${game.id}`);
-    } catch {
-      setStartingBot(false);
-    }
-  };
-
-  const handleSaveCustom = async () => {
-    if (!user) return;
-    try {
-      await api.post('/api/users/me/time-controls', {
-        initialSec: customMinutes * 60,
-        incrementSec: customIncrement,
-      });
-      await loadSavedControls();
-      setShowCustomForm(false);
-    } catch {
-      // API may not be available yet
-    }
-  };
-
-  const handleUseCustom = () => {
-    setSelectedMinutes(customMinutes);
-    setSelectedIncrement(customIncrement);
-    setShowCustomForm(false);
-  };
-
-  const handleDeleteSaved = async (id: string) => {
-    try {
-      await api.delete(`/api/users/me/time-controls/${id}`);
-      setSavedControls((prev) => prev.filter((c) => c.id !== id));
-    } catch {
-      // API may not be available yet
-    }
-  };
-
-  const handleSelectSaved = (ctrl: CustomTimeControl) => {
-    setSelectedMinutes(Math.floor(ctrl.initialSec / 60));
-    setSelectedIncrement(ctrl.incrementSec);
-  };
 
   const loadWorkshopGames = useCallback(async () => {
     if (!user) return;
@@ -251,17 +81,8 @@ export function LobbyPage() {
       }
     };
     reader.readAsText(file);
-    // reset so same file can be re-selected
     e.target.value = '';
   };
-
-  const isSelected = (minutes: number, increment: number) =>
-    selectedMinutes === minutes && selectedIncrement === increment;
-
-  const filteredPresets =
-    activeTab === 'custom'
-      ? []
-      : PRESETS.filter((p) => p.category === activeTab);
 
   const closeModal = () => setActiveModal(null);
 
@@ -271,6 +92,27 @@ export function LobbyPage() {
       loadWorkshopGames();
     }
   };
+
+  const {
+    selectedMinutes, selectedIncrement, showCustomForm, setShowCustomForm,
+    customMinutes, setCustomMinutes, customIncrement, setCustomIncrement,
+    savedControls, activeTab, setActiveTab,
+    handleSelectPreset, handleSaveCustom, handleUseCustom, handleDeleteSaved, handleSelectSaved,
+    isSelected, filteredPresets,
+  } = tc;
+
+  const {
+    searching, ratingFilterMode, setRatingFilterMode,
+    ratingMin, setRatingMin, ratingMax, setRatingMax,
+    ratingMinus, setRatingMinus, ratingPlus, setRatingPlus,
+    handleSearch,
+  } = matchmaking;
+
+  const {
+    botLevel, setBotLevel, botColor, setBotColor,
+    botTC, setBotTC, startingBot, showBotTCModal, setShowBotTCModal,
+    handlePlayBot,
+  } = bot;
 
   const onlineModalContent = (
     <div className="lobby-panel lobby-panel--online">
@@ -493,7 +335,14 @@ export function LobbyPage() {
         )}
       </div>
 
-      <button className="play-btn" onClick={handleSearch}>
+      <button
+        className="play-btn"
+        onClick={() => handleSearch({
+          timeInitial: selectedMinutes * 60,
+          increment: selectedIncrement,
+          activeTab,
+        })}
+      >
         {searching ? t('lobby.cancelSearch') : t('lobby.play')}
       </button>
       {searching && <p className="searching">{t('lobby.searching')}</p>}
@@ -521,7 +370,7 @@ export function LobbyPage() {
       <div className="bot-option">
         <label>{t('lobby.color')}</label>
         <div className="color-picker">
-          {(['white', 'black', 'random'] as PieceColor[]).map((c) => {
+          {(['white', 'black', 'random'] as const).map((c) => {
             const icon = c === 'white' ? '♔' : c === 'black' ? '♚' : '⚄';
             return (
               <button
@@ -575,7 +424,6 @@ export function LobbyPage() {
     <div className="lobby-panel">
       <h2 className="lobby-panel__title">&#9812; {t('lobby.teasers.workshop.title')}</h2>
 
-      {/* New game analysis */}
       <div className="workshop-section">
         <button
           className="play-btn"
@@ -585,7 +433,6 @@ export function LobbyPage() {
         </button>
       </div>
 
-      {/* PGN upload */}
       <div className="workshop-section">
         <p className="workshop-section__label">{t('lobby.workshop.uploadPgn')}</p>
         <input
@@ -603,7 +450,6 @@ export function LobbyPage() {
         </button>
       </div>
 
-      {/* Recent games */}
       <div className="workshop-section">
         <p className="workshop-section__label">{t('lobby.workshop.recentGames')}</p>
         {workshopGamesLoading ? (
@@ -631,7 +477,6 @@ export function LobbyPage() {
         )}
       </div>
 
-      {/* Tournaments — stub */}
       <div className="workshop-section">
         <p className="workshop-section__label">{t('lobby.workshop.tournaments')}</p>
         <p className="workshop-section__stub">{t('lobby.workshop.tournamentsComingSoon')}</p>
@@ -724,7 +569,7 @@ export function LobbyPage() {
           <div className="bot-tc-modal" onClick={(e) => e.stopPropagation()}>
             <h3 className="bot-tc-modal__title">{t('lobby.timeControl')}</h3>
             <div className="time-controls">
-              {CATEGORIES.map((key) => (
+              {CATEGORIES.map((key: TimeControlCategory) => (
                 <button
                   key={key}
                   className={`tc-btn ${botTC === key ? 'active' : ''}`}
