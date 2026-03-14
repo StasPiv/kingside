@@ -1,21 +1,34 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
-import { broadcastSocket } from '../socket';
-import type {
-  WsBroadcastSyncPayload,
-  WsBroadcastMovePayload,
-} from '@kingside/shared';
-import { BroadcastEvents } from '@kingside/shared';
+import { api } from '../api';
+import type { DgtRoundResult, DgtGame } from '../dgt.types';
+import { formatPlayerName, formatResult } from '../dgt.types';
 
-interface GameState {
-  gameIndex: number;
-  fen: string;
-  whitePlayer: string;
-  blackPlayer: string;
-  result: string | null;
+function computeFen(pgn: string, moves: string[]): string {
+  if (pgn) {
+    try {
+      const chess = new Chess();
+      chess.loadPgn(pgn);
+      return chess.fen();
+    } catch {
+      // fall through
+    }
+  }
+  if (moves.length > 0) {
+    try {
+      const chess = new Chess();
+      for (const move of moves) {
+        chess.move(move);
+      }
+      return chess.fen();
+    } catch {
+      // fall through
+    }
+  }
+  return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 }
 
 export function BroadcastGamePage() {
@@ -28,86 +41,38 @@ export function BroadcastGamePage() {
 
   const gameIndex = gameId !== undefined ? parseInt(gameId, 10) : NaN;
 
-  const [game, setGame] = useState<GameState | null>(null);
-  const [connected, setConnected] = useState(false);
-  const [syncError, setSyncError] = useState('');
-
-  const subscribedRoundRef = useRef<string | null>(null);
+  const [game, setGame] = useState<DgtGame | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!roundId || isNaN(gameIndex)) return;
+    if (!tournamentId || !roundId || isNaN(gameIndex)) return;
+    let cancelled = false;
 
-    broadcastSocket.connect();
-
-    const handleConnect = () => {
-      setConnected(true);
-      broadcastSocket.emit(BroadcastEvents.SUBSCRIBE, { roundId });
-      subscribedRoundRef.current = roundId;
-    };
-
-    const handleDisconnect = () => {
-      setConnected(false);
-    };
-
-    const handleSync = (payload: WsBroadcastSyncPayload) => {
-      if (payload.roundId !== roundId) return;
-      const found = payload.games.find((g) => g.gameIndex === gameIndex);
-      if (found) {
-        setGame({
-          gameIndex: found.gameIndex,
-          fen: found.fen,
-          whitePlayer: found.whitePlayer,
-          blackPlayer: found.blackPlayer,
-          result: found.result,
-        });
-      }
-    };
-
-    const handleMove = (payload: WsBroadcastMovePayload) => {
-      if (payload.roundId !== roundId) return;
-      if (payload.gameIndex !== gameIndex) return;
-      setGame((prev) => {
-        if (!prev) return prev;
-        try {
-          const chess = new Chess(prev.fen);
-          const from = payload.uci.slice(0, 2);
-          const to = payload.uci.slice(2, 4);
-          const promotion = payload.uci.length === 5 ? payload.uci[4] : undefined;
-          chess.move({ from, to, promotion });
-          return { ...prev, fen: chess.fen() };
-        } catch {
-          return { ...prev, fen: payload.fen };
+    setLoading(true);
+    api
+      .get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
+      .then((round) => {
+        if (!cancelled) {
+          const found = round.games.find((g) => g.gameIndex === gameIndex) ?? null;
+          setGame(found);
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : t('broadcasts.dgt.errorRound'));
+          setLoading(false);
         }
       });
-    };
-
-    const handleError = (err: { message?: string }) => {
-      setSyncError(err?.message ?? t('broadcastRound.syncError'));
-    };
-
-    if (broadcastSocket.connected) {
-      handleConnect();
-    }
-
-    broadcastSocket.on('connect', handleConnect);
-    broadcastSocket.on('disconnect', handleDisconnect);
-    broadcastSocket.on(BroadcastEvents.SYNC, handleSync);
-    broadcastSocket.on(BroadcastEvents.MOVE, handleMove);
-    broadcastSocket.on(BroadcastEvents.ERROR, handleError);
 
     return () => {
-      if (subscribedRoundRef.current) {
-        broadcastSocket.emit(BroadcastEvents.UNSUBSCRIBE, { roundId: subscribedRoundRef.current });
-        subscribedRoundRef.current = null;
-      }
-      broadcastSocket.off('connect', handleConnect);
-      broadcastSocket.off('disconnect', handleDisconnect);
-      broadcastSocket.off(BroadcastEvents.SYNC, handleSync);
-      broadcastSocket.off(BroadcastEvents.MOVE, handleMove);
-      broadcastSocket.off(BroadcastEvents.ERROR, handleError);
-      broadcastSocket.disconnect();
+      cancelled = true;
     };
-  }, [roundId, gameIndex, t]);
+  }, [tournamentId, roundId, gameIndex, t]);
+
+  if (loading) return <div className="loading">{t('common.loading')}</div>;
+  if (error) return <div className="error">{error}</div>;
 
   return (
     <div className="broadcast-game-page">
@@ -118,21 +83,9 @@ export function BroadcastGamePage() {
         >
           ← {t('broadcastGame.backToRound')}
         </Link>
-        <div className="broadcast-round-status">
-          <span
-            className={`broadcast-round-indicator broadcast-round-indicator--${connected ? 'live' : 'offline'}`}
-          />
-          {connected ? t('broadcastRound.live') : t('broadcastRound.connecting')}
-        </div>
       </div>
 
-      {syncError && <div className="error">{syncError}</div>}
-
-      {!game && !connected && (
-        <div className="loading">{t('common.loading')}</div>
-      )}
-
-      {!game && connected && (
+      {!game && (
         <div className="broadcast-round-empty">{t('broadcastRound.noGames')}</div>
       )}
 
@@ -140,24 +93,24 @@ export function BroadcastGamePage() {
         <div className="broadcast-game-content">
           <div className="broadcast-round-board-players broadcast-round-board-players--large">
             <span className="broadcast-round-player broadcast-round-player--white">
-              ♙ {game.whitePlayer}
+              ♙ {formatPlayerName(game.white)}
             </span>
             <span className="broadcast-round-player-sep">vs</span>
             <span className="broadcast-round-player broadcast-round-player--black">
-              ♟ {game.blackPlayer}
+              ♟ {formatPlayerName(game.black)}
             </span>
           </div>
           <div className="broadcast-game-board">
             <Chessboard
               options={{
-                position: game.fen,
+                position: computeFen(game.pgn, game.moves),
                 allowDragging: false,
-                animationDurationInMs: 300,
+                animationDurationInMs: 0,
               }}
             />
           </div>
           {game.result && (
-            <div className="broadcast-round-result">{game.result}</div>
+            <div className="broadcast-round-result">{formatResult(game.result)}</div>
           )}
         </div>
       )}
