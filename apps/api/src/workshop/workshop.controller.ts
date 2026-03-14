@@ -18,7 +18,7 @@ import { WorkshopService } from './workshop.service';
 export class WorkshopController {
   constructor(private readonly workshopService: WorkshopService) {}
 
-  @Post('pgn-import')
+  @Post('pgn-files')
   @UseInterceptors(FileInterceptor('file'))
   importPgn(
     @Request() req: any,
@@ -27,12 +27,12 @@ export class WorkshopController {
     return this.workshopService.importPgn(req.user.id, file);
   }
 
-  @Get('pgn-imports')
+  @Get('pgn-files')
   findAllImports(@Request() req: any) {
     return this.workshopService.findAllImports(req.user.id);
   }
 
-  @Get('pgn-imports/:id/games')
+  @Get('pgn-files/:id/games')
   findImportGames(
     @Request() req: any,
     @Param('id', ParseUUIDPipe) id: string,
