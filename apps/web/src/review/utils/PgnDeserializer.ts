@@ -46,7 +46,9 @@ function isResult(token: string): boolean {
 }
 
 export function parseAnnotatedPgn(pgn: string): ChessMove[] {
-  const tokens = tokenize(pgn);
+  // Strip PGN tag pairs (lines like [White "Name"]) before tokenizing
+  const withoutHeaders = pgn.replace(/^\[.*\]\s*$/gm, '');
+  const tokens = tokenize(withoutHeaders);
   let pos = 0;
   let nextGlobalIndex = 0;
 

@@ -1,34 +1,83 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { WorkshopAnalysisList } from '../components/workshop/WorkshopAnalysisList';
 import { WorkshopPgnUpload } from '../components/workshop/WorkshopPgnUpload';
 import { WorkshopPgnList } from '../components/workshop/WorkshopPgnList';
 import type { PgnFile } from '../components/workshop/WorkshopPgnList';
 
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
 type Section = 'myAnalyses' | 'pgnFiles';
 
 export function WorkshopPage() {
   const { t } = useTranslation();
-  const [section, setSection] = useState<Section>('myAnalyses');
-  const [selectedPgnFile, setSelectedPgnFile] = useState<PgnFile | null>(null);
+  const navigate = useNavigate();
+  const params = useParams<{ fileId?: string }>();
+  const location = useLocation();
 
-  const handleSectionChange = (newSection: Section) => {
-    setSection(newSection);
-    setSelectedPgnFile(null);
-  };
+  const isPgnFilesSection = location.pathname.startsWith('/workshop/pgn-files');
+  const section: Section = isPgnFilesSection ? 'pgnFiles' : 'myAnalyses';
+  const fileId = params.fileId;
 
-  const handleSelectFile = (file: PgnFile) => {
-    setSelectedPgnFile(file);
-  };
+  const stateFile = (location.state as { file?: PgnFile } | null)?.file ?? null;
+  const [resolvedFile, setResolvedFile] = useState<PgnFile | null>(stateFile);
+  const [fileLoading, setFileLoading] = useState(Boolean(fileId && !stateFile));
 
-  const handleBackToFiles = () => {
-    setSelectedPgnFile(null);
-  };
+  useEffect(() => {
+    setResolvedFile(stateFile);
+    if (fileId && !stateFile) {
+      setFileLoading(true);
+      const token = localStorage.getItem('token');
+      fetch(`${API_URL}/api/workshop/pgn-files`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error();
+          return res.json();
+        })
+        .then((data) => {
+          const files: PgnFile[] = data.data ?? data;
+          const found = files.find((f) => f.id === fileId);
+          if (found) {
+            setResolvedFile(found);
+          } else {
+            navigate('/workshop/pgn-files', { replace: true });
+          }
+        })
+        .catch(() => navigate('/workshop/pgn-files', { replace: true }))
+        .finally(() => setFileLoading(false));
+    } else if (!fileId) {
+      setResolvedFile(null);
+      setFileLoading(false);
+    }
+  }, [fileId, stateFile, navigate]);
 
-  const handleBackToWorkshop = () => {
-    setSection('myAnalyses');
-    setSelectedPgnFile(null);
-  };
+  const handleSectionChange = useCallback(
+    (newSection: Section) => {
+      if (newSection === 'myAnalyses') {
+        navigate('/workshop');
+      } else {
+        navigate('/workshop/pgn-files');
+      }
+    },
+    [navigate],
+  );
+
+  const handleSelectFile = useCallback(
+    (file: PgnFile) => {
+      navigate(`/workshop/pgn-files/${file.id}`, { state: { file } });
+    },
+    [navigate],
+  );
+
+  const handleBackToFiles = useCallback(() => {
+    navigate('/workshop/pgn-files');
+  }, [navigate]);
+
+  const handleBackToWorkshop = useCallback(() => {
+    navigate('/workshop');
+  }, [navigate]);
 
   return (
     <div className="workshop-page">
@@ -44,7 +93,7 @@ export function WorkshopPage() {
           <span className="workshop-breadcrumbs__current">
             {t('workshop.myAnalyses.title')}
           </span>
-        ) : selectedPgnFile ? (
+        ) : resolvedFile ? (
           <>
             <button
               className="workshop-breadcrumbs__link"
@@ -53,7 +102,7 @@ export function WorkshopPage() {
               {t('workshop.pgnFiles.title')}
             </button>
             <span className="workshop-breadcrumbs__sep"> / </span>
-            <span className="workshop-breadcrumbs__current">{selectedPgnFile.name}</span>
+            <span className="workshop-breadcrumbs__current">{resolvedFile.name}</span>
           </>
         ) : (
           <span className="workshop-breadcrumbs__current">
@@ -85,10 +134,14 @@ export function WorkshopPage() {
           </>
         )}
         {section === 'pgnFiles' && (
-          <WorkshopPgnList
-            selectedFile={selectedPgnFile}
-            onSelectFile={handleSelectFile}
-          />
+          fileLoading ? (
+            <p className="workshop-section-block__loading">{t('common.loading')}</p>
+          ) : (
+            <WorkshopPgnList
+              selectedFile={resolvedFile}
+              onSelectFile={handleSelectFile}
+            />
+          )
         )}
       </div>
     </div>
