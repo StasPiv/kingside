@@ -55,7 +55,7 @@ describe('UserService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: userId },
         data: { locale: 'ru' },
-        select: { id: true, locale: true },
+        select: { id: true, locale: true, boardTheme: true, pieceSet: true, soundEnabled: true },
       });
     });
   });
