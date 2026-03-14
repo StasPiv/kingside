@@ -11,7 +11,9 @@ df -h /
 
 echo ""
 echo "=== Removing unused Docker objects (images, build cache) ==="
-docker system prune -af --volumes 2>/dev/null || docker system prune -f
+# NOTE: --volumes намеренно НЕ используется — named volumes (postgres_data, redis_data)
+# не должны удаляться даже если контейнеры временно остановлены
+docker system prune -af 2>/dev/null || docker system prune -f
 
 echo ""
 echo "=== Removing Docker builder cache ==="

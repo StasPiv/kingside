@@ -58,18 +58,40 @@ echo "  Frontend задеплоен в /var/www/kingside."
 
 # 4. Пересборка и перезапуск API на сервере
 echo "[4/5] Пересборка и перезапуск API на сервере..."
-ssh "$REMOTE_HOST" "cd $REMOTE_DIR && \
-    echo 'Очистка диска перед сборкой...' && \
+ssh "$REMOTE_HOST" "set -e && cd $REMOTE_DIR && \
+    \
+    echo '--- Очистка диска перед сборкой...' && \
     bash scripts/disk-cleanup.sh && \
-    echo 'Сборка образа API...' && \
+    \
+    echo '--- Проверка свободного места...' && \
+    DISK_USED=\$(df / | awk 'NR==2 {gsub(/%/,\"\",\$5); print \$5}') && \
+    DISK_FREE_H=\$(df -h / | awk 'NR==2 {print \$4}') && \
+    echo \"  Использовано: \${DISK_USED}%, свободно: \${DISK_FREE_H}\" && \
+    if [ \"\$DISK_USED\" -gt 80 ]; then \
+        echo \"ERROR: Диск заполнен на \${DISK_USED}% (>80%). Деплой прерван — продакшен не затронут.\"; \
+        exit 1; \
+    fi && \
+    \
+    echo '--- Сохранение текущего образа для отката...' && \
+    COMPOSE_PROJECT=\$(basename \$(pwd)) && \
+    OLD_IMAGE=\$(docker images \${COMPOSE_PROJECT}-api:latest --format '{{.ID}}' | head -1) && \
+    if [ -n \"\$OLD_IMAGE\" ]; then \
+        docker tag \${COMPOSE_PROJECT}-api:latest \${COMPOSE_PROJECT}-api:pre-deploy; \
+        echo \"  Образ для отката сохранён: \$OLD_IMAGE\"; \
+    else \
+        echo '  Предыдущий образ не найден, откат будет недоступен.'; \
+    fi && \
+    \
+    echo '--- Сборка образа API...' && \
     docker compose build --no-cache api && \
     docker image prune -f && \
-    echo 'Перезапуск контейнера API...' && \
+    \
+    echo '--- Перезапуск контейнера API...' && \
     docker compose up -d --force-recreate api && \
-    echo 'Ожидание готовности API (healthcheck)...' && \
+    \
+    echo '--- Ожидание готовности API (healthcheck)...' && \
     API_READY=0 && \
     for i in \$(seq 1 40); do \
-        STATUS=\$(docker compose ps --format json api 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get(\"Health\",\"\"))' 2>/dev/null || echo ''); \
         if curl -sf http://localhost:3001/api/health &>/dev/null; then \
             echo 'API готов.'; \
             API_READY=1; \
@@ -78,14 +100,31 @@ ssh "$REMOTE_HOST" "cd $REMOTE_DIR && \
         sleep 3; \
     done && \
     if [ \"\$API_READY\" -eq 0 ]; then \
-        echo 'ERROR: API не стартовал за 120 сек. Логи:'; \
+        echo 'ERROR: API не стартовал за 120 сек. Выполняю автоматический откат...'; \
         docker compose logs api --tail=50; \
+        if docker images \${COMPOSE_PROJECT}-api:pre-deploy --format '{{.ID}}' | grep -q .; then \
+            docker compose stop api || true; \
+            docker tag \${COMPOSE_PROJECT}-api:pre-deploy \${COMPOSE_PROJECT}-api:latest; \
+            docker compose up -d --no-build api; \
+            sleep 10; \
+            if curl -sf http://localhost:3001/api/health &>/dev/null; then \
+                echo 'Откат выполнен успешно. API работает на предыдущем образе.'; \
+            else \
+                echo 'ERROR: Откат завершён, но API всё равно не отвечает. Требуется ручное вмешательство.'; \
+            fi; \
+        else \
+            echo 'ERROR: Образ для отката не найден. Требуется ручное вмешательство.'; \
+        fi; \
         exit 1; \
     fi"
 
 # 5. Перезагрузка nginx
 echo "[5/5] Перезагрузка nginx..."
 ssh "$REMOTE_HOST" "sudo nginx -t && sudo systemctl reload nginx"
+
+# 6. Убедиться, что cron-задания установлены
+echo "[6/6] Проверка cron-заданий на сервере..."
+ssh "$REMOTE_HOST" "cd $REMOTE_DIR && bash scripts/install-disk-cron.sh"
 
 echo ""
 echo "=== Деплой завершён ==="
