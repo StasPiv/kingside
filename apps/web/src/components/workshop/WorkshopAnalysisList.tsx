@@ -47,7 +47,7 @@ export function WorkshopAnalysisList() {
   }, [hasMore, loadingMore]);
 
   const handleOpen = (analysis: SavedAnalysis) => {
-    navigate('/analysis', {
+    navigate('/analysis/' + analysis.id, {
       state: { pgn: analysis.pgn, localId: analysis.id, title: analysis.title },
     });
   };

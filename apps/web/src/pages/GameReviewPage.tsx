@@ -106,7 +106,8 @@ const MULTI_PV = 3;
 export function GameReviewPage() {
   const params = useParams<{ id?: string; gameId?: string }>();
   const rawGameId = params.id ?? params.gameId;
-  const gameId = rawGameId === 'new' ? undefined : rawGameId;
+  const isLocalAnalysisId = typeof rawGameId === 'string' && rawGameId.startsWith('local-');
+  const gameId = rawGameId === 'new' || isLocalAnalysisId ? undefined : rawGameId;
   const location = useLocation();
   const { t } = useTranslation();
   const [gameData, setGameData] = useState<GameData | null>(null);
@@ -114,9 +115,10 @@ export function GameReviewPage() {
   const [error, setError] = useState('');
 
   // Standalone analysis state (only used when gameId is undefined)
-  const { create: createAnalysis, update: updateAnalysis } = useSavedAnalyses();
+  const { create: createAnalysis, update: updateAnalysis, getById } = useSavedAnalyses();
   const localIdRef = useRef<string | undefined>(
-    (location.state as { localId?: string } | null)?.localId,
+    (location.state as { localId?: string } | null)?.localId ??
+      (isLocalAnalysisId ? rawGameId : undefined),
   );
   const breadcrumbSection = (location.state as { breadcrumbSection?: string } | null)?.breadcrumbSection;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
@@ -125,6 +127,14 @@ export function GameReviewPage() {
   });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(analysisTitle);
+  // Sync URL to /analysis/{localId} without triggering React Router navigation
+  useEffect(() => {
+    if (!gameId && localIdRef.current && !isLocalAnalysisId) {
+      window.history.replaceState(null, '', '/analysis/' + localIdRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const { boardThemeOptions } = useBoardTheme();
@@ -275,6 +285,20 @@ export function GameReviewPage() {
         } catch {
           // ignore parse error — start with empty board
         }
+      } else if (localIdRef.current) {
+        const saved = getById(localIdRef.current);
+        if (saved?.pgn) {
+          try {
+            const parsedMoves = parseAnnotatedPgn(saved.pgn);
+            loadFromPgn(parsedMoves);
+          } catch {
+            // ignore
+          }
+        }
+        if (saved?.title) {
+          setAnalysisTitle(saved.title);
+          setTitleInput(saved.title);
+        }
       }
       setLoading(false);
       return;
@@ -317,7 +341,7 @@ export function GameReviewPage() {
     };
 
     fetchData();
-  }, [gameId, location.state, t, loadMoves, loadFromPgn]);
+  }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
 
   useAnalysisPersistence(gameId, history);
 
@@ -342,6 +366,7 @@ export function GameReviewPage() {
           blackPgn: headers['Black'] || undefined,
         });
         localIdRef.current = entry.id;
+        window.history.replaceState(null, '', '/analysis/' + entry.id);
       } else {
         updateAnalysis(localIdRef.current, { pgn, opening });
       }
