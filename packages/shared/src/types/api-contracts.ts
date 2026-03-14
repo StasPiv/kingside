@@ -445,3 +445,74 @@ export const MatchmakingEvents = {
   FOUND: 'matchmaking:found',
   ERROR: 'error',
 } as const;
+
+// ─── Broadcast (REST) ────────────────────────────────────────────────
+
+export type BroadcastItem = {
+  id: string;
+  lichessId: string;
+  title: string;
+  description: string | null;
+  url: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type BroadcastRoundItem = {
+  id: string;
+  lichessRoundId: string;
+  name: string;
+  startsAt: string | null;
+  status: string;
+};
+
+export type BroadcastListResponse = {
+  data: BroadcastItem[];
+};
+
+export type BroadcastRoundsResponse = {
+  data: BroadcastRoundItem[];
+};
+
+// ─── WebSocket: /broadcast namespace ────────────────────────────────
+
+/** Client → Server */
+export type WsBroadcastSubscribePayload = {
+  roundId: string;
+};
+
+export type WsBroadcastUnsubscribePayload = {
+  roundId: string;
+};
+
+/** Server → Client */
+export type WsBroadcastMovePayload = {
+  roundId: string;
+  gameIndex: number;
+  uci: string;
+  fen: string;
+  whitePlayer: string;
+  blackPlayer: string;
+};
+
+export type WsBroadcastSyncPayload = {
+  roundId: string;
+  games: Array<{
+    gameIndex: number;
+    fen: string;
+    whitePlayer: string;
+    blackPlayer: string;
+    result: string | null;
+    pgn: string | null;
+  }>;
+};
+
+export const BroadcastEvents = {
+  // client → server
+  SUBSCRIBE: 'broadcast:subscribe',
+  UNSUBSCRIBE: 'broadcast:unsubscribe',
+  // server → client
+  MOVE: 'broadcast:move',
+  SYNC: 'broadcast:sync',
+  ERROR: 'error',
+} as const;
