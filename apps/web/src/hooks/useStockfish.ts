@@ -21,7 +21,7 @@ const INIT_TIMEOUT_MS = 30_000;
 
 /** Returns true if SharedArrayBuffer is available (COOP/COEP headers set). */
 function isMultiThreaded(): boolean {
-  return typeof SharedArrayBuffer !== 'undefined' && crossOriginIsolated;
+  return typeof SharedArrayBuffer !== 'undefined' && typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
 }
 
 /** Select engine file based on cross-origin isolation support. */
