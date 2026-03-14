@@ -5,8 +5,8 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
-  Patch,
   Post,
+  Put,
   Request,
   UseGuards,
 } from '@nestjs/common';
@@ -16,7 +16,7 @@ import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 
 @UseGuards(JwtAuthGuard)
-@Controller('analysis')
+@Controller('analyses')
 export class AnalysisController {
   constructor(private readonly analysisService: AnalysisService) {}
 
@@ -38,7 +38,7 @@ export class AnalysisController {
     return this.analysisService.findOne(req.user.id, id);
   }
 
-  @Patch(':id')
+  @Put(':id')
   update(
     @Request() req: any,
     @Param('id', ParseUUIDPipe) id: string,

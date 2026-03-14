@@ -507,6 +507,42 @@ export type WsBroadcastSyncPayload = {
   }>;
 };
 
+// ─── Workshop Analysis (REST) ────────────────────────────────────────
+
+/** POST /api/analyses */
+export type CreateAnalysisRequest = {
+  title?: string;
+  pgn?: string;
+  fen?: string;
+};
+
+/** PUT /api/analyses/:id */
+export type UpdateAnalysisRequest = {
+  title?: string;
+  pgn?: string;
+  fen?: string;
+};
+
+/** Full analysis object (GET /api/analyses/:id, POST, PUT responses) */
+export type AnalysisResponse = {
+  id: string;
+  userId: string;
+  title: string;
+  pgn: string | null;
+  fen: string | null;
+  opening: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** List item (GET /api/analyses response) */
+export type AnalysisListItem = {
+  id: string;
+  title: string;
+  opening: string | null;
+  createdAt: string;
+};
+
 export const BroadcastEvents = {
   // client → server
   SUBSCRIBE: 'broadcast:subscribe',
