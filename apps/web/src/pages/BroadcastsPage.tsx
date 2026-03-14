@@ -47,26 +47,45 @@ export function BroadcastsPage() {
       ) : broadcasts.length === 0 ? (
         <p className="broadcasts-empty">{t('broadcasts.empty')}</p>
       ) : (
-        <div className="broadcasts-list">
-          {broadcasts.map((broadcast) => (
-            <Link
-              key={broadcast.id}
-              to={`/broadcasts/${broadcast.id}/rounds`}
-              className="broadcasts-item"
-            >
-              <div className="broadcasts-item-title">{broadcast.title}</div>
-              {broadcast.description && (
-                <div className="broadcasts-item-desc">{broadcast.description}</div>
-              )}
-              <div className="broadcasts-item-meta">
-                <span
-                  className={`broadcasts-item-status broadcasts-item-status--${broadcast.isActive ? 'active' : 'inactive'}`}
-                >
-                  {broadcast.isActive ? t('broadcasts.statusActive') : t('broadcasts.statusInactive')}
-                </span>
-              </div>
-            </Link>
-          ))}
+        <div className="broadcasts-table-wrap">
+          <table className="broadcasts-table">
+            <thead>
+              <tr>
+                <th className="broadcasts-th broadcasts-th--title">{t('broadcasts.colTitle')}</th>
+                <th className="broadcasts-th broadcasts-th--status">{t('broadcasts.colStatus')}</th>
+                <th className="broadcasts-th broadcasts-th--date">{t('broadcasts.colDate')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {broadcasts.map((broadcast) => (
+                <tr key={broadcast.id} className="broadcasts-tr">
+                  <td className="broadcasts-td broadcasts-td--title">
+                    <Link
+                      to={`/broadcasts/${broadcast.id}/rounds`}
+                      className="broadcasts-title-link"
+                    >
+                      {broadcast.title}
+                    </Link>
+                    {broadcast.description && (
+                      <div className="broadcasts-desc">{broadcast.description}</div>
+                    )}
+                  </td>
+                  <td className="broadcasts-td broadcasts-td--status">
+                    <span
+                      className={`broadcasts-status broadcasts-status--${broadcast.isActive ? 'active' : 'inactive'}`}
+                    >
+                      {broadcast.isActive
+                        ? t('broadcasts.statusActive')
+                        : t('broadcasts.statusInactive')}
+                    </span>
+                  </td>
+                  <td className="broadcasts-td broadcasts-td--date">
+                    {new Date(broadcast.createdAt).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

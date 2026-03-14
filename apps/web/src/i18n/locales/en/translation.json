@@ -17,7 +17,10 @@
     "empty": "No broadcasts available",
     "error": "Failed to load broadcasts",
     "statusActive": "Active",
-    "statusInactive": "Ended"
+    "statusInactive": "Ended",
+    "colTitle": "Tournament",
+    "colStatus": "Status",
+    "colDate": "Date"
   },
   "broadcastRound": {
     "backToBroadcasts": "All broadcasts",
