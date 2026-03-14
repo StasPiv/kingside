@@ -204,6 +204,30 @@ export function GameReviewPage() {
     [handleTitleSave],
   );
 
+  // Ref for moves panel body — used to fix height to viewport bottom on mobile
+  const movesPanelBodyRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (loading) return;
+    if (!panelStates.moves) return;
+    const el = movesPanelBodyRef.current;
+    if (!el) return;
+
+    const update = () => {
+      if (!window.matchMedia('(max-width: 480px)').matches) {
+        el.style.height = '';
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const height = Math.max(150, window.innerHeight - rect.top);
+      el.style.height = `${height}px`;
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
+  }, [loading, panelStates.moves]);
+
   // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
   const [boardAreaPx, setBoardAreaPx] = useState(() => {
@@ -870,7 +894,7 @@ export function GameReviewPage() {
             </span>
           </div>
           {panelStates.moves && (
-            <div className="analysis-panel-body analysis-panel-body--scroll">
+            <div ref={movesPanelBodyRef} className="analysis-panel-body analysis-panel-body--scroll">
               <ReviewMoveList
                 history={history}
                 currentGlobalIndex={currentGlobalIndex}
