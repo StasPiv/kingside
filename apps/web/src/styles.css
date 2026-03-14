@@ -212,9 +212,21 @@ input:focus {
   padding: 24px;
 }
 
+.app:has(.game-page) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 .main:has(.game-page) {
   max-width: none;
   padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .app:has(.analysis-page) {
@@ -998,7 +1010,7 @@ input:focus {
   gap: 24px 0;
   justify-content: center;
   align-items: stretch;
-  height: calc(100vh - 48px);
+  height: 100%;
   padding: 12px;
   overflow: hidden;
 }
@@ -1113,7 +1125,7 @@ input:focus {
   min-width: 200px;
   flex-shrink: 0;
   overflow: hidden;
-  height: calc(100vh - 48px - 24px);
+  height: 100%;
   min-height: 0;
 }
 
@@ -3596,21 +3608,24 @@ input:focus {
     flex-direction: column;
     align-items: center;
     gap: 12px;
-    height: calc(100vh - 48px);
-    overflow-y: auto;
+    height: 100%;
+    overflow: hidden;
     padding: 8px;
   }
 
   .game-board-area {
     width: 100%;
     align-items: center;
+    flex-shrink: 0;
   }
 
   .game-sidebar {
     width: 100%;
     max-width: 480px;
-    height: 50vh;
-    max-height: 50vh;
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    max-height: none;
   }
 
   .moves {
@@ -3642,10 +3657,6 @@ input:focus {
 
   .player-name {
     font-size: 13px;
-  }
-
-  .game-sidebar {
-    max-height: 40vh;
   }
 
   .game-actions button {
@@ -3709,9 +3720,6 @@ input:focus {
     font-size: 12px;
   }
 
-  .game-sidebar {
-    max-height: 35vh;
-  }
 }
 
 /* Landscape orientation on mobile */
@@ -3720,7 +3728,7 @@ input:focus {
     flex-direction: row;
     flex-wrap: nowrap;
     align-items: flex-start;
-    height: calc(100vh - 48px);
+    height: 100%;
     overflow-x: hidden;
     overflow-y: hidden;
     padding: 4px 8px;
@@ -3750,9 +3758,10 @@ input:focus {
   .game-sidebar {
     flex: 1;
     min-width: 0;
+    min-height: 0;
     max-width: none;
-    max-height: calc(100vh - 48px - 8px);
-    height: calc(100vh - 48px - 8px);
+    max-height: none;
+    height: 100%;
   }
 
   .moves {
@@ -4078,24 +4087,27 @@ input:focus {
     font-size: 12px;
   }
 
-  /* Game page: allow body to scroll in stacked layout */
+  /* Game page: keep full-height fixed layout, no page scroll */
   body:has(.game-page) {
-    overflow-y: auto;
+    overflow: hidden;
   }
 
-  /* Game page: remove fixed height, allow natural flow */
+  /* Game page: fill available space in flex chain */
   .game-page {
-    height: auto;
-    overflow: visible;
+    height: 100%;
+    overflow: hidden;
     padding: 8px;
     gap: 8px;
   }
 
-  /* Sidebar: remove height constraint, expand naturally */
+  /* Sidebar: fill remaining space after board */
   .game-sidebar {
+    flex: 1;
+    min-height: 0;
     height: auto;
     max-height: none;
     width: 100%;
+    overflow: hidden;
   }
 
   /* Moves list: limit height so it doesn't push buttons off screen */
