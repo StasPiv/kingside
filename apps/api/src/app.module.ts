@@ -16,6 +16,7 @@ import { PuzzleModule } from './puzzle/puzzle.module';
 import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
+import { WorkshopModule } from './workshop/workshop.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -46,6 +47,7 @@ import { HealthController } from './health.controller';
     PuzzleModule,
     TournamentModule,
     AnalysisModule,
+    WorkshopModule,
   ],
 })
 export class AppModule {}
