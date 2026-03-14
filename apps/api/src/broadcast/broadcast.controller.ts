@@ -29,6 +29,19 @@ type BroadcastRoundItem = {
 
 type BroadcastRoundsResponse = { data: BroadcastRoundItem[] };
 
+type BroadcastGameItem = {
+  id: string;
+  lichessGameId: string | null;
+  whitePlayer: string | null;
+  blackPlayer: string | null;
+  result: string | null;
+  pgn: string | null;
+  currentFen: string | null;
+  updatedAt: string;
+};
+
+type BroadcastGamesResponse = { data: BroadcastGameItem[] };
+
 @Controller('broadcasts')
 export class BroadcastController {
   constructor(private readonly prisma: PrismaService) {}
@@ -100,6 +113,38 @@ export class BroadcastController {
       name: r.name,
       startsAt: r.startsAt ? r.startsAt.toISOString() : null,
       status: r.status,
+    }));
+
+    return { data };
+  }
+
+  /** GET /api/broadcasts/:id/rounds/:roundId/games — партии в туре */
+  @Get(':id/rounds/:roundId/games')
+  async getBroadcastRoundGames(
+    @Param('id') id: string,
+    @Param('roundId') roundId: string,
+  ): Promise<BroadcastGamesResponse> {
+    const round = await this.prisma.broadcastRound.findFirst({
+      where: { id: roundId, broadcastId: id },
+    });
+    if (!round) {
+      throw new NotFoundException(`Round ${roundId} not found in broadcast ${id}`);
+    }
+
+    const games = await this.prisma.broadcastGame.findMany({
+      where: { roundId: round.id },
+      orderBy: { updatedAt: 'asc' },
+    });
+
+    const data: BroadcastGameItem[] = games.map((g) => ({
+      id: g.id,
+      lichessGameId: g.lichessGameId,
+      whitePlayer: g.whitePlayer,
+      blackPlayer: g.blackPlayer,
+      result: g.result,
+      pgn: g.pgn,
+      currentFen: g.currentFen,
+      updatedAt: g.updatedAt.toISOString(),
     }));
 
     return { data };
