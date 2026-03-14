@@ -361,7 +361,8 @@
     },
     "myAnalyses": {
       "title": "My Analyses",
-      "delete": "Delete"
+      "delete": "Delete",
+      "empty": "No saved analyses yet"
     },
     "tournaments": {
       "title": "Top Active Tournaments",

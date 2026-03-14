@@ -1,24 +1,50 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useSavedAnalyses } from '../../hooks/useSavedAnalyses';
 import type { SavedAnalysis } from '../../hooks/useSavedAnalyses';
 
+const PAGE_SIZE = 20;
+
 export function WorkshopAnalysisList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { getAll, remove } = useSavedAnalyses();
-  const [analyses, setAnalyses] = useState<SavedAnalysis[]>([]);
+  const [allAnalyses, setAllAnalyses] = useState<SavedAnalysis[]>([]);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(() => {
-    setAnalyses(getAll());
+    setAllAnalyses(getAll());
   }, [getAll]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  if (analyses.length === 0) return null;
+  const visibleAnalyses = allAnalyses.slice(0, visibleCount);
+  const hasMore = visibleCount < allAnalyses.length;
+
+  // Infinite scroll via IntersectionObserver
+  useEffect(() => {
+    if (!hasMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          setLoadingMore(true);
+          setVisibleCount((prev) => prev + PAGE_SIZE);
+          setLoadingMore(false);
+        }
+      },
+      { threshold: 0.1 },
+    );
+
+    const el = sentinelRef.current;
+    if (el) observer.observe(el);
+    return () => { if (el) observer.unobserve(el); };
+  }, [hasMore, loadingMore]);
 
   const handleOpen = (analysis: SavedAnalysis) => {
     navigate('/analysis', {
@@ -41,41 +67,52 @@ export function WorkshopAnalysisList() {
   return (
     <section className="workshop-section-block">
       <h2 className="workshop-section-block__title">{t('workshop.myAnalyses.title')}</h2>
-      <div className="workshop-analyses-list">
-        {analyses.map((analysis) => (
-          <div
-            key={analysis.id}
-            className="workshop-analysis-item"
-            onClick={() => handleOpen(analysis)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => e.key === 'Enter' && handleOpen(analysis)}
-          >
-            <div className="workshop-analysis-item__main">
-              <span className="workshop-analysis-item__title">{analysis.title}</span>
-              <div className="workshop-analysis-item__meta">
-                <span className="workshop-analysis-item__date">{formatDate(analysis.createdAt)}</span>
-                {analysis.opening && (
-                  <span className="workshop-analysis-item__opening">{analysis.opening}</span>
-                )}
-                {(analysis.whitePgn || analysis.blackPgn) && (
-                  <span className="workshop-analysis-item__players">
-                    {analysis.whitePgn ?? '?'} vs {analysis.blackPgn ?? '?'}
-                  </span>
-                )}
+      {allAnalyses.length === 0 ? (
+        <p className="workshop-section-block__empty">{t('workshop.myAnalyses.empty')}</p>
+      ) : (
+        <>
+          <div className="workshop-analyses-list">
+            {visibleAnalyses.map((analysis) => (
+              <div
+                key={analysis.id}
+                className="workshop-analysis-item"
+                onClick={() => handleOpen(analysis)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === 'Enter' && handleOpen(analysis)}
+              >
+                <div className="workshop-analysis-item__main">
+                  <span className="workshop-analysis-item__title">{analysis.title}</span>
+                  <div className="workshop-analysis-item__meta">
+                    <span className="workshop-analysis-item__date">{formatDate(analysis.createdAt)}</span>
+                    {analysis.opening && (
+                      <span className="workshop-analysis-item__opening">{analysis.opening}</span>
+                    )}
+                    {(analysis.whitePgn || analysis.blackPgn) && (
+                      <span className="workshop-analysis-item__players">
+                        {analysis.whitePgn ?? '?'} vs {analysis.blackPgn ?? '?'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  className="workshop-analysis-item__delete"
+                  onClick={(e) => handleDelete(e, analysis.id)}
+                  title={t('workshop.myAnalyses.delete')}
+                  aria-label={t('workshop.myAnalyses.delete')}
+                >
+                  ×
+                </button>
               </div>
-            </div>
-            <button
-              className="workshop-analysis-item__delete"
-              onClick={(e) => handleDelete(e, analysis.id)}
-              title={t('workshop.myAnalyses.delete')}
-              aria-label={t('workshop.myAnalyses.delete')}
-            >
-              ×
-            </button>
+            ))}
           </div>
-        ))}
-      </div>
+          {hasMore && (
+            <div ref={sentinelRef} className="games-load-more">
+              {loadingMore && <span>{t('common.loading')}</span>}
+            </div>
+          )}
+        </>
+      )}
     </section>
   );
 }
