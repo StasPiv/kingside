@@ -6,6 +6,7 @@ import { initReactI18next } from 'react-i18next';
 import type { ReactElement, ReactNode } from 'react';
 
 import en from '../i18n/locales/en/translation.json';
+import { BoardSettingsProvider } from '../context/BoardSettingsContext';
 
 const testI18n = i18n.createInstance();
 testI18n.use(initReactI18next).init({
@@ -23,9 +24,11 @@ function createWrapper({ route = '/' }: WrapperOptions = {}) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <I18nextProvider i18n={testI18n}>
-        <MemoryRouter initialEntries={[route]}>
-          {children}
-        </MemoryRouter>
+        <BoardSettingsProvider>
+          <MemoryRouter initialEntries={[route]}>
+            {children}
+          </MemoryRouter>
+        </BoardSettingsProvider>
       </I18nextProvider>
     );
   };
