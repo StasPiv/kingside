@@ -7,6 +7,8 @@ const LICHESS_API = 'https://lichess.org/api';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
+const FETCH_TIMEOUT_MS = 30_000; // 30 seconds
+const FETCH_COOLDOWN_TTL = 60 * 60; // 1 hour
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -201,13 +203,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     });
     if (existingCount > 0) return;
 
+    // Avoid repeated failures: skip if cooldown is active
+    const cooldownKey = `broadcast:pgn-fetch-cooldown:${lichessRoundId}`;
+    const cooldown = await this.redis.get(cooldownKey);
+    if (cooldown) return;
+
     try {
       const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (!res.ok) {
         this.logger.warn(
           `Failed to fetch PGN for finished round ${lichessRoundId}: ${res.status}`,
         );
+        await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
         return;
       }
       const pgn = await res.text();
@@ -216,11 +226,15 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(
           `Fetched games for finished round ${lichessRoundId}`,
         );
+      } else {
+        // No games yet — retry after cooldown
+        await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
       }
     } catch (e: any) {
       this.logger.error(
         `Error fetching PGN for finished round ${lichessRoundId}: ${e.message}`,
       );
+      await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
     }
   }
 

@@ -152,6 +152,7 @@ describe('BroadcastSyncService', () => {
     it('should skip fetch when games already exist', async () => {
       prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
       prisma.broadcastGame.count.mockResolvedValue(5);
+      redis.get.mockResolvedValue(null);
 
       await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
 
@@ -160,15 +161,27 @@ describe('BroadcastSyncService', () => {
 
     it('should skip fetch when round not found', async () => {
       prisma.broadcastRound.findUnique.mockResolvedValue(null);
+      redis.get.mockResolvedValue(null);
 
       await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
 
       expect(global.fetch).not.toHaveBeenCalled();
     });
 
-    it('should fetch PGN when round has no games', async () => {
+    it('should skip fetch when cooldown is active', async () => {
       prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
       prisma.broadcastGame.count.mockResolvedValue(0);
+      redis.get.mockResolvedValue('1');
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should fetch PGN when round has no games and no cooldown', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      prisma.broadcastGame.count.mockResolvedValue(0);
+      redis.get.mockResolvedValue(null);
       (global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
         text: jest.fn().mockResolvedValue(''),
@@ -178,6 +191,61 @@ describe('BroadcastSyncService', () => {
 
       expect(global.fetch).toHaveBeenCalledWith(
         'https://lichess.org/api/broadcast/round/lichess-round-id.pgn',
+        expect.objectContaining({ signal: expect.any(Object) }),
+      );
+    });
+
+    it('should set cooldown on fetch error', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      prisma.broadcastGame.count.mockResolvedValue(0);
+      redis.get.mockResolvedValue(null);
+      (global.fetch as jest.Mock).mockRejectedValue(new Error('fetch failed'));
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(redis.set).toHaveBeenCalledWith(
+        'broadcast:pgn-fetch-cooldown:lichess-round-id',
+        '1',
+        'EX',
+        3600,
+      );
+    });
+
+    it('should set cooldown on non-ok HTTP response', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      prisma.broadcastGame.count.mockResolvedValue(0);
+      redis.get.mockResolvedValue(null);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 404,
+      });
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(redis.set).toHaveBeenCalledWith(
+        'broadcast:pgn-fetch-cooldown:lichess-round-id',
+        '1',
+        'EX',
+        3600,
+      );
+    });
+
+    it('should set cooldown when PGN response is empty', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      prisma.broadcastGame.count.mockResolvedValue(0);
+      redis.get.mockResolvedValue(null);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        text: jest.fn().mockResolvedValue('   '),
+      });
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(redis.set).toHaveBeenCalledWith(
+        'broadcast:pgn-fetch-cooldown:lichess-round-id',
+        '1',
+        'EX',
+        3600,
       );
     });
   });
