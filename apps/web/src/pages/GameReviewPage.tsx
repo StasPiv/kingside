@@ -125,6 +125,10 @@ export function GameReviewPage() {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
   });
+  const [pgnHeaders, setPgnHeaders] = useState<Record<string, string>>(() => {
+    const state = location.state as { pgn?: string } | null;
+    return state?.pgn ? parsePgnHeaders(state.pgn) : {};
+  });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(analysisTitle);
   // Sync URL to /analysis/{localId} without triggering React Router navigation
@@ -285,6 +289,7 @@ export function GameReviewPage() {
         } catch {
           // ignore parse error — start with empty board
         }
+        setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
         const saved = getById(localIdRef.current);
         if (saved?.pgn) {
@@ -294,6 +299,7 @@ export function GameReviewPage() {
           } catch {
             // ignore
           }
+          setPgnHeaders(parsePgnHeaders(saved.pgn));
         }
         if (saved?.title) {
           setAnalysisTitle(saved.title);
@@ -498,7 +504,7 @@ export function GameReviewPage() {
     ? gameData.result === 'draw' ? '½–½' : gameData.result === 'white_wins' ? '1–0' : '0–1'
     : undefined;
 
-  const openingName = gameData ? classifyOpening(history.map((m) => m.san)) : undefined;
+  const openingName = classifyOpening(history.map((m) => m.san));
 
   const gameInfo = gameData
     ? {
@@ -513,7 +519,17 @@ export function GameReviewPage() {
         opening: openingName || undefined,
         result: resultPgn,
       }
-    : undefined;
+    : pgnHeaders['White'] && pgnHeaders['Black']
+      ? {
+          white: { username: pgnHeaders['White'] },
+          black: { username: pgnHeaders['Black'] },
+          opening: openingName || undefined,
+          result:
+            pgnHeaders['Result'] && pgnHeaders['Result'] !== '*'
+              ? pgnHeaders['Result']
+              : undefined,
+        }
+      : undefined;
 
   const engineStatusSuffix = !wasmSupported
     ? ` · ${t('analysis.notSupported', 'Not supported')}`
