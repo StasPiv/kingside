@@ -5504,6 +5504,49 @@ input:focus {
   }
 }
 
+/* ─── DGT Boards Grid ──────────────────────────────────────────── */
+
+.dgt-boards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.dgt-board-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  overflow: hidden;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dgt-board-players {
+  display: flex;
+  align-items: center;
+}
+
+.dgt-board-wrap {
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.dgt-board-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@media (max-width: 600px) {
+  .dgt-boards-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+}
+
 /* ─── Broadcast Round Page ─────────────────────────────────────── */
 
 .broadcast-round-page {

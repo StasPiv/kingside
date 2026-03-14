@@ -1,5 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Chess } from 'chess.js';
+import { Chessboard } from 'react-chessboard';
 import { api } from '../api';
 
 interface DgtPlayer {
@@ -54,6 +56,30 @@ type Phase =
   | { kind: 'loading-round'; tournament: DgtTournamentResult; roundIndex: number }
   | { kind: 'round'; tournament: DgtTournamentResult; roundIndex: number; round: DgtRoundResult };
 
+function computeFen(pgn: string, moves: string[]): string {
+  if (pgn) {
+    try {
+      const chess = new Chess();
+      chess.loadPgn(pgn);
+      return chess.fen();
+    } catch {
+      // fall through to moves-based computation
+    }
+  }
+  if (moves.length > 0) {
+    try {
+      const chess = new Chess();
+      for (const move of moves) {
+        chess.move(move);
+      }
+      return chess.fen();
+    } catch {
+      // fall through to default
+    }
+  }
+  return 'start';
+}
+
 function formatPlayerName(player: DgtPlayer): string {
   const parts = [player.lname, player.fname].filter(Boolean);
   return parts.join(', ') || '?';
@@ -72,13 +98,11 @@ export function BroadcastsPage() {
   const [urlInput, setUrlInput] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'input' });
   const [error, setError] = useState('');
-  const [expandedGame, setExpandedGame] = useState<number | null>(null);
 
   const handleFetchTournament = useCallback(async () => {
     const trimmed = urlInput.trim();
     if (!trimmed) return;
     setError('');
-    setExpandedGame(null);
     setPhase({ kind: 'loading-tournament' });
     try {
       const data = await api.get<DgtTournamentResult>(`/api/dgt/tournament/${encodeURIComponent(trimmed)}`);
@@ -91,7 +115,6 @@ export function BroadcastsPage() {
 
   const handleSelectRound = useCallback(async (tournament: DgtTournamentResult, roundIndex: number) => {
     setError('');
-    setExpandedGame(null);
     setPhase({ kind: 'loading-round', tournament, roundIndex });
     try {
       const round = await api.get<DgtRoundResult>(
@@ -107,7 +130,6 @@ export function BroadcastsPage() {
   const handleBackToTournament = useCallback(() => {
     if (phase.kind === 'round' || phase.kind === 'loading-round') {
       const tournament = phase.tournament;
-      setExpandedGame(null);
       setError('');
       setPhase({ kind: 'tournament', data: tournament });
     }
@@ -116,7 +138,6 @@ export function BroadcastsPage() {
   const handleReset = useCallback(() => {
     setPhase({ kind: 'input' });
     setError('');
-    setExpandedGame(null);
   }, []);
 
   const tournamentData =
@@ -203,7 +224,7 @@ export function BroadcastsPage() {
         </div>
       )}
 
-      {/* Round games */}
+      {/* Round boards grid */}
       {phase.kind === 'round' && (
         <div className="dgt-games">
           <div className="dgt-games-header">
@@ -218,54 +239,35 @@ export function BroadcastsPage() {
           {phase.round.games.length === 0 ? (
             <div className="broadcasts-empty">{t('broadcasts.dgt.noGames')}</div>
           ) : (
-            <div className="dgt-games-list">
+            <div className="dgt-boards-grid">
               {phase.round.games.map((game) => {
                 const white = formatPlayerName(game.white);
                 const black = formatPlayerName(game.black);
                 const result = formatResult(game.result);
-                const isExpanded = expandedGame === game.gameIndex;
+                const fen = computeFen(game.pgn, game.moves);
 
                 return (
-                  <div key={game.gameIndex} className="dgt-game-card">
-                    <div
-                      className="dgt-game-header"
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setExpandedGame(isExpanded ? null : game.gameIndex)}
-                      onKeyDown={(e) =>
-                        e.key === 'Enter' && setExpandedGame(isExpanded ? null : game.gameIndex)
-                      }
-                      aria-expanded={isExpanded}
-                    >
-                      <span className="dgt-game-board-num">#{game.gameIndex}</span>
-                      <span className="dgt-game-players">
-                        <span className="dgt-player dgt-player--white">♙ {white}</span>
-                        <span className="dgt-game-result">{result}</span>
-                        <span className="dgt-player dgt-player--black">♟ {black}</span>
-                      </span>
-                      <span className="dgt-game-toggle">{isExpanded ? '▲' : '▼'}</span>
+                  <div key={game.gameIndex} className="dgt-board-card">
+                    <div className="dgt-board-players">
+                      <span className="dgt-player dgt-player--black">♟ {black}</span>
                     </div>
-
-                    {isExpanded && (
-                      <div className="dgt-game-moves">
-                        {game.moves.length === 0 ? (
-                          <span className="dgt-game-moves-empty">
-                            {t('broadcasts.dgt.noMoves')}
-                          </span>
-                        ) : (
-                          <div className="dgt-moves-list">
-                            {game.moves.map((move, idx) => (
-                              <span key={idx} className="dgt-move-item">
-                                {idx % 2 === 0 && (
-                                  <span className="dgt-move-num">{Math.floor(idx / 2) + 1}.</span>
-                                )}
-                                <span className="dgt-move-san">{move}</span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <div className="dgt-board-wrap">
+                      <Chessboard
+                        options={{
+                          position: fen,
+                          allowDragging: false,
+                          showNotation: false,
+                          animationDurationInMs: 0,
+                        }}
+                      />
+                    </div>
+                    <div className="dgt-board-players">
+                      <span className="dgt-player dgt-player--white">♙ {white}</span>
+                    </div>
+                    <div className="dgt-board-footer">
+                      <span className="dgt-game-board-num">#{game.gameIndex}</span>
+                      <span className="dgt-game-result">{result}</span>
+                    </div>
                   </div>
                 );
               })}
