@@ -514,10 +514,14 @@ export function GameReviewPage() {
         style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}
       >
         {!gameId && (
-          <div className="analysis-title">
+          <nav className="analysis-breadcrumbs">
+            <Link to="/workshop" className="analysis-breadcrumbs__link">
+              {t('workshop.title')}
+            </Link>
+            <span className="analysis-breadcrumbs__sep"> / </span>
             {isEditingTitle ? (
               <input
-                className="analysis-title__input"
+                className="analysis-title__input analysis-breadcrumbs__input"
                 value={titleInput}
                 onChange={(e) => setTitleInput(e.target.value)}
                 onBlur={handleTitleSave}
@@ -526,16 +530,16 @@ export function GameReviewPage() {
                 maxLength={100}
               />
             ) : (
-              <h2
-                className="analysis-title__text"
+              <span
+                className="analysis-breadcrumbs__current"
                 onClick={handleTitleClick}
                 title={t('analysis.editTitle', 'Click to edit title')}
               >
                 {analysisTitle}
                 <span className="analysis-title__edit-icon">✎</span>
-              </h2>
+              </span>
             )}
-          </div>
+          </nav>
         )}
         <div className="analysis-board-wrapper">
           {/* Black player row above board */}

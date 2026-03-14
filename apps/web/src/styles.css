@@ -1698,8 +1698,9 @@ input:focus {
 
 .analysis-board-area {
   display: flex;
+  flex-direction: column;
   gap: 0;
-  align-items: stretch;
+  align-items: flex-start;
 }
 
 .eval-bar-container {
@@ -4833,6 +4834,65 @@ input:focus {
 .workshop-analysis-item__delete:hover {
   color: #f44336;
   background: rgba(244, 67, 54, 0.1);
+}
+
+/* Analysis page: breadcrumbs navigation */
+.analysis-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0 8px;
+  width: 100%;
+  font-size: 14px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.analysis-breadcrumbs__link {
+  color: #8080cc;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+
+.analysis-breadcrumbs__link:hover {
+  color: #a0a0ee;
+  text-decoration: underline;
+}
+
+.analysis-breadcrumbs__sep {
+  color: #666;
+  flex-shrink: 0;
+}
+
+.analysis-breadcrumbs__current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #c0c0e0;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s, color 0.15s;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analysis-breadcrumbs__current:hover {
+  color: #e0e0ff;
+  border-bottom-color: #5555aa;
+}
+
+.analysis-breadcrumbs__current:hover .analysis-title__edit-icon {
+  opacity: 1;
+}
+
+.analysis-breadcrumbs__input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Analysis page: editable title */
