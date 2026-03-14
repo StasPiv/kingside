@@ -22,7 +22,7 @@ interface GameState {
 }
 
 export function BroadcastRoundPage() {
-  const { id, roundId } = useParams<{ id: string; roundId: string }>();
+  const { tournamentId, roundId } = useParams<{ tournamentId: string; roundId: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
 
@@ -31,16 +31,15 @@ export function BroadcastRoundPage() {
   const [games, setGames] = useState<GameState[]>([]);
   const [connected, setConnected] = useState(false);
   const [syncError, setSyncError] = useState('');
-  const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
   const subscribedRoundRef = useRef<string | null>(null);
 
   // Fetch rounds list
   useEffect(() => {
-    if (!id) return;
+    if (!tournamentId) return;
     let cancelled = false;
     api
-      .get<BroadcastRoundsResponse>(`/api/broadcasts/${id}/rounds`)
+      .get<BroadcastRoundsResponse>(`/api/broadcasts/${tournamentId}/rounds`)
       .then((res) => {
         if (!cancelled) setRounds(res.data ?? []);
       })
@@ -50,14 +49,14 @@ export function BroadcastRoundPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, t]);
+  }, [tournamentId, t]);
 
   // Auto-redirect to first round when no roundId is specified
   useEffect(() => {
-    if (!roundId && rounds.length > 0 && id) {
-      navigate(`/broadcasts/${id}/rounds/${rounds[0].id}`, { replace: true });
+    if (!roundId && rounds.length > 0 && tournamentId) {
+      navigate(`/broadcasts/${tournamentId}/${rounds[0].id}`, { replace: true });
     }
-  }, [rounds, roundId, id, navigate]);
+  }, [rounds, roundId, tournamentId, navigate]);
 
   // WebSocket: connect and manage subscription
   useEffect(() => {
@@ -80,8 +79,6 @@ export function BroadcastRoundPage() {
       setGames(
         payload.games.map((g: WsBroadcastSyncPayload['games'][number]) => ({
           gameIndex: g.gameIndex,
-          // g.fen is currentFen from the backend, extracted from the Lichess
-          // [FEN] header which always represents the current game position.
           fen: g.fen,
           whitePlayer: g.whitePlayer,
           blackPlayer: g.blackPlayer,
@@ -95,7 +92,6 @@ export function BroadcastRoundPage() {
       setGames((prev) =>
         prev.map((g) => {
           if (g.gameIndex !== payload.gameIndex) return g;
-          // Validate move via chess.js
           try {
             const chess = new Chess(g.fen);
             const from = payload.uci.slice(0, 2);
@@ -104,7 +100,6 @@ export function BroadcastRoundPage() {
             chess.move({ from, to, promotion });
             return { ...g, fen: chess.fen() };
           } catch {
-            // Fallback: use FEN from payload directly
             return { ...g, fen: payload.fen };
           }
         }),
@@ -139,21 +134,20 @@ export function BroadcastRoundPage() {
     };
   }, [roundId, t]);
 
-  const handleBoardClick = useCallback((gameIndex: number) => {
-    setExpandedIndex((prev) => (prev === gameIndex ? null : gameIndex));
-  }, []);
-
-  const handleCloseExpanded = useCallback(() => {
-    setExpandedIndex(null);
-  }, []);
-
-  const expandedGame = expandedIndex !== null ? games.find((g) => g.gameIndex === expandedIndex) : null;
+  const handleBoardClick = useCallback(
+    (gameIndex: number) => {
+      if (tournamentId && roundId) {
+        navigate(`/broadcasts/${tournamentId}/${roundId}/${gameIndex}`);
+      }
+    },
+    [tournamentId, roundId, navigate],
+  );
 
   return (
     <div className="broadcast-round-page">
       <div className="broadcast-round-header">
-        <Link to={`/broadcasts`} className="broadcast-round-back">
-          ← {t('broadcastRound.backToBroadcasts')}
+        <Link to={`/broadcasts/${tournamentId}`} className="broadcast-round-back">
+          ← {t('broadcastRound.backToTournament')}
         </Link>
         <div className="broadcast-round-status">
           <span
@@ -171,7 +165,7 @@ export function BroadcastRoundPage() {
           {rounds.map((round) => (
             <Link
               key={round.id}
-              to={`/broadcasts/${id}/rounds/${round.id}`}
+              to={`/broadcasts/${tournamentId}/${round.id}`}
               className={`broadcast-round-tab${round.id === roundId ? ' broadcast-round-tab--active' : ''}`}
             >
               {round.name}
@@ -224,49 +218,6 @@ export function BroadcastRoundPage() {
           </div>
         ))}
       </div>
-
-      {expandedGame && (
-        <div
-          className="broadcast-round-overlay"
-          onClick={handleCloseExpanded}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="broadcast-round-expanded"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              className="broadcast-round-close"
-              onClick={handleCloseExpanded}
-              aria-label={t('broadcastRound.close')}
-            >
-              ✕
-            </button>
-            <div className="broadcast-round-board-players broadcast-round-board-players--large">
-              <span className="broadcast-round-player broadcast-round-player--white">
-                ♙ {expandedGame.whitePlayer}
-              </span>
-              <span className="broadcast-round-player-sep">vs</span>
-              <span className="broadcast-round-player broadcast-round-player--black">
-                ♟ {expandedGame.blackPlayer}
-              </span>
-            </div>
-            <div className="broadcast-round-expanded-board">
-              <Chessboard
-                options={{
-                  position: expandedGame.fen,
-                  allowDragging: false,
-                  animationDurationInMs: 300,
-                }}
-              />
-            </div>
-            {expandedGame.result && (
-              <div className="broadcast-round-result">{expandedGame.result}</div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

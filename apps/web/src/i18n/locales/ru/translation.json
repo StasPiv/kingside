@@ -35,14 +35,21 @@
       "noMoves": "Ходов пока нет"
     }
   },
+  "broadcastTournament": {
+    "rounds": "Туры"
+  },
   "broadcastRound": {
     "backToBroadcasts": "Все трансляции",
+    "backToTournament": "К турниру",
     "live": "Прямой эфир",
     "connecting": "Подключение...",
     "noGames": "Нет партий в этом туре",
     "roundsError": "Не удалось загрузить туры",
     "syncError": "Ошибка соединения",
     "close": "Закрыть"
+  },
+  "broadcastGame": {
+    "backToRound": "К туру"
   },
   "settings": {
     "title": "Настройки",

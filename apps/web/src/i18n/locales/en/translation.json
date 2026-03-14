@@ -35,14 +35,21 @@
       "noMoves": "No moves yet"
     }
   },
+  "broadcastTournament": {
+    "rounds": "Rounds"
+  },
   "broadcastRound": {
     "backToBroadcasts": "All broadcasts",
+    "backToTournament": "Back to tournament",
     "live": "Live",
     "connecting": "Connecting...",
     "noGames": "No games in this round",
     "roundsError": "Failed to load rounds",
     "syncError": "Connection error",
     "close": "Close"
+  },
+  "broadcastGame": {
+    "backToRound": "Back to round"
   },
   "settings": {
     "title": "Settings",
