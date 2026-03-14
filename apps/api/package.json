@@ -3,8 +3,8 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "nest build",
-    "dev": "nest start --watch",
+    "build": "prisma generate && nest build",
+    "dev": "prisma generate && nest start --watch",
     "start": "node dist/main.js",
     "lint": "eslint src/",
     "test": "jest",
