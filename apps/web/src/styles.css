@@ -1891,9 +1891,9 @@ input:focus {
   flex-direction: column;
   gap: 8px;
   margin-top: 8px;
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: hidden;
   flex: 1;
+  width: 100%;
 }
 
 .stockfish-line {
@@ -1901,7 +1901,8 @@ input:focus {
   gap: 8px;
   font-size: 14px;
   align-items: flex-start;
-  min-width: max-content;
+  width: 100%;
+  min-width: 0;
 }
 
 .stockfish-eval {
@@ -1923,8 +1924,10 @@ input:focus {
 
 .stockfish-pv {
   color: #a0a0c0;
-  white-space: nowrap;
+  white-space: normal;
   line-height: 1.4;
+  overflow: hidden;
+  word-break: break-word;
 }
 
 .analysis-sidebar {
@@ -2018,6 +2021,7 @@ input:focus {
 .analysis-panel-body {
   padding: 10px 12px;
   background: #0f172a;
+  overflow: hidden;
 }
 
 .analysis-panel-body--scroll {
