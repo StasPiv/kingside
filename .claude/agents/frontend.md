@@ -49,6 +49,7 @@ model: claude-sonnet-4-6
   - TypeScript: `/home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit`
   - Или через npx из worktree: `npx --prefix /home/pivovartsev/work/kingside eslint apps/web/src`
   - ЗАПРЕЩЕНО пропускать проверку линтером/компилятором со словами "это проблема окружения". Найди способ запустить.
+  - ЗАПРЕЩЕНО игнорировать ошибки TypeScript/ESLint со словами "это не мои изменения" или "существующая проблема". Если ошибка есть — исправь её, даже если ты её не вносил.
 - **Учётные данные для Playwright** (https://chess-analyze.online):
   - Логин: `Stas`, пароль: `Stas1986`
 - **Учётные данные для Playwright** (локальный сервер https://chess-analyze.online):
