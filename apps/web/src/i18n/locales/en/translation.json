@@ -128,7 +128,22 @@
         "description": "Solve as many puzzles as you can before time runs out. Can you beat your personal record?",
         "cta": "Start Rush",
         "modalDesc": "Choose your time limit and start solving puzzles as fast as you can!"
+      },
+      "workshop": {
+        "title": "Workshop",
+        "description": "Analyze your games, study positions, and upload PGN files to explore any game.",
+        "cta": "Open Workshop"
       }
+    },
+    "workshop": {
+      "newGame": "New Analysis",
+      "uploadPgn": "Upload PGN",
+      "uploadPgnBtn": "Choose PGN file...",
+      "recentGames": "My Recent Games",
+      "noGames": "No games yet",
+      "tournaments": "Top Active Tournaments",
+      "tournamentsComingSoon": "Coming soon",
+      "openWorkshop": "Open Workshop"
     }
   },
   "common": {
@@ -325,6 +340,11 @@
     "resultWin": "Win",
     "resultLoss": "Loss",
     "resultDraw": "Draw"
+  },
+  "workshop": {
+    "title": "Workshop",
+    "comingSoon": "Full Workshop page is coming soon.",
+    "backToLobby": "Back to Lobby"
   },
   "rushLeaderboard": {
     "title": "Puzzle Rush Leaderboard",

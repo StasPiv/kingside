@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
@@ -45,7 +45,17 @@ function presetKey(minutes: number, increment: number): string {
 }
 
 type LobbyMode = 'online' | 'bot';
-type ModalId = 'human' | 'bot' | 'rush' | null;
+type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | null;
+
+type WorkshopGame = {
+  id: string;
+  playerColor: 'white' | 'black';
+  playerResult: 'win' | 'loss' | 'draw';
+  opponent: { username: string };
+  result: string;
+  timeControl: string;
+  createdAt: string;
+};
 
 type PuzzleRushStats = {
   best3: number;
@@ -85,6 +95,10 @@ export function LobbyPage() {
 
   const [rushStats, setRushStats] = useState<PuzzleRushStats | null>(null);
   const [widgetsLoading, setWidgetsLoading] = useState(true);
+
+  const [workshopGames, setWorkshopGames] = useState<WorkshopGame[]>([]);
+  const [workshopGamesLoading, setWorkshopGamesLoading] = useState(false);
+  const pgnInputRef = useRef<HTMLInputElement>(null);
 
   const [activeModal, setActiveModal] = useState<ModalId>(null);
 
@@ -212,6 +226,35 @@ export function LobbyPage() {
     setSelectedIncrement(ctrl.incrementSec);
   };
 
+  const loadWorkshopGames = useCallback(async () => {
+    if (!user) return;
+    setWorkshopGamesLoading(true);
+    try {
+      const data = await api.get<{ data: WorkshopGame[] }>(`/api/users/${user.id}/games?take=5`);
+      setWorkshopGames(data.data);
+    } catch {
+      setWorkshopGames([]);
+    } finally {
+      setWorkshopGamesLoading(false);
+    }
+  }, [user]);
+
+  const handlePgnFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const pgn = ev.target?.result as string;
+      if (pgn) {
+        navigate('/analysis', { state: { pgn } });
+        closeModal();
+      }
+    };
+    reader.readAsText(file);
+    // reset so same file can be re-selected
+    e.target.value = '';
+  };
+
   const isSelected = (minutes: number, increment: number) =>
     selectedMinutes === minutes && selectedIncrement === increment;
 
@@ -221,6 +264,13 @@ export function LobbyPage() {
       : PRESETS.filter((p) => p.category === activeTab);
 
   const closeModal = () => setActiveModal(null);
+
+  const openModal = (id: NonNullable<ModalId>) => {
+    setActiveModal(id);
+    if (id === 'workshop') {
+      loadWorkshopGames();
+    }
+  };
 
   const onlineModalContent = (
     <div className="lobby-panel lobby-panel--online">
@@ -521,6 +571,80 @@ export function LobbyPage() {
     </div>
   );
 
+  const workshopModalContent = (
+    <div className="lobby-panel">
+      <h2 className="lobby-panel__title">&#9812; {t('lobby.teasers.workshop.title')}</h2>
+
+      {/* New game analysis */}
+      <div className="workshop-section">
+        <button
+          className="play-btn"
+          onClick={() => { navigate('/analysis'); closeModal(); }}
+        >
+          {t('lobby.workshop.newGame')}
+        </button>
+      </div>
+
+      {/* PGN upload */}
+      <div className="workshop-section">
+        <p className="workshop-section__label">{t('lobby.workshop.uploadPgn')}</p>
+        <input
+          ref={pgnInputRef}
+          type="file"
+          accept=".pgn"
+          style={{ display: 'none' }}
+          onChange={handlePgnFileChange}
+        />
+        <button
+          className="lobby-widget__btn lobby-widget__btn--secondary"
+          onClick={() => pgnInputRef.current?.click()}
+        >
+          {t('lobby.workshop.uploadPgnBtn')}
+        </button>
+      </div>
+
+      {/* Recent games */}
+      <div className="workshop-section">
+        <p className="workshop-section__label">{t('lobby.workshop.recentGames')}</p>
+        {workshopGamesLoading ? (
+          <p className="lobby-widget__loading">{t('common.loading')}</p>
+        ) : workshopGames.length > 0 ? (
+          <ul className="workshop-games-list">
+            {workshopGames.map((g) => (
+              <li key={g.id} className="workshop-game-item">
+                <Link
+                  to={`/game/${g.id}/review`}
+                  className="workshop-game-link"
+                  onClick={closeModal}
+                >
+                  <span className={`workshop-game-result workshop-game-result--${g.playerResult}`}>
+                    {g.playerResult === 'win' ? '▲' : g.playerResult === 'loss' ? '▼' : '='}
+                  </span>
+                  <span className="workshop-game-opponent">vs {g.opponent.username}</span>
+                  <span className="workshop-game-tc">{g.timeControl}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="lobby-widget__loading">{t('lobby.workshop.noGames')}</p>
+        )}
+      </div>
+
+      {/* Tournaments — stub */}
+      <div className="workshop-section">
+        <p className="workshop-section__label">{t('lobby.workshop.tournaments')}</p>
+        <p className="workshop-section__stub">{t('lobby.workshop.tournamentsComingSoon')}</p>
+      </div>
+
+      <div className="lobby-widget__actions">
+        <Link to="/workshop" className="lobby-widget__btn" onClick={closeModal}>
+          {t('lobby.workshop.openWorkshop')} →
+        </Link>
+      </div>
+    </div>
+  );
+
   const teasers = [
     {
       id: 'human' as const,
@@ -543,12 +667,20 @@ export function LobbyPage() {
       descKey: 'lobby.teasers.rush.description',
       ctaKey: 'lobby.teasers.rush.cta',
     },
+    {
+      id: 'workshop' as const,
+      icon: '♟',
+      titleKey: 'lobby.teasers.workshop.title',
+      descKey: 'lobby.teasers.workshop.description',
+      ctaKey: 'lobby.teasers.workshop.cta',
+    },
   ];
 
   const modalContentMap: Record<NonNullable<ModalId>, React.ReactNode> = {
     human: onlineModalContent,
     bot: botModalContent,
     rush: rushModalContent,
+    workshop: workshopModalContent,
   };
 
   return (
@@ -568,7 +700,7 @@ export function LobbyPage() {
             <p className="lobby-teaser__desc">{t(teaser.descKey)}</p>
             <button
               className="lobby-teaser__btn"
-              onClick={() => setActiveModal(teaser.id)}
+              onClick={() => openModal(teaser.id)}
             >
               {t(teaser.ctaKey)}
             </button>
