@@ -18,6 +18,7 @@ import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { WorkshopModule } from './workshop/workshop.module';
 import { BroadcastModule } from './broadcast/broadcast.module';
+import { DgtModule } from './dgt/dgt.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -50,6 +51,7 @@ import { HealthController } from './health.controller';
     AnalysisModule,
     WorkshopModule,
     BroadcastModule,
+    DgtModule,
   ],
 })
 export class AppModule {}
