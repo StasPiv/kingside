@@ -28,6 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   const fetchMe = useCallback(async () => {
+    const tokenAtStart = localStorage.getItem('token');
     try {
       const user = await api.get<User>('/api/auth/me');
       const currentToken = localStorage.getItem('token');
@@ -37,9 +38,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setState((s) => ({ ...s, user, token: currentToken, loading: false }));
     } catch {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refreshToken');
-      setState({ user: null, token: null, loading: false });
+      // Guard against race condition: if the token was replaced while this
+      // request was in-flight (e.g. by OAuth loginWithTokens), don't wipe
+      // the new token — a fresh fetchMe will be triggered by the token effect.
+      if (localStorage.getItem('token') === tokenAtStart) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
+        setState({ user: null, token: null, loading: false });
+      }
     }
   }, []);
 
