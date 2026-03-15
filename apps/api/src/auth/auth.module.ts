@@ -7,7 +7,6 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
 import { FacebookStrategy } from './facebook.strategy';
-import { ChessdotcomStrategy } from './chessdotcom.strategy';
 
 @Module({
   imports: [
@@ -22,7 +21,7 @@ import { ChessdotcomStrategy } from './chessdotcom.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleStrategy, FacebookStrategy, ChessdotcomStrategy],
+  providers: [AuthService, JwtStrategy, GoogleStrategy, FacebookStrategy],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}
