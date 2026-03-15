@@ -15,7 +15,6 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import {
   GoogleAuthGuard,
   FacebookAuthGuard,
-  ChessdotcomAuthGuard,
 } from './oauth-auth.guard';
 import { OAuthProfile } from './google.strategy';
 
@@ -70,22 +69,6 @@ export class AuthController {
   @UseGuards(FacebookAuthGuard)
   @Get('facebook/callback')
   async facebookCallback(@Request() req: any, @Res() res: Response) {
-    const tokens = await this.authService.findOrCreateOAuthUser(
-      req.user as OAuthProfile,
-    );
-    return this.redirectWithTokens(res, tokens);
-  }
-
-  // Chess.com OAuth
-  @UseGuards(ChessdotcomAuthGuard)
-  @Get('chessdotcom')
-  chessdotcomAuth() {
-    // Redirects to Chess.com
-  }
-
-  @UseGuards(ChessdotcomAuthGuard)
-  @Get('chessdotcom/callback')
-  async chessdotcomCallback(@Request() req: any, @Res() res: Response) {
     const tokens = await this.authService.findOrCreateOAuthUser(
       req.user as OAuthProfile,
     );
