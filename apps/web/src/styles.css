@@ -1924,10 +1924,9 @@ input:focus {
 
 .stockfish-pv {
   color: #a0a0c0;
-  white-space: normal;
+  white-space: nowrap;
   line-height: 1.4;
-  overflow: hidden;
-  word-break: break-word;
+  overflow-x: auto;
   flex: 1;
   min-width: 0;
 }
