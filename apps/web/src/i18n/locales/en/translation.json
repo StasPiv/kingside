@@ -222,7 +222,8 @@
       "google": "Continue with Google",
       "facebook": "Continue with Facebook",
       "chesscom": "Continue with Chess.com",
-      "error": "Authorization failed. Please try again."
+      "error": "Authorization failed. Please try again.",
+      "connecting": "Connecting..."
     }
   },
   "puzzleRush": {

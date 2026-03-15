@@ -319,6 +319,21 @@ input:focus {
   color: #fff;
 }
 
+.oauth-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: oauth-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes oauth-spin {
+  to { transform: rotate(360deg); }
+}
+
 .error {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;

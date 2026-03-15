@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen } from '../test/test-utils';
 import { LoginPage } from './LoginPage';
 
@@ -17,6 +18,10 @@ vi.mock('react-router-dom', async () => {
 beforeEach(() => {
   mockNavigate.mockReset();
   mockLocationState = null;
+  Object.defineProperty(window, 'location', {
+    value: { href: '' },
+    writable: true,
+  });
 });
 
 describe('LoginPage', () => {
@@ -38,5 +43,18 @@ describe('LoginPage', () => {
     mockLocationState = { oauthError: 'Authorization failed. Please try again.' };
     renderWithProviders(<LoginPage />);
     expect(screen.getByText('Authorization failed. Please try again.')).toBeInTheDocument();
+  });
+
+  it('disables all buttons and shows loading state when one is clicked', () => {
+    renderWithProviders(<LoginPage />);
+
+    const googleButton = screen.getByRole('button', { name: 'Continue with Google' });
+    fireEvent.click(googleButton);
+
+    expect(screen.getByText('Connecting...')).toBeInTheDocument();
+    const buttons = screen.getAllByRole('button');
+    buttons.forEach((btn) => {
+      expect(btn).toBeDisabled();
+    });
   });
 });
