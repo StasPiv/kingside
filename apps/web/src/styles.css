@@ -5620,6 +5620,7 @@ input:focus {
 .dgt-board-wrap {
   width: 100%;
   aspect-ratio: 1;
+  pointer-events: none;
 }
 
 .dgt-board-footer {
