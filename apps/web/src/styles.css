@@ -5607,6 +5607,7 @@ input:focus {
   border-radius: 8px;
   overflow: hidden;
   padding: 10px;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 6px;
