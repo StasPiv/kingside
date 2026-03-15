@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithTokens = (accessToken: string, refreshToken: string) => {
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
-    setState((s) => ({ ...s, token: accessToken }));
+    setState((s) => ({ ...s, token: accessToken, loading: true }));
   };
 
   const logout = () => {
