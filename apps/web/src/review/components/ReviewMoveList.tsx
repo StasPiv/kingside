@@ -109,6 +109,7 @@ export function ReviewMoveList({
 
   const handleMoveContextMenu = (e: React.MouseEvent, processedMove: ProcessedMove): void => {
     e.preventDefault();
+    e.stopPropagation();
     if (processedMove.originalMove) {
       showContextMenu(e, processedMove.originalMove);
     }
