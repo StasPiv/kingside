@@ -1894,6 +1894,9 @@ input:focus {
   overflow: hidden;
   flex: 1;
   width: 100%;
+  /* Reserve space for 3 engine lines to prevent layout shift (KS-542) */
+  /* 3 lines × 19.6px (14px × 1.4 line-height) + 2 gaps × 8px = ~74.8px */
+  min-height: 75px;
 }
 
 .stockfish-line {
