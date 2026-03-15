@@ -91,6 +91,29 @@ export function BroadcastRoundPage() {
     };
   }, [tournamentId, roundId, t]);
 
+  useEffect(() => {
+    if (!tournamentId || !roundId) return;
+    let cancelled = false;
+
+    const poll = () => {
+      api
+        .get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
+        .then((r) => {
+          if (!cancelled) setRound(r);
+        })
+        .catch(() => {
+          // ignore polling errors silently
+        });
+    };
+
+    const intervalId = setInterval(poll, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [tournamentId, roundId]);
+
   const handleBoardClick = useCallback(
     (game: DgtGame) => {
       if (!tournamentId || !roundId) return;
