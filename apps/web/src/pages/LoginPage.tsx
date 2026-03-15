@@ -12,7 +12,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (loadingProvider) {
-      window.location.href = `${API_URL}/auth/${loadingProvider}`;
+      window.location.href = `${API_URL}/api/auth/${loadingProvider}`;
     }
   }, [loadingProvider]);
 
