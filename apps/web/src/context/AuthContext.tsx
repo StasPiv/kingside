@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import type { User, AuthTokenResponse } from '@kingside/shared';
 import { api } from '../api';
 import { socket, matchmakingSocket } from '../socket';
@@ -27,7 +27,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading: true,
   });
 
+  const isFetchingRef = useRef(false);
+
   const fetchMe = useCallback(async () => {
+    if (isFetchingRef.current) {
+      console.log('[AuthContext] fetchMe skipped — already in progress');
+      return;
+    }
+    isFetchingRef.current = true;
     const tokenAtStart = localStorage.getItem('token');
     console.log('[AuthContext] fetchMe start', { tokenAtStartPreview: tokenAtStart ? tokenAtStart.slice(0, 20) + '...' : null });
     try {
@@ -60,6 +67,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         console.log('[AuthContext] fetchMe skipping wipe — token was replaced mid-flight, waiting for re-trigger');
       }
+    } finally {
+      isFetchingRef.current = false;
     }
   }, []);
 
