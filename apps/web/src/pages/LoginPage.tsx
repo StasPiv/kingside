@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
-
 export function LoginPage() {
   const { t } = useTranslation();
   const location = useLocation();
@@ -12,7 +10,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (loadingProvider) {
-      window.location.href = `${API_URL}/api/auth/${loadingProvider}`;
+      window.location.href = `/api/auth/${loadingProvider}`;
     }
   }, [loadingProvider]);
 
