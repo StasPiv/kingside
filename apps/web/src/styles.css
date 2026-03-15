@@ -1021,6 +1021,9 @@ input:focus {
   align-items: center;
   gap: 8px;
   contain: layout style;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .player-info {
@@ -1729,7 +1732,8 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 0;
-  align-items: flex-start;
+  align-items: stretch;
+  overflow: hidden;
 }
 
 .eval-bar-container {
@@ -1772,8 +1776,16 @@ input:focus {
 .analysis-board-wrapper {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 4px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Board container fills remaining width inside eval+board row on desktop */
+.analysis-page .board-container {
+  flex: 1;
+  min-width: 0;
 }
 
 .analysis-player-info {
@@ -3625,6 +3637,10 @@ input:focus {
     padding: 8px;
   }
 
+  .game-h-resizer {
+    display: none;
+  }
+
   .game-board-area {
     width: 100%;
     align-items: center;
@@ -3834,8 +3850,7 @@ input:focus {
     align-items: center;
   }
 
-  .analysis-h-resizer,
-  .game-h-resizer {
+  .analysis-h-resizer {
     display: none;
   }
 
@@ -3849,6 +3864,10 @@ input:focus {
     width: auto !important;
     max-width: 100%;
     overflow-x: hidden;
+  }
+
+  .analysis-page .board-container {
+    flex: none;
   }
 
   /* Analysis review: allow page to scroll on mobile */
@@ -4019,6 +4038,7 @@ input:focus {
 
   /* Game review: constrain board so notation is visible below */
   .analysis-page .board-container {
+    flex: none;
     width: min(calc(100vw - 54px), calc(100vh - 430px));
   }
 

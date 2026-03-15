@@ -36,8 +36,8 @@ vi.mock('../hooks/useStockfish', () => ({
   },
 }));
 
-vi.mock('../hooks/useContainerWidth', () => ({
-  useContainerWidth: () => 400,
+vi.mock('../hooks/useContainerSize', () => ({
+  useContainerSize: () => ({ width: 400, height: 400 }),
 }));
 
 vi.mock('react-chessboard', () => ({

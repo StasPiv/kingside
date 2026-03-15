@@ -7,7 +7,7 @@ import { MemoChessboard } from '../components/MemoChessboard';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useStockfish } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
-import { useContainerWidth } from '../hooks/useContainerWidth';
+import { useContainerSize } from '../hooks/useContainerSize';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { api } from '../api';
@@ -148,7 +148,8 @@ export function GameReviewPage() {
   }, []);
 
   const boardContainerRef = useRef<HTMLDivElement>(null);
-  const boardWidth = useContainerWidth(boardContainerRef);
+  const containerSize = useContainerSize(boardContainerRef);
+  const boardWidth = Math.min(containerSize.width, containerSize.height);
   const { boardThemeOptions } = useBoardTheme();
 
   const {
@@ -245,10 +246,16 @@ export function GameReviewPage() {
     if (!analysisPageRef.current) return;
     const total = analysisPageRef.current.clientWidth;
     if (total === 0) return;
-    // Only recalculate if no saved layout exists
     const saved = localStorage.getItem('analysis-layout-boardAreaPx');
     if (saved === null) {
       setBoardAreaPx(Math.floor((total - 8) * 0.55));
+    } else {
+      // Constrain saved value to current screen size
+      const max = total - 320;
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed > max) {
+        setBoardAreaPx(Math.max(200, max));
+      }
     }
   }, [loading]);
 
@@ -657,7 +664,7 @@ export function GameReviewPage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
+          <div style={{ display: 'flex', gap: 0, alignItems: 'stretch', flex: 1, minHeight: 0 }}>
             <div className="eval-bar-container">
               <div className="eval-bar">
                 <div
