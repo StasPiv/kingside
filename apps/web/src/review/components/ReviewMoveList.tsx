@@ -224,6 +224,7 @@ export function ReviewMoveList({
           className="review-context-menu"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
         >
           <button
             className="review-context-menu__item"

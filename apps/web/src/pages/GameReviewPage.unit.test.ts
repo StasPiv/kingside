@@ -339,18 +339,18 @@ describe('KS-308: parseInfo — парсинг UCI info строк', () => {
 
 describe('KS-308: i18n — ключи analysis.depth и analysis.backToLobby', () => {
   it('en: analysis.depth присутствует', () => {
-    expect((en as Record<string, Record<string, string>>).analysis.depth).toBe('Depth');
+    expect((en as unknown as Record<string, Record<string, string>>).analysis.depth).toBe('Depth');
   });
 
   it('en: analysis.backToLobby присутствует', () => {
-    expect((en as Record<string, Record<string, string>>).analysis.backToLobby).toBe('Back to lobby');
+    expect((en as unknown as Record<string, Record<string, string>>).analysis.backToLobby).toBe('Back to lobby');
   });
 
   it('ru: analysis.depth присутствует', () => {
-    expect((ru as Record<string, Record<string, string>>).analysis.depth).toBe('Глубина');
+    expect((ru as unknown as Record<string, Record<string, string>>).analysis.depth).toBe('Глубина');
   });
 
   it('ru: analysis.backToLobby присутствует', () => {
-    expect((ru as Record<string, Record<string, string>>).analysis.backToLobby).toBe('Вернуться в лобби');
+    expect((ru as unknown as Record<string, Record<string, string>>).analysis.backToLobby).toBe('Вернуться в лобби');
   });
 });

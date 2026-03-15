@@ -1,14 +1,14 @@
 import { render, type RenderOptions } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
-import i18n from 'i18next';
+import i18n, { type i18n as I18nInstance } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import type { ReactElement, ReactNode } from 'react';
 
 import en from '../i18n/locales/en/translation.json';
 import { BoardSettingsProvider } from '../context/BoardSettingsContext';
 
-const testI18n = i18n.createInstance();
+const testI18n: I18nInstance = i18n.createInstance();
 testI18n.use(initReactI18next).init({
   resources: { en: { translation: en } },
   lng: 'en',
