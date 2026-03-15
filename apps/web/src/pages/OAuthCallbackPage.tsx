@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
@@ -9,6 +9,24 @@ export function OAuthCallbackPage() {
   const { loginWithTokens, user, loading } = useAuth();
   const { t } = useTranslation();
   const [initialized, setInitialized] = useState(false);
+
+  // Eagerly persist OAuth tokens to localStorage during the layout phase,
+  // before any useEffect (including AuthContext's token effect) can read it.
+  // This prevents a race where AuthContext's parent useEffect fires before
+  // this child's useEffect and sees an empty localStorage.
+  useLayoutEffect(() => {
+    const accessToken = searchParams.get('accessToken');
+    const refreshToken = searchParams.get('refreshToken');
+    const error = searchParams.get('error');
+    if (!error && accessToken && refreshToken) {
+      localStorage.setItem('token', accessToken);
+      localStorage.setItem('refreshToken', refreshToken);
+      console.log('[OAuthCallback] useLayoutEffect: tokens pre-saved to localStorage', {
+        accessTokenPreview: accessToken.slice(0, 20) + '...',
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const accessToken = searchParams.get('accessToken');
