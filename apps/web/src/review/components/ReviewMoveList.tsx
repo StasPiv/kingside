@@ -46,6 +46,8 @@ export function ReviewMoveList({
   const movesContainerRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
+  // Timestamp until which synthetic click/touch events should be ignored after long press
+  const ignoreCloseUntilRef = useRef(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
@@ -77,14 +79,17 @@ export function ReviewMoveList({
 
   useEffect(() => {
     if (!contextMenu.visible) return;
-    const handleClose = () => closeContextMenu();
-    const timer = setTimeout(() => {
-      document.addEventListener('click', handleClose);
-      document.addEventListener('contextmenu', handleClose);
-    }, 0);
+    const handleClose = () => {
+      // Ignore synthetic click/touch events fired shortly after long press
+      if (Date.now() < ignoreCloseUntilRef.current) return;
+      closeContextMenu();
+    };
+    document.addEventListener('click', handleClose);
+    document.addEventListener('touchstart', handleClose);
+    document.addEventListener('contextmenu', handleClose);
     return () => {
-      clearTimeout(timer);
       document.removeEventListener('click', handleClose);
+      document.removeEventListener('touchstart', handleClose);
       document.removeEventListener('contextmenu', handleClose);
     };
   }, [contextMenu.visible, closeContextMenu]);
@@ -117,20 +122,18 @@ export function ReviewMoveList({
     longPressTimerRef.current = setTimeout(() => {
       longPressFiredRef.current = true;
       longPressTimerRef.current = null;
+      // Ignore any synthetic click/touchstart events for 700ms after showing the menu
+      ignoreCloseUntilRef.current = Date.now() + 700;
       showContextMenu({ clientX: touch.clientX, clientY: touch.clientY }, move);
     }, 500);
   };
 
-  const handleTouchEnd = (e: React.TouchEvent): void => {
+  const handleTouchEnd = (): void => {
     if (longPressTimerRef.current) {
       clearTimeout(longPressTimerRef.current);
       longPressTimerRef.current = null;
     }
-    if (longPressFiredRef.current) {
-      // Prevent synthetic click from immediately closing the context menu
-      e.preventDefault();
-      longPressFiredRef.current = false;
-    }
+    longPressFiredRef.current = false;
   };
 
   const handleTouchMove = (): void => {
