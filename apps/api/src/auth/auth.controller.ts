@@ -6,6 +6,7 @@ import {
   UseGuards,
   Request,
   Res,
+  Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
@@ -20,6 +21,8 @@ import { OAuthProfile } from './google.strategy';
 
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
@@ -53,10 +56,17 @@ export class AuthController {
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
   async googleCallback(@Request() req: any, @Res() res: Response) {
-    const tokens = await this.authService.findOrCreateOAuthUser(
-      req.user as OAuthProfile,
-    );
-    return this.redirectWithTokens(res, tokens);
+    const profile = req.user as OAuthProfile;
+    this.logger.log(`[Google OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`);
+    try {
+      const tokens = await this.authService.findOrCreateOAuthUser(profile);
+      this.logger.log(`[Google OAuth] tokens generated, redirecting to frontend`);
+      return this.redirectWithTokens(res, tokens);
+    } catch (err) {
+      this.logger.error(`[Google OAuth] findOrCreateOAuthUser failed: ${err instanceof Error ? err.message : String(err)}`);
+      const frontendUrl = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
+      return res.redirect(`${frontendUrl}/login?oauthError=1`);
+    }
   }
 
   // Facebook OAuth
@@ -69,10 +79,17 @@ export class AuthController {
   @UseGuards(FacebookAuthGuard)
   @Get('facebook/callback')
   async facebookCallback(@Request() req: any, @Res() res: Response) {
-    const tokens = await this.authService.findOrCreateOAuthUser(
-      req.user as OAuthProfile,
-    );
-    return this.redirectWithTokens(res, tokens);
+    const profile = req.user as OAuthProfile;
+    this.logger.log(`[Facebook OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`);
+    try {
+      const tokens = await this.authService.findOrCreateOAuthUser(profile);
+      this.logger.log(`[Facebook OAuth] tokens generated, redirecting to frontend`);
+      return this.redirectWithTokens(res, tokens);
+    } catch (err) {
+      this.logger.error(`[Facebook OAuth] findOrCreateOAuthUser failed: ${err instanceof Error ? err.message : String(err)}`);
+      const frontendUrl = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
+      return res.redirect(`${frontendUrl}/login?oauthError=1`);
+    }
   }
 
   private redirectWithTokens(
@@ -83,6 +100,7 @@ export class AuthController {
     const url = new URL('/oauth/callback', frontendUrl);
     url.searchParams.set('accessToken', tokens.accessToken);
     url.searchParams.set('refreshToken', tokens.refreshToken);
+    this.logger.log(`[OAuth] redirect to ${url.origin}/oauth/callback?accessToken=...`);
     return res.redirect(url.toString());
   }
 }
