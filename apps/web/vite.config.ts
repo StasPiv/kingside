@@ -37,9 +37,10 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         globIgnores: ['**/stockfish/**'],
         navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
-            urlPattern: /^https?:\/\/.*\/api\//,
+            urlPattern: /^https?:\/\/.*\/api\/(?!auth\/)/,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
