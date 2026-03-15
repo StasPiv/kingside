@@ -36,6 +36,31 @@ describe('DgtService', () => {
     });
   });
 
+  describe('extractLocalHost', () => {
+    it('returns base URL for localhost with port', () => {
+      const url = 'http://localhost:3001/api/dgt/tournament/45b55f17-a246-4d7d-a5fc-3501045130ba/round/1';
+      expect(service.extractLocalHost(url)).toBe('http://localhost:3001');
+    });
+
+    it('returns base URL for LAN IP address', () => {
+      const url = 'http://192.168.1.100:3001/get/45b55f17-a246-4d7d-a5fc-3501045130ba/tournament.json';
+      expect(service.extractLocalHost(url)).toBe('http://192.168.1.100:3001');
+    });
+
+    it('returns null for livechesscloud.com URL', () => {
+      const url = 'https://view.livechesscloud.com/#10284f4b-f4b0-4b10-a7fb-3103d0b62128';
+      expect(service.extractLocalHost(url)).toBeNull();
+    });
+
+    it('returns null for plain UUID', () => {
+      expect(service.extractLocalHost('10284f4b-f4b0-4b10-a7fb-3103d0b62128')).toBeNull();
+    });
+
+    it('returns null for non-URL string', () => {
+      expect(service.extractLocalHost('not-a-url')).toBeNull();
+    });
+  });
+
   describe('extractSanMoves', () => {
     it('strips clock info from moves', () => {
       const raw = ['e4 305+1', 'g6 304+2', 'd4 306+3'];

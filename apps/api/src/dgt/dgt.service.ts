@@ -61,16 +61,44 @@ export class DgtService {
     const uuidRegex = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
     const match = uuidRegex.exec(input);
     if (!match) {
-      throw new BadRequestException('Invalid DGT LiveChess Cloud URL or tournament ID');
+      throw new BadRequestException(
+        'Неверный формат URL или ID турнира DGT. Ожидается UUID или URL с UUID, например: http://localhost:3001/api/dgt/tournament/<uuid>/round/1',
+      );
     }
     return match[1];
   }
 
+  /**
+   * Extracts the base host from a local DGT URL.
+   * Returns null if the URL references the livechesscloud.com domain or is not a valid URL.
+   * Local URLs (localhost, IP, custom host) return "protocol://host".
+   */
+  extractLocalHost(input: string): string | null {
+    try {
+      const url = new URL(input);
+      if (!url.hostname.includes('livechesscloud.com')) {
+        return `${url.protocol}//${url.host}`;
+      }
+    } catch {
+      // Not a valid URL — input is a plain UUID or cloud reference
+    }
+    return null;
+  }
+
   async resolveHost(uuid: string): Promise<string> {
-    const res = await fetch(`${LOOKUP_URL}/meta/${uuid}`);
+    let res: Response;
+    try {
+      res = await fetch(`${LOOKUP_URL}/meta/${uuid}`);
+    } catch (e: any) {
+      throw new Error(
+        `Не удалось подключиться к облачному сервису DGT LiveChess (${LOOKUP_URL}): ${e.message}`,
+      );
+    }
     if (!res.ok) {
       if (res.status === 404) {
-        throw new NotFoundException(`Tournament ${uuid} not found`);
+        throw new NotFoundException(
+          `Турнир ${uuid} не найден в облаке DGT LiveChess. Если это локальная доска, передайте полный URL хоста.`,
+        );
       }
       throw new Error(`Lookup failed: ${res.status}`);
     }
@@ -78,11 +106,23 @@ export class DgtService {
     return `http://${data.host}`;
   }
 
-  async fetchTournament(uuid: string): Promise<{ host: string; tournament: DgtTournament }> {
-    const host = await this.resolveHost(uuid);
-    const res = await fetch(`${host}/get/${uuid}/tournament.json`);
+  async fetchTournament(
+    uuid: string,
+    hostOverride?: string,
+  ): Promise<{ host: string; tournament: DgtTournament }> {
+    const host = hostOverride ?? (await this.resolveHost(uuid));
+    let res: Response;
+    try {
+      res = await fetch(`${host}/get/${uuid}/tournament.json`);
+    } catch (e: any) {
+      throw new BadRequestException(
+        `Не удалось подключиться к DGT-источнику (${host}): ${e.message}`,
+      );
+    }
     if (!res.ok) {
-      throw new NotFoundException(`Tournament data not found for ${uuid}`);
+      throw new NotFoundException(
+        `Данные турнира не найдены на хосте ${host} для UUID ${uuid}`,
+      );
     }
     const tournament = (await res.json()) as DgtTournament;
     return { host, tournament };
@@ -90,7 +130,8 @@ export class DgtService {
 
   async getTournamentInfo(input: string): Promise<DgtTournamentResult> {
     const uuid = this.extractUuid(input);
-    const { tournament } = await this.fetchTournament(uuid);
+    const localHost = this.extractLocalHost(input) ?? undefined;
+    const { tournament } = await this.fetchTournament(uuid, localHost);
     return {
       uuid,
       tournament,
@@ -100,7 +141,8 @@ export class DgtService {
 
   async getRound(input: string, roundIndex: number): Promise<DgtRoundResult> {
     const uuid = this.extractUuid(input);
-    const { host, tournament } = await this.fetchTournament(uuid);
+    const localHost = this.extractLocalHost(input) ?? undefined;
+    const { host, tournament } = await this.fetchTournament(uuid, localHost);
 
     if (roundIndex < 1 || roundIndex > tournament.rounds.length) {
       throw new BadRequestException(
