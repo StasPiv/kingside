@@ -1941,6 +1941,7 @@ input:focus {
   min-height: 0;
   align-self: stretch;
   overflow: hidden;
+  contain: inline-size;
 }
 
 /* Collapsible analysis panels (Acid Ape Chess style) */
