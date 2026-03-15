@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
@@ -6,8 +6,9 @@ import { useAuth } from '../context/AuthContext';
 export function OAuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { loginWithTokens } = useAuth();
+  const { loginWithTokens, user, loading } = useAuth();
   const { t } = useTranslation();
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
     const accessToken = searchParams.get('accessToken');
@@ -23,9 +24,21 @@ export function OAuthCallbackPage() {
     }
 
     loginWithTokens(accessToken, refreshToken);
-    navigate('/lobby', { replace: true });
+    setInitialized(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!initialized || loading) return;
+    if (user) {
+      navigate('/lobby', { replace: true });
+    } else {
+      navigate('/login', {
+        replace: true,
+        state: { oauthError: t('auth.oauth.error') },
+      });
+    }
+  }, [initialized, loading, user, navigate, t]);
 
   return (
     <div className="auth-page">
