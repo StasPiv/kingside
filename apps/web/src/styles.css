@@ -1928,6 +1928,8 @@ input:focus {
   line-height: 1.4;
   overflow: hidden;
   word-break: break-word;
+  flex: 1;
+  min-width: 0;
 }
 
 .analysis-sidebar {
