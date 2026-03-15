@@ -1891,12 +1891,12 @@ input:focus {
   flex-direction: column;
   gap: 8px;
   margin-top: 8px;
-  overflow: hidden;
-  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
   width: 100%;
-  /* Reserve space for 3 engine lines to prevent layout shift (KS-542) */
+  /* Fixed height for 3 engine lines to prevent layout shift (KS-542, KS-550) */
   /* 3 lines × 19.6px (14px × 1.4 line-height) + 2 gaps × 8px = ~74.8px */
-  min-height: 75px;
+  height: 75px;
 }
 
 .stockfish-line {
