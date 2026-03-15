@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
@@ -10,9 +10,14 @@ export function LoginPage() {
   const oauthError = (location.state as { oauthError?: string } | null)?.oauthError;
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (loadingProvider) {
+      window.location.href = `${API_URL}/auth/${loadingProvider}`;
+    }
+  }, [loadingProvider]);
+
   const handleOAuth = (provider: string) => {
     setLoadingProvider(provider);
-    window.location.href = `${API_URL}/auth/${provider}`;
   };
 
   const isLoading = loadingProvider !== null;
