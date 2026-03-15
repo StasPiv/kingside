@@ -8,8 +8,8 @@ import { OAuthProfile } from './google.strategy';
 export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
   constructor(configService: ConfigService) {
     super({
-      clientID: configService.get<string>('FACEBOOK_APP_ID', ''),
-      clientSecret: configService.get<string>('FACEBOOK_APP_SECRET', ''),
+      clientID: configService.get<string>('FACEBOOK_APP_ID') || 'not-configured',
+      clientSecret: configService.get<string>('FACEBOOK_APP_SECRET') || 'not-configured',
       callbackURL: configService.get<string>(
         'FACEBOOK_CALLBACK_URL',
         'http://localhost:3001/auth/facebook/callback',

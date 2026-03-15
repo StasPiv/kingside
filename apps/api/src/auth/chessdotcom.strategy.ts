@@ -13,8 +13,8 @@ export class ChessdotcomStrategy extends PassportStrategy(
     const options: StrategyOptions = {
       authorizationURL: 'https://oauth.chess.com/authorize',
       tokenURL: 'https://oauth.chess.com/token',
-      clientID: configService.get<string>('CHESSDOTCOM_CLIENT_ID', ''),
-      clientSecret: configService.get<string>('CHESSDOTCOM_CLIENT_SECRET', ''),
+      clientID: configService.get<string>('CHESSDOTCOM_CLIENT_ID') || 'not-configured',
+      clientSecret: configService.get<string>('CHESSDOTCOM_CLIENT_SECRET') || 'not-configured',
       callbackURL: configService.get<string>(
         'CHESSDOTCOM_CALLBACK_URL',
         'http://localhost:3001/auth/chessdotcom/callback',
