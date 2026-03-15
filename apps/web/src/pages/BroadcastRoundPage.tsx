@@ -7,25 +7,6 @@ import { api } from '../api';
 import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types';
 import { formatPlayerName, formatResult } from '../dgt.types';
 
-function buildGamePgn(game: DgtGame, white: string, black: string): string {
-  const headerLines = `[White "${white}"]\n[Black "${black}"]`;
-  if (game.pgn) {
-    if (/\[White\s+"/.test(game.pgn)) return game.pgn;
-    return `${headerLines}\n\n${game.pgn}`;
-  }
-  if (game.moves.length > 0) {
-    try {
-      const chess = new Chess();
-      for (const san of game.moves) {
-        chess.move(san);
-      }
-      return `${headerLines}\n\n${chess.pgn()}`;
-    } catch {
-      // fall through
-    }
-  }
-  return `${headerLines}\n\n*`;
-}
 
 function computeFen(pgn: string, moves: string[]): string {
   if (pgn) {
@@ -117,23 +98,9 @@ export function BroadcastRoundPage() {
   const handleBoardClick = useCallback(
     (game: DgtGame) => {
       if (!tournamentId || !roundId) return;
-      const white = formatPlayerName(game.white);
-      const black = formatPlayerName(game.black);
-      const pgn = buildGamePgn(game, white, black);
-      navigate('/analysis', {
-        state: {
-          pgn,
-          title: `${white} vs ${black}`,
-          breadcrumbRootTitle: t('broadcasts.title'),
-          breadcrumbRootUrl: '/broadcasts',
-          breadcrumbSection: tournament?.tournament.name ?? '',
-          breadcrumbBackUrl: `/broadcasts/${tournamentId}`,
-          breadcrumbFileName: `${t('broadcasts.dgt.round')} ${roundId}`,
-          breadcrumbFileBackUrl: `/broadcasts/${tournamentId}/${roundId}`,
-        },
-      });
+      navigate(`/broadcasts/${tournamentId}/${roundId}/${game.gameIndex}`);
     },
-    [tournamentId, roundId, tournament, navigate, t],
+    [tournamentId, roundId, navigate],
   );
 
   return (
