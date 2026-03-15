@@ -1,13 +1,15 @@
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+
 export function LoginPage() {
   const { t } = useTranslation();
   const location = useLocation();
   const oauthError = (location.state as { oauthError?: string } | null)?.oauthError;
 
   const handleOAuth = (provider: string) => {
-    window.location.href = `/api/auth/${provider}`;
+    window.location.href = `${API_URL}/auth/${provider}`;
   };
 
   return (
@@ -22,7 +24,7 @@ export function LoginPage() {
           <button className="oauth-button oauth-button--facebook" onClick={() => handleOAuth('facebook')}>
             {t('auth.oauth.facebook')}
           </button>
-          <button className="oauth-button oauth-button--chesscom" onClick={() => handleOAuth('chess-com')}>
+          <button className="oauth-button oauth-button--chesscom" onClick={() => handleOAuth('chessdotcom')}>
             {t('auth.oauth.chesscom')}
           </button>
         </div>
