@@ -314,11 +314,6 @@ input:focus {
   color: #fff;
 }
 
-.oauth-button--chesscom {
-  background: #81b64c;
-  color: #fff;
-}
-
 .oauth-spinner {
   display: inline-block;
   width: 14px;

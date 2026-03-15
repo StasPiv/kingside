@@ -46,15 +46,6 @@ export function LoginPage() {
               <><span className="oauth-spinner" aria-hidden="true" />{t('auth.oauth.connecting')}</>
             ) : t('auth.oauth.facebook')}
           </button>
-          <button
-            className="oauth-button oauth-button--chesscom"
-            onClick={() => handleOAuth('chessdotcom')}
-            disabled={isLoading}
-          >
-            {loadingProvider === 'chessdotcom' ? (
-              <><span className="oauth-spinner" aria-hidden="true" />{t('auth.oauth.connecting')}</>
-            ) : t('auth.oauth.chesscom')}
-          </button>
         </div>
       </div>
     </div>

@@ -25,13 +25,13 @@ beforeEach(() => {
 });
 
 describe('LoginPage', () => {
-  it('renders heading and three OAuth buttons', () => {
+  it('renders heading and two OAuth buttons (no Chess.com)', () => {
     renderWithProviders(<LoginPage />);
 
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue with Facebook' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Continue with Chess.com' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue with Chess.com' })).not.toBeInTheDocument();
   });
 
   it('does not show error without oauth error state', () => {

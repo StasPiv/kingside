@@ -221,7 +221,6 @@
     "oauth": {
       "google": "Войти через Google",
       "facebook": "Войти через Facebook",
-      "chesscom": "Войти через Chess.com",
       "error": "Ошибка авторизации. Попробуйте ещё раз.",
       "connecting": "Подключение..."
     }
