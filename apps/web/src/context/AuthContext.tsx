@@ -29,22 +29,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchMe = useCallback(async () => {
     const tokenAtStart = localStorage.getItem('token');
+    console.log('[AuthContext] fetchMe start', { tokenAtStartPreview: tokenAtStart ? tokenAtStart.slice(0, 20) + '...' : null });
     try {
       const user = await api.get<User>('/api/auth/me');
       const currentToken = localStorage.getItem('token');
+      console.log('[AuthContext] fetchMe success', { userId: user.id, username: user.username, tokenChanged: tokenAtStart !== currentToken });
       if (user.locale) {
         i18n.changeLanguage(user.locale);
         localStorage.setItem('locale', user.locale);
       }
       setState((s) => ({ ...s, user, token: currentToken, loading: false }));
-    } catch {
+    } catch (err) {
+      const currentToken = localStorage.getItem('token');
+      const tokenReplaced = currentToken !== tokenAtStart;
+      console.log('[AuthContext] fetchMe error', {
+        error: err instanceof Error ? err.message : String(err),
+        tokenAtStartPreview: tokenAtStart ? tokenAtStart.slice(0, 20) + '...' : null,
+        currentTokenPreview: currentToken ? currentToken.slice(0, 20) + '...' : null,
+        tokenReplaced,
+        willSkipWipe: tokenReplaced,
+      });
       // Guard against race condition: if the token was replaced while this
       // request was in-flight (e.g. by OAuth loginWithTokens), don't wipe
       // the new token — a fresh fetchMe will be triggered by the token effect.
-      if (localStorage.getItem('token') === tokenAtStart) {
+      if (currentToken === tokenAtStart) {
+        console.log('[AuthContext] fetchMe wiping tokens (no race condition detected)');
         localStorage.removeItem('token');
         localStorage.removeItem('refreshToken');
         setState({ user: null, token: null, loading: false });
+      } else {
+        console.log('[AuthContext] fetchMe skipping wipe — token was replaced mid-flight, waiting for re-trigger');
       }
     }
   }, []);
@@ -54,9 +68,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // child component's effect (OAuthCallbackPage) writes the token to localStorage
     // before this parent effect runs, but state.token is still null in the closure.
     const currentToken = localStorage.getItem('token');
+    console.log('[AuthContext] token effect triggered', {
+      stateToken: state.token ? state.token.slice(0, 20) + '...' : null,
+      localStorageToken: currentToken ? currentToken.slice(0, 20) + '...' : null,
+    });
     if (currentToken) {
       fetchMe();
     } else {
+      console.log('[AuthContext] no token in localStorage, setting loading=false');
       setState((s) => ({ ...s, loading: false }));
     }
   }, [state.token, fetchMe]);
@@ -88,6 +107,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const loginWithTokens = (accessToken: string, refreshToken: string) => {
+    console.log('[AuthContext] loginWithTokens called', {
+      accessTokenPreview: accessToken.slice(0, 20) + '...',
+      hasRefreshToken: !!refreshToken,
+    });
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken, loading: true }));
