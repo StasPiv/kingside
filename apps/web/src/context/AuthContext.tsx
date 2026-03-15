@@ -13,6 +13,7 @@ type AuthState = {
 type AuthContextType = AuthState & {
   login: (username: string, password: string) => Promise<void>;
   register: (username: string, email: string, password: string) => Promise<void>;
+  loginWithTokens: (accessToken: string, refreshToken: string) => void;
   logout: () => void;
   refreshUser: () => Promise<void>;
 };
@@ -76,6 +77,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, token: accessToken }));
   };
 
+  const loginWithTokens = (accessToken: string, refreshToken: string) => {
+    localStorage.setItem('token', accessToken);
+    localStorage.setItem('refreshToken', refreshToken);
+    setState((s) => ({ ...s, token: accessToken }));
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
@@ -83,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout, refreshUser: fetchMe }}>
+    <AuthContext.Provider value={{ ...state, login, register, loginWithTokens, logout, refreshUser: fetchMe }}>
       {children}
     </AuthContext.Provider>
   );

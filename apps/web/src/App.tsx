@@ -19,6 +19,7 @@ import { BroadcastsPage } from './pages/BroadcastsPage';
 import { BroadcastTournamentPage } from './pages/BroadcastTournamentPage';
 import { BroadcastRoundPage } from './pages/BroadcastRoundPage';
 import { BroadcastGamePage } from './pages/BroadcastGamePage';
+import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
 import { useAuth } from './context/AuthContext';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -44,6 +45,7 @@ export function App() {
       <Route element={<MainLayout />}>
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
+        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/game/:gameId/review" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />

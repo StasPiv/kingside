@@ -274,6 +274,51 @@ input:focus {
   font-size: 14px;
 }
 
+.oauth-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.oauth-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  width: 100%;
+}
+
+.oauth-button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.oauth-button:active {
+  transform: translateY(0);
+}
+
+.oauth-button--google {
+  background: #fff;
+  color: #3c4043;
+}
+
+.oauth-button--facebook {
+  background: #1877f2;
+  color: #fff;
+}
+
+.oauth-button--chesscom {
+  background: #81b64c;
+  color: #fff;
+}
+
 .error {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;

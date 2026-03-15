@@ -1,59 +1,32 @@
-import { useState, type FormEvent } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '../context/AuthContext';
 
 export function LoginPage() {
-  const { login } = useAuth();
-  const navigate = useNavigate();
   const { t } = useTranslation();
   const location = useLocation();
-  const returnUrl = (location.state as { returnUrl?: string })?.returnUrl || '/lobby';
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const oauthError = (location.state as { oauthError?: string } | null)?.oauthError;
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      await login(username, password);
-      navigate(returnUrl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('auth.login.error'));
-    } finally {
-      setLoading(false);
-    }
+  const handleOAuth = (provider: string) => {
+    window.location.href = `/api/auth/${provider}`;
   };
 
   return (
     <div className="auth-page">
-      <form className="auth-form" onSubmit={handleSubmit}>
+      <div className="auth-form">
         <h1>{t('auth.login.title')}</h1>
-        {error && <div className="error">{error}</div>}
-        <input
-          type="text"
-          placeholder={t('auth.login.username')}
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-        />
-        <input
-          type="password"
-          placeholder={t('auth.login.password')}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-        />
-        <button type="submit" disabled={loading}>
-          {loading ? t('auth.login.submitting') : t('auth.login.submit')}
-        </button>
-        <p>
-          {t('auth.login.noAccount')} <Link to="/register">{t('auth.login.registerLink')}</Link>
-        </p>
-      </form>
+        {oauthError && <div className="error">{oauthError}</div>}
+        <div className="oauth-buttons">
+          <button className="oauth-button oauth-button--google" onClick={() => handleOAuth('google')}>
+            {t('auth.oauth.google')}
+          </button>
+          <button className="oauth-button oauth-button--facebook" onClick={() => handleOAuth('facebook')}>
+            {t('auth.oauth.facebook')}
+          </button>
+          <button className="oauth-button oauth-button--chesscom" onClick={() => handleOAuth('chess-com')}>
+            {t('auth.oauth.chesscom')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

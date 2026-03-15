@@ -1,72 +1,42 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderWithProviders, screen, userEvent } from '../test/test-utils';
+import { renderWithProviders, screen } from '../test/test-utils';
 import { LoginPage } from './LoginPage';
 
-const mockLogin = vi.fn();
 const mockNavigate = vi.fn();
-
-vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({
-    login: mockLogin,
-    user: null,
-    loading: false,
-  }),
-}));
+let mockLocationState: Record<string, unknown> | null = null;
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
     useNavigate: () => mockNavigate,
+    useLocation: () => ({ state: mockLocationState, pathname: '/login', search: '', hash: '', key: 'default' }),
   };
 });
 
 beforeEach(() => {
-  mockLogin.mockReset();
   mockNavigate.mockReset();
+  mockLocationState = null;
 });
 
 describe('LoginPage', () => {
-  it('renders login form with inputs and submit button', () => {
+  it('renders heading and three OAuth buttons', () => {
     renderWithProviders(<LoginPage />);
 
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Username')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Sign In' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with Facebook' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with Chess.com' })).toBeInTheDocument();
   });
 
-  it('renders link to registration page', () => {
+  it('does not show error without oauth error state', () => {
     renderWithProviders(<LoginPage />);
-
-    const link = screen.getByRole('link', { name: 'Register' });
-    expect(link).toHaveAttribute('href', '/register');
+    expect(screen.queryByText('Authorization failed. Please try again.')).not.toBeInTheDocument();
   });
 
-  it('calls login and navigates on successful submit', async () => {
-    mockLogin.mockResolvedValueOnce(undefined);
-    const user = userEvent.setup();
-
+  it('shows oauth error from location state', () => {
+    mockLocationState = { oauthError: 'Authorization failed. Please try again.' };
     renderWithProviders(<LoginPage />);
-
-    await user.type(screen.getByPlaceholderText('Username'), 'testuser');
-    await user.type(screen.getByPlaceholderText('Password'), 'password123');
-    await user.click(screen.getByRole('button', { name: 'Sign In' }));
-
-    expect(mockLogin).toHaveBeenCalledWith('testuser', 'password123');
-    expect(mockNavigate).toHaveBeenCalledWith('/lobby');
-  });
-
-  it('displays error message on failed login', async () => {
-    mockLogin.mockRejectedValueOnce(new Error('Invalid credentials'));
-    const user = userEvent.setup();
-
-    renderWithProviders(<LoginPage />);
-
-    await user.type(screen.getByPlaceholderText('Username'), 'baduser');
-    await user.type(screen.getByPlaceholderText('Password'), 'wrong');
-    await user.click(screen.getByRole('button', { name: 'Sign In' }));
-
-    expect(await screen.findByText('Invalid credentials')).toBeInTheDocument();
+    expect(screen.getByText('Authorization failed. Please try again.')).toBeInTheDocument();
   });
 });
