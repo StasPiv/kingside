@@ -150,6 +150,8 @@ export function BroadcastGamePage() {
   const analysisPageRef = useRef<HTMLDivElement>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
+  const isAtEndRef = useRef(false);
+  const gameRef = useRef<DgtGame | null>(null);
   const { boardThemeOptions } = useBoardTheme();
 
   const [boardAreaPx, setBoardAreaPx] = useState(() => {
@@ -297,6 +299,43 @@ export function BroadcastGamePage() {
   }, [gotoPrevious, gotoNext, gotoFirst, gotoLast]);
 
   useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
+
+  useEffect(() => {
+    if (!tournamentId || !roundId || isNaN(gameIndex)) return;
+    let cancelled = false;
+
+    const poll = () => {
+      api
+        .get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
+        .then((round) => {
+          if (cancelled) return;
+          const found = round.games.find((g) => g.gameIndex === gameIndex) ?? null;
+          if (!found) return;
+          const prevGame = gameRef.current;
+          const prevMoves = prevGame?.moves.length ?? 0;
+          const prevPgn = prevGame?.pgn ?? '';
+          if (found.moves.length > prevMoves || (found.pgn && found.pgn !== prevPgn)) {
+            setGame(found);
+            if (isAtEndRef.current || (prevMoves === 0 && prevPgn === '')) {
+              loadGameIntoReview(found, loadFromPgn);
+            }
+          }
+        })
+        .catch(() => {
+          // ignore polling errors silently
+        });
+    };
+
+    const intervalId = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [tournamentId, roundId, gameIndex, loadFromPgn]);
+
+  useEffect(() => {
     chessGame.load(currentFen);
   }, [currentFen, chessGame]);
 
@@ -368,6 +407,7 @@ export function BroadcastGamePage() {
 
   const isAtStart = currentMove === null;
   const isAtEnd = currentMove !== null && !currentMove.next;
+  isAtEndRef.current = isAtEnd;
 
   const openingName = classifyOpening(history.map((m) => m.san));
 
