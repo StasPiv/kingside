@@ -50,7 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (state.token) {
+    // Read from localStorage (not state.token) to avoid a race condition where a
+    // child component's effect (OAuthCallbackPage) writes the token to localStorage
+    // before this parent effect runs, but state.token is still null in the closure.
+    const currentToken = localStorage.getItem('token');
+    if (currentToken) {
       fetchMe();
     } else {
       setState((s) => ({ ...s, loading: false }));
