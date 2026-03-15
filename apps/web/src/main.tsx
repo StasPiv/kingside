@@ -4,8 +4,11 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BoardSettingsProvider } from './context/BoardSettingsContext';
 import { App } from './App';
+import { initClientLogger } from './utils/clientLogger';
 import './i18n';
 import './styles.css';
+
+initClientLogger();
 
 // In development mode, unregister any existing Service Workers
 // to ensure fresh assets are always served
