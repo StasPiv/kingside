@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { OAuthProfile } from './google.strategy';
 
 @Injectable()
 export class AuthService {
@@ -19,6 +20,79 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly i18n: I18nService,
   ) {}
+
+  async findOrCreateOAuthUser(profile: OAuthProfile) {
+    // 1. Find by provider + providerId
+    const byProvider = await this.prisma.user.findFirst({
+      where: {
+        oauthProvider: profile.provider,
+        oauthProviderId: profile.providerId,
+      },
+    });
+    if (byProvider) {
+      await this.prisma.user.update({
+        where: { id: byProvider.id },
+        data: { lastSeenAt: new Date() },
+      });
+      return this.generateTokens(byProvider.id, byProvider.username);
+    }
+
+    // 2. Find by email (link accounts)
+    if (profile.email) {
+      const byEmail = await this.prisma.user.findUnique({
+        where: { email: profile.email },
+      });
+      if (byEmail) {
+        await this.prisma.user.update({
+          where: { id: byEmail.id },
+          data: {
+            oauthProvider: profile.provider,
+            oauthProviderId: profile.providerId,
+            lastSeenAt: new Date(),
+          },
+        });
+        return this.generateTokens(byEmail.id, byEmail.username);
+      }
+    }
+
+    // 3. Create new user
+    const baseUsername = this.sanitizeUsername(profile.displayName);
+    const username = await this.uniqueUsername(baseUsername);
+
+    const user = await this.prisma.user.create({
+      data: {
+        username,
+        email: profile.email ?? null,
+        passwordHash: null,
+        oauthProvider: profile.provider,
+        oauthProviderId: profile.providerId,
+      },
+    });
+
+    return this.generateTokens(user.id, user.username);
+  }
+
+  private sanitizeUsername(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_|_$/g, '')
+      .slice(0, 20) || 'user';
+  }
+
+  private async uniqueUsername(base: string): Promise<string> {
+    let candidate = base;
+    let attempt = 0;
+    while (true) {
+      const existing = await this.prisma.user.findUnique({
+        where: { username: candidate },
+      });
+      if (!existing) return candidate;
+      attempt++;
+      candidate = `${base}_${attempt}`;
+    }
+  }
 
   async register(dto: RegisterDto) {
     const existing = await this.prisma.user.findFirst({
@@ -50,6 +124,10 @@ export class AuthService {
     });
 
     if (!user) {
+      throw new UnauthorizedException(this.i18n.t('messages.auth.invalidCredentials'));
+    }
+
+    if (!user.passwordHash) {
       throw new UnauthorizedException(this.i18n.t('messages.auth.invalidCredentials'));
     }
 

@@ -64,6 +64,12 @@ export class UserService {
       throw new NotFoundException(this.i18n.t('messages.user.notFound'));
     }
 
+    if (!user.passwordHash) {
+      throw new UnauthorizedException(
+        this.i18n.t('messages.user.wrongPassword'),
+      );
+    }
+
     const valid = await bcrypt.compare(dto.currentPassword, user.passwordHash);
     if (!valid) {
       throw new UnauthorizedException(
