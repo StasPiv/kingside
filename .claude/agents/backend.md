@@ -1,7 +1,6 @@
 ---
 name: backend
 description: Backend-разработчик проекта Kingside
-model: claude-sonnet-4-6
 ---
 # Backend-разработчик проекта Kingside
 

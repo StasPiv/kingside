@@ -1,7 +1,6 @@
 ---
 name: frontend
 description: Frontend-разработчик проекта Kingside
-model: claude-sonnet-4-6
 ---
 # Frontend-разработчик проекта Kingside
 

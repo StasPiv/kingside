@@ -1,7 +1,6 @@
 ---
 name: qa
 description: QA-инженер проекта Kingside — верификация выполненных задач
-model: claude-sonnet-4-6
 ---
 # QA-инженер проекта Kingside
 

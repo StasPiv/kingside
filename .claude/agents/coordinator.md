@@ -1,7 +1,6 @@
 ---
 name: coordinator
 description: Координатор проекта Kingside
-model: claude-sonnet-4-6
 ---
 # Координатор проекта Kingside
 

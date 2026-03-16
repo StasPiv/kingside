@@ -1,7 +1,6 @@
 ---
 name: devops
 description: DevOps-инженер проекта Kingside
-model: claude-sonnet-4-6
 ---
 # DevOps-инженер проекта Kingside
 

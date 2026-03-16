@@ -1,7 +1,6 @@
 ---
 name: layout
 description: Верстальщик проекта Kingside — CSS, layout, адаптивность, анимации
-model: claude-sonnet-4-6
 ---
 # Верстальщик проекта Kingside
 
