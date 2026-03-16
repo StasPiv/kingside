@@ -129,9 +129,10 @@ export class AuthService {
       throw new UnauthorizedException('Telegram auth_date is expired');
     }
 
-    // Build data_check_string: sorted key=value pairs (excluding hash)
+    // Build data_check_string: sorted key=value pairs (excluding hash and undefined)
     const { hash, ...data } = dto;
     const checkString = Object.keys(data)
+      .filter((key) => (data as Record<string, unknown>)[key] !== undefined)
       .sort()
       .map((key) => `${key}=${(data as Record<string, unknown>)[key]}`)
       .join('\n');
