@@ -2,8 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FcGoogle } from 'react-icons/fc';
-import { FaFacebook, FaTelegram } from 'react-icons/fa';
+import { FaFacebook, FaTelegram, FaCode } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
+
+const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
+const isLocalhost = window.location.hostname === 'localhost';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
@@ -93,6 +96,16 @@ export function MainLayout() {
                   >
                     <FaTelegram size={20} color="#26A5E4" />
                   </a>
+                  {isLocalhost && DEV_BYPASS_SECRET && (
+                    <a
+                      href={`?dev_bypass=${DEV_BYPASS_SECRET}`}
+                      className="social-login-btn social-login-btn--dev"
+                      aria-label="Dev Bypass"
+                      title="Dev Bypass Login"
+                    >
+                      <FaCode size={20} color="#f59e0b" />
+                    </a>
+                  )}
                 </div>
               )}
             </div>
