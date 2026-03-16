@@ -14,7 +14,7 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
         'FACEBOOK_CALLBACK_URL',
         'http://localhost:3001/api/auth/facebook/callback',
       ),
-      profileFields: ['id', 'displayName', 'emails'],
+      profileFields: ['id', 'displayName', 'name', 'emails', 'photos'],
       scope: ['email'],
     });
   }
@@ -28,11 +28,18 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     const email: string | null =
       profile.emails?.[0]?.value ?? null;
 
+    const fullName = [profile.name?.givenName, profile.name?.familyName]
+      .filter(Boolean)
+      .join(' ');
+
+    const displayName =
+      profile.displayName || fullName || profile.id;
+
     const oauthProfile: OAuthProfile = {
       provider: 'facebook',
       providerId: profile.id,
       email,
-      displayName: profile.displayName ?? profile.id,
+      displayName,
     };
 
     done(null, oauthProfile);
