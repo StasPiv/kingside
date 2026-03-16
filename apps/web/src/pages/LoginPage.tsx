@@ -15,14 +15,6 @@ interface TelegramUser {
   hash: string;
 }
 
-declare global {
-  interface Window {
-    TelegramLoginWidget: {
-      dataOnauth: (user: TelegramUser) => void;
-    };
-  }
-}
-
 // Numeric bot ID (part before colon in bot token) — safe to expose in frontend
 const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
 
@@ -43,19 +35,22 @@ export function LoginPage() {
     }
   }, [loadingProvider]);
 
-  // Register global Telegram popup callback
+  // Handle tgAuthResult redirect from Telegram OAuth (COOP: same-origin blocks popup opener access)
   useEffect(() => {
-    window.TelegramLoginWidget = {
-      dataOnauth: (user: TelegramUser) => {
-        setTelegramData(user);
-      },
-    };
-    return () => {
-      delete (window as unknown as Record<string, unknown>).TelegramLoginWidget;
-    };
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    const tgAuthResult = params.get('tgAuthResult');
+    if (!tgAuthResult) return;
+    // Clean up URL immediately
+    window.history.replaceState({}, '', window.location.pathname);
+    try {
+      const user = JSON.parse(atob(tgAuthResult)) as TelegramUser;
+      setTelegramData(user);
+    } catch {
+      setError(t('auth.oauth.error'));
+    }
+  }, [t]);
 
-  // Handle Telegram auth data when popup callback fires
+  // Handle Telegram auth data — send to backend
   useEffect(() => {
     if (!telegramData) return;
     setTelegramLoading(true);
@@ -78,15 +73,13 @@ export function LoginPage() {
 
   const handleTelegramLogin = () => {
     const origin = window.location.origin;
-    const returnTo = window.location.href;
-    const authUrl =
+    const returnTo = `${origin}/login`;
+    // Use redirect (not popup): COOP: same-origin nullifies window.opener in cross-origin popups
+    window.location.href =
       `https://oauth.telegram.org/auth` +
       `?bot_id=${TELEGRAM_BOT_ID}` +
       `&origin=${encodeURIComponent(origin)}` +
-      `&return_to=${encodeURIComponent(returnTo)}` +
-      `&embed=1` +
-      `&request_access=write`;
-    window.open(authUrl, 'tgLogin', 'width=550,height=470,resizable=yes,scrollbars=yes');
+      `&return_to=${encodeURIComponent(returnTo)}`;
   };
 
   const isLoading = loadingProvider !== null || telegramLoading;
