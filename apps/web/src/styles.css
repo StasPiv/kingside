@@ -3713,7 +3713,7 @@ input:focus {
   .game-board-area {
     width: 100%;
     align-items: center;
-    flex-shrink: 0;
+    flex: 0 0 auto;
   }
 
   .board-container {
