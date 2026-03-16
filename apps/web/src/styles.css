@@ -1854,7 +1854,6 @@ input:focus {
   display: flex;
   gap: 0;
   align-items: stretch;
-  flex: 1;
   min-height: 0;
 }
 
