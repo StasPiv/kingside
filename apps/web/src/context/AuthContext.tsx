@@ -38,14 +38,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tokenAtStart = localStorage.getItem('token');
     console.log('[AuthContext] fetchMe start', { tokenAtStartPreview: tokenAtStart ? tokenAtStart.slice(0, 20) + '...' : null });
     try {
-      const user = await api.get<User>('/api/auth/me');
+      const user = await api.get<User | null>('/api/auth/me');
       const currentToken = localStorage.getItem('token');
-      console.log('[AuthContext] fetchMe success', { userId: user.id, username: user.username, tokenChanged: tokenAtStart !== currentToken });
-      if (user.locale) {
+      console.log('[AuthContext] fetchMe success', { userId: user?.id, username: user?.username, tokenChanged: tokenAtStart !== currentToken });
+      if (user?.locale) {
         i18n.changeLanguage(user.locale);
         localStorage.setItem('locale', user.locale);
       }
-      setState((s) => ({ ...s, user, token: currentToken, loading: false }));
+      setState((s) => ({ ...s, user: user ?? null, token: currentToken, loading: false }));
     } catch (err) {
       const currentToken = localStorage.getItem('token');
       const tokenReplaced = currentToken !== tokenAtStart;
