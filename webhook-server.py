@@ -4,6 +4,7 @@
 import json
 import queue
 import re
+import signal
 import subprocess
 import os
 import sys
@@ -216,7 +217,7 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
         "--verbose",
     ]
     with open(log_file, "a") as lf:
-        proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=lf, stderr=lf)
+        proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=lf, stderr=lf, start_new_session=True)
     with running_procs_lock:
         running_procs[key] = proc
     log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
@@ -232,11 +233,17 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
             sc = _get_issue_status_category(key)
             if sc == "done":
                 log(f"Задача {key} закрыта (статус '{sc}'), завершаем агента {agent} (PID: {proc.pid})")
-                proc.terminate()
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
                     proc.wait()
                 break
 
@@ -476,11 +483,17 @@ def launch_agent(key, summary, agent, prompt=None):
         proc = running_procs.get(key)
         if proc and proc.poll() is None:
             log(f"Убиваем агента {key} (PID: {proc.pid}) — пришёл новый комментарий")
-            proc.terminate()
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
             try:
                 proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                try:
+                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 proc.wait()
             running_procs.pop(key, None)
 
