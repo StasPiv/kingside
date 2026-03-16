@@ -40,6 +40,8 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
       providerId: profile.id,
       email,
       displayName,
+      firstName: profile.name?.givenName ?? null,
+      lastName: profile.name?.familyName ?? null,
     };
 
     done(null, oauthProfile);

@@ -30,14 +30,7 @@ export class AuthService {
       },
     });
     if (byProvider) {
-      const sanitizedDisplay = this.sanitizeUsername(profile.displayName);
-      const sanitizedEmail = profile.email
-        ? this.sanitizeUsername(profile.email.split('@')[0])
-        : '';
-      const baseUsername =
-        sanitizedDisplay ||
-        sanitizedEmail ||
-        `user${profile.providerId.slice(0, 10)}`;
+      const baseUsername = this.buildBaseUsername(profile);
 
       let finalUsername = byProvider.username;
 
@@ -79,14 +72,7 @@ export class AuthService {
     }
 
     // 3. Create new user
-    const sanitizedDisplay = this.sanitizeUsername(profile.displayName);
-    const sanitizedEmail = profile.email
-      ? this.sanitizeUsername(profile.email.split('@')[0])
-      : '';
-    const baseUsername =
-      sanitizedDisplay ||
-      sanitizedEmail ||
-      `user${profile.providerId.slice(0, 10)}`;
+    const baseUsername = this.buildBaseUsername(profile);
     const username = await this.uniqueUsername(baseUsername);
 
     const user = await this.prisma.user.create({
@@ -100,6 +86,21 @@ export class AuthService {
     });
 
     return this.generateTokens(user.id, user.username);
+  }
+
+  private buildBaseUsername(profile: OAuthProfile): string {
+    const namePart = [profile.firstName, profile.lastName]
+      .filter(Boolean)
+      .join('');
+    const sanitizedName = namePart ? this.sanitizeUsername(namePart) : '';
+    const sanitizedEmail = profile.email
+      ? this.sanitizeUsername(profile.email.split('@')[0])
+      : '';
+    return (
+      sanitizedName ||
+      sanitizedEmail ||
+      `user${profile.providerId.slice(0, 10)}`
+    );
   }
 
   private sanitizeUsername(name: string): string {

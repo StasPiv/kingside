@@ -69,6 +69,24 @@ describe('AuthService', () => {
       displayName: 'Стас Пивоварцев',
     };
 
+    const latinProfileWithEmail = {
+      provider: 'facebook',
+      providerId: '123456789012345',
+      email: 'piv1986@yandex.ru',
+      displayName: 'Stas Pivovartsev',
+      firstName: 'Stas',
+      lastName: 'Pivovartsev',
+    };
+
+    const latinProfileNoEmail = {
+      provider: 'facebook',
+      providerId: '123456789012345',
+      email: null,
+      displayName: 'Stas Pivovartsev',
+      firstName: 'Stas',
+      lastName: 'Pivovartsev',
+    };
+
     it('should not create username "user" for Cyrillic display name without email', async () => {
       prisma.user.findFirst.mockResolvedValue(null);
       prisma.user.findUnique.mockResolvedValue(null);
@@ -185,6 +203,91 @@ describe('AuthService', () => {
         where: { id: existingUserA.id },
         data: expect.objectContaining({ username: 'user1234567890_1' }),
       });
+    });
+
+    it('should generate username from firstName + lastName', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique
+        .mockResolvedValueOnce(null) // no user by email
+        .mockResolvedValue(null); // uniqueUsername check
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(latinProfileWithEmail);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).toBe('staspivovartsev');
+    });
+
+    it('should not include email in username when firstName and lastName are available', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(latinProfileWithEmail);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).not.toContain('piv1986');
+    });
+
+    it('should use email as fallback when firstName and lastName are absent', async () => {
+      const noNameProfile = {
+        provider: 'facebook',
+        providerId: '123456789012345',
+        email: 'piv1986@yandex.ru',
+        displayName: '',
+        firstName: null,
+        lastName: null,
+      };
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(noNameProfile);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).toBe('piv1986');
+    });
+
+    it('should update email-based username to name-based on repeat login', async () => {
+      const existingUser = {
+        ...mockUser,
+        username: 'piv1986',
+        oauthProvider: 'facebook',
+        oauthProviderId: '123456789012345',
+      };
+      prisma.user.findFirst.mockResolvedValue(existingUser);
+      prisma.user.update.mockResolvedValue({ ...existingUser, username: 'staspivovartsev' });
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await service.findOrCreateOAuthUser(latinProfileWithEmail);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: existingUser.id },
+        data: expect.objectContaining({ username: 'staspivovartsev' }),
+      });
+    });
+
+    it('should generate username from firstName + lastName without email (no suffix)', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(latinProfileNoEmail);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).toBe('staspivovartsev');
     });
 
     it('should add numeric suffix when username already exists', async () => {

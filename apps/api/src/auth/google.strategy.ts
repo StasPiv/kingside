@@ -8,6 +8,8 @@ export interface OAuthProfile {
   providerId: string;
   email: string | null;
   displayName: string;
+  firstName?: string | null;
+  lastName?: string | null;
 }
 
 @Injectable()
@@ -38,6 +40,8 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       providerId: profile.id,
       email,
       displayName: profile.displayName ?? profile.id,
+      firstName: profile.name?.givenName ?? null,
+      lastName: profile.name?.familyName ?? null,
     };
 
     done(null, oauthProfile);
