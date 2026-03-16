@@ -35,6 +35,9 @@ export const DEFAULT_CATEGORY_TC: Record<string, { initialTime: number; incremen
 export const STOCKFISH_BOT_ID = '00000000-0000-4000-a000-000000000001';
 export const STOCKFISH_BOT_USERNAME = 'Stockfish Bot';
 
+export const DEV_USER_ID = '00000000-0000-4000-a000-000000000002';
+export const DEV_USERNAME = 'DEV';
+
 export const MAX_ACTIVE_BOT_GAMES = 3;
 
 export const DAILY_TIME_CONTROLS = {

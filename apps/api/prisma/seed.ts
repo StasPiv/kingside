@@ -1,7 +1,12 @@
 import 'dotenv/config';
 import { PrismaClient } from '../src/generated/prisma/client';
 import * as bcrypt from 'bcrypt';
-import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
+import {
+  STOCKFISH_BOT_ID,
+  STOCKFISH_BOT_USERNAME,
+  DEV_USER_ID,
+  DEV_USERNAME,
+} from '@kingside/shared';
 
 const prisma = new PrismaClient();
 
@@ -21,6 +26,21 @@ async function main() {
   });
 
   console.log('Seeded Stockfish Bot user');
+
+  const devPasswordHash = await bcrypt.hash('dev-no-login', 10);
+
+  await prisma.user.upsert({
+    where: { id: DEV_USER_ID },
+    update: {},
+    create: {
+      id: DEV_USER_ID,
+      username: DEV_USERNAME,
+      email: 'dev@kingside.local',
+      passwordHash: devPasswordHash,
+    },
+  });
+
+  console.log('Seeded DEV user');
 }
 
 main()
