@@ -92,6 +92,7 @@ describe('AuthService.telegramAuth', () => {
       });
       expect(result.accessToken).toBe('mock-token');
       expect(result.refreshToken).toBe('mock-token');
+      expect(result.isNewUser).toBe(true);
     });
   });
 
@@ -127,6 +128,7 @@ describe('AuthService.telegramAuth', () => {
       expect(prisma.user.create).not.toHaveBeenCalled();
       expect(result.accessToken).toBe('mock-token');
       expect(result.refreshToken).toBe('mock-token');
+      expect(result.isNewUser).toBe(false);
     });
 
     it('обновляет lastSeenAt при повторной авторизации', async () => {

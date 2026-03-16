@@ -32,6 +32,13 @@ export type AuthTokenResponse = {
   refreshToken: string;
 };
 
+export type TelegramAuthResponse = {
+  accessToken: string;
+  refreshToken: string;
+  requiresUsernameSetup: boolean;
+  isNewUser: boolean;
+};
+
 export type RefreshTokenRequest = {
   refreshToken: string;
 };

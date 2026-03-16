@@ -160,11 +160,14 @@ export class AuthService {
         where: { id: existing.id },
         data: { lastSeenAt: new Date() },
       });
-      return this.generateTokens(
-        existing.id,
-        existing.username,
-        existing.requiresUsernameSetup,
-      );
+      return {
+        ...this.generateTokens(
+          existing.id,
+          existing.username,
+          existing.requiresUsernameSetup,
+        ),
+        isNewUser: false,
+      };
     }
 
     // Create new user — username set later via /users/set-username
@@ -178,7 +181,7 @@ export class AuthService {
       },
     });
 
-    return this.generateTokens(user.id, null, true);
+    return { ...this.generateTokens(user.id, null, true), isNewUser: true };
   }
 
   async register(dto: RegisterDto) {
