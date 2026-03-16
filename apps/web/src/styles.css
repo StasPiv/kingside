@@ -1849,16 +1849,23 @@ input:focus {
   min-height: 0;
 }
 
-/* Board container fills remaining width inside eval+board row on desktop */
+/* Eval bar + board row: fills remaining height inside board-wrapper */
+.analysis-eval-board-row {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Board container fills remaining width inside eval+board row on desktop.
+   max-height:100% prevents the square board from overflowing the available
+   vertical space; aspect-ratio:1 (from .board-container) then derives the
+   width from the clamped height, so the board is as large as possible. */
 .analysis-page .board-container {
   flex: 1;
   min-width: 0;
-  /* Constrain board width by viewport height so the board never overflows
-     the bottom of the screen. 150px accounts for header, padding and controls. */
-  max-width: calc(100vh - 150px);
-  /* align-self: flex-start allows aspect-ratio:1 to work correctly;
-     without it align-items:stretch overrides aspect-ratio making the container
-     taller than wide, which causes gaps between board ranks */
+  max-height: 100%;
   align-self: flex-start;
 }
 

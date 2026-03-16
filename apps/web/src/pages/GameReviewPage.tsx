@@ -622,7 +622,7 @@ export function GameReviewPage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 0 }}>
+          <div className="analysis-eval-board-row">
             <div className="eval-bar-container">
               <div className="eval-bar">
                 <div
