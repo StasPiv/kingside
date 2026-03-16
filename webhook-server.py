@@ -410,6 +410,14 @@ def setup_worktree(key):
         return PROJECT_DIR
     log(f"Worktree создан: {worktree_path} ({branch})")
 
+    # .env не трекается git — копируем в worktree
+    env_src = os.path.join(PROJECT_DIR, ".env")
+    env_dst = os.path.join(worktree_path, ".env")
+    if os.path.isfile(env_src) and not os.path.exists(env_dst):
+        import shutil
+        shutil.copy2(env_src, env_dst)
+        log(f".env скопирован в {worktree_path}")
+
     # Симлинки на node_modules — без них агенты не могут запускать eslint/vitest/vite
     for subdir in ["", "apps/web", "apps/api"]:
         src = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
