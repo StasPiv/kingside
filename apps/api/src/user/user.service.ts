@@ -2,6 +2,8 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import * as bcrypt from 'bcrypt';
@@ -25,6 +27,60 @@ export class UserService {
     pieceSet: true,
     soundEnabled: true,
   } as const;
+
+  async checkUsername(username: string): Promise<{ available: boolean }> {
+    const existing = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+    return { available: !existing };
+  }
+
+  async setUsername(userId: string, username: string) {
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
+      throw new BadRequestException('Invalid username format');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, requiresUsernameSetup: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException(this.i18n.t('messages.user.notFound'));
+    }
+
+    if (!user.requiresUsernameSetup) {
+      throw new BadRequestException('Username already set');
+    }
+
+    const conflict = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+
+    if (conflict) {
+      throw new ConflictException('Username already taken');
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { username, requiresUsernameSetup: false },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        requiresUsernameSetup: true,
+        ratingBullet: true,
+        ratingBlitz: true,
+        ratingRapid: true,
+        ratingClassical: true,
+        createdAt: true,
+      },
+    });
+
+    return updated;
+  }
 
   async getSettings(userId: string) {
     const user = await this.prisma.user.findUnique({

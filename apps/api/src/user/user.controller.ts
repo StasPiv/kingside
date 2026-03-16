@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Patch,
+  Post,
   Param,
   Query,
   Body,
@@ -13,11 +14,23 @@ import { UserService } from './user.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SearchGamesDto } from './dto/search-games.dto';
+import { SetUsernameDto } from './dto/set-username.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('users')
 export class UserController {
   constructor(private readonly userService: UserService) {}
+
+  @Get('check-username')
+  checkUsername(@Query('username') username: string) {
+    return this.userService.checkUsername(username);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('set-username')
+  setUsername(@Request() req: any, @Body() dto: SetUsernameDto) {
+    return this.userService.setUsername(req.user.id, dto.username);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Get('me/settings')

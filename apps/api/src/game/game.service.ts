@@ -120,7 +120,7 @@ export class GameService {
         activeColor: 'white',
       };
       const clocks = await this.clockService.getClocks(gameId);
-      const players = { white: game.white.username, black: game.black.username };
+      const players = { white: game.white.username ?? '', black: game.black.username ?? '' };
       return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players, isBot: game.isBot, botLevel: game.botLevel };
     }
 
@@ -144,7 +144,7 @@ export class GameService {
     };
     const clocks = await this.clockService.getClocks(gameId);
 
-    const players = { white: game.white.username, black: game.black.username };
+    const players = { white: game.white.username ?? '', black: game.black.username ?? '' };
     return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players, isBot: game.isBot, botLevel: game.botLevel };
   }
 

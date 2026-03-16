@@ -74,8 +74,8 @@ export class TournamentService {
         const blackRating = this.pickRating(g.black, g.timeControlType as string);
         return {
           id: g.id,
-          whitePlayer: { id: g.white.id, username: g.white.username, rating: whiteRating },
-          blackPlayer: { id: g.black.id, username: g.black.username, rating: blackRating },
+          whitePlayer: { id: g.white.id, username: g.white.username ?? '', rating: whiteRating },
+          blackPlayer: { id: g.black.id, username: g.black.username ?? '', rating: blackRating },
           currentFen: g.finalFen ?? INITIAL_FEN,
           pgn: g.pgn,
         };

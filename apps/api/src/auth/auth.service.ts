@@ -30,27 +30,15 @@ export class AuthService {
       },
     });
     if (byProvider) {
-      const baseUsername = this.buildBaseUsername(profile);
-
-      let finalUsername = byProvider.username;
-
-      if (byProvider.username !== baseUsername) {
-        const correctUsername = await this.uniqueUsername(baseUsername);
-        if (correctUsername !== byProvider.username) {
-          finalUsername = correctUsername;
-          await this.prisma.user.update({
-            where: { id: byProvider.id },
-            data: { username: correctUsername, lastSeenAt: new Date() },
-          });
-          return this.generateTokens(byProvider.id, finalUsername);
-        }
-      }
-
       await this.prisma.user.update({
         where: { id: byProvider.id },
         data: { lastSeenAt: new Date() },
       });
-      return this.generateTokens(byProvider.id, finalUsername);
+      return this.generateTokens(
+        byProvider.id,
+        byProvider.username,
+        byProvider.requiresUsernameSetup,
+      );
     }
 
     // 2. Find by email (link accounts)
@@ -67,17 +55,19 @@ export class AuthService {
             lastSeenAt: new Date(),
           },
         });
-        return this.generateTokens(byEmail.id, byEmail.username);
+        return this.generateTokens(
+          byEmail.id,
+          byEmail.username,
+          byEmail.requiresUsernameSetup,
+        );
       }
     }
 
-    // 3. Create new user
-    const baseUsername = this.buildBaseUsername(profile);
-    const username = await this.uniqueUsername(baseUsername);
-
+    // 3. Create new user — username set later via /users/set-username
     const user = await this.prisma.user.create({
       data: {
-        username,
+        username: null,
+        requiresUsernameSetup: true,
         email: profile.email ?? null,
         passwordHash: null,
         oauthProvider: profile.provider,
@@ -85,7 +75,7 @@ export class AuthService {
       },
     });
 
-    return this.generateTokens(user.id, user.username);
+    return this.generateTokens(user.id, null, true);
   }
 
   private buildBaseUsername(profile: OAuthProfile): string {
@@ -207,8 +197,15 @@ export class AuthService {
     return user;
   }
 
-  private generateTokens(userId: string, username: string) {
-    const payload = { sub: userId, username };
+  private generateTokens(
+    userId: string,
+    username: string | null,
+    requiresUsernameSetup = false,
+  ) {
+    const payload: Record<string, unknown> = { sub: userId, username };
+    if (requiresUsernameSetup) {
+      payload.requiresUsernameSetup = true;
+    }
 
     const accessToken = this.jwtService.sign(payload, {
       expiresIn: this.configService.get('JWT_EXPIRES_IN', '15m'),
@@ -218,6 +215,6 @@ export class AuthService {
       expiresIn: this.configService.get('JWT_REFRESH_EXPIRES_IN', '7d'),
     });
 
-    return { accessToken, refreshToken };
+    return { accessToken, refreshToken, requiresUsernameSetup };
   }
 }

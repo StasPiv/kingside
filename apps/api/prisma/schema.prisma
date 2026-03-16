@@ -9,9 +9,10 @@ datasource db {
 }
 
 model User {
-  id                String   @id @default(uuid()) @db.Uuid
-  username          String   @unique
-  email             String?  @unique
+  id                      String   @id @default(uuid()) @db.Uuid
+  username                String?  @unique
+  requiresUsernameSetup   Boolean  @default(false) @map("requires_username_setup")
+  email                   String?  @unique
   passwordHash      String?  @map("password_hash")
   oauthProvider     String?  @map("oauth_provider")
   oauthProviderId   String?  @map("oauth_provider_id")

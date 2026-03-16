@@ -94,12 +94,15 @@ export class AuthController {
 
   private redirectWithTokens(
     res: Response,
-    tokens: { accessToken: string; refreshToken: string },
+    tokens: { accessToken: string; refreshToken: string; requiresUsernameSetup: boolean },
   ) {
     const frontendUrl = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
     const url = new URL('/oauth/callback', frontendUrl);
     url.searchParams.set('accessToken', tokens.accessToken);
     url.searchParams.set('refreshToken', tokens.refreshToken);
+    if (tokens.requiresUsernameSetup) {
+      url.searchParams.set('requiresUsernameSetup', 'true');
+    }
     this.logger.log(`[OAuth] redirect to ${url.origin}/oauth/callback?accessToken=...`);
     return res.redirect(url.toString());
   }
