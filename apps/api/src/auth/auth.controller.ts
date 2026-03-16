@@ -41,6 +41,11 @@ export class AuthController {
     return this.authService.refresh(refreshToken);
   }
 
+  @Post('dev-bypass')
+  devBypass(@Body('secret') secret: string) {
+    return this.authService.devBypass(secret);
+  }
+
   @Post('telegram')
   telegramAuth(@Body() dto: TelegramAuthDto) {
     return this.authService.telegramAuth(dto);

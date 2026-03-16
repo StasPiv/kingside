@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -13,6 +14,7 @@ import { TelegramAuthDto } from './dto/telegram-auth.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { OAuthProfile } from './google.strategy';
+import { DEV_USER_ID, DEV_USERNAME } from '@kingside/shared';
 
 @Injectable()
 export class AuthService {
@@ -225,6 +227,34 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException(this.i18n.t('messages.auth.invalidRefreshToken'));
     }
+  }
+
+  async devBypass(secret: string) {
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
+    if (nodeEnv === 'production') {
+      throw new ForbiddenException('Not available in production');
+    }
+
+    const expectedSecret = this.configService.get<string>('DEV_BYPASS_SECRET')
+      ?? this.configService.get<string>('VITE_DEV_BYPASS_SECRET');
+    if (!expectedSecret || secret !== expectedSecret) {
+      throw new ForbiddenException('Invalid secret');
+    }
+
+    // Ensure DEV user exists
+    const devPasswordHash = await bcrypt.hash('dev-no-login', 10);
+    const user = await this.prisma.user.upsert({
+      where: { id: DEV_USER_ID },
+      update: {},
+      create: {
+        id: DEV_USER_ID,
+        username: DEV_USERNAME,
+        email: 'dev@kingside.local',
+        passwordHash: devPasswordHash,
+      },
+    });
+
+    return this.generateTokens(user.id, user.username);
   }
 
   async getMe(userId: string) {
