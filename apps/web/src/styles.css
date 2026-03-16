@@ -3695,11 +3695,16 @@ input:focus {
 @media (max-width: 899px) {
   .game-page {
     flex-direction: column;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 12px;
     height: 100%;
     overflow: hidden;
     padding: 8px;
+  }
+
+  .back-nav-link {
+    flex-basis: auto;
   }
 
   .game-h-resizer {
@@ -3826,6 +3831,11 @@ input:focus {
     overflow-y: hidden;
     padding: 4px 8px;
     gap: 8px;
+  }
+
+  .back-nav-link {
+    flex-basis: auto;
+    width: auto;
   }
 
   .game-board-area {
