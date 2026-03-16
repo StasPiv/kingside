@@ -1,5 +1,6 @@
 #!/bin/bash
-# Устанавливает git hooks для автодеплоя на kamatera-chess при коммите в main
+# Устанавливает git hooks (post-commit, post-merge)
+# Автодеплой отключён. Деплой запускается вручную: just deploy
 # Запуск: bash scripts/install-hooks.sh
 
 set -euo pipefail
@@ -28,8 +29,8 @@ install_hook() {
     echo "  Установлен: $hook_name -> $HOOK_SRC"
 }
 
-echo "=== Установка git hooks для автодеплоя ==="
+echo "=== Установка git hooks ==="
 install_hook "post-commit"
 install_hook "post-merge"
 echo ""
-echo "Готово. Каждый коммит/мерж в ветку main будет запускать деплой на kamatera-chess."
+echo "Готово. Автодеплой отключён. Для деплоя используйте: just deploy"

@@ -3,6 +3,10 @@
 # Start the entire project
 up: _env _infra _deps _migrate _build-shared _dev
 
+# Deploy to production manually
+deploy:
+    bash scripts/deploy-local.sh
+
 # Stop infrastructure
 down:
     docker compose down
