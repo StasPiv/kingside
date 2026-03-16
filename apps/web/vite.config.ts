@@ -68,6 +68,7 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
+  envDir: path.resolve(__dirname, '../..'),
   resolve: {
     alias: {
       '@kingside/shared': path.resolve(__dirname, '../../packages/shared/src'),
