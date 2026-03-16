@@ -223,6 +223,19 @@
       "facebook": "Continue with Facebook",
       "error": "Authorization failed. Please try again.",
       "connecting": "Connecting..."
+    },
+    "usernameSetup": {
+      "title": "Choose your username",
+      "label": "Username",
+      "placeholder": "Enter username",
+      "save": "Save",
+      "saving": "Saving...",
+      "available": "Username is available",
+      "taken": "Username is already taken",
+      "checking": "Checking...",
+      "errorNetwork": "Network error. Please try again.",
+      "errorConflict": "This username was just taken. Please choose another.",
+      "errorInvalid": "Username must be 3–20 characters: letters, digits, underscores only."
     }
   },
   "puzzleRush": {
