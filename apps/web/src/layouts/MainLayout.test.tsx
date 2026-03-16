@@ -39,11 +39,17 @@ describe('KS-633: навигация — убрать Train, Login/Register, д�
       renderWithProviders(<MainLayout />, { route: '/lobby' });
       const google = screen.getByLabelText('Google');
       const facebook = screen.getByLabelText('Facebook');
-      const telegram = screen.getByLabelText('Telegram');
 
       expect(google).toHaveAttribute('href', expect.stringContaining('/api/auth/google'));
       expect(facebook).toHaveAttribute('href', expect.stringContaining('/api/auth/facebook'));
-      expect(telegram).toHaveAttribute('href', expect.stringContaining('/api/auth/telegram'));
+    });
+
+    it('кнопка Telegram использует onClick для OAuth редиректа', () => {
+      renderWithProviders(<MainLayout />, { route: '/lobby' });
+      const telegram = screen.getByLabelText('Telegram');
+
+      expect(telegram).toHaveAttribute('href', '#');
+      expect(telegram).toBeInTheDocument();
     });
   });
 

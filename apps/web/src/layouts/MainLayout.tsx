@@ -6,6 +6,7 @@ import { FaFacebook, FaTelegram } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
 
 function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
   useEffect(() => {
@@ -75,7 +76,21 @@ export function MainLayout() {
                   <a href={`${API_URL}/api/auth/facebook`} className="social-login-btn social-login-btn--facebook" aria-label="Facebook">
                     <FaFacebook size={20} color="#1877F2" />
                   </a>
-                  <a href={`${API_URL}/api/auth/telegram`} className="social-login-btn social-login-btn--telegram" aria-label="Telegram">
+                  <a
+                    href="#"
+                    className="social-login-btn social-login-btn--telegram"
+                    aria-label="Telegram"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      const origin = window.location.origin;
+                      const returnTo = `${origin}/login`;
+                      window.location.href =
+                        `https://oauth.telegram.org/auth` +
+                        `?bot_id=${TELEGRAM_BOT_ID}` +
+                        `&origin=${encodeURIComponent(origin)}` +
+                        `&return_to=${encodeURIComponent(returnTo)}`;
+                    }}
+                  >
                     <FaTelegram size={20} color="#26A5E4" />
                   </a>
                 </div>
