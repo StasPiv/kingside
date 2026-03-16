@@ -27,6 +27,12 @@ git pull origin main
 # 2. Сборка frontend (если не пропускается)
 if [ "$SKIP_BUILD" != "--skip-build" ]; then
     echo "[2/5] Сборка frontend..."
+    # Генерируем apps/web/.env из VITE_-переменных корневого .env
+    # (VITE_DEV_BYPASS_SECRET, VITE_API_URL и др. встраиваются в bundle)
+    if [ -f "$REPO_DIR/.env" ]; then
+        grep '^VITE_' "$REPO_DIR/.env" > "$REPO_DIR/apps/web/.env" || true
+        echo "  Создан apps/web/.env из VITE_-переменных корневого .env"
+    fi
     npm ci --workspace=apps/web
     npm run build --workspace=apps/web
 else

@@ -20,6 +20,15 @@ SKIP_FRONTEND_BUILD="${1:-}"
 # Продакшен URL — используется при сборке frontend
 PROD_API_URL="${VITE_API_URL:-https://chess-analyze.online}"
 
+# Загружаем VITE_* переменные из локального .env (VITE_DEV_BYPASS_SECRET и др.)
+# VITE_API_URL намеренно переопределяется ниже через PROD_API_URL
+if [ -f "$REPO_DIR/.env" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$REPO_DIR/.env"
+    set +a
+fi
+
 echo "=== Деплой Kingside (direct rsync) ==="
 echo "Локальный репозиторий: $REPO_DIR"
 echo "Сервер: $REMOTE_HOST:$REMOTE_DIR"
