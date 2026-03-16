@@ -115,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState((s) => ({ ...s, token: accessToken }));
   };
 
-  const loginWithTokens = (accessToken: string, refreshToken: string) => {
+  const loginWithTokens = useCallback((accessToken: string, refreshToken: string) => {
     console.log('[AuthContext] loginWithTokens called', {
       accessTokenPreview: accessToken.slice(0, 20) + '...',
       hasRefreshToken: !!refreshToken,
@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken, loading: true }));
-  };
+  }, []);
 
   const logout = () => {
     localStorage.removeItem('token');

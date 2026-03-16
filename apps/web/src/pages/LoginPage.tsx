@@ -62,6 +62,7 @@ export function LoginPage() {
       .post<TelegramAuthResponse>('/api/auth/telegram', telegramData)
       .then(({ accessToken, refreshToken, requiresUsernameSetup: needsSetup }) => {
         loginWithTokens(accessToken, refreshToken);
+        setTelegramData(null);
         if (needsSetup) {
           setRequiresUsernameSetup(true);
           setTelegramLoading(false);
