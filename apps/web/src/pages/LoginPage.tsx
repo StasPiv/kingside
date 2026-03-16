@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { TelegramAuthResponse } from '@kingside/shared';
-import { UsernameSetupModal } from '../components/UsernameSetupModal';
 
 interface TelegramUser {
   id: number;
@@ -23,13 +22,12 @@ export function LoginPage() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { loginWithTokens, refreshUser } = useAuth();
+  const { loginWithTokens } = useAuth();
   const oauthErrorFromState = (location.state as { oauthError?: string } | null)?.oauthError;
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [error, setError] = useState<string | null>(oauthErrorFromState ?? null);
   const [telegramData, setTelegramData] = useState<TelegramUser | null>(null);
-  const [requiresUsernameSetup, setRequiresUsernameSetup] = useState(false);
 
   useEffect(() => {
     if (loadingProvider) {
@@ -61,12 +59,18 @@ export function LoginPage() {
     api
       .post<TelegramAuthResponse>('/api/auth/telegram', telegramData)
       .then(({ accessToken, refreshToken, requiresUsernameSetup: needsSetup }) => {
-        loginWithTokens(accessToken, refreshToken);
         setTelegramData(null);
         if (needsSetup) {
-          setRequiresUsernameSetup(true);
-          setTelegramLoading(false);
+          // Redirect to OAuthCallbackPage which handles pending users correctly.
+          // LoginPage is wrapped in GuestRoute which unmounts it when loading=true,
+          // so any local state (requiresUsernameSetup) would be lost. OAuthCallbackPage
+          // is not wrapped in GuestRoute and survives the loading cycle.
+          navigate(
+            `/oauth/callback?accessToken=${encodeURIComponent(accessToken)}&refreshToken=${encodeURIComponent(refreshToken)}&requiresUsernameSetup=true`,
+            { replace: true },
+          );
         } else {
+          loginWithTokens(accessToken, refreshToken);
           navigate('/lobby', { replace: true });
         }
       })
@@ -81,11 +85,6 @@ export function LoginPage() {
     setLoadingProvider(provider);
   };
 
-  const handleUsernameSetupSuccess = async () => {
-    await refreshUser();
-    navigate('/lobby', { replace: true });
-  };
-
   const handleTelegramLogin = () => {
     const origin = window.location.origin;
     const returnTo = `${origin}/login`;
@@ -98,14 +97,6 @@ export function LoginPage() {
   };
 
   const isLoading = loadingProvider !== null || telegramLoading;
-
-  if (requiresUsernameSetup) {
-    return (
-      <div className="auth-page">
-        <UsernameSetupModal onSuccess={handleUsernameSetupSuccess} />
-      </div>
-    );
-  }
 
   return (
     <div className="auth-page">
