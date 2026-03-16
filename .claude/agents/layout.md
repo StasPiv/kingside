@@ -44,8 +44,15 @@ model: claude-sonnet-4-6
   4. Добавь комментарий: `LAYOUT: Задача выполнена. Скриншоты приложены. @visual-qa`
   5. **НЕ переводи задачу в Done** — это делает visual-qa агент
 
+## Dev-сервер из worktree
+Для проверки своих изменений запусти Vite из worktree на отдельном порту:
+```bash
+/home/pivovartsev/work/kingside/node_modules/.bin/vite apps/web --port 5174
+```
+Затем используй `http://localhost:5174` для Playwright. НЕ используй порт 5173 — там основной репозиторий.
+
 ## Playwright скриншоты
-- Для доступа к защищённым страницам без логина добавляй `?dev_bypass=secret` к URL: `http://localhost:5173/?dev_bypass=secret`
+- Для доступа к защищённым страницам без логина добавляй `?dev_bypass=secret` к URL: `http://localhost:5174/?dev_bypass=secret`
 - Пиши скрипт на JS и запускай через `node`:
 ```js
 const { chromium } = require('/home/pivovartsev/work/kingside/node_modules/playwright');
