@@ -97,6 +97,10 @@ agent_queues_lock = threading.Lock()
 queued_tasks: dict[str, str] = {}
 queued_tasks_lock = threading.Lock()
 
+# Работающие процессы агентов: key -> subprocess.Popen
+running_procs: dict[str, subprocess.Popen] = {}
+running_procs_lock = threading.Lock()
+
 
 def get_or_create_queue(agent: str) -> queue.Queue:
     with agent_queues_lock:
@@ -128,7 +132,7 @@ def _get_issue_details(key: str) -> dict:
     """Возвращает description и последние комментарии задачи."""
     if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
         return {}
-    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{key}?fields=description,comment,summary"
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{key}?fields=description,comment,summary,issuelinks"
     auth = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
     req = urllib.request.Request(url)
     req.add_header("Authorization", f"Basic {auth}")
@@ -151,7 +155,21 @@ def _get_issue_details(key: str) -> dict:
                 body = extract_text_from_adf(body)
             comments.append(f"{author}: {body}")
 
-        return {"description": description, "comments": comments}
+        # Связанные задачи
+        linked = []
+        for link in fields.get("issuelinks", []):
+            link_type = link.get("type", {}).get("outward", "")
+            related = link.get("outwardIssue") or link.get("inwardIssue")
+            if not related:
+                continue
+            if link.get("inwardIssue"):
+                link_type = link.get("type", {}).get("inward", "")
+            rkey = related.get("key", "")
+            rsummary = related.get("fields", {}).get("summary", "")
+            rstatus = related.get("fields", {}).get("status", {}).get("name", "")
+            linked.append(f"{rkey} ({rstatus}): {rsummary} [{link_type}]")
+
+        return {"description": description, "comments": comments, "linked": linked}
     except Exception as e:
         log(f"Ошибка получения деталей {key}: {e}")
         return {}
@@ -185,9 +203,8 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
         return
 
     log_file = os.path.join(LOG_DIR, "agents.log")
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with open(log_file, "a") as lf:
-        lf.write(f"\n[{ts}] === ЗАПУСК АГЕНТА: {agent.upper()} для {key} ===\n")
+        lf.write(json.dumps({"type": "agent_start", "agent": agent.upper(), "task": key}) + "\n")
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     worktree = setup_worktree(key)
@@ -200,6 +217,8 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
     ]
     with open(log_file, "a") as lf:
         proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=lf, stderr=lf)
+    with running_procs_lock:
+        running_procs[key] = proc
     log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
 
     # Ждём завершения, периодически проверяя статус задачи
@@ -221,6 +240,8 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
                     proc.wait()
                 break
 
+    with running_procs_lock:
+        running_procs.pop(key, None)
     log(f"Агент {agent} завершил {key} (код: {proc.returncode})")
     _cleanup_worktree(key)
 
@@ -388,6 +409,17 @@ def setup_worktree(key):
         log(f"Ошибка worktree для {key}: {result.stderr.strip()}")
         return PROJECT_DIR
     log(f"Worktree создан: {worktree_path} ({branch})")
+
+    # Симлинки на node_modules — без них агенты не могут запускать eslint/vitest/vite
+    for subdir in ["", "apps/web", "apps/api"]:
+        src = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
+        dst = os.path.join(worktree_path, subdir, "node_modules") if subdir else os.path.join(worktree_path, "node_modules")
+        if os.path.isdir(src) and not os.path.exists(dst):
+            if subdir:
+                os.makedirs(os.path.join(worktree_path, subdir), exist_ok=True)
+            os.symlink(src, dst)
+            log(f"Симлинк: {dst} -> {src}")
+
     return worktree_path
 
 
@@ -396,22 +428,25 @@ def launch_agent(key, summary, agent, prompt=None):
     if not prompt:
         role = agent.upper()
         prompt = (
-            f"Ты работаешь над задачей {key}: {summary}\n\n"
-            f"1. Сначала переведи задачу в статус 'In Progress' через MCP jira-personal\n"
+            f"Ты работаешь над задачей {key}: {summary}\n"
+            f"Общайся и думай на русском языке.\n"
+            f"Твоя рабочая директория: /home/pivovartsev/work/kingside/.worktrees/{key}\n"
+            f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
+            f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n\n"
+            f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
             f"2. Прочитай описание задачи из Jira\n"
             f"3. Выполни задачу\n"
             f"4. Коммитни изменения в ветку feature/{key}\n"
-            f"5. Смержи ветку в main: git checkout main && git merge feature/{key}\n"
+            f"5. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
             f"6. Добавь комментарий в Jira с результатом. Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
-            f"7. Переведи задачу в статус 'Done'"
+            f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
         )
 
     # Coordinator — запускаем напрямую в фоне, без очереди
     if agent == "coordinator":
         log_file = os.path.join(LOG_DIR, "agents.log")
-        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(log_file, "a") as lf:
-            lf.write(f"\n[{ts}] === ЗАПУСК АГЕНТА: COORDINATOR для {key} ===\n")
+            lf.write(json.dumps({"type": "agent_start", "agent": "COORDINATOR", "task": key}) + "\n")
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
         cmd = [
@@ -426,11 +461,21 @@ def launch_agent(key, summary, agent, prompt=None):
         log(f"Агент coordinator запущен для {key} (PID: {proc.pid})")
         return
 
-    # Coding-агенты — дедупликация и постановка в очередь
+    # Coding-агенты — если агент уже работает над задачей, убить и перезапустить
+    with running_procs_lock:
+        proc = running_procs.get(key)
+        if proc and proc.poll() is None:
+            log(f"Убиваем агента {key} (PID: {proc.pid}) — пришёл новый комментарий")
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            running_procs.pop(key, None)
+
     with queued_tasks_lock:
-        if key in queued_tasks:
-            log(f"Пропуск {key}: уже в очереди агента {queued_tasks[key]}")
-            return
+        queued_tasks.pop(key, None)
         queued_tasks[key] = agent
 
     q = get_or_create_queue(agent)
@@ -643,25 +688,42 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
             details = _get_issue_details(key)
             description = details.get("description", "")
+            comments_history = details.get("comments", [])
+            linked = details.get("linked", [])
+
             desc_block = f"\nОписание задачи:\n{description}\n" if description else ""
+            comments_block = ""
+            if comments_history:
+                comments_block = "\nИстория комментариев:\n" + "\n".join(comments_history) + "\n"
+            linked_block = ""
+            if linked:
+                linked_block = "\nСвязанные задачи:\n" + "\n".join(linked) + "\n"
+
+            context = f"{desc_block}{comments_block}{linked_block}"
 
             for agent in agents:
                 role = agent.upper()
                 if agent != "coordinator":
                     prompt = (
                         f"Задача {key}: {summary}\n"
-                        f"{desc_block}\n"
+                        f"Общайся и думай на русском языке.\n"
+                        f"Твоя рабочая директория: /home/pivovartsev/work/kingside/.worktrees/{key}\n"
+                        f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
+                        f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n"
+                        f"{context}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
-                        f"1. Переведи задачу в статус 'In Progress' через MCP jira-personal\n"
+                        f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
                         f"3. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
                         f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
-                        f"4. Переведи задачу в статус 'Done'"
+                        f"4. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
+                        f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
                     )
                 else:
                     prompt = (
                         f"Задача {key}: {summary}\n"
-                        f"{desc_block}\n"
+                        f"Общайся и думай на русском языке.\n"
+                        f"{context}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Прочитай комментарий и выполни то, что в нём написано\n"
                         f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
@@ -734,6 +796,13 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # Ротация лога агентов при старте
+    agents_log = os.path.join(LOG_DIR, "agents.log")
+    if os.path.exists(agents_log) and os.path.getsize(agents_log) > 0:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        os.rename(agents_log, os.path.join(LOG_DIR, f"agents_{ts}.log"))
+    open(agents_log, "a").close()
+
     # Запускаем Telegram polling в отдельном потоке (daemon — умрёт вместе с процессом)
     poll_thread = threading.Thread(target=telegram_poll_loop, daemon=True)
     poll_thread.start()
