@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -20,25 +20,13 @@ import { BroadcastTournamentPage } from './pages/BroadcastTournamentPage';
 import { BroadcastRoundPage } from './pages/BroadcastRoundPage';
 import { BroadcastGamePage } from './pages/BroadcastGamePage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
+import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
-
-const DEV_BYPASS_KEY = 'dev_bypass_active';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { t } = useTranslation();
   const location = useLocation();
-
-  const devSecret = import.meta.env.VITE_DEV_BYPASS_SECRET;
-  if (devSecret) {
-    const params = new URLSearchParams(location.search);
-    if (params.get('dev_bypass') === devSecret) {
-      sessionStorage.setItem(DEV_BYPASS_KEY, '1');
-    }
-    if (sessionStorage.getItem(DEV_BYPASS_KEY) === '1') {
-      return <>{children}</>;
-    }
-  }
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (!user) return <Navigate to="/login" state={{ returnUrl: location.pathname }} replace />;
@@ -54,12 +42,11 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  const [searchParams] = useSearchParams();
   const devSecret = import.meta.env.VITE_DEV_BYPASS_SECRET;
-  if (devSecret) {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('dev_bypass') === devSecret) {
-      sessionStorage.setItem(DEV_BYPASS_KEY, '1');
-    }
+
+  if (devSecret && searchParams.has('dev_bypass')) {
+    return <DevBypassPage secret={searchParams.get('dev_bypass') ?? ''} />;
   }
 
   return (
