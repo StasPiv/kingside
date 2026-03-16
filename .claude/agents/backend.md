@@ -15,6 +15,7 @@ model: claude-sonnet-4-6
 - WebSocket для реального времени
 
 ## Jira
+- ID переходов (не запрашивай, используй напрямую): `11` — To Do, `21` — In Progress, `31` — In Review, `41` — Done
 - Проект: **KS**, MCP: `jira-personal`
 - Твоя метка: `backend`
 - Ищи свои задачи по JQL: `project = KS AND labels = backend AND status != Done`
@@ -43,6 +44,7 @@ model: claude-sonnet-4-6
   - ESLint: `/home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/api/src`
   - Или: `npx --prefix /home/pivovartsev/work/kingside eslint apps/api/src`
   - ЗАПРЕЩЕНО пропускать проверку со словами "это проблема окружения". Найди способ запустить.
+- **`packages/shared`**: `dist/` в gitignore — не коммить, не отлаживать проблемы сборки dist. Если менял типы — пересобери В ОСНОВНОМ РЕПО: `npx --prefix /home/pivovartsev/work/kingside tsc --build packages/shared`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
