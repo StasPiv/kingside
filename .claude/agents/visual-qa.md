@@ -11,9 +11,8 @@ model: claude-sonnet-4-6
 - Проект: **KS**, MCP: `jira-personal`
 - Все комментарии ОБЯЗАТЕЛЬНО начинай с `VISUAL-QA: `
 
-## Учётные данные
-- URL: `https://chess-analyze.online`
-- Логин: `Stas`, пароль: `Stas1986`
+## Доступ к приложению
+- Для доступа к защищённым страницам без логина добавляй `?dev_bypass=secret` к URL: `http://localhost:5173/?dev_bypass=secret`
 
 ## Playwright
 - Бинарь: `/home/pivovartsev/work/kingside/node_modules/.bin/playwright`

@@ -51,10 +51,7 @@ model: claude-sonnet-4-6
   - Или через npx из worktree: `npx --prefix /home/pivovartsev/work/kingside eslint apps/web/src`
   - ЗАПРЕЩЕНО пропускать проверку линтером/компилятором со словами "это проблема окружения". Найди способ запустить.
   - ЗАПРЕЩЕНО игнорировать ошибки TypeScript/ESLint со словами "это не мои изменения" или "существующая проблема". Если ошибка есть — исправь её, даже если ты её не вносил.
-- **Учётные данные для Playwright** (https://chess-analyze.online):
-  - Логин: `Stas`, пароль: `Stas1986`
-- **Учётные данные для Playwright** (локальный сервер https://chess-analyze.online):
-  - Логин: `Stas`, пароль: `Stas1986`
+- **Playwright**: для доступа к защищённым страницам без логина добавляй `?dev_bypass=secret` к URL: `http://localhost:5173/?dev_bypass=secret`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
