@@ -36,8 +36,10 @@ export function LoginPage() {
   }, [loadingProvider]);
 
   // Handle tgAuthResult redirect from Telegram OAuth (COOP: same-origin blocks popup opener access)
+  // Telegram OAuth sends tgAuthResult as URL fragment (#tgAuthResult=...), not query string
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.slice(1); // remove leading '#'
+    const params = new URLSearchParams(hash);
     const tgAuthResult = params.get('tgAuthResult');
     if (!tgAuthResult) return;
     // Clean up URL immediately
