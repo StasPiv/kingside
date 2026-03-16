@@ -16,6 +16,7 @@ model User {
   passwordHash      String?  @map("password_hash")
   oauthProvider     String?  @map("oauth_provider")
   oauthProviderId   String?  @map("oauth_provider_id")
+  telegramId        String?  @unique @map("telegram_id")
   ratingBullet    Int      @default(1500) @map("rating_bullet")
   ratingBlitz     Int      @default(1500) @map("rating_blitz")
   ratingRapid     Int      @default(1500) @map("rating_rapid")

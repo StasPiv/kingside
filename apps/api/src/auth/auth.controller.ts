@@ -12,6 +12,7 @@ import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { TelegramAuthDto } from './dto/telegram-auth.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import {
   GoogleAuthGuard,
@@ -38,6 +39,11 @@ export class AuthController {
   @Post('refresh')
   refresh(@Body('refreshToken') refreshToken: string) {
     return this.authService.refresh(refreshToken);
+  }
+
+  @Post('telegram')
+  telegramAuth(@Body() dto: TelegramAuthDto) {
+    return this.authService.telegramAuth(dto);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -7,7 +7,9 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { I18nService } from 'nestjs-i18n';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { TelegramAuthDto } from './dto/telegram-auth.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { OAuthProfile } from './google.strategy';
@@ -113,6 +115,69 @@ export class AuthService {
       attempt++;
       candidate = `${base}_${attempt}`;
     }
+  }
+
+  async telegramAuth(dto: TelegramAuthDto) {
+    const botToken = this.configService.get<string>('TELEGRAM_BOT_TOKEN');
+    if (!botToken) {
+      throw new UnauthorizedException('Telegram auth not configured');
+    }
+
+    // Verify auth_date is not older than 24 hours
+    const now = Math.floor(Date.now() / 1000);
+    if (now - dto.auth_date > 86400) {
+      throw new UnauthorizedException('Telegram auth_date is expired');
+    }
+
+    // Build data_check_string: sorted key=value pairs (excluding hash)
+    const { hash, ...data } = dto;
+    const checkString = Object.keys(data)
+      .sort()
+      .map((key) => `${key}=${(data as Record<string, unknown>)[key]}`)
+      .join('\n');
+
+    // secret_key = SHA256(bot_token)
+    const secretKey = crypto.createHash('sha256').update(botToken).digest();
+    const expectedHash = crypto
+      .createHmac('sha256', secretKey)
+      .update(checkString)
+      .digest('hex');
+
+    if (expectedHash !== hash) {
+      throw new UnauthorizedException('Telegram hash verification failed');
+    }
+
+    const telegramId = String(dto.id);
+
+    // Find existing user by telegram_id
+    const existing = await this.prisma.user.findUnique({
+      where: { telegramId },
+    });
+
+    if (existing) {
+      await this.prisma.user.update({
+        where: { id: existing.id },
+        data: { lastSeenAt: new Date() },
+      });
+      return this.generateTokens(
+        existing.id,
+        existing.username,
+        existing.requiresUsernameSetup,
+      );
+    }
+
+    // Create new user — username set later via /users/set-username
+    const user = await this.prisma.user.create({
+      data: {
+        username: null,
+        requiresUsernameSetup: true,
+        email: null,
+        passwordHash: null,
+        telegramId,
+      },
+    });
+
+    return this.generateTokens(user.id, null, true);
   }
 
   async register(dto: RegisterDto) {
