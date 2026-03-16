@@ -54,6 +54,97 @@ describe('AuthService', () => {
     service = new AuthService(prisma, jwtService, configService, i18n);
   });
 
+  describe('findOrCreateOAuthUser', () => {
+    const cyrillicProfile = {
+      provider: 'facebook',
+      providerId: '123456789012345',
+      email: null,
+      displayName: 'Стас Пивоварцев',
+    };
+
+    const cyrillicProfileWithEmail = {
+      provider: 'facebook',
+      providerId: '123456789012345',
+      email: 'stas@example.com',
+      displayName: 'Стас Пивоварцев',
+    };
+
+    it('should not create username "user" for Cyrillic display name without email', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(cyrillicProfile);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).not.toBe('user');
+      expect(createdUsername).toMatch(/^[a-z0-9_]+$/);
+    });
+
+    it('should use providerId-based fallback for Cyrillic name without email', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(cyrillicProfile);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).toContain('user');
+      expect(createdUsername).toMatch(/^user\d+/);
+    });
+
+    it('should use email as fallback for Cyrillic display name when email is provided', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique
+        .mockResolvedValueOnce(null) // no user by email
+        .mockResolvedValue(null); // uniqueUsername check
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(cyrillicProfileWithEmail);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).toBe('stas');
+    });
+
+    it('should return existing user tokens without creating new user on repeated auth', async () => {
+      const existingUser = {
+        ...mockUser,
+        username: 'user1234567890',
+        oauthProvider: 'facebook',
+        oauthProviderId: '123456789012345',
+      };
+      prisma.user.findFirst.mockResolvedValue(existingUser);
+      prisma.user.update.mockResolvedValue(existingUser);
+
+      const result = await service.findOrCreateOAuthUser(cyrillicProfile);
+
+      expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(result.accessToken).toBe('mock-token');
+    });
+
+    it('should add numeric suffix when username already exists', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      // email is null so no findUnique by email; only uniqueUsername checks
+      prisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'other', username: 'user1234567890' }) // username taken
+        .mockResolvedValueOnce(null); // user1234567890_1 is free
+      prisma.user.create.mockImplementation(({ data }: { data: any }) =>
+        Promise.resolve({ ...mockUser, ...data }),
+      );
+
+      await service.findOrCreateOAuthUser(cyrillicProfile);
+
+      const createdUsername: string = prisma.user.create.mock.calls[0][0].data.username;
+      expect(createdUsername).toMatch(/_1$/);
+    });
+  });
+
   describe('register', () => {
     it('should register a new user and return tokens', async () => {
       prisma.user.findFirst.mockResolvedValue(null);

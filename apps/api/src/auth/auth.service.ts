@@ -56,7 +56,14 @@ export class AuthService {
     }
 
     // 3. Create new user
-    const baseUsername = this.sanitizeUsername(profile.displayName);
+    const sanitizedDisplay = this.sanitizeUsername(profile.displayName);
+    const sanitizedEmail = profile.email
+      ? this.sanitizeUsername(profile.email.split('@')[0])
+      : '';
+    const baseUsername =
+      sanitizedDisplay ||
+      sanitizedEmail ||
+      `user${profile.providerId.slice(0, 10)}`;
     const username = await this.uniqueUsername(baseUsername);
 
     const user = await this.prisma.user.create({
@@ -78,7 +85,7 @@ export class AuthService {
       .replace(/[^a-z0-9_]/g, '_')
       .replace(/_+/g, '_')
       .replace(/^_|_$/g, '')
-      .slice(0, 20) || 'user';
+      .slice(0, 20);
   }
 
   private async uniqueUsername(base: string): Promise<string> {
