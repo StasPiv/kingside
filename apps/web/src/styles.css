@@ -1851,6 +1851,10 @@ input:focus {
 .analysis-page .board-container {
   flex: 1;
   min-width: 0;
+  /* align-self: flex-start allows aspect-ratio:1 to work correctly;
+     without it align-items:stretch overrides aspect-ratio making the container
+     taller than wide, which causes gaps between board ranks */
+  align-self: flex-start;
 }
 
 .analysis-player-info {
