@@ -8,6 +8,7 @@ import { useStablePosition } from '../hooks/useStablePosition';
 import { useStockfish } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
 import { useContainerSize } from '../hooks/useContainerSize';
+import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
@@ -472,20 +473,34 @@ export function GameReviewPage() {
     [makeVariantMove],
   );
 
+  const handleFastDragDrop = useCallback(
+    ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
+      if (!targetSquare) return false;
+      return makeVariantMove(sourceSquare, targetSquare);
+    },
+    [makeVariantMove],
+  );
+
+  useFastDrag(boardContainerRef, {
+    onPieceDrop: handleFastDragDrop,
+    boardOrientation: 'white',
+    allowBothColors: true,
+    enabled: inputMode === 'drag',
+  });
+
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
       boardOrientation: 'white' as const,
       animationDurationInMs: 200,
-      allowDragging: inputMode !== 'click',
+      allowDragging: false,
       showNotation: true,
       squareStyles,
-      onPieceDrop: handlePieceDrop,
       onSquareClick: handleSquareClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardStyle, boardThemeOptions, squareStyles, handlePieceDrop, handleSquareClick, inputMode],
+    [stablePosition, boardStyle, boardThemeOptions, squareStyles, handleSquareClick, inputMode],
   );
 
   const isBlackTurn = currentFen.split(' ')[1] === 'b';

@@ -9,6 +9,8 @@ interface FastDragOptions {
   onPieceDrop: DropHandler;
   boardOrientation: 'white' | 'black';
   enabled?: boolean;
+  /** Allow dragging pieces of both colors (e.g. analysis mode) */
+  allowBothColors?: boolean;
   onPiecePickup?: (sourceSquare: string) => void;
   onPieceRelease?: () => void;
 }
@@ -81,10 +83,12 @@ export function useFastDrag(
       if (!sourceSquare) return;
 
       // Prevent dragging opponent's pieces: data-piece starts with 'w' or 'b'
-      const dataPiece = pieceEl.getAttribute('data-piece');
-      if (dataPiece) {
-        const pieceColor = dataPiece[0] === 'w' ? 'white' : 'black';
-        if (pieceColor !== optionsRef.current.boardOrientation) return;
+      if (!optionsRef.current.allowBothColors) {
+        const dataPiece = pieceEl.getAttribute('data-piece');
+        if (dataPiece) {
+          const pieceColor = dataPiece[0] === 'w' ? 'white' : 'black';
+          if (pieceColor !== optionsRef.current.boardOrientation) return;
+        }
       }
 
       // Find the board element (the grid container with id ending in '-board')
