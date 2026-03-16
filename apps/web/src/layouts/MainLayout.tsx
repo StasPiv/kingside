@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { FcGoogle } from 'react-icons/fc';
+import { FaFacebook, FaTelegram } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
   useEffect(() => {
@@ -17,18 +21,14 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () =
 export function MainLayout() {
   const { user, logout } = useAuth();
   const { t } = useTranslation();
-  const [trainOpen, setTrainOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const trainRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  useClickOutside(trainRef, () => setTrainOpen(false));
   useClickOutside(userMenuRef, () => setUserMenuOpen(false));
 
   const closeAll = () => {
-    setTrainOpen(false);
     setUserMenuOpen(false);
     setMobileMenuOpen(false);
   };
@@ -50,22 +50,6 @@ export function MainLayout() {
           </button>
 
           <div className={`nav-menu${mobileMenuOpen ? ' nav-menu--open' : ''}`}>
-            <div className="dropdown" ref={trainRef}>
-              <button
-                className="dropdown-toggle"
-                onClick={() => setTrainOpen(!trainOpen)}
-              >
-                {t('nav.train')} <span className="dropdown-arrow">&#9662;</span>
-              </button>
-              {trainOpen && (
-                <div className="dropdown-menu">
-                  <Link to="/puzzles" onClick={closeAll}>{t('nav.puzzles')}</Link>
-                  <Link to="/daily" onClick={closeAll}>{t('nav.dailyPuzzle')}</Link>
-                  <Link to="/puzzle-rush" onClick={closeAll}>{t('nav.puzzleRush')}</Link>
-                </div>
-              )}
-            </div>
-
             <div className="nav-links">
               {user ? (
                 <div className="dropdown" ref={userMenuRef}>
@@ -84,10 +68,17 @@ export function MainLayout() {
                   )}
                 </div>
               ) : (
-                <>
-                  <Link to="/login" onClick={closeAll}>{t('nav.login')}</Link>
-                  <Link to="/register" onClick={closeAll}>{t('nav.register')}</Link>
-                </>
+                <div className="social-login-buttons">
+                  <a href={`${API_URL}/api/auth/google`} className="social-login-btn social-login-btn--google" aria-label="Google">
+                    <FcGoogle size={20} />
+                  </a>
+                  <a href={`${API_URL}/api/auth/facebook`} className="social-login-btn social-login-btn--facebook" aria-label="Facebook">
+                    <FaFacebook size={20} color="#1877F2" />
+                  </a>
+                  <a href={`${API_URL}/api/auth/telegram`} className="social-login-btn social-login-btn--telegram" aria-label="Telegram">
+                    <FaTelegram size={20} color="#26A5E4" />
+                  </a>
+                </div>
               )}
             </div>
           </div>
