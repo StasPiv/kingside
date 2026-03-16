@@ -9,9 +9,10 @@ type CheckResponse = { available: boolean };
 
 type Props = {
   onSuccess: () => void;
+  accessToken?: string;
 };
 
-export function UsernameSetupModal({ onSuccess }: Props) {
+export function UsernameSetupModal({ onSuccess, accessToken }: Props) {
   const { t } = useTranslation();
   const { loginWithTokens } = useAuth();
   const [username, setUsername] = useState('');
@@ -64,9 +65,11 @@ export function UsernameSetupModal({ onSuccess }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
+      const authHeaders = accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined;
       const res = await api.post<{ accessToken?: string; refreshToken?: string }>(
         '/api/users/set-username',
         { username },
+        authHeaders,
       );
       if (res && res.accessToken && res.refreshToken) {
         loginWithTokens(res.accessToken, res.refreshToken);

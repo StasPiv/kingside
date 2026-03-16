@@ -89,7 +89,10 @@ export function OAuthCallbackPage() {
   if (requiresUsernameSetup) {
     return (
       <div className="auth-page">
-        <UsernameSetupModal onSuccess={handleUsernameSetupSuccess} />
+        <UsernameSetupModal
+          onSuccess={handleUsernameSetupSuccess}
+          accessToken={searchParams.get('accessToken') ?? undefined}
+        />
       </div>
     );
   }
