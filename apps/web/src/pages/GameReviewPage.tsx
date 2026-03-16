@@ -485,7 +485,7 @@ export function GameReviewPage() {
     onPieceDrop: handleFastDragDrop,
     boardOrientation: 'white',
     allowBothColors: true,
-    enabled: inputMode === 'drag',
+    enabled: !loading && inputMode === 'drag',
   });
 
   const boardOptions = useMemo(
