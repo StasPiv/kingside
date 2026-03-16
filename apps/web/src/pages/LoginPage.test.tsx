@@ -15,6 +15,12 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    loginWithTokens: vi.fn(),
+  }),
+}));
+
 beforeEach(() => {
   mockNavigate.mockReset();
   mockLocationState = null;

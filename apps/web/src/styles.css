@@ -314,6 +314,17 @@ input:focus {
   color: #fff;
 }
 
+.oauth-button--telegram {
+  background: #2aabee;
+  color: #fff;
+  cursor: default;
+}
+
+.telegram-widget-container {
+  display: flex;
+  justify-content: center;
+}
+
 .oauth-spinner {
   display: inline-block;
   width: 14px;
