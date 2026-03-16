@@ -80,11 +80,13 @@ const { chromium } = require('/home/pivovartsev/work/kingside/node_modules/playw
 - Ты работаешь в git worktree: `/home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - ЗАПРЕЩЕНО делать `cd /home/pivovartsev/work/kingside` — не переключай рабочую директорию на основной репозиторий. Обращаться к файлам основного репозитория по полному пути (например, для запуска бинарей из node_modules) — можно и нужно
 - **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
-- **node_modules находятся в основном репозитории** `/home/pivovartsev/work/kingside`, а не в worktree. Команды запускай из своего worktree — они найдут node_modules автоматически.
-- **Запуск инструментов качества в worktree** — используй полный путь к бинарям:
-  - ESLint: `/home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/web/src`
-  - TypeScript: `/home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit`
-  - ЗАПРЕЩЕНО пропускать проверку линтером/компилятором со словами "это проблема окружения". Найди способ запустить.
+- **Готовые команды (копируй как есть, НЕ ищи бинари самостоятельно)**:
+  ```bash
+  # ESLint
+  /home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/web/src
+  # TypeScript
+  /home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit
+  ```
 - **`packages/shared`**: `dist/` в gitignore — не коммить. Если меняешь типы в `packages/shared/types/`, пересобери: `npx --prefix /home/pivovartsev/work/kingside tsc --build packages/shared`. Коммить только исходники, не dist.
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
