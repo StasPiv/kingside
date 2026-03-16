@@ -3717,6 +3717,10 @@ input:focus {
     flex-shrink: 0;
   }
 
+  .board-container {
+    max-width: 100%;
+  }
+
   .game-sidebar {
     width: 100%;
     max-width: 480px;

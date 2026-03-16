@@ -9,6 +9,9 @@ const SIDEBAR_GAP = 24;
 const MIN_BOARD_SIZE = 240;
 const MAX_BOARD_SIZE = 640;
 const MOBILE_BREAKPOINT = 900;
+const BACK_LINK_HEIGHT = 30;
+const BOARD_AREA_GAP = 16; // 2 × 8px gaps between player-info and board
+const GAME_PAGE_GAP_MOBILE = 24; // gap between flex children in .game-page on mobile
 
 /**
  * Calculates board size based on available viewport space.
@@ -26,7 +29,8 @@ export function useResponsiveBoardSize(): number {
       const padding = isMobile ? PADDING_MOBILE : PADDING_DESKTOP;
       const sidebarW = isMobile ? 0 : SIDEBAR_WIDTH + SIDEBAR_GAP;
 
-      const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding;
+      const extraVertical = isMobile ? BACK_LINK_HEIGHT + BOARD_AREA_GAP + GAME_PAGE_GAP_MOBILE : 0;
+      const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
       const maxByWidth = vw - sidebarW - padding;
       const size = Math.min(maxByHeight, maxByWidth, MAX_BOARD_SIZE);
       setBoardSize(Math.max(size, MIN_BOARD_SIZE));
