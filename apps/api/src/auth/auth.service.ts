@@ -30,11 +30,34 @@ export class AuthService {
       },
     });
     if (byProvider) {
+      const sanitizedDisplay = this.sanitizeUsername(profile.displayName);
+      const sanitizedEmail = profile.email
+        ? this.sanitizeUsername(profile.email.split('@')[0])
+        : '';
+      const baseUsername =
+        sanitizedDisplay ||
+        sanitizedEmail ||
+        `user${profile.providerId.slice(0, 10)}`;
+
+      let finalUsername = byProvider.username;
+
+      if (byProvider.username !== baseUsername) {
+        const correctUsername = await this.uniqueUsername(baseUsername);
+        if (correctUsername !== byProvider.username) {
+          finalUsername = correctUsername;
+          await this.prisma.user.update({
+            where: { id: byProvider.id },
+            data: { username: correctUsername, lastSeenAt: new Date() },
+          });
+          return this.generateTokens(byProvider.id, finalUsername);
+        }
+      }
+
       await this.prisma.user.update({
         where: { id: byProvider.id },
         data: { lastSeenAt: new Date() },
       });
-      return this.generateTokens(byProvider.id, byProvider.username);
+      return this.generateTokens(byProvider.id, finalUsername);
     }
 
     // 2. Find by email (link accounts)

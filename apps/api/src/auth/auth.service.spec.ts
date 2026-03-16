@@ -128,6 +128,65 @@ describe('AuthService', () => {
       expect(result.accessToken).toBe('mock-token');
     });
 
+    it('should update username when existing user has incorrect username', async () => {
+      const existingUser = {
+        ...mockUser,
+        username: 'user',
+        oauthProvider: 'facebook',
+        oauthProviderId: '123456789012345',
+      };
+      prisma.user.findFirst.mockResolvedValue(existingUser);
+      prisma.user.update.mockResolvedValue({ ...existingUser, username: 'user1234567890' });
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await service.findOrCreateOAuthUser(cyrillicProfile);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: existingUser.id },
+        data: expect.objectContaining({ username: 'user1234567890' }),
+      });
+    });
+
+    it('should not update username when existing user already has correct username', async () => {
+      const existingUser = {
+        ...mockUser,
+        username: 'user1234567890',
+        oauthProvider: 'facebook',
+        oauthProviderId: '123456789012345',
+      };
+      prisma.user.findFirst.mockResolvedValue(existingUser);
+      prisma.user.update.mockResolvedValue(existingUser);
+
+      await service.findOrCreateOAuthUser(cyrillicProfile);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: existingUser.id },
+        data: expect.not.objectContaining({ username: expect.anything() }),
+      });
+    });
+
+    it('should add suffix to username when target username is taken during update', async () => {
+      const existingUserA = {
+        ...mockUser,
+        id: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
+        username: 'user',
+        oauthProvider: 'facebook',
+        oauthProviderId: '123456789012345',
+      };
+      prisma.user.findFirst.mockResolvedValue(existingUserA);
+      prisma.user.update.mockResolvedValue({ ...existingUserA, username: 'user1234567890_1' });
+      prisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'other', username: 'user1234567890' }) // taken
+        .mockResolvedValueOnce(null); // user1234567890_1 is free
+
+      await service.findOrCreateOAuthUser(cyrillicProfile);
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: existingUserA.id },
+        data: expect.objectContaining({ username: 'user1234567890_1' }),
+      });
+    });
+
     it('should add numeric suffix when username already exists', async () => {
       prisma.user.findFirst.mockResolvedValue(null);
       // email is null so no findUnique by email; only uniqueUsername checks
