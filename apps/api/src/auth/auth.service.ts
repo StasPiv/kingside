@@ -65,19 +65,8 @@ export class AuthService {
       }
     }
 
-    // 3. Create new user — username set later via /users/set-username
-    const user = await this.prisma.user.create({
-      data: {
-        username: null,
-        requiresUsernameSetup: true,
-        email: profile.email ?? null,
-        passwordHash: null,
-        oauthProvider: profile.provider,
-        oauthProviderId: profile.providerId,
-      },
-    });
-
-    return this.generateTokens(user.id, null, true);
+    // 3. New user — wait for username setup (same as Telegram pending flow)
+    return this.generatePendingOAuthTokens(profile);
   }
 
   private buildBaseUsername(profile: OAuthProfile): string {
@@ -261,6 +250,18 @@ export class AuthService {
       },
     });
     return user;
+  }
+
+  private generatePendingOAuthTokens(profile: OAuthProfile) {
+    const sub = `pending:${profile.provider}:${profile.providerId}`;
+    const payload = { sub, username: null, requiresUsernameSetup: true };
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: this.configService.get('JWT_EXPIRES_IN', '15m'),
+    });
+    const refreshToken = this.jwtService.sign(payload, {
+      expiresIn: this.configService.get('JWT_REFRESH_EXPIRES_IN', '7d'),
+    });
+    return { accessToken, refreshToken, requiresUsernameSetup: true as const };
   }
 
   private generatePendingTelegramTokens(telegramId: string) {

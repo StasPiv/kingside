@@ -50,17 +50,38 @@ export class UserService {
       throw new ConflictException('Username already taken');
     }
 
-    // Pending Telegram user — create new user in DB
+    // Pending user — create new user in DB
     if (userId.startsWith('pending:')) {
-      const telegramId = userId.slice('pending:'.length);
-      const user = await this.prisma.user.create({
-        data: {
+      const withoutPrefix = userId.slice('pending:'.length);
+      const colonIndex = withoutPrefix.indexOf(':');
+
+      let createData: Record<string, unknown>;
+      if (colonIndex === -1) {
+        // Telegram: pending:telegramId
+        createData = {
           username,
           requiresUsernameSetup: false,
-          telegramId,
+          telegramId: withoutPrefix,
           email: null,
           passwordHash: null,
-        },
+        };
+      } else {
+        // OAuth: pending:provider:providerId
+        const oauthProvider = withoutPrefix.slice(0, colonIndex);
+        const oauthProviderId = withoutPrefix.slice(colonIndex + 1);
+        createData = {
+          username,
+          requiresUsernameSetup: false,
+          oauthProvider,
+          oauthProviderId,
+          email: null,
+          passwordHash: null,
+        };
+      }
+
+      const user = await this.prisma.user.create({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        data: createData as any,
         select: {
           id: true,
           username: true,
