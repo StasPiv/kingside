@@ -1799,6 +1799,8 @@ input:focus {
   gap: 0;
   align-items: stretch;
   overflow: hidden;
+  flex: 0 0 55%;
+  min-width: 0;
 }
 
 .eval-bar-container {
@@ -1894,31 +1896,9 @@ input:focus {
   background: #1e2d50;
 }
 
-/* Horizontal resizer between board area and sidebar */
-.analysis-h-resizer {
-  width: 8px;
-  flex-shrink: 0;
-  align-self: stretch;
-  cursor: col-resize;
-  background: transparent;
-  position: relative;
-  z-index: 1;
-}
-
-.analysis-h-resizer::after {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: #1e2d50;
-  border-radius: 1px;
-  transition: background 0.15s;
-}
-
-.analysis-h-resizer:hover::after {
-  background: #7c83ff;
+/* Gap between board area and sidebar */
+.analysis-page {
+  gap: 8px;
 }
 
 /* Vertical resizer within sidebar (between engine panel and moves) */
@@ -3932,10 +3912,6 @@ input:focus {
     align-items: center;
   }
 
-  .analysis-h-resizer {
-    display: none;
-  }
-
   .analysis-sidebar,
   .puzzle-sidebar {
     width: 100% !important;
@@ -3943,6 +3919,7 @@ input:focus {
   }
 
   .analysis-board-area {
+    flex: none;
     width: auto !important;
     max-width: 100%;
     overflow-x: hidden;

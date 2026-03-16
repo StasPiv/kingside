@@ -232,60 +232,7 @@ export function GameReviewPage() {
     return () => window.removeEventListener('resize', update);
   }, [loading, panelStates.moves]);
 
-  // Resizable layout: horizontal split between board area and sidebar
   const analysisPageRef = useRef<HTMLDivElement>(null);
-  const [boardAreaPx, setBoardAreaPx] = useState(() => {
-    const saved = localStorage.getItem('analysis-layout-boardAreaPx');
-    if (saved !== null) {
-      const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed) && parsed > 0) return parsed;
-    }
-    return Math.floor((window.innerWidth - 8) * 0.55);
-  });
-
-  useLayoutEffect(() => {
-    if (loading) return;
-    if (!analysisPageRef.current) return;
-    const total = analysisPageRef.current.clientWidth;
-    if (total === 0) return;
-    const saved = localStorage.getItem('analysis-layout-boardAreaPx');
-    if (saved === null) {
-      setBoardAreaPx(Math.floor((total - 8) * 0.55));
-    } else {
-      // Constrain saved value to current screen size
-      const max = total - 320;
-      const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed) && parsed > max) {
-        setBoardAreaPx(Math.max(200, max));
-      }
-    }
-  }, [loading]);
-
-  const handleHResizerMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const startX = e.clientX;
-      const startBoardPx = boardAreaPx;
-      document.body.style.userSelect = 'none';
-      let lastValue = startBoardPx;
-      const onMouseMove = (ev: MouseEvent) => {
-        const total = analysisPageRef.current?.clientWidth ?? 900;
-        const delta = ev.clientX - startX;
-        const next = Math.max(200, Math.min(total - 320, startBoardPx + delta));
-        lastValue = next;
-        setBoardAreaPx(next);
-      };
-      const onMouseUp = () => {
-        document.body.style.userSelect = '';
-        localStorage.setItem('analysis-layout-boardAreaPx', String(lastValue));
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
-      };
-      document.addEventListener('mousemove', onMouseMove);
-      document.addEventListener('mouseup', onMouseUp);
-    },
-    [boardAreaPx],
-  );
 
   const wasmSupported = typeof WebAssembly !== 'undefined';
   const isTouchDevice =
@@ -603,10 +550,7 @@ export function GameReviewPage() {
 
   return (
     <div className="analysis-page" ref={analysisPageRef}>
-      <div
-        className="analysis-board-area"
-        style={boardAreaPx > 0 ? { width: boardAreaPx, flexShrink: 0 } : undefined}
-      >
+      <div className="analysis-board-area">
         {!gameId && (
           <>
           <div className="analysis-workshop-shortcut">
@@ -722,8 +666,6 @@ export function GameReviewPage() {
           </div>
         </div>
       </div>
-
-      <div className="analysis-h-resizer" onMouseDown={handleHResizerMouseDown} />
 
       <div className="analysis-sidebar">
         {/* Game Information panel — only when game data is present */}
