@@ -500,7 +500,7 @@ export function GameReviewPage() {
   if (gameId && !gameData) return null;
 
   const resultPgn = gameData
-    ? gameData.result === 'draw' ? '½–½' : gameData.result === 'white_wins' ? '1–0' : '0–1'
+    ? gameData.result === 'draw' ? '½–½' : gameData.result === 'white' ? '1–0' : '0–1'
     : undefined;
 
   const openingName = classifyOpening(history.map((m) => m.san));

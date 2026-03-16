@@ -33,7 +33,7 @@ const mockGameData = {
   id: 'game-1',
   white: { id: 'w1', username: 'WhitePlayer' },
   black: { id: 'b1', username: 'BlackPlayer' },
-  result: 'white_wins',
+  result: 'white',
   timeControl: '10+0',
   status: 'completed',
 };

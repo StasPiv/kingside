@@ -495,7 +495,7 @@ export function GamePage() {
         {status === 'finished' && result && (
           <div className="game-result">
             <h3>{t('game.finished')}</h3>
-            <p>{result === 'draw' ? t('game.draw') : result === 'white_wins' ? t('game.whiteWins') : t('game.blackWins')}</p>
+            <p>{result === 'draw' ? t('game.draw') : result === 'white' ? t('game.whiteWins') : t('game.blackWins')}</p>
             {ratingChange && (
               <div className="game-result-rating">
                 <span className="rating-before">{playerRatingBefore}</span>
@@ -542,19 +542,19 @@ export function GamePage() {
         <div className="game-result-modal-overlay" onClick={() => setShowResultModal(false)}>
           <div className="game-result-modal" onClick={(e) => e.stopPropagation()}>
             <div className={`result-modal-header ${
-              result === 'draw' ? 'draw' : (result === 'white_wins' && playerColor === 'white') || (result === 'black_wins' && playerColor === 'black') ? 'win' : 'loss'
+              result === 'draw' ? 'draw' : (result === 'white' && playerColor === 'white') || (result === 'black' && playerColor === 'black') ? 'win' : 'loss'
             }`}>
               <h2>
                 {result === 'draw'
                   ? t('game.draw')
-                  : (result === 'white_wins' && playerColor === 'white') || (result === 'black_wins' && playerColor === 'black')
+                  : (result === 'white' && playerColor === 'white') || (result === 'black' && playerColor === 'black')
                     ? t('gameResult.victory')
                     : t('gameResult.defeat')}
               </h2>
             </div>
             <div className="result-modal-body">
               <p className="result-modal-detail">
-                {result === 'draw' ? t('game.draw') : result === 'white_wins' ? t('game.whiteWins') : t('game.blackWins')}
+                {result === 'draw' ? t('game.draw') : result === 'white' ? t('game.whiteWins') : t('game.blackWins')}
               </p>
               {ratingChange && (
                 <div className="result-modal-rating">

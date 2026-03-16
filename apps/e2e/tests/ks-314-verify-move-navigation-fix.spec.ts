@@ -16,7 +16,7 @@ const mockGame = {
   id: GAME_ID,
   white: { id: 'w1', username: 'Player1' },
   black: { id: 'b1', username: 'Player2' },
-  result: 'white_wins',
+  result: 'white',
   timeControl: '10+0',
   status: 'finished',
 };

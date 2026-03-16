@@ -2,7 +2,7 @@ export type PieceColor = 'white' | 'black';
 
 export type GameStatus = 'waiting' | 'active' | 'finished';
 
-export type GameResult = 'white_wins' | 'black_wins' | 'draw';
+export type GameResult = 'white' | 'black' | 'draw';
 
 export type TimeControl = {
   initialTime: number;
