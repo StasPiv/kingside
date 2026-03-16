@@ -9,6 +9,7 @@ import { useStockfish } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
 import { useContainerSize } from '../hooks/useContainerSize';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { api } from '../api';
 import { useReviewState } from '../review/useReviewState';
@@ -151,6 +152,7 @@ export function GameReviewPage() {
   const containerSize = useContainerSize(boardContainerRef);
   const boardWidth = Math.min(containerSize.width, containerSize.height);
   const { boardThemeOptions } = useBoardTheme();
+  const { inputMode } = useBoardSettings();
 
   const {
     history,
@@ -481,10 +483,16 @@ export function GameReviewPage() {
     [boardWidth],
   );
 
-  const { squareStyles, setLastMove } = useBoardHighlights({
+  const onClickMove = useCallback(
+    (from: Square, to: Square): boolean => makeVariantMove(from, to),
+    [makeVariantMove],
+  );
+
+  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
     game,
     playerColor: null,
-    enabled: false,
+    enabled: inputMode === 'click',
+    onMove: inputMode === 'click' ? onClickMove : undefined,
   });
 
   // Highlight last move on board
@@ -495,6 +503,11 @@ export function GameReviewPage() {
       setLastMove(from, to);
     }
   }, [currentMove, setLastMove]);
+
+  const handleSquareClick = useCallback(
+    ({ square }: { piece?: unknown; square: string }) => onSquareClick(square as Square),
+    [onSquareClick],
+  );
 
   // Handle piece drop — insert move or variation
   const handlePieceDrop = useCallback(
@@ -517,14 +530,15 @@ export function GameReviewPage() {
       position: stablePosition,
       boardOrientation: 'white' as const,
       animationDurationInMs: 200,
-      allowDragging: true,
+      allowDragging: inputMode !== 'click',
       showNotation: true,
       squareStyles,
       onPieceDrop: handlePieceDrop,
+      onSquareClick: handleSquareClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardStyle, boardThemeOptions, squareStyles, handlePieceDrop],
+    [stablePosition, boardStyle, boardThemeOptions, squareStyles, handlePieceDrop, handleSquareClick, inputMode],
   );
 
   const isBlackTurn = currentFen.split(' ')[1] === 'b';
