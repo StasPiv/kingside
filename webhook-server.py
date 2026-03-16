@@ -400,7 +400,7 @@ def setup_worktree(key):
     if os.path.isdir(worktree_path):
         return worktree_path
     os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
-    subprocess.run(["git", "branch", branch], cwd=PROJECT_DIR, capture_output=True)
+    subprocess.run(["git", "branch", "-f", branch, "main"], cwd=PROJECT_DIR, capture_output=True)
     result = subprocess.run(
         ["git", "worktree", "add", worktree_path, branch],
         cwd=PROJECT_DIR, capture_output=True, text=True,
