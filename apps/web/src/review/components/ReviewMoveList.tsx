@@ -223,7 +223,7 @@ export function ReviewMoveList({
       {contextMenu.visible && contextMenu.move && (
         <div
           className="review-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+          style={{ top: contextMenu.y, left: contextMenu.x, transform: 'translateY(-100%)' }}
           onClick={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
