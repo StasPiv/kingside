@@ -678,7 +678,7 @@ export function GameReviewPage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 0, alignItems: 'stretch', flex: 1, minHeight: 0 }}>
+          <div style={{ display: 'flex', gap: 0 }}>
             <div className="eval-bar-container">
               <div className="eval-bar">
                 <div
