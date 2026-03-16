@@ -1087,7 +1087,7 @@ input:focus {
   gap: 8px;
   contain: layout style;
   flex: 1;
-  min-width: 0;
+  min-width: 240px;
   overflow: hidden;
 }
 
@@ -1193,7 +1193,7 @@ input:focus {
   min-width: 200px;
   flex-shrink: 0;
   overflow: hidden;
-  height: 100%;
+  height: auto;
   min-height: 0;
 }
 
@@ -2629,7 +2629,6 @@ input:focus {
 .back-nav-link {
   display: block;
   width: 100%;
-  margin-bottom: -12px;
   color: #7c83ff;
   font-size: 14px;
   text-decoration: none;

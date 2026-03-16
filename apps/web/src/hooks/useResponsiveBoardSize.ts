@@ -29,7 +29,9 @@ export function useResponsiveBoardSize(): number {
       const padding = isMobile ? PADDING_MOBILE : PADDING_DESKTOP;
       const sidebarW = isMobile ? 0 : SIDEBAR_WIDTH + SIDEBAR_GAP;
 
-      const extraVertical = isMobile ? BACK_LINK_HEIGHT + BOARD_AREA_GAP + GAME_PAGE_GAP_MOBILE : 0;
+      const extraVertical = isMobile
+        ? BACK_LINK_HEIGHT + BOARD_AREA_GAP + GAME_PAGE_GAP_MOBILE
+        : BACK_LINK_HEIGHT + BOARD_AREA_GAP;
       const maxByHeight = vh - HEADER_HEIGHT - CLOCKS_HEIGHT - padding - extraVertical;
       const maxByWidth = vw - sidebarW - padding;
       const size = Math.min(maxByHeight, maxByWidth, MAX_BOARD_SIZE);
