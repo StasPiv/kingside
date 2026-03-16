@@ -54,6 +54,14 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
 }
 
 export function App() {
+  const devSecret = import.meta.env.VITE_DEV_BYPASS_SECRET;
+  if (devSecret) {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('dev_bypass') === devSecret) {
+      sessionStorage.setItem(DEV_BYPASS_KEY, '1');
+    }
+  }
+
   return (
     <Routes>
       <Route element={<MainLayout />}>
