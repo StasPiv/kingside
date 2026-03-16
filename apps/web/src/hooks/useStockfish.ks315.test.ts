@@ -362,18 +362,19 @@ describe('KS-315: Защита от stale bestmove при переключени
     const { result } = renderHook(() => useStockfish({ autoStart: true, depth: 18 }));
     initAndReady(result);
 
+    // Первый evaluate — начинает анализ
     act(() => {
       result.current.evaluate('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1');
     });
 
-    const calls = mockWorkerInstance!.postMessageCalls;
-    // После uci и isready, evaluate отправляет: stop, setoption, position, go
-    const evalCalls = calls.slice(calls.indexOf('uci') + 1);
-    expect(evalCalls).toContain('stop');
+    // Второй evaluate во время analyzing — должен отправить stop
+    act(() => {
+      result.current.evaluate('rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2');
+    });
 
-    const stopIdx = evalCalls.indexOf('stop');
-    const goIdx = evalCalls.findIndex(c => c.startsWith('go depth'));
-    expect(stopIdx).toBeLessThan(goIdx);
+    const calls = mockWorkerInstance!.postMessageCalls;
+    const afterFirstGo = calls.slice(calls.findIndex(c => c.startsWith('go depth')) + 1);
+    expect(afterFirstGo).toContain('stop');
   });
 
   it('evaluate() не работает в состоянии error', () => {

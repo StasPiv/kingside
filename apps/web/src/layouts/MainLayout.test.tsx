@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders, screen } from '../test/test-utils';
+import { act } from '@testing-library/react';
 import { MainLayout } from './MainLayout';
 
 const mockUseAuth = vi.fn();
@@ -31,6 +32,11 @@ describe('KS-329: навигация Puzzle Rush', () => {
 
   it('навигация содержит ссылку на /puzzle-rush', () => {
     renderWithProviders(<MainLayout />, { route: '/lobby' });
+
+    // Открываем dropdown Train
+    act(() => {
+      screen.getByText('Train').click();
+    });
 
     const link = screen.getByText('Puzzle Rush');
     expect(link).toBeInTheDocument();

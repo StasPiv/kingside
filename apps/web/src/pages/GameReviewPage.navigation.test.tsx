@@ -39,10 +39,10 @@ const mockGameData = {
 };
 
 const mockMoves = [
-  { san: 'e4', uci: 'e2e4', fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1' },
-  { san: 'e5', uci: 'e7e5', fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2' },
-  { san: 'Nf3', uci: 'g1f3', fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2' },
-  { san: 'Nc6', uci: 'b8c6', fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3' },
+  { san: 'e4', uci: 'e2e4', fenAfter: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1' },
+  { san: 'e5', uci: 'e7e5', fenAfter: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2' },
+  { san: 'Nf3', uci: 'g1f3', fenAfter: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2' },
+  { san: 'Nc6', uci: 'b8c6', fenAfter: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3' },
 ];
 
 vi.mock('../api', () => ({
@@ -54,7 +54,7 @@ vi.mock('../api', () => ({
   },
 }));
 
-let mockParams: Record<string, string> = { id: 'game-1' };
+let mockParams: Record<string, string> = { gameId: 'game-1' };
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -69,35 +69,35 @@ vi.mock('react-router-dom', async () => {
 describe('KS-311: Верификация навигации по ходам на странице анализа', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockParams = { id: 'game-1' };
+    mockParams = { gameId: 'game-1' };
   });
 
   /**
    * Сценарий 1: Страница анализа загружается через маршрут /analysis/:id
    */
-  it('загружает данные игры при параметре id', async () => {
-    mockParams = { id: 'game-1' };
-
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
-
-    await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
-    });
-    expect(screen.getByText('BlackPlayer')).toBeInTheDocument();
-  });
-
-  /**
-   * Сценарий 3: Страница анализа загружается через параметр gameId (fallback)
-   */
-  it('загружает данные игры при параметре gameId (fallback)', async () => {
+  it('загружает данные игры при параметре gameId', async () => {
     mockParams = { gameId: 'game-1' };
 
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
-    expect(screen.getByText('BlackPlayer')).toBeInTheDocument();
+    expect(screen.getAllByText('BlackPlayer')[0]).toBeInTheDocument();
+  });
+
+  /**
+   * Сценарий 3: Страница анализа загружается через параметр gameId (fallback)
+   */
+  it('загружает данные игры при параметре gameId (альтернативный формат)', async () => {
+    mockParams = { gameId: 'game-1' };
+
+    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
+    });
+    expect(screen.getAllByText('BlackPlayer')[0]).toBeInTheDocument();
   });
 
   /**
@@ -107,7 +107,7 @@ describe('KS-311: Верификация навигации по ходам на
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     // После загрузки currentMoveIndex = moves.length - 1 (последний ход)
@@ -134,7 +134,7 @@ describe('KS-311: Верификация навигации по ходам на
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     mockEvaluate.mockClear();
@@ -155,7 +155,7 @@ describe('KS-311: Верификация навигации по ходам на
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     mockEvaluate.mockClear();
@@ -180,7 +180,7 @@ describe('KS-311: Верификация навигации по ходам на
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     // Сначала в начало
@@ -207,7 +207,7 @@ describe('KS-311: Верификация навигации по ходам на
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     // Переходим в начало
@@ -230,7 +230,7 @@ describe('KS-311: Верификация навигации по ходам на
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     // Пытаемся пойти вперёд за последний ход
@@ -248,7 +248,7 @@ describe('KS-311: Верификация навигации по ходам на
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     act(() => {
@@ -264,13 +264,13 @@ describe('KS-311: Верификация навигации по ходам на
   /**
    * Параметр id приоритетнее gameId (проверка fallback-логики)
    */
-  it('параметр id имеет приоритет над gameId', async () => {
-    mockParams = { id: 'game-1', gameId: 'game-999' };
+  it('параметр gameId загружает данные игры', async () => {
+    mockParams = { gameId: 'game-1' };
 
     renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
   });
 });

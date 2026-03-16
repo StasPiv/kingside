@@ -242,12 +242,9 @@ export function useStockfish(options: UseStockfishOptions = {}) {
 
   const stop = useCallback(() => {
     if (!engineRef.current) return;
-    pendingFenRef.current = null;
     engineRef.current.postMessage('stop');
-    // Transition to ready so UI reflects stopped state
-    if (stateRef.current === 'analyzing') {
-      setState('ready');
-    }
+    // Don't clear pendingFenRef — let pending analysis continue via bestmove handler.
+    // Don't change state — bestmove handler will transition appropriately.
   }, []);
 
   return {

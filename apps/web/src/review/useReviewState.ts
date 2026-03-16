@@ -116,8 +116,10 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         const first = state.history[0] ?? null;
         return { ...state, currentMove: first };
       }
-      const next = state.currentMove.next ?? null;
-      return { ...state, currentMove: next };
+      if (!state.currentMove.next) {
+        return state; // Already at the end — do nothing
+      }
+      return { ...state, currentMove: state.currentMove.next };
     }
     case 'GOTO_LAST': {
       let curr: ChessMove | null = state.currentMove;

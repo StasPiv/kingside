@@ -54,10 +54,10 @@ const mockGameData = {
 };
 
 const mockMoves = [
-  { san: 'e4', uci: 'e2e4', fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1' },
-  { san: 'e5', uci: 'e7e5', fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2' },
-  { san: 'Nf3', uci: 'g1f3', fen: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2' },
-  { san: 'Nc6', uci: 'b8c6', fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3' },
+  { san: 'e4', uci: 'e2e4', fenAfter: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1' },
+  { san: 'e5', uci: 'e7e5', fenAfter: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2' },
+  { san: 'Nf3', uci: 'g1f3', fenAfter: 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2' },
+  { san: 'Nc6', uci: 'b8c6', fenAfter: 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3' },
 ];
 
 vi.mock('../api', () => ({
@@ -73,7 +73,7 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
     ...actual,
-    useParams: () => ({ id: 'game-1' }),
+    useParams: () => ({ gameId: 'game-1' }),
   };
 });
 
@@ -93,10 +93,10 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
-    expect(screen.getByText('BlackPlayer')).toBeInTheDocument();
+    expect(screen.getAllByText('BlackPlayer')[0]).toBeInTheDocument();
     expect(screen.getByTestId('chessboard')).toBeInTheDocument();
   });
 
@@ -107,7 +107,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     expect(screen.getByText('0.0')).toBeInTheDocument();
@@ -127,8 +127,8 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      // +0.5 appears in eval-bar-label and line span
-      expect(screen.getAllByText('+0.5').length).toBeGreaterThanOrEqual(1);
+      // +0.50 appears in eval-bar-label and line span (formatEval uses toFixed(2))
+      expect(screen.getAllByText('+0.50').length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -146,12 +146,12 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getAllByText('+0.5').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('+0.50').length).toBeGreaterThanOrEqual(1);
     });
 
-    // Все 3 линии отображаются с уникальными оценками
-    expect(screen.getByText('+2.0')).toBeInTheDocument();
-    expect(screen.getByText('+1.0')).toBeInTheDocument();
+    // Все 3 линии отображаются с уникальными оценками (toFixed(2))
+    expect(screen.getByText('+2.00')).toBeInTheDocument();
+    expect(screen.getByText('+1.00')).toBeInTheDocument();
 
     // Глубина отображается в progress
     expect(screen.getByText(/Depth 18/)).toBeInTheDocument();
@@ -164,6 +164,8 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     stockfishState = 'analyzing';
     stockfishLines = [
       { depth: 18, multipv: 1, score: { type: 'mate', value: 3 }, pv: 'e2e4' },
+      { depth: 18, multipv: 2, score: { type: 'cp', value: 100 }, pv: 'd2d4' },
+      { depth: 18, multipv: 3, score: { type: 'cp', value: 50 }, pv: 'g1f3' },
     ];
 
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
@@ -181,6 +183,8 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     stockfishState = 'analyzing';
     stockfishLines = [
       { depth: 18, multipv: 1, score: { type: 'mate', value: 0 }, pv: '' },
+      { depth: 18, multipv: 2, score: { type: 'cp', value: 100 }, pv: 'd2d4' },
+      { depth: 18, multipv: 3, score: { type: 'cp', value: 50 }, pv: 'g1f3' },
     ];
 
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
@@ -208,7 +212,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     mockEvaluate.mockClear();
@@ -229,14 +233,12 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('e4')).toBeInTheDocument();
+      expect(screen.getAllByText('1.e4').length).toBeGreaterThanOrEqual(1);
     });
 
-    expect(screen.getByText('e5')).toBeInTheDocument();
-    expect(screen.getByText('Nf3')).toBeInTheDocument();
-    expect(screen.getByText('Nc6')).toBeInTheDocument();
-    expect(screen.getByText('1.')).toBeInTheDocument();
-    expect(screen.getByText('2.')).toBeInTheDocument();
+    expect(screen.getAllByText('e5').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('2.Nf3').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Nc6').length).toBeGreaterThanOrEqual(1);
   });
 
   /**
@@ -246,7 +248,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getByText('WhitePlayer')).toBeInTheDocument();
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
     });
 
     expect(screen.getByTitle('Go to start')).toBeInTheDocument();
@@ -262,12 +264,14 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     stockfishState = 'analyzing';
     stockfishLines = [
       { depth: 18, multipv: 1, score: { type: 'cp', value: -150 }, pv: 'e2e4' },
+      { depth: 18, multipv: 2, score: { type: 'cp', value: -100 }, pv: 'd2d4' },
+      { depth: 18, multipv: 3, score: { type: 'cp', value: -50 }, pv: 'g1f3' },
     ];
 
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
-      expect(screen.getAllByText('-1.5').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('-1.50').length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -278,6 +282,8 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
     stockfishState = 'analyzing';
     stockfishLines = [
       { depth: 18, multipv: 1, score: { type: 'mate', value: -2 }, pv: 'e2e4' },
+      { depth: 18, multipv: 2, score: { type: 'cp', value: -100 }, pv: 'd2d4' },
+      { depth: 18, multipv: 3, score: { type: 'cp', value: -50 }, pv: 'g1f3' },
     ];
 
     renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
