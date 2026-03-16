@@ -221,6 +221,7 @@
     "oauth": {
       "google": "Continue with Google",
       "facebook": "Continue with Facebook",
+      "telegram": "Continue with Telegram",
       "error": "Authorization failed. Please try again.",
       "connecting": "Connecting..."
     },

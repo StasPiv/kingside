@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
@@ -17,11 +17,14 @@ interface TelegramUser {
 
 declare global {
   interface Window {
-    onTelegramAuth: (user: TelegramUser) => void;
+    TelegramLoginWidget: {
+      dataOnauth: (user: TelegramUser) => void;
+    };
   }
 }
 
-const TELEGRAM_BOT_USERNAME = import.meta.env.VITE_TELEGRAM_BOT_USERNAME ?? 'kingside1_bot';
+// Numeric bot ID (part before colon in bot token) — safe to expose in frontend
+const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
 
 export function LoginPage() {
   const { t } = useTranslation();
@@ -33,7 +36,6 @@ export function LoginPage() {
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [error, setError] = useState<string | null>(oauthErrorFromState ?? null);
   const [telegramData, setTelegramData] = useState<TelegramUser | null>(null);
-  const telegramRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (loadingProvider) {
@@ -41,34 +43,19 @@ export function LoginPage() {
     }
   }, [loadingProvider]);
 
-  // Register global Telegram widget callback
+  // Register global Telegram popup callback
   useEffect(() => {
-    window.onTelegramAuth = (user: TelegramUser) => {
-      setTelegramData(user);
+    window.TelegramLoginWidget = {
+      dataOnauth: (user: TelegramUser) => {
+        setTelegramData(user);
+      },
     };
     return () => {
-      delete (window as unknown as Record<string, unknown>).onTelegramAuth;
+      delete (window as unknown as Record<string, unknown>).TelegramLoginWidget;
     };
   }, []);
 
-  // Inject Telegram Login Widget script
-  useEffect(() => {
-    const container = telegramRef.current;
-    if (!container) return;
-    const script = document.createElement('script');
-    script.src = 'https://telegram.org/js/telegram-widget.js?22';
-    script.setAttribute('data-telegram-login', TELEGRAM_BOT_USERNAME);
-    script.setAttribute('data-size', 'large');
-    script.setAttribute('data-onauth', 'onTelegramAuth');
-    script.setAttribute('data-request-access', 'write');
-    script.async = true;
-    container.appendChild(script);
-    return () => {
-      container.innerHTML = '';
-    };
-  }, []);
-
-  // Handle Telegram auth data when widget callback fires
+  // Handle Telegram auth data when popup callback fires
   useEffect(() => {
     if (!telegramData) return;
     setTelegramLoading(true);
@@ -87,6 +74,19 @@ export function LoginPage() {
 
   const handleOAuth = (provider: string) => {
     setLoadingProvider(provider);
+  };
+
+  const handleTelegramLogin = () => {
+    const origin = window.location.origin;
+    const returnTo = window.location.href;
+    const authUrl =
+      `https://oauth.telegram.org/auth` +
+      `?bot_id=${TELEGRAM_BOT_ID}` +
+      `&origin=${encodeURIComponent(origin)}` +
+      `&return_to=${encodeURIComponent(returnTo)}` +
+      `&embed=1` +
+      `&request_access=write`;
+    window.open(authUrl, 'tgLogin', 'width=550,height=470,resizable=yes,scrollbars=yes');
   };
 
   const isLoading = loadingProvider !== null || telegramLoading;
@@ -115,14 +115,15 @@ export function LoginPage() {
               <><span className="oauth-spinner" aria-hidden="true" />{t('auth.oauth.connecting')}</>
             ) : t('auth.oauth.facebook')}
           </button>
-          {telegramLoading ? (
-            <div className="oauth-button oauth-button--telegram">
-              <span className="oauth-spinner" aria-hidden="true" />
-              {t('auth.oauth.connecting')}
-            </div>
-          ) : (
-            <div ref={telegramRef} className="telegram-widget-container" />
-          )}
+          <button
+            className="oauth-button oauth-button--telegram"
+            onClick={handleTelegramLogin}
+            disabled={isLoading}
+          >
+            {telegramLoading ? (
+              <><span className="oauth-spinner" aria-hidden="true" />{t('auth.oauth.connecting')}</>
+            ) : t('auth.oauth.telegram')}
+          </button>
         </div>
       </div>
     </div>

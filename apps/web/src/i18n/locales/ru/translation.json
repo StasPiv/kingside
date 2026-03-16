@@ -221,6 +221,7 @@
     "oauth": {
       "google": "Войти через Google",
       "facebook": "Войти через Facebook",
+      "telegram": "Войти через Telegram",
       "error": "Ошибка авторизации. Попробуйте ещё раз.",
       "connecting": "Подключение..."
     },

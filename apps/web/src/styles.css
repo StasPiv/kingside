@@ -317,7 +317,6 @@ input:focus {
 .oauth-button--telegram {
   background: #2aabee;
   color: #fff;
-  cursor: default;
 }
 
 .telegram-widget-container {
