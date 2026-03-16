@@ -1853,6 +1853,9 @@ input:focus {
 .analysis-page .board-container {
   flex: 1;
   min-width: 0;
+  /* Constrain board width by viewport height so the board never overflows
+     the bottom of the screen. 150px accounts for header, padding and controls. */
+  max-width: calc(100vh - 150px);
   /* align-self: flex-start allows aspect-ratio:1 to work correctly;
      without it align-items:stretch overrides aspect-ratio making the container
      taller than wide, which causes gaps between board ranks */
