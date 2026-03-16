@@ -50,8 +50,7 @@ model: claude-sonnet-4-6
   - ESLint: `/home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/web/src`
   - TypeScript: `/home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit`
   - Или через npx из worktree: `npx --prefix /home/pivovartsev/work/kingside eslint apps/web/src`
-  - ЗАПРЕЩЕНО пропускать проверку линтером/компилятором со словами "это проблема окружения". Найди способ запустить.
-  - ЗАПРЕЩЕНО игнорировать ошибки TypeScript/ESLint со словами "это не мои изменения" или "существующая проблема". Если ошибка есть — исправь её, даже если ты её не вносил.
+  - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
 - **Dev-сервер из worktree**: `/home/pivovartsev/work/kingside/node_modules/.bin/vite apps/web --port 5174`. НЕ используй порт 5173 — там основной репо.
 - **Playwright**: для доступа к защищённым страницам без логина: `http://localhost:5174/?dev_bypass=secret`
 - Каждая задача — отдельная ветка: `feature/KS-XX`

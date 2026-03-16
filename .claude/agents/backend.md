@@ -44,7 +44,7 @@ model: claude-sonnet-4-6
   - TypeScript: `/home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit`
   - ESLint: `/home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/api/src`
   - Или: `npx --prefix /home/pivovartsev/work/kingside eslint apps/api/src`
-  - ЗАПРЕЩЕНО пропускать проверку со словами "это проблема окружения". Найди способ запустить.
+  - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
 - **`packages/shared`**: `dist/` в gitignore — не коммить, не отлаживать проблемы сборки dist. Если менял типы — пересобери В ОСНОВНОМ РЕПО: `npx --prefix /home/pivovartsev/work/kingside tsc --build packages/shared`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
