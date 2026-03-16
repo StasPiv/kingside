@@ -25,19 +25,31 @@ beforeEach(() => {
   mockNavigate.mockReset();
   mockLocationState = null;
   Object.defineProperty(window, 'location', {
-    value: { href: '' },
+    value: { href: '', hash: '', origin: 'http://localhost' },
     writable: true,
   });
 });
 
 describe('LoginPage', () => {
-  it('renders heading and two OAuth buttons (no Chess.com)', () => {
+  it('renders heading and OAuth buttons including Telegram (no Chess.com)', () => {
     renderWithProviders(<LoginPage />);
 
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue with Facebook' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Continue with Telegram' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Continue with Chess.com' })).not.toBeInTheDocument();
+  });
+
+  it('navigates to Telegram OAuth when Telegram button is clicked', () => {
+    renderWithProviders(<LoginPage />);
+
+    const telegramButton = screen.getByRole('button', { name: 'Continue with Telegram' });
+    expect(telegramButton).not.toBeDisabled();
+    fireEvent.click(telegramButton);
+
+    expect((window.location as { href: string }).href).toContain('https://oauth.telegram.org/auth');
+    expect((window.location as { href: string }).href).toContain('bot_id=');
   });
 
   it('does not show error without oauth error state', () => {
