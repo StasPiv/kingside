@@ -487,7 +487,7 @@ export function BroadcastGamePage() {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
+          <div className="analysis-eval-board-row">
             <div className="eval-bar-container">
               <div className="eval-bar">
                 <div
