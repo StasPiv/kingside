@@ -170,18 +170,11 @@ export class AuthService {
       };
     }
 
-    // Create new user — username set later via /users/set-username
-    const user = await this.prisma.user.create({
-      data: {
-        username: null,
-        requiresUsernameSetup: true,
-        email: null,
-        passwordHash: null,
-        telegramId,
-      },
-    });
-
-    return { ...this.generateTokens(user.id, null, true), isNewUser: true };
+    // Don't create user in DB yet — wait for username setup
+    return {
+      ...this.generatePendingTelegramTokens(telegramId),
+      isNewUser: true,
+    };
   }
 
   async register(dto: RegisterDto) {
@@ -246,6 +239,10 @@ export class AuthService {
   }
 
   async getMe(userId: string) {
+    // Pending Telegram user — not yet created in DB
+    if (userId.startsWith('pending:')) {
+      return null;
+    }
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -266,7 +263,19 @@ export class AuthService {
     return user;
   }
 
-  private generateTokens(
+  private generatePendingTelegramTokens(telegramId: string) {
+    const sub = `pending:${telegramId}`;
+    const payload = { sub, username: null, requiresUsernameSetup: true };
+    const accessToken = this.jwtService.sign(payload, {
+      expiresIn: this.configService.get('JWT_EXPIRES_IN', '15m'),
+    });
+    const refreshToken = this.jwtService.sign(payload, {
+      expiresIn: this.configService.get('JWT_REFRESH_EXPIRES_IN', '7d'),
+    });
+    return { accessToken, refreshToken, requiresUsernameSetup: true as const };
+  }
+
+  generateTokens(
     userId: string,
     username: string | null,
     requiresUsernameSetup = false,

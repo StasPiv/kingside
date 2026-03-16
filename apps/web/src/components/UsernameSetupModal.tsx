@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 
@@ -12,6 +13,7 @@ type Props = {
 
 export function UsernameSetupModal({ onSuccess }: Props) {
   const { t } = useTranslation();
+  const { loginWithTokens } = useAuth();
   const [username, setUsername] = useState('');
   const [checking, setChecking] = useState(false);
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -62,7 +64,13 @@ export function UsernameSetupModal({ onSuccess }: Props) {
     setSaving(true);
     setSaveError(null);
     try {
-      await api.post('/api/users/set-username', { username });
+      const res = await api.post<{ accessToken?: string; refreshToken?: string }>(
+        '/api/users/set-username',
+        { username },
+      );
+      if (res && res.accessToken && res.refreshToken) {
+        loginWithTokens(res.accessToken, res.refreshToken);
+      }
       onSuccess();
     } catch (err: unknown) {
       if (

@@ -16,10 +16,14 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { SearchGamesDto } from './dto/search-games.dto';
 import { SetUsernameDto } from './dto/set-username.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthService } from '../auth/auth.service';
 
 @Controller('users')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly authService: AuthService,
+  ) {}
 
   @Get('check-username')
   checkUsername(@Query('username') username: string) {
@@ -28,8 +32,13 @@ export class UserController {
 
   @UseGuards(JwtAuthGuard)
   @Post('set-username')
-  setUsername(@Request() req: any, @Body() dto: SetUsernameDto) {
-    return this.userService.setUsername(req.user.id, dto.username);
+  async setUsername(@Request() req: any, @Body() dto: SetUsernameDto) {
+    const { user, isNewUser } = await this.userService.setUsername(req.user.id, dto.username);
+    if (isNewUser) {
+      const tokens = this.authService.generateTokens(user.id as string, user.username as string, false);
+      return { ...user, ...tokens };
+    }
+    return user;
   }
 
   @UseGuards(JwtAuthGuard)

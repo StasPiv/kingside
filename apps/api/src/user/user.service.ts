@@ -36,11 +36,47 @@ export class UserService {
     return { available: !existing };
   }
 
-  async setUsername(userId: string, username: string) {
+  async setUsername(userId: string, username: string): Promise<{ user: Record<string, unknown>; isNewUser: boolean }> {
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(username)) {
       throw new BadRequestException('Invalid username format');
     }
 
+    const conflict = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+
+    if (conflict) {
+      throw new ConflictException('Username already taken');
+    }
+
+    // Pending Telegram user — create new user in DB
+    if (userId.startsWith('pending:')) {
+      const telegramId = userId.slice('pending:'.length);
+      const user = await this.prisma.user.create({
+        data: {
+          username,
+          requiresUsernameSetup: false,
+          telegramId,
+          email: null,
+          passwordHash: null,
+        },
+        select: {
+          id: true,
+          username: true,
+          email: true,
+          requiresUsernameSetup: true,
+          ratingBullet: true,
+          ratingBlitz: true,
+          ratingRapid: true,
+          ratingClassical: true,
+          createdAt: true,
+        },
+      });
+      return { user: user as Record<string, unknown>, isNewUser: true };
+    }
+
+    // Existing user — update
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, requiresUsernameSetup: true },
@@ -52,15 +88,6 @@ export class UserService {
 
     if (!user.requiresUsernameSetup) {
       throw new BadRequestException('Username already set');
-    }
-
-    const conflict = await this.prisma.user.findUnique({
-      where: { username },
-      select: { id: true },
-    });
-
-    if (conflict) {
-      throw new ConflictException('Username already taken');
     }
 
     const updated = await this.prisma.user.update({
@@ -79,7 +106,7 @@ export class UserService {
       },
     });
 
-    return updated;
+    return { user: updated as Record<string, unknown>, isNewUser: false };
   }
 
   async getSettings(userId: string) {
