@@ -408,7 +408,7 @@ export function GamePage() {
           </span>
           <span className="clock">{formatTime(clocks[opponentColor])}</span>
         </div>
-        <div className="board-container" ref={boardContainerRef} onContextMenu={(e) => { e.preventDefault(); setPendingPremove(null); }}>
+        <div className="board-container" ref={boardContainerRef} style={boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined} onContextMenu={(e) => { e.preventDefault(); setPendingPremove(null); }}>
           <MemoChessboard options={boardOptions} />
           {pendingPromotion && (
             <div className="promotion-overlay" onClick={handlePromotionCancel}>
