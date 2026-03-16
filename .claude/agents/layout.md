@@ -51,7 +51,8 @@ cd /home/pivovartsev/work/kingside/.worktrees/KS-XX
 2. Найди нужный CSS-файл или компонент со стилями
 3. Сделай CSS-фикс
 4. Проверь через TypeScript (`tsc --noEmit`)
-5. Коммит, мердж, закрой задачу
+5. ОБЯЗАТЕЛЬНО сделай скриншот через Playwright (desktop + mobile) и прикрепи к задаче через `jira_add_attachment`. Без скриншотов задачу НЕ закрывать.
+6. Коммит, мердж, закрой задачу
 
 ## Git
 - Ветка: `feature/KS-XX`
