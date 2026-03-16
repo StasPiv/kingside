@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
-import type { AuthTokenResponse } from '@kingside/shared';
+import type { TelegramAuthResponse } from '@kingside/shared';
+import { UsernameSetupModal } from '../components/UsernameSetupModal';
 
 interface TelegramUser {
   id: number;
@@ -22,12 +23,13 @@ export function LoginPage() {
   const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { loginWithTokens } = useAuth();
+  const { loginWithTokens, refreshUser } = useAuth();
   const oauthErrorFromState = (location.state as { oauthError?: string } | null)?.oauthError;
   const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [error, setError] = useState<string | null>(oauthErrorFromState ?? null);
   const [telegramData, setTelegramData] = useState<TelegramUser | null>(null);
+  const [requiresUsernameSetup, setRequiresUsernameSetup] = useState(false);
 
   useEffect(() => {
     if (loadingProvider) {
@@ -57,10 +59,15 @@ export function LoginPage() {
     if (!telegramData) return;
     setTelegramLoading(true);
     api
-      .post<AuthTokenResponse>('/api/auth/telegram', telegramData)
-      .then(({ accessToken, refreshToken }) => {
+      .post<TelegramAuthResponse>('/api/auth/telegram', telegramData)
+      .then(({ accessToken, refreshToken, requiresUsernameSetup: needsSetup }) => {
         loginWithTokens(accessToken, refreshToken);
-        navigate('/lobby', { replace: true });
+        if (needsSetup) {
+          setRequiresUsernameSetup(true);
+          setTelegramLoading(false);
+        } else {
+          navigate('/lobby', { replace: true });
+        }
       })
       .catch(() => {
         setError(t('auth.oauth.error'));
@@ -71,6 +78,11 @@ export function LoginPage() {
 
   const handleOAuth = (provider: string) => {
     setLoadingProvider(provider);
+  };
+
+  const handleUsernameSetupSuccess = async () => {
+    await refreshUser();
+    navigate('/lobby', { replace: true });
   };
 
   const handleTelegramLogin = () => {
@@ -85,6 +97,14 @@ export function LoginPage() {
   };
 
   const isLoading = loadingProvider !== null || telegramLoading;
+
+  if (requiresUsernameSetup) {
+    return (
+      <div className="auth-page">
+        <UsernameSetupModal onSuccess={handleUsernameSetupSuccess} />
+      </div>
+    );
+  }
 
   return (
     <div className="auth-page">
