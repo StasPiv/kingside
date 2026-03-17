@@ -60,17 +60,7 @@ export function ReviewMoveList({
     if (!container) return;
     const active = container.querySelector('.move-item.current') as HTMLElement | null;
     if (!active) return;
-    const containerRect = container.getBoundingClientRect();
-    const activeRect = active.getBoundingClientRect();
-    const itemTop = activeRect.top - containerRect.top + container.scrollTop;
-    const itemBottom = itemTop + active.offsetHeight;
-    const scrollTop = container.scrollTop;
-    const scrollBottom = scrollTop + container.clientHeight;
-    if (itemTop < scrollTop) {
-      container.scrollTop = itemTop;
-    } else if (itemBottom > scrollBottom) {
-      container.scrollTop = itemBottom - container.clientHeight;
-    }
+    active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [currentGlobalIndex]);
 
   const closeContextMenu = useCallback(() => {

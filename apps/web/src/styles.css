@@ -4248,7 +4248,7 @@ input:focus {
     scrollbar-color: #7c83ff #2a3a5e;
     scrollbar-width: auto;
     scrollbar-gutter: stable;
-    padding-bottom: 8px;
+    padding-bottom: 44px;
   }
 
   .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar {
