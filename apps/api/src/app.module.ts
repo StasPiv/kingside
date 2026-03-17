@@ -21,6 +21,7 @@ import { BroadcastModule } from './broadcast/broadcast.module';
 import { DgtModule } from './dgt/dgt.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
+import { MessageModule } from './message/message.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 
@@ -57,6 +58,7 @@ import { HealthController } from './health.controller';
     DgtModule,
     ClientLogsModule,
     PlayerModule,
+    MessageModule,
   ],
 })
 export class AppModule implements NestModule {

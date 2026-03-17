@@ -43,6 +43,8 @@ model User {
   gameAnalyses     GameAnalysis[]
   analyses         Analysis[]
   pgnImports       PgnImport[]
+  sentMessages     DirectMessage[]    @relation("SentMessages")
+  receivedMessages DirectMessage[]    @relation("ReceivedMessages")
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -360,4 +362,20 @@ model BroadcastGame {
 
   @@index([roundId])
   @@map("broadcast_games")
+}
+
+model DirectMessage {
+  id         String    @id @default(uuid()) @db.Uuid
+  senderId   String    @map("sender_id") @db.Uuid
+  receiverId String    @map("receiver_id") @db.Uuid
+  text       String
+  createdAt  DateTime  @default(now()) @map("created_at")
+  readAt     DateTime? @map("read_at")
+
+  sender   User @relation("SentMessages", fields: [senderId], references: [id])
+  receiver User @relation("ReceivedMessages", fields: [receiverId], references: [id])
+
+  @@index([senderId, receiverId, createdAt])
+  @@index([receiverId, readAt])
+  @@map("direct_messages")
 }

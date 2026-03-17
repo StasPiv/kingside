@@ -655,3 +655,60 @@ export type PlayerRecentGame = {
   timeControl: string;
   createdAt: string;
 };
+
+// ─── Direct Messages (REST) ─────────────────────────────────────────
+
+/** POST /api/messages */
+export type SendMessageRequest = {
+  receiverId: string;
+  text: string;
+};
+
+export type DirectMessageItem = {
+  id: string;
+  senderId: string;
+  receiverId: string;
+  text: string;
+  createdAt: string;
+  readAt: string | null;
+};
+
+/** GET /api/messages/conversations */
+export type ConversationItem = {
+  user: { id: string; username: string };
+  lastMessage: DirectMessageItem;
+  unreadCount: number;
+};
+
+export type ConversationsResponse = {
+  data: ConversationItem[];
+};
+
+/** GET /api/messages/:userId?limit=50&offset=0 */
+export type MessageHistoryQuery = {
+  limit?: number;
+  offset?: number;
+};
+
+export type MessageHistoryResponse = {
+  data: DirectMessageItem[];
+  total: number;
+  hasMore: boolean;
+};
+
+/** GET /api/messages/unread-count */
+export type UnreadCountResponse = {
+  count: number;
+};
+
+// ─── WebSocket: /messages namespace ─────────────────────────────────
+
+/** Server → Client: new message received */
+export type WsNewMessagePayload = DirectMessageItem & {
+  senderUsername: string;
+};
+
+export const MessageEvents = {
+  NEW_MESSAGE: 'message:new',
+  ERROR: 'error',
+} as const;
