@@ -272,6 +272,7 @@
       "failed": "Не решено",
       "rating": "{{rating}}",
       "bestMoveHint": "Лучший ход выделен",
+      "allMovesHint": "Нажимайте на ходы или используйте стрелки для навигации",
       "backToRush": "Назад к Puzzle Rush",
       "errorLoading": "Не удалось загрузить разбор сессии",
       "errorBestMove": "Не удалось загрузить лучший ход"

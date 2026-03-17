@@ -272,6 +272,7 @@
       "failed": "Not solved",
       "rating": "{{rating}}",
       "bestMoveHint": "Best move is highlighted",
+      "allMovesHint": "Click moves or use arrow keys to navigate",
       "backToRush": "Back to Puzzle Rush",
       "errorLoading": "Failed to load session review",
       "errorBestMove": "Failed to load best move"

@@ -4677,6 +4677,77 @@ input:focus {
   padding: 32px;
 }
 
+.rush-review-nav {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.rush-review-nav button {
+  background: #2a2a4e;
+  color: #a0a0ff;
+  border: 1px solid #4a4a7e;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.rush-review-nav button:hover:not(:disabled) {
+  background: #3a3a6e;
+}
+
+.rush-review-nav button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.rush-review-moves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 8px;
+  background: #16162a;
+  border-radius: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.rush-review-move-btn {
+  background: none;
+  border: none;
+  color: #c0c0e0;
+  padding: 3px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.rush-review-move-btn:hover {
+  background: #2a2a4e;
+}
+
+.rush-review-move-btn.active {
+  background: #3a3a6e;
+  color: #fff;
+  font-weight: 600;
+}
+
+.rush-review-move-btn.setup {
+  color: #808098;
+  font-style: italic;
+}
+
+.rush-review-move-num {
+  color: #808098;
+  margin-right: 2px;
+  font-size: 12px;
+}
+
 .rush-review-best-move-hint {
   margin-top: 12px;
   color: #a0a0c0;
