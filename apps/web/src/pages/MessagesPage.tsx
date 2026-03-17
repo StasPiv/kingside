@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,7 @@ import type {
   MessageHistoryResponse,
   DirectMessageItem,
   WsNewMessagePayload,
+  PlayerProfileResponse,
 } from '@kingside/shared';
 import { MessageEvents } from '@kingside/shared';
 
@@ -30,13 +31,17 @@ function formatTime(dateStr: string): string {
 export function MessagesPage() {
   const { t } = useTranslation();
   const { userId: paramUserId } = useParams<{ userId?: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  // Username may be passed via navigation state from PlayerProfilePage
+  const stateUsername = (location.state as { username?: string } | null)?.username ?? '';
 
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [convLoading, setConvLoading] = useState(true);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(paramUserId ?? null);
-  const [selectedUsername, setSelectedUsername] = useState<string>('');
+  const [selectedUsername, setSelectedUsername] = useState<string>(stateUsername);
 
   const [messages, setMessages] = useState<DirectMessageItem[]>([]);
   const [msgLoading, setMsgLoading] = useState(false);
@@ -50,8 +55,11 @@ export function MessagesPage() {
   // Load conversations
   useEffect(() => {
     api.get<ConversationsResponse>('/api/messages/conversations')
-      .then((data) => setConversations(data.data))
-      .catch(() => {})
+      .then((data) => {
+        const items = Array.isArray(data?.data) ? data.data : [];
+        setConversations(items);
+      })
+      .catch(() => setConversations([]))
       .finally(() => setConvLoading(false));
   }, []);
 
@@ -62,16 +70,40 @@ export function MessagesPage() {
     }
   }, [paramUserId]);
 
+  // Resolve username when not known (direct URL navigation)
+  useEffect(() => {
+    if (!selectedUserId || selectedUsername) return;
+
+    // Try conversations first
+    const conv = conversations.find((c) => c.user.id === selectedUserId);
+    if (conv) {
+      setSelectedUsername(conv.user.username);
+      return;
+    }
+
+    // If not in conversations and conversations loaded, fetch from players API
+    if (!convLoading) {
+      api.get<PlayerProfileResponse>(`/api/players/${selectedUserId}`)
+        .then((data) => {
+          if (data?.username) setSelectedUsername(data.username);
+        })
+        .catch(() => {
+          // Try user API as fallback
+          api.get<{ username: string }>(`/api/users/${selectedUserId}`)
+            .then((u) => { if (u?.username) setSelectedUsername(u.username); })
+            .catch(() => setSelectedUsername(selectedUserId.slice(0, 8)));
+        });
+    }
+  }, [selectedUserId, selectedUsername, conversations, convLoading]);
+
   // Load message history when conversation selected
   useEffect(() => {
     if (!selectedUserId) return;
     setMsgLoading(true);
     api.get<MessageHistoryResponse>(`/api/messages/${selectedUserId}?limit=100`)
       .then((data) => {
-        setMessages(data.data.reverse());
-        // Find username from conversations or messages
-        const conv = conversations.find((c) => c.user.id === selectedUserId);
-        if (conv) setSelectedUsername(conv.user.username);
+        const items = Array.isArray(data?.data) ? data.data : [];
+        setMessages(items.reverse());
       })
       .catch(() => setMessages([]))
       .finally(() => setMsgLoading(false));
@@ -233,9 +265,13 @@ export function MessagesPage() {
         ) : (
           <>
             <div className="messages-chat-header">
-              <Link to={`/player/${selectedUsername}`} className="messages-chat-username">
-                {selectedUsername}
-              </Link>
+              {selectedUsername ? (
+                <Link to={`/player/${selectedUsername}`} className="messages-chat-username">
+                  {selectedUsername}
+                </Link>
+              ) : (
+                <span className="messages-chat-username">{t('common.loading')}</span>
+              )}
             </div>
 
             <div className="messages-chat-body">

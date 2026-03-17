@@ -120,7 +120,7 @@ export function PlayerProfilePage() {
             )}
           <button
             className="player-profile-message-btn"
-            onClick={() => navigate(`/messages/${profile.id}`)}
+            onClick={() => navigate(`/messages/${profile.id}`, { state: { username: profile.username } })}
           >
             {t('playerProfile.sendMessage')}
           </button>
