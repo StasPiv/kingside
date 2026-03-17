@@ -234,6 +234,7 @@ def _stream_stdout(proc, log_file, agent, captured_session):
                 sid = data.get("session_id")
                 if sid:
                     captured_session[0] = sid
+                    _save_session(agent, sid)
             except (json.JSONDecodeError, ValueError):
                 pass
     proc.stdout.close()
