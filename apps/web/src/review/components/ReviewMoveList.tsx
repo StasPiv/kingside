@@ -59,8 +59,13 @@ export function ReviewMoveList({
     const container = movesContainerRef.current;
     if (!container) return;
     const active = container.querySelector('.move-item.current') as HTMLElement | null;
-    if (!active) return;
-    active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (active) {
+      active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } else {
+      // No active move (e.g. initial position after "go to start") —
+      // scroll the notation container to the top.
+      container.scrollTop = 0;
+    }
   }, [currentGlobalIndex]);
 
   const closeContextMenu = useCallback(() => {
