@@ -45,8 +45,10 @@ export function App() {
   const [searchParams] = useSearchParams();
   const devSecret = import.meta.env.VITE_DEV_BYPASS_SECRET;
 
+  const location = useLocation();
+
   if (devSecret && searchParams.has('dev_bypass')) {
-    return <DevBypassPage secret={searchParams.get('dev_bypass') ?? ''} />;
+    return <DevBypassPage secret={searchParams.get('dev_bypass') ?? ''} returnTo={location.pathname} />;
   }
 
   return (

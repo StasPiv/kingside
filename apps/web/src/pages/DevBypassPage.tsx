@@ -7,9 +7,10 @@ import type { AuthTokenResponse } from '@kingside/shared';
 
 interface DevBypassPageProps {
   secret: string;
+  returnTo?: string;
 }
 
-export function DevBypassPage({ secret }: DevBypassPageProps) {
+export function DevBypassPage({ secret, returnTo }: DevBypassPageProps) {
   const navigate = useNavigate();
   const { loginWithTokens } = useAuth();
   const { t } = useTranslation();
@@ -23,7 +24,7 @@ export function DevBypassPage({ secret }: DevBypassPageProps) {
       .post<AuthTokenResponse>('/api/auth/dev-bypass', { secret })
       .then(({ accessToken, refreshToken }) => {
         loginWithTokens(accessToken, refreshToken);
-        navigate('/lobby', { replace: true });
+        navigate(returnTo || '/lobby', { replace: true });
       })
       .catch(() => {
         navigate('/login', {
