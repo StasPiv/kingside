@@ -1,6 +1,6 @@
 -- CreateTable
 CREATE TABLE "direct_messages" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "sender_id" UUID NOT NULL,
     "receiver_id" UUID NOT NULL,
     "text" TEXT NOT NULL,

@@ -1,6 +1,6 @@
 -- CreateTable
 CREATE TABLE "analyses" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
+    "id" UUID NOT NULL,
     "user_id" UUID NOT NULL,
     "title" TEXT NOT NULL,
     "pgn" TEXT,
