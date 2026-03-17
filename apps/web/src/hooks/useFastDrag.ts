@@ -193,12 +193,13 @@ export function useFastDrag(
         }
 
         if (accepted) {
-          // Restore opacity on the original piece element IMMEDIATELY.
-          // react-chessboard may reuse the same DOM node (keyed by piece
-          // identity, not by square), so leaving opacity: 0 causes the
-          // piece to be invisible at its new position after React
-          // reconciliation.
-          state.pieceEl.style.opacity = '';
+          // Do NOT restore state.pieceEl.style.opacity here — the piece
+          // is still at the SOURCE square in the DOM until React
+          // re-renders.  Restoring opacity now would flash the piece
+          // at the source before React moves it to the target.
+          // The ghost covers the target square while React paints;
+          // tryRemoveGhost below ensures the new piece at the target
+          // is visible before removing the ghost.
 
           // Snap ghost to the target square instantly (no transition)
           // using the freshest board rect — this covers the board while
