@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -208,30 +208,6 @@ export function GameReviewPage() {
     },
     [handleTitleSave],
   );
-
-  // Ref for moves panel body — used to fix height to viewport bottom on mobile
-  const movesPanelBodyRef = useRef<HTMLDivElement>(null);
-
-  useLayoutEffect(() => {
-    if (loading) return;
-    if (!panelStates.moves) return;
-    const el = movesPanelBodyRef.current;
-    if (!el) return;
-
-    const update = () => {
-      if (!window.matchMedia('(max-width: 768px)').matches) {
-        el.style.height = '';
-        return;
-      }
-      const rect = el.getBoundingClientRect();
-      const height = Math.max(150, window.innerHeight - rect.top);
-      el.style.height = `${height}px`;
-    };
-
-    update();
-    window.addEventListener('resize', update);
-    return () => window.removeEventListener('resize', update);
-  }, [loading, panelStates.moves]);
 
   const analysisPageRef = useRef<HTMLDivElement>(null);
 
@@ -867,7 +843,7 @@ export function GameReviewPage() {
             </span>
           </div>
           {panelStates.moves && (
-            <div ref={movesPanelBodyRef} className="analysis-panel-body analysis-panel-body--scroll">
+            <div className="analysis-panel-body analysis-panel-body--scroll">
               <ReviewMoveList
                 history={history}
                 currentGlobalIndex={currentGlobalIndex}

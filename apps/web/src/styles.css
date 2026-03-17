@@ -4202,9 +4202,9 @@ input:focus {
     padding-bottom: 8px;
   }
 
-  /* Game review: moves panel body — fixed height on mobile */
+  /* Game review: moves panel body — constrained height on mobile */
   .analysis-page .analysis-panel-body--scroll {
-    height: 200px;
+    max-height: 250px;
     overflow-y: auto;
   }
 
