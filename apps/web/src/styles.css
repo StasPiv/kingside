@@ -4012,44 +4012,33 @@ input:focus {
     overflow: hidden;
   }
 
-  /* Game review: moves panel body — constrained height with scroll on tablets */
-  .analysis-page .analysis-panel-body--scroll {
-    max-height: 300px;
+  /* Game review: notation scroll container — constrained height on tablets */
+  .analysis-page .analysis-panel-body--scroll .review-moves-container {
+    max-height: 260px;
     overflow-y: scroll;
     overscroll-behavior: contain;
-    scrollbar-color: rgba(255, 255, 255, 0.35) rgba(255, 255, 255, 0.08);
+    scrollbar-color: #7c83ff #2a3a5e;
     scrollbar-width: auto;
+    scrollbar-gutter: stable;
   }
 
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar {
-    width: 6px;
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar {
+    width: 8px;
   }
 
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 3px;
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-track {
+    background: #2a3a5e;
+    border-radius: 4px;
   }
 
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.35);
-    border-radius: 3px;
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-thumb {
+    background: #7c83ff;
+    border-radius: 4px;
+    min-height: 30px;
   }
 
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar-thumb:active {
-    background: rgba(255, 255, 255, 0.5);
-  }
-
-  /* Flatten inner flex so scroll happens at panel-body level */
-  .analysis-page .analysis-panel-body--scroll .review-move-list-wrapper {
-    overflow: visible;
-    height: auto;
-    flex: none;
-  }
-
-  .analysis-page .analysis-panel-body--scroll .review-moves-container {
-    overflow: visible;
-    height: auto;
-    flex: none;
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-thumb:active {
+    background: #9ba0ff;
   }
 
   .puzzle-list {
@@ -4251,45 +4240,34 @@ input:focus {
     padding-bottom: 8px;
   }
 
-  /* Game review: moves panel body — constrained height on mobile */
-  .analysis-page .analysis-panel-body--scroll {
-    max-height: 250px;
+  /* Game review: notation scroll container — constrained height on mobile */
+  .analysis-page .analysis-panel-body--scroll .review-moves-container {
+    max-height: 200px;
     overflow-y: scroll;
     overscroll-behavior: contain;
-    scrollbar-color: rgba(255, 255, 255, 0.35) rgba(255, 255, 255, 0.08);
+    scrollbar-color: #7c83ff #2a3a5e;
     scrollbar-width: auto;
-  }
-
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.08);
-    border-radius: 3px;
-  }
-
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.35);
-    border-radius: 3px;
-  }
-
-  .analysis-page .analysis-panel-body--scroll::-webkit-scrollbar-thumb:active {
-    background: rgba(255, 255, 255, 0.5);
-  }
-
-  /* Flatten inner flex so scroll happens at panel-body level */
-  .analysis-page .analysis-panel-body--scroll .review-move-list-wrapper {
-    overflow: visible;
-    height: auto;
-    flex: none;
-  }
-
-  .analysis-page .analysis-panel-body--scroll .review-moves-container {
-    overflow: visible;
-    height: auto;
-    flex: none;
+    scrollbar-gutter: stable;
     padding-bottom: 8px;
+  }
+
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-track {
+    background: #2a3a5e;
+    border-radius: 4px;
+  }
+
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-thumb {
+    background: #7c83ff;
+    border-radius: 4px;
+    min-height: 30px;
+  }
+
+  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-thumb:active {
+    background: #9ba0ff;
   }
 
   /* Game review: compact player row on mobile */
