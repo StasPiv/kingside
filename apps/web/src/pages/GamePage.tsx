@@ -147,6 +147,15 @@ export function GamePage() {
     };
 
     const onGameMove = (data: WsGameMoveServerPayload) => {
+      // If the FEN already matches, this is a server echo of our own
+      // move (already applied optimistically).  Only update clocks
+      // (for server-authoritative time) — skip board state changes
+      // to avoid a redundant re-render that causes piece flicker.
+      if (game.fen() === data.fen) {
+        setClocks(msToSeconds(data.clocks));
+        return;
+      }
+
       game.load(data.fen);
       setIsOpponentMove(true);
       setFen(data.fen);
