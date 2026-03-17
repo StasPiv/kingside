@@ -6401,3 +6401,260 @@ input:focus {
     font-size: 13px;
   }
 }
+
+/* Player Profile Page */
+.player-profile-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.player-profile-back {
+  color: #a0a0c0;
+  text-decoration: none;
+  font-size: 14px;
+  display: inline-block;
+  margin-bottom: 16px;
+}
+
+.player-profile-back:hover {
+  color: #fff;
+}
+
+.player-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.player-profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: #3a3a6e;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.player-profile-info {
+  flex: 1;
+}
+
+.player-profile-username {
+  margin: 0;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.player-profile-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+
+.player-profile-status.online {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+}
+
+.player-profile-status.offline {
+  background: rgba(160, 160, 192, 0.15);
+  color: #808098;
+}
+
+.player-profile-meta {
+  color: #808098;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.player-profile-lastseen {
+  color: #666;
+}
+
+.player-profile-section {
+  margin-bottom: 28px;
+}
+
+.player-profile-section h2 {
+  font-size: 16px;
+  color: #a0a0c0;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.player-profile-ratings {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.player-profile-rating-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 8px;
+  padding: 12px 20px;
+  text-align: center;
+  min-width: 120px;
+  flex: 1;
+}
+
+.player-profile-rating-label {
+  font-size: 13px;
+  color: #808098;
+  margin-bottom: 4px;
+}
+
+.player-profile-rating-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #e0e0ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-profile-stats {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.player-profile-stat {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 12px 20px;
+  text-align: center;
+  flex: 1;
+  min-width: 80px;
+}
+
+.player-profile-stat-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  color: #e0e0ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.player-profile-stat.win .player-profile-stat-value {
+  color: #4caf50;
+}
+
+.player-profile-stat.loss .player-profile-stat-value {
+  color: #f44336;
+}
+
+.player-profile-stat.draw .player-profile-stat-value {
+  color: #a0a0c0;
+}
+
+.player-profile-stat-label {
+  font-size: 12px;
+  color: #808098;
+  margin-top: 2px;
+}
+
+.player-profile-games-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.player-profile-games-table th {
+  text-align: left;
+  color: #808098;
+  font-size: 12px;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a4e;
+}
+
+.player-profile-games-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #1a1a2e;
+  font-size: 14px;
+}
+
+.player-profile-games-table tbody tr:hover {
+  background: #1a1a2e;
+}
+
+.player-profile-game-result {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.player-profile-game-result.win {
+  color: #4caf50;
+}
+
+.player-profile-game-result.loss {
+  color: #f44336;
+}
+
+.player-profile-game-result.draw {
+  color: #a0a0c0;
+}
+
+.player-profile-tc {
+  color: #a0a0c0;
+}
+
+.player-profile-date {
+  color: #808098;
+}
+
+.player-profile-analyze-link {
+  color: #7c83ff;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.player-profile-analyze-link:hover {
+  text-decoration: underline;
+}
+
+.player-profile-empty {
+  padding: 24px;
+  text-align: center;
+  color: #808098;
+}
+
+.player-profile-not-found {
+  text-align: center;
+  padding: 48px 16px;
+}
+
+.player-profile-not-found h2 {
+  color: #a0a0c0;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 600px) {
+  .player-profile-ratings {
+    flex-direction: column;
+  }
+  .player-profile-stats {
+    flex-direction: column;
+  }
+  .player-profile-header {
+    flex-direction: column;
+    text-align: center;
+  }
+  .player-profile-username {
+    justify-content: center;
+  }
+  .player-profile-games-table th,
+  .player-profile-games-table td {
+    padding: 8px 6px;
+    font-size: 13px;
+  }
+}
