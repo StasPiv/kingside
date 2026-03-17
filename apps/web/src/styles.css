@@ -2053,6 +2053,20 @@ input:focus {
 .analysis-panel--flex {
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+/* Fade gradient at the bottom — visual indicator that notation is scrollable */
+.analysis-panel--flex::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background: linear-gradient(to bottom, transparent 0%, rgba(15, 23, 42, 0.5) 40%, rgba(15, 23, 42, 0.85) 70%, #0f172a 100%);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .analysis-panel-header {
