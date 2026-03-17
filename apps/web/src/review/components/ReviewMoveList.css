@@ -82,6 +82,15 @@
   box-sizing: border-box;
 }
 
+/* Always-visible scrollbar for notation on mobile */
+@media (max-width: 768px) {
+  .review-moves-container {
+    overflow-y: scroll;
+    scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.08);
+    scrollbar-width: thin;
+  }
+}
+
 .review-moves-list {
   font-size: 15px;
   line-height: 1.6;
