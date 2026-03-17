@@ -559,3 +559,99 @@ export const BroadcastEvents = {
   SYNC: 'broadcast:sync',
   ERROR: 'error',
 } as const;
+
+// ─── Players (REST) ─────────────────────────────────────────────────
+
+export type RatingType = 'bullet' | 'blitz' | 'rapid' | 'classical' | 'puzzle';
+
+/** GET /api/players/top?type=blitz&limit=20&offset=0 */
+export type TopPlayersQuery = {
+  type?: RatingType;
+  limit?: number;
+  offset?: number;
+};
+
+export type TopPlayerItem = {
+  rank: number;
+  id: string;
+  username: string;
+  rating: number;
+  gamesPlayed: number;
+};
+
+export type TopPlayersResponse = {
+  data: TopPlayerItem[];
+  total: number;
+  ratingType: RatingType;
+};
+
+/** GET /api/players/online?limit=50&offset=0 */
+export type OnlinePlayersQuery = {
+  limit?: number;
+  offset?: number;
+};
+
+export type OnlinePlayerItem = {
+  id: string;
+  username: string;
+  ratingBullet: number;
+  ratingBlitz: number;
+  ratingRapid: number;
+  ratingClassical: number;
+};
+
+export type OnlinePlayersResponse = {
+  data: OnlinePlayerItem[];
+  total: number;
+};
+
+/** GET /api/players/search?q=test&limit=20 */
+export type SearchPlayersQuery = {
+  q: string;
+  limit?: number;
+};
+
+export type SearchPlayerItem = {
+  id: string;
+  username: string;
+  ratingBullet: number;
+  ratingBlitz: number;
+  ratingRapid: number;
+  ratingClassical: number;
+};
+
+export type SearchPlayersResponse = {
+  data: SearchPlayerItem[];
+};
+
+/** GET /api/players/:username */
+export type PlayerProfileResponse = {
+  id: string;
+  username: string;
+  ratings: {
+    bullet: number;
+    blitz: number;
+    rapid: number;
+    classical: number;
+    puzzle: number;
+  };
+  stats: {
+    wins: number;
+    losses: number;
+    draws: number;
+    totalGames: number;
+  };
+  createdAt: string;
+  lastSeenAt: string;
+  recentGames: PlayerRecentGame[];
+};
+
+export type PlayerRecentGame = {
+  id: string;
+  playerColor: 'white' | 'black';
+  playerResult: 'win' | 'loss' | 'draw' | null;
+  opponent: { id: string; username: string };
+  timeControlType: string;
+  timeControl: string;
+  createdAt: string;
+};

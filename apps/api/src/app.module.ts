@@ -20,6 +20,7 @@ import { WorkshopModule } from './workshop/workshop.module';
 import { BroadcastModule } from './broadcast/broadcast.module';
 import { DgtModule } from './dgt/dgt.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
+import { PlayerModule } from './player/player.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -54,6 +55,7 @@ import { HealthController } from './health.controller';
     BroadcastModule,
     DgtModule,
     ClientLogsModule,
+    PlayerModule,
   ],
 })
 export class AppModule {}
