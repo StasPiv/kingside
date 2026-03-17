@@ -262,7 +262,7 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
         log(f"Resume сессии {session_id} для агента {agent}")
 
     with open(log_file, "a") as lf:
-        proc = subprocess.Popen(cmd, cwd=worktree, env=env,
+        proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env,
                                 stdout=subprocess.PIPE, stderr=lf,
                                 start_new_session=True, text=True, bufsize=1)
     with running_procs_lock:
