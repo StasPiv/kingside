@@ -80,6 +80,27 @@
   min-height: 0;
   padding: 8px 8px 44px;
   box-sizing: border-box;
+  overscroll-behavior: contain;
+  scrollbar-color: rgba(255, 255, 255, 0.25) rgba(255, 255, 255, 0.06);
+  scrollbar-width: thin;
+}
+
+.review-moves-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.review-moves-container::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+}
+
+.review-moves-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+
+.review-moves-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
 }
 
 /* Always-visible scrollbar for notation on mobile */
