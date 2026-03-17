@@ -175,11 +175,14 @@ export function GameReviewPage() {
 
   const game = useMemo(() => new Chess(), []);
 
-  // Panel collapse state
-  const [panelStates, setPanelStates] = useState({
-    gameInfo: true,
-    engine: true,
-    moves: true,
+  // Panel collapse state — collapse info/engine on narrow screens so moves are visible
+  const [panelStates, setPanelStates] = useState(() => {
+    const narrow = typeof window !== 'undefined' && window.innerWidth <= 768;
+    return {
+      gameInfo: !narrow,
+      engine: !narrow,
+      moves: true,
+    };
   });
 
   const togglePanel = useCallback((panel: 'gameInfo' | 'engine' | 'moves') => {

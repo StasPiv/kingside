@@ -4216,7 +4216,29 @@ input:focus {
   /* Game review: constrain board so notation is visible below */
   .analysis-page .board-container {
     flex: none;
-    width: min(calc(100vw - 54px), calc(100vh - 430px));
+    width: min(calc(100vw - 54px), calc(100vh - 500px));
+  }
+
+  /* Analysis: compact nav controls on mobile */
+  .analysis-board-controls button {
+    padding: 4px 10px;
+    font-size: 14px;
+    min-width: 36px;
+    min-height: 32px;
+  }
+
+  /* Analysis panels: compact headers on mobile */
+  .analysis-panel-header {
+    height: 34px;
+    padding: 0 8px;
+  }
+
+  .analysis-panel-body {
+    padding: 6px 8px;
+  }
+
+  .analysis-panel-title {
+    font-size: 12px;
   }
 
   /* Game review: compact engine panel on mobile (no fixed height, less padding) */
