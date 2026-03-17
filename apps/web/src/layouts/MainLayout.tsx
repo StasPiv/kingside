@@ -55,6 +55,7 @@ export function MainLayout() {
 
           <div className={`nav-menu${mobileMenuOpen ? ' nav-menu--open' : ''}`}>
             <div className="nav-links">
+              <Link to="/players" className="nav-link" onClick={closeAll}>{t('nav.players')}</Link>
               {user ? (
                 <div className="dropdown" ref={userMenuRef}>
                   <button

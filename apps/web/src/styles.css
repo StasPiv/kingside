@@ -116,6 +116,20 @@ input:focus {
   justify-content: space-between;
 }
 
+.nav-link {
+  color: #a0a0c0;
+  text-decoration: none;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-link:hover {
+  color: #fff;
+  background: rgba(124, 131, 255, 0.1);
+}
+
 .nav-links {
   display: flex;
   align-items: center;
