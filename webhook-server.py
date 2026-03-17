@@ -20,6 +20,54 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
+SESSIONS_FILE = os.path.join(LOG_DIR, "sessions.json")
+sessions_lock = threading.Lock()
+
+
+def _load_sessions() -> dict:
+    """Загружает маппинг agent -> session_id из файла."""
+    try:
+        with open(SESSIONS_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_session(agent: str, session_id: str):
+    """Сохраняет session_id для агента."""
+    with sessions_lock:
+        sessions = _load_sessions()
+        sessions[agent] = session_id
+        with open(SESSIONS_FILE, "w") as f:
+            json.dump(sessions, f, indent=2)
+    log(f"Сессия сохранена: {agent} -> {session_id}")
+
+
+def _get_session(agent: str) -> str | None:
+    """Возвращает session_id агента или None."""
+    return _load_sessions().get(agent)
+
+
+def _parse_session_id(output_file: str) -> str | None:
+    """Парсит session_id из stream-json вывода claude."""
+    try:
+        with open(output_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get("type") == "system" and "session_id" in data:
+                        return data["session_id"]
+                    if "session_id" in data:
+                        return data["session_id"]
+                except json.JSONDecodeError:
+                    continue
+    except FileNotFoundError:
+        pass
+    return None
+
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9876
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -196,8 +244,6 @@ def _get_issue_status_category(key: str) -> str:
 
 def _run_agent(key: str, summary: str, agent: str, prompt: str):
     """Синхронно запускает claude-агента и ждёт завершения."""
-    # Проверяем актуальный статус задачи перед запуском
-    # Проверяем актуальный статус задачи перед запуском
     status_category = _get_issue_status_category(key)
     if status_category in ("done", "indeterminate"):
         log(f"Пропуск {key} из очереди: задача уже в статусе '{status_category}'")
@@ -209,21 +255,24 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)
     worktree = setup_worktree(key)
-    cmd = [
-        "claude", "-p", prompt,
-        "--agent", agent,
-        "--dangerously-skip-permissions",
-        "--output-format", "stream-json",
-        "--verbose",
-    ]
-    with open(log_file, "a") as lf:
-        proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=lf, stderr=lf, start_new_session=True)
+
+    # Проверяем наличие сохранённой сессии для resume
+    session_id = _get_session(agent)
+    cmd = ["claude", "-p", prompt, "--agent", agent,
+           "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose"]
+    if session_id:
+        cmd.extend(["--resume", session_id])
+        log(f"Resume сессии {session_id} для агента {agent}")
+
+    # Вывод в отдельный файл для парсинга session_id
+    agent_output = os.path.join(LOG_DIR, f"{agent}_{key}.jsonl")
+    with open(agent_output, "w") as out, open(log_file, "a") as lf:
+        proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=out, stderr=lf, start_new_session=True)
     with running_procs_lock:
         running_procs[key] = proc
     log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
 
-    # Ждём завершения, периодически проверяя статус задачи
-    check_interval = 30  # секунд между проверками Jira
+    check_interval = 30
     elapsed = 0
     while proc.poll() is None:
         time.sleep(5)
@@ -249,6 +298,20 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
 
     with running_procs_lock:
         running_procs.pop(key, None)
+
+    # Парсим и сохраняем session_id
+    new_session_id = _parse_session_id(agent_output)
+    if new_session_id:
+        _save_session(agent, new_session_id)
+
+    # Дописываем вывод агента в общий лог
+    try:
+        with open(agent_output, "r") as src, open(log_file, "a") as dst:
+            dst.write(src.read())
+        os.remove(agent_output)
+    except OSError:
+        pass
+
     log(f"Агент {agent} завершил {key} (код: {proc.returncode})")
     _cleanup_worktree(key)
 
@@ -466,16 +529,30 @@ def launch_agent(key, summary, agent, prompt=None):
             lf.write(json.dumps({"type": "agent_start", "agent": "COORDINATOR", "task": key}) + "\n")
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
-        cmd = [
-            "claude", "-p", prompt,
-            "--agent", agent,
-            "--dangerously-skip-permissions",
-            "--output-format", "stream-json",
-            "--verbose",
-        ]
-        with open(log_file, "a") as lf:
-            proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env, stdout=lf, stderr=lf)
+        session_id = _get_session(agent)
+        cmd = ["claude", "-p", prompt, "--agent", agent,
+               "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose"]
+        if session_id:
+            cmd.extend(["--resume", session_id])
+            log(f"Resume сессии {session_id} для coordinator")
+        coord_output = os.path.join(LOG_DIR, f"coordinator_{key}_{int(time.time())}.jsonl")
+        with open(coord_output, "w") as out, open(log_file, "a") as lf:
+            proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env, stdout=out, stderr=lf)
         log(f"Агент coordinator запущен для {key} (PID: {proc.pid})")
+
+        def _wait_and_save_session():
+            proc.wait()
+            sid = _parse_session_id(coord_output)
+            if sid:
+                _save_session("coordinator", sid)
+            try:
+                with open(coord_output, "r") as src, open(log_file, "a") as dst:
+                    dst.write(src.read())
+                os.remove(coord_output)
+            except OSError:
+                pass
+
+        threading.Thread(target=_wait_and_save_session, daemon=True).start()
         return
 
     # Coding-агенты — если агент уже работает над задачей, убить и перезапустить
