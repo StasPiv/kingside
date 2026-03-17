@@ -51,7 +51,7 @@ description: Frontend-разработчик проекта Kingside
   - Или через npx из worktree: `npx --prefix /home/pivovartsev/work/kingside eslint apps/web/src`
   - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
 - **Dev-сервер из worktree**: `/home/pivovartsev/work/kingside/node_modules/.bin/vite apps/web --port 5174`. НЕ используй порт 5173 — там основной репо.
-- **Playwright**: для доступа к защищённым страницам без логина: `http://localhost:5174/?dev_bypass=secret`
+- **Playwright** — установлен ГЛОБАЛЬНО, вызывай напрямую: `playwright screenshot <url> <file.png>`. НЕ ищи в node_modules, НЕ используй npx/which/find. Для доступа без логина: `http://localhost:5174/?dev_bypass=secret`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`

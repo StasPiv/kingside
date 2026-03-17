@@ -42,6 +42,11 @@ cd /home/pivovartsev/work/kingside/.worktrees/KS-XX
 # Dev-сервер из worktree (для скриншотов)
 /home/pivovartsev/work/kingside/node_modules/.bin/vite apps/web --port 5174
 
+# Playwright — установлен ГЛОБАЛЬНО, вызывай напрямую:
+playwright screenshot <url> <file.png>
+# НЕ ищи playwright в node_modules, НЕ используй npx, НЕ используй which/find
+# Просто вызывай команду playwright напрямую
+
 # Playwright доступ без логина
 # http://localhost:5174/?dev_bypass=secret
 ```
