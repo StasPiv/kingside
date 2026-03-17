@@ -219,7 +219,7 @@ export function GameReviewPage() {
     if (!el) return;
 
     const update = () => {
-      if (!window.matchMedia('(max-width: 480px)').matches) {
+      if (!window.matchMedia('(max-width: 768px)').matches) {
         el.style.height = '';
         return;
       }

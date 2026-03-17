@@ -3997,6 +3997,12 @@ input:focus {
     overflow: hidden;
   }
 
+  /* Game review: moves panel body — constrained height with scroll on tablets */
+  .analysis-page .analysis-panel-body--scroll {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
   .puzzle-list {
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   }
