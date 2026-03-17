@@ -2133,6 +2133,7 @@ input:focus {
   overflow-y: auto;
   padding: 0;
   scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 /* Player rows above/below board */
@@ -4001,6 +4002,7 @@ input:focus {
   .analysis-page .analysis-panel-body--scroll {
     max-height: 300px;
     overflow-y: scroll;
+    overscroll-behavior: contain;
     scrollbar-color: rgba(255, 255, 255, 0.35) rgba(255, 255, 255, 0.08);
     scrollbar-width: auto;
   }
@@ -4239,6 +4241,7 @@ input:focus {
   .analysis-page .analysis-panel-body--scroll {
     max-height: 250px;
     overflow-y: scroll;
+    overscroll-behavior: contain;
     scrollbar-color: rgba(255, 255, 255, 0.35) rgba(255, 255, 255, 0.08);
     scrollbar-width: auto;
   }
