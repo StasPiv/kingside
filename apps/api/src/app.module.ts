@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import {
   AcceptLanguageResolver,
@@ -21,6 +21,7 @@ import { BroadcastModule } from './broadcast/broadcast.module';
 import { DgtModule } from './dgt/dgt.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
+import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -58,4 +59,8 @@ import { HealthController } from './health.controller';
     PlayerModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LastSeenMiddleware).forRoutes('*');
+  }
+}
