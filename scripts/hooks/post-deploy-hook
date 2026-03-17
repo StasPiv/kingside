@@ -20,5 +20,14 @@ if [[ "$COMMIT_MSG" == internal:* ]]; then
     exit 0
 fi
 
+# Пересборка shared dist при изменениях в packages/shared/src/
+if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "packages/shared/src/"; then
+    echo "[post-hook] Обнаружены изменения в packages/shared/src/ — пересборка..."
+    rm -f "$REPO_DIR/packages/shared/tsconfig.tsbuildinfo"
+    npx tsc -p "$REPO_DIR/packages/shared/tsconfig.json" 2>/dev/null && \
+        echo "[post-hook] packages/shared пересобран" || \
+        echo "[post-hook] WARN: ошибка пересборки shared"
+fi
+
 echo "[post-hook] Коммит в main. Деплой НЕ запускается автоматически."
 echo "[post-hook] Для деплоя используйте: just deploy"
