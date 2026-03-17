@@ -90,3 +90,9 @@ SPA с React Router v7. Защищённые маршруты через `<Prote
 Docker Compose запускает PostgreSQL, Redis, опционально Grafana+Loki.
 Stockfish установлен системно (путь `/usr/games/stockfish`).
 Переменные окружения из `.env` (пример в `.env.example`).
+
+Порты:
+- Frontend (Vite): `5173` (dev), `5174` (worktree)
+- API (NestJS): `3001`
+- PostgreSQL: `5432`
+- Playwright установлен глобально: `playwright screenshot <url> <file.png>`
