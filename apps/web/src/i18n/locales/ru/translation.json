@@ -564,5 +564,31 @@
     "showing": "Показано {{count}} из {{total}}",
     "searchPlaceholder": "Поиск по имени...",
     "searchHint": "Введите минимум 2 символа"
+  },
+  "playerProfile": {
+    "notFound": "Игрок не найден",
+    "loadError": "Не удалось загрузить профиль игрока",
+    "backToPlayers": "← Назад к игрокам",
+    "online": "Онлайн",
+    "offline": "Офлайн",
+    "joined": "Зарегистрирован {{date}}",
+    "lastSeen": "Был в сети {{date}}",
+    "ratings": "Рейтинги",
+    "statistics": "Статистика",
+    "totalGames": "Партии",
+    "wins": "Победы",
+    "losses": "Поражения",
+    "draws": "Ничьи",
+    "winRate": "Победы %",
+    "recentGames": "Последние партии",
+    "noGames": "Партий пока нет",
+    "opponent": "Соперник",
+    "result": "Результат",
+    "timeControl": "Контроль",
+    "date": "Дата",
+    "resultWin": "Победа",
+    "resultLoss": "Поражение",
+    "resultDraw": "Ничья",
+    "analyze": "Анализ"
   }
 }

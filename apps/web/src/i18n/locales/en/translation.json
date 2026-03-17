@@ -564,5 +564,31 @@
     "showing": "Showing {{count}} of {{total}}",
     "searchPlaceholder": "Search by username...",
     "searchHint": "Enter at least 2 characters"
+  },
+  "playerProfile": {
+    "notFound": "Player not found",
+    "loadError": "Failed to load player profile",
+    "backToPlayers": "← Back to Players",
+    "online": "Online",
+    "offline": "Offline",
+    "joined": "Joined {{date}}",
+    "lastSeen": "Last seen {{date}}",
+    "ratings": "Ratings",
+    "statistics": "Statistics",
+    "totalGames": "Games",
+    "wins": "Wins",
+    "losses": "Losses",
+    "draws": "Draws",
+    "winRate": "Win Rate",
+    "recentGames": "Recent Games",
+    "noGames": "No games played yet",
+    "opponent": "Opponent",
+    "result": "Result",
+    "timeControl": "Time",
+    "date": "Date",
+    "resultWin": "Win",
+    "resultLoss": "Loss",
+    "resultDraw": "Draw",
+    "analyze": "Analyze"
   }
 }

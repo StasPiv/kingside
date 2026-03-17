@@ -1,0 +1,215 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { api } from '../api';
+import type { PlayerProfileResponse } from '@kingside/shared';
+
+const RATING_LABELS: Record<string, string> = {
+  bullet: '⚡ Bullet',
+  blitz: '🔥 Blitz',
+  rapid: '⏱ Rapid',
+  classical: '♟ Classical',
+  puzzle: '🧩 Puzzle',
+};
+
+function formatDate(dateStr: string, locale: string): string {
+  return new Date(dateStr).toLocaleDateString(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function formatDateTime(dateStr: string, locale: string): string {
+  return new Date(dateStr).toLocaleDateString(locale, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function isOnline(lastSeenAt: string): boolean {
+  const diff = Date.now() - new Date(lastSeenAt).getTime();
+  return diff < 5 * 60 * 1000; // 5 minutes
+}
+
+export function PlayerProfilePage() {
+  const { t, i18n } = useTranslation();
+  const { username } = useParams<{ username: string }>();
+  const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!username) return;
+    setLoading(true);
+    setNotFound(false);
+    setError('');
+
+    api.get<PlayerProfileResponse>(`/api/players/${encodeURIComponent(username)}`)
+      .then((data) => setProfile(data))
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : '';
+        if (msg.toLowerCase().includes('not found')) {
+          setNotFound(true);
+        } else {
+          setError(t('playerProfile.loadError'));
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [username, t]);
+
+  if (loading) {
+    return (
+      <div className="player-profile-page">
+        <div className="loading">{t('common.loading')}</div>
+      </div>
+    );
+  }
+
+  if (notFound) {
+    return (
+      <div className="player-profile-page">
+        <div className="player-profile-not-found">
+          <h2>{t('playerProfile.notFound')}</h2>
+          <Link to="/players" className="players-link">{t('playerProfile.backToPlayers')}</Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !profile) {
+    return (
+      <div className="player-profile-page">
+        <div className="error">{error || t('playerProfile.loadError')}</div>
+        <Link to="/players" className="players-link">{t('playerProfile.backToPlayers')}</Link>
+      </div>
+    );
+  }
+
+  const online = isOnline(profile.lastSeenAt);
+  const { stats } = profile;
+  const winRate = stats.totalGames > 0 ? Math.round((stats.wins / stats.totalGames) * 100) : 0;
+
+  return (
+    <div className="player-profile-page">
+      <Link to="/players" className="player-profile-back">{t('playerProfile.backToPlayers')}</Link>
+
+      {/* Header */}
+      <div className="player-profile-header">
+        <div className="player-profile-avatar">
+          {profile.username[0].toUpperCase()}
+        </div>
+        <div className="player-profile-info">
+          <h1 className="player-profile-username">
+            {profile.username}
+            <span className={`player-profile-status ${online ? 'online' : 'offline'}`}>
+              {online ? t('playerProfile.online') : t('playerProfile.offline')}
+            </span>
+          </h1>
+          <div className="player-profile-meta">
+            {t('playerProfile.joined', { date: formatDate(profile.createdAt, i18n.language) })}
+            {!online && (
+              <span className="player-profile-lastseen">
+                {' · '}{t('playerProfile.lastSeen', { date: formatDateTime(profile.lastSeenAt, i18n.language) })}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Ratings */}
+      <div className="player-profile-section">
+        <h2>{t('playerProfile.ratings')}</h2>
+        <div className="player-profile-ratings">
+          {(Object.keys(profile.ratings) as Array<keyof typeof profile.ratings>).map((type) => (
+            <div key={type} className="player-profile-rating-card">
+              <div className="player-profile-rating-label">{RATING_LABELS[type]}</div>
+              <div className="player-profile-rating-value">{profile.ratings[type]}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="player-profile-section">
+        <h2>{t('playerProfile.statistics')}</h2>
+        <div className="player-profile-stats">
+          <div className="player-profile-stat">
+            <span className="player-profile-stat-value">{stats.totalGames}</span>
+            <span className="player-profile-stat-label">{t('playerProfile.totalGames')}</span>
+          </div>
+          <div className="player-profile-stat win">
+            <span className="player-profile-stat-value">{stats.wins}</span>
+            <span className="player-profile-stat-label">{t('playerProfile.wins')}</span>
+          </div>
+          <div className="player-profile-stat loss">
+            <span className="player-profile-stat-value">{stats.losses}</span>
+            <span className="player-profile-stat-label">{t('playerProfile.losses')}</span>
+          </div>
+          <div className="player-profile-stat draw">
+            <span className="player-profile-stat-value">{stats.draws}</span>
+            <span className="player-profile-stat-label">{t('playerProfile.draws')}</span>
+          </div>
+          <div className="player-profile-stat">
+            <span className="player-profile-stat-value">{winRate}%</span>
+            <span className="player-profile-stat-label">{t('playerProfile.winRate')}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Games */}
+      <div className="player-profile-section">
+        <h2>{t('playerProfile.recentGames')}</h2>
+        {profile.recentGames.length === 0 ? (
+          <div className="player-profile-empty">{t('playerProfile.noGames')}</div>
+        ) : (
+          <table className="player-profile-games-table">
+            <thead>
+              <tr>
+                <th>{t('playerProfile.opponent')}</th>
+                <th>{t('playerProfile.result')}</th>
+                <th>{t('playerProfile.timeControl')}</th>
+                <th>{t('playerProfile.date')}</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {profile.recentGames.map((game) => (
+                <tr key={game.id}>
+                  <td>
+                    <Link to={`/player/${game.opponent.username}`} className="players-link">
+                      {game.opponent.username}
+                    </Link>
+                  </td>
+                  <td>
+                    <span className={`player-profile-game-result ${game.playerResult ?? 'unknown'}`}>
+                      {game.playerResult === 'win' && t('playerProfile.resultWin')}
+                      {game.playerResult === 'loss' && t('playerProfile.resultLoss')}
+                      {game.playerResult === 'draw' && t('playerProfile.resultDraw')}
+                      {game.playerResult === null && '—'}
+                    </span>
+                  </td>
+                  <td className="player-profile-tc">
+                    {game.timeControl}
+                  </td>
+                  <td className="player-profile-date">
+                    {formatDate(game.createdAt, i18n.language)}
+                  </td>
+                  <td>
+                    <Link to={`/game/${game.id}/review`} className="player-profile-analyze-link">
+                      {t('playerProfile.analyze')}
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
