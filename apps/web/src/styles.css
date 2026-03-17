@@ -3967,55 +3967,67 @@ input:focus {
   }
 
   .analysis-board-area {
-    flex: none;
+    flex: 0 1 auto;
     width: auto !important;
     max-width: 100%;
-    overflow-x: hidden;
+    overflow: hidden;
+    min-height: 0;
   }
 
   .analysis-page .board-container {
     flex: none;
   }
 
-  /* Analysis review: allow page to scroll on mobile */
+  /* Analysis review: fit everything in viewport on mobile — NO page scroll */
   body:has(.analysis-page) {
-    overflow: auto;
-    height: auto;
+    overflow: hidden;
+    height: 100dvh;
   }
 
   .app:has(.analysis-page) {
-    height: auto;
-    display: block;
-  }
-
-  .main:has(.analysis-page) {
-    flex: none;
-    min-height: auto;
-    display: block;
-    overflow: visible;
-  }
-
-  .analysis-page {
-    flex: none;
-    min-height: auto;
-    height: auto;
-    overflow: visible;
-  }
-
-  .analysis-sidebar {
-    overflow: visible;
-  }
-
-  /* Notation block: fixed height so vml-container scrolls within it */
-  .analysis-moves--variants {
-    height: 250px;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
   }
 
-  /* Game review: notation scroll container — constrained height on tablets */
+  .main:has(.analysis-page) {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .analysis-page {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+    overflow: hidden;
+    flex-direction: column;
+    padding: 4px;
+  }
+
+  .analysis-sidebar {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Notation block: flex within panel, internal scroll only */
+  .analysis-moves--variants {
+    height: auto;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Game review: notation scroll container — fills available space on tablets */
   .analysis-page .analysis-panel-body--scroll .review-moves-container {
-    max-height: 260px;
-    overflow-y: scroll;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-color: #7c83ff #2a3a5e;
     scrollbar-width: auto;
@@ -4073,7 +4085,10 @@ input:focus {
     font-size: 16px;
   }
 
-  .analysis-page,
+  .analysis-page {
+    gap: 4px;
+  }
+
   .daily-puzzle-page,
   .puzzle-page {
     gap: 12px;
@@ -4108,7 +4123,13 @@ input:focus {
     height: auto;
   }
 
-  .analysis-sidebar,
+  .analysis-sidebar {
+    gap: 0;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .puzzle-sidebar {
     gap: 10px;
   }
@@ -4223,27 +4244,33 @@ input:focus {
     margin-bottom: 4px;
   }
 
-  /* Game review: notation block — fixed height with scroll */
+  /* Game review: notation block — flex, fills remaining space */
   .analysis-moves--variants {
-    height: 200px;
-    overflow-y: auto;
+    height: auto;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .analysis-moves--variants .review-move-list-wrapper {
-    overflow: visible;
-    height: auto;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
   }
 
   .analysis-moves--variants .review-moves-container {
-    overflow: visible;
-    height: auto;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
     padding-bottom: 8px;
   }
 
-  /* Game review: notation scroll container — constrained height on mobile */
+  /* Game review: notation scroll container — fills remaining space on mobile */
   .analysis-page .analysis-panel-body--scroll .review-moves-container {
-    max-height: 200px;
-    overflow-y: scroll;
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-color: #7c83ff #2a3a5e;
     scrollbar-width: auto;
