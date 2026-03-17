@@ -193,6 +193,13 @@ export function useFastDrag(
         }
 
         if (accepted) {
+          // Restore opacity on the original piece element IMMEDIATELY.
+          // react-chessboard may reuse the same DOM node (keyed by piece
+          // identity, not by square), so leaving opacity: 0 causes the
+          // piece to be invisible at its new position after React
+          // reconciliation.
+          state.pieceEl.style.opacity = '';
+
           // Snap ghost to the target square instantly (no transition)
           // using the freshest board rect — this covers the board while
           // React re-renders.
@@ -209,9 +216,18 @@ export function useFastDrag(
           state.ghost.style.width = `${freshSquareSize}px`;
           state.ghost.style.height = `${freshSquareSize}px`;
 
-          // Wait for React commit + browser paint, realign once more
-          // in case layout shifted during re-render, then remove ghost.
-          requestAnimationFrame(() => {
+          // Wait until a piece element actually exists at the target
+          // square before removing the ghost.  This avoids the flicker
+          // caused by removing the ghost before React has painted the
+          // new piece.  We poll with rAF up to a reasonable limit.
+          const ctr = containerRef.current;
+          let attempts = 0;
+          const maxAttempts = 10; // ~160ms at 60fps
+
+          const tryRemoveGhost = () => {
+            attempts++;
+
+            // Realign ghost in case layout shifted during re-render
             if (boardEl) {
               const postRect = boardEl.getBoundingClientRect();
               const postSq = postRect.width / 8;
@@ -221,10 +237,25 @@ export function useFastDrag(
               state.ghost.style.width = `${postSq}px`;
               state.ghost.style.height = `${postSq}px`;
             }
-            requestAnimationFrame(() => {
+
+            // Check if the real piece has been painted at the target
+            const pieceAtTarget = ctr?.querySelector<HTMLElement>(
+              `[data-square="${targetSquare}"] [data-piece]`,
+            );
+
+            if (pieceAtTarget || attempts >= maxAttempts) {
+              // Ensure the rendered piece is visible (in case React
+              // reused a DOM node that still carries opacity: 0)
+              if (pieceAtTarget) {
+                pieceAtTarget.style.opacity = '';
+              }
               state.ghost.remove();
-            });
-          });
+            } else {
+              requestAnimationFrame(tryRemoveGhost);
+            }
+          };
+
+          requestAnimationFrame(tryRemoveGhost);
           return;
         }
 
