@@ -48,25 +48,6 @@ def _get_session(agent: str) -> str | None:
     return _load_sessions().get(agent)
 
 
-def _parse_session_id(output_file: str) -> str | None:
-    """Парсит session_id из stream-json вывода claude."""
-    try:
-        with open(output_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    data = json.loads(line)
-                    if data.get("type") == "system" and "session_id" in data:
-                        return data["session_id"]
-                    if "session_id" in data:
-                        return data["session_id"]
-                except json.JSONDecodeError:
-                    continue
-    except FileNotFoundError:
-        pass
-    return None
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9876
 
@@ -242,6 +223,22 @@ def _get_issue_status_category(key: str) -> str:
         return ""
 
 
+def _stream_stdout(proc, log_file, agent, captured_session):
+    """Читает stdout процесса построчно, пишет в agents.log и ловит session_id."""
+    for line in iter(proc.stdout.readline, ""):
+        with open(log_file, "a") as lf:
+            lf.write(line)
+        if not captured_session[0]:
+            try:
+                data = json.loads(line.strip())
+                sid = data.get("session_id")
+                if sid:
+                    captured_session[0] = sid
+            except (json.JSONDecodeError, ValueError):
+                pass
+    proc.stdout.close()
+
+
 def _run_agent(key: str, summary: str, agent: str, prompt: str):
     """Синхронно запускает claude-агента и ждёт завершения."""
     status_category = _get_issue_status_category(key)
@@ -256,7 +253,6 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
     env.pop("CLAUDECODE", None)
     worktree = setup_worktree(key)
 
-    # Проверяем наличие сохранённой сессии для resume
     session_id = _get_session(agent)
     cmd = ["claude", "-p", prompt, "--agent", agent,
            "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose"]
@@ -264,12 +260,18 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
         cmd.extend(["--resume", session_id])
         log(f"Resume сессии {session_id} для агента {agent}")
 
-    # Вывод в отдельный файл для парсинга session_id
-    agent_output = os.path.join(LOG_DIR, f"{agent}_{key}.jsonl")
-    with open(agent_output, "w") as out, open(log_file, "a") as lf:
-        proc = subprocess.Popen(cmd, cwd=worktree, env=env, stdout=out, stderr=lf, start_new_session=True)
+    with open(log_file, "a") as lf:
+        proc = subprocess.Popen(cmd, cwd=worktree, env=env,
+                                stdout=subprocess.PIPE, stderr=lf,
+                                start_new_session=True, text=True, bufsize=1)
     with running_procs_lock:
         running_procs[key] = proc
+
+    # Поток для чтения stdout в реальном времени
+    captured_session = [None]
+    reader = threading.Thread(target=_stream_stdout, args=(proc, log_file, agent, captured_session), daemon=True)
+    reader.start()
+
     log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
 
     check_interval = 30
@@ -296,21 +298,13 @@ def _run_agent(key: str, summary: str, agent: str, prompt: str):
                     proc.wait()
                 break
 
+    reader.join(timeout=5)
+
     with running_procs_lock:
         running_procs.pop(key, None)
 
-    # Парсим и сохраняем session_id
-    new_session_id = _parse_session_id(agent_output)
-    if new_session_id:
-        _save_session(agent, new_session_id)
-
-    # Дописываем вывод агента в общий лог
-    try:
-        with open(agent_output, "r") as src, open(log_file, "a") as dst:
-            dst.write(src.read())
-        os.remove(agent_output)
-    except OSError:
-        pass
+    if captured_session[0]:
+        _save_session(agent, captured_session[0])
 
     log(f"Агент {agent} завершил {key} (код: {proc.returncode})")
     _cleanup_worktree(key)
@@ -535,24 +529,20 @@ def launch_agent(key, summary, agent, prompt=None):
         if session_id:
             cmd.extend(["--resume", session_id])
             log(f"Resume сессии {session_id} для coordinator")
-        coord_output = os.path.join(LOG_DIR, f"coordinator_{key}_{int(time.time())}.jsonl")
-        with open(coord_output, "w") as out, open(log_file, "a") as lf:
-            proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env, stdout=out, stderr=lf)
+        with open(log_file, "a") as lf:
+            proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env,
+                                    stdout=subprocess.PIPE, stderr=lf,
+                                    text=True, bufsize=1)
         log(f"Агент coordinator запущен для {key} (PID: {proc.pid})")
 
-        def _wait_and_save_session():
+        def _stream_and_save():
+            captured = [None]
+            _stream_stdout(proc, log_file, "coordinator", captured)
             proc.wait()
-            sid = _parse_session_id(coord_output)
-            if sid:
-                _save_session("coordinator", sid)
-            try:
-                with open(coord_output, "r") as src, open(log_file, "a") as dst:
-                    dst.write(src.read())
-                os.remove(coord_output)
-            except OSError:
-                pass
+            if captured[0]:
+                _save_session("coordinator", captured[0])
 
-        threading.Thread(target=_wait_and_save_session, daemon=True).start()
+        threading.Thread(target=_stream_and_save, daemon=True).start()
         return
 
     # Coding-агенты — если агент уже работает над задачей, убить и перезапустить
