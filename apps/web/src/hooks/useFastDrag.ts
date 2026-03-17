@@ -197,83 +197,67 @@ export function useFastDrag(
           // is still at the SOURCE square in the DOM until React
           // re-renders.  Restoring opacity now would flash the piece
           // at the source before React moves it to the target.
-          // The ghost covers the target square while React paints;
-          // tryRemoveGhost below ensures the new piece at the target
-          // is visible before removing the ghost.
 
-          // Snap ghost to the target square instantly (no transition)
-          // using the freshest board rect — this covers the board while
-          // React re-renders.
           const file = targetSquare!.charCodeAt(0) - 97;
           const rank = parseInt(targetSquare![1], 10);
           const col = orientation === 'white' ? file : 7 - file;
           const row = orientation === 'white' ? 8 - rank : rank - 1;
 
-          state.ghost.style.transition = 'none';
           const snapX = freshBoardRect.left + col * freshSquareSize;
           const snapY = freshBoardRect.top + row * freshSquareSize;
-          state.ghost.style.transform = `translate3d(${snapX}px, ${snapY}px, 0)`;
-          // Sync ghost size in case board resized since pointerdown
           state.ghost.style.width = `${freshSquareSize}px`;
           state.ghost.style.height = `${freshSquareSize}px`;
 
-          // Wait until a piece element actually exists at the target
-          // square before removing the ghost.  This avoids the flicker
-          // caused by removing the ghost before React has painted the
-          // new piece.  We poll with rAF up to a reasonable limit.
-          const ctr = containerRef.current;
-          let attempts = 0;
-          const maxAttempts = 10; // ~160ms at 60fps
+          // Phase 1: Smoothly glide ghost to the center of the target
+          // square (60ms ease-out).  This gives the natural "placing on
+          // the board" feel instead of an instant snap.
+          state.ghost.style.transition = 'transform 60ms ease-out';
+          void state.ghost.offsetHeight; // force reflow before changing transform
+          state.ghost.style.transform = `translate3d(${snapX}px, ${snapY}px, 0)`;
 
-          const tryRemoveGhost = () => {
-            attempts++;
+          // Phase 2: After the slide completes, cancel react-chessboard's
+          // animation on the real piece (rendered by React underneath the
+          // ghost) and fade the ghost out.  The cross-fade eliminates the
+          // visual "pop" caused by swapping two DOM elements.
+          let phase2Done = false;
+          const startFade = () => {
+            if (phase2Done) return;
+            phase2Done = true;
 
-            // Realign ghost in case layout shifted during re-render
-            if (boardEl) {
-              const postRect = boardEl.getBoundingClientRect();
-              const postSq = postRect.width / 8;
-              const newSnapX = postRect.left + col * postSq;
-              const newSnapY = postRect.top + row * postSq;
-              state.ghost.style.transform = `translate3d(${newSnapX}px, ${newSnapY}px, 0)`;
-              state.ghost.style.width = `${postSq}px`;
-              state.ghost.style.height = `${postSq}px`;
-            }
-
-            // Check if the real piece has been painted at the target
-            const pieceAtTarget = ctr?.querySelector<HTMLElement>(
+            // Cancel react-chessboard's CSS animation on the real piece
+            const ctr = containerRef.current;
+            const piece = ctr?.querySelector<HTMLElement>(
               `[data-square="${targetSquare}"] [data-piece]`,
             );
-
-            if (pieceAtTarget || attempts >= maxAttempts) {
-              if (pieceAtTarget) {
-                // Cancel react-chessboard's CSS transition animation.
-                // The piece element exists at the target square in the
-                // DOM, but react-chessboard applies a CSS transform to
-                // visually animate it from the source square.  Kill the
-                // transition so the piece snaps to its grid position
-                // instantly — the ghost already provided the visual
-                // feedback for this move.
-                pieceAtTarget.style.transition = 'none';
-                pieceAtTarget.style.transform = 'none';
-                pieceAtTarget.style.opacity = '';
-                // Force reflow to apply changes before removing ghost
-                void pieceAtTarget.offsetHeight;
-              }
-              state.ghost.remove();
-              if (pieceAtTarget) {
-                // Restore transition ability for future animations
-                // (e.g. opponent moves, navigation).
-                requestAnimationFrame(() => {
-                  pieceAtTarget.style.transition = '';
-                  pieceAtTarget.style.transform = '';
-                });
-              }
-            } else {
-              requestAnimationFrame(tryRemoveGhost);
+            if (piece) {
+              piece.style.transition = 'none';
+              piece.style.transform = '';
+              piece.style.opacity = '';
+              void piece.offsetHeight;
             }
+
+            // Fade ghost out — real piece is already visible underneath
+            state.ghost.style.transition = 'opacity 60ms ease-out';
+            void state.ghost.offsetHeight;
+            state.ghost.style.opacity = '0';
+
+            let removed = false;
+            const remove = () => {
+              if (removed) return;
+              removed = true;
+              state.ghost.remove();
+              // Restore transition ability for future animations
+              if (piece) {
+                piece.style.transition = '';
+                piece.style.transform = '';
+              }
+            };
+            state.ghost.addEventListener('transitionend', remove, { once: true });
+            setTimeout(remove, 100); // fallback
           };
 
-          requestAnimationFrame(tryRemoveGhost);
+          state.ghost.addEventListener('transitionend', startFade, { once: true });
+          setTimeout(startFade, 80); // fallback if transitionend doesn't fire
           return;
         }
 
