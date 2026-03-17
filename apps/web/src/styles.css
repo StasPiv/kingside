@@ -4000,7 +4000,22 @@ input:focus {
   /* Game review: moves panel body — constrained height with scroll on tablets */
   .analysis-page .analysis-panel-body--scroll {
     max-height: 300px;
-    overflow-y: auto;
+    overflow-y: scroll;
+    scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.08);
+    scrollbar-width: thin;
+  }
+
+  /* Flatten inner flex so scroll happens at panel-body level */
+  .analysis-page .analysis-panel-body--scroll .review-move-list-wrapper {
+    overflow: visible;
+    height: auto;
+    flex: none;
+  }
+
+  .analysis-page .analysis-panel-body--scroll .review-moves-container {
+    overflow: visible;
+    height: auto;
+    flex: none;
   }
 
   .puzzle-list {
@@ -4205,7 +4220,23 @@ input:focus {
   /* Game review: moves panel body — constrained height on mobile */
   .analysis-page .analysis-panel-body--scroll {
     max-height: 250px;
-    overflow-y: auto;
+    overflow-y: scroll;
+    scrollbar-color: rgba(255, 255, 255, 0.4) rgba(255, 255, 255, 0.08);
+    scrollbar-width: thin;
+  }
+
+  /* Flatten inner flex so scroll happens at panel-body level */
+  .analysis-page .analysis-panel-body--scroll .review-move-list-wrapper {
+    overflow: visible;
+    height: auto;
+    flex: none;
+  }
+
+  .analysis-page .analysis-panel-body--scroll .review-moves-container {
+    overflow: visible;
+    height: auto;
+    flex: none;
+    padding-bottom: 8px;
   }
 
   /* Game review: compact player row on mobile */
