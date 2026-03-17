@@ -6218,3 +6218,186 @@ input:focus {
 .username-setup-modal__save-btn:not(:disabled):hover {
   background: #4f46e5;
 }
+
+/* Players Page */
+.players-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.players-page h1 {
+  margin: 0 0 20px;
+  font-size: 24px;
+}
+
+.players-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid #2a2a4e;
+}
+
+.players-tab {
+  background: none;
+  border: none;
+  color: #a0a0c0;
+  padding: 10px 20px;
+  font-size: 15px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.players-tab:hover {
+  color: #fff;
+}
+
+.players-tab.active {
+  color: #7c83ff;
+  border-bottom-color: #7c83ff;
+}
+
+.players-section {
+  margin-top: 8px;
+}
+
+.players-rating-types {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.players-rating-btn {
+  background: #1a1a2e;
+  border: 1px solid #3a3a5e;
+  color: #a0a0c0;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.players-rating-btn:hover {
+  background: #2a2a4e;
+  color: #fff;
+}
+
+.players-rating-btn.active {
+  background: #3a3a6e;
+  color: #fff;
+  border-color: #7c83ff;
+}
+
+.players-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.players-table th {
+  text-align: left;
+  color: #808098;
+  font-size: 12px;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a4e;
+}
+
+.players-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #1a1a2e;
+  font-size: 14px;
+}
+
+.players-table tbody tr:hover {
+  background: #1a1a2e;
+}
+
+.players-rank {
+  color: #808098;
+  min-width: 32px;
+}
+
+.players-rating {
+  font-variant-numeric: tabular-nums;
+  color: #c0c0e0;
+}
+
+.players-games {
+  color: #808098;
+}
+
+.players-link {
+  color: #7c83ff;
+  text-decoration: none;
+}
+
+.players-link:hover {
+  text-decoration: underline;
+  color: #a0a4ff;
+}
+
+.players-loading {
+  padding: 32px;
+  text-align: center;
+  color: #a0a0c0;
+}
+
+.players-empty {
+  padding: 32px;
+  text-align: center;
+  color: #808098;
+}
+
+.players-total {
+  padding: 12px;
+  text-align: center;
+  color: #808098;
+  font-size: 13px;
+}
+
+.players-online-count {
+  margin-bottom: 12px;
+  color: #4caf50;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.players-search-input {
+  width: 100%;
+  max-width: 400px;
+  padding: 10px 14px;
+  background: #1a1a2e;
+  border: 1px solid #3a3a5e;
+  border-radius: 8px;
+  color: #e0e0ff;
+  font-size: 15px;
+  margin-bottom: 16px;
+  outline: none;
+}
+
+.players-search-input:focus {
+  border-color: #7c83ff;
+}
+
+.players-search-hint {
+  font-style: italic;
+}
+
+@media (max-width: 600px) {
+  .players-rating-types {
+    gap: 4px;
+  }
+  .players-rating-btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+  .players-table th,
+  .players-table td {
+    padding: 8px 6px;
+    font-size: 13px;
+  }
+}

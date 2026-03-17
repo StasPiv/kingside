@@ -548,5 +548,21 @@
       "xRayAttack": "Рентген",
       "zugzwang": "Цугцванг"
     }
+  },
+  "players": {
+    "title": "Игроки",
+    "tabTop": "Топ игроков",
+    "tabOnline": "Онлайн",
+    "tabSearch": "Поиск",
+    "username": "Игрок",
+    "rating": "Рейтинг",
+    "games": "Партии",
+    "noPlayers": "Игроки не найдены",
+    "noOnline": "Нет игроков онлайн",
+    "noResults": "Игроки не найдены",
+    "onlineCount": "{{count}} игроков онлайн",
+    "showing": "Показано {{count}} из {{total}}",
+    "searchPlaceholder": "Поиск по имени...",
+    "searchHint": "Введите минимум 2 символа"
   }
 }

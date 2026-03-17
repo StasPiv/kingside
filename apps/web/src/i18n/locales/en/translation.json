@@ -548,5 +548,21 @@
       "xRayAttack": "X-Ray Attack",
       "zugzwang": "Zugzwang"
     }
+  },
+  "players": {
+    "title": "Players",
+    "tabTop": "Top Players",
+    "tabOnline": "Online",
+    "tabSearch": "Search",
+    "username": "Player",
+    "rating": "Rating",
+    "games": "Games",
+    "noPlayers": "No players found",
+    "noOnline": "No players online",
+    "noResults": "No players found",
+    "onlineCount": "{{count}} players online",
+    "showing": "Showing {{count}} of {{total}}",
+    "searchPlaceholder": "Search by username...",
+    "searchHint": "Enter at least 2 characters"
   }
 }
