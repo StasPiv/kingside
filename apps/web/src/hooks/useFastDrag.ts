@@ -245,12 +245,29 @@ export function useFastDrag(
             );
 
             if (pieceAtTarget || attempts >= maxAttempts) {
-              // Ensure the rendered piece is visible (in case React
-              // reused a DOM node that still carries opacity: 0)
               if (pieceAtTarget) {
+                // Cancel react-chessboard's CSS transition animation.
+                // The piece element exists at the target square in the
+                // DOM, but react-chessboard applies a CSS transform to
+                // visually animate it from the source square.  Kill the
+                // transition so the piece snaps to its grid position
+                // instantly — the ghost already provided the visual
+                // feedback for this move.
+                pieceAtTarget.style.transition = 'none';
+                pieceAtTarget.style.transform = 'none';
                 pieceAtTarget.style.opacity = '';
+                // Force reflow to apply changes before removing ghost
+                void pieceAtTarget.offsetHeight;
               }
               state.ghost.remove();
+              if (pieceAtTarget) {
+                // Restore transition ability for future animations
+                // (e.g. opponent moves, navigation).
+                requestAnimationFrame(() => {
+                  pieceAtTarget.style.transition = '';
+                  pieceAtTarget.style.transform = '';
+                });
+              }
             } else {
               requestAnimationFrame(tryRemoveGhost);
             }
