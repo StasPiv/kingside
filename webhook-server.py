@@ -228,15 +228,16 @@ def _stream_stdout(proc, log_file, agent, captured_session):
     for line in iter(proc.stdout.readline, ""):
         with open(log_file, "a") as lf:
             lf.write(line)
-        if not captured_session[0]:
-            try:
-                data = json.loads(line.strip())
-                sid = data.get("session_id")
-                if sid:
-                    captured_session[0] = sid
-                    _save_session(agent, sid)
-            except (json.JSONDecodeError, ValueError):
-                pass
+            if not captured_session[0]:
+                try:
+                    data = json.loads(line.strip())
+                    sid = data.get("session_id")
+                    if sid:
+                        captured_session[0] = sid
+                        _save_session(agent, sid)
+                        lf.write(json.dumps({"type": "agent_init", "agent": agent, "session_id": sid}) + "\n")
+                except (json.JSONDecodeError, ValueError):
+                    pass
     proc.stdout.close()
 
 

@@ -5,11 +5,9 @@ tail -f -n +1 "$LOG" | python3 -u -c "
 import sys, json
 from datetime import datetime
 
-from collections import deque
-
 agents = {}
 start_ts = {}
-pending_names = deque()
+pending_tasks = {}
 
 def now():
     return datetime.now().strftime('%H:%M:%S')
@@ -35,14 +33,25 @@ for line in sys.stdin:
     sid = d.get('session_id', '')[:8]
 
     if t == 'agent_start':
-        pending_names.append(f'{d[\"agent\"]} [{d[\"task\"]}]')
+        agent = d.get('agent', '')
+        task = d.get('task', '')
+        pending_tasks[agent.lower()] = f'{agent} [{task}]'
 
-    elif t == 'system' and d.get('subtype') == 'init':
-        model = d.get('model', '')
-        name = pending_names.popleft() if pending_names else 'АГЕНТ'
+    elif t == 'agent_init':
+        agent = d.get('agent', '')
+        sid = d.get('session_id', '')[:8]
+        name = pending_tasks.pop(agent, agent.upper())
         agents[sid] = name
         start_ts[sid] = datetime.now()
-        print(f'{now()} [{sid}] === {name} ЗАПУЩЕН ({model}) ===')
+        print(f'{now()} [{sid}] === {name} ЗАПУЩЕН ===')
+
+    elif t == 'system' and d.get('subtype') == 'init':
+        # fallback если agent_init не пришёл (старый формат)
+        if sid not in agents:
+            model = d.get('model', '')
+            agents[sid] = sid
+            start_ts[sid] = datetime.now()
+            print(f'{now()} [{sid}] === АГЕНТ ЗАПУЩЕН ({model}) ===')
 
     elif t == 'assistant':
         msg = d.get('message', {})
