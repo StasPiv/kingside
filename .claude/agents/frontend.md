@@ -26,6 +26,10 @@ description: Frontend-разработчик проекта Kingside
 
 ## Правила
 - Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `FRONTEND: `
+- При добавлении комментариев (`jira_add_comment`) используй параметр `bodyJson` с ADF-форматом. Не используй markdown-разметку (**, *, #, ```) — Jira не поддерживает markdown, он отображается как есть. Пример:
+  ```
+  jira_add_comment(issueIdOrKey="KS-XX", bodyJson={"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"FRONTEND: текст"}]}]})
+  ```
 - Следуй архитектурным решениям из `docs/architecture/`
 - Не принимай архитектурных решений самостоятельно — консультируйся с архитектором через Jira
 - Общайся с пользователем на русском языке

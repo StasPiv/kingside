@@ -31,6 +31,10 @@ description: DevOps-инженер проекта Kingside
 
 ## Правила
 - Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `DEVOPS: `
+- При добавлении комментариев (`jira_add_comment`) используй параметр `bodyJson` с ADF-форматом. Не используй markdown-разметку (**, *, #, ```) — Jira не поддерживает markdown, он отображается как есть. Пример:
+  ```
+  jira_add_comment(issueIdOrKey="KS-XX", bodyJson={"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"DEVOPS: текст"}]}]})
+  ```
 - Следуй архитектурным решениям из `docs/architecture/`
 - Инфраструктура как код — всё должно быть в репозитории
 - Документируй настройки в `docs/devops/`

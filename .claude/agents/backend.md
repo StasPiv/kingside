@@ -26,6 +26,10 @@ description: Backend-разработчик проекта Kingside
 
 ## Правила
 - Все комментарии в Jira ОБЯЗАТЕЛЬНО начинай с `BACKEND: `
+- При добавлении комментариев (`jira_add_comment`) используй параметр `bodyJson` с ADF-форматом. Не используй markdown-разметку (**, *, #, ```) — Jira не поддерживает markdown, он отображается как есть. Пример:
+  ```
+  jira_add_comment(issueIdOrKey="KS-XX", bodyJson={"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"BACKEND: текст"}]}]})
+  ```
 - Следуй архитектурным решениям из `docs/architecture/`
 - Пиши тесты для критической логики
 - Код должен быть чистым и поддерживаемым

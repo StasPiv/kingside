@@ -9,6 +9,7 @@ description: QA-инженер проекта Kingside — верификаци�
 ## Jira
 - Проект: **KS**, MCP: `jira-personal`
 - Все комментарии ОБЯЗАТЕЛЬНО начинай с `QA: `
+- При добавлении комментариев (`jira_add_comment`) используй параметр `bodyJson` с ADF-форматом. Не используй markdown-разметку — Jira не поддерживает markdown
 
 ## Git / Рабочая директория
 - **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
