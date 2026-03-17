@@ -24,7 +24,7 @@ type PuzzleRushStats = {
   totalSessions: number;
 };
 
-type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | 'broadcasts' | null;
+type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | 'broadcasts' | 'players' | null;
 
 export function LobbyPage() {
   const { t } = useTranslation();
@@ -528,6 +528,14 @@ export function LobbyPage() {
       ctaKey: 'lobby.teasers.broadcasts.cta',
       to: '/broadcasts',
     },
+    {
+      id: 'players' as const,
+      icon: '👥',
+      titleKey: 'lobby.teasers.players.title',
+      descKey: 'lobby.teasers.players.description',
+      ctaKey: 'lobby.teasers.players.cta',
+      to: '/players',
+    },
   ] as Array<{ id: NonNullable<ModalId>; icon: string; titleKey: string; descKey: string; ctaKey: string; to?: string }>;
 
   const modalContentMap: Record<NonNullable<ModalId>, React.ReactNode> = {
@@ -536,6 +544,7 @@ export function LobbyPage() {
     rush: rushModalContent,
     workshop: workshopModalContent,
     broadcasts: null,
+    players: null,
   };
 
   return (

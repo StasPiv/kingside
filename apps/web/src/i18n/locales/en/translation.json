@@ -179,6 +179,11 @@
         "title": "Broadcasts",
         "description": "Follow top chess tournaments live. Watch moves in real time from the world's best players.",
         "cta": "Watch Live"
+      },
+      "players": {
+        "title": "Players",
+        "description": "Browse top players, see who's online, and find opponents by username.",
+        "cta": "View Players"
       }
     },
     "workshop": {
