@@ -15,6 +15,19 @@ interface FastDragOptions {
   onPieceRelease?: () => void;
 }
 
+interface FastDragResult {
+  /**
+   * Set to `true` synchronously before onPieceDrop is called.
+   * Pages should read this inside their boardOptions useMemo to set
+   * animationDurationInMs to 0 for drag-and-drop moves.  This prevents
+   * react-chessboard from animating (and re-creating DOM elements with
+   * a CSS transition), which causes visible flicker.
+   *
+   * The ref is reset to `false` after the ghost is removed.
+   */
+  suppressAnimationRef: React.RefObject<boolean>;
+}
+
 /**
  * Ultra-fast pointer-based drag plugin for chess pieces.
  * Bypasses @dnd-kit overhead by using raw pointer events.
@@ -22,9 +35,11 @@ interface FastDragOptions {
 export function useFastDrag(
   containerRef: React.RefObject<HTMLElement | null>,
   options: FastDragOptions,
-) {
+): FastDragResult {
   const optionsRef = useRef(options);
   optionsRef.current = options;
+
+  const suppressAnimationRef = useRef(false);
 
   const dragStateRef = useRef<{
     sourceSquare: string;
@@ -177,11 +192,15 @@ export function useFastDrag(
 
       const orientation = optionsRef.current.boardOrientation;
 
-      // For accepted drops: skip snap-transition entirely — call handler
-      // immediately, then keep ghost aligned with the actual board position
-      // until React has painted.  This avoids the "jerk" caused by layout
-      // shift between snap position and post-render board position.
       if (isDropAttempt) {
+        // Suppress react-chessboard animation BEFORE calling onPieceDrop.
+        // onPieceDrop triggers setState → React re-render.  During that
+        // render, the page's useMemo reads suppressAnimationRef.current
+        // and sets animationDurationInMs to 0.  This makes react-chessboard
+        // place the piece instantly at the target without CSS animation,
+        // eliminating the flicker caused by DOM element recreation.
+        suppressAnimationRef.current = true;
+
         let accepted = false;
         try {
           accepted = optionsRef.current.onPieceDrop({
@@ -192,12 +211,11 @@ export function useFastDrag(
           accepted = false;
         }
 
-        if (accepted) {
-          // Do NOT restore state.pieceEl.style.opacity here — the piece
-          // is still at the SOURCE square in the DOM until React
-          // re-renders.  Restoring opacity now would flash the piece
-          // at the source before React moves it to the target.
+        if (!accepted) {
+          suppressAnimationRef.current = false;
+        }
 
+        if (accepted) {
           const file = targetSquare!.charCodeAt(0) - 97;
           const rank = parseInt(targetSquare![1], 10);
           const col = orientation === 'white' ? file : 7 - file;
@@ -208,56 +226,28 @@ export function useFastDrag(
           state.ghost.style.width = `${freshSquareSize}px`;
           state.ghost.style.height = `${freshSquareSize}px`;
 
-          // Phase 1: Smoothly glide ghost to the center of the target
-          // square (60ms ease-out).  This gives the natural "placing on
-          // the board" feel instead of an instant snap.
+          // Smoothly glide ghost to the center of the target square.
+          // This gives the natural "placing on the board" feel.
           state.ghost.style.transition = 'transform 60ms ease-out';
-          void state.ghost.offsetHeight; // force reflow before changing transform
+          void state.ghost.offsetHeight; // force reflow
           state.ghost.style.transform = `translate3d(${snapX}px, ${snapY}px, 0)`;
 
-          // Phase 2: After the slide completes, cancel react-chessboard's
-          // animation on the real piece (rendered by React underneath the
-          // ghost) and fade the ghost out.  The cross-fade eliminates the
-          // visual "pop" caused by swapping two DOM elements.
-          let phase2Done = false;
-          const startFade = () => {
-            if (phase2Done) return;
-            phase2Done = true;
-
-            // Cancel react-chessboard's CSS animation on the real piece
-            const ctr = containerRef.current;
-            const piece = ctr?.querySelector<HTMLElement>(
-              `[data-square="${targetSquare}"] [data-piece]`,
-            );
-            if (piece) {
-              piece.style.transition = 'none';
-              piece.style.transform = '';
-              piece.style.opacity = '';
-              void piece.offsetHeight;
-            }
-
-            // Fade ghost out — real piece is already visible underneath
-            state.ghost.style.transition = 'opacity 60ms ease-out';
-            void state.ghost.offsetHeight;
-            state.ghost.style.opacity = '0';
-
-            let removed = false;
-            const remove = () => {
-              if (removed) return;
-              removed = true;
-              state.ghost.remove();
-              // Restore transition ability for future animations
-              if (piece) {
-                piece.style.transition = '';
-                piece.style.transform = '';
-              }
-            };
-            state.ghost.addEventListener('transitionend', remove, { once: true });
-            setTimeout(remove, 100); // fallback
+          // After the slide, remove ghost.  With animationDurationInMs=0
+          // (via suppressAnimationRef), react-chessboard has already
+          // rendered the piece at the target instantly — no animation,
+          // no CSS transform.  The ghost just needs to get out of the way.
+          let removed = false;
+          const removeGhost = () => {
+            if (removed) return;
+            removed = true;
+            state.ghost.remove();
+            // Reset suppression so future position changes (opponent
+            // moves, navigation) animate normally.
+            suppressAnimationRef.current = false;
           };
 
-          state.ghost.addEventListener('transitionend', startFade, { once: true });
-          setTimeout(startFade, 80); // fallback if transitionend doesn't fire
+          state.ghost.addEventListener('transitionend', removeGhost, { once: true });
+          setTimeout(removeGhost, 100); // fallback
           return;
         }
 
@@ -368,4 +358,6 @@ export function useFastDrag(
       }
     };
   }, [containerRef, findSquareFromPoint, options.enabled]);
+
+  return { suppressAnimationRef };
 }

@@ -356,7 +356,7 @@ export function GamePage() {
     [boardWidth],
   );
 
-  useFastDrag(boardContainerRef, {
+  const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
     // In click mode, drag-and-drop is disabled.
@@ -390,7 +390,7 @@ export function GamePage() {
     () => ({
       position: stablePosition,
       boardOrientation: playerColor,
-      animationDurationInMs: isOpponentMove ? animationDuration : 0,
+      animationDurationInMs: suppressAnimationRef.current ? 0 : (isOpponentMove ? animationDuration : 0),
       allowDragging: false,
       showNotation,
       darkSquareStyle,

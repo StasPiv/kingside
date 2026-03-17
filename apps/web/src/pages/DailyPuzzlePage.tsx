@@ -208,7 +208,7 @@ export function DailyPuzzlePage() {
     [onSquareClick],
   );
 
-  useFastDrag(boardContainerRef, {
+  const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
     enabled: state === 'solving' && inputMode === 'drag',
@@ -225,7 +225,7 @@ export function DailyPuzzlePage() {
     () => ({
       position: stablePosition,
       boardOrientation: playerColor,
-      animationDurationInMs: 200,
+      animationDurationInMs: suppressAnimationRef.current ? 0 : 200,
       allowDragging: false,
       showNotation: true,
       squareStyles,

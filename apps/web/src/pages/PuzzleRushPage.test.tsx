@@ -16,7 +16,7 @@ vi.mock('../hooks/useContainerWidth', () => ({
 }));
 
 vi.mock('../hooks/useFastDrag', () => ({
-  useFastDrag: vi.fn(),
+  useFastDrag: vi.fn(() => ({ suppressAnimationRef: { current: false } })),
 }));
 
 vi.mock('react-chessboard', () => ({

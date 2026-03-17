@@ -457,7 +457,7 @@ export function GameReviewPage() {
     [makeVariantMove],
   );
 
-  useFastDrag(boardContainerRef, {
+  const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop: handleFastDragDrop,
     boardOrientation: 'white',
     allowBothColors: true,
@@ -468,7 +468,7 @@ export function GameReviewPage() {
     () => ({
       position: stablePosition,
       boardOrientation: 'white' as const,
-      animationDurationInMs: 200,
+      animationDurationInMs: suppressAnimationRef.current ? 0 : 200,
       allowDragging: false,
       showNotation: true,
       squareStyles,

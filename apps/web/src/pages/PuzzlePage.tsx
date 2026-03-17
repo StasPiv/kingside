@@ -181,7 +181,7 @@ export function PuzzlePage() {
     [onSquareClick],
   );
 
-  useFastDrag(boardContainerRef, {
+  const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop: onPieceDrop,
     boardOrientation: boardOrientation,
     enabled: status === 'thinking' && inputMode === 'drag',
@@ -198,7 +198,7 @@ export function PuzzlePage() {
     () => ({
       position: stablePosition,
       boardOrientation: boardOrientation,
-      animationDurationInMs: 200,
+      animationDurationInMs: suppressAnimationRef.current ? 0 : 200,
       allowDragging: false,
       showNotation: true,
       squareStyles,
