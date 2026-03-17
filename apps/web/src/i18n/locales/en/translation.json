@@ -11,6 +11,7 @@
     "dailyPuzzle": "Daily Puzzle",
     "profile": "Profile",
     "players": "Players",
+    "messages": "Messages",
     "broadcasts": "Broadcasts"
   },
   "broadcasts": {
@@ -595,6 +596,15 @@
     "resultWin": "Win",
     "resultLoss": "Loss",
     "resultDraw": "Draw",
-    "analyze": "Analyze"
+    "analyze": "Analyze",
+    "sendMessage": "Send Message"
+  },
+  "messages": {
+    "title": "Messages",
+    "noConversations": "No conversations yet",
+    "selectConversation": "Select a conversation",
+    "noMessages": "No messages yet. Start the conversation!",
+    "placeholder": "Type a message...",
+    "send": "Send"
   }
 }

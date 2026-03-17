@@ -13,3 +13,7 @@ export const matchmakingSocket = io(`${API_URL}/matchmaking`, {
 export const broadcastSocket = io(`${API_URL}/broadcast`, {
   autoConnect: false,
 });
+
+export const messagesSocket = io(`${API_URL}/messages`, {
+  autoConnect: false,
+});

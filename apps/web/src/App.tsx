@@ -21,6 +21,7 @@ import { BroadcastRoundPage } from './pages/BroadcastRoundPage';
 import { BroadcastGamePage } from './pages/BroadcastGamePage';
 import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
+import { MessagesPage } from './pages/MessagesPage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
@@ -78,6 +79,8 @@ export function App() {
         <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />
         <Route path="/players" element={<PlayersPage />} />
         <Route path="/player/:username" element={<PlayerProfilePage />} />
+        <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
+        <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />

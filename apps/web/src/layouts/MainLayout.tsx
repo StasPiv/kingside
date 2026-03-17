@@ -2,8 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FcGoogle } from 'react-icons/fc';
-import { FaFacebook, FaTelegram, FaCode } from 'react-icons/fa';
+import { FaFacebook, FaTelegram, FaCode, FaEnvelope } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
+import { messagesSocket } from '../socket';
+import { MessageEvents } from '@kingside/shared';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -27,10 +30,37 @@ export function MainLayout() {
   const { t } = useTranslation();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   useClickOutside(userMenuRef, () => setUserMenuOpen(false));
+
+  // Fetch unread count on login
+  useEffect(() => {
+    if (!user) { setUnreadCount(0); return; }
+    api.get<{ count: number }>('/api/messages/unread-count')
+      .then((data) => setUnreadCount(data.count))
+      .catch(() => {});
+  }, [user]);
+
+  // WebSocket: update badge on new message
+  useEffect(() => {
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    if (!messagesSocket.connected) {
+      messagesSocket.auth = { token };
+      messagesSocket.connect();
+    }
+
+    const onNewMessage = () => {
+      setUnreadCount((prev) => prev + 1);
+    };
+    messagesSocket.on(MessageEvents.NEW_MESSAGE, onNewMessage);
+    return () => { messagesSocket.off(MessageEvents.NEW_MESSAGE, onNewMessage); };
+  }, [user]);
 
   const closeAll = () => {
     setUserMenuOpen(false);
@@ -56,6 +86,14 @@ export function MainLayout() {
           <div className={`nav-menu${mobileMenuOpen ? ' nav-menu--open' : ''}`}>
             <div className="nav-links">
               <Link to="/players" className="nav-link" onClick={closeAll}>{t('nav.players')}</Link>
+              {user && (
+                <Link to="/messages" className="nav-link nav-messages-link" onClick={closeAll} title={t('nav.messages')}>
+                  <FaEnvelope size={16} />
+                  {unreadCount > 0 && (
+                    <span className="nav-messages-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                  )}
+                </Link>
+              )}
               {user ? (
                 <div className="dropdown" ref={userMenuRef}>
                   <button

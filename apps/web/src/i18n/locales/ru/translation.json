@@ -11,6 +11,7 @@
     "dailyPuzzle": "Задача дня",
     "profile": "Профиль",
     "players": "Игроки",
+    "messages": "Сообщения",
     "broadcasts": "Трансляции"
   },
   "broadcasts": {
@@ -595,6 +596,15 @@
     "resultWin": "Победа",
     "resultLoss": "Поражение",
     "resultDraw": "Ничья",
-    "analyze": "Анализ"
+    "analyze": "Анализ",
+    "sendMessage": "Написать сообщение"
+  },
+  "messages": {
+    "title": "Сообщения",
+    "noConversations": "Нет диалогов",
+    "selectConversation": "Выберите диалог",
+    "noMessages": "Нет сообщений. Начните диалог!",
+    "placeholder": "Написать сообщение...",
+    "send": "Отправить"
   }
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import type { PlayerProfileResponse } from '@kingside/shared';
@@ -37,6 +37,7 @@ function isOnline(lastSeenAt: string): boolean {
 
 export function PlayerProfilePage() {
   const { t, i18n } = useTranslation();
+  const navigate = useNavigate();
   const { username } = useParams<{ username: string }>();
   const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,6 +118,12 @@ export function PlayerProfilePage() {
                 {' · '}{t('playerProfile.lastSeen', { date: formatDateTime(profile.lastSeenAt, i18n.language) })}
               </span>
             )}
+          <button
+            className="player-profile-message-btn"
+            onClick={() => navigate(`/messages/${profile.id}`)}
+          >
+            {t('playerProfile.sendMessage')}
+          </button>
           </div>
         </div>
       </div>
