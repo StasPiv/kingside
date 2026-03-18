@@ -111,7 +111,7 @@ export function LobbyPage() {
   const {
     botLevel, setBotLevel, botColor, setBotColor,
     botTC, setBotTC, startingBot, showBotTCModal, setShowBotTCModal,
-    handlePlayBot,
+    handlePlayBot, botError, setBotError,
   } = bot;
 
   const onlineModalContent = (
@@ -390,6 +390,13 @@ export function LobbyPage() {
       <button className="play-btn" onClick={() => setShowBotTCModal(true)} disabled={startingBot}>
         {t('lobby.playBot')}
       </button>
+
+      {botError && (
+        <div className="bot-error-message">
+          <p>{botError}</p>
+          <button className="bot-error-dismiss" onClick={() => setBotError(null)}>✕</button>
+        </div>
+      )}
     </div>
   );
 

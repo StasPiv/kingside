@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { ApiError } from '../ApiError';
 import type { CreateGameResponse } from '@kingside/shared';
 import type { TimeControlCategory } from './useTimeControl';
 
@@ -13,9 +14,11 @@ export function useBotGame() {
   const [botTC, setBotTC] = useState<TimeControlCategory>('blitz');
   const [startingBot, setStartingBot] = useState(false);
   const [showBotTCModal, setShowBotTCModal] = useState(false);
+  const [botError, setBotError] = useState<string | null>(null);
 
   const handlePlayBot = async () => {
     setStartingBot(true);
+    setBotError(null);
     try {
       const game = await api.post<CreateGameResponse>('/api/games/bot', {
         color: botColor,
@@ -23,8 +26,13 @@ export function useBotGame() {
         timeControl: botTC,
       });
       navigate(`/game/${game.id}`);
-    } catch {
+    } catch (err) {
       setStartingBot(false);
+      if (err instanceof ApiError) {
+        setBotError(err.message);
+      } else {
+        setBotError('Failed to start game');
+      }
     }
   };
 
@@ -39,5 +47,7 @@ export function useBotGame() {
     showBotTCModal,
     setShowBotTCModal,
     handlePlayBot,
+    botError,
+    setBotError,
   };
 }

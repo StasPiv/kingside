@@ -7190,3 +7190,36 @@ input:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* Bot error message */
+.bot-error-message {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(244, 67, 54, 0.15);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 8px;
+  color: #f44336;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bot-error-message p {
+  margin: 0;
+  flex: 1;
+}
+
+.bot-error-dismiss {
+  background: none;
+  border: none;
+  color: #f44336;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 2px 6px;
+  opacity: 0.7;
+}
+
+.bot-error-dismiss:hover {
+  opacity: 1;
+}
