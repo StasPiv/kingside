@@ -85,7 +85,6 @@ export function MainLayout() {
 
           <div className={`nav-menu${mobileMenuOpen ? ' nav-menu--open' : ''}`}>
             <div className="nav-links">
-              <Link to="/players" className="nav-link" onClick={closeAll}>{t('nav.players')}</Link>
               {user && (
                 <Link to="/messages" className="nav-link nav-messages-link" onClick={closeAll} title={t('nav.messages')}>
                   <FaEnvelope size={16} />
