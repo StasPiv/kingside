@@ -23,6 +23,13 @@ services:
     mem_limit: 64m
     ports:
       - "${REDIS_PORT:-6380}:6379"
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG && redis-cli set _healthcheck 1 EX 10 | grep -q OK"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     volumes:
       - redis_data:/data
     logging:
