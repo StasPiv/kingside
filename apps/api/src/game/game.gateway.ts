@@ -17,6 +17,7 @@ import { StockfishService } from '../engine/stockfish.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import {
   GameEvents,
+  SpectatorEvents,
   type WsGameJoinPayload,
   type WsGameMovePayload,
   type WsGameResignPayload,
@@ -32,9 +33,12 @@ import {
   type WsAnalysisStartPayload,
   type WsAnalysisLinePayload,
   type WsAnalysisDonePayload,
+  type WsSpectateJoinPayload,
+  type WsSpectateLeavePayload,
   type GameStatus,
   type GameResult,
 } from '@kingside/shared';
+import { LiveGameService } from './live-game.service';
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: '*' } })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -50,6 +54,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwtService: JwtService,
     private readonly chatService: ChatService,
     private readonly stockfishService: StockfishService,
+    private readonly liveGameService: LiveGameService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -137,6 +142,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         moveFlags: result.moveFlags,
       };
       client.to(`game:${data.gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
+      this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_MOVE, movePayload);
 
       if (result.gameOver) {
         const endPayload: WsGameEndPayload = {
@@ -145,6 +151,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
         };
         this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
+        this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
       } else {
         this.triggerBotReply(data.gameId);
       }
@@ -182,6 +189,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
       };
       this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
+      this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
     } catch (e: any) {
       const errorPayload: WsErrorPayload = { code: 'RESIGN_ERROR', message: e.message };
       client.emit(GameEvents.ERROR, errorPayload);
@@ -222,6 +230,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         ...(result.ratingChange ? { ratingChange: result.ratingChange } : {}),
       };
       this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
+      this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
     } catch (e: any) {
       const errorPayload: WsErrorPayload = { code: 'DRAW_ACCEPT_ERROR', message: e.message };
       client.emit(GameEvents.ERROR, errorPayload);
@@ -317,6 +326,47 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  @SubscribeMessage(SpectatorEvents.SPECTATE_JOIN)
+  async handleSpectateJoin(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WsSpectateJoinPayload,
+  ) {
+    await client.join(`spectate:${data.gameId}`);
+    this.logger.log(`Spectator ${client.id} joined game ${data.gameId}`);
+
+    try {
+      const { state, clocks, players } = await this.gameService.getGameState(data.gameId);
+      const statePayload: WsGameStatePayload = {
+        gameId: data.gameId,
+        fen: state.fen,
+        moves: state.moves.map((m) => m.san),
+        clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
+        status: state.status as GameStatus,
+        players,
+      };
+      client.emit(SpectatorEvents.SPECTATE_STATE, statePayload);
+    } catch (e: any) {
+      client.emit(GameEvents.ERROR, { code: 'SPECTATE_ERROR', message: e.message });
+    }
+  }
+
+  @SubscribeMessage(SpectatorEvents.SPECTATE_LEAVE)
+  async handleSpectateLeave(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WsSpectateLeavePayload,
+  ) {
+    await client.leave(`spectate:${data.gameId}`);
+    this.logger.log(`Spectator ${client.id} left game ${data.gameId}`);
+  }
+
+  /** Emit a move to spectators with configured delay */
+  private emitToSpectatorsDelayed(gameId: string, event: string, payload: unknown): void {
+    const delay = this.liveGameService.spectatorDelayMs;
+    setTimeout(() => {
+      this.server.to(`spectate:${gameId}`).emit(event, payload);
+    }, delay);
+  }
+
   emitGameStart(gameId: string, payload: any) {
     this.server.to(`game:${gameId}`).emit(GameEvents.STATE, payload);
   }
@@ -334,6 +384,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         moveFlags: botResult.moveFlags,
       };
       this.server.to(`game:${gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
+      this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_MOVE, movePayload);
 
       if (botResult.gameOver) {
         const endPayload: WsGameEndPayload = {
@@ -341,6 +392,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           termination: botResult.termination!,
         };
         this.server.to(`game:${gameId}`).emit(GameEvents.END, endPayload);
+        this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_END, endPayload);
       }
     } catch (e: any) {
       this.logger.error(`Bot reply failed for game ${gameId}: ${e.message}`);

@@ -720,3 +720,56 @@ export const MessageEvents = {
   NEW_MESSAGE: 'message:new',
   ERROR: 'error',
 } as const;
+
+// ─── Live Games / Spectator (REST) ──────────────────────────────────
+
+/** GET /api/games/live?type=blitz&player=username&limit=20&offset=0 */
+export type LiveGamesQuery = {
+  type?: 'bullet' | 'blitz' | 'rapid' | 'classical';
+  player?: string;
+  limit?: number;
+  offset?: number;
+};
+
+export type LiveGameItem = {
+  id: string;
+  white: { id: string; username: string; rating: number | null };
+  black: { id: string; username: string; rating: number | null };
+  timeControlType: string;
+  timeControl: string;
+  moveCount: number;
+  startedAt: string | null;
+};
+
+export type LiveGamesResponse = {
+  data: LiveGameItem[];
+  total: number;
+};
+
+/** GET /api/games/live/count */
+export type LiveGamesCountResponse = {
+  count: number;
+};
+
+// ─── WebSocket: spectator events ────────────────────────────────────
+
+export const SpectatorEvents = {
+  /** Client → Server: join as spectator */
+  SPECTATE_JOIN: 'spectate:join',
+  /** Client → Server: leave spectating */
+  SPECTATE_LEAVE: 'spectate:leave',
+  /** Server → Client: delayed move */
+  SPECTATE_MOVE: 'spectate:move',
+  /** Server → Client: game state for spectator */
+  SPECTATE_STATE: 'spectate:state',
+  /** Server → Client: game ended */
+  SPECTATE_END: 'spectate:end',
+} as const;
+
+export type WsSpectateJoinPayload = {
+  gameId: string;
+};
+
+export type WsSpectateLeavePayload = {
+  gameId: string;
+};

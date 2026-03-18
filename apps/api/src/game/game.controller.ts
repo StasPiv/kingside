@@ -16,13 +16,16 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateGameWithBotDto, SaveAnalysisDto } from './dto/game.dto';
+import { LiveGamesDto } from './dto/live-games.dto';
 import { GameService } from './game.service';
+import { LiveGameService } from './live-game.service';
 import { UserService } from '../user/user.service';
 
 @Controller('games')
 export class GameController {
   constructor(
     private readonly gameService: GameService,
+    private readonly liveGameService: LiveGameService,
     private readonly userService: UserService,
   ) {}
 
@@ -34,6 +37,16 @@ export class GameController {
     @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
   ) {
     return this.userService.getUserGames(req.user.id, { take, skip });
+  }
+
+  @Get('live')
+  getLiveGames(@Query() dto: LiveGamesDto) {
+    return this.liveGameService.getLiveGames(dto.type, dto.player, dto.limit, dto.offset);
+  }
+
+  @Get('live/count')
+  getLiveCount() {
+    return this.liveGameService.getLiveCount();
   }
 
   @UseGuards(JwtAuthGuard)
