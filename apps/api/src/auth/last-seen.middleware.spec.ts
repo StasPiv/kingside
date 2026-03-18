@@ -69,6 +69,19 @@ describe('LastSeenMiddleware', () => {
     expect(redis.set).not.toHaveBeenCalled();
   });
 
+  it('should update lastSeenAt BEFORE calling next()', async () => {
+    const callOrder: string[] = [];
+    jwt.verify.mockReturnValue({ sub: 'user-1', username: 'test' });
+    redis.set.mockResolvedValue('OK');
+    prisma.user.update.mockImplementation(async () => { callOrder.push('update'); return {}; });
+    next.mockImplementation(() => { callOrder.push('next'); });
+
+    const req = { headers: { authorization: 'Bearer token123' } } as any;
+    await middleware.use(req, {} as any, next);
+
+    expect(callOrder).toEqual(['update', 'next']);
+  });
+
   it('should not throw on invalid token', async () => {
     jwt.verify.mockImplementation(() => { throw new Error('invalid'); });
 
