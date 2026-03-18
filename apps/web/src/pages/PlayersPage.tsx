@@ -156,8 +156,17 @@ export function PlayersPage() {
                   <tr>
                     <th>#</th>
                     <th>{t('players.username')}</th>
-                    <th>{t('players.rating')}</th>
-                    <th>{t('players.games')}</th>
+                    {ratingType === 'puzzle' ? (
+                      <>
+                        <th>{t('players.best3')}</th>
+                        <th>{t('players.best5')}</th>
+                      </>
+                    ) : (
+                      <>
+                        <th>{t('players.rating')}</th>
+                        <th>{t('players.games')}</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -169,8 +178,17 @@ export function PlayersPage() {
                           {p.username}
                         </Link>
                       </td>
-                      <td className="players-rating">{p.rating}</td>
-                      <td className="players-games">{p.gamesPlayed}</td>
+                      {ratingType === 'puzzle' ? (
+                        <>
+                          <td className="players-rating">{p.puzzleRush?.best3 ?? 0}</td>
+                          <td className="players-rating">{p.puzzleRush?.best5 ?? 0}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="players-rating">{p.rating}</td>
+                          <td className="players-games">{p.gamesPlayed}</td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>

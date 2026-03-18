@@ -141,6 +141,27 @@ export function PlayerProfilePage() {
         </div>
       </div>
 
+      {/* Puzzle Rush */}
+      {profile.puzzleRush && (profile.puzzleRush.best3 > 0 || profile.puzzleRush.best5 > 0) && (
+        <div className="player-profile-section">
+          <h2>{t('playerProfile.puzzleRush')}</h2>
+          <div className="player-profile-ratings">
+            <div className="player-profile-rating-card">
+              <div className="player-profile-rating-label">{t('playerProfile.best3min')}</div>
+              <div className="player-profile-rating-value">{profile.puzzleRush.best3}</div>
+            </div>
+            <div className="player-profile-rating-card">
+              <div className="player-profile-rating-label">{t('playerProfile.best5min')}</div>
+              <div className="player-profile-rating-value">{profile.puzzleRush.best5}</div>
+            </div>
+            <div className="player-profile-rating-card">
+              <div className="player-profile-rating-label">{t('playerProfile.totalSessions')}</div>
+              <div className="player-profile-rating-value">{profile.puzzleRush.totalSessions}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="player-profile-section">
         <h2>{t('playerProfile.statistics')}</h2>

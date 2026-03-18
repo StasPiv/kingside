@@ -564,6 +564,8 @@
     "username": "Игрок",
     "rating": "Рейтинг",
     "games": "Партии",
+    "best3": "Лучший 3мин",
+    "best5": "Лучший 5мин",
     "noPlayers": "Игроки не найдены",
     "noOnline": "Нет игроков онлайн",
     "noResults": "Игроки не найдены",
@@ -597,7 +599,11 @@
     "resultLoss": "Поражение",
     "resultDraw": "Ничья",
     "analyze": "Анализ",
-    "sendMessage": "Написать сообщение"
+    "sendMessage": "Написать сообщение",
+    "puzzleRush": "Puzzle Rush",
+    "best3min": "Лучший 3мин",
+    "best5min": "Лучший 5мин",
+    "totalSessions": "Сессии"
   },
   "messages": {
     "title": "Сообщения",

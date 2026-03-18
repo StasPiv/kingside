@@ -564,6 +564,8 @@
     "username": "Player",
     "rating": "Rating",
     "games": "Games",
+    "best3": "Best 3min",
+    "best5": "Best 5min",
     "noPlayers": "No players found",
     "noOnline": "No players online",
     "noResults": "No players found",
@@ -597,7 +599,11 @@
     "resultLoss": "Loss",
     "resultDraw": "Draw",
     "analyze": "Analyze",
-    "sendMessage": "Send Message"
+    "sendMessage": "Send Message",
+    "puzzleRush": "Puzzle Rush",
+    "best3min": "Best 3min",
+    "best5min": "Best 5min",
+    "totalSessions": "Sessions"
   },
   "messages": {
     "title": "Messages",
