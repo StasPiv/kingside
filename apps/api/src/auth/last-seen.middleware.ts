@@ -16,26 +16,29 @@ export class LastSeenMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: Request, _res: Response, next: NextFunction) {
-    next();
-
     const header = req.headers.authorization;
-    if (!header?.startsWith('Bearer ')) return;
+    if (!header?.startsWith('Bearer ')) {
+      next();
+      return;
+    }
 
     try {
       const payload = this.jwt.verify<JwtPayload>(header.slice(7));
       const userId = payload.sub;
-      if (!userId || userId.startsWith('pending:')) return;
-
-      const key = `lastSeen:${userId}`;
-      const exists = await this.redis.set(key, '1', 'EX', THROTTLE_SEC, 'NX');
-      if (!exists) return; // throttled — already updated recently
-
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { lastSeenAt: new Date() },
-      });
+      if (userId && !userId.startsWith('pending:')) {
+        const key = `lastSeen:${userId}`;
+        const set = await this.redis.set(key, '1', 'EX', THROTTLE_SEC, 'NX');
+        if (set) {
+          await this.prisma.user.update({
+            where: { id: userId },
+            data: { lastSeenAt: new Date() },
+          });
+        }
+      }
     } catch {
       // Invalid token or DB error — silently ignore
     }
+
+    next();
   }
 }
