@@ -20,6 +20,14 @@ if [[ "$COMMIT_MSG" == internal:* ]]; then
     exit 0
 fi
 
+# Перезапуск nest dev-сервера при изменениях в apps/api/src/
+if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/src/"; then
+    if [ -f "$REPO_DIR/apps/api/src/main.ts" ]; then
+        touch "$REPO_DIR/apps/api/src/main.ts"
+        echo "[post-hook] touch apps/api/src/main.ts — nest --watch перезапустится"
+    fi
+fi
+
 # Пересборка shared dist при изменениях в packages/shared/src/
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "packages/shared/src/"; then
     echo "[post-hook] Обнаружены изменения в packages/shared/src/ — пересборка..."
