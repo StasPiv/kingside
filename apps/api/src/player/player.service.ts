@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import type {
   RatingType,
+  TopPlayerItem,
   TopPlayersResponse,
   OnlinePlayersResponse,
   PlayerProfileResponse,
@@ -77,8 +78,8 @@ export class PlayerService {
       puzzleRushMap = await this.getPuzzleRushStatsForUsers(userIds);
     }
 
-    const data = users.map((user, index) => {
-      const item: Record<string, unknown> = {
+    const data: TopPlayerItem[] = users.map((user, index) => {
+      const item: TopPlayerItem = {
         rank: offset + index + 1,
         id: user.id,
         username: user.username!,
