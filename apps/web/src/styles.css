@@ -7223,3 +7223,77 @@ input:focus {
 .bot-error-dismiss:hover {
   opacity: 1;
 }
+
+/* Live Tournaments Page */
+.live-tournaments-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.live-tournaments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.live-tournaments-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.live-tournaments-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.live-tournament-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.live-tournament-name {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: #e0e0ff;
+}
+
+.live-tournament-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.live-tournament-watch-btn {
+  background: #7c83ff;
+  color: #fff;
+  text-decoration: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.live-tournament-watch-btn:hover {
+  background: #6a72e8;
+}
+
+.live-tournament-results-link {
+  color: #a0a0c0;
+  text-decoration: none;
+  padding: 6px 12px;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.live-tournament-results-link:hover {
+  color: #fff;
+  border-color: #7c83ff;
+}

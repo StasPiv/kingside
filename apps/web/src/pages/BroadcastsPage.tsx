@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import type { DgtTournamentResult } from '../dgt.types';
@@ -51,6 +51,12 @@ export function BroadcastsPage() {
       </div>
 
       {error && <div className="error">{error}</div>}
+
+      <div className="broadcasts-live-link">
+        <Link to="/tournaments/live" className="lobby-widget__btn">
+          {t('liveTournaments.title')} →
+        </Link>
+      </div>
     </div>
   );
 }

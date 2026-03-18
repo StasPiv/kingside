@@ -628,5 +628,13 @@
     "connecting": "Connecting...",
     "delayNotice": "Moves are delayed by 5 seconds",
     "waitingMoves": "Waiting for moves..."
+  },
+  "liveTournaments": {
+    "title": "Live Tournaments",
+    "backToBroadcasts": "← Broadcasts",
+    "noTournaments": "No live tournaments right now",
+    "loadError": "Failed to load tournaments",
+    "watch": "Watch Live",
+    "results": "Results"
   }
 }
