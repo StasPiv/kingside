@@ -185,6 +185,11 @@
         "title": "Players",
         "description": "Browse top players, see who's online, and find opponents by username.",
         "cta": "View Players"
+      },
+      "liveGames": {
+        "title": "Watch Games",
+        "description": "Watch live chess games in real time. See top players battle it out.",
+        "cta": "Watch Live"
       }
     },
     "workshop": {
@@ -612,5 +617,16 @@
     "noMessages": "No messages yet. Start the conversation!",
     "placeholder": "Type a message...",
     "send": "Send"
+  },
+  "liveGames": {
+    "title": "Live Games",
+    "filterPlayer": "Filter by player...",
+    "noGames": "No live games right now",
+    "count": "{{count}} games live",
+    "moves": "{{count}} moves",
+    "backToLive": "← Back to Live Games",
+    "connecting": "Connecting...",
+    "delayNotice": "Moves are delayed by 5 seconds",
+    "waitingMoves": "Waiting for moves..."
   }
 }

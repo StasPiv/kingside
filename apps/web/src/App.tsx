@@ -22,6 +22,8 @@ import { BroadcastGamePage } from './pages/BroadcastGamePage';
 import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
 import { MessagesPage } from './pages/MessagesPage';
+import { LiveGamesPage } from './pages/LiveGamesPage';
+import { WatchGamePage } from './pages/WatchGamePage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
@@ -61,6 +63,8 @@ export function App() {
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
+        <Route path="/games/live" element={<LiveGamesPage />} />
+        <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/game/:gameId/review" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
