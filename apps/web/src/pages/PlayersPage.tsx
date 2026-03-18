@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import type {
@@ -24,12 +24,42 @@ const RATING_LABELS: Record<RatingType, string> = {
   puzzle: '🧩 Puzzle',
 };
 
+const VALID_TABS: Tab[] = ['top', 'online', 'search'];
+
+function isValidTab(v: string | null): v is Tab {
+  return v != null && VALID_TABS.includes(v as Tab);
+}
+
+function isValidRatingType(v: string | null): v is RatingType {
+  return v != null && RATING_TYPES.includes(v as RatingType);
+}
+
 export function PlayersPage() {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<Tab>('top');
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // Top players state
-  const [ratingType, setRatingType] = useState<RatingType>('blitz');
+  const tabParam = searchParams.get('tab');
+  const typeParam = searchParams.get('type');
+  const tab: Tab = isValidTab(tabParam) ? tabParam : 'top';
+  const ratingType: RatingType = isValidRatingType(typeParam) ? typeParam : 'blitz';
+
+  const setTab = useCallback((newTab: Tab) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', newTab);
+      if (newTab !== 'top') next.delete('type');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const setRatingType = useCallback((newType: RatingType) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', 'top');
+      next.set('type', newType);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [topPlayers, setTopPlayers] = useState<TopPlayerItem[]>([]);
   const [topTotal, setTopTotal] = useState(0);
   const [topLoading, setTopLoading] = useState(false);
