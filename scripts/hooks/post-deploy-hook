@@ -36,13 +36,17 @@ if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/web/src/"; then
     fi
 fi
 
-# Пересборка shared dist при изменениях в packages/shared/src/
+# Пересборка shared dist и инвалидация кэша Vite при изменениях в packages/shared/src/
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "packages/shared/src/"; then
     echo "[post-hook] Обнаружены изменения в packages/shared/src/ — пересборка..."
     rm -f "$REPO_DIR/packages/shared/tsconfig.tsbuildinfo"
     npx tsc -p "$REPO_DIR/packages/shared/tsconfig.json" 2>/dev/null && \
         echo "[post-hook] packages/shared пересобран" || \
         echo "[post-hook] WARN: ошибка пересборки shared"
+    # Инвалидация кэша Vite для @kingside/shared
+    [ -f "$REPO_DIR/packages/shared/src/index.ts" ] && touch "$REPO_DIR/packages/shared/src/index.ts"
+    [ -f "$REPO_DIR/apps/web/src/main.tsx" ] && touch "$REPO_DIR/apps/web/src/main.tsx"
+    echo "[post-hook] touch shared/src/index.ts + web/src/main.tsx — Vite увидит новые экспорты"
 fi
 
 echo "[post-hook] Коммит в main. Деплой НЕ запускается автоматически."
