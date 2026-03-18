@@ -206,7 +206,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
     // Avoid repeated failures: skip if cooldown is active
     const cooldownKey = `broadcast:pgn-fetch-cooldown:${lichessRoundId}`;
-    const cooldown = await this.redis.get(cooldownKey);
+    const cooldown = await this.redis.get(cooldownKey).catch(() => null);
     if (cooldown) return;
 
     try {
@@ -223,7 +223,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(
           `Failed to fetch PGN for finished round ${lichessRoundId}: HTTP ${res.status} ${res.statusText}. Body: ${body.slice(0, 500)}`,
         );
-        await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
+        await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL).catch(() => {});
         return;
       }
       const pgn = await res.text();
@@ -234,7 +234,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         );
       } else {
         // No games yet — retry after cooldown
-        await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
+        await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL).catch(() => {});
       }
     } catch (e: any) {
       const cause =
@@ -242,7 +242,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(
         `Error fetching PGN for finished round ${lichessRoundId}: ${e.message}${cause ? ` (cause: ${cause})` : ''}`,
       );
-      await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL);
+      await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL).catch(() => {});
     }
   }
 
@@ -311,7 +311,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
     for (const game of games) {
       const fenKey = `broadcast:fen:${roundId}:${game.index}`;
-      await this.redis.set(fenKey, game.fen, 'EX', REDIS_FEN_TTL);
+      await this.redis.set(fenKey, game.fen, 'EX', REDIS_FEN_TTL).catch(() => {});
 
       if (game.lichessGameId) {
         const existing = await this.prisma.broadcastGame.findFirst({
@@ -414,11 +414,11 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   async getGameFens(roundId: string): Promise<Array<{ index: number; fen: string }>> {
     const pattern = `broadcast:fen:${roundId}:*`;
-    const keys = await this.redis.keys(pattern);
+    const keys = await this.redis.keys(pattern).catch(() => [] as string[]);
     const result: Array<{ index: number; fen: string }> = [];
 
     for (const key of keys) {
-      const fen = await this.redis.get(key);
+      const fen = await this.redis.get(key).catch(() => null);
       const indexStr = key.split(':').pop();
       if (fen && indexStr !== undefined) {
         result.push({ index: parseInt(indexStr, 10), fen });
