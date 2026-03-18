@@ -28,6 +28,14 @@ if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/src/"; then
     fi
 fi
 
+# Перезапуск Vite dev-сервера при изменениях в apps/web/src/
+if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/web/src/"; then
+    if [ -f "$REPO_DIR/apps/web/src/main.tsx" ]; then
+        touch "$REPO_DIR/apps/web/src/main.tsx"
+        echo "[post-hook] touch apps/web/src/main.tsx — Vite HMR перезапустится"
+    fi
+fi
+
 # Пересборка shared dist при изменениях в packages/shared/src/
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "packages/shared/src/"; then
     echo "[post-hook] Обнаружены изменения в packages/shared/src/ — пересборка..."
