@@ -2,13 +2,13 @@ import { LastSeenMiddleware } from './last-seen.middleware';
 
 describe('LastSeenMiddleware', () => {
   let middleware: LastSeenMiddleware;
-  let jwt: { verify: jest.Mock };
+  let jwt: { verify: jest.Mock; decode: jest.Mock };
   let prisma: { user: { update: jest.Mock } };
   let redis: { set: jest.Mock };
   let next: jest.Mock;
 
   beforeEach(() => {
-    jwt = { verify: jest.fn() };
+    jwt = { verify: jest.fn(), decode: jest.fn() };
     prisma = { user: { update: jest.fn() } };
     redis = { set: jest.fn() };
     next = jest.fn();
@@ -82,8 +82,26 @@ describe('LastSeenMiddleware', () => {
     expect(callOrder).toEqual(['update', 'next']);
   });
 
-  it('should not throw on invalid token', async () => {
+  it('should update lastSeenAt with expired token via decode fallback', async () => {
+    jwt.verify.mockImplementation(() => { throw new Error('jwt expired'); });
+    jwt.decode.mockReturnValue({ sub: 'user-1', username: 'test' });
+    redis.set.mockResolvedValue('OK');
+    prisma.user.update.mockResolvedValue({});
+
+    const req = { headers: { authorization: 'Bearer expired-token' } } as any;
+    await middleware.use(req, {} as any, next);
+
+    expect(jwt.decode).toHaveBeenCalledWith('expired-token');
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { lastSeenAt: expect.any(Date) },
+    });
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('should not throw on completely invalid token', async () => {
     jwt.verify.mockImplementation(() => { throw new Error('invalid'); });
+    jwt.decode.mockReturnValue(null);
 
     const req = { headers: { authorization: 'Bearer bad' } } as any;
     await expect(middleware.use(req, {} as any, next)).resolves.toBeUndefined();

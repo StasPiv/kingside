@@ -23,8 +23,18 @@ export class LastSeenMiddleware implements NestMiddleware {
     }
 
     try {
-      const payload = this.jwt.verify<JwtPayload>(header.slice(7));
-      const userId = payload.sub;
+      const token = header.slice(7);
+      let userId: string | undefined;
+
+      try {
+        const payload = this.jwt.verify<JwtPayload>(token);
+        userId = payload.sub;
+      } catch {
+        // Token may be expired — decode without verification to get userId
+        const decoded = this.jwt.decode<JwtPayload>(token);
+        userId = decoded?.sub;
+      }
+
       if (userId && !userId.startsWith('pending:')) {
         const key = `lastSeen:${userId}`;
         const set = await this.redis.set(key, '1', 'EX', THROTTLE_SEC, 'NX');
@@ -36,7 +46,7 @@ export class LastSeenMiddleware implements NestMiddleware {
         }
       }
     } catch {
-      // Invalid token or DB error — silently ignore
+      // Malformed token or DB error — silently ignore
     }
 
     next();
