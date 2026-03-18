@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ConflictException } from '@nestjs/common';
 import { Chess, Square } from 'chess.js';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
@@ -405,7 +405,7 @@ export class GameService {
     });
 
     if (activeBotGames >= MAX_ACTIVE_BOT_GAMES) {
-      throw new Error(
+      throw new ConflictException(
         this.i18n.t('messages.game.botGameLimitReached'),
       );
     }
@@ -453,20 +453,33 @@ export class GameService {
     });
   }
 
-  async cleanupStaleBotGames(userId: string): Promise<number> {
+  /** Stale bot game threshold: 30 minutes */
+  private static readonly STALE_BOT_GAME_MS = 30 * 60 * 1000;
+
+  async cleanupStaleBotGames(userId?: string): Promise<number> {
+    const threshold = new Date(Date.now() - GameService.STALE_BOT_GAME_MS);
+
+    const where: Record<string, unknown> = {
+      isBot: true,
+      status: 'active',
+    };
+
+    if (userId) {
+      where.OR = [{ whiteId: userId }, { blackId: userId }];
+    }
+
     const staleGames = await this.prisma.game.findMany({
-      where: {
-        isBot: true,
-        status: 'active',
-        OR: [{ whiteId: userId }, { blackId: userId }],
-      },
-      select: { id: true, createdAt: true },
+      where,
+      select: { id: true, createdAt: true, startedAt: true },
     });
 
     let cleaned = 0;
     for (const game of staleGames) {
+      const referenceTime = game.startedAt ?? game.createdAt;
       const hasState = await this.redis.exists(this.stateKey(game.id));
-      if (!hasState) {
+      const isStaleByTime = referenceTime < threshold;
+
+      if (!hasState || isStaleByTime) {
         await this.prisma.game.update({
           where: { id: game.id },
           data: {
@@ -475,8 +488,12 @@ export class GameService {
             finishedAt: new Date(),
           },
         });
+        // Clean up Redis state if exists
+        if (hasState) {
+          await this.redis.del(this.stateKey(game.id));
+        }
         cleaned++;
-        this.logger.log(`Cleaned up stale bot game ${game.id}`);
+        this.logger.log(`Cleaned up stale bot game ${game.id} (noState=${!hasState}, staleByTime=${isStaleByTime})`);
       }
     }
 
