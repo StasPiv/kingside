@@ -47,6 +47,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(GameGateway.name);
   private readonly analysisSessions = new Map<string, AbortController>();
+  /** Grace period before ending bot games on disconnect (ms) */
+  private static readonly BOT_DISCONNECT_GRACE_MS = 30_000;
+  private readonly botDisconnectTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly gameService: GameService,
@@ -79,6 +82,26 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.stopAnalysisSession(client.id);
 
     if (userId) {
+      this.scheduleBotGameEnd(userId);
+    }
+  }
+
+  private scheduleBotGameEnd(userId: string): void {
+    // Cancel any existing timer for this user
+    const existing = this.botDisconnectTimers.get(userId);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(async () => {
+      this.botDisconnectTimers.delete(userId);
+
+      // Check if user reconnected (has active sockets)
+      const sockets = await this.server.fetchSockets();
+      const reconnected = sockets.some((s) => s.data.user?.id === userId);
+      if (reconnected) {
+        this.logger.log(`User ${userId} reconnected, skipping bot game end`);
+        return;
+      }
+
       try {
         const endedGameIds = await this.gameService.endBotGameOnDisconnect(userId);
         for (const gameId of endedGameIds) {
@@ -90,7 +113,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       } catch (e: any) {
         this.logger.error(`Failed to end bot games on disconnect: ${e.message}`);
       }
-    }
+    }, GameGateway.BOT_DISCONNECT_GRACE_MS);
+
+    this.botDisconnectTimers.set(userId, timer);
   }
 
   @SubscribeMessage(GameEvents.JOIN)
@@ -100,6 +125,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
+
+    // Cancel pending bot game end timer on reconnect
+    const pendingTimer = this.botDisconnectTimers.get(userId);
+    if (pendingTimer) {
+      clearTimeout(pendingTimer);
+      this.botDisconnectTimers.delete(userId);
+      this.logger.log(`Cancelled bot disconnect timer for ${userId} (reconnected)`);
+    }
 
     await client.join(`game:${data.gameId}`);
 
