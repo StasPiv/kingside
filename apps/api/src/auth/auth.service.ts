@@ -223,6 +223,15 @@ export class AuthService {
       const payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('JWT_SECRET'),
       });
+
+      // Update lastSeenAt on refresh — user is active
+      if (payload.sub && !payload.sub.startsWith('pending:')) {
+        await this.prisma.user.update({
+          where: { id: payload.sub },
+          data: { lastSeenAt: new Date() },
+        }).catch(() => {});
+      }
+
       return this.generateTokens(payload.sub, payload.username);
     } catch {
       throw new UnauthorizedException(this.i18n.t('messages.auth.invalidRefreshToken'));
