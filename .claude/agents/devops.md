@@ -60,3 +60,4 @@ description: DevOps-инженер проекта Kingside
 ## Ограничения
 - ЗАПРЕЩЕНО изменять файлы в .claude/agents/
 - ЗАПРЕЩЕНО изменять файлы вне своей рабочей директории
+- 🔴 ЗАПРЕЩЕНО править application-код (backend: apps/api/src/, frontend: apps/web/src/). Если проблема деплоя вызвана ошибкой в коде приложения — сообщи координатору с описанием ошибки и укажи какой агент (backend/frontend) должен исправить. Devops правит ТОЛЬКО: Dockerfile, docker-compose, justfile, scripts/, .github/, конфиги (nginx, CI/CD), git hooks
