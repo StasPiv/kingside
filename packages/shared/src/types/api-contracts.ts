@@ -571,12 +571,19 @@ export type TopPlayersQuery = {
   offset?: number;
 };
 
+export type PuzzleRushStats = {
+  best3: number;
+  best5: number;
+  totalSessions: number;
+};
+
 export type TopPlayerItem = {
   rank: number;
   id: string;
   username: string;
   rating: number;
   gamesPlayed: number;
+  puzzleRush?: PuzzleRushStats;
 };
 
 export type TopPlayersResponse = {
@@ -644,6 +651,7 @@ export type PlayerProfileResponse = {
   createdAt: string;
   lastSeenAt: string;
   recentGames: PlayerRecentGame[];
+  puzzleRush?: PuzzleRushStats;
 };
 
 export type PlayerRecentGame = {

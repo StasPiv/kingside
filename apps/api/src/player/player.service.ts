@@ -70,15 +70,30 @@ export class PlayerService {
       }),
     ]);
 
-    const data = users.map((user, index) => ({
-      rank: offset + index + 1,
-      id: user.id,
-      username: user.username!,
-      rating: user[ratingField as keyof typeof user] as number,
-      gamesPlayed: gamesField
-        ? (user[gamesField as keyof typeof user] as number)
-        : 0,
-    }));
+    // For puzzle type, fetch puzzle rush stats for each user
+    let puzzleRushMap: Map<string, { best3: number; best5: number; totalSessions: number }> | null = null;
+    if (type === 'puzzle') {
+      const userIds = users.map((u) => u.id);
+      puzzleRushMap = await this.getPuzzleRushStatsForUsers(userIds);
+    }
+
+    const data = users.map((user, index) => {
+      const item: Record<string, unknown> = {
+        rank: offset + index + 1,
+        id: user.id,
+        username: user.username!,
+        rating: user[ratingField as keyof typeof user] as number,
+        gamesPlayed: gamesField
+          ? (user[gamesField as keyof typeof user] as number)
+          : 0,
+      };
+
+      if (puzzleRushMap) {
+        item.puzzleRush = puzzleRushMap.get(user.id) ?? { best3: 0, best5: 0, totalSessions: 0 };
+      }
+
+      return item;
+    });
 
     return { data, total, ratingType: type };
   }
@@ -150,7 +165,7 @@ export class PlayerService {
       throw new NotFoundException(this.i18n.t('messages.user.notFound'));
     }
 
-    const [wins, losses, draws, recentGames] = await Promise.all([
+    const [wins, losses, draws, recentGames, puzzleRush] = await Promise.all([
       this.prisma.game.count({
         where: {
           status: 'finished',
@@ -196,6 +211,7 @@ export class PlayerService {
           black: { select: { id: true, username: true } },
         },
       }),
+      this.getPuzzleRushStatsForUser(user.id),
     ]);
 
     const recentGamesData = recentGames.map((game) => {
@@ -247,6 +263,7 @@ export class PlayerService {
       createdAt: user.createdAt.toISOString(),
       lastSeenAt: user.lastSeenAt.toISOString(),
       recentGames: recentGamesData,
+      puzzleRush,
     };
   }
 
@@ -283,5 +300,41 @@ export class PlayerService {
     }));
 
     return { data };
+  }
+
+  private async getPuzzleRushStatsForUser(
+    userId: string,
+  ): Promise<{ best3: number; best5: number; totalSessions: number }> {
+    const [best3, best5, totalSessions] = await Promise.all([
+      this.prisma.puzzleRushScore.findFirst({
+        where: { userId, timeMode: '3' },
+        orderBy: { score: 'desc' },
+        select: { score: true },
+      }),
+      this.prisma.puzzleRushScore.findFirst({
+        where: { userId, timeMode: '5' },
+        orderBy: { score: 'desc' },
+        select: { score: true },
+      }),
+      this.prisma.puzzleRushScore.count({ where: { userId } }),
+    ]);
+
+    return {
+      best3: best3?.score ?? 0,
+      best5: best5?.score ?? 0,
+      totalSessions,
+    };
+  }
+
+  private async getPuzzleRushStatsForUsers(
+    userIds: string[],
+  ): Promise<Map<string, { best3: number; best5: number; totalSessions: number }>> {
+    const results = await Promise.all(
+      userIds.map(async (id) => {
+        const stats = await this.getPuzzleRushStatsForUser(id);
+        return [id, stats] as const;
+      }),
+    );
+    return new Map(results);
   }
 }

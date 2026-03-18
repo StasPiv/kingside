@@ -10,6 +10,7 @@ describe('PlayerService', () => {
   let prisma: {
     user: { findMany: jest.Mock; count: jest.Mock; findUnique: jest.Mock };
     game: { count: jest.Mock; findMany: jest.Mock };
+    puzzleRushScore: { findFirst: jest.Mock; count: jest.Mock };
   };
 
   beforeEach(async () => {
@@ -22,6 +23,10 @@ describe('PlayerService', () => {
       game: {
         count: jest.fn(),
         findMany: jest.fn(),
+      },
+      puzzleRushScore: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        count: jest.fn().mockResolvedValue(0),
       },
     };
 
@@ -106,6 +111,45 @@ describe('PlayerService', () => {
         expect.objectContaining({ take: 100 }),
       );
     });
+
+    it('should include puzzleRush stats when type=puzzle', async () => {
+      const mockUsers = [
+        {
+          id: '1', username: 'puzzler1',
+          ratingBullet: 1500, ratingBlitz: 1500, ratingRapid: 1500, ratingClassical: 1500, ratingPuzzle: 2000,
+          gamesPlayedBullet: 0, gamesPlayedBlitz: 0, gamesPlayedRapid: 0, gamesPlayedClassical: 0,
+        },
+      ];
+      prisma.user.findMany.mockResolvedValue(mockUsers);
+      prisma.user.count.mockResolvedValue(1);
+      prisma.puzzleRushScore.findFirst
+        .mockResolvedValueOnce({ score: 15 })  // best3
+        .mockResolvedValueOnce({ score: 22 }); // best5
+      prisma.puzzleRushScore.count.mockResolvedValue(10);
+
+      const result = await service.getTopPlayers('puzzle', 20, 0);
+
+      expect(result.data[0].puzzleRush).toEqual({
+        best3: 15,
+        best5: 22,
+        totalSessions: 10,
+      });
+    });
+
+    it('should NOT include puzzleRush stats for non-puzzle types', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        {
+          id: '1', username: 'player1',
+          ratingBullet: 2000, ratingBlitz: 2100, ratingRapid: 1800, ratingClassical: 1900, ratingPuzzle: 1700,
+          gamesPlayedBullet: 10, gamesPlayedBlitz: 20, gamesPlayedRapid: 5, gamesPlayedClassical: 3,
+        },
+      ]);
+      prisma.user.count.mockResolvedValue(1);
+
+      const result = await service.getTopPlayers('blitz', 20, 0);
+
+      expect(result.data[0].puzzleRush).toBeUndefined();
+    });
   });
 
   describe('getOnlinePlayers', () => {
@@ -150,6 +194,10 @@ describe('PlayerService', () => {
         .mockResolvedValueOnce(5)   // losses
         .mockResolvedValueOnce(3);  // draws
       prisma.game.findMany.mockResolvedValue([]);
+      prisma.puzzleRushScore.findFirst
+        .mockResolvedValueOnce({ score: 12 })  // best3
+        .mockResolvedValueOnce({ score: 18 }); // best5
+      prisma.puzzleRushScore.count.mockResolvedValue(5);
 
       const result = await service.getPlayerProfile('testuser');
 
@@ -160,6 +208,11 @@ describe('PlayerService', () => {
       expect(result.stats.losses).toBe(5);
       expect(result.stats.draws).toBe(3);
       expect(result.stats.totalGames).toBe(18);
+      expect(result.puzzleRush).toEqual({
+        best3: 12,
+        best5: 18,
+        totalSessions: 5,
+      });
     });
 
     it('should throw NotFoundException for non-existent user', async () => {
