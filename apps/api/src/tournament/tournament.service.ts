@@ -91,6 +91,29 @@ export class TournamentService {
     });
   }
 
+  async getLiveTournaments() {
+    const tournaments = await this.prisma.liveTournament.findMany({
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        chessResultsId: true,
+        chessResultsUrl: true,
+        livechessUuid: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return {
+      data: tournaments.map((t) => ({
+        ...t,
+        createdAt: t.createdAt.toISOString(),
+        updatedAt: t.updatedAt.toISOString(),
+      })),
+    };
+  }
+
   private pickRating(
     user: { ratingBlitz: number; ratingRapid: number; ratingBullet: number },
     timeControlType: string,

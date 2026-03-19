@@ -9,4 +9,9 @@ export class TournamentController {
   getTopActive(): Promise<any[]> {
     return this.tournamentService.getTopActiveTournaments();
   }
+
+  @Get('live')
+  getLiveTournaments() {
+    return this.tournamentService.getLiveTournaments();
+  }
 }

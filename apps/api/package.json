@@ -11,7 +11,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
-    "import:puzzles": "npx ts-node src/puzzle/import-puzzles.ts"
+    "import:puzzles": "npx ts-node src/puzzle/import-puzzles.ts",
+    "scan:chess-results": "node dist/broadcast/chess-results/scan-chess-results.js"
   },
   "dependencies": {
     "@kingside/shared": "*",

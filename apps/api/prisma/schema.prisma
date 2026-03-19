@@ -379,3 +379,16 @@ model DirectMessage {
   @@index([receiverId, readAt])
   @@map("direct_messages")
 }
+
+model LiveTournament {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  chessResultsId  String   @unique @map("chess_results_id")
+  chessResultsUrl String   @map("chess_results_url")
+  livechessUuid   String   @map("livechess_uuid")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([livechessUuid])
+  @@map("live_tournaments")
+}

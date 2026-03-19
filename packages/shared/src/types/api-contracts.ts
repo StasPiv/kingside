@@ -773,3 +773,20 @@ export type WsSpectateJoinPayload = {
 export type WsSpectateLeavePayload = {
   gameId: string;
 };
+
+// ─── Live Tournaments (REST) ────────────────────────────────────────
+
+/** GET /api/tournaments/live */
+export type LiveTournamentItem = {
+  id: string;
+  name: string;
+  chessResultsId: string;
+  chessResultsUrl: string;
+  livechessUuid: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LiveTournamentsResponse = {
+  data: LiveTournamentItem[];
+};
