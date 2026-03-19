@@ -51,29 +51,30 @@ async function main() {
           where: { chessResultsId: compositeId },
         });
 
+        const metaData = {
+          name: t.name,
+          description: t.metadata.description,
+          playerCount: t.metadata.playerCount,
+        };
+
         if (existing) {
-          if (existing.name !== t.name) {
-            await prisma.liveTournament.update({
-              where: { chessResultsId: compositeId },
-              data: { name: t.name },
-            });
-            updated++;
-            console.log(`  Updated: ${t.name} (${uuid})`);
-          } else {
-            skipped++;
-            console.log(`  Skipped: ${t.name} (${uuid}) — already exists`);
-          }
+          await prisma.liveTournament.update({
+            where: { chessResultsId: compositeId },
+            data: metaData,
+          });
+          updated++;
+          console.log(`  Updated: ${t.name} (${uuid}) — ${t.metadata.playerCount ?? '?'} players`);
         } else {
           await prisma.liveTournament.create({
             data: {
-              name: t.name,
+              ...metaData,
               chessResultsId: compositeId,
               chessResultsUrl: t.url,
               livechessUuid: uuid,
             },
           });
           created++;
-          console.log(`  Created: ${t.name} (${uuid})`);
+          console.log(`  Created: ${t.name} (${uuid}) — ${t.metadata.playerCount ?? '?'} players`);
         }
       }
     }

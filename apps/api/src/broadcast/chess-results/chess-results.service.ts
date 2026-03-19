@@ -10,15 +10,31 @@ const TOURNAMENT_LINK_RE = /tnr(\d+)\.aspx/g;
 /** Regex to extract tournament name from <title> or heading */
 const TITLE_RE = /<title[^>]*>([^<]+)<\/title>/i;
 
+/** Regex to extract CRmsg description text (may contain HTML tags) */
+const CRMSG_RE = /<h3\s+[Cc]lass="CRmsg">([^]*?)<\/h3>/i;
+
+/** Regex to extract player count from table rows */
+const PLAYER_ROW_RE = /class="CRg[12][^"]*"/g;
+
+/** Regex to extract last update date */
+const LAST_UPDATE_RE = /Last update (\d{2}\.\d{2}\.\d{4})/i;
+
 const BASE_URL = 'https://chess-results.com';
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_TOURNAMENTS_PER_SCAN = 50;
+
+export interface TournamentMetadata {
+  description: string | null;
+  playerCount: number | null;
+  lastUpdate: string | null;
+}
 
 export interface ChessResultsTournament {
   tournamentId: string;
   name: string;
   url: string;
   livechessUuids: string[];
+  metadata: TournamentMetadata;
 }
 
 @Injectable()
@@ -79,12 +95,14 @@ export class ChessResultsService {
 
     const uuids = this.extractLivechessUuids(html);
     const name = this.extractTournamentName(html);
+    const metadata = this.extractMetadata(html);
 
     return {
       tournamentId,
       name,
       url,
       livechessUuids: uuids,
+      metadata,
     };
   }
 
@@ -116,6 +134,40 @@ export class ChessResultsService {
       return dashIdx !== -1 ? title.slice(dashIdx + 3).trim() : title;
     }
     return 'Unknown Tournament';
+  }
+
+  /**
+   * Extract metadata from tournament HTML.
+   */
+  extractMetadata(html: string): TournamentMetadata {
+    // Description from CRmsg block (strip HTML tags)
+    let description: string | null = null;
+    const msgMatch = CRMSG_RE.exec(html);
+    if (msgMatch) {
+      description = msgMatch[1]
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .trim();
+      // Truncate if too long
+      if (description.length > 500) {
+        description = description.slice(0, 497) + '...';
+      }
+    }
+
+    // Player count from table rows
+    PLAYER_ROW_RE.lastIndex = 0;
+    let playerCount = 0;
+    while (PLAYER_ROW_RE.exec(html) !== null) playerCount++;
+    const finalPlayerCount = playerCount > 0 ? playerCount : null;
+
+    // Last update date
+    let lastUpdate: string | null = null;
+    const dateMatch = LAST_UPDATE_RE.exec(html);
+    if (dateMatch) {
+      lastUpdate = dateMatch[1];
+    }
+
+    return { description, playerCount: finalPlayerCount, lastUpdate };
   }
 
   /**

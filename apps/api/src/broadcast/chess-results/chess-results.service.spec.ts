@@ -78,4 +78,44 @@ describe('ChessResultsService', () => {
       expect(name).toBe('Unknown Tournament');
     });
   });
+
+  describe('extractMetadata', () => {
+    it('should extract description from CRmsg', () => {
+      const html = '<h3 Class="CRmsg">Tournament starts on Monday<br/>Contact: admin@test.com</h3>';
+      const meta = service.extractMetadata(html);
+      expect(meta.description).toBe('Tournament starts on Monday\nContact: admin@test.com');
+    });
+
+    it('should count players from table rows', () => {
+      const html = `
+        <tr class="CRg1 CAN"><td>1</td></tr>
+        <tr class="CRg2 CAN"><td>2</td></tr>
+        <tr class="CRg1 CAN"><td>3</td></tr>
+      `;
+      const meta = service.extractMetadata(html);
+      expect(meta.playerCount).toBe(3);
+    });
+
+    it('should extract last update date', () => {
+      const html = '<p class="CRsmall">Last update 05.09.2023 01:31:41, Creator: test</p>';
+      const meta = service.extractMetadata(html);
+      expect(meta.lastUpdate).toBe('05.09.2023');
+    });
+
+    it('should return nulls when no metadata found', () => {
+      const html = '<html><body>Empty</body></html>';
+      const meta = service.extractMetadata(html);
+      expect(meta.description).toBeNull();
+      expect(meta.playerCount).toBeNull();
+      expect(meta.lastUpdate).toBeNull();
+    });
+
+    it('should truncate long descriptions', () => {
+      const longText = 'A'.repeat(600);
+      const html = `<h3 Class="CRmsg">${longText}</h3>`;
+      const meta = service.extractMetadata(html);
+      expect(meta.description!.length).toBeLessThanOrEqual(500);
+      expect(meta.description!.endsWith('...')).toBe(true);
+    });
+  });
 });

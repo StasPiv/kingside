@@ -783,6 +783,12 @@ export type LiveTournamentItem = {
   chessResultsId: string;
   chessResultsUrl: string;
   livechessUuid: string;
+  description: string | null;
+  location: string | null;
+  timeControl: string | null;
+  playerCount: number | null;
+  startDate: string | null;
+  endDate: string | null;
   createdAt: string;
   updatedAt: string;
 };
