@@ -131,6 +131,8 @@ class AgentDaemon:
                 if sid and not self.session_id:
                     self.session_id = sid
                     log(f"Daemon {self.name}: session_id={sid}")
+                    with open(log_file, "a") as lf:
+                        lf.write(json.dumps({"type": "agent_init", "agent": self.name, "session_id": sid}) + "\n")
 
                 # result означает что агент закончил обработку текущего сообщения
                 if data.get("type") == "result":
