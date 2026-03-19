@@ -7257,9 +7257,28 @@ input:focus {
 }
 
 .live-tournament-name {
-  margin: 0 0 12px;
+  margin: 0 0 6px;
   font-size: 16px;
   color: #e0e0ff;
+}
+
+.live-tournament-desc {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #808098;
+  line-height: 1.4;
+}
+
+.live-tournament-details {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.live-tournament-detail {
+  font-size: 13px;
+  color: #a0a0c0;
 }
 
 .live-tournament-links {

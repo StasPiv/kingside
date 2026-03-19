@@ -57,6 +57,20 @@ export function BroadcastsPage() {
                 className="live-tournament-card live-tournament-card--link"
               >
                 <h3 className="live-tournament-name">{tnr.name}</h3>
+                {tnr.description && (
+                  <p className="live-tournament-desc">{tnr.description}</p>
+                )}
+                <div className="live-tournament-details">
+                  {tnr.playerCount != null && tnr.playerCount > 0 && (
+                    <span className="live-tournament-detail">👥 {tnr.playerCount}</span>
+                  )}
+                  {tnr.location && (
+                    <span className="live-tournament-detail">📍 {tnr.location}</span>
+                  )}
+                  {tnr.timeControl && (
+                    <span className="live-tournament-detail">⏱ {tnr.timeControl}</span>
+                  )}
+                </div>
                 <div className="live-tournament-meta">
                   <span className="live-tournament-badge">{t('liveTournaments.live')}</span>
                   <a
