@@ -23,6 +23,16 @@ const BASE_URL = 'https://chess-results.com';
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_TOURNAMENTS_PER_SCAN = 50;
 
+/**
+ * Approximate tournament IDs per day on chess-results.com.
+ * Based on observation: ~620 new tournament IDs created per day.
+ * Reference point: tnr814436 = Sep 2023, tnr1375000 = Mar 2026 (~920 days).
+ */
+const IDS_PER_DAY = 610;
+/** Reference: tnr814436 was created around 2023-09-01 */
+const REFERENCE_ID = 814436;
+const REFERENCE_DATE = new Date('2023-09-01');
+
 export interface TournamentMetadata {
   description: string | null;
   playerCount: number | null;
@@ -66,6 +76,65 @@ export class ChessResultsService {
     }
 
     this.logger.log(`Scan complete: ${results.length} tournament(s) with livechesscloud links`);
+    return results;
+  }
+
+  /**
+   * Estimate the tournament ID range for a given date range.
+   * chess-results IDs are roughly sequential with ~610 new IDs/day.
+   */
+  estimateIdRange(from: Date, to: Date): { startId: number; endId: number } {
+    const fromDays = Math.floor((from.getTime() - REFERENCE_DATE.getTime()) / 86400000);
+    const toDays = Math.ceil((to.getTime() - REFERENCE_DATE.getTime()) / 86400000);
+
+    // Add margin of ±2 days for estimation error
+    const startId = Math.max(1, REFERENCE_ID + (fromDays - 2) * IDS_PER_DAY);
+    const endId = REFERENCE_ID + (toDays + 2) * IDS_PER_DAY;
+
+    return { startId: Math.floor(startId), endId: Math.floor(endId) };
+  }
+
+  /**
+   * Scan tournaments by date range using ID range estimation.
+   * Samples every `step` IDs within the estimated range.
+   */
+  async scanByDateRange(
+    from: Date,
+    to: Date,
+    step = 50,
+  ): Promise<ChessResultsTournament[]> {
+    const { startId, endId } = this.estimateIdRange(from, to);
+    const totalRange = endId - startId;
+    const samplesToCheck = Math.ceil(totalRange / step);
+    this.logger.log(
+      `Date range scan: IDs ${startId}–${endId} (range: ${totalRange}, sampling every ${step}th = ~${samplesToCheck} pages)`,
+    );
+
+    const results: ChessResultsTournament[] = [];
+    let checked = 0;
+    let errors = 0;
+
+    for (let id = startId; id <= endId; id += step) {
+      try {
+        const tournament = await this.parseTournament(String(id));
+        checked++;
+        if (tournament && tournament.livechessUuids.length > 0) {
+          results.push(tournament);
+          this.logger.log(
+            `  tnr${id}: ${tournament.livechessUuids.length} UUID(s) — ${tournament.name}`,
+          );
+        }
+        if (checked % 20 === 0) {
+          this.logger.log(`  Progress: ${checked}/${samplesToCheck} checked, ${results.length} found, ${errors} errors`);
+        }
+      } catch {
+        errors++;
+      }
+    }
+
+    this.logger.log(
+      `Date range scan complete: ${checked} checked, ${results.length} found, ${errors} errors`,
+    );
     return results;
   }
 
