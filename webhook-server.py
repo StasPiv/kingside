@@ -97,6 +97,10 @@ class AgentDaemon:
         self._message_count = 0
         log(f"Daemon {self.name} запущен (PID: {self.proc.pid})")
 
+        # Записываем agent_init в лог для follow.sh
+        with open(log_file, "a") as lf:
+            lf.write(json.dumps({"type": "agent_init", "agent": self.name, "session_id": self.session_id or ""}) + "\n")
+
         # Поток чтения stdout
         self._reader_thread = threading.Thread(
             target=self._read_stdout, daemon=True,
@@ -132,8 +136,6 @@ class AgentDaemon:
                     self.session_id = sid
                     log(f"Daemon {self.name}: session_id={sid}")
                     _save_session(self.name, sid)
-                    with open(log_file, "a") as lf:
-                        lf.write(json.dumps({"type": "agent_init", "agent": self.name, "session_id": sid}) + "\n")
 
                 # result означает что агент закончил обработку текущего сообщения
                 if data.get("type") == "result":
