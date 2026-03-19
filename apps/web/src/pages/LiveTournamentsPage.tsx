@@ -2,26 +2,16 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
-
-type ChessResultsTournament = {
-  tournamentId: string;
-  name: string;
-  url: string;
-  livechessUuids: string[];
-};
-
-type ScanResponse = {
-  data: ChessResultsTournament[];
-};
+import type { LiveTournamentsResponse, LiveTournamentItem } from '@kingside/shared';
 
 export function LiveTournamentsPage() {
   const { t } = useTranslation();
-  const [tournaments, setTournaments] = useState<ChessResultsTournament[]>([]);
+  const [tournaments, setTournaments] = useState<LiveTournamentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get<ScanResponse>('/api/chess-results/scan')
+    api.get<LiveTournamentsResponse>('/api/tournaments/live')
       .then((res) => {
         setTournaments(Array.isArray(res?.data) ? res.data : []);
       })
@@ -48,24 +38,19 @@ export function LiveTournamentsPage() {
       {!loading && tournaments.length > 0 && (
         <div className="live-tournaments-grid">
           {tournaments.map((tnr) => (
-            <div key={tnr.tournamentId} className="live-tournament-card">
+            <div key={tnr.id} className="live-tournament-card">
               <h3 className="live-tournament-name">{tnr.name}</h3>
               <div className="live-tournament-links">
-                {tnr.livechessUuids.map((uuid, i) => (
-                  <a
-                    key={uuid}
-                    href={`https://view.livechesscloud.com/#${uuid}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="live-tournament-watch-btn"
-                  >
-                    {tnr.livechessUuids.length > 1
-                      ? `${t('liveTournaments.watch')} ${i + 1}`
-                      : t('liveTournaments.watch')}
-                  </a>
-                ))}
                 <a
-                  href={tnr.url}
+                  href={`https://view.livechesscloud.com/#${tnr.livechessUuid}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="live-tournament-watch-btn"
+                >
+                  {t('liveTournaments.watch')}
+                </a>
+                <a
+                  href={tnr.chessResultsUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="live-tournament-results-link"
