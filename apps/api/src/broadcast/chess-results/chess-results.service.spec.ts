@@ -118,4 +118,26 @@ describe('ChessResultsService', () => {
       expect(meta.description!.endsWith('...')).toBe(true);
     });
   });
+
+  describe('estimateIdRange', () => {
+    it('should return reference ID for reference date', () => {
+      const from = new Date('2023-09-01');
+      const to = new Date('2023-09-01');
+      const { startId, endId } = service.estimateIdRange(from, to);
+      // startId should be close to 814436 (±2 days margin)
+      expect(startId).toBeLessThan(814436);
+      expect(endId).toBeGreaterThan(814436);
+    });
+
+    it('should return wider range for longer periods', () => {
+      const range1 = service.estimateIdRange(new Date('2023-09-01'), new Date('2023-09-07'));
+      const range2 = service.estimateIdRange(new Date('2023-09-01'), new Date('2023-09-30'));
+      expect(range2.endId - range2.startId).toBeGreaterThan(range1.endId - range1.startId);
+    });
+
+    it('should return positive IDs for early dates', () => {
+      const { startId } = service.estimateIdRange(new Date('2020-01-01'), new Date('2020-01-31'));
+      expect(startId).toBeGreaterThan(0);
+    });
+  });
 });
