@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Webhook-сервер для Jira. Принимает POST от Jira и запускает соответствующего агента."""
+"""Webhook-сервер v2.0 для Jira. Агенты работают как daemon-процессы."""
 
 import json
-import queue
 import re
 import signal
 import subprocess
@@ -20,35 +19,6 @@ PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
-SESSIONS_FILE = os.path.join(LOG_DIR, "sessions.json")
-sessions_lock = threading.Lock()
-
-
-def _load_sessions() -> dict:
-    """Загружает маппинг agent -> session_id из файла."""
-    try:
-        with open(SESSIONS_FILE, "r") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-
-
-def _save_session(agent: str, session_id: str):
-    """Сохраняет session_id для агента."""
-    with sessions_lock:
-        sessions = _load_sessions()
-        sessions[agent] = session_id
-        with open(SESSIONS_FILE, "w") as f:
-            json.dump(sessions, f, indent=2)
-    log(f"Сессия сохранена: {agent} -> {session_id}")
-
-
-def _get_session(agent: str) -> str | None:
-    """Возвращает session_id агента или None."""
-    return _load_sessions().get(agent)
-
-
-
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9876
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -62,25 +32,269 @@ JIRA_TARGET_ISSUE = os.environ.get("JIRA_TARGET_ISSUE", "KS-118")
 AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
 
-def extract_text_from_adf(node):
-    """Рекурсивно извлекает текст из ADF (Atlassian Document Format).
+# ---------------------------------------------------------------------------
+# AgentDaemon — долгоживущий процесс claude с stream-json I/O
+# ---------------------------------------------------------------------------
 
-    Обрабатывает все типы нод: text, mention, inlineCard, hardBreak и др.
-    """
+class AgentDaemon:
+    """Управляет долгоживущим процессом claude для одного агента."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.proc: subprocess.Popen | None = None
+        self.session_id: str | None = None
+        self.lock = threading.Lock()
+        self._reader_thread: threading.Thread | None = None
+        # Событие: агент закончил обработку текущего сообщения
+        self._idle = threading.Event()
+        self._idle.set()
+        # Очередь сообщений для последовательной отправки
+        self._queue: list[str] = []
+        self._queue_lock = threading.Lock()
+        self._worker_thread: threading.Thread | None = None
+        # Статистика сессии
+        self._total_cost: float = 0.0
+        self._message_count: int = 0
+
+    def _build_cmd(self) -> list[str]:
+        cmd = [
+            "claude", "-p",
+            "--input-format", "stream-json",
+            "--output-format", "stream-json",
+            "--verbose",
+            "--agent", self.name,
+            "--dangerously-skip-permissions",
+        ]
+        if self.session_id:
+            cmd.extend(["--resume", self.session_id])
+            log(f"Daemon {self.name}: resume сессии {self.session_id}")
+        return cmd
+
+    def ensure_running(self):
+        """Запускает daemon-процесс если он не запущен."""
+        with self.lock:
+            if self.proc and self.proc.poll() is None:
+                return
+            self._start()
+
+    def _start(self):
+        """Запускает процесс claude. Вызывать под self.lock."""
+        log_file = os.path.join(LOG_DIR, "agents.log")
+        env = os.environ.copy()
+        env.pop("CLAUDECODE", None)
+
+        cmd = self._build_cmd()
+
+        with open(log_file, "a") as lf:
+            self.proc = subprocess.Popen(
+                cmd, cwd=PROJECT_DIR, env=env,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf,
+                start_new_session=True, text=True, bufsize=1,
+            )
+
+        self._idle.set()
+        self._total_cost = 0.0
+        self._message_count = 0
+        log(f"Daemon {self.name} запущен (PID: {self.proc.pid})")
+
+        # Поток чтения stdout
+        self._reader_thread = threading.Thread(
+            target=self._read_stdout, daemon=True,
+        )
+        self._reader_thread.start()
+
+        # Worker-поток для последовательной отправки сообщений
+        if not self._worker_thread or not self._worker_thread.is_alive():
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop, daemon=True,
+            )
+            self._worker_thread.start()
+
+    def _read_stdout(self):
+        """Читает stdout daemon-процесса, логирует и ловит session_id / result."""
+        log_file = os.path.join(LOG_DIR, "agents.log")
+        proc = self.proc
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                with open(log_file, "a") as lf:
+                    lf.write(line)
+                line_s = line.strip()
+                if not line_s:
+                    continue
+                try:
+                    data = json.loads(line_s)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+                # Захватываем session_id
+                sid = data.get("session_id")
+                if sid and not self.session_id:
+                    self.session_id = sid
+                    log(f"Daemon {self.name}: session_id={sid}")
+
+                # result означает что агент закончил обработку текущего сообщения
+                if data.get("type") == "result":
+                    cost = data.get("total_cost_usd", 0)
+                    self._total_cost += cost
+                    self._message_count += 1
+                    log(f"Daemon {self.name}: result (${cost:.4f}, total=${self._total_cost:.4f}, msgs={self._message_count})")
+                    self._idle.set()
+
+        except Exception as e:
+            log(f"Daemon {self.name}: ошибка чтения stdout: {e}")
+        finally:
+            if proc.stdout:
+                proc.stdout.close()
+            log(f"Daemon {self.name}: stdout reader завершён")
+
+    def _worker_loop(self):
+        """Последовательно отправляет сообщения из очереди."""
+        while True:
+            # Ждём пока появится сообщение в очереди
+            while True:
+                with self._queue_lock:
+                    if self._queue:
+                        msg = self._queue.pop(0)
+                        break
+                time.sleep(0.5)
+
+            # Ждём пока агент освободится
+            self._idle.wait(timeout=600)
+
+            # Отправляем сообщение
+            self._send_raw(msg)
+
+    def _send_raw(self, message_json: str):
+        """Отправляет JSON-строку в stdin процесса."""
+        self.ensure_running()
+        with self.lock:
+            proc = self.proc
+        if not proc or proc.poll() is not None:
+            log(f"Daemon {self.name}: процесс мёртв, перезапуск")
+            self.ensure_running()
+            with self.lock:
+                proc = self.proc
+
+        self._idle.clear()
+        try:
+            proc.stdin.write(message_json + "\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            log(f"Daemon {self.name}: ошибка записи в stdin: {e}, перезапуск")
+            self._idle.set()
+            with self.lock:
+                self.proc = None
+            self.ensure_running()
+            # Повторная попытка
+            with self.lock:
+                proc = self.proc
+            self._idle.clear()
+            try:
+                proc.stdin.write(message_json + "\n")
+                proc.stdin.flush()
+            except Exception as e2:
+                log(f"Daemon {self.name}: повторная ошибка записи: {e2}")
+                self._idle.set()
+
+    def send_message(self, text: str):
+        """Ставит сообщение в очередь агента."""
+        msg = json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": text},
+        })
+        with self._queue_lock:
+            self._queue.append(msg)
+        log(f"Daemon {self.name}: сообщение в очереди (размер: {len(self._queue)})")
+
+    def get_rss_mb(self) -> float | None:
+        """Возвращает RSS памяти процесса в MB, или None."""
+        if not self.proc or self.proc.poll() is not None:
+            return None
+        try:
+            with open(f"/proc/{self.proc.pid}/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        return int(line.split()[1]) / 1024
+        except (FileNotFoundError, ValueError, ProcessLookupError):
+            return None
+
+    def is_alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def stop(self):
+        """Останавливает daemon-процесс."""
+        with self.lock:
+            if not self.proc:
+                return
+            try:
+                self.proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                self.proc.wait()
+            log(f"Daemon {self.name} остановлен (session_id={self.session_id} сохранён для resume)")
+            self.proc = None
+
+
+# ---------------------------------------------------------------------------
+# Глобальный реестр daemon-агентов
+# ---------------------------------------------------------------------------
+
+agent_daemons: dict[str, AgentDaemon] = {}
+agent_daemons_lock = threading.Lock()
+
+
+SESSIONS_FILE = os.path.join(LOG_DIR, "sessions.json")
+
+
+def _load_sessions() -> dict:
+    """Загружает маппинг agent -> session_id из файла."""
+    try:
+        with open(SESSIONS_FILE, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def get_daemon(agent: str) -> AgentDaemon:
+    """Возвращает (или создаёт) daemon для агента, подгружая session_id из файла."""
+    with agent_daemons_lock:
+        if agent not in agent_daemons:
+            daemon = AgentDaemon(agent)
+            saved_sid = _load_sessions().get(agent)
+            if saved_sid:
+                daemon.session_id = saved_sid
+                log(f"Daemon {agent}: загружен session_id={saved_sid} из sessions.json")
+            agent_daemons[agent] = daemon
+        return agent_daemons[agent]
+
+
+# ---------------------------------------------------------------------------
+# Jira helpers (без изменений из v1)
+# ---------------------------------------------------------------------------
+
+def extract_text_from_adf(node):
+    """Рекурсивно извлекает текст из ADF (Atlassian Document Format)."""
     if isinstance(node, str):
         return node
-
     if not isinstance(node, dict):
         return ""
 
     node_type = node.get("type", "")
 
-    # Листовые ноды с текстом
     if node_type == "text":
         return node.get("text", "")
     if node_type == "mention":
-        # mention ноды хранят текст в "text" (напр. "@coordinator")
-        # или id в "attrs.id" / "attrs.text"
         text = node.get("text", "")
         if not text:
             attrs = node.get("attrs", {})
@@ -94,7 +308,6 @@ def extract_text_from_adf(node):
     if node_type == "emoji":
         return node.get("attrs", {}).get("shortName", "")
 
-    # Контейнерные ноды — рекурсия по content
     parts = []
     for child in node.get("content", []):
         parts.append(extract_text_from_adf(child))
@@ -115,47 +328,6 @@ def get_valid_agents():
             if f.endswith(".md"):
                 agents.add(f[:-3])
     return agents
-
-
-# Очереди задач на каждого coding-агента (coordinator без очереди)
-# item: {"key": ..., "summary": ..., "agent": ..., "prompt": ...}
-agent_queues: dict[str, queue.Queue] = {}
-agent_queues_lock = threading.Lock()
-
-# Задачи, которые уже есть в очереди или выполняются — для дедупликации
-# key -> agent
-queued_tasks: dict[str, str] = {}
-queued_tasks_lock = threading.Lock()
-
-# Работающие процессы агентов: key -> subprocess.Popen
-running_procs: dict[str, subprocess.Popen] = {}
-running_procs_lock = threading.Lock()
-
-
-def get_or_create_queue(agent: str) -> queue.Queue:
-    with agent_queues_lock:
-        if agent not in agent_queues:
-            q: queue.Queue = queue.Queue()
-            agent_queues[agent] = q
-            t = threading.Thread(target=_agent_worker, args=(agent, q), daemon=True)
-            t.start()
-            log(f"Очередь и worker запущены для агента {agent}")
-        return agent_queues[agent]
-
-
-def _agent_worker(agent: str, q: queue.Queue):
-    """Worker-поток: последовательно выполняет задачи агента из очереди."""
-    while True:
-        item = q.get()
-        key = item["key"]
-        try:
-            _run_agent(item["key"], item["summary"], item["agent"], item["prompt"])
-        except Exception as e:
-            log(f"Worker {agent}: ошибка при запуске {key}: {e}")
-        finally:
-            with queued_tasks_lock:
-                queued_tasks.pop(key, None)
-            q.task_done()
 
 
 def _get_issue_details(key: str) -> dict:
@@ -185,7 +357,6 @@ def _get_issue_details(key: str) -> dict:
                 body = extract_text_from_adf(body)
             comments.append(f"{author}: {body}")
 
-        # Связанные задачи
         linked = []
         for link in fields.get("issuelinks", []):
             link_type = link.get("type", {}).get("outward", "")
@@ -223,97 +394,48 @@ def _get_issue_status_category(key: str) -> str:
         return ""
 
 
-def _stream_stdout(proc, log_file, agent, captured_session):
-    """Читает stdout процесса построчно, пишет в agents.log и ловит session_id."""
-    for line in iter(proc.stdout.readline, ""):
-        with open(log_file, "a") as lf:
-            lf.write(line)
-            if not captured_session[0]:
-                try:
-                    data = json.loads(line.strip())
-                    sid = data.get("session_id")
-                    if sid:
-                        captured_session[0] = sid
-                        _save_session(agent, sid)
-                        lf.write(json.dumps({"type": "agent_init", "agent": agent, "session_id": sid}) + "\n")
-                except (json.JSONDecodeError, ValueError):
-                    pass
-    proc.stdout.close()
+# ---------------------------------------------------------------------------
+# Worktree management
+# ---------------------------------------------------------------------------
+
+def setup_worktree(key):
+    """Создаёт git worktree для задачи, возвращает путь."""
+    branch = f"feature/{key}"
+    worktree_path = os.path.join(PROJECT_DIR, ".worktrees", key)
+    if os.path.isdir(worktree_path):
+        return worktree_path
+    os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
+    subprocess.run(["git", "branch", "-f", branch, "main"], cwd=PROJECT_DIR, capture_output=True)
+    result = subprocess.run(
+        ["git", "worktree", "add", worktree_path, branch],
+        cwd=PROJECT_DIR, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        log(f"Ошибка worktree для {key}: {result.stderr.strip()}")
+        return PROJECT_DIR
+    log(f"Worktree создан: {worktree_path} ({branch})")
+
+    env_src = os.path.join(PROJECT_DIR, ".env")
+    env_dst = os.path.join(worktree_path, ".env")
+    if os.path.isfile(env_src) and not os.path.exists(env_dst):
+        import shutil
+        shutil.copy2(env_src, env_dst)
+        log(f".env скопирован в {worktree_path}")
+
+    for subdir in ["", "apps/web", "apps/api"]:
+        src = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
+        dst = os.path.join(worktree_path, subdir, "node_modules") if subdir else os.path.join(worktree_path, "node_modules")
+        if os.path.isdir(src) and not os.path.exists(dst):
+            if subdir:
+                os.makedirs(os.path.join(worktree_path, subdir), exist_ok=True)
+            os.symlink(src, dst)
+            log(f"Симлинк: {dst} -> {src}")
+
+    return worktree_path
 
 
-def _run_agent(key: str, summary: str, agent: str, prompt: str):
-    """Синхронно запускает claude-агента и ждёт завершения."""
-    status_category = _get_issue_status_category(key)
-    if status_category in ("done", "indeterminate"):
-        log(f"Пропуск {key} из очереди: задача уже в статусе '{status_category}'")
-        return
-
-    log_file = os.path.join(LOG_DIR, "agents.log")
-    with open(log_file, "a") as lf:
-        lf.write(json.dumps({"type": "agent_start", "agent": agent.upper(), "task": key}) + "\n")
-    env = os.environ.copy()
-    env.pop("CLAUDECODE", None)
-    worktree = setup_worktree(key)
-
-    session_id = _get_session(agent)
-    cmd = ["claude", "-p", prompt, "--agent", agent,
-           "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose"]
-    if session_id:
-        cmd.extend(["--resume", session_id])
-        log(f"Resume сессии {session_id} для агента {agent}")
-
-    with open(log_file, "a") as lf:
-        proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env,
-                                stdout=subprocess.PIPE, stderr=lf,
-                                start_new_session=True, text=True, bufsize=1)
-    with running_procs_lock:
-        running_procs[key] = proc
-
-    # Поток для чтения stdout в реальном времени
-    captured_session = [None]
-    reader = threading.Thread(target=_stream_stdout, args=(proc, log_file, agent, captured_session), daemon=True)
-    reader.start()
-
-    log(f"Агент {agent} запущен для {key} в {worktree} (PID: {proc.pid})")
-
-    check_interval = 30
-    elapsed = 0
-    while proc.poll() is None:
-        time.sleep(5)
-        elapsed += 5
-        if elapsed >= check_interval:
-            elapsed = 0
-            sc = _get_issue_status_category(key)
-            if sc == "done":
-                log(f"Задача {key} закрыта (статус '{sc}'), завершаем агента {agent} (PID: {proc.pid})")
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    proc.wait()
-                break
-
-    reader.join(timeout=5)
-
-    with running_procs_lock:
-        running_procs.pop(key, None)
-
-    if captured_session[0]:
-        _save_session(agent, captured_session[0])
-
-    log(f"Агент {agent} завершил {key} (код: {proc.returncode})")
-    _cleanup_worktree(key)
-
-
-def _cleanup_worktree(key: str):
-    """Удаляет git worktree задачи после завершения агента."""
+def cleanup_worktree(key: str):
+    """Удаляет git worktree задачи."""
     worktree_path = os.path.join(PROJECT_DIR, ".worktrees", key)
     if not os.path.isdir(worktree_path):
         return
@@ -326,6 +448,73 @@ def _cleanup_worktree(key: str):
     else:
         log(f"Ошибка удаления worktree {worktree_path}: {result.stderr.strip()}")
 
+
+def cleanup_stale_worktrees():
+    """Фоновый цикл: чистит worktrees задач, перешедших в Done."""
+    worktrees_dir = os.path.join(PROJECT_DIR, ".worktrees")
+    while True:
+        time.sleep(300)  # каждые 5 минут
+        if not os.path.isdir(worktrees_dir):
+            continue
+        for name in os.listdir(worktrees_dir):
+            if not name.startswith("KS-"):
+                continue
+            path = os.path.join(worktrees_dir, name)
+            if not os.path.isdir(path):
+                continue
+            sc = _get_issue_status_category(name)
+            if sc == "done":
+                log(f"Worktree cleanup: {name} в статусе Done")
+                cleanup_worktree(name)
+
+
+# ---------------------------------------------------------------------------
+# Отправка сообщений агентам
+# ---------------------------------------------------------------------------
+
+def send_to_agent(agent: str, prompt: str):
+    """Отправляет сообщение daemon-агенту."""
+    daemon = get_daemon(agent)
+    daemon.ensure_running()
+    daemon.send_message(prompt)
+
+
+def launch_agent(key, summary, agent, prompt=None):
+    """Формирует промпт и отправляет его daemon-агенту."""
+    if not prompt:
+        role = agent.upper()
+        prompt = (
+            f"Ты работаешь над задачей {key}: {summary}\n"
+            f"Общайся и думай на русском языке.\n"
+            f"Твоя рабочая директория: /home/pivovartsev/work/kingside/.worktrees/{key}\n"
+            f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
+            f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n"
+            f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
+            f"Добавь комментарий '{role}: Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
+            f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
+            f"2. Прочитай описание задачи из Jira\n"
+            f"3. Выполни задачу\n"
+            f"4. Коммитни изменения в ветку feature/{key}\n"
+            f"5. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
+            f"6. Добавь комментарий в Jira с результатом. Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
+            f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
+        )
+
+    # Для coding-агентов — создаём worktree перед отправкой
+    if agent != "coordinator":
+        setup_worktree(key)
+
+    log_file = os.path.join(LOG_DIR, "agents.log")
+    with open(log_file, "a") as lf:
+        lf.write(json.dumps({"type": "agent_msg", "agent": agent.upper(), "task": key}) + "\n")
+
+    send_to_agent(agent, prompt)
+    log(f"Сообщение отправлено daemon {agent} для {key}")
+
+
+# ---------------------------------------------------------------------------
+# Telegram / Jira helpers
+# ---------------------------------------------------------------------------
 
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -344,10 +533,8 @@ def _split_message(text, max_len=4096):
         if len(text) <= max_len:
             parts.append(text)
             break
-        # Ищем последний перевод строки в пределах лимита
         split_pos = text.rfind("\n", 0, max_len)
         if split_pos <= 0:
-            # Нет переноса строки — режем по лимиту
             split_pos = max_len
         parts.append(text[:split_pos])
         text = text[split_pos:].lstrip("\n")
@@ -355,11 +542,7 @@ def _split_message(text, max_len=4096):
 
 
 def send_telegram(text):
-    """Отправляет сообщение в Telegram. Не бросает исключений.
-
-    Если текст превышает 4096 символов (лимит Telegram API),
-    разбивает его на несколько сообщений по границе строки.
-    """
+    """Отправляет сообщение в Telegram."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -434,145 +617,6 @@ def format_telegram_issue(event_type, payload):
         )
 
     return None
-
-
-def extract_task(payload):
-    """Извлекает key, summary, agent из Jira webhook payload."""
-    issue = payload.get("issue", {})
-    key = issue.get("key", "")
-    fields = issue.get("fields", {})
-    summary = fields.get("summary", "")
-    issue_type = fields.get("issuetype", {}).get("name", "").lower()
-    labels = [l.get("name", "") if isinstance(l, dict) else l
-              for l in fields.get("labels", [])]
-
-    if issue_type == "epic":
-        return key, summary, None, labels
-
-    valid_agents = get_valid_agents()
-    agent = None
-    for label in labels:
-        if label.lower() in valid_agents:
-            agent = label.lower()
-            break
-
-    return key, summary, agent, labels
-
-
-def setup_worktree(key):
-    """Создаёт git worktree для задачи, возвращает путь."""
-    branch = f"feature/{key}"
-    worktree_path = os.path.join(PROJECT_DIR, ".worktrees", key)
-    if os.path.isdir(worktree_path):
-        return worktree_path
-    os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
-    subprocess.run(["git", "branch", "-f", branch, "main"], cwd=PROJECT_DIR, capture_output=True)
-    result = subprocess.run(
-        ["git", "worktree", "add", worktree_path, branch],
-        cwd=PROJECT_DIR, capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        log(f"Ошибка worktree для {key}: {result.stderr.strip()}")
-        return PROJECT_DIR
-    log(f"Worktree создан: {worktree_path} ({branch})")
-
-    # .env не трекается git — копируем в worktree
-    env_src = os.path.join(PROJECT_DIR, ".env")
-    env_dst = os.path.join(worktree_path, ".env")
-    if os.path.isfile(env_src) and not os.path.exists(env_dst):
-        import shutil
-        shutil.copy2(env_src, env_dst)
-        log(f".env скопирован в {worktree_path}")
-
-    # Симлинки на node_modules — без них агенты не могут запускать eslint/vitest/vite
-    for subdir in ["", "apps/web", "apps/api"]:
-        src = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
-        dst = os.path.join(worktree_path, subdir, "node_modules") if subdir else os.path.join(worktree_path, "node_modules")
-        if os.path.isdir(src) and not os.path.exists(dst):
-            if subdir:
-                os.makedirs(os.path.join(worktree_path, subdir), exist_ok=True)
-            os.symlink(src, dst)
-            log(f"Симлинк: {dst} -> {src}")
-
-    return worktree_path
-
-
-def launch_agent(key, summary, agent, prompt=None):
-    """Ставит задачу в очередь агента (или запускает coordinator напрямую)."""
-    if not prompt:
-        role = agent.upper()
-        prompt = (
-            f"Ты работаешь над задачей {key}: {summary}\n"
-            f"Общайся и думай на русском языке.\n"
-            f"Твоя рабочая директория: /home/pivovartsev/work/kingside/.worktrees/{key}\n"
-            f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
-            f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n"
-            f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
-            f"Добавь комментарий '{role}: Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
-            f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
-            f"2. Прочитай описание задачи из Jira\n"
-            f"3. Выполни задачу\n"
-            f"4. Коммитни изменения в ветку feature/{key}\n"
-            f"5. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
-            f"6. Добавь комментарий в Jira с результатом. Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
-            f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
-        )
-
-    # Coordinator — запускаем напрямую в фоне, без очереди
-    if agent == "coordinator":
-        log_file = os.path.join(LOG_DIR, "agents.log")
-        with open(log_file, "a") as lf:
-            lf.write(json.dumps({"type": "agent_start", "agent": "COORDINATOR", "task": key}) + "\n")
-        env = os.environ.copy()
-        env.pop("CLAUDECODE", None)
-        session_id = _get_session(agent)
-        cmd = ["claude", "-p", prompt, "--agent", agent,
-               "--dangerously-skip-permissions", "--output-format", "stream-json", "--verbose"]
-        if session_id:
-            cmd.extend(["--resume", session_id])
-            log(f"Resume сессии {session_id} для coordinator")
-        with open(log_file, "a") as lf:
-            proc = subprocess.Popen(cmd, cwd=PROJECT_DIR, env=env,
-                                    stdout=subprocess.PIPE, stderr=lf,
-                                    text=True, bufsize=1)
-        log(f"Агент coordinator запущен для {key} (PID: {proc.pid})")
-
-        def _stream_and_save():
-            captured = [None]
-            _stream_stdout(proc, log_file, "coordinator", captured)
-            proc.wait()
-            if captured[0]:
-                _save_session("coordinator", captured[0])
-
-        threading.Thread(target=_stream_and_save, daemon=True).start()
-        return
-
-    # Coding-агенты — если агент уже работает над задачей, убить и перезапустить
-    with running_procs_lock:
-        proc = running_procs.get(key)
-        if proc and proc.poll() is None:
-            log(f"Убиваем агента {key} (PID: {proc.pid}) — пришёл новый комментарий")
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-                proc.wait()
-            running_procs.pop(key, None)
-
-    with queued_tasks_lock:
-        queued_tasks.pop(key, None)
-        queued_tasks[key] = agent
-
-    q = get_or_create_queue(agent)
-    q.put({"key": key, "summary": summary, "agent": agent, "prompt": prompt})
-    log(f"Задача {key} добавлена в очередь агента {agent} (размер очереди: {q.qsize()})")
 
 
 def add_jira_comment(issue_key, text):
@@ -658,7 +702,6 @@ def telegram_poll_loop():
             if not text:
                 continue
 
-            # Фильтруем: только сообщения из целевого чата
             if TELEGRAM_CHAT_ID and chat_id != TELEGRAM_CHAT_ID:
                 continue
 
@@ -673,6 +716,10 @@ def telegram_poll_loop():
                 send_telegram(f"❌ Не удалось переслать в {JIRA_TARGET_ISSUE}")
 
 
+# ---------------------------------------------------------------------------
+# Webhook handler
+# ---------------------------------------------------------------------------
+
 class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0]
@@ -684,7 +731,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(content_length)
 
-        # Дамп сырого body для отладки
         dump_path = os.path.join(LOG_DIR, "webhook-dump.json")
         with open(dump_path, "a") as df:
             df.write(f"--- {datetime.now()} CL={content_length} path={self.path} ---\n")
@@ -719,7 +765,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
             summary = issue.get("fields", {}).get("summary", "")
             comment_body = payload.get("comment", {}).get("body", "")
 
-            # Статус задачи: coding-агенты только для "new" (To Do), coordinator — для любого кроме "done"
             status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
             if status_category == "done":
                 log(f"Пропуск {key}: задача в статусе Done")
@@ -734,13 +779,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"status":"skipped"}')
                 return
 
-            # Извлекаем текст из ADF формата (dict) или используем как строку
             if isinstance(comment_body, dict):
                 comment_text = extract_text_from_adf(comment_body)
             else:
                 comment_text = comment_body
 
-            # Определяем автора-агента (если комментарий начинается с "AGENT: ")
             valid_agents = get_valid_agents()
             stripped = comment_text.strip()
             author_agent = None
@@ -749,9 +792,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     author_agent = a
                     break
 
-            # Парсим все @agentName из текста комментария
-            # Исключаем автора-агента, чтобы не запускать его повторно
-            # Coding-агентов запускаем только если задача имеет их метку
             labels = [l.get("name", "").lower() if isinstance(l, dict) else l.lower()
                       for l in issue.get("fields", {}).get("labels", [])]
             mentions = re.findall(r"@(\w+)", comment_text)
@@ -760,14 +800,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 name = m.lower()
                 if name not in valid_agents or name == author_agent:
                     continue
-                # coordinator — для любого не-done статуса
-                # coding-агенты — только если задача в статусе To Do (labels в comment payload пустые — не проверяем)
                 if name == "coordinator":
                     agents.append(name)
                 elif status_category == "new":
                     agents.append(name)
 
-            # Coordinator получает все комментарии (если он не автор)
             if "coordinator" in valid_agents and author_agent != "coordinator" and "coordinator" not in agents:
                 agents.append("coordinator")
 
@@ -823,12 +860,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
                         f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '"
                     )
-                log(f"Комментарий к {key} -> агент {agent}")
+                log(f"Комментарий к {key} -> daemon {agent}")
                 launch_agent(key, summary, agent, prompt)
 
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "comment_handled", "agent": agent, "key": key}).encode())
+            self.wfile.write(json.dumps({"status": "comment_handled", "agents": agents, "key": key}).encode())
             return
 
         if event not in ("jira:issue_created", "jira:issue_updated"):
@@ -838,7 +875,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"status":"ignored"}')
             return
 
-        # Проверяем: переход в статус "В процессе проверки" → запускаем QA
         issue = payload.get("issue", {})
         key = issue.get("key", "")
         summary = issue.get("fields", {}).get("summary", "")
@@ -848,6 +884,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
             if item.get("field") == "status":
                 status_to = item.get("toString", "")
                 break
+
+        # Переход в Done — чистим worktree
+        DONE_STATUSES = ("Готово", "Done")
+        if status_to in DONE_STATUSES and key:
+            threading.Thread(target=cleanup_worktree, args=(key,), daemon=True).start()
 
         IN_REVIEW_STATUS = "В процессе проверки"
         if status_to == IN_REVIEW_STATUS and key:
@@ -878,15 +919,39 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
+            # Статус всех daemon-агентов
+            status = {}
+            with agent_daemons_lock:
+                for name, daemon in agent_daemons.items():
+                    status[name] = {
+                        "alive": daemon.is_alive(),
+                        "pid": daemon.proc.pid if daemon.proc else None,
+                        "session_id": daemon.session_id,
+                        "queue_size": len(daemon._queue),
+                        "total_cost_usd": round(daemon._total_cost, 4),
+                        "message_count": daemon._message_count,
+                        "rss_mb": daemon.get_rss_mb(),
+                    }
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'{"status":"ok"}')
+            self.wfile.write(json.dumps({"status": "ok", "daemons": status}).encode())
             return
         self.send_response(404)
         self.end_headers()
 
     def log_message(self, format, *args):
-        pass  # подавляем стандартный лог
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Shutdown
+# ---------------------------------------------------------------------------
+
+def shutdown_daemons():
+    """Останавливает все daemon-процессы."""
+    with agent_daemons_lock:
+        for name, daemon in agent_daemons.items():
+            daemon.stop()
 
 
 if __name__ == "__main__":
@@ -897,14 +962,20 @@ if __name__ == "__main__":
         os.rename(agents_log, os.path.join(LOG_DIR, f"agents_{ts}.log"))
     open(agents_log, "a").close()
 
-    # Запускаем Telegram polling в отдельном потоке (daemon — умрёт вместе с процессом)
+    # Telegram polling
     poll_thread = threading.Thread(target=telegram_poll_loop, daemon=True)
     poll_thread.start()
 
+    # Фоновая очистка worktrees закрытых задач
+    cleanup_thread = threading.Thread(target=cleanup_stale_worktrees, daemon=True)
+    cleanup_thread.start()
+
     server = HTTPServer(("127.0.0.1", PORT), WebhookHandler)
-    log(f"Webhook-сервер запущен на порту {PORT}")
+    log(f"Webhook-сервер v2.0 запущен на порту {PORT} (daemon-режим агентов)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
+        log("Остановка: завершаем daemon-агентов...")
+        shutdown_daemons()
         log("Webhook-сервер остановлен")
         server.server_close()
