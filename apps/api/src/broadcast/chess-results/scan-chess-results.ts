@@ -2,30 +2,49 @@
  * CLI script: scan chess-results.com and save tournaments with livechesscloud links to DB.
  *
  * Usage:
- *   npx ts-node -r tsconfig-paths/register src/broadcast/chess-results/scan-chess-results.ts
- *   # or after build:
+ *   # Scan current tournaments from main page:
  *   node dist/broadcast/chess-results/scan-chess-results.js
+ *
+ *   # Scan specific tournament IDs:
+ *   node dist/broadcast/chess-results/scan-chess-results.js 814436 367618
  */
 import { PrismaClient } from '../../generated/prisma/client';
-import { ChessResultsService } from './chess-results.service';
+import { ChessResultsService, ChessResultsTournament } from './chess-results.service';
 
 async function main() {
   const prisma = new PrismaClient();
   const scanner = new ChessResultsService();
 
-  console.log('Starting chess-results.com scan...');
+  const specificIds = process.argv.slice(2).filter((a) => /^\d+$/.test(a));
+
+  let tournaments: ChessResultsTournament[];
+
+  if (specificIds.length > 0) {
+    console.log(`Scanning ${specificIds.length} specific tournament(s): ${specificIds.join(', ')}`);
+    const results = await Promise.allSettled(
+      specificIds.map((id) => scanner.parseTournament(id)),
+    );
+    tournaments = results
+      .filter(
+        (r): r is PromiseFulfilledResult<ChessResultsTournament | null> =>
+          r.status === 'fulfilled' && r.value !== null,
+      )
+      .map((r) => r.value!)
+      .filter((t) => t.livechessUuids.length > 0);
+  } else {
+    console.log('Scanning current tournaments from chess-results.com main page...');
+    tournaments = await scanner.scanCurrentTournaments();
+  }
+
+  console.log(`Found ${tournaments.length} tournament(s) with livechesscloud links`);
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
 
   try {
-    const tournaments = await scanner.scanCurrentTournaments();
-    console.log(`Found ${tournaments.length} tournament(s) with livechesscloud links`);
-
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
-
     for (const t of tournaments) {
       for (const uuid of t.livechessUuids) {
-        // Use chessResultsId + uuid as unique key (one tournament can have multiple UUIDs)
         const compositeId = `${t.tournamentId}:${uuid}`;
 
         const existing = await prisma.liveTournament.findUnique({
@@ -42,6 +61,7 @@ async function main() {
             console.log(`  Updated: ${t.name} (${uuid})`);
           } else {
             skipped++;
+            console.log(`  Skipped: ${t.name} (${uuid}) — already exists`);
           }
         } else {
           await prisma.liveTournament.create({
