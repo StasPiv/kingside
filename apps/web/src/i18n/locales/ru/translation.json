@@ -24,6 +24,7 @@
     "colStatus": "Статус",
     "colDate": "Дата",
     "dgt": {
+      "manualTitle": "Открыть по ссылке",
       "urlPlaceholder": "Вставьте ссылку DGT LiveChess Cloud или ID турнира…",
       "load": "Загрузить",
       "errorTournament": "Не удалось загрузить турнир",
@@ -631,6 +632,7 @@
   },
   "liveTournaments": {
     "title": "Турниры с трансляциями",
+    "live": "LIVE",
     "backToBroadcasts": "← Трансляции",
     "noTournaments": "Нет турниров с трансляциями",
     "loadError": "Не удалось загрузить турниры",

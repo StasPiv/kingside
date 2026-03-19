@@ -23,7 +23,6 @@ import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
 import { MessagesPage } from './pages/MessagesPage';
 import { LiveGamesPage } from './pages/LiveGamesPage';
-import { LiveTournamentsPage } from './pages/LiveTournamentsPage';
 import { WatchGamePage } from './pages/WatchGamePage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
 import { DevBypassPage } from './pages/DevBypassPage';
@@ -88,7 +87,7 @@ export function App() {
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
-        <Route path="/tournaments/live" element={<LiveTournamentsPage />} />
+        <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<BroadcastGamePage />} />

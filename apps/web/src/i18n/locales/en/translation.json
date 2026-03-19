@@ -24,6 +24,7 @@
     "colStatus": "Status",
     "colDate": "Date",
     "dgt": {
+      "manualTitle": "Open by URL",
       "urlPlaceholder": "Paste DGT LiveChess Cloud link or tournament ID…",
       "load": "Load",
       "errorTournament": "Failed to load tournament",
@@ -631,6 +632,7 @@
   },
   "liveTournaments": {
     "title": "Live Tournaments",
+    "live": "LIVE",
     "backToBroadcasts": "← Broadcasts",
     "noTournaments": "No live tournaments right now",
     "loadError": "Failed to load tournaments",
