@@ -131,6 +131,7 @@ class AgentDaemon:
                 if sid and not self.session_id:
                     self.session_id = sid
                     log(f"Daemon {self.name}: session_id={sid}")
+                    _save_session(self.name, sid)
                     with open(log_file, "a") as lf:
                         lf.write(json.dumps({"type": "agent_init", "agent": self.name, "session_id": sid}) + "\n")
 
@@ -257,6 +258,7 @@ agent_daemons_lock = threading.Lock()
 
 
 SESSIONS_FILE = os.path.join(LOG_DIR, "sessions.json")
+_sessions_lock = threading.Lock()
 
 
 def _load_sessions() -> dict:
@@ -266,6 +268,16 @@ def _load_sessions() -> dict:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+def _save_session(agent: str, session_id: str):
+    """Сохраняет session_id для агента в файл."""
+    with _sessions_lock:
+        sessions = _load_sessions()
+        sessions[agent] = session_id
+        with open(SESSIONS_FILE, "w") as f:
+            json.dump(sessions, f, indent=2)
+    log(f"Сессия сохранена: {agent} -> {session_id}")
 
 
 def get_daemon(agent: str) -> AgentDaemon:
