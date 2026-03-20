@@ -724,6 +724,11 @@ input:focus {
   .lobby-mode-tabs {
     display: none;
   }
+
+  /* In modal context, always show tabs (they control custom TC) */
+  .lobby-mode-tabs--modal {
+    display: flex;
+  }
 }
 
 /* Mobile: show mode tabs, hide inactive column */
