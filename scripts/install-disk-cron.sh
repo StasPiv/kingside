@@ -1,16 +1,18 @@
 #!/bin/bash
-# Установка cron-задач для Kingside (KS-515, KS-519)
+# Установка cron-задач для Kingside (KS-515, KS-519, KS-714)
 # Запуск на сервере: bash scripts/install-disk-cron.sh
 #
 # Устанавливает:
 # - Ежедневную очистку Docker и worktrees в 3:00 ночи
 # - Watchdog API контейнера каждые 5 минут
+# - Ежедневное сканирование chess-results в 4:00 ночи
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CRON_CLEANUP="0 3 * * * cd $REPO_DIR && bash scripts/disk-cleanup.sh >> /var/log/kingside-disk-cleanup.log 2>&1"
 CRON_WATCHDOG="*/5 * * * * bash $REPO_DIR/scripts/api-watchdog.sh"
+CRON_CHESS_SCAN="0 4 * * * bash $REPO_DIR/scripts/scan-chess-results-cron.sh"
 
 echo "=== Установка cron-задач Kingside ==="
 echo ""
@@ -41,6 +43,17 @@ ${CRON_WATCHDOG}"
     CHANGED=1
 fi
 
+# chess-results scan
+if echo "$CURRENT_CRON" | grep -q "scan-chess-results-cron.sh"; then
+    echo "[chess-results-scan] уже установлен:"
+    echo "$CURRENT_CRON" | grep "scan-chess-results-cron.sh"
+else
+    NEW_CRON="${NEW_CRON}
+${CRON_CHESS_SCAN}"
+    echo "[chess-results-scan] добавлен: $CRON_CHESS_SCAN"
+    CHANGED=1
+fi
+
 if [ "$CHANGED" -eq 1 ]; then
     echo "$NEW_CRON" | crontab -
     echo ""
@@ -49,5 +62,6 @@ if [ "$CHANGED" -eq 1 ]; then
 fi
 
 echo ""
-echo "Лог очистки:  /var/log/kingside-disk-cleanup.log"
-echo "Лог watchdog: /var/log/kingside-api-watchdog.log"
+echo "Лог очистки:      /var/log/kingside-disk-cleanup.log"
+echo "Лог watchdog:     /var/log/kingside-api-watchdog.log"
+echo "Лог chess-results: /var/log/kingside-chess-results-scan.log"
