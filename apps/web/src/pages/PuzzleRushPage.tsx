@@ -48,7 +48,12 @@ export function PuzzleRushPage() {
   const { boardThemeOptions, customPieces } = useBoardTheme();
   const { inputMode } = useBoardSettings();
 
+  // Suppress animation when loading a new puzzle to avoid chaotic
+  // piece movement from old position to new position ("board jerk").
+  const puzzleTransitionRef = useRef(false);
+
   const setupPuzzle = useCallback((fen: string, setupMove: string) => {
+    puzzleTransitionRef.current = true;
     const chess = new Chess(fen);
     // User plays opposite to the side making the setup move
     const orientationAfterSetup = chess.turn() === 'w' ? 'black' : 'white';
@@ -62,6 +67,8 @@ export function PuzzleRushPage() {
     setGame(chess);
     setFeedback(null);
     setLastMoveUci(setupMove);
+    // Reset after React commits the new position
+    requestAnimationFrame(() => { puzzleTransitionRef.current = false; });
   }, []);
 
   const stopTimer = useCallback(() => {
@@ -346,7 +353,7 @@ export function PuzzleRushPage() {
     () => ({
       position: stablePosition,
       boardOrientation: boardOrientation,
-      animationDurationInMs: suppressAnimationRef.current ? 0 : 150,
+      animationDurationInMs: (suppressAnimationRef.current || puzzleTransitionRef.current) ? 0 : 150,
       allowDragging: false,
       showNotation: true,
       squareStyles,
