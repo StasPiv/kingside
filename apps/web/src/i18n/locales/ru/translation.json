@@ -632,9 +632,12 @@
   },
   "liveTournaments": {
     "title": "Турниры с трансляциями",
+    "archivedTitle": "Архивные турниры",
     "live": "LIVE",
+    "archived": "АРХИВ",
+    "rounds": "туров",
     "backToBroadcasts": "← Трансляции",
-    "noTournaments": "Нет турниров с трансляциями",
+    "noTournaments": "Нет активных трансляций",
     "loadError": "Не удалось загрузить турниры",
     "watch": "Смотреть",
     "results": "Результаты"

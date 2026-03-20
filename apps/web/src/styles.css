@@ -7332,12 +7332,32 @@ input:focus {
 }
 
 .live-tournament-badge {
-  background: #4caf50;
-  color: #fff;
   font-size: 11px;
   font-weight: 700;
   padding: 2px 8px;
   border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.live-tournament-badge--live {
+  background: #4caf50;
+  color: #fff;
+}
+
+.live-tournament-badge--archived {
+  background: #3a3a5e;
+  color: #a0a0c0;
+}
+
+.broadcasts-archived-section {
+  margin-top: 32px;
+}
+
+.broadcasts-archived-section h2 {
+  font-size: 16px;
+  color: #808098;
+  margin: 0 0 12px;
+  text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 

@@ -632,7 +632,10 @@
   },
   "liveTournaments": {
     "title": "Live Tournaments",
+    "archivedTitle": "Archived Tournaments",
     "live": "LIVE",
+    "archived": "ARCHIVED",
+    "rounds": "rounds",
     "backToBroadcasts": "← Broadcasts",
     "noTournaments": "No live tournaments right now",
     "loadError": "Failed to load tournaments",
