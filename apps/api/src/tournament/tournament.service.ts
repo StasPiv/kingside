@@ -91,21 +91,29 @@ export class TournamentService {
     });
   }
 
-  async getLiveTournaments() {
+  async getLiveTournaments(statusFilter?: string) {
+    const where: Record<string, unknown> = {};
+    if (statusFilter && statusFilter !== 'all') {
+      where.status = statusFilter;
+    }
+
     const tournaments = await this.prisma.liveTournament.findMany({
-      orderBy: { updatedAt: 'desc' },
+      where,
+      orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }],
       select: {
         id: true,
         name: true,
         chessResultsId: true,
         chessResultsUrl: true,
         livechessUuid: true,
+        status: true,
         description: true,
         location: true,
         timeControl: true,
         playerCount: true,
         startDate: true,
         endDate: true,
+        totalRounds: true,
         createdAt: true,
         updatedAt: true,
       },

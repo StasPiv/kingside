@@ -776,19 +776,23 @@ export type WsSpectateLeavePayload = {
 
 // ─── Live Tournaments (REST) ────────────────────────────────────────
 
-/** GET /api/tournaments/live */
+/** GET /api/tournaments/live?status=live|archived|all */
+export type TournamentStatus = 'live' | 'archived' | 'unknown';
+
 export type LiveTournamentItem = {
   id: string;
   name: string;
   chessResultsId: string;
   chessResultsUrl: string;
   livechessUuid: string;
+  status: TournamentStatus;
   description: string | null;
   location: string | null;
   timeControl: string | null;
   playerCount: number | null;
   startDate: string | null;
   endDate: string | null;
+  totalRounds: number | null;
   createdAt: string;
   updatedAt: string;
 };

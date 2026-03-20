@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { TournamentService } from './tournament.service';
 
 @Controller('tournaments')
@@ -11,7 +11,7 @@ export class TournamentController {
   }
 
   @Get('live')
-  getLiveTournaments() {
-    return this.tournamentService.getLiveTournaments();
+  getLiveTournaments(@Query('status') status?: string) {
+    return this.tournamentService.getLiveTournaments(status);
   }
 }

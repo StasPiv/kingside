@@ -16,6 +16,7 @@
  */
 import { PrismaClient } from '../../generated/prisma/client';
 import { ChessResultsService, ChessResultsTournament } from './chess-results.service';
+import { LivechesscloudService } from './livechesscloud.service';
 
 function parseArgs(argv: string[]) {
   const args = argv.slice(2);
@@ -37,6 +38,7 @@ function parseArgs(argv: string[]) {
 async function main() {
   const prisma = new PrismaClient();
   const scanner = new ChessResultsService();
+  const livechess = new LivechesscloudService();
   const { from, to, concurrency, ids } = parseArgs(process.argv);
 
   let tournaments: ChessResultsTournament[];
@@ -77,10 +79,18 @@ async function main() {
       for (const uuid of t.livechessUuids) {
         const compositeId = `${t.tournamentId}:${uuid}`;
 
+        // Fetch status and extra metadata from livechesscloud API
+        const lcInfo = await livechess.getTournamentInfo(uuid);
+        const status = lcInfo ? (lcInfo.isLive ? 'live' : 'archived') : 'unknown';
+
         const metaData = {
           name: t.name,
           description: t.metadata.description,
           playerCount: t.metadata.playerCount,
+          status,
+          location: lcInfo?.location ?? null,
+          timeControl: lcInfo?.timecontrol ?? null,
+          totalRounds: lcInfo?.totalRounds ?? null,
         };
 
         const existing = await prisma.liveTournament.findUnique({
@@ -93,7 +103,7 @@ async function main() {
             data: metaData,
           });
           updated++;
-          console.log(`  Updated: ${t.name} (${uuid}) — ${t.metadata.playerCount ?? '?'} players`);
+          console.log(`  Updated: ${t.name} [${status}] (${uuid})`);
         } else {
           await prisma.liveTournament.create({
             data: {
@@ -104,7 +114,7 @@ async function main() {
             },
           });
           created++;
-          console.log(`  Created: ${t.name} (${uuid}) — ${t.metadata.playerCount ?? '?'} players`);
+          console.log(`  Created: ${t.name} [${status}] (${uuid})`);
         }
       }
     }

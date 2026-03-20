@@ -386,12 +386,14 @@ model LiveTournament {
   chessResultsId  String   @unique @map("chess_results_id")
   chessResultsUrl String   @map("chess_results_url")
   livechessUuid   String   @map("livechess_uuid")
+  status          String   @default("unknown")
   description     String?
   location        String?
   timeControl     String?  @map("time_control")
   playerCount     Int?     @map("player_count")
   startDate       String?  @map("start_date")
   endDate         String?  @map("end_date")
+  totalRounds     Int?     @map("total_rounds")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
