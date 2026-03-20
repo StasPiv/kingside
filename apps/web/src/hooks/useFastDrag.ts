@@ -208,7 +208,7 @@ export function useFastDrag(
             targetSquare: targetSquare!,
           });
         } catch {
-          accepted = false;
+          // accepted stays false
         }
 
         if (!accepted) {
@@ -241,6 +241,22 @@ export function useFastDrag(
             if (removed) return;
             removed = true;
             state.ghost.remove();
+            // Restore opacity on the original piece element.  For normal
+            // moves React recreates the DOM so this is a no-op, but for
+            // premoves the position doesn't change — the same DOM element
+            // stays with opacity:0, making the piece invisible.
+            state.pieceEl.style.opacity = '';
+            // Also check if React replaced the DOM element (e.g. re-render
+            // between pointerdown and ghost removal):
+            const ctr = containerRef.current;
+            if (ctr) {
+              const sqEl = ctr.querySelector<HTMLElement>(
+                `[data-square="${state.sourceSquare}"] [data-piece]`,
+              );
+              if (sqEl && sqEl !== state.pieceEl) {
+                sqEl.style.opacity = '';
+              }
+            }
             // Reset suppression so future position changes (opponent
             // moves, navigation) animate normally.
             suppressAnimationRef.current = false;
