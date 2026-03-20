@@ -3,6 +3,14 @@ import { Injectable, Logger } from '@nestjs/common';
 const LIVECHESS_API = 'https://1.pool.livechesscloud.com/get';
 const FETCH_TIMEOUT_MS = 10_000;
 
+interface LivechessApiResponse {
+  name?: string;
+  location?: string;
+  country?: string;
+  timecontrol?: string;
+  rounds?: { count: number; live: number }[];
+}
+
 export interface LivechessTournamentInfo {
   name: string;
   location: string | null;
@@ -34,7 +42,7 @@ export class LivechesscloudService {
 
       if (!response.ok) return null;
 
-      const data = await response.json();
+      const data = (await response.json()) as LivechessApiResponse;
       const rounds: { count: number; live: number }[] = data.rounds ?? [];
       const isLive = rounds.some((r) => r.live > 0);
       const totalRounds = rounds.length;
