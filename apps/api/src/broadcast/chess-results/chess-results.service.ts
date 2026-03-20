@@ -22,6 +22,8 @@ const LAST_UPDATE_RE = /Last update (\d{2}\.\d{2}\.\d{4})/i;
 const BASE_URL = 'https://chess-results.com';
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_TOURNAMENTS_PER_SCAN = 50;
+/** Concurrent requests for batch scanning */
+const SCAN_CONCURRENCY = 15;
 
 /**
  * Approximate tournament IDs per day on chess-results.com.
@@ -95,47 +97,79 @@ export class ChessResultsService {
   }
 
   /**
-   * Scan tournaments by date range using ID range estimation.
-   * Samples every `step` IDs within the estimated range.
+   * Scan tournaments by date range — full scan of every ID with parallel batching.
+   * `concurrency` controls how many pages are fetched in parallel (default 15).
    */
   async scanByDateRange(
     from: Date,
     to: Date,
-    step = 50,
+    concurrency = SCAN_CONCURRENCY,
   ): Promise<ChessResultsTournament[]> {
     const { startId, endId } = this.estimateIdRange(from, to);
-    const totalRange = endId - startId;
-    const samplesToCheck = Math.ceil(totalRange / step);
+    const totalIds = endId - startId + 1;
     this.logger.log(
-      `Date range scan: IDs ${startId}–${endId} (range: ${totalRange}, sampling every ${step}th = ~${samplesToCheck} pages)`,
+      `Full scan: IDs ${startId}–${endId} (${totalIds} total, concurrency ${concurrency})`,
     );
 
     const results: ChessResultsTournament[] = [];
     let checked = 0;
     let errors = 0;
 
-    for (let id = startId; id <= endId; id += step) {
-      try {
-        const tournament = await this.parseTournament(String(id));
-        checked++;
-        if (tournament && tournament.livechessUuids.length > 0) {
-          results.push(tournament);
+    for (let batchStart = startId; batchStart <= endId; batchStart += concurrency) {
+      const batchEnd = Math.min(batchStart + concurrency - 1, endId);
+      const batchIds: number[] = [];
+      for (let id = batchStart; id <= batchEnd; id++) batchIds.push(id);
+
+      const batchResults = await Promise.allSettled(
+        batchIds.map((id) => this.checkForLivechess(id)),
+      );
+
+      for (const r of batchResults) {
+        if (r.status === 'fulfilled' && r.value) {
+          results.push(r.value);
           this.logger.log(
-            `  tnr${id}: ${tournament.livechessUuids.length} UUID(s) — ${tournament.name}`,
+            `  tnr${r.value.tournamentId}: ${r.value.livechessUuids.length} UUID(s) — ${r.value.name}`,
           );
+        } else if (r.status === 'rejected') {
+          errors++;
         }
-        if (checked % 20 === 0) {
-          this.logger.log(`  Progress: ${checked}/${samplesToCheck} checked, ${results.length} found, ${errors} errors`);
-        }
-      } catch {
-        errors++;
+      }
+
+      checked += batchIds.length;
+      if (checked % 150 === 0 || batchEnd >= endId) {
+        const pct = Math.floor((checked / totalIds) * 100);
+        this.logger.log(
+          `  Progress: ${checked}/${totalIds} (${pct}%), found ${results.length}, errors ${errors}`,
+        );
       }
     }
 
     this.logger.log(
-      `Date range scan complete: ${checked} checked, ${results.length} found, ${errors} errors`,
+      `Full scan complete: ${checked} checked, ${results.length} found, ${errors} errors`,
     );
     return results;
+  }
+
+  /**
+   * Quick check: fetch page and return tournament only if it has livechesscloud links.
+   * Extracts full metadata only for pages that match.
+   */
+  private async checkForLivechess(id: number): Promise<ChessResultsTournament | null> {
+    const url = `${BASE_URL}/tnr${id}.aspx?lan=1`;
+    const html = await this.fetchPage(url);
+    const uuids = this.extractLivechessUuids(html);
+    if (uuids.length === 0) return null;
+
+    const name = this.extractTournamentName(html);
+    const metadata = this.extractMetadata(html);
+
+    return {
+      tournamentId: String(id),
+      name,
+      url,
+      livechessUuids: uuids,
+      metadata,
+    };
   }
 
   /**

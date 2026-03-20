@@ -8,11 +8,11 @@
  *   # Scan specific tournament IDs:
  *   node dist/broadcast/chess-results/scan-chess-results.js 814436 367618
  *
- *   # Scan by date range (estimates ID range, samples every 50th):
+ *   # Scan by date range (full scan, all IDs):
  *   node dist/broadcast/chess-results/scan-chess-results.js --from 2023-09-01 --to 2023-09-30
  *
- *   # Scan by date range with custom step:
- *   node dist/broadcast/chess-results/scan-chess-results.js --from 2023-09-01 --to 2023-09-30 --step 20
+ *   # Scan with custom concurrency (default 15):
+ *   node dist/broadcast/chess-results/scan-chess-results.js --from 2023-09-01 --to 2023-09-30 --concurrency 20
  */
 import { PrismaClient } from '../../generated/prisma/client';
 import { ChessResultsService, ChessResultsTournament } from './chess-results.service';
@@ -21,23 +21,23 @@ function parseArgs(argv: string[]) {
   const args = argv.slice(2);
   let from: string | undefined;
   let to: string | undefined;
-  let step: number | undefined;
+  let concurrency: number | undefined;
   const ids: string[] = [];
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--from' && args[i + 1]) { from = args[++i]; continue; }
     if (args[i] === '--to' && args[i + 1]) { to = args[++i]; continue; }
-    if (args[i] === '--step' && args[i + 1]) { step = parseInt(args[++i], 10); continue; }
+    if ((args[i] === '--concurrency' || args[i] === '--step') && args[i + 1]) { concurrency = parseInt(args[++i], 10); continue; }
     if (/^\d+$/.test(args[i])) ids.push(args[i]);
   }
 
-  return { from, to, step, ids };
+  return { from, to, concurrency, ids };
 }
 
 async function main() {
   const prisma = new PrismaClient();
   const scanner = new ChessResultsService();
-  const { from, to, step, ids } = parseArgs(process.argv);
+  const { from, to, concurrency, ids } = parseArgs(process.argv);
 
   let tournaments: ChessResultsTournament[];
 
@@ -49,7 +49,7 @@ async function main() {
       process.exit(1);
     }
     console.log(`Scanning chess-results.com for ${from} to ${to}...`);
-    tournaments = await scanner.scanByDateRange(fromDate, toDate, step);
+    tournaments = await scanner.scanByDateRange(fromDate, toDate, concurrency);
   } else if (ids.length > 0) {
     console.log(`Scanning ${ids.length} specific tournament(s): ${ids.join(', ')}`);
     const results = await Promise.allSettled(
