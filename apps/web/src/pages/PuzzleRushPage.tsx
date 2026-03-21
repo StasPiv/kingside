@@ -51,9 +51,14 @@ export function PuzzleRushPage() {
   // Suppress animation when loading a new puzzle to avoid chaotic
   // piece movement from old position to new position ("board jerk").
   const puzzleTransitionRef = useRef(false);
+  // Key that changes with each new puzzle — forces React to unmount/remount
+  // the Chessboard component, bypassing react-chessboard's internal animation
+  // which ignores animationDurationInMs: 0 for cross-position transitions.
+  const [boardKey, setBoardKey] = useState(0);
 
   const setupPuzzle = useCallback((fen: string, setupMove: string) => {
     puzzleTransitionRef.current = true;
+    setBoardKey((k) => k + 1);
     const chess = new Chess(fen);
     // User plays opposite to the side making the setup move
     const orientationAfterSetup = chess.turn() === 'w' ? 'black' : 'white';
@@ -493,7 +498,7 @@ export function PuzzleRushPage() {
         )}
 
         <div className="board-container" ref={boardContainerRef}>
-          {game && <MemoChessboard options={boardOptions} />}
+          {game && <MemoChessboard key={boardKey} options={boardOptions} />}
           {pendingPromotion && (
             <div className="promotion-overlay" onClick={handlePromotionCancel}>
               <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
