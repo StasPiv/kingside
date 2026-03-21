@@ -118,6 +118,25 @@ export function searchInHistory(moves: any[], targetGlobalIndex: number): any | 
 }
 
 /**
+ * Search recursively for a move matching a FEN string.
+ * Returns the globalIndex of the first match, or null.
+ */
+export function findGlobalIndexByFen(moves: any[], fen: string): number | null {
+    for (const move of moves) {
+        if (move.fen === fen) {
+            return move.globalIndex;
+        }
+        if (move.variations && move.variations.length > 0) {
+            for (const variation of move.variations) {
+                const found = findGlobalIndexByFen(variation, fen);
+                if (found !== null) return found;
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * Находит родительский ход для указанного хода в вариации
  * @param history - полная история ходов
  * @param targetMove - ход, для которого нужно найти родителя
