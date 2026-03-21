@@ -502,7 +502,9 @@ export function GameReviewPage() {
     const timer = setTimeout(() => {
       pendingPositionRef.current = null;
       gotoFirst();
-      for (let i = 0; i < target; i++) gotoNext();
+      // currentGlobalIndex is 0-based, but gotoFirst sets to null (before move 0).
+      // So we need target+1 gotoNext calls to reach index=target.
+      for (let i = 0; i <= target; i++) gotoNext();
       // Allow position save after restore settles
       setTimeout(() => { suppressPositionSaveRef.current = false; }, 1500);
     }, 100);
