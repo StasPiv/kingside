@@ -2920,6 +2920,9 @@ input:focus {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  /* Prevent layout shift when switching puzzles */
+  min-height: 0;
+  flex-shrink: 0;
 }
 
 .puzzle-board-placeholder {
@@ -2946,6 +2949,12 @@ input:focus {
   font-weight: 700;
   padding: 8px 24px;
   border-radius: 6px;
+  /* Match puzzle-status-bar height to prevent layout shift */
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
 }
 
 .puzzle-feedback.correct {
@@ -3712,7 +3721,7 @@ input:focus {
 }
 
 .puzzle-status-bar {
-  min-height: 32px;
+  min-height: 38px;
   display: flex;
   align-items: center;
 }
