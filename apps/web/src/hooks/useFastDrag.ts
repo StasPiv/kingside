@@ -149,6 +149,9 @@ export function useFastDrag(
 
       optionsRef.current.onPiecePickup?.(sourceSquare);
 
+      // Visual feedback: grabbing cursor
+      container.classList.add('dragging');
+
       // Capture pointer on the container (not e.target) for reliable tracking.
       // Using e.target (often a deep SVG child) can lose capture in Chrome
       // when the element is re-rendered or removed by React.
@@ -186,6 +189,7 @@ export function useFastDrag(
 
       dragStateRef.current = null;
       optionsRef.current.onPieceRelease?.();
+      container.classList.remove('dragging');
 
       // Determine whether this is a valid drop attempt (different square).
       const isDropAttempt = !!(targetSquare && targetSquare !== state.sourceSquare);
@@ -320,6 +324,7 @@ export function useFastDrag(
       state.ghost.remove();
       dragStateRef.current = null;
       optionsRef.current.onPieceRelease?.();
+      container.classList.remove('dragging');
     };
 
     // Prevent Chrome's native HTML5 drag on images/SVGs inside pieces.

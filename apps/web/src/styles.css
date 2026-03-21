@@ -1187,6 +1187,19 @@ input:focus {
   position: relative;
 }
 
+/* Piece cursor: grab on hover, grabbing while dragging */
+.board-container [data-piece] {
+  cursor: grab;
+}
+
+.board-container.dragging {
+  cursor: grabbing;
+}
+
+.board-container.dragging [data-piece] {
+  cursor: grabbing;
+}
+
 .promotion-overlay {
   position: absolute;
   top: 0;
