@@ -66,11 +66,36 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func saveConfig(path string, cfg Config) error {
-	data, err := yaml.Marshal(cfg)
-	if err != nil {
-		return err
+	// Write human-readable config with comments
+	content := fmt.Sprintf(`# kingside-engine-bridge configuration
+# Generated automatically on first run
+
+port: %d
+
+# Secret key for WebSocket authentication.
+# Use this key when connecting: ws://localhost:%d/ws?key=YOUR_SECRET
+# Copy this value to the frontend engine settings.
+secret: "%s"
+
+# Path to UCI chess engine binary (e.g. stockfish, lc0)
+engine_path: "%s"
+
+# UCI engine options
+options:
+`, cfg.Port, cfg.Port, cfg.Secret, cfg.EnginePath)
+
+	for k, v := range cfg.Options {
+		content += fmt.Sprintf("  %s: \"%s\"\n", k, v)
 	}
-	return os.WriteFile(path, data, 0600)
+
+	content += fmt.Sprintf(`
+# Rate limiting
+rate_limit:
+  max_per_minute: %d
+  ban_after: %d
+`, cfg.RateLimit.MaxPerMinute, cfg.RateLimit.BanAfter)
+
+	return os.WriteFile(path, []byte(content), 0600)
 }
 
 func generateSecret() string {

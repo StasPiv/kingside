@@ -133,7 +133,7 @@ func (s *Server) handleMessages(conn *websocket.Conn) {
 		}
 
 		switch msg.Type {
-		case "analyze":
+		case "analyze", "evaluate":
 			s.handleAnalyze(conn, msg)
 		case "stop":
 			s.engine.Stop()

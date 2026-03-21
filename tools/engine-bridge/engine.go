@@ -20,6 +20,13 @@ type Engine struct {
 }
 
 func NewEngine(path string, options map[string]string) (*Engine, error) {
+	// Resolve full path for logging
+	resolvedPath, lookErr := exec.LookPath(path)
+	if lookErr != nil {
+		resolvedPath = path
+	}
+	log.Printf("Engine binary: %s (resolved: %s)", path, resolvedPath)
+
 	cmd := exec.Command(path)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

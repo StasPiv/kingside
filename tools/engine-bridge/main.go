@@ -17,9 +17,11 @@ func main() {
 		log.Fatalf("Config error: %v", err)
 	}
 
-	log.Printf("Engine: %s", cfg.EnginePath)
+	log.Printf("Config: %s", *configPath)
+	log.Printf("Engine path: %s", cfg.EnginePath)
 	log.Printf("Port: %d", cfg.Port)
-	log.Printf("Secret: %s...%s", cfg.Secret[:4], cfg.Secret[len(cfg.Secret)-4:])
+	log.Printf("Secret key: %s", cfg.Secret)
+	log.Printf("  (connect with: ws://localhost:%d/ws?key=%s)", cfg.Port, cfg.Secret)
 
 	engine, err := NewEngine(cfg.EnginePath, cfg.Options)
 	if err != nil {
