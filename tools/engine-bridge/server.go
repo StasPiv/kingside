@@ -24,8 +24,9 @@ type Server struct {
 	rateMu       sync.Mutex
 
 	// Single active connection
-	activeConn *websocket.Conn
-	activeMu   sync.Mutex
+	activeConn   *websocket.Conn
+	connClosed   bool
+	activeMu     sync.Mutex
 }
 
 func NewServer(cfg Config, engine *Engine) *Server {
@@ -96,6 +97,7 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		_ = s.activeConn.Close()
 	}
 	s.activeConn = conn
+	s.connClosed = false
 	s.activeMu.Unlock()
 
 	log.Printf("Client connected from %s", ip)
@@ -114,10 +116,15 @@ func (s *Server) handleMessages(conn *websocket.Conn) {
 		s.activeMu.Lock()
 		if s.activeConn == conn {
 			s.activeConn = nil
+			s.connClosed = true
 		}
 		s.activeMu.Unlock()
+
+		// Stop engine analysis when client disconnects
+		s.engine.Stop()
+
 		_ = conn.Close()
-		log.Println("Client disconnected")
+		log.Println("Client disconnected, engine stopped")
 	}()
 
 	for {
@@ -188,7 +195,21 @@ func (s *Server) handleAnalyze(conn *websocket.Conn, msg ClientMessage) {
 func (s *Server) sendJSON(conn *websocket.Conn, v interface{}) {
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
+
+	// Don't write to a connection that's no longer active
+	if s.activeConn != conn || s.connClosed {
+		return
+	}
+
 	if err := conn.WriteJSON(v); err != nil {
+		// Silence "close sent" errors — normal when client disconnects during analysis
+		if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+			return
+		}
+		errStr := err.Error()
+		if errStr == "websocket: close sent" || errStr == "websocket: close 1000 (normal)" {
+			return
+		}
 		log.Printf("Write error: %v", err)
 	}
 }
