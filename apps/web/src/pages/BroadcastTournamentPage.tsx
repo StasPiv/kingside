@@ -24,6 +24,35 @@ export function BroadcastTournamentPage() {
         if (!cancelled) {
           setData(result);
           setLoading(false);
+
+          // Auto-navigate to the latest relevant round:
+          // For live tournaments: last round with live games
+          // For archived: last round with any games
+          // Fallback: last round
+          if (result.totalRounds > 0) {
+            const rounds = result.tournament.rounds;
+            let targetRound = result.totalRounds; // default: last round
+
+            // Find last round with live games (live tournament)
+            for (let i = rounds.length - 1; i >= 0; i--) {
+              if (rounds[i].live > 0) {
+                targetRound = i + 1; // 1-based
+                break;
+              }
+            }
+
+            // If no live games found, find last round with any games
+            if (!rounds.some((r) => r.live > 0)) {
+              for (let i = rounds.length - 1; i >= 0; i--) {
+                if (rounds[i].count > 0) {
+                  targetRound = i + 1;
+                  break;
+                }
+              }
+            }
+
+            navigate(`/broadcasts/${tournamentId}/${targetRound}`, { replace: true });
+          }
         }
       })
       .catch((err) => {
