@@ -265,6 +265,7 @@
     "correct": "Верно!",
     "wrong": "Неверно!",
     "finished": "Время вышло!",
+    "solved": "Решено",
     "puzzlesSolved": "задач решено",
     "mistakes": "Ошибки",
     "timeUsed": "Время",
