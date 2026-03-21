@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,14 +23,23 @@ type Engine struct {
 }
 
 func NewEngine(path string, options map[string]string) (*Engine, error) {
-	// Resolve full path for logging
+	// Resolve full path — try the path as-is first, then with .exe on Windows
 	resolvedPath, lookErr := exec.LookPath(path)
 	if lookErr != nil {
-		resolvedPath = path
+		// On Windows, try adding .exe suffix if not present
+		if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(path), ".exe") {
+			if p, err := exec.LookPath(path + ".exe"); err == nil {
+				resolvedPath = p
+				lookErr = nil
+			}
+		}
+		if lookErr != nil {
+			resolvedPath = path
+		}
 	}
-	log.Printf("Engine binary: %s (resolved: %s)", path, resolvedPath)
+	log.Printf("Engine binary: %s", resolvedPath)
 
-	cmd := exec.Command(path)
+	cmd := exec.Command(resolvedPath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("stdin pipe: %w", err)
