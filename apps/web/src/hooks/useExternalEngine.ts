@@ -60,8 +60,10 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   stateRef.current = state;
 
-  // Track if we ever connected successfully — only reconnect if we had a connection before
+  // Track if we ever connected successfully
   const hadConnectionRef = useRef(false);
+  // Allow one retry on initial failure (bridge may be starting up)
+  const retriesRef = useRef(0);
 
   const cleanup = useCallback(() => {
     if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null; }
@@ -102,6 +104,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     ws.onopen = () => {
       console.log('[ExternalEngine] Connected');
       hadConnectionRef.current = true;
+      retriesRef.current = 0;
       setState('ready');
       setErrorMessage(null);
       // Request engine info
@@ -190,9 +193,9 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
         } else {
           setErrorMessage(`Disconnected (${reason})`);
         }
-        // Only auto-reconnect if we had a successful connection before
-        // (don't spam reconnect if bridge was never available)
-        if (hadConnectionRef.current) {
+        // Reconnect if we had a connection, or allow one initial retry
+        if (hadConnectionRef.current || retriesRef.current < 1) {
+          retriesRef.current += 1;
           reconnectRef.current = setTimeout(() => {
             if (stateRef.current === 'error') connect();
           }, RECONNECT_DELAY);

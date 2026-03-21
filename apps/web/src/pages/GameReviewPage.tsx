@@ -459,19 +459,25 @@ export function GameReviewPage() {
     });
   }, []);
 
-  // When engine errors out: if external → fallback to WASM; if WASM → disable
+  // When engine errors out: if external → delayed fallback to WASM; if WASM → disable
   useEffect(() => {
     if (sfState === 'error' && analysisEnabled) {
       if (engineSource === 'external') {
-        // Fallback to WASM Stockfish
-        console.log('[Engine] External engine failed, falling back to WASM');
-        setEngineSource('wasm');
-        setExternalConfig(null);
+        // Delay fallback — give bridge time to accept the connection.
+        // Without this, a brief WebSocket error during handshake
+        // immediately switches to WASM even though bridge is running.
+        const timer = setTimeout(() => {
+          console.log('[Engine] External engine failed, falling back to WASM');
+          setEngineSource('wasm');
+          setExternalConfig(null);
+        }, 3000);
+        return () => clearTimeout(timer);
       } else {
         setEngineFailed(true);
         setAnalysisEnabled(false);
       }
     }
+    return undefined;
   }, [sfState, analysisEnabled, engineSource]);
 
   // Auto-evaluate when position changes (debounced to avoid WASM crashes)
