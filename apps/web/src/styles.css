@@ -2826,6 +2826,11 @@ input:focus {
 }
 
 /* Puzzle Rush */
+/* Prevent page scroll when playing — board must fit in viewport */
+body:has(.puzzle-rush-board) {
+  overflow: hidden;
+}
+
 .puzzle-rush-page {
   text-align: center;
   padding-top: 40px;
@@ -3718,7 +3723,8 @@ input:focus {
 }
 
 .puzzle-rush-page .board-container {
-  width: min(calc(100vh - 200px), calc(100vw - 32px));
+  /* 280px = navbar(48) + main-padding(32*2) + page-padding-top(40) + header(56) + status-bar(46) + margin */
+  width: min(calc(100vh - 280px), calc(100vw - 32px));
 }
 
 .puzzle-page h1 {
@@ -4158,7 +4164,8 @@ input:focus {
   }
 
   .puzzle-rush-page .board-container {
-    width: min(calc(100vh - 200px), calc(100vw - 16px));
+    /* 240px = navbar(48) + main-padding(8*2) + page-padding-top(16) + header(56) + status-bar(46) + margin */
+    width: min(calc(100vh - 240px), calc(100vw - 16px));
   }
 
   .puzzle-rush-header {
