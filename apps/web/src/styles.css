@@ -7541,3 +7541,138 @@ input:focus {
   color: #fff;
   border-color: #7c83ff;
 }
+
+/* Engine settings */
+.engine-settings-btn {
+  background: none;
+  border: none;
+  color: #a0a0c0;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  margin-left: 4px;
+}
+
+.engine-settings-btn:hover {
+  color: #fff;
+}
+
+.engine-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 6px;
+}
+
+.engine-status-dot--connected { background: #4caf50; }
+.engine-status-dot--connecting { background: #ffc107; animation: pulse-dot 1.5s infinite; }
+.engine-status-dot--disconnected { background: #f44336; }
+
+.engine-settings-panel {
+  background: #16162a;
+  border: 1px solid #2a2a4e;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.engine-settings-sources {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.engine-source-btn {
+  flex: 1;
+  padding: 6px 10px;
+  background: #1a1a2e;
+  border: 1px solid #3a3a5e;
+  border-radius: 4px;
+  color: #a0a0c0;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.engine-source-btn.active {
+  background: #3a3a6e;
+  color: #fff;
+  border-color: #7c83ff;
+}
+
+.engine-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.engine-settings-input {
+  background: #1a1a2e;
+  border: 1px solid #3a3a5e;
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: #e0e0ff;
+  font-size: 12px;
+}
+
+.engine-settings-input:focus {
+  border-color: #7c83ff;
+  outline: none;
+}
+
+.engine-settings-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.engine-connect-btn {
+  flex: 1;
+  padding: 6px;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.engine-save-btn {
+  padding: 6px 12px;
+  background: #3a3a6e;
+  color: #c0c0ff;
+  border: 1px solid #4a4a8e;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.engine-saved-list {
+  margin-top: 8px;
+}
+
+.engine-saved-label {
+  font-size: 11px;
+  color: #808098;
+  margin-bottom: 4px;
+}
+
+.engine-saved-item {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 4px;
+  padding: 4px 10px;
+  color: #a0a0c0;
+  font-size: 12px;
+  cursor: pointer;
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+.engine-saved-item.active {
+  border-color: #7c83ff;
+  color: #fff;
+}
+
+.engine-saved-item:hover {
+  background: #2a2a4e;
+}

@@ -5,8 +5,10 @@ import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { useStablePosition } from '../hooks/useStablePosition';
-import { useStockfish } from '../hooks/useStockfish';
 import type { EvalLine } from '../hooks/useStockfish';
+import { useEngine, loadEngineConfigs, saveEngineConfigs } from '../hooks/useEngine';
+import type { EngineSource } from '../hooks/useEngine';
+import type { ExternalEngineConfig } from '../hooks/useExternalEngine';
 import { useContainerSize } from '../hooks/useContainerSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
@@ -219,8 +221,6 @@ export function GameReviewPage() {
     typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
   const [analysisEnabled, setAnalysisEnabled] = useState<boolean>(() => {
     if (typeof WebAssembly === 'undefined') return false;
-    // On touch devices (mobile) the 113 MB WASM binary often fails to compile —
-    // don't auto-start the engine; the user can still start it manually.
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
       return false;
     }
@@ -228,17 +228,69 @@ export function GameReviewPage() {
   });
   const [engineFailed, setEngineFailed] = useState(false);
 
+  // Engine source: wasm (browser Stockfish) or external (WebSocket bridge)
+  const [engineSource, setEngineSource] = useState<EngineSource>('wasm');
+  const [externalConfig, setExternalConfig] = useState<ExternalEngineConfig | null>(null);
+  const [savedConfigs, setSavedConfigs] = useState<ExternalEngineConfig[]>(() => loadEngineConfigs());
+  const [showEngineSettings, setShowEngineSettings] = useState(false);
+  const [extUrlInput, setExtUrlInput] = useState('');
+  const [extKeyInput, setExtKeyInput] = useState('');
+  const [extNameInput, setExtNameInput] = useState('');
+
   const {
     lines,
     analysisFen,
     evaluate,
     isReady,
     state: sfState,
-  } = useStockfish({
+    engineName,
+    engineSource: activeSource,
+  } = useEngine({
+    source: engineSource,
+    externalConfig,
     depth: 18,
     multiPv: MULTI_PV,
     autoStart: analysisEnabled,
   });
+
+  const handleConnectExternal = useCallback(() => {
+    if (!extUrlInput.trim()) return;
+    const cfg: ExternalEngineConfig = {
+      name: extNameInput.trim() || 'External Engine',
+      wsUrl: extUrlInput.trim(),
+      secretKey: extKeyInput.trim(),
+    };
+    setExternalConfig(cfg);
+    setEngineSource('external');
+    setShowEngineSettings(false);
+  }, [extUrlInput, extKeyInput, extNameInput]);
+
+  const handleSaveConfig = useCallback(() => {
+    if (!extUrlInput.trim()) return;
+    const cfg: ExternalEngineConfig = {
+      name: extNameInput.trim() || 'External Engine',
+      wsUrl: extUrlInput.trim(),
+      secretKey: extKeyInput.trim(),
+    };
+    const updated = [...savedConfigs.filter((c) => c.wsUrl !== cfg.wsUrl), cfg];
+    setSavedConfigs(updated);
+    saveEngineConfigs(updated);
+  }, [extUrlInput, extKeyInput, extNameInput, savedConfigs]);
+
+  const handleSelectSavedConfig = useCallback((cfg: ExternalEngineConfig) => {
+    setExternalConfig(cfg);
+    setEngineSource('external');
+    setExtUrlInput(cfg.wsUrl);
+    setExtKeyInput(cfg.secretKey);
+    setExtNameInput(cfg.name);
+    setShowEngineSettings(false);
+  }, []);
+
+  const handleSwitchToWasm = useCallback(() => {
+    setEngineSource('wasm');
+    setExternalConfig(null);
+    setShowEngineSettings(false);
+  }, []);
 
   const lastLinesRef = useRef<EvalLine[]>([]);
   if (lines.length === MULTI_PV) {
@@ -771,10 +823,20 @@ export function GameReviewPage() {
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">&#9881;</span>
               <span className="analysis-panel-title">
-                Stockfish 18{engineStatusSuffix}
+                {engineName}{engineStatusSuffix}
               </span>
+              {activeSource === 'external' && (
+                <span className={`engine-status-dot engine-status-dot--${sfState === 'ready' || sfState === 'analyzing' ? 'connected' : sfState === 'connecting' ? 'connecting' : 'disconnected'}`} />
+              )}
             </span>
             <span className="analysis-panel-header-right">
+              <button
+                className="engine-settings-btn"
+                onClick={(e) => { e.stopPropagation(); setShowEngineSettings(!showEngineSettings); }}
+                title="Engine settings"
+              >
+                ⚙
+              </button>
               {wasmSupported && !(isTouchDevice && engineFailed) && (
                 <button
                   className="analysis-toggle-btn"
@@ -810,6 +872,73 @@ export function GameReviewPage() {
               </span>
             </span>
           </div>
+          {showEngineSettings && (
+            <div className="engine-settings-panel">
+              <div className="engine-settings-sources">
+                <button
+                  className={`engine-source-btn${engineSource === 'wasm' ? ' active' : ''}`}
+                  onClick={handleSwitchToWasm}
+                >
+                  Browser Stockfish
+                </button>
+                <button
+                  className={`engine-source-btn${engineSource === 'external' ? ' active' : ''}`}
+                  onClick={() => setEngineSource('external')}
+                >
+                  External Engine
+                </button>
+              </div>
+
+              {engineSource === 'external' && (
+                <div className="engine-settings-form">
+                  <input
+                    type="text"
+                    placeholder="Name (optional)"
+                    value={extNameInput}
+                    onChange={(e) => setExtNameInput(e.target.value)}
+                    className="engine-settings-input"
+                  />
+                  <input
+                    type="text"
+                    placeholder="ws://host:port"
+                    value={extUrlInput}
+                    onChange={(e) => setExtUrlInput(e.target.value)}
+                    className="engine-settings-input"
+                  />
+                  <input
+                    type="password"
+                    placeholder="Secret key"
+                    value={extKeyInput}
+                    onChange={(e) => setExtKeyInput(e.target.value)}
+                    className="engine-settings-input"
+                  />
+                  <div className="engine-settings-actions">
+                    <button onClick={handleConnectExternal} className="engine-connect-btn">
+                      Connect
+                    </button>
+                    <button onClick={handleSaveConfig} className="engine-save-btn">
+                      Save
+                    </button>
+                  </div>
+
+                  {savedConfigs.length > 0 && (
+                    <div className="engine-saved-list">
+                      <div className="engine-saved-label">Saved:</div>
+                      {savedConfigs.map((cfg) => (
+                        <button
+                          key={cfg.wsUrl}
+                          className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`}
+                          onClick={() => handleSelectSavedConfig(cfg)}
+                        >
+                          {cfg.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {panelStates.engine && (
             <div className="analysis-panel-body">
               <div className="stockfish-lines">
