@@ -41,9 +41,10 @@ type BestMoveMessage struct {
 }
 
 type EngineInfoMessage struct {
-	Type string `json:"type"`
-	Name string `json:"name"`
-	ID   string `json:"id,omitempty"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	ID        string `json:"id,omitempty"`
+	Analyzing bool   `json:"analyzing"`
 }
 
 type ErrorMessage struct {

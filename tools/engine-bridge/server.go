@@ -32,6 +32,9 @@ type Server struct {
 	lastFEN     string
 	lastDepth   int
 	lastMultiPV int
+
+	// Grace period timer for disconnect
+	disconnectTimer *time.Timer
 }
 
 func NewServer(cfg Config, engine *Engine) *Server {
@@ -94,8 +97,13 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Close previous connection
+	// Close previous connection, cancel disconnect timer
 	s.activeMu.Lock()
+	if s.disconnectTimer != nil {
+		s.disconnectTimer.Stop()
+		s.disconnectTimer = nil
+		log.Println("Reconnect within grace period — engine kept running")
+	}
 	if s.activeConn != nil {
 		_ = s.activeConn.WriteMessage(websocket.CloseMessage,
 			websocket.FormatCloseMessage(4000, "replaced by new connection"))
@@ -107,14 +115,17 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Client connected from %s", ip)
 
-	// Send engine info
+	// Send engine info with current analysis state
 	s.sendJSON(conn, EngineInfoMessage{
-		Type: "engine_info",
-		Name: s.engine.Name(),
+		Type:      "engine_info",
+		Name:      s.engine.Name(),
+		Analyzing: s.engine.analyzing,
 	})
 
 	s.handleMessages(conn)
 }
+
+const disconnectGracePeriod = 5 * time.Second
 
 func (s *Server) handleMessages(conn *websocket.Conn) {
 	defer func() {
@@ -122,14 +133,21 @@ func (s *Server) handleMessages(conn *websocket.Conn) {
 		if s.activeConn == conn {
 			s.activeConn = nil
 			s.connClosed = true
+
+			// Grace period: don't stop engine immediately — wait for reconnect
+			if s.engine.analyzing {
+				log.Printf("Client disconnected — engine keeps running for %v (grace period)", disconnectGracePeriod)
+				s.disconnectTimer = time.AfterFunc(disconnectGracePeriod, func() {
+					log.Println("Grace period expired — stopping engine")
+					s.engine.Stop()
+				})
+			} else {
+				log.Println("Client disconnected (engine idle)")
+			}
 		}
 		s.activeMu.Unlock()
 
-		// Stop engine analysis when client disconnects
-		s.engine.Stop()
-
 		_ = conn.Close()
-		log.Println("Client disconnected, engine stopped")
 	}()
 
 	for {
@@ -161,8 +179,9 @@ func (s *Server) handleMessages(conn *websocket.Conn) {
 			s.sendJSON(conn, PongMessage{Type: "pong"})
 		case "info":
 			s.sendJSON(conn, EngineInfoMessage{
-				Type: "engine_info",
-				Name: s.engine.Name(),
+				Type:      "engine_info",
+				Name:      s.engine.Name(),
+				Analyzing: s.engine.analyzing,
 			})
 		default:
 			s.sendJSON(conn, ErrorMessage{Type: "error", Message: "unknown message type: " + msg.Type})
@@ -197,8 +216,8 @@ func (s *Server) handleAnalyze(conn *websocket.Conn, msg ClientMessage) {
 
 	go s.engine.Analyze(
 		msg.FEN, depth, multiPV,
-		func(line LineMessage) { s.sendJSON(conn, line) },
-		func(bm BestMoveMessage) { s.sendJSON(conn, bm) },
+		func(line LineMessage) { s.sendToActive(line) },
+		func(bm BestMoveMessage) { s.sendToActive(bm) },
 	)
 }
 
@@ -221,10 +240,24 @@ func (s *Server) handleSetOption(conn *websocket.Conn, name, value string) {
 		log.Printf("[Engine] Restarting analysis after setoption")
 		go s.engine.Analyze(
 			s.lastFEN, s.lastDepth, s.lastMultiPV,
-			func(line LineMessage) { s.sendJSON(conn, line) },
-			func(bm BestMoveMessage) { s.sendJSON(conn, bm) },
+			func(line LineMessage) { s.sendToActive(line) },
+			func(bm BestMoveMessage) { s.sendToActive(bm) },
 		)
 	}
+}
+
+// sendToActive sends to whichever connection is currently active.
+// Used by Analyze callbacks so that after reconnect, lines go to the new connection.
+func (s *Server) sendToActive(v interface{}) {
+	s.activeMu.Lock()
+	conn := s.activeConn
+	closed := s.connClosed
+	s.activeMu.Unlock()
+
+	if conn == nil || closed {
+		return
+	}
+	s.sendJSON(conn, v)
 }
 
 func (s *Server) sendJSON(conn *websocket.Conn, v interface{}) {
