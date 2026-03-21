@@ -7791,3 +7791,13 @@ input:focus {
   border-color: #7c83ff;
   color: #e0e0ff;
 }
+
+.engine-error-detail {
+  font-size: 11px;
+  color: #f44336;
+  margin-left: 8px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

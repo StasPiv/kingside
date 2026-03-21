@@ -26,6 +26,7 @@ type EngineResult = {
   isReady: boolean;
   engineName: string;
   engineSource: EngineSource;
+  errorMessage: string | null;
 };
 
 const STORAGE_KEY = 'externalEngineConfigs';
@@ -79,6 +80,7 @@ export function useEngine(options: UseEngineOptions): EngineResult {
         isReady: external.isReady,
         engineName: external.engineName,
         engineSource: 'external' as const,
+        errorMessage: external.errorMessage,
       };
     }
 
@@ -94,6 +96,7 @@ export function useEngine(options: UseEngineOptions): EngineResult {
       isReady: wasm.isReady,
       engineName: 'Stockfish 18 (WASM)',
       engineSource: 'wasm' as const,
+      errorMessage: null,
     };
   }, [source, wasm, external]);
 }

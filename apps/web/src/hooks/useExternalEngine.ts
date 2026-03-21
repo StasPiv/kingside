@@ -20,6 +20,25 @@ const RECONNECT_DELAY = 3000;
 const PING_INTERVAL = 15000;
 
 /**
+ * Ensure the WebSocket URL includes /ws path.
+ * Bridge listens on /ws — if user enters ws://localhost:9090,
+ * we need ws://localhost:9090/ws.
+ */
+function normalizeWsUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    if (!url.pathname || url.pathname === '/') {
+      url.pathname = '/ws';
+    }
+    return url.toString();
+  } catch {
+    // If URL parsing fails, append /ws heuristically
+    const base = raw.replace(/\/+$/, '');
+    return base.endsWith('/ws') ? base : `${base}/ws`;
+  }
+}
+
+/**
  * Hook for connecting to an external chess engine via WebSocket bridge.
  * Protocol: JSON messages (line, bestmove, engine_info, error, pong).
  */
@@ -31,6 +50,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
   const [analysisFen, setAnalysisFen] = useState<string | null>(null);
   const [bestMove, setBestMove] = useState<string | null>(null);
   const [engineName, setEngineName] = useState<string>('External Engine');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const linesBuffer = useRef<Map<number, EvalLine>>(new Map());
@@ -49,27 +69,39 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
       wsRef.current = null;
     }
     setState('idle');
+    setErrorMessage(null);
   }, []);
 
   const connect = useCallback(() => {
     if (!config) return;
     cleanup();
     setState('connecting');
+    setErrorMessage(null);
 
-    const url = config.wsUrl.includes('?')
-      ? `${config.wsUrl}&key=${encodeURIComponent(config.secretKey)}`
-      : `${config.wsUrl}?key=${encodeURIComponent(config.secretKey)}`;
+    const baseUrl = normalizeWsUrl(config.wsUrl);
+    const url = baseUrl.includes('?')
+      ? `${baseUrl}&key=${encodeURIComponent(config.secretKey)}`
+      : `${baseUrl}?key=${encodeURIComponent(config.secretKey)}`;
+
+    console.log('[ExternalEngine] Connecting to:', url);
 
     let ws: WebSocket;
     try {
       ws = new WebSocket(url);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create WebSocket';
+      console.error('[ExternalEngine] WebSocket creation failed:', msg);
       setState('error');
+      setErrorMessage(msg);
       return;
     }
 
     ws.onopen = () => {
+      console.log('[ExternalEngine] Connected');
       setState('ready');
+      setErrorMessage(null);
+      // Request engine info
+      ws.send(JSON.stringify({ type: 'info' }));
       // Start ping keepalive
       pingRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -125,6 +157,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
 
         case 'error':
           console.error('[ExternalEngine] Bridge error:', msg.message);
+          setErrorMessage(String(msg.message ?? 'Unknown bridge error'));
           break;
 
         case 'pong':
@@ -132,14 +165,25 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
       }
     };
 
-    ws.onerror = () => {
+    ws.onerror = (ev) => {
+      console.error('[ExternalEngine] WebSocket error:', ev);
       setState('error');
+      setErrorMessage('Connection error — is the bridge running?');
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
       if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null; }
+      const reason = ev.reason || `code ${ev.code}`;
+      console.log(`[ExternalEngine] Connection closed: ${reason}`);
       if (stateRef.current !== 'idle') {
         setState('error');
+        if (ev.code === 1008) {
+          setErrorMessage('Unauthorized — check your secret key');
+        } else if (ev.code === 1006) {
+          setErrorMessage('Connection lost — bridge may have stopped');
+        } else {
+          setErrorMessage(`Disconnected (${reason})`);
+        }
         // Auto-reconnect
         reconnectRef.current = setTimeout(() => {
           if (stateRef.current === 'error') connect();
@@ -194,5 +238,6 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     cleanup,
     isReady: state === 'ready' || state === 'analyzing',
     engineName,
+    errorMessage,
   };
 }

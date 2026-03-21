@@ -245,6 +245,7 @@ export function GameReviewPage() {
     state: sfState,
     engineName,
     engineSource: activeSource,
+    errorMessage: engineErrorMessage,
   } = useEngine({
     source: engineSource,
     externalConfig,
@@ -857,6 +858,11 @@ export function GameReviewPage() {
               </span>
               {activeSource === 'external' && (
                 <span className={`engine-status-dot engine-status-dot--${sfState === 'ready' || sfState === 'analyzing' ? 'connected' : sfState === 'connecting' ? 'connecting' : 'disconnected'}`} />
+              )}
+              {engineErrorMessage && (
+                <span className="engine-error-detail" title={engineErrorMessage}>
+                  {engineErrorMessage}
+                </span>
               )}
             </span>
             <span className="analysis-panel-header-right">
