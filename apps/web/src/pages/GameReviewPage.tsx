@@ -21,6 +21,7 @@ import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
+import { searchInHistory } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 
@@ -501,8 +502,8 @@ export function GameReviewPage() {
     const target = pendingPositionRef.current;
     const timer = setTimeout(() => {
       pendingPositionRef.current = null;
-      // Find the move with the matching globalIndex and navigate to it directly
-      const targetMove = history.find(m => m.globalIndex === target);
+      // Find the move with the matching globalIndex (including variations) and navigate to it directly
+      const targetMove = searchInHistory(history, target);
       if (targetMove) {
         gotoMove(targetMove);
       }
