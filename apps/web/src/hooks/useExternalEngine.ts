@@ -60,6 +60,9 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   stateRef.current = state;
 
+  // Track if we ever connected successfully — only reconnect if we had a connection before
+  const hadConnectionRef = useRef(false);
+
   const cleanup = useCallback(() => {
     if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null; }
     if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
@@ -98,6 +101,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
 
     ws.onopen = () => {
       console.log('[ExternalEngine] Connected');
+      hadConnectionRef.current = true;
       setState('ready');
       setErrorMessage(null);
       // Request engine info
@@ -156,7 +160,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
         }
 
         case 'error':
-          console.error('[ExternalEngine] Bridge error:', msg.message);
+          console.warn('[ExternalEngine] Bridge error:', msg.message);
           setErrorMessage(String(msg.message ?? 'Unknown bridge error'));
           break;
 
@@ -165,8 +169,10 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
       }
     };
 
-    ws.onerror = (ev) => {
-      console.error('[ExternalEngine] WebSocket error:', ev);
+    ws.onerror = () => {
+      // Use warn instead of error — bridge being unavailable is expected
+      // when auto-connecting from saved config
+      console.warn('[ExternalEngine] Connection failed — bridge may not be running');
       setState('error');
       setErrorMessage('Connection error — is the bridge running?');
     };
@@ -174,7 +180,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     ws.onclose = (ev) => {
       if (pingRef.current) { clearInterval(pingRef.current); pingRef.current = null; }
       const reason = ev.reason || `code ${ev.code}`;
-      console.log(`[ExternalEngine] Connection closed: ${reason}`);
+      console.warn(`[ExternalEngine] Connection closed: ${reason}`);
       if (stateRef.current !== 'idle') {
         setState('error');
         if (ev.code === 1008) {
@@ -184,10 +190,13 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
         } else {
           setErrorMessage(`Disconnected (${reason})`);
         }
-        // Auto-reconnect
-        reconnectRef.current = setTimeout(() => {
-          if (stateRef.current === 'error') connect();
-        }, RECONNECT_DELAY);
+        // Only auto-reconnect if we had a successful connection before
+        // (don't spam reconnect if bridge was never available)
+        if (hadConnectionRef.current) {
+          reconnectRef.current = setTimeout(() => {
+            if (stateRef.current === 'error') connect();
+          }, RECONNECT_DELAY);
+        }
       }
     };
 
