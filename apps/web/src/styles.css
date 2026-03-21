@@ -2047,6 +2047,8 @@ input:focus {
   min-width: 0;
   scrollbar-width: thin;
   scrollbar-color: #3a3a5e transparent;
+  /* Reserve space for scrollbar so height doesn't jump when it appears */
+  padding-bottom: 3px;
 }
 
 .stockfish-pv::-webkit-scrollbar {
