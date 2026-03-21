@@ -12,11 +12,13 @@ import (
 )
 
 type Engine struct {
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout *bufio.Scanner
-	mu     sync.Mutex
-	name   string
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	stdout    *bufio.Scanner
+	mu        sync.Mutex
+	name      string
+	analyzing bool
+	analyzeMu sync.Mutex
 }
 
 func NewEngine(path string, options map[string]string) (*Engine, error) {
@@ -84,24 +86,26 @@ func (e *Engine) Name() string {
 func (e *Engine) send(cmd string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	log.Printf("[UCI >>] %s", cmd)
 	fmt.Fprintln(e.stdin, cmd)
 }
 
 func (e *Engine) SetOption(name, value string) {
+	log.Printf("[Engine] SetOption: %s = %s", name, value)
 	e.send(fmt.Sprintf("setoption name %s value %s", name, value))
 }
 
 func (e *Engine) Analyze(fen string, depth int, multiPV int, lineCb func(LineMessage), doneCb func(BestMoveMessage)) {
+	// Serialize analysis — only one at a time. If a previous analysis is running,
+	// stop it first (the goroutine will exit when it sees bestmove from the stop).
+	e.analyzeMu.Lock()
+	defer e.analyzeMu.Unlock()
+
+	e.analyzing = true
+	defer func() { e.analyzing = false }()
+
 	if multiPV > 1 {
 		e.send(fmt.Sprintf("setoption name MultiPV value %d", multiPV))
-	}
-
-	e.send("ucinewgame")
-	e.send("isready")
-	for e.stdout.Scan() {
-		if e.stdout.Text() == "readyok" {
-			break
-		}
 	}
 
 	e.send(fmt.Sprintf("position fen %s", fen))
@@ -114,6 +118,7 @@ func (e *Engine) Analyze(fen string, depth int, multiPV int, lineCb func(LineMes
 
 	for e.stdout.Scan() {
 		line := e.stdout.Text()
+		log.Printf("[UCI <<] %s", line)
 
 		if strings.HasPrefix(line, "info ") && strings.Contains(line, " pv ") {
 			msg := parseInfoLine(line)
@@ -135,7 +140,12 @@ func (e *Engine) Analyze(fen string, depth int, multiPV int, lineCb func(LineMes
 }
 
 func (e *Engine) Stop() {
-	e.send("stop")
+	if e.analyzing {
+		log.Println("[Engine] Sending stop to UCI engine")
+		e.send("stop")
+	} else {
+		log.Println("[Engine] Stop requested but not analyzing — ignored")
+	}
 }
 
 func (e *Engine) Close() {

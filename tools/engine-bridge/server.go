@@ -128,9 +128,13 @@ func (s *Server) handleMessages(conn *websocket.Conn) {
 
 		var msg ClientMessage
 		if err := json.Unmarshal(raw, &msg); err != nil {
+			log.Printf("[WS <<] invalid JSON: %s", string(raw))
 			s.sendJSON(conn, ErrorMessage{Type: "error", Message: "invalid JSON"})
 			continue
 		}
+
+		log.Printf("[WS <<] type=%s fen=%s depth=%d multiPv=%d name=%s value=%s",
+			msg.Type, truncate(msg.FEN, 40), msg.Depth, msg.MultiPV, msg.Name, msg.Value)
 
 		switch msg.Type {
 		case "analyze", "evaluate":
@@ -187,4 +191,11 @@ func (s *Server) sendJSON(conn *websocket.Conn, v interface{}) {
 	if err := conn.WriteJSON(v); err != nil {
 		log.Printf("Write error: %v", err)
 	}
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
