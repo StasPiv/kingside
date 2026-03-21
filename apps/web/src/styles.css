@@ -4744,8 +4744,9 @@ body:has(.puzzle-rush-board) {
 }
 
 /* Constrain board in Session Review to fit viewport */
+/* 380px = navbar(48) + main-padding(64) + header(72) + badge(32) + nav-buttons(48) + moves(32) + padding(44) + taskbar(40) */
 .rush-review-board-panel .board-container {
-  width: min(calc(100dvh - 280px), 100%);
+  width: min(calc(100dvh - 380px), 100%);
 }
 
 .rush-review-placeholder {
