@@ -501,10 +501,13 @@ export function GameReviewPage() {
     const target = pendingPositionRef.current;
     const timer = setTimeout(() => {
       pendingPositionRef.current = null;
+      // Navigate: gotoFirst → null (before first move).
+      // gotoNext from null → move at globalIndex 0.
+      // To reach globalIndex N, need N+1 gotoNext calls.
       gotoFirst();
-      // currentGlobalIndex is 0-based, but gotoFirst sets to null (before move 0).
-      // So we need target+1 gotoNext calls to reach index=target.
-      for (let i = 0; i <= target; i++) gotoNext();
+      const steps = target + 1;
+      console.log(`[Analysis] Navigating ${steps} steps to reach globalIndex ${target}`);
+      for (let i = 0; i < steps; i++) gotoNext();
       // Allow position save after restore settles
       setTimeout(() => { suppressPositionSaveRef.current = false; }, 1500);
     }, 100);
