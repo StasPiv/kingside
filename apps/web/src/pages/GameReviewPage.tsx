@@ -242,8 +242,14 @@ export function GameReviewPage() {
   const [extUrlInput, setExtUrlInput] = useState('');
   const [extKeyInput, setExtKeyInput] = useState('');
   const [extNameInput, setExtNameInput] = useState('');
-  const [uciThreads, setUciThreads] = useState('1');
-  const [uciHash, setUciHash] = useState('256');
+  const [uciThreads, setUciThreads] = useState(() => {
+    const configs = loadEngineConfigs();
+    return configs[0]?.uciOptions?.Threads ?? '1';
+  });
+  const [uciHash, setUciHash] = useState(() => {
+    const configs = loadEngineConfigs();
+    return configs[0]?.uciOptions?.Hash ?? '256';
+  });
 
   const {
     lines,
@@ -264,29 +270,42 @@ export function GameReviewPage() {
     autoStart: analysisEnabled,
   });
 
+  const buildConfig = useCallback((): ExternalEngineConfig => ({
+    name: extNameInput.trim() || 'External Engine',
+    wsUrl: extUrlInput.trim(),
+    secretKey: extKeyInput.trim(),
+    uciOptions: { Threads: uciThreads, Hash: uciHash },
+  }), [extUrlInput, extKeyInput, extNameInput, uciThreads, uciHash]);
+
   const handleConnectExternal = useCallback(() => {
     if (!extUrlInput.trim()) return;
-    const cfg: ExternalEngineConfig = {
-      name: extNameInput.trim() || 'External Engine',
-      wsUrl: extUrlInput.trim(),
-      secretKey: extKeyInput.trim(),
-    };
+    const cfg = buildConfig();
     setExternalConfig(cfg);
     setEngineSource('external');
     setShowEngineSettings(false);
-  }, [extUrlInput, extKeyInput, extNameInput]);
+  }, [extUrlInput, buildConfig]);
 
   const handleSaveConfig = useCallback(() => {
     if (!extUrlInput.trim()) return;
-    const cfg: ExternalEngineConfig = {
-      name: extNameInput.trim() || 'External Engine',
-      wsUrl: extUrlInput.trim(),
-      secretKey: extKeyInput.trim(),
-    };
+    const cfg = buildConfig();
     const updated = [...savedConfigs.filter((c) => c.wsUrl !== cfg.wsUrl), cfg];
     setSavedConfigs(updated);
     saveEngineConfigs(updated);
-  }, [extUrlInput, extKeyInput, extNameInput, savedConfigs]);
+  }, [extUrlInput, buildConfig, savedConfigs]);
+
+  const handleDeleteConfig = useCallback((wsUrl: string) => {
+    const updated = savedConfigs.filter((c) => c.wsUrl !== wsUrl);
+    setSavedConfigs(updated);
+    saveEngineConfigs(updated);
+    if (externalConfig?.wsUrl === wsUrl) {
+      if (updated.length > 0) {
+        setExternalConfig(updated[0]);
+      } else {
+        setExternalConfig(null);
+        setEngineSource('wasm');
+      }
+    }
+  }, [savedConfigs, externalConfig]);
 
   const handleSelectSavedConfig = useCallback((cfg: ExternalEngineConfig) => {
     setExternalConfig(cfg);
@@ -294,6 +313,8 @@ export function GameReviewPage() {
     setExtUrlInput(cfg.wsUrl);
     setExtKeyInput(cfg.secretKey);
     setExtNameInput(cfg.name);
+    setUciThreads(cfg.uciOptions?.Threads ?? '1');
+    setUciHash(cfg.uciOptions?.Hash ?? '256');
     setShowEngineSettings(false);
   }, []);
 
@@ -998,13 +1019,21 @@ export function GameReviewPage() {
                     <div className="engine-saved-list">
                       <div className="engine-saved-label">Saved:</div>
                       {savedConfigs.map((cfg) => (
-                        <button
-                          key={cfg.wsUrl}
-                          className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`}
-                          onClick={() => handleSelectSavedConfig(cfg)}
-                        >
-                          {cfg.name}
-                        </button>
+                        <div key={cfg.wsUrl} className="engine-saved-row">
+                          <button
+                            className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`}
+                            onClick={() => handleSelectSavedConfig(cfg)}
+                          >
+                            {cfg.name}
+                          </button>
+                          <button
+                            className="engine-saved-delete"
+                            onClick={() => handleDeleteConfig(cfg.wsUrl)}
+                            title="Delete"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       ))}
                     </div>
                   )}

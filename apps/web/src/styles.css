@@ -7677,6 +7677,27 @@ input:focus {
   background: #2a2a4e;
 }
 
+.engine-saved-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+  margin-bottom: 4px;
+}
+
+.engine-saved-delete {
+  background: none;
+  border: none;
+  color: #606078;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.engine-saved-delete:hover {
+  color: #f44336;
+}
+
 .engine-help-link {
   color: #7c83ff;
   text-decoration: none;

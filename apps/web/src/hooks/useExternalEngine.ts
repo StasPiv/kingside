@@ -7,6 +7,7 @@ export type ExternalEngineConfig = {
   name: string;
   wsUrl: string;
   secretKey: string;
+  uciOptions?: Record<string, string>;
 };
 
 type UseExternalEngineOptions = {
@@ -109,6 +110,12 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
       setErrorMessage(null);
       // Request engine info
       ws.send(JSON.stringify({ type: 'info' }));
+      // Send saved UCI options
+      if (config.uciOptions) {
+        for (const [name, value] of Object.entries(config.uciOptions)) {
+          ws.send(JSON.stringify({ type: 'setoption', name, value }));
+        }
+      }
       // Start ping keepalive
       pingRef.current = setInterval(() => {
         if (ws.readyState === WebSocket.OPEN) {
