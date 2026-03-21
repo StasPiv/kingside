@@ -645,6 +645,9 @@
     "watch": "Смотреть",
     "results": "Результаты"
   },
+  "engineSettings": {
+    "loadConfig": "Загрузить config.yaml"
+  },
   "engineHelp": {
     "title": "Как подключить внешний движок",
     "backToAnalysis": "← Назад к анализу",

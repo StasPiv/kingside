@@ -292,6 +292,36 @@ export function GameReviewPage() {
     setShowEngineSettings(false);
   }, []);
 
+  const configFileRef = useRef<HTMLInputElement>(null);
+
+  const handleLoadConfigFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      if (!text) return;
+      // Simple YAML parser for flat keys: "key: value"
+      const lines = text.split('\n');
+      let port = '9090';
+      let secret = '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#') || !trimmed.includes(':')) continue;
+        const colonIdx = trimmed.indexOf(':');
+        const key = trimmed.slice(0, colonIdx).trim();
+        const val = trimmed.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, '');
+        if (key === 'port') port = val;
+        if (key === 'secret' || key === 'secret_key') secret = val;
+      }
+      setExtUrlInput(`ws://localhost:${port}`);
+      setExtKeyInput(secret);
+      if (!extNameInput) setExtNameInput('Local Engine');
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, [extNameInput]);
+
   const lastLinesRef = useRef<EvalLine[]>([]);
   if (lines.length === MULTI_PV) {
     lastLinesRef.current = lines;
@@ -891,6 +921,19 @@ export function GameReviewPage() {
 
               {engineSource === 'external' && (
                 <div className="engine-settings-form">
+                  <input
+                    ref={configFileRef}
+                    type="file"
+                    accept=".yaml,.yml"
+                    style={{ display: 'none' }}
+                    onChange={handleLoadConfigFile}
+                  />
+                  <button
+                    className="engine-load-config-btn"
+                    onClick={() => configFileRef.current?.click()}
+                  >
+                    📂 {t('engineSettings.loadConfig')}
+                  </button>
                   <input
                     type="text"
                     placeholder="Name (optional)"

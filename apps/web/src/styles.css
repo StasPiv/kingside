@@ -7774,3 +7774,20 @@ input:focus {
   font-size: 13px;
   color: #c0c0e0;
 }
+
+.engine-load-config-btn {
+  width: 100%;
+  padding: 8px;
+  background: #1a1a2e;
+  border: 1px dashed #4a4a8e;
+  border-radius: 6px;
+  color: #a0a0c0;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.engine-load-config-btn:hover {
+  border-color: #7c83ff;
+  color: #e0e0ff;
+}

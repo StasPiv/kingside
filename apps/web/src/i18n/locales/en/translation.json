@@ -645,6 +645,9 @@
     "watch": "Watch Live",
     "results": "Results"
   },
+  "engineSettings": {
+    "loadConfig": "Load config.yaml"
+  },
   "engineHelp": {
     "title": "How to Use External Engine",
     "backToAnalysis": "← Back to Analysis",
