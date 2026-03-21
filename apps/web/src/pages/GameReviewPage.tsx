@@ -489,15 +489,17 @@ export function GameReviewPage() {
 
   // Restore pending position after moves have been loaded into state.
   // This runs after React commits loadFromPgn, so gotoNext sees the moves.
-  const positionRestoredRef = useRef(false);
   useEffect(() => {
-    if (pendingPosition == null || history.length === 0 || positionRestoredRef.current) return;
+    if (pendingPosition == null || history.length === 0) return;
     const target = pendingPosition;
-    positionRestoredRef.current = true;
     setPendingPosition(null);
     console.log(`[Analysis] Restoring position to ${target}`);
-    gotoFirst();
-    for (let i = 0; i < target; i++) gotoNext();
+    // Delay to next microtask — ensures React has finished processing
+    // all state updates from loadFromPgn before we navigate.
+    Promise.resolve().then(() => {
+      gotoFirst();
+      for (let i = 0; i < target; i++) gotoNext();
+    });
   }, [pendingPosition, history, gotoNext, gotoFirst]);
 
   // Save current position to API (debounced).
