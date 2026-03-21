@@ -493,14 +493,20 @@ export function GameReviewPage() {
   const suppressPositionSaveRef = useRef(true);
 
   // Restore pending position after moves have been loaded into state.
+  // Uses setTimeout to survive React strict mode's unmount-remount cycle:
+  // the cleanup cancels the timer from the first mount, and the second
+  // mount sets a new timer that actually fires.
   useEffect(() => {
     if (pendingPositionRef.current == null || history.length === 0) return;
     const target = pendingPositionRef.current;
-    pendingPositionRef.current = null;
-    gotoFirst();
-    for (let i = 0; i < target; i++) gotoNext();
-    // Allow save after restore is done (next tick to avoid immediate re-save)
-    setTimeout(() => { suppressPositionSaveRef.current = false; }, 1500);
+    const timer = setTimeout(() => {
+      pendingPositionRef.current = null;
+      gotoFirst();
+      for (let i = 0; i < target; i++) gotoNext();
+      // Allow position save after restore settles
+      setTimeout(() => { suppressPositionSaveRef.current = false; }, 1500);
+    }, 100);
+    return () => clearTimeout(timer);
   }, [history, gotoNext, gotoFirst]);
 
   // If no position to restore, allow save immediately
