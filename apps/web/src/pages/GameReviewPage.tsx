@@ -622,7 +622,8 @@ export function GameReviewPage() {
     setAnalysisEnabled((prev) => {
       const next = !prev;
       if (prev) {
-        lastLinesRef.current = [];
+        // Keep lastLinesRef — user should see last calculated lines after stop.
+        // Lines will be replaced on next Start.
         stopEngine();
       } else {
         setEngineFailed(false);
@@ -1156,7 +1157,7 @@ export function GameReviewPage() {
           {panelStates.engine && (
             <div className="analysis-panel-body">
               <div className="stockfish-lines">
-                {analysisEnabled &&
+                {(analysisEnabled || displayedLines.length > 0) &&
                   displayedLines.map((line) => (
                     <div key={line.multipv} className="stockfish-line">
                       <span
