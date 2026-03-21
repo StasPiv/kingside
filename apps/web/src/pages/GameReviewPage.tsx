@@ -229,9 +229,15 @@ export function GameReviewPage() {
   const [engineFailed, setEngineFailed] = useState(false);
 
   // Engine source: wasm (browser Stockfish) or external (WebSocket bridge)
-  const [engineSource, setEngineSource] = useState<EngineSource>('wasm');
-  const [externalConfig, setExternalConfig] = useState<ExternalEngineConfig | null>(null);
+  // Auto-select external if there's a saved config
   const [savedConfigs, setSavedConfigs] = useState<ExternalEngineConfig[]>(() => loadEngineConfigs());
+  const [engineSource, setEngineSource] = useState<EngineSource>(() =>
+    loadEngineConfigs().length > 0 ? 'external' : 'wasm',
+  );
+  const [externalConfig, setExternalConfig] = useState<ExternalEngineConfig | null>(() => {
+    const configs = loadEngineConfigs();
+    return configs.length > 0 ? configs[0] : null;
+  });
   const [showEngineSettings, setShowEngineSettings] = useState(false);
   const [extUrlInput, setExtUrlInput] = useState('');
   const [extKeyInput, setExtKeyInput] = useState('');
@@ -453,13 +459,20 @@ export function GameReviewPage() {
     });
   }, []);
 
-  // When engine errors out, auto-disable analysis so the UI resets to "Start"
+  // When engine errors out: if external → fallback to WASM; if WASM → disable
   useEffect(() => {
     if (sfState === 'error' && analysisEnabled) {
-      setEngineFailed(true);
-      setAnalysisEnabled(false);
+      if (engineSource === 'external') {
+        // Fallback to WASM Stockfish
+        console.log('[Engine] External engine failed, falling back to WASM');
+        setEngineSource('wasm');
+        setExternalConfig(null);
+      } else {
+        setEngineFailed(true);
+        setAnalysisEnabled(false);
+      }
     }
-  }, [sfState, analysisEnabled]);
+  }, [sfState, analysisEnabled, engineSource]);
 
   // Auto-evaluate when position changes (debounced to avoid WASM crashes)
   useEffect(() => {
