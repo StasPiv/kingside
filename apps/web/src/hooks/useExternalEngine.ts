@@ -227,6 +227,12 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     }
   }, []);
 
+  const setOption = useCallback((name: string, value: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'setoption', name, value }));
+    }
+  }, []);
+
   return {
     state,
     lines,
@@ -234,6 +240,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     bestMove,
     evaluate,
     stop,
+    setOption,
     init: connect,
     cleanup,
     isReady: state === 'ready' || state === 'analyzing',

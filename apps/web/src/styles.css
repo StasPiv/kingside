@@ -7801,3 +7801,39 @@ input:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.engine-uci-options {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2a4e;
+}
+
+.engine-uci-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.engine-uci-row label {
+  font-size: 12px;
+  color: #a0a0c0;
+  min-width: 70px;
+}
+
+.engine-uci-input {
+  width: 80px;
+  background: #1a1a2e;
+  border: 1px solid #3a3a5e;
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: #e0e0ff;
+  font-size: 12px;
+  text-align: right;
+}
+
+.engine-uci-input:focus {
+  border-color: #7c83ff;
+  outline: none;
+}

@@ -236,12 +236,15 @@ export function GameReviewPage() {
   const [extUrlInput, setExtUrlInput] = useState('');
   const [extKeyInput, setExtKeyInput] = useState('');
   const [extNameInput, setExtNameInput] = useState('');
+  const [uciThreads, setUciThreads] = useState('1');
+  const [uciHash, setUciHash] = useState('256');
 
   const {
     lines,
     analysisFen,
     evaluate,
     stop: stopEngine,
+    setOption: setEngineOption,
     isReady,
     state: sfState,
     engineName,
@@ -984,6 +987,39 @@ export function GameReviewPage() {
                           {cfg.name}
                         </button>
                       ))}
+                    </div>
+                  )}
+                  {activeSource === 'external' && isReady && (
+                    <div className="engine-uci-options">
+                      <div className="engine-saved-label">UCI Options:</div>
+                      <div className="engine-uci-row">
+                        <label>Threads</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={512}
+                          value={uciThreads}
+                          onChange={(e) => {
+                            setUciThreads(e.target.value);
+                            setEngineOption('Threads', e.target.value);
+                          }}
+                          className="engine-uci-input"
+                        />
+                      </div>
+                      <div className="engine-uci-row">
+                        <label>Hash (MB)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={65536}
+                          value={uciHash}
+                          onChange={(e) => {
+                            setUciHash(e.target.value);
+                            setEngineOption('Hash', e.target.value);
+                          }}
+                          className="engine-uci-input"
+                        />
+                      </div>
                     </div>
                   )}
                   <Link to="/help/external-engine" className="engine-help-link" target="_blank">

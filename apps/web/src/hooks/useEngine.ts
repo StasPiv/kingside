@@ -21,6 +21,7 @@ type EngineResult = {
   bestMove: string | null;
   evaluate: (fen: string) => void;
   stop: () => void;
+  setOption: (name: string, value: string) => void;
   init: () => void;
   cleanup: () => void;
   isReady: boolean;
@@ -75,6 +76,7 @@ export function useEngine(options: UseEngineOptions): EngineResult {
         bestMove: external.bestMove,
         evaluate: external.evaluate,
         stop: external.stop,
+        setOption: external.setOption,
         init: external.init,
         cleanup: external.cleanup,
         isReady: external.isReady,
@@ -91,6 +93,7 @@ export function useEngine(options: UseEngineOptions): EngineResult {
       bestMove: wasm.bestMove,
       evaluate: wasm.evaluate,
       stop: wasm.stop,
+      setOption: () => {},
       init: wasm.init,
       cleanup: wasm.cleanup,
       isReady: wasm.isReady,
