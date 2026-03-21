@@ -644,5 +644,27 @@
     "loadError": "Failed to load tournaments",
     "watch": "Watch Live",
     "results": "Results"
+  },
+  "engineHelp": {
+    "title": "How to Use External Engine",
+    "backToAnalysis": "← Back to Analysis",
+    "intro": "Connect a powerful chess engine running on your computer to Kingside for deeper analysis. Follow these steps:",
+    "linkText": "How to set up?",
+    "step1Title": "Download Engine Bridge",
+    "step1Desc": "Download kingside-engine-bridge for your operating system from GitHub Releases.",
+    "step1Link": "Download from GitHub →",
+    "step2Title": "Install a Chess Engine",
+    "step2Desc": "Install Stockfish or another UCI-compatible chess engine on your computer.",
+    "step2Link": "Download Stockfish →",
+    "step3Title": "Run the Bridge",
+    "step3Desc": "Extract the archive and run the bridge binary. It will start a WebSocket server on port 9090.",
+    "step4Title": "Copy the Secret Key",
+    "step4Desc": "Open config.yaml (created on first run) and copy the secret_key value.",
+    "step5Title": "Open Analysis in Kingside",
+    "step5Desc": "Go to any analysis page, click the ⚙ gear icon in the engine panel, and select \"External Engine\".",
+    "step6Title": "Enter Connection Details",
+    "step6Desc": "Enter the WebSocket URL and your secret key from config.yaml.",
+    "step7Title": "Click Connect",
+    "step7Desc": "Press Connect. The status indicator will turn green when connected. Your engine is now analyzing positions!"
   }
 }

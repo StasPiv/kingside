@@ -935,6 +935,9 @@ export function GameReviewPage() {
                       ))}
                     </div>
                   )}
+                  <Link to="/help/external-engine" className="engine-help-link" target="_blank">
+                    {t('engineHelp.linkText')}
+                  </Link>
                 </div>
               )}
             </div>

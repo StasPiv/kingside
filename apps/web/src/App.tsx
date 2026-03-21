@@ -24,6 +24,7 @@ import { PlayerProfilePage } from './pages/PlayerProfilePage';
 import { MessagesPage } from './pages/MessagesPage';
 import { LiveGamesPage } from './pages/LiveGamesPage';
 import { WatchGamePage } from './pages/WatchGamePage';
+import { ExternalEngineHelpPage } from './pages/ExternalEngineHelpPage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
@@ -77,6 +78,7 @@ export function App() {
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/analysis" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
+        <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
         <Route path="/analysis/:id" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
         <Route path="/workshop" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files" element={<WorkshopPage />} />

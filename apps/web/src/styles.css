@@ -7676,3 +7676,101 @@ input:focus {
 .engine-saved-item:hover {
   background: #2a2a4e;
 }
+
+.engine-help-link {
+  color: #7c83ff;
+  text-decoration: none;
+  font-size: 12px;
+  margin-top: 8px;
+  display: inline-block;
+}
+
+.engine-help-link:hover {
+  text-decoration: underline;
+}
+
+/* Help page */
+.help-page {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.help-page h1 {
+  margin: 0 0 8px;
+  font-size: 24px;
+}
+
+.help-intro {
+  color: #a0a0c0;
+  font-size: 15px;
+  margin-bottom: 24px;
+  line-height: 1.5;
+}
+
+.help-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.help-step {
+  display: flex;
+  gap: 16px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.help-step-number {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #7c83ff;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.help-step-content {
+  flex: 1;
+}
+
+.help-step-content h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: #e0e0ff;
+}
+
+.help-step-content p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #a0a0c0;
+  line-height: 1.4;
+}
+
+.help-link {
+  color: #7c83ff;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.help-link:hover {
+  text-decoration: underline;
+}
+
+.help-code {
+  display: inline-block;
+  background: #12122a;
+  border: 1px solid #2a2a4e;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: monospace;
+  font-size: 13px;
+  color: #c0c0e0;
+}
