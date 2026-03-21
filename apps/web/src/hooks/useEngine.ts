@@ -78,7 +78,7 @@ export function useEngine(options: UseEngineOptions): EngineResult {
         init: external.init,
         cleanup: external.cleanup,
         isReady: external.isReady,
-        engineName: external.engineName,
+        engineName: externalConfig?.name || external.engineName,
         engineSource: 'external' as const,
         errorMessage: external.errorMessage,
       };

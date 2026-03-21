@@ -241,6 +241,7 @@ export function GameReviewPage() {
     lines,
     analysisFen,
     evaluate,
+    stop: stopEngine,
     isReady,
     state: sfState,
     engineName,
@@ -441,6 +442,7 @@ export function GameReviewPage() {
     setAnalysisEnabled((prev) => {
       if (prev) {
         lastLinesRef.current = [];
+        stopEngine();
       } else {
         setEngineFailed(false);
       }
