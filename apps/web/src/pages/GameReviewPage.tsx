@@ -423,12 +423,14 @@ export function GameReviewPage() {
             try {
               const parsedMoves = parseAnnotatedPgn(saved.pgn);
               loadFromPgn(parsedMoves);
-              // Restore saved position from API
+              // Restore saved position from API.
+              // Use requestAnimationFrame to ensure loadFromPgn state
+              // has been committed by React before navigating.
               const savedIdx = saved.currentPosition;
               if (savedIdx != null && savedIdx > 0) {
-                setTimeout(() => {
+                requestAnimationFrame(() => {
                   for (let i = 0; i < savedIdx; i++) gotoNext();
-                }, 0);
+                });
               }
             } catch {
               // ignore
