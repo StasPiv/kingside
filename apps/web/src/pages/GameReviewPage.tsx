@@ -119,6 +119,7 @@ export function GameReviewPage() {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [pendingPosition, setPendingPosition] = useState<number | null>(null);
 
   // Standalone analysis state (only used when gameId is undefined)
   const { create: createAnalysis, update: updateAnalysis, getById } = useSavedAnalyses();
@@ -423,14 +424,10 @@ export function GameReviewPage() {
             try {
               const parsedMoves = parseAnnotatedPgn(saved.pgn);
               loadFromPgn(parsedMoves);
-              // Restore saved position from API.
-              // Use requestAnimationFrame to ensure loadFromPgn state
-              // has been committed by React before navigating.
-              const savedIdx = saved.currentPosition;
-              if (savedIdx != null && savedIdx > 0) {
-                requestAnimationFrame(() => {
-                  for (let i = 0; i < savedIdx; i++) gotoNext();
-                });
+              // Queue position restore — a useEffect will navigate
+              // after React commits the loadFromPgn state update.
+              if (saved.currentPosition != null && saved.currentPosition > 0) {
+                setPendingPosition(saved.currentPosition);
               }
             } catch {
               // ignore
@@ -489,6 +486,15 @@ export function GameReviewPage() {
   }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
 
   useAnalysisPersistence(gameId, history);
+
+  // Restore pending position after moves have been loaded into state.
+  // This runs after React commits loadFromPgn, so gotoNext sees the moves.
+  useEffect(() => {
+    if (pendingPosition == null || history.length === 0) return;
+    const target = pendingPosition;
+    setPendingPosition(null);
+    for (let i = 0; i < target; i++) gotoNext();
+  }, [pendingPosition, history, gotoNext]);
 
   // Save current position to API (debounced).
   // Uses a ref to read localIdRef.current at fire time (not capture time)
