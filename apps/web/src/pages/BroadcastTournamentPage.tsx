@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import type { DgtTournamentResult } from '../dgt.types';
+import type { LiveTournamentsResponse, TournamentStatus } from '@kingside/shared';
 
 export function BroadcastTournamentPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
@@ -13,12 +14,24 @@ export function BroadcastTournamentPage() {
   const [data, setData] = useState<DgtTournamentResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [tournamentStatus, setTournamentStatus] = useState<TournamentStatus | null>(
+    (location.state as { status?: TournamentStatus } | null)?.status ?? null,
+  );
 
-  // Only auto-redirect on first entry (from Broadcasts page or direct link),
-  // not when navigating back from a round page.
   const shouldAutoRedirect = useRef(
     (location.state as { fromRound?: boolean } | null)?.fromRound !== true,
   );
+
+  // Fetch tournament status from our DB (to distinguish live vs archived)
+  useEffect(() => {
+    if (tournamentStatus || !tournamentId) return;
+    api.get<LiveTournamentsResponse>('/api/tournaments/live')
+      .then((res) => {
+        const match = res?.data?.find((t) => t.livechessUuid === tournamentId);
+        if (match) setTournamentStatus(match.status);
+      })
+      .catch(() => {});
+  }, [tournamentId, tournamentStatus]);
 
   useEffect(() => {
     if (!tournamentId) return;
@@ -72,7 +85,9 @@ export function BroadcastTournamentPage() {
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (error) return <div className="error">{error}</div>;
 
-  const hasLiveGames = data?.tournament.rounds.some((r) => r.live > 0) ?? false;
+  // Only show live indicators if the tournament is actually live (not archived)
+  const isArchived = tournamentStatus === 'archived';
+  const hasLiveGames = !isArchived && (data?.tournament.rounds.some((r) => r.live > 0) ?? false);
 
   return (
     <div className="broadcasts-page">
@@ -82,12 +97,14 @@ export function BroadcastTournamentPage() {
         <span>{data?.tournament.name}</span>
       </nav>
 
-      {/* Tournament overview card */}
       <div className="tournament-overview">
         <div className="tournament-overview-header">
           <h1 className="tournament-overview-name">{data?.tournament.name}</h1>
           {hasLiveGames && (
             <span className="live-tournament-badge">{t('liveTournaments.live')}</span>
+          )}
+          {isArchived && (
+            <span className="live-tournament-badge live-tournament-badge--archived">ARCHIVED</span>
           )}
         </div>
 
@@ -110,7 +127,6 @@ export function BroadcastTournamentPage() {
         </div>
       </div>
 
-      {/* Rounds list */}
       {data && data.totalRounds > 0 && (
         <div className="tournament-rounds-list">
           <h2>{t('broadcasts.dgt.rounds')}</h2>
@@ -118,7 +134,8 @@ export function BroadcastTournamentPage() {
             {Array.from({ length: data.totalRounds }, (_, i) => {
               const roundInfo = data.tournament.rounds[i];
               const roundNum = i + 1;
-              const isLive = roundInfo?.live > 0;
+              // Suppress live indicators for archived tournaments
+              const isLive = !isArchived && roundInfo?.live > 0;
               const hasGames = roundInfo?.count > 0;
 
               return (

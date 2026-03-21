@@ -10,6 +10,7 @@ function TournamentCard({ tnr, t }: { tnr: LiveTournamentItem; t: (key: string) 
   return (
     <Link
       to={`/broadcasts/${tnr.livechessUuid}`}
+      state={{ status: tnr.status }}
       className="live-tournament-card live-tournament-card--link"
     >
       <h3 className="live-tournament-name">{tnr.name}</h3>
