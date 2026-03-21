@@ -7454,8 +7454,11 @@ input:focus {
   transition: color 0.15s, border-color 0.15s;
 }
 
-.live-tournament-card--link {
+.live-tournament-card--link,
+.live-tournament-card--link:hover,
+.live-tournament-card--link:visited {
   text-decoration: none;
+  color: inherit;
   display: block;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
