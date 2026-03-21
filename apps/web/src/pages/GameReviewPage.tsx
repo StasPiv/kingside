@@ -487,31 +487,40 @@ export function GameReviewPage() {
 
   useAnalysisPersistence(gameId, history);
 
+  // Suppress position save until initial restore is complete.
+  // Without this, save fires with the last-move index (from loadFromPgn default)
+  // BEFORE restore navigates to the saved position, overwriting it.
+  const suppressPositionSaveRef = useRef(true);
+
   // Restore pending position after moves have been loaded into state.
-  // This runs after React commits loadFromPgn, so gotoNext sees the moves.
-  // Restore position after moves load — uses ref to survive strict mode
   useEffect(() => {
     if (pendingPositionRef.current == null || history.length === 0) return;
     const target = pendingPositionRef.current;
     pendingPositionRef.current = null;
-    console.log(`[Analysis] Restoring position to ${target}`);
     gotoFirst();
     for (let i = 0; i < target; i++) gotoNext();
+    // Allow save after restore is done (next tick to avoid immediate re-save)
+    setTimeout(() => { suppressPositionSaveRef.current = false; }, 1500);
   }, [history, gotoNext, gotoFirst]);
 
+  // If no position to restore, allow save immediately
+  useEffect(() => {
+    if (pendingPositionRef.current == null && history.length > 0) {
+      suppressPositionSaveRef.current = false;
+    }
+  }, [history]);
+
   // Save current position to API (debounced).
-  // Uses a ref to read localIdRef.current at fire time (not capture time)
-  // so it works even if the analysis is created after mount.
   const positionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentGlobalIndexRef = useRef(currentGlobalIndex);
   currentGlobalIndexRef.current = currentGlobalIndex;
 
   useEffect(() => {
+    if (suppressPositionSaveRef.current) return;
     if (positionSaveRef.current) clearTimeout(positionSaveRef.current);
     positionSaveRef.current = setTimeout(() => {
       const id = localIdRef.current;
       if (!id) return;
-      console.log(`[Analysis] Saving position ${currentGlobalIndexRef.current} for ${id}`);
       updateAnalysis(id, { currentPosition: currentGlobalIndexRef.current }).catch(() => {});
     }, 1000);
     return () => { if (positionSaveRef.current) clearTimeout(positionSaveRef.current); };
