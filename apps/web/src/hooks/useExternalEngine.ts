@@ -131,6 +131,10 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
       switch (msg.type) {
         case 'engine_info':
           setEngineName(String(msg.name ?? 'External Engine'));
+          // If bridge reports engine is already analyzing, update our state
+          if (msg.analyzing === true) {
+            setState('analyzing');
+          }
           break;
 
         case 'line': {
@@ -147,6 +151,10 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
           };
           linesBuffer.current.set(line.multipv, line);
           setLines(Array.from(linesBuffer.current.values()).sort((a, b) => a.multipv - b.multipv));
+          // Receiving lines means engine is analyzing
+          if (stateRef.current !== 'analyzing') {
+            setState('analyzing');
+          }
           break;
         }
 

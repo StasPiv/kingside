@@ -402,10 +402,12 @@ export function GameReviewPage() {
   }, [extNameInput]);
 
   const lastLinesRef = useRef<EvalLine[]>([]);
-  if (lines.length === multiPv) {
+  // For WASM: show lines only when all multiPv lines arrived (prevents flicker during depth updates).
+  // For external engine: show whatever lines are available (bridge may send different multiPv count).
+  if (activeSource === 'external' ? lines.length > 0 : lines.length === multiPv) {
     lastLinesRef.current = lines;
   }
-  const displayedLines = lines.length === multiPv ? lines : lastLinesRef.current;
+  const displayedLines = lastLinesRef.current.length > 0 ? lastLinesRef.current : lines;
 
   useEffect(() => {
     if (!gameId) {
@@ -614,10 +616,9 @@ export function GameReviewPage() {
   useEffect(() => {
     if (!analysisEnabled || !isReady || !currentFen) return;
 
-    // On initial mount with external engine: don't send analyze — just
-    // listen for line messages already in progress.  Set state to
-    // 'analyzing' so UI shows the engine panel correctly.
-    if (initialMountRef.current && engineSource === 'external') {
+    // On initial mount with external engine that is already analyzing:
+    // don't send a new analyze command — just listen for lines already in progress.
+    if (initialMountRef.current && engineSource === 'external' && sfState === 'analyzing') {
       initialMountRef.current = false;
       return;
     }
