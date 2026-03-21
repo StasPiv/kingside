@@ -488,14 +488,20 @@ export function GameReviewPage() {
 
   useAnalysisPersistence(gameId, history);
 
-  // Save current position to API (debounced)
+  // Save current position to API (debounced).
+  // Uses a ref to read localIdRef.current at fire time (not capture time)
+  // so it works even if the analysis is created after mount.
   const positionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentGlobalIndexRef = useRef(currentGlobalIndex);
+  currentGlobalIndexRef.current = currentGlobalIndex;
+
   useEffect(() => {
-    const analysisId = localIdRef.current;
-    if (!analysisId) return;
     if (positionSaveRef.current) clearTimeout(positionSaveRef.current);
     positionSaveRef.current = setTimeout(() => {
-      updateAnalysis(analysisId, { currentPosition: currentGlobalIndex }).catch(() => {});
+      const id = localIdRef.current;
+      if (!id) return;
+      console.log(`[Analysis] Saving position ${currentGlobalIndexRef.current} for ${id}`);
+      updateAnalysis(id, { currentPosition: currentGlobalIndexRef.current }).catch(() => {});
     }, 1000);
     return () => { if (positionSaveRef.current) clearTimeout(positionSaveRef.current); };
   }, [currentGlobalIndex, updateAnalysis]);
