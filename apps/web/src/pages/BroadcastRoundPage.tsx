@@ -105,11 +105,15 @@ export function BroadcastRoundPage() {
 
   return (
     <div className="broadcast-round-page">
-      <div className="broadcast-round-header">
-        <Link to={`/broadcasts/${tournamentId}`} className="broadcast-round-back">
-          ← {t('broadcastRound.backToTournament')}
+      <nav className="broadcast-breadcrumbs">
+        <Link to="/broadcasts">{t('broadcasts.title')}</Link>
+        <span className="broadcast-breadcrumb-sep">/</span>
+        <Link to={`/broadcasts/${tournamentId}`} state={{ fromRound: true }}>
+          {tournament?.tournament.name ?? t('broadcasts.dgt.round')}
         </Link>
-      </div>
+        <span className="broadcast-breadcrumb-sep">/</span>
+        <span>{t('broadcasts.dgt.round')} {roundId}</span>
+      </nav>
 
       {error && <div className="error">{error}</div>}
 

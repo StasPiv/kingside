@@ -460,6 +460,7 @@ export function BroadcastGamePage() {
               <span className="analysis-breadcrumbs__sep"> / </span>
               <Link
                 to={`/broadcasts/${tournamentId}`}
+                state={{ fromRound: true }}
                 className="analysis-breadcrumbs__link"
               >
                 {tournamentName}

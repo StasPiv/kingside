@@ -5999,6 +5999,32 @@ input:focus {
   font-size: 14px;
 }
 
+.broadcast-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.broadcast-breadcrumbs a {
+  color: #7c83ff;
+  text-decoration: none;
+}
+
+.broadcast-breadcrumbs a:hover {
+  text-decoration: underline;
+}
+
+.broadcast-breadcrumbs span:last-child {
+  color: #a0a0c0;
+}
+
+.broadcast-breadcrumb-sep {
+  color: #4a4a6e;
+}
+
 .broadcast-round-status {
   display: flex;
   align-items: center;
