@@ -1,0 +1,18 @@
+# kingside-engine-bridge configuration
+# Copy to config.yaml and adjust settings
+
+port: 9090
+# secret is auto-generated on first run if empty
+secret: ""
+engine_path: "stockfish"
+options:
+  Threads: "1"
+  Hash: "256"
+rate_limit:
+  max_per_minute: 5
+  ban_after: 10
+# Optional TLS (uncomment to enable)
+# tls:
+#   enabled: true
+#   cert_file: ""  # leave empty for self-signed
+#   key_file: ""

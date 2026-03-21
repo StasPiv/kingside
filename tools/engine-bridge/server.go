@@ -1,0 +1,190 @@
+package main
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
+
+type Server struct {
+	cfg    Config
+	engine *Engine
+
+	// Rate limiting
+	connAttempts map[string][]time.Time
+	bannedIPs    map[string]time.Time
+	rateMu       sync.Mutex
+
+	// Single active connection
+	activeConn *websocket.Conn
+	activeMu   sync.Mutex
+}
+
+func NewServer(cfg Config, engine *Engine) *Server {
+	return &Server{
+		cfg:          cfg,
+		engine:       engine,
+		connAttempts: make(map[string][]time.Time),
+		bannedIPs:    make(map[string]time.Time),
+	}
+}
+
+func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
+	ip := r.RemoteAddr
+
+	// Check ban
+	s.rateMu.Lock()
+	if banTime, ok := s.bannedIPs[ip]; ok {
+		if time.Since(banTime) < 10*time.Minute {
+			s.rateMu.Unlock()
+			http.Error(w, "banned", http.StatusForbidden)
+			return
+		}
+		delete(s.bannedIPs, ip)
+	}
+
+	// Rate limit
+	now := time.Now()
+	attempts := s.connAttempts[ip]
+	var recent []time.Time
+	for _, t := range attempts {
+		if now.Sub(t) < time.Minute {
+			recent = append(recent, t)
+		}
+	}
+	recent = append(recent, now)
+	s.connAttempts[ip] = recent
+
+	if len(recent) > s.cfg.RateLimit.MaxPerMinute {
+		if len(recent) > s.cfg.RateLimit.BanAfter {
+			s.bannedIPs[ip] = now
+			log.Printf("Banned IP %s", ip)
+		}
+		s.rateMu.Unlock()
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+		return
+	}
+	s.rateMu.Unlock()
+
+	// Auth
+	key := r.URL.Query().Get("key")
+	if key != s.cfg.Secret {
+		log.Printf("Auth failed from %s", ip)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Upgrade error: %v", err)
+		return
+	}
+
+	// Close previous connection
+	s.activeMu.Lock()
+	if s.activeConn != nil {
+		_ = s.activeConn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4000, "replaced by new connection"))
+		_ = s.activeConn.Close()
+	}
+	s.activeConn = conn
+	s.activeMu.Unlock()
+
+	log.Printf("Client connected from %s", ip)
+
+	// Send engine info
+	s.sendJSON(conn, EngineInfoMessage{
+		Type: "engine_info",
+		Name: s.engine.Name(),
+	})
+
+	s.handleMessages(conn)
+}
+
+func (s *Server) handleMessages(conn *websocket.Conn) {
+	defer func() {
+		s.activeMu.Lock()
+		if s.activeConn == conn {
+			s.activeConn = nil
+		}
+		s.activeMu.Unlock()
+		_ = conn.Close()
+		log.Println("Client disconnected")
+	}()
+
+	for {
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		var msg ClientMessage
+		if err := json.Unmarshal(raw, &msg); err != nil {
+			s.sendJSON(conn, ErrorMessage{Type: "error", Message: "invalid JSON"})
+			continue
+		}
+
+		switch msg.Type {
+		case "analyze":
+			s.handleAnalyze(conn, msg)
+		case "stop":
+			s.engine.Stop()
+		case "setoption":
+			if msg.Name != "" {
+				s.engine.SetOption(msg.Name, msg.Value)
+			}
+		case "ping":
+			s.sendJSON(conn, PongMessage{Type: "pong"})
+		case "info":
+			s.sendJSON(conn, EngineInfoMessage{
+				Type: "engine_info",
+				Name: s.engine.Name(),
+			})
+		default:
+			s.sendJSON(conn, ErrorMessage{Type: "error", Message: "unknown message type: " + msg.Type})
+		}
+	}
+}
+
+func (s *Server) handleAnalyze(conn *websocket.Conn, msg ClientMessage) {
+	if msg.FEN == "" {
+		s.sendJSON(conn, ErrorMessage{Type: "error", Message: "FEN is required"})
+		return
+	}
+
+	if err := ValidateFEN(msg.FEN); err != nil {
+		s.sendJSON(conn, ErrorMessage{Type: "error", Message: "invalid FEN: " + err.Error()})
+		return
+	}
+
+	depth := msg.Depth
+	if depth <= 0 {
+		depth = 30
+	}
+	multiPV := msg.MultiPV
+	if multiPV <= 0 {
+		multiPV = 1
+	}
+
+	go s.engine.Analyze(
+		msg.FEN, depth, multiPV,
+		func(line LineMessage) { s.sendJSON(conn, line) },
+		func(bm BestMoveMessage) { s.sendJSON(conn, bm) },
+	)
+}
+
+func (s *Server) sendJSON(conn *websocket.Conn, v interface{}) {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	if err := conn.WriteJSON(v); err != nil {
+		log.Printf("Write error: %v", err)
+	}
+}
