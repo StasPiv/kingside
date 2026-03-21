@@ -79,7 +79,7 @@ function formatPv(pv: string, fen: string): string {
     let isWhiteTurn = fenParts[1] === 'w';
     let moveNumber = parseInt(fenParts[5] || '1', 10);
     const parts: string[] = [];
-    for (const uci of uciMoves.slice(0, 8)) {
+    for (const uci of uciMoves.slice(0, 20)) {
       const from = uci.slice(0, 2);
       const to = uci.slice(2, 4);
       const promotion = uci.length > 4 ? uci[4] : undefined;
@@ -402,6 +402,12 @@ export function GameReviewPage() {
   }, [extNameInput]);
 
   const lastLinesRef = useRef<EvalLine[]>([]);
+  const prevSourceRef = useRef<EngineSource>(activeSource);
+  // Reset cached lines when engine source changes to avoid showing stale data
+  if (prevSourceRef.current !== activeSource) {
+    lastLinesRef.current = [];
+    prevSourceRef.current = activeSource;
+  }
   // For WASM: show lines only when all multiPv lines arrived (prevents flicker during depth updates).
   // For external engine: show whatever lines are available (bridge may send different multiPv count).
   if (activeSource === 'external' ? lines.length > 0 : lines.length === multiPv) {
