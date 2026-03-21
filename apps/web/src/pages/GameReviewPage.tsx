@@ -494,12 +494,13 @@ export function GameReviewPage() {
     const target = pendingPosition;
     setPendingPosition(null);
     console.log(`[Analysis] Restoring position to ${target}`);
-    // Delay to next microtask — ensures React has finished processing
-    // all state updates from loadFromPgn before we navigate.
-    Promise.resolve().then(() => {
+    // setTimeout ensures this runs after React strict mode's
+    // mount-unmount-remount cycle and after state is committed.
+    const timer = setTimeout(() => {
       gotoFirst();
       for (let i = 0; i < target; i++) gotoNext();
-    });
+    }, 50);
+    return () => clearTimeout(timer);
   }, [pendingPosition, history, gotoNext, gotoFirst]);
 
   // Save current position to API (debounced).
