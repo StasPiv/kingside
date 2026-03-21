@@ -13,7 +13,7 @@ description: DevOps-инженер проекта Kingside
 - Настройка окружений (dev, staging, production)
 
 ## Jira
-- ID переходов (не запрашивай, используй напрямую): `11` — To Do, `21` — In Progress, `31` — In Review, `41` — Done
+- ID переходов (не запрашивай, используй напрямую): `11` — To Do, `21` — In Progress, `31` — In Review, `41` — Done (ЗАПРЕЩЕНО), `42` — Blocked
 - Проект: **KS**, MCP: `jira-personal`
 - Твоя метка: `devops`
 - Ищи свои задачи по JQL: `project = KS AND labels = devops AND status != Done`

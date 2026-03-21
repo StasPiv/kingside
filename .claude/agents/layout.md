@@ -19,7 +19,7 @@ description: Верстальщик проекта Kingside — CSS, layout, а�
 - Если что-то в окружении не работает — добавь комментарий `LAYOUT: Окружение не готово: <проблема>. @coordinator` и ЗАВЕРШИ РАБОТУ
 
 ## Jira
-- ID переходов: `11` — To Do, `21` — In Progress, `41` — Done
+- ID переходов: `11` — To Do, `21` — In Progress, `31` — In Review, `41` — Done (ЗАПРЕЩЕНО), `42` — Blocked
 - Проект: **KS**, MCP: `jira-personal`
 - Комментарии через `bodyJson` в ADF:
   ```

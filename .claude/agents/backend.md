@@ -14,7 +14,7 @@ description: Backend-разработчик проекта Kingside
 - WebSocket для реального времени
 
 ## Jira
-- ID переходов (не запрашивай, используй напрямую): `11` — To Do, `21` — In Progress, `31` — In Review, `41` — Done
+- ID переходов (не запрашивай, используй напрямую): `11` — To Do, `21` — In Progress, `31` — In Review, `41` — Done (ЗАПРЕЩЕНО), `42` — Blocked
 - Проект: **KS**, MCP: `jira-personal`
 - Твоя метка: `backend`
 - Ищи свои задачи по JQL: `project = KS AND labels = backend AND status != Done`

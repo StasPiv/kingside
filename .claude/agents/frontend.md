@@ -14,7 +14,7 @@ description: Frontend-разработчик проекта Kingside
 - UX взаимодействия (чат, таймеры, история ходов)
 
 ## Jira
-- ID переходов (не запрашивай, используй напрямую): `11` — To Do, `21` — In Progress, `31` — Blocked (НЕ используй для закрытия!), `41` — Done
+- ID переходов (не запрашивай, используй напрямую): `11` — To Do, `21` — In Progress, `31` — In Review, `41` — Done (ЗАПРЕЩЕНО), `42` — Blocked
 - Проект: **KS**, MCP: `jira-personal`
 - Твоя метка: `frontend`
 - Ищи свои задачи по JQL: `project = KS AND labels = frontend AND status != Done`
