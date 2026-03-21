@@ -4792,31 +4792,9 @@ body:has(.puzzle-rush-board) {
   padding: 32px;
 }
 
-.rush-review-nav {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
+/* rush-review-nav removed — now uses shared .analysis-board-controls */
+.rush-review-board-panel .analysis-board-controls {
   margin-top: 12px;
-}
-
-.rush-review-nav button {
-  background: #2a2a4e;
-  color: #a0a0ff;
-  border: 1px solid #4a4a7e;
-  border-radius: 6px;
-  padding: 6px 14px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.rush-review-nav button:hover:not(:disabled) {
-  background: #3a3a6e;
-}
-
-.rush-review-nav button:disabled {
-  opacity: 0.3;
-  cursor: default;
 }
 
 .rush-review-moves {

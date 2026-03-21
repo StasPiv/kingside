@@ -229,11 +229,11 @@ export function PuzzleRushReviewPage() {
               </div>
 
               {/* Move navigation controls */}
-              <div className="rush-review-nav">
-                <button onClick={goToStart} disabled={moveIndex === 0} title={t('review.toStart')}>⏮</button>
-                <button onClick={goPrev} disabled={moveIndex === 0} title={t('review.back')}>◀</button>
-                <button onClick={goNext} disabled={moveIndex >= parsedMoves.sans.length} title={t('review.forward')}>▶</button>
-                <button onClick={goToEnd} disabled={moveIndex >= parsedMoves.sans.length} title={t('review.toEnd')}>⏭</button>
+              <div className="analysis-board-controls">
+                <button onClick={goToStart} disabled={moveIndex === 0} title={t('review.toStart')}>&#x21E4;</button>
+                <button onClick={goPrev} disabled={moveIndex === 0} title={t('review.back')}>&#x2190;</button>
+                <button onClick={goNext} disabled={moveIndex >= parsedMoves.sans.length} title={t('review.forward')}>&#x2192;</button>
+                <button onClick={goToEnd} disabled={moveIndex >= parsedMoves.sans.length} title={t('review.toEnd')}>&#x21E5;</button>
               </div>
 
               {/* Move list with notation */}
