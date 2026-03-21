@@ -32,7 +32,7 @@ export function useSavedAnalyses() {
   );
 
   const update = useCallback(
-    async (id: string, updates: { pgn?: string; title?: string }): Promise<void> => {
+    async (id: string, updates: { pgn?: string; title?: string; currentPosition?: number | null }): Promise<void> => {
       await api.put<AnalysisResponse>(`/api/analyses/${id}`, updates);
     },
     [],
