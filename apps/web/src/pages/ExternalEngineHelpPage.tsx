@@ -20,7 +20,7 @@ export function ExternalEngineHelpPage() {
             <h3>{t('engineHelp.step1Title')}</h3>
             <p>{t('engineHelp.step1Desc')}</p>
             <a
-              href="https://github.com/nickkingsidechess/kingside-engine-bridge/releases"
+              href="https://github.com/StasPiv/kingside/releases/tag/engine-bridge-v1.0.0"
               target="_blank"
               rel="noopener noreferrer"
               className="help-link"
