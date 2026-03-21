@@ -27,6 +27,11 @@ type Server struct {
 	activeConn   *websocket.Conn
 	connClosed   bool
 	activeMu     sync.Mutex
+
+	// Last analysis params for restart after setoption
+	lastFEN     string
+	lastDepth   int
+	lastMultiPV int
 }
 
 func NewServer(cfg Config, engine *Engine) *Server {
@@ -150,7 +155,7 @@ func (s *Server) handleMessages(conn *websocket.Conn) {
 			s.engine.Stop()
 		case "setoption":
 			if msg.Name != "" {
-				s.engine.SetOption(msg.Name, msg.Value)
+				s.handleSetOption(conn, msg.Name, msg.Value)
 			}
 		case "ping":
 			s.sendJSON(conn, PongMessage{Type: "pong"})
@@ -185,11 +190,41 @@ func (s *Server) handleAnalyze(conn *websocket.Conn, msg ClientMessage) {
 		multiPV = 1
 	}
 
+	// Track for restart after setoption
+	s.lastFEN = msg.FEN
+	s.lastDepth = depth
+	s.lastMultiPV = multiPV
+
 	go s.engine.Analyze(
 		msg.FEN, depth, multiPV,
 		func(line LineMessage) { s.sendJSON(conn, line) },
 		func(bm BestMoveMessage) { s.sendJSON(conn, bm) },
 	)
+}
+
+func (s *Server) handleSetOption(conn *websocket.Conn, name, value string) {
+	wasAnalyzing := s.engine.analyzing
+
+	if wasAnalyzing {
+		log.Printf("[Engine] Stopping analysis to apply setoption %s=%s", name, value)
+		// Stop will cause the Analyze goroutine to receive bestmove and exit.
+		// We send stop and wait for the goroutine to release analyzeMu.
+		s.engine.send("stop")
+		// Wait for analyzeMu — Analyze goroutine will unlock it after receiving bestmove
+		s.engine.analyzeMu.Lock()
+		s.engine.analyzeMu.Unlock()
+	}
+
+	s.engine.SetOption(name, value)
+
+	if wasAnalyzing && s.lastFEN != "" {
+		log.Printf("[Engine] Restarting analysis after setoption")
+		go s.engine.Analyze(
+			s.lastFEN, s.lastDepth, s.lastMultiPV,
+			func(line LineMessage) { s.sendJSON(conn, line) },
+			func(bm BestMoveMessage) { s.sendJSON(conn, bm) },
+		)
+	}
 }
 
 func (s *Server) sendJSON(conn *websocket.Conn, v interface{}) {
