@@ -63,9 +63,15 @@ func NewEngine(path string, options map[string]string) (*Engine, error) {
 	}
 	e.name = name
 
-	// Set options
-	for k, v := range options {
-		e.send(fmt.Sprintf("setoption name %s value %s", k, v))
+	// Set options from config
+	if len(options) > 0 {
+		log.Printf("Applying %d UCI option(s) from config:", len(options))
+		for k, v := range options {
+			log.Printf("  %s = %s", k, v)
+			e.send(fmt.Sprintf("setoption name %s value %s", k, v))
+		}
+	} else {
+		log.Println("No UCI options in config — using engine defaults")
 	}
 
 	e.send("isready")
@@ -75,7 +81,7 @@ func NewEngine(path string, options map[string]string) (*Engine, error) {
 		}
 	}
 
-	log.Printf("Engine ready: %s", name)
+	log.Printf("Engine ready: %s (options applied: %d)", name, len(options))
 	return e, nil
 }
 

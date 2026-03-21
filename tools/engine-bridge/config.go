@@ -80,7 +80,8 @@ secret: "%s"
 # Path to UCI chess engine binary (e.g. stockfish, lc0)
 engine_path: "%s"
 
-# UCI engine options
+# UCI engine options (sent as "setoption name X value Y" on startup)
+# Adjust Threads to match your CPU cores for best performance
 options:
 `, cfg.Port, cfg.Port, cfg.Secret, cfg.EnginePath)
 
