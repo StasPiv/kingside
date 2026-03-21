@@ -1936,16 +1936,24 @@ input:focus {
 }
 
 .analysis-board-controls button {
-  background: #16213e;
-  color: #a0a0c0;
-  padding: 8px 14px;
+  background: #2a2a4e;
+  color: #a0a0ff;
+  border: 1px solid #4a4a7e;
+  border-radius: 6px;
+  padding: 6px 14px;
   font-size: 16px;
   min-width: 40px;
+  cursor: pointer;
+  transition: background 0.15s;
 }
 
 .analysis-board-controls button:hover:not(:disabled) {
-  color: #fff;
-  background: #1e2d50;
+  background: #3a3a6e;
+}
+
+.analysis-board-controls button:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 /* Gap between board area and sidebar */
