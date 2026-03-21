@@ -89,6 +89,37 @@ export function ExternalEngineHelpPage() {
           </div>
         </div>
       </div>
+
+      <div className="help-faq">
+        <h2>{t('engineHelp.faqTitle')}</h2>
+
+        <h3>{t('engineHelp.faqConfigTitle')}</h3>
+        <p>{t('engineHelp.faqConfigDesc')}</p>
+
+        <h4>{t('engineHelp.faqConfigWindows')}</h4>
+        <pre className="help-code-block">
+{`engine_path: ".\\stockfish-windows-x86-64-avx2.exe"
+port: 9090
+secret_key: "5caa600aebd56a95a625637d6a55bc5e"`}
+        </pre>
+        <p className="help-note">{t('engineHelp.faqWindowsPathNote')}</p>
+
+        <h4>{t('engineHelp.faqConfigLinux')}</h4>
+        <pre className="help-code-block">
+{`engine_path: "/usr/games/stockfish"
+port: 9090
+secret_key: "5caa600aebd56a95a625637d6a55bc5e"`}
+        </pre>
+
+        <h4>{t('engineHelp.faqConfigMac')}</h4>
+        <pre className="help-code-block">
+{`engine_path: "/opt/homebrew/bin/stockfish"
+port: 9090
+secret_key: "5caa600aebd56a95a625637d6a55bc5e"`}
+        </pre>
+
+        <p className="help-note">{t('engineHelp.faqSecretKeyNote')}</p>
+      </div>
     </div>
   );
 }

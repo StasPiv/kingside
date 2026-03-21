@@ -668,6 +668,14 @@
     "step6Title": "Enter Connection Details",
     "step6Desc": "Enter the WebSocket URL and your secret key from config.yaml.",
     "step7Title": "Click Connect",
-    "step7Desc": "Press Connect. The status indicator will turn green when connected. Your engine is now analyzing positions!"
+    "step7Desc": "Press Connect. The status indicator will turn green when connected. Your engine is now analyzing positions!",
+    "faqTitle": "FAQ / Troubleshooting",
+    "faqConfigTitle": "Example config.yaml for each OS",
+    "faqConfigDesc": "The bridge creates config.yaml on first run. Below are correct examples for each operating system. Important: secret_key must always be in quotes (otherwise YAML parse error for hex values).",
+    "faqConfigWindows": "Windows",
+    "faqConfigLinux": "Linux",
+    "faqConfigMac": "macOS",
+    "faqSecretKeyNote": "Always wrap secret_key in quotes — hex strings like 5caa... may be misinterpreted by YAML without them.",
+    "faqWindowsPathNote": "On Windows use .\\  prefix for relative paths to the engine executable."
   }
 }

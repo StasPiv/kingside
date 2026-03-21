@@ -7824,6 +7824,41 @@ body:has(.puzzle-rush-board) {
   color: #c0c0e0;
 }
 
+.help-faq {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #2a2a4e;
+}
+.help-faq h2 {
+  margin: 0 0 16px;
+}
+.help-faq h3 {
+  margin: 20px 0 8px;
+}
+.help-faq h4 {
+  margin: 16px 0 6px;
+  color: #a0a0c0;
+}
+.help-code-block {
+  display: block;
+  background: #12122a;
+  border: 1px solid #2a2a4e;
+  border-radius: 6px;
+  padding: 12px 16px;
+  font-family: monospace;
+  font-size: 13px;
+  color: #c0c0e0;
+  white-space: pre;
+  overflow-x: auto;
+  margin: 0;
+}
+.help-note {
+  font-size: 13px;
+  color: #a0a0c0;
+  margin: 6px 0 0;
+  font-style: italic;
+}
+
 .engine-load-config-btn {
   width: 100%;
   padding: 8px;

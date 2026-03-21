@@ -668,6 +668,14 @@
     "step6Title": "Введите данные подключения",
     "step6Desc": "Введите WebSocket URL и секретный ключ из config.yaml.",
     "step7Title": "Нажмите Connect",
-    "step7Desc": "Нажмите Connect. Индикатор станет зелёным при подключении. Ваш движок теперь анализирует позиции!"
+    "step7Desc": "Нажмите Connect. Индикатор станет зелёным при подключении. Ваш движок теперь анализирует позиции!",
+    "faqTitle": "FAQ / Устранение проблем",
+    "faqConfigTitle": "Примеры config.yaml для каждой ОС",
+    "faqConfigDesc": "Bridge создаёт config.yaml при первом запуске. Ниже — корректные примеры для каждой операционной системы. Важно: secret_key всегда должен быть в кавычках (иначе ошибка парсинга YAML для hex-значений).",
+    "faqConfigWindows": "Windows",
+    "faqConfigLinux": "Linux",
+    "faqConfigMac": "macOS",
+    "faqSecretKeyNote": "Всегда оборачивайте secret_key в кавычки — hex-строки вроде 5caa... могут быть неправильно интерпретированы YAML без них.",
+    "faqWindowsPathNote": "На Windows используйте префикс .\\ для относительных путей к исполняемому файлу движка."
   }
 }
