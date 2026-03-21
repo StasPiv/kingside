@@ -148,7 +148,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
             setAnalysisFen(fen);
             setBestMove(null);
             setState('analyzing');
-            wsRef.current.send(JSON.stringify({ type: 'evaluate', fen, depth, multiPv }));
+            wsRef.current.send(JSON.stringify({ type: 'analyze', fen, depth, multiPv }));
           } else if (stateRef.current === 'analyzing') {
             setState('ready');
           }
@@ -218,7 +218,7 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     setAnalysisFen(fen);
     setBestMove(null);
     setState('analyzing');
-    wsRef.current.send(JSON.stringify({ type: 'evaluate', fen, depth, multiPv }));
+    wsRef.current.send(JSON.stringify({ type: 'analyze', fen, depth, multiPv }));
   }, [depth, multiPv]);
 
   const stop = useCallback(() => {
