@@ -2008,8 +2008,8 @@ input:focus {
   overflow-x: hidden;
   width: 100%;
   /* Min height for 3 engine lines to prevent layout shift (KS-542, KS-550) */
-  /* 3 lines × 19.6px (14px × 1.4 line-height) + 2 gaps × 8px = ~74.8px */
-  min-height: 75px;
+  /* 3 lines × ~27.6px (14px × 1.4 + 8px scrollbar reserve) + 2 gaps × 8px = ~99px */
+  min-height: 99px;
 }
 
 .stockfish-line {
@@ -2047,8 +2047,8 @@ input:focus {
   min-width: 0;
   scrollbar-width: thin;
   scrollbar-color: #3a3a5e transparent;
-  /* Fixed height = text (1.4em) + scrollbar (3px) so height never changes */
-  height: calc(1.4em + 3px);
+  /* Fixed height = text (1.4em) + scrollbar reserve (8px for Firefox thin ~6-8px) */
+  height: calc(1.4em + 8px);
 }
 
 .stockfish-pv::-webkit-scrollbar {
