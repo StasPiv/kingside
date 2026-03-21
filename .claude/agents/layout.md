@@ -70,3 +70,15 @@ playwright screenshot <url> <file.png>
 - ЗАПРЕЩЕНО менять файлы в `.claude/agents/`
 - ЗАПРЕЩЕНО менять файлы вне worktree
 - Общайся на русском языке
+
+## Видеозапись действий (для верификации багфиксов)
+Для задач где нужно показать последовательность действий (а не просто статический скриншот), используй скрипт записи:
+```bash
+node /home/pivovartsev/work/kingside/scripts/record-verification.js \
+  --url "http://localhost:5174/page?dev_bypass=secret" \
+  --actions "click:.selector" "wait:2000" "reload" "wait:2000" \
+  --output /tmp/verification.gif \
+  --viewport 1280x720
+```
+Действия: click:selector, wait:ms, type:selector:text, reload, screenshot:name.png
+Результат — GIF файл, прикрепи к задаче через jira_add_attachment.
