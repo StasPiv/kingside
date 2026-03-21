@@ -564,7 +564,13 @@ export function GameReviewPage() {
           // ignore save errors
         }
       } else {
-        updateAnalysis(localIdRef.current, { pgn }).catch(() => {});
+        // Save PGN and currentPosition atomically so that after reload
+        // the position always matches the saved PGN (prevents stale index
+        // pointing at a move that doesn't exist in older PGN).
+        updateAnalysis(localIdRef.current, {
+          pgn,
+          currentPosition: currentGlobalIndexRef.current,
+        }).catch(() => {});
       }
     }, 2000);
 
