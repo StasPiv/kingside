@@ -306,7 +306,11 @@ export function GameReviewPage() {
     setExternalConfig(cfg);
     setEngineSource('external');
     setShowEngineSettings(false);
-  }, [extUrlInput, buildConfig]);
+    // Auto-save on connect
+    const updated = [...savedConfigs.filter((c) => c.wsUrl !== cfg.wsUrl), cfg];
+    setSavedConfigs(updated);
+    saveEngineConfigs(updated);
+  }, [extUrlInput, buildConfig, savedConfigs]);
 
   const handleSaveConfig = useCallback(() => {
     if (!extUrlInput.trim()) return;
@@ -1130,7 +1134,6 @@ export function GameReviewPage() {
 
                 <div className="engine-settings-actions">
                   <button onClick={handleConnectExternal} className="engine-connect-btn">Connect</button>
-                  <button onClick={handleSaveConfig} className="engine-save-btn">Save</button>
                 </div>
 
                 {savedConfigs.length > 0 && (
