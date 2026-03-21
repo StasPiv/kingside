@@ -249,7 +249,7 @@ export function GameReviewPage() {
   } = useEngine({
     source: engineSource,
     externalConfig,
-    depth: 18,
+    depth: engineSource === 'external' ? 99 : 18,
     multiPv: MULTI_PV,
     autoStart: analysisEnabled,
   });
