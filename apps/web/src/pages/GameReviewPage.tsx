@@ -260,6 +260,17 @@ export function GameReviewPage() {
     return configs[0]?.uciOptions?.Hash ?? '256';
   });
 
+  // Auto-save UCI options to localStorage when they change
+  useEffect(() => {
+    if (savedConfigs.length === 0 || engineSource !== 'external') return;
+    const updated = savedConfigs.map((c) =>
+      c.wsUrl === externalConfig?.wsUrl
+        ? { ...c, uciOptions: { ...c.uciOptions, Threads: uciThreads, Hash: uciHash } }
+        : c,
+    );
+    saveEngineConfigs(updated);
+  }, [uciThreads, uciHash]);
+
   const {
     lines,
     analysisFen,
