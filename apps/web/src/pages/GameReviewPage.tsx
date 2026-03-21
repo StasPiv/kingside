@@ -492,9 +492,15 @@ export function GameReviewPage() {
   useEffect(() => {
     if (pendingPosition == null || history.length === 0) return;
     const target = pendingPosition;
+    console.log(`[Analysis] Restoring position to ${target}, history has ${history.length} moves`);
     setPendingPosition(null);
+    // Use gotoLast then gotoPrevious to reach exact position,
+    // because gotoNext dispatches may not all apply in sequence
+    // due to React batching.  Instead, navigate to end first,
+    // then step back to the target.
+    gotoFirst();
     for (let i = 0; i < target; i++) gotoNext();
-  }, [pendingPosition, history, gotoNext]);
+  }, [pendingPosition, history, gotoNext, gotoFirst]);
 
   // Save current position to API (debounced).
   // Uses a ref to read localIdRef.current at fire time (not capture time)
