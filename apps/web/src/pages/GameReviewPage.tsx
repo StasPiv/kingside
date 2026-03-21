@@ -21,7 +21,7 @@ import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
-import { searchInHistory } from '../review/utils/ChessHistoryUtils';
+import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 
@@ -532,6 +532,8 @@ export function GameReviewPage() {
   const positionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentGlobalIndexRef = useRef(currentGlobalIndex);
   currentGlobalIndexRef.current = currentGlobalIndex;
+  const currentFenRef = useRef(currentFen);
+  currentFenRef.current = currentFen;
 
   useEffect(() => {
     if (suppressPositionSaveRef.current) return;
@@ -539,10 +541,22 @@ export function GameReviewPage() {
     positionSaveRef.current = setTimeout(() => {
       const id = localIdRef.current;
       if (!id) return;
-      updateAnalysis(id, { currentPosition: currentGlobalIndexRef.current }).catch(() => {});
+      // Use FEN-based lookup to get a stable globalIndex that survives
+      // PGN round-trip (runtime indices differ from PGN-parsed indices).
+      const fen = currentFenRef.current;
+      let position = currentGlobalIndexRef.current;
+      if (fen && fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {
+        try {
+          const pgn = serializeToAnnotatedPgn(history);
+          const reparsed = parseAnnotatedPgn(pgn);
+          const idx = findGlobalIndexByFen(reparsed, fen);
+          if (idx !== null) position = idx;
+        } catch { /* keep runtime index */ }
+      }
+      updateAnalysis(id, { currentPosition: position }).catch(() => {});
     }, 1000);
     return () => { if (positionSaveRef.current) clearTimeout(positionSaveRef.current); };
-  }, [currentGlobalIndex, updateAnalysis]);
+  }, [currentGlobalIndex, updateAnalysis, history]);
 
   // Auto-save standalone analysis to API
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -572,12 +586,25 @@ export function GameReviewPage() {
           // ignore save errors
         }
       } else {
-        // Save PGN and currentPosition atomically so that after reload
-        // the position always matches the saved PGN (prevents stale index
-        // pointing at a move that doesn't exist in older PGN).
+        // Compute the position index that matches PGN serialization order.
+        // Runtime globalIndex can differ from PGN-deserialized globalIndex
+        // because PGN places variations after the branching move whereas
+        // runtime assigns them chronologically.  Re-parse the serialized
+        // PGN and look up the current FEN to get the stable index.
+        let savedPosition: number | null = null;
+        const fen = currentFenRef.current;
+        if (fen && fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {
+          try {
+            const reparsed = parseAnnotatedPgn(pgn);
+            const idx = findGlobalIndexByFen(reparsed, fen);
+            savedPosition = idx;
+          } catch {
+            savedPosition = currentGlobalIndexRef.current;
+          }
+        }
         updateAnalysis(localIdRef.current, {
           pgn,
-          currentPosition: currentGlobalIndexRef.current,
+          ...(savedPosition != null && { currentPosition: savedPosition }),
         }).catch(() => {});
       }
     }, 2000);
