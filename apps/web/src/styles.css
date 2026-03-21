@@ -2950,6 +2950,12 @@ body:has(.puzzle-rush-board) {
   font-weight: 600;
 }
 
+.rush-solved-label {
+  color: #999;
+  font-size: 14px;
+  font-weight: 400;
+}
+
 .rush-solved {
   color: #22c55e;
 }

@@ -478,6 +478,7 @@ export function PuzzleRushPage() {
           {formatTime(timeLeft)}
         </span>
         <div className="puzzle-rush-score">
+          <span className="rush-solved-label">{t('puzzleRush.solved')}:</span>
           <span className="rush-solved">{score}</span>
         </div>
         <span className="rush-lives" title={t('puzzle.rush.lives', { count: lives })}>
@@ -486,12 +487,12 @@ export function PuzzleRushPage() {
       </div>
 
       <div className="puzzle-rush-board">
-        {feedback && (
-          <div className={`puzzle-feedback ${feedback}`}>
-            {feedback === 'correct' ? t('puzzleRush.correct') : t('puzzleRush.wrong')}
+        {feedback === 'wrong' && (
+          <div className={`puzzle-feedback wrong`}>
+            {t('puzzleRush.wrong')}
           </div>
         )}
-        {!feedback && (
+        {feedback !== 'wrong' && (
           <div className="puzzle-status-bar">
             <p className="puzzle-hint">{t('puzzle.findBestMove')}</p>
           </div>
