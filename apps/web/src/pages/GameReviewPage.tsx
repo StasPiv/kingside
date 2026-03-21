@@ -239,9 +239,18 @@ export function GameReviewPage() {
     return configs.length > 0 ? configs[0] : null;
   });
   const [showEngineSettings, setShowEngineSettings] = useState(false);
-  const [extUrlInput, setExtUrlInput] = useState('');
-  const [extKeyInput, setExtKeyInput] = useState('');
-  const [extNameInput, setExtNameInput] = useState('');
+  const [extUrlInput, setExtUrlInput] = useState(() => {
+    const configs = loadEngineConfigs();
+    return configs[0]?.wsUrl ?? '';
+  });
+  const [extKeyInput, setExtKeyInput] = useState(() => {
+    const configs = loadEngineConfigs();
+    return configs[0]?.secretKey ?? '';
+  });
+  const [extNameInput, setExtNameInput] = useState(() => {
+    const configs = loadEngineConfigs();
+    return configs[0]?.name ?? '';
+  });
   const [uciThreads, setUciThreads] = useState(() => {
     const configs = loadEngineConfigs();
     return configs[0]?.uciOptions?.Threads ?? '1';
