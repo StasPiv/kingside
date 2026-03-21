@@ -487,16 +487,9 @@ export function PuzzleRushPage() {
       </div>
 
       <div className="puzzle-rush-board">
-        {feedback === 'wrong' && (
-          <div className={`puzzle-feedback wrong`}>
-            {t('puzzleRush.wrong')}
-          </div>
-        )}
-        {feedback !== 'wrong' && (
-          <div className="puzzle-status-bar">
-            <p className="puzzle-hint">{t('puzzle.findBestMove')}</p>
-          </div>
-        )}
+        <div className="puzzle-status-bar">
+          <p className="puzzle-hint">{t('puzzle.findBestMove')}</p>
+        </div>
 
         <div className="board-container" ref={boardContainerRef}>
           {game && <MemoChessboard key={boardKey} options={boardOptions} />}
