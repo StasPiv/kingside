@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateAnalysisDto {
   @IsOptional()
@@ -12,4 +12,9 @@ export class UpdateAnalysisDto {
   @IsOptional()
   @IsString()
   fen?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  currentPosition?: number | null;
 }

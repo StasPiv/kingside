@@ -87,6 +87,7 @@ export class AnalysisService {
         ...(dto.title !== undefined && { title: dto.title }),
         ...(dto.pgn !== undefined && { pgn: dto.pgn }),
         ...(dto.fen !== undefined && { fen: dto.fen }),
+        ...(dto.currentPosition !== undefined && { currentPosition: dto.currentPosition }),
         opening,
       },
     });

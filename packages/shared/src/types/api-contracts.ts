@@ -528,6 +528,7 @@ export type UpdateAnalysisRequest = {
   title?: string;
   pgn?: string;
   fen?: string;
+  currentPosition?: number | null;
 };
 
 /** Full analysis object (GET /api/analyses/:id, POST, PUT responses) */
@@ -538,6 +539,7 @@ export type AnalysisResponse = {
   pgn: string | null;
   fen: string | null;
   opening: string | null;
+  currentPosition: number | null;
   createdAt: string;
   updatedAt: string;
 };
