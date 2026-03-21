@@ -105,7 +105,7 @@ function formatPv(pv: string, fen: string): string {
   }
 }
 
-const MULTI_PV = 3;
+const DEFAULT_MULTI_PV = 3;
 
 export function GameReviewPage() {
   const params = useParams<{ id?: string; gameId?: string }>();
@@ -260,6 +260,9 @@ export function GameReviewPage() {
     return configs[0]?.uciOptions?.Hash ?? '256';
   });
 
+  const [multiPv, setMultiPv] = useState(DEFAULT_MULTI_PV);
+  const [showEngineModal, setShowEngineModal] = useState(false);
+
   // Auto-save UCI options to localStorage when they change
   useEffect(() => {
     if (savedConfigs.length === 0 || engineSource !== 'external') return;
@@ -286,7 +289,7 @@ export function GameReviewPage() {
     source: engineSource,
     externalConfig,
     depth: engineSource === 'external' ? 99 : 18,
-    multiPv: MULTI_PV,
+    multiPv,
     autoStart: analysisEnabled,
   });
 
@@ -375,10 +378,10 @@ export function GameReviewPage() {
   }, [extNameInput]);
 
   const lastLinesRef = useRef<EvalLine[]>([]);
-  if (lines.length === MULTI_PV) {
+  if (lines.length === multiPv) {
     lastLinesRef.current = lines;
   }
-  const displayedLines = lines.length === MULTI_PV ? lines : lastLinesRef.current;
+  const displayedLines = lines.length === multiPv ? lines : lastLinesRef.current;
 
   useEffect(() => {
     if (!gameId) {
@@ -672,12 +675,30 @@ export function GameReviewPage() {
         }
       : undefined;
 
+  const formatCompact = (n: number): string => {
+    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+    return String(n);
+  };
+
+  const topLine = displayedLines[0];
+  const engineStats = analysisEnabled && sfState === 'analyzing' && topLine
+    ? (() => {
+        const parts = [`d${topLine.depth}`];
+        if (activeSource === 'external' && uciThreads !== '1') parts.push(`${uciThreads}cores`);
+        if (topLine.nodes) parts.push(`${formatCompact(topLine.nodes)}n`);
+        if (topLine.nps) parts.push(`${formatCompact(topLine.nps)}nps`);
+        return ` · ${parts.join(' · ')}`;
+      })()
+    : null;
+
   const engineStatusSuffix = !wasmSupported
     ? ` · ${t('analysis.notSupported', 'Not supported')}`
     : isTouchDevice && engineFailed
       ? ` · ${t('analysis.notSupportedMobile', 'Not supported on mobile')}`
-      : analysisEnabled && sfState === 'analyzing' && displayedLines.length > 0
-        ? ` · ${t('analysis.depth')} ${displayedLines[0].depth}`
+      : engineStats
+        ? engineStats
         : analysisEnabled && sfState === 'loading'
           ? ` · ${t('common.loading')}`
           : analysisEnabled && sfState === 'error'
@@ -931,9 +952,24 @@ export function GameReviewPage() {
               )}
             </span>
             <span className="analysis-panel-header-right">
+              <span className="engine-multipv-controls" onClick={(e) => e.stopPropagation()}>
+                <button
+                  className="engine-multipv-btn"
+                  onClick={() => setMultiPv((v) => Math.max(1, v - 1))}
+                  disabled={multiPv <= 1}
+                  title="Fewer lines"
+                >−</button>
+                <span className="engine-multipv-value">{multiPv}</span>
+                <button
+                  className="engine-multipv-btn"
+                  onClick={() => setMultiPv((v) => Math.min(10, v + 1))}
+                  disabled={multiPv >= 10}
+                  title="More lines"
+                >+</button>
+              </span>
               <button
                 className="engine-settings-btn"
-                onClick={(e) => { e.stopPropagation(); setShowEngineSettings(!showEngineSettings); }}
+                onClick={(e) => { e.stopPropagation(); setShowEngineModal(true); }}
                 title="Engine settings"
               >
                 ⚙
@@ -973,130 +1009,6 @@ export function GameReviewPage() {
               </span>
             </span>
           </div>
-          {showEngineSettings && (
-            <div className="engine-settings-panel">
-              <div className="engine-settings-sources">
-                <button
-                  className={`engine-source-btn${engineSource === 'wasm' ? ' active' : ''}`}
-                  onClick={handleSwitchToWasm}
-                >
-                  Browser Stockfish
-                </button>
-                <button
-                  className={`engine-source-btn${engineSource === 'external' ? ' active' : ''}`}
-                  onClick={() => setEngineSource('external')}
-                >
-                  External Engine
-                </button>
-              </div>
-
-              {engineSource === 'external' && (
-                <div className="engine-settings-form">
-                  <input
-                    ref={configFileRef}
-                    type="file"
-                    accept=".yaml,.yml"
-                    style={{ display: 'none' }}
-                    onChange={handleLoadConfigFile}
-                  />
-                  <button
-                    className="engine-load-config-btn"
-                    onClick={() => configFileRef.current?.click()}
-                  >
-                    📂 {t('engineSettings.loadConfig')}
-                  </button>
-                  <input
-                    type="text"
-                    placeholder="Name (optional)"
-                    value={extNameInput}
-                    onChange={(e) => setExtNameInput(e.target.value)}
-                    className="engine-settings-input"
-                  />
-                  <input
-                    type="text"
-                    placeholder="ws://host:port"
-                    value={extUrlInput}
-                    onChange={(e) => setExtUrlInput(e.target.value)}
-                    className="engine-settings-input"
-                  />
-                  <input
-                    type="password"
-                    placeholder="Secret key"
-                    value={extKeyInput}
-                    onChange={(e) => setExtKeyInput(e.target.value)}
-                    className="engine-settings-input"
-                  />
-                  <div className="engine-settings-actions">
-                    <button onClick={handleConnectExternal} className="engine-connect-btn">
-                      Connect
-                    </button>
-                    <button onClick={handleSaveConfig} className="engine-save-btn">
-                      Save
-                    </button>
-                  </div>
-
-                  {savedConfigs.length > 0 && (
-                    <div className="engine-saved-list">
-                      <div className="engine-saved-label">Saved:</div>
-                      {savedConfigs.map((cfg) => (
-                        <div key={cfg.wsUrl} className="engine-saved-row">
-                          <button
-                            className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`}
-                            onClick={() => handleSelectSavedConfig(cfg)}
-                          >
-                            {cfg.name}
-                          </button>
-                          <button
-                            className="engine-saved-delete"
-                            onClick={() => handleDeleteConfig(cfg.wsUrl)}
-                            title="Delete"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {activeSource === 'external' && isReady && (
-                    <div className="engine-uci-options">
-                      <div className="engine-saved-label">UCI Options:</div>
-                      <div className="engine-uci-row">
-                        <label>Threads</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={512}
-                          value={uciThreads}
-                          onChange={(e) => {
-                            setUciThreads(e.target.value);
-                            setEngineOption('Threads', e.target.value);
-                          }}
-                          className="engine-uci-input"
-                        />
-                      </div>
-                      <div className="engine-uci-row">
-                        <label>Hash (MB)</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={65536}
-                          value={uciHash}
-                          onChange={(e) => {
-                            setUciHash(e.target.value);
-                            setEngineOption('Hash', e.target.value);
-                          }}
-                          className="engine-uci-input"
-                        />
-                      </div>
-                    </div>
-                  )}
-                  <Link to="/help/external-engine" className="engine-help-link" target="_blank">
-                    {t('engineHelp.linkText')}
-                  </Link>
-                </div>
-              )}
-            </div>
-          )}
           {panelStates.engine && (
             <div className="analysis-panel-body">
               <div className="stockfish-lines">
@@ -1147,6 +1059,100 @@ export function GameReviewPage() {
           )}
         </div>
       </div>
+
+      {/* Engine Settings Modal */}
+      {showEngineModal && (
+        <div className="engine-modal-overlay" onClick={() => setShowEngineModal(false)}>
+          <div className="engine-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="engine-modal-header">
+              <h3>Engine Settings</h3>
+              <button className="engine-modal-close" onClick={() => setShowEngineModal(false)}>✕</button>
+            </div>
+
+            <div className="engine-settings-sources">
+              <button
+                className={`engine-source-btn${engineSource === 'wasm' ? ' active' : ''}`}
+                onClick={handleSwitchToWasm}
+              >
+                Browser Stockfish
+              </button>
+              <button
+                className={`engine-source-btn${engineSource === 'external' ? ' active' : ''}`}
+                onClick={() => setEngineSource('external')}
+              >
+                External Engine
+              </button>
+            </div>
+
+            <div className="engine-uci-options">
+              <div className="engine-uci-row">
+                <label>MultiPV (lines)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={multiPv}
+                  onChange={(e) => setMultiPv(Math.max(1, Math.min(10, Number(e.target.value))))}
+                  className="engine-uci-input"
+                />
+              </div>
+            </div>
+
+            {engineSource === 'external' && (
+              <div className="engine-settings-form">
+                <input
+                  ref={configFileRef}
+                  type="file"
+                  accept=".yaml,.yml"
+                  style={{ display: 'none' }}
+                  onChange={handleLoadConfigFile}
+                />
+                <button
+                  className="engine-load-config-btn"
+                  onClick={() => configFileRef.current?.click()}
+                >
+                  📂 {t('engineSettings.loadConfig')}
+                </button>
+                <input type="text" placeholder="Name" value={extNameInput} onChange={(e) => setExtNameInput(e.target.value)} className="engine-settings-input" />
+                <input type="text" placeholder="ws://host:port" value={extUrlInput} onChange={(e) => setExtUrlInput(e.target.value)} className="engine-settings-input" />
+                <input type="password" placeholder="Secret key" value={extKeyInput} onChange={(e) => setExtKeyInput(e.target.value)} className="engine-settings-input" />
+
+                <div className="engine-uci-options">
+                  <div className="engine-uci-row">
+                    <label>Threads</label>
+                    <input type="number" min={1} max={512} value={uciThreads} onChange={(e) => { setUciThreads(e.target.value); setEngineOption('Threads', e.target.value); }} className="engine-uci-input" />
+                  </div>
+                  <div className="engine-uci-row">
+                    <label>Hash (MB)</label>
+                    <input type="number" min={1} max={65536} value={uciHash} onChange={(e) => { setUciHash(e.target.value); setEngineOption('Hash', e.target.value); }} className="engine-uci-input" />
+                  </div>
+                </div>
+
+                <div className="engine-settings-actions">
+                  <button onClick={handleConnectExternal} className="engine-connect-btn">Connect</button>
+                  <button onClick={handleSaveConfig} className="engine-save-btn">Save</button>
+                </div>
+
+                {savedConfigs.length > 0 && (
+                  <div className="engine-saved-list">
+                    <div className="engine-saved-label">Saved:</div>
+                    {savedConfigs.map((cfg) => (
+                      <div key={cfg.wsUrl} className="engine-saved-row">
+                        <button className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`} onClick={() => { handleSelectSavedConfig(cfg); setShowEngineModal(false); }}>{cfg.name}</button>
+                        <button className="engine-saved-delete" onClick={() => handleDeleteConfig(cfg.wsUrl)} title="Delete">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <Link to="/help/external-engine" className="engine-help-link" target="_blank">
+                  {t('engineHelp.linkText')}
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
