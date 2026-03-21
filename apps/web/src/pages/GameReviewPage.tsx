@@ -119,7 +119,7 @@ export function GameReviewPage() {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [pendingPosition, setPendingPosition] = useState<number | null>(null);
+  const pendingPositionRef = useRef<number | null>(null);
 
   // Standalone analysis state (only used when gameId is undefined)
   const { create: createAnalysis, update: updateAnalysis, getById } = useSavedAnalyses();
@@ -427,7 +427,7 @@ export function GameReviewPage() {
               // Queue position restore — a useEffect will navigate
               // after React commits the loadFromPgn state update.
               if (saved.currentPosition != null && saved.currentPosition > 0) {
-                setPendingPosition(saved.currentPosition);
+                pendingPositionRef.current = saved.currentPosition;
               }
             } catch {
               // ignore
@@ -489,19 +489,15 @@ export function GameReviewPage() {
 
   // Restore pending position after moves have been loaded into state.
   // This runs after React commits loadFromPgn, so gotoNext sees the moves.
+  // Restore position after moves load — uses ref to survive strict mode
   useEffect(() => {
-    if (pendingPosition == null || history.length === 0) return;
-    const target = pendingPosition;
-    setPendingPosition(null);
+    if (pendingPositionRef.current == null || history.length === 0) return;
+    const target = pendingPositionRef.current;
+    pendingPositionRef.current = null;
     console.log(`[Analysis] Restoring position to ${target}`);
-    // setTimeout ensures this runs after React strict mode's
-    // mount-unmount-remount cycle and after state is committed.
-    const timer = setTimeout(() => {
-      gotoFirst();
-      for (let i = 0; i < target; i++) gotoNext();
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [pendingPosition, history, gotoNext, gotoFirst]);
+    gotoFirst();
+    for (let i = 0; i < target; i++) gotoNext();
+  }, [history, gotoNext, gotoFirst]);
 
   // Save current position to API (debounced).
   // Uses a ref to read localIdRef.current at fire time (not capture time)
