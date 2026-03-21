@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -23,20 +24,7 @@ type Engine struct {
 }
 
 func NewEngine(path string, options map[string]string) (*Engine, error) {
-	// Resolve full path — try the path as-is first, then with .exe on Windows
-	resolvedPath, lookErr := exec.LookPath(path)
-	if lookErr != nil {
-		// On Windows, try adding .exe suffix if not present
-		if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(path), ".exe") {
-			if p, err := exec.LookPath(path + ".exe"); err == nil {
-				resolvedPath = p
-				lookErr = nil
-			}
-		}
-		if lookErr != nil {
-			resolvedPath = path
-		}
-	}
+	resolvedPath := resolveEnginePath(path)
 	log.Printf("Engine binary: %s", resolvedPath)
 
 	cmd := exec.Command(resolvedPath)
@@ -50,7 +38,12 @@ func NewEngine(path string, options map[string]string) (*Engine, error) {
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start engine: %w", err)
+		hint := ""
+		if runtime.GOOS == "windows" {
+			hint = "\nHint: On Windows, use a full path (e.g. C:\\stockfish\\stockfish.exe) " +
+				"or place the engine in the same folder as the bridge and use: .\\stockfish.exe"
+		}
+		return nil, fmt.Errorf("start engine (%s): %w%s", resolvedPath, err, hint)
 	}
 
 	e := &Engine{
@@ -168,6 +161,40 @@ func (e *Engine) Close() {
 	e.send("quit")
 	_ = e.stdin.Close()
 	_ = e.cmd.Wait()
+}
+
+// resolveEnginePath resolves the engine binary path, handling Windows-specific quirks:
+// - Tries exec.LookPath first (finds in PATH)
+// - On Windows, tries with .exe suffix if not present
+// - On Windows, prepends .\ to relative filenames (Go 1.19+ requires explicit relative path)
+func resolveEnginePath(path string) string {
+	// 1. Try LookPath as-is (finds in PATH)
+	if resolved, err := exec.LookPath(path); err == nil {
+		return resolved
+	}
+
+	// 2. On Windows, try with .exe suffix
+	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(path), ".exe") {
+		if resolved, err := exec.LookPath(path + ".exe"); err == nil {
+			return resolved
+		}
+		// Also try .\path.exe for local files
+		local := ".\\" + path + ".exe"
+		if _, err := os.Stat(local); err == nil {
+			return local
+		}
+	}
+
+	// 3. On Windows, if path looks like a bare filename (no separators), try .\path
+	if runtime.GOOS == "windows" && !strings.ContainsAny(path, "/\\") {
+		local := ".\\" + path
+		if _, err := os.Stat(local); err == nil {
+			return local
+		}
+	}
+
+	// 4. Return as-is — exec.Command will produce a clear error
+	return path
 }
 
 func parseInfoLine(line string) *LineMessage {

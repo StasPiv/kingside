@@ -2,8 +2,14 @@
 # Copy to config.yaml and adjust settings
 
 port: 9090
-# secret is auto-generated on first run if empty
+
+# Secret key for WebSocket authentication (auto-generated on first run if empty).
+# IMPORTANT: Always wrap in quotes — bare hex values cause YAML parse errors.
+# Copy this value to the frontend engine settings.
 secret: ""
+
+# Path to UCI chess engine binary.
+# On Windows, use full path or .\stockfish.exe for a file in the same folder.
 engine_path: "stockfish"
 options:
   Threads: "1"

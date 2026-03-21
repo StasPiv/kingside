@@ -46,7 +46,10 @@ func main() {
 		log.Printf("Engine error: %v", err)
 		log.Printf("Make sure the chess engine binary is installed and accessible.")
 		if runtime.GOOS == "windows" {
-			log.Printf("On Windows, ensure stockfish.exe is in PATH or set engine_path in config.yaml")
+			log.Printf("On Windows:")
+			log.Printf("  - Use full path: engine_path: \"C:\\\\path\\\\to\\\\stockfish.exe\"")
+			log.Printf("  - Or place stockfish.exe next to this bridge and use: engine_path: \".\\\\stockfish.exe\"")
+			log.Printf("  - Or add stockfish to system PATH")
 		}
 		waitOnWindows()
 		os.Exit(1)
