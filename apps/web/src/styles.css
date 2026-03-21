@@ -2007,9 +2007,9 @@ input:focus {
   overflow-y: auto;
   overflow-x: hidden;
   width: 100%;
-  /* Fixed height for 3 engine lines to prevent layout shift (KS-542, KS-550) */
+  /* Min height for 3 engine lines to prevent layout shift (KS-542, KS-550) */
   /* 3 lines × 19.6px (14px × 1.4 line-height) + 2 gaps × 8px = ~74.8px */
-  height: 75px;
+  min-height: 75px;
 }
 
 .stockfish-line {
