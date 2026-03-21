@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Put,
   Request,
@@ -40,6 +41,15 @@ export class AnalysisController {
 
   @Put(':id')
   update(
+    @Request() req: any,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAnalysisDto,
+  ) {
+    return this.analysisService.update(req.user.id, id, dto);
+  }
+
+  @Patch(':id')
+  patch(
     @Request() req: any,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAnalysisDto,
