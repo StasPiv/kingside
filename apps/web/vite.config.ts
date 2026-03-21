@@ -68,6 +68,10 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-dom/client', 'react-router-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+    force: false,
+  },
   envDir: path.resolve(__dirname, '../..'),
   resolve: {
     alias: {
