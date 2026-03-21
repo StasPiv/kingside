@@ -265,7 +265,20 @@ export function GameReviewPage() {
     return configs[0]?.uciOptions?.Hash ?? '256';
   });
 
-  const [multiPv, setMultiPv] = useState(DEFAULT_MULTI_PV);
+  const [multiPv, setMultiPvRaw] = useState(() => {
+    try {
+      const saved = localStorage.getItem('analysisMultiPv');
+      if (saved) { const n = Number(saved); if (n >= 1 && n <= 10) return n; }
+    } catch {}
+    return DEFAULT_MULTI_PV;
+  });
+  const setMultiPv = useCallback((v: number | ((prev: number) => number)) => {
+    setMultiPvRaw((prev) => {
+      const next = typeof v === 'function' ? v(prev) : v;
+      try { localStorage.setItem('analysisMultiPv', String(next)); } catch {}
+      return next;
+    });
+  }, []);
   const [showEngineModal, setShowEngineModal] = useState(false);
 
   // Auto-save UCI options to localStorage when they change
