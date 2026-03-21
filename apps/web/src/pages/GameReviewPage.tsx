@@ -224,7 +224,12 @@ export function GameReviewPage() {
     if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
       return false;
     }
-    return true;
+    // Restore running state from localStorage (default: false = not running)
+    try {
+      return localStorage.getItem('analysisRunning') === 'true';
+    } catch {
+      return false;
+    }
   });
   const [engineFailed, setEngineFailed] = useState(false);
 
@@ -497,13 +502,15 @@ export function GameReviewPage() {
 
   const toggleAnalysis = useCallback(() => {
     setAnalysisEnabled((prev) => {
+      const next = !prev;
       if (prev) {
         lastLinesRef.current = [];
         stopEngine();
       } else {
         setEngineFailed(false);
       }
-      return !prev;
+      try { localStorage.setItem('analysisRunning', String(next)); } catch {}
+      return next;
     });
   }, []);
 
@@ -523,6 +530,7 @@ export function GameReviewPage() {
       } else {
         setEngineFailed(true);
         setAnalysisEnabled(false);
+        try { localStorage.setItem('analysisRunning', 'false'); } catch {}
       }
     }
     return undefined;
