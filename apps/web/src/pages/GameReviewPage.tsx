@@ -417,11 +417,22 @@ export function GameReviewPage() {
         }
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
-        getById(localIdRef.current).then((saved) => {
+        const analysisId = localIdRef.current;
+        getById(analysisId).then((saved) => {
           if (saved?.pgn) {
             try {
               const parsedMoves = parseAnnotatedPgn(saved.pgn);
               loadFromPgn(parsedMoves);
+              // Restore saved position
+              try {
+                const savedIdx = parseInt(localStorage.getItem(`analysisPosition:${analysisId}`) ?? '', 10);
+                if (!isNaN(savedIdx) && savedIdx > 0) {
+                  // Navigate to saved position after state update
+                  setTimeout(() => {
+                    for (let i = 0; i < savedIdx; i++) gotoNext();
+                  }, 0);
+                }
+              } catch {}
             } catch {
               // ignore
             }
@@ -468,6 +479,15 @@ export function GameReviewPage() {
         } else {
           loadMoves(mData);
         }
+        // Restore saved position for game review
+        try {
+          const savedIdx = parseInt(localStorage.getItem(`analysisPosition:${gameId}`) ?? '', 10);
+          if (!isNaN(savedIdx) && savedIdx > 0) {
+            setTimeout(() => {
+              for (let i = 0; i < savedIdx; i++) gotoNext();
+            }, 0);
+          }
+        } catch {}
       } catch (err) {
         setError(err instanceof Error ? err.message : t('review.loadError'));
       } finally {
@@ -479,6 +499,18 @@ export function GameReviewPage() {
   }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
 
   useAnalysisPersistence(gameId, history);
+
+  // Save current position index to localStorage (debounced)
+  const positionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const key = localIdRef.current || gameId;
+    if (!key) return;
+    if (positionSaveRef.current) clearTimeout(positionSaveRef.current);
+    positionSaveRef.current = setTimeout(() => {
+      try { localStorage.setItem(`analysisPosition:${key}`, String(currentGlobalIndex)); } catch {}
+    }, 500);
+    return () => { if (positionSaveRef.current) clearTimeout(positionSaveRef.current); };
+  }, [currentGlobalIndex, gameId]);
 
   // Auto-save standalone analysis to API
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
