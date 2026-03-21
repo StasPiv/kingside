@@ -550,6 +550,14 @@ export function GameReviewPage() {
     if (gameId) return;
     if (history.length === 0) return;
 
+    // Cancel any pending position-only save — the PGN save below will
+    // atomically include currentPosition, preventing a stale index from
+    // being written before the PGN update arrives.
+    if (positionSaveRef.current) {
+      clearTimeout(positionSaveRef.current);
+      positionSaveRef.current = null;
+    }
+
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
 
     localSaveTimerRef.current = setTimeout(async () => {
