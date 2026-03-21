@@ -3723,8 +3723,8 @@ body:has(.puzzle-rush-board) {
 }
 
 .puzzle-rush-page .board-container {
-  /* 280px = navbar(48) + main-padding(32*2) + page-padding-top(40) + header(56) + status-bar(46) + margin */
-  width: min(calc(100vh - 280px), calc(100vw - 32px));
+  /* 320px = navbar(48) + main-padding(32*2) + page-padding-top(40) + header(56) + status-bar(46) + taskbar-margin(40) + extra(26) */
+  width: min(calc(100dvh - 320px), calc(100vw - 32px));
 }
 
 .puzzle-page h1 {
@@ -4164,8 +4164,8 @@ body:has(.puzzle-rush-board) {
   }
 
   .puzzle-rush-page .board-container {
-    /* 240px = navbar(48) + main-padding(8*2) + page-padding-top(16) + header(56) + status-bar(46) + margin */
-    width: min(calc(100vh - 240px), calc(100vw - 16px));
+    /* 280px = navbar(48) + main-padding(8*2) + page-padding-top(16) + header(56) + status-bar(46) + taskbar-margin(40) + extra */
+    width: min(calc(100dvh - 280px), calc(100vw - 16px));
   }
 
   .puzzle-rush-header {
@@ -4741,6 +4741,11 @@ body:has(.puzzle-rush-board) {
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+
+/* Constrain board in Session Review to fit viewport */
+.rush-review-board-panel .board-container {
+  width: min(calc(100dvh - 280px), 100%);
 }
 
 .rush-review-placeholder {
