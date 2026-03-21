@@ -549,14 +549,29 @@ export function GameReviewPage() {
     return undefined;
   }, [sfState, analysisEnabled, engineSource]);
 
+  // Skip the first evaluate after mount for external engine — the bridge
+  // may already be analyzing and sending line messages.  Re-sending
+  // "analyze" would reset the depth the engine already reached.
+  const initialMountRef = useRef(true);
+
   // Auto-evaluate when position changes (debounced to avoid WASM crashes)
   useEffect(() => {
     if (!analysisEnabled || !isReady || !currentFen) return;
+
+    // On initial mount with external engine: don't send analyze — just
+    // listen for line messages already in progress.  Set state to
+    // 'analyzing' so UI shows the engine panel correctly.
+    if (initialMountRef.current && engineSource === 'external') {
+      initialMountRef.current = false;
+      return;
+    }
+    initialMountRef.current = false;
+
     const timer = setTimeout(() => {
       evaluate(currentFen);
     }, 150);
     return () => clearTimeout(timer);
-  }, [currentFen, isReady, evaluate, analysisEnabled]);
+  }, [currentFen, isReady, evaluate, analysisEnabled, engineSource]);
 
   // Keyboard navigation
   useEffect(() => {
