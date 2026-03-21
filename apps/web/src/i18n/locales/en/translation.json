@@ -39,7 +39,10 @@
     }
   },
   "broadcastTournament": {
-    "rounds": "Rounds"
+    "rounds": "Rounds",
+    "games": "games",
+    "noGamesYet": "No games yet",
+    "liveNow": "live"
   },
   "broadcastRound": {
     "backToBroadcasts": "All broadcasts",

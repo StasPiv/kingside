@@ -39,7 +39,10 @@
     }
   },
   "broadcastTournament": {
-    "rounds": "Туры"
+    "rounds": "Туры",
+    "games": "партий",
+    "noGamesYet": "Партий пока нет",
+    "liveNow": "играется"
   },
   "broadcastRound": {
     "backToBroadcasts": "Все трансляции",
