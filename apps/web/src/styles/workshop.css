@@ -560,6 +560,52 @@
   background: rgba(244, 67, 54, 0.1);
 }
 
+.workshop-analyses-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.workshop-analyses-select-all {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #a0a0c0;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workshop-analyses-export-btn {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workshop-analyses-export-btn:hover {
+  background: #15803d;
+}
+
+.workshop-analyses-export-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.workshop-analysis-item__checkbox {
+  flex-shrink: 0;
+  cursor: pointer;
+  margin-right: 4px;
+}
+
+.workshop-analysis-item--selected {
+  border-color: #7c83ff;
+  background: rgba(124, 131, 255, 0.05);
+}
+
 /* Analysis page: breadcrumbs navigation */
 .analysis-breadcrumbs {
   display: flex;

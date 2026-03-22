@@ -17,6 +17,8 @@ export function WorkshopAnalysisList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -67,6 +69,39 @@ export function WorkshopAnalysisList() {
       .catch(() => {});
   };
 
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === allAnalyses.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(allAnalyses.map((a) => a.id)));
+    }
+  };
+
+  const handleExport = async () => {
+    if (selected.size === 0) return;
+    setExporting(true);
+    try {
+      const res = await api.post<string>('/api/analyses/export', { ids: Array.from(selected) });
+      const blob = new Blob([res], { type: 'application/x-chess-pgn' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `analyses-${new Date().toISOString().slice(0, 10)}.pgn`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch { /* ignore */ }
+    finally { setExporting(false); }
+  };
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -88,16 +123,40 @@ export function WorkshopAnalysisList() {
         <p className="workshop-section-block__empty">{t('workshop.myAnalyses.empty')}</p>
       ) : (
         <>
+          <div className="workshop-analyses-toolbar">
+            <label className="workshop-analyses-select-all">
+              <input
+                type="checkbox"
+                checked={selected.size === allAnalyses.length && allAnalyses.length > 0}
+                onChange={toggleSelectAll}
+              />
+              {t('workshop.myAnalyses.selectAll', 'Select All')}
+            </label>
+            {selected.size > 0 && (
+              <button className="workshop-analyses-export-btn" onClick={handleExport} disabled={exporting}>
+                {exporting
+                  ? t('common.loading')
+                  : t('workshop.myAnalyses.exportPgn', `Export PGN (${selected.size})`)}
+              </button>
+            )}
+          </div>
           <div className="workshop-analyses-list">
             {visibleAnalyses.map((analysis) => (
               <div
                 key={analysis.id}
-                className="workshop-analysis-item"
+                className={`workshop-analysis-item${selected.has(analysis.id) ? ' workshop-analysis-item--selected' : ''}`}
                 onClick={() => handleOpen(analysis)}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === 'Enter' && handleOpen(analysis)}
               >
+                <input
+                  type="checkbox"
+                  className="workshop-analysis-item__checkbox"
+                  checked={selected.has(analysis.id)}
+                  onClick={(e) => toggleSelect(analysis.id, e)}
+                  onChange={() => {}}
+                />
                 <div className="workshop-analysis-item__main">
                   <span className="workshop-analysis-item__title">{analysis.title}</span>
                   <div className="workshop-analysis-item__meta">
