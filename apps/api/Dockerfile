@@ -38,4 +38,6 @@ ENV NODE_ENV=production
 EXPOSE 3001
 
 WORKDIR /app/apps/api
-CMD sh -c "npx prisma migrate deploy && node dist/main.js"
+COPY apps/api/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x docker-entrypoint.sh
+CMD ["./docker-entrypoint.sh"]
