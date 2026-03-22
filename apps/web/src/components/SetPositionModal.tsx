@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 
 type Props = {
   onApply: (fen: string) => void;
@@ -88,8 +89,20 @@ function validateFen(fen: string): string | null {
   catch (e) { return e instanceof Error ? e.message : 'Invalid FEN'; }
 }
 
+function PieceIcon({ piece, pieceSet }: { piece: string; pieceSet: string }) {
+  if (pieceSet === 'standard') {
+    const labels: Record<string, string> = {
+      wK: '♔', wQ: '♕', wR: '♖', wB: '♗', wN: '♘', wP: '♙',
+      bK: '♚', bQ: '♛', bR: '♜', bB: '♝', bN: '♞', bP: '♟',
+    };
+    return <span style={{ fontSize: 22, lineHeight: 1 }}>{labels[piece] || '?'}</span>;
+  }
+  return <img src={`/pieces/${pieceSet}/${piece}.svg`} alt={piece} style={{ width: 26, height: 26 }} />;
+}
+
 export function SetPositionModal({ onApply, onClose }: Props) {
   const { t } = useTranslation();
+  const { pieceSet } = useBoardSettings();
   const [tab, setTab] = useState<Tab>('fen');
   const [fenInput, setFenInput] = useState(INITIAL_FEN);
   const [error, setError] = useState<string | null>(null);
@@ -200,11 +213,9 @@ export function SetPositionModal({ onApply, onClose }: Props) {
                       key={p.piece}
                       className={`set-position-palette__piece set-position-palette__piece--white${selectedPiece === p.piece ? ' active' : ''}`}
                       onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
-                      draggable
-                      onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.piece); setSelectedPiece(p.piece); }}
                       title={p.piece}
                     >
-                      {p.label}
+                      <PieceIcon piece={p.piece} pieceSet={pieceSet} />
                     </button>
                   ))}
                 </div>
@@ -215,11 +226,9 @@ export function SetPositionModal({ onApply, onClose }: Props) {
                       key={p.piece}
                       className={`set-position-palette__piece set-position-palette__piece--black${selectedPiece === p.piece ? ' active' : ''}`}
                       onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
-                      draggable
-                      onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.piece); setSelectedPiece(p.piece); }}
                       title={p.piece}
                     >
-                      {p.label}
+                      <PieceIcon piece={p.piece} pieceSet={pieceSet} />
                     </button>
                   ))}
                 </div>
