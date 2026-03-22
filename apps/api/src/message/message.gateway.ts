@@ -8,7 +8,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from '../auth/jwt.strategy';
-import { MessageEvents } from '@kingside/shared';
+import { MessageEvents, FriendEvents } from '@kingside/shared';
 
 @WebSocketGateway({ namespace: '/messages', cors: { origin: '*' } })
 export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -54,5 +54,27 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       ...message,
       senderUsername,
     });
+  }
+
+  notifyFriendRequestReceived(
+    addresseeId: string,
+    payload: { requestId: string; user: { id: string; username: string } },
+  ) {
+    this.server.to(`user:${addresseeId}`).emit(FriendEvents.REQUEST_RECEIVED, payload);
+  }
+
+  notifyFriendRequestAccepted(
+    requesterId: string,
+    payload: { requestId: string; user: { id: string; username: string } },
+  ) {
+    this.server.to(`user:${requesterId}`).emit(FriendEvents.REQUEST_ACCEPTED, payload);
+  }
+
+  notifyFriendStatus(
+    userId: string,
+    event: typeof FriendEvents.STATUS_ONLINE | typeof FriendEvents.STATUS_OFFLINE,
+    payload: { userId: string; username: string },
+  ) {
+    this.server.to(`user:${userId}`).emit(event, payload);
   }
 }

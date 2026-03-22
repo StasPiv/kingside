@@ -11,26 +11,40 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { FriendService } from './friend.service';
+import { MessageGateway } from '../message/message.gateway';
 
 @UseGuards(JwtAuthGuard)
 @Controller('friends')
 export class FriendController {
-  constructor(private readonly friendService: FriendService) {}
+  constructor(
+    private readonly friendService: FriendService,
+    private readonly messageGateway: MessageGateway,
+  ) {}
 
   @Post('request/:userId')
-  sendRequest(
+  async sendRequest(
     @Request() req: AuthenticatedRequest,
     @Param('userId', ParseUUIDPipe) userId: string,
   ) {
-    return this.friendService.sendRequest(req.user.id, userId);
+    const result = await this.friendService.sendRequest(req.user.id, userId);
+    this.messageGateway.notifyFriendRequestReceived(userId, {
+      requestId: result.id,
+      user: { id: req.user.id, username: req.user.username ?? 'anonymous' },
+    });
+    return result;
   }
 
   @Post('accept/:requestId')
-  acceptRequest(
+  async acceptRequest(
     @Request() req: AuthenticatedRequest,
     @Param('requestId', ParseUUIDPipe) requestId: string,
   ) {
-    return this.friendService.acceptRequest(req.user.id, requestId);
+    const result = await this.friendService.acceptRequest(req.user.id, requestId);
+    this.messageGateway.notifyFriendRequestAccepted(result.requester.id, {
+      requestId: result.id,
+      user: { id: req.user.id, username: req.user.username ?? 'anonymous' },
+    });
+    return result;
   }
 
   @Post('decline/:requestId')

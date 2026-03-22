@@ -802,3 +802,22 @@ export type LiveTournamentItem = {
 export type LiveTournamentsResponse = {
   data: LiveTournamentItem[];
 };
+
+// ─── Friends (WebSocket events via /messages namespace) ─────────────
+
+export const FriendEvents = {
+  REQUEST_RECEIVED: 'friend:request:received',
+  REQUEST_ACCEPTED: 'friend:request:accepted',
+  STATUS_ONLINE: 'friend:status:online',
+  STATUS_OFFLINE: 'friend:status:offline',
+} as const;
+
+export type WsFriendRequestPayload = {
+  requestId: string;
+  user: { id: string; username: string };
+};
+
+export type WsFriendStatusPayload = {
+  userId: string;
+  username: string;
+};
