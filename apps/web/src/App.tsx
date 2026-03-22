@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
@@ -8,17 +9,14 @@ import { GamePage } from './pages/GamePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DailyPuzzlePage } from './pages/DailyPuzzlePage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
-import { PuzzleRushPage } from './pages/PuzzleRushPage';
 import { PuzzlePage } from './pages/PuzzlePage';
 import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
 import { PuzzleRushReviewPage } from './pages/PuzzleRushReviewPage';
 import { ProfilePage } from './pages/ProfilePage';
-import { GameReviewPage } from './pages/GameReviewPage';
 import { WorkshopPage } from './pages/WorkshopPage';
 import { BroadcastsPage } from './pages/BroadcastsPage';
 import { BroadcastTournamentPage } from './pages/BroadcastTournamentPage';
 import { BroadcastRoundPage } from './pages/BroadcastRoundPage';
-import { BroadcastGamePage } from './pages/BroadcastGamePage';
 import { PlayersPage } from './pages/PlayersPage';
 import { PlayerProfilePage } from './pages/PlayerProfilePage';
 import { MessagesPage } from './pages/MessagesPage';
@@ -28,6 +26,16 @@ import { ExternalEngineHelpPage } from './pages/ExternalEngineHelpPage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
+
+// Lazy-loaded heavy pages
+const GameReviewPage = lazy(() => import('./pages/GameReviewPage').then(m => ({ default: m.GameReviewPage })));
+const BroadcastGamePage = lazy(() => import('./pages/BroadcastGamePage').then(m => ({ default: m.BroadcastGamePage })));
+const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ default: m.PuzzleRushPage })));
+
+function LazyFallback() {
+  const { t } = useTranslation();
+  return <div className="loading">{t('common.loading')}</div>;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -67,19 +75,19 @@ export function App() {
         <Route path="/games/live" element={<LiveGamesPage />} />
         <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
-        <Route path="/game/:gameId/review" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
+        <Route path="/game/:gameId/review" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><GameReviewPage /></Suspense></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
-        <Route path="/puzzle-rush" element={<ProtectedRoute><PuzzleRushPage /></ProtectedRoute>} />
+        <Route path="/puzzle-rush" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><PuzzleRushPage /></Suspense></ProtectedRoute>} />
         <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />
         <Route path="/puzzle-rush/review/:scoreId" element={<ProtectedRoute><PuzzleRushReviewPage /></ProtectedRoute>} />
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
-        <Route path="/analysis" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
+        <Route path="/analysis" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><GameReviewPage /></Suspense></ProtectedRoute>} />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
-        <Route path="/analysis/:id" element={<ProtectedRoute><GameReviewPage /></ProtectedRoute>} />
+        <Route path="/analysis/:id" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><GameReviewPage /></Suspense></ProtectedRoute>} />
         <Route path="/workshop" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />
@@ -92,7 +100,7 @@ export function App() {
         <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
-        <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<BroadcastGamePage />} />
+        <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<Suspense fallback={<LazyFallback />}><BroadcastGamePage /></Suspense>} />
         <Route path="*" element={<Navigate to="/lobby" replace />} />
       </Route>
     </Routes>
