@@ -20,6 +20,19 @@ if [[ "$COMMIT_MSG" == internal:* ]]; then
     exit 0
 fi
 
+# Prisma generate + migrate при изменениях в schema/миграциях
+if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/prisma/"; then
+    echo "[post-hook] Обнаружены изменения в prisma/ — generate + migrate..."
+    cd "$REPO_DIR/apps/api"
+    npx prisma generate 2>/dev/null && \
+        echo "[post-hook] prisma generate OK" || \
+        echo "[post-hook] WARN: prisma generate failed"
+    npx prisma migrate deploy 2>/dev/null && \
+        echo "[post-hook] prisma migrate deploy OK" || \
+        echo "[post-hook] WARN: prisma migrate deploy failed"
+    cd "$REPO_DIR"
+fi
+
 # Перезапуск nest dev-сервера при изменениях в apps/api/src/
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/src/"; then
     # Очистка tsc кэша чтобы гарантировать полную перекомпиляцию
