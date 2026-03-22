@@ -67,6 +67,12 @@ input:focus {
 }
 
 /* Header */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
 .header nav {
   display: flex;
   align-items: center;
