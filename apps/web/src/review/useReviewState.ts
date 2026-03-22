@@ -268,7 +268,7 @@ export function useReviewState() {
         return false;
       }
     },
-    [state.currentMove, state.nextGlobalIndex],
+    [state.currentMove, state.nextGlobalIndex, state.initialFen],
   );
 
   const promoteVariation = useCallback((move: ChessMove) => {
