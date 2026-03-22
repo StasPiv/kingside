@@ -102,7 +102,17 @@ function validateBoard(board: Record<string, string>, turn: 'w' | 'b'): string |
   }
   if (wK !== 1) return wK === 0 ? 'White king is missing' : 'Too many white kings';
   if (bK !== 1) return bK === 0 ? 'Black king is missing' : 'Too many black kings';
-  // Opponent king must not be in check (chess.js validates this on construction)
+  // Check if opponent king is in check: flip turn and see if that side is in check
+  const opponentTurn = turn === 'w' ? 'b' : 'w';
+  const fen = positionToFen(board, opponentTurn, '-');
+  try {
+    const chess = new Chess(fen);
+    if (chess.isCheck()) {
+      return turn === 'w'
+        ? 'Black king is in check (invalid — it is White\'s turn)'
+        : 'White king is in check (invalid — it is Black\'s turn)';
+    }
+  } catch { /* position not loadable — other validation will catch it */ }
   return null;
 }
 
