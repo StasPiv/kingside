@@ -5,6 +5,7 @@ import { Chessboard } from 'react-chessboard';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 
 type Props = {
+  initialFen?: string;
   onApply: (fen: string) => void;
   onClose: () => void;
 };
@@ -100,18 +101,20 @@ function PieceIcon({ piece, pieceSet }: { piece: string; pieceSet: string }) {
   return <img src={`/pieces/${pieceSet}/${piece}.svg`} alt={piece} style={{ width: 26, height: 26 }} />;
 }
 
-export function SetPositionModal({ onApply, onClose }: Props) {
+export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
   const { t } = useTranslation();
   const { pieceSet } = useBoardSettings();
+  const startFen = initialFen || INITIAL_FEN;
   const [tab, setTab] = useState<Tab>('fen');
-  const [fenInput, setFenInput] = useState(INITIAL_FEN);
+  const [fenInput, setFenInput] = useState(startFen);
   const [error, setError] = useState<string | null>(null);
 
   // Board editor state
-  const [board, setBoard] = useState<Record<string, string>>(() => fenToBoard(INITIAL_FEN));
+  const [board, setBoard] = useState<Record<string, string>>(() => fenToBoard(startFen));
   const [selectedPiece, setSelectedPiece] = useState<string | null>('wP');
-  const [editorTurn, setEditorTurn] = useState<'w' | 'b'>('w');
-  const [castling, setCastling] = useState('KQkq');
+  const fenParts = startFen.split(' ');
+  const [editorTurn, setEditorTurn] = useState<'w' | 'b'>(fenParts[1] === 'b' ? 'b' : 'w');
+  const [castling, setCastling] = useState(fenParts[2] || 'KQkq');
 
   const handleApplyFen = () => {
     const trimmed = fenInput.trim();

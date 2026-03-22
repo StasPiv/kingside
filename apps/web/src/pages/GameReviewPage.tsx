@@ -750,6 +750,7 @@ export function GameReviewPage() {
 
       {showSetPosition && (
         <SetPositionModal
+          initialFen={currentFen}
           onApply={(fen) => {
             setInitialFen(fen);
             setShowSetPosition(false);
