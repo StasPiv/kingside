@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
+import { Chessboard } from 'react-chessboard';
 
 type Props = {
   onApply: (fen: string) => void;
@@ -10,91 +11,250 @@ type Props = {
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const EMPTY_FEN = '8/8/8/8/8/8/8/8 w - - 0 1';
 
-function validateFen(fen: string): string | null {
-  try {
-    new Chess(fen);
-    return null;
-  } catch (e) {
-    return e instanceof Error ? e.message : 'Invalid FEN';
+type Tab = 'fen' | 'editor';
+
+const PIECE_PALETTE = [
+  { piece: 'wK', label: '♔' }, { piece: 'wQ', label: '♕' }, { piece: 'wR', label: '♖' },
+  { piece: 'wB', label: '♗' }, { piece: 'wN', label: '♘' }, { piece: 'wP', label: '♙' },
+  { piece: 'bK', label: '♚' }, { piece: 'bQ', label: '♛' }, { piece: 'bR', label: '♜' },
+  { piece: 'bB', label: '♝' }, { piece: 'bN', label: '♞' }, { piece: 'bP', label: '♟' },
+];
+
+const PIECE_TO_FEN: Record<string, string> = {
+  wK: 'K', wQ: 'Q', wR: 'R', wB: 'B', wN: 'N', wP: 'P',
+  bK: 'k', bQ: 'q', bR: 'r', bB: 'b', bN: 'n', bP: 'p',
+};
+
+const SQUARES = (() => {
+  const s: string[] = [];
+  for (let r = 8; r >= 1; r--) {
+    for (const f of 'abcdefgh') s.push(`${f}${r}`);
   }
+  return s;
+})();
+
+function boardToPosition(board: Record<string, string>): Record<string, string> {
+  // react-chessboard wants { a1: 'wR', ... }
+  return { ...board };
+}
+
+function positionToFen(board: Record<string, string>, turn: 'w' | 'b', castling: string): string {
+  const rows: string[] = [];
+  for (let r = 8; r >= 1; r--) {
+    let row = '';
+    let empty = 0;
+    for (const f of 'abcdefgh') {
+      const sq = `${f}${r}`;
+      const p = board[sq];
+      if (p) {
+        if (empty > 0) { row += empty; empty = 0; }
+        row += PIECE_TO_FEN[p] || '?';
+      } else {
+        empty++;
+      }
+    }
+    if (empty > 0) row += empty;
+    rows.push(row);
+  }
+  return `${rows.join('/')} ${turn} ${castling || '-'} - 0 1`;
+}
+
+function fenToBoard(fen: string): Record<string, string> {
+  const board: Record<string, string> = {};
+  const FEN_TO_PIECE: Record<string, string> = {
+    K: 'wK', Q: 'wQ', R: 'wR', B: 'wB', N: 'wN', P: 'wP',
+    k: 'bK', q: 'bQ', r: 'bR', b: 'bB', n: 'bN', p: 'bP',
+  };
+  const rows = fen.split(' ')[0].split('/');
+  for (let ri = 0; ri < rows.length; ri++) {
+    const rank = 8 - ri;
+    let file = 0;
+    for (const ch of rows[ri]) {
+      if (ch >= '1' && ch <= '8') { file += parseInt(ch); }
+      else {
+        const sq = `${'abcdefgh'[file]}${rank}`;
+        board[sq] = FEN_TO_PIECE[ch] || '';
+        file++;
+      }
+    }
+  }
+  return board;
+}
+
+function validateFen(fen: string): string | null {
+  try { new Chess(fen); return null; }
+  catch (e) { return e instanceof Error ? e.message : 'Invalid FEN'; }
 }
 
 export function SetPositionModal({ onApply, onClose }: Props) {
   const { t } = useTranslation();
+  const [tab, setTab] = useState<Tab>('fen');
   const [fenInput, setFenInput] = useState(INITIAL_FEN);
   const [error, setError] = useState<string | null>(null);
 
-  const handleApply = () => {
+  // Board editor state
+  const [board, setBoard] = useState<Record<string, string>>(() => fenToBoard(INITIAL_FEN));
+  const [selectedPiece, setSelectedPiece] = useState<string | null>('wP');
+  const [editorTurn, setEditorTurn] = useState<'w' | 'b'>('w');
+  const [castling, setCastling] = useState('KQkq');
+
+  const handleApplyFen = () => {
     const trimmed = fenInput.trim();
-    if (!trimmed) {
-      setError('FEN is required');
-      return;
-    }
+    if (!trimmed) { setError('FEN is required'); return; }
     const err = validateFen(trimmed);
-    if (err) {
-      setError(err);
-      return;
-    }
-    setError(null);
+    if (err) { setError(err); return; }
     onApply(trimmed);
   };
 
+  const handleApplyEditor = () => {
+    const fen = positionToFen(board, editorTurn, castling);
+    const err = validateFen(fen);
+    if (err) { setError(err); return; }
+    onApply(fen);
+  };
+
+  const handleSquareClick = useCallback((square: string) => {
+    setBoard((prev) => {
+      const next = { ...prev };
+      if (prev[square] && !selectedPiece) {
+        // Remove piece if no piece selected (eraser mode)
+        delete next[square];
+      } else if (selectedPiece) {
+        next[square] = selectedPiece;
+      }
+      return next;
+    });
+  }, [selectedPiece]);
+
+  const editorPosition = useMemo(() => boardToPosition(board), [board]);
+
+  const editorFen = useMemo(() => positionToFen(board, editorTurn, castling), [board, editorTurn, castling]);
+
   return (
     <div className="set-position-overlay" onClick={onClose}>
-      <div className="set-position-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="set-position-modal set-position-modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="set-position-header">
           <h3>{t('position.title', 'Set Position')}</h3>
           <button className="set-position-close" onClick={onClose}>✕</button>
         </div>
 
-        <div className="set-position-body">
-          <label className="set-position-label">{t('position.fenLabel', 'FEN notation:')}</label>
-          <input
-            type="text"
-            className="set-position-input"
-            value={fenInput}
-            onChange={(e) => { setFenInput(e.target.value); setError(null); }}
-            placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-            spellCheck={false}
-          />
-
-          {error && <div className="set-position-error">{error}</div>}
-
-          <div className="set-position-presets">
-            <button
-              className="set-position-preset"
-              onClick={() => setFenInput(INITIAL_FEN)}
-            >
-              {t('position.startPos', 'Starting Position')}
-            </button>
-            <button
-              className="set-position-preset"
-              onClick={() => setFenInput(EMPTY_FEN)}
-            >
-              {t('position.emptyBoard', 'Empty Board')}
-            </button>
-            <button
-              className="set-position-preset"
-              onClick={async () => {
-                try {
-                  const text = await navigator.clipboard.readText();
-                  if (text.trim()) setFenInput(text.trim());
-                } catch { /* clipboard not available */ }
-              }}
-            >
-              {t('position.paste', 'Paste from Clipboard')}
-            </button>
-          </div>
-
-          <div className="set-position-actions">
-            <button className="set-position-cancel" onClick={onClose}>
-              {t('common.cancel', 'Cancel')}
-            </button>
-            <button className="set-position-apply" onClick={handleApply}>
-              {t('position.apply', 'Apply')}
-            </button>
-          </div>
+        <div className="set-position-tabs">
+          <button className={`set-position-tab${tab === 'fen' ? ' active' : ''}`} onClick={() => setTab('fen')}>FEN</button>
+          <button className={`set-position-tab${tab === 'editor' ? ' active' : ''}`} onClick={() => setTab('editor')}>Board Editor</button>
         </div>
+
+        {tab === 'fen' && (
+          <div className="set-position-body">
+            <label className="set-position-label">{t('position.fenLabel', 'FEN notation:')}</label>
+            <input
+              type="text"
+              className="set-position-input"
+              value={fenInput}
+              onChange={(e) => { setFenInput(e.target.value); setError(null); }}
+              placeholder="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+              spellCheck={false}
+            />
+            {error && <div className="set-position-error">{error}</div>}
+            <div className="set-position-presets">
+              <button className="set-position-preset" onClick={() => setFenInput(INITIAL_FEN)}>
+                {t('position.startPos', 'Starting Position')}
+              </button>
+              <button className="set-position-preset" onClick={() => setFenInput(EMPTY_FEN)}>
+                {t('position.emptyBoard', 'Empty Board')}
+              </button>
+              <button className="set-position-preset" onClick={async () => {
+                try { const text = await navigator.clipboard.readText(); if (text.trim()) setFenInput(text.trim()); } catch {}
+              }}>
+                {t('position.paste', 'Paste from Clipboard')}
+              </button>
+            </div>
+            <div className="set-position-actions">
+              <button className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
+              <button className="set-position-apply" onClick={handleApplyFen}>{t('position.apply', 'Apply')}</button>
+            </div>
+          </div>
+        )}
+
+        {tab === 'editor' && (
+          <div className="set-position-body set-position-editor">
+            <div className="set-position-editor__board">
+              <Chessboard
+                options={{
+                  position: editorFen,
+                  boardStyle: { width: 280, height: 280 },
+                  allowDragging: false,
+                  onSquareClick: ({ square }: { square: string }) => handleSquareClick(square),
+                  showNotation: true,
+                }}
+              />
+            </div>
+            <div className="set-position-editor__controls">
+              <div className="set-position-palette">
+                <div className="set-position-palette__label">{t('position.pieces', 'Pieces:')}</div>
+                <div className="set-position-palette__grid">
+                  {PIECE_PALETTE.map((p) => (
+                    <button
+                      key={p.piece}
+                      className={`set-position-palette__piece${selectedPiece === p.piece ? ' active' : ''}`}
+                      onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
+                      title={p.piece}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                  <button
+                    className={`set-position-palette__piece set-position-palette__eraser${selectedPiece === null ? ' active' : ''}`}
+                    onClick={() => setSelectedPiece(null)}
+                    title="Eraser"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <div className="set-position-options">
+                <label className="set-position-option">
+                  {t('position.turn', 'Side to move:')}
+                  <select value={editorTurn} onChange={(e) => setEditorTurn(e.target.value as 'w' | 'b')}>
+                    <option value="w">White</option>
+                    <option value="b">Black</option>
+                  </select>
+                </label>
+                <label className="set-position-option">
+                  {t('position.castling', 'Castling:')}
+                  <input
+                    type="text"
+                    value={castling}
+                    onChange={(e) => setCastling(e.target.value)}
+                    placeholder="KQkq"
+                    className="set-position-castling-input"
+                  />
+                </label>
+              </div>
+
+              <div className="set-position-editor__fen">
+                <span className="set-position-editor__fen-label">FEN:</span>
+                <code className="set-position-editor__fen-value">{editorFen}</code>
+              </div>
+
+              <div className="set-position-presets">
+                <button className="set-position-preset" onClick={() => { setBoard(fenToBoard(INITIAL_FEN)); setCastling('KQkq'); setEditorTurn('w'); }}>
+                  {t('position.startPos', 'Starting Position')}
+                </button>
+                <button className="set-position-preset" onClick={() => { setBoard({}); setCastling('-'); }}>
+                  {t('position.clear', 'Clear Board')}
+                </button>
+              </div>
+
+              {error && <div className="set-position-error">{error}</div>}
+
+              <div className="set-position-actions">
+                <button className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
+                <button className="set-position-apply" onClick={handleApplyEditor}>{t('position.apply', 'Apply')}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
