@@ -3,12 +3,24 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+// isLocalhost checks if the remote address is a loopback connection.
+// addr may include port, e.g. "[::1]:56814" or "127.0.0.1:9090".
+func isLocalhost(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
@@ -83,9 +95,9 @@ func (s *Server) HandleWS(w http.ResponseWriter, r *http.Request) {
 	}
 	s.rateMu.Unlock()
 
-	// Auth
+	// Auth — skip for localhost connections
 	key := r.URL.Query().Get("key")
-	if key != s.cfg.Secret {
+	if key != s.cfg.Secret && !isLocalhost(ip) {
 		log.Printf("Auth failed from %s", ip)
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
