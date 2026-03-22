@@ -326,7 +326,7 @@ export class StockfishService implements OnModuleDestroy {
       try {
         this.sendCommand(worker, 'quit');
         worker.process.kill();
-      } catch {
+      } catch (e: unknown) { this.logger.warn(`Stockfish cleanup error: ${(e as Error).message ?? e}`);
         // ignore
       }
     }

@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Body,
   Controller,
@@ -19,25 +20,25 @@ export class PuzzleRushController {
 
   @Post('start')
   @UseGuards(JwtAuthGuard)
-  start(@Request() req: any, @Body() dto: StartPuzzleRushDto) {
+  start(@Request() req: AuthenticatedRequest, @Body() dto: StartPuzzleRushDto) {
     return this.puzzleRushService.startSession(req.user.id, dto.timeMode);
   }
 
   @Get('session')
   @UseGuards(JwtAuthGuard)
-  getSession(@Request() req: any) {
+  getSession(@Request() req: AuthenticatedRequest) {
     return this.puzzleRushService.getSession(req.user.id);
   }
 
   @Post('solve')
   @UseGuards(JwtAuthGuard)
-  solve(@Request() req: any, @Body() dto: SubmitPuzzleAnswerDto) {
+  solve(@Request() req: AuthenticatedRequest, @Body() dto: SubmitPuzzleAnswerDto) {
     return this.puzzleRushService.submitAnswer(req.user.id, dto.uci);
   }
 
   @Delete('session')
   @UseGuards(JwtAuthGuard)
-  endSession(@Request() req: any) {
+  endSession(@Request() req: AuthenticatedRequest) {
     return this.puzzleRushService.endSession(req.user.id);
   }
 
@@ -52,7 +53,7 @@ export class PuzzleRushController {
   @Get('best')
   @UseGuards(JwtAuthGuard)
   getUserBest(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Query('timeMode') timeMode: string = '3',
   ) {
     return this.puzzleRushService.getUserBest(req.user.id, timeMode);
@@ -60,14 +61,14 @@ export class PuzzleRushController {
 
   @Get('review/:scoreId')
   @UseGuards(JwtAuthGuard)
-  getSessionReview(@Request() req: any, @Param('scoreId') scoreId: string) {
+  getSessionReview(@Request() req: AuthenticatedRequest, @Param('scoreId') scoreId: string) {
     return this.puzzleRushService.getSessionReview(scoreId, req.user.id);
   }
 
   @Get('review/:scoreId/puzzle/:puzzleId/best-move')
   @UseGuards(JwtAuthGuard)
   getSessionPuzzleBestMove(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('scoreId') scoreId: string,
     @Param('puzzleId') puzzleId: string,
   ) {

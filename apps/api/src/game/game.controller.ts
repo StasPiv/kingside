@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Body,
   Controller,
@@ -33,7 +34,7 @@ export class GameController {
   @UseGuards(JwtAuthGuard)
   @Get('my')
   getMyGames(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Query('take', new DefaultValuePipe(20), ParseIntPipe) take: number,
     @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
   ) {
@@ -56,7 +57,7 @@ export class GameController {
 
   @UseGuards(JwtAuthGuard)
   @Post('bot')
-  createGameWithBot(@Request() req: any, @Body() dto: CreateGameWithBotDto) {
+  createGameWithBot(@Request() req: AuthenticatedRequest, @Body() dto: CreateGameWithBotDto) {
     return this.gameService.createGameWithBot(
       req.user.id,
       dto.color,
@@ -77,7 +78,7 @@ export class GameController {
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/analysis')
-  getAnalysis(@Param('id', ParseUUIDPipe) id: string, @Request() req: any) {
+  getAnalysis(@Param('id', ParseUUIDPipe) id: string, @Request() req: AuthenticatedRequest) {
     return this.gameService.getAnalysis(id, req.user.id);
   }
 
@@ -86,7 +87,7 @@ export class GameController {
   @HttpCode(HttpStatus.NO_CONTENT)
   saveAnalysis(
     @Param('id', ParseUUIDPipe) id: string,
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Body() dto: SaveAnalysisDto,
   ) {
     return this.gameService.saveAnalysis(id, req.user.id, dto.analysisPgn);

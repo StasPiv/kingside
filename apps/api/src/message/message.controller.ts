@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Controller,
   Get,
@@ -25,7 +26,7 @@ export class MessageController {
   ) {}
 
   @Post()
-  async sendMessage(@Request() req: any, @Body() dto: SendMessageDto) {
+  async sendMessage(@Request() req: AuthenticatedRequest, @Body() dto: SendMessageDto) {
     const message = await this.messageService.sendMessage(
       req.user.id,
       dto.receiverId,
@@ -38,18 +39,18 @@ export class MessageController {
   }
 
   @Get('conversations')
-  getConversations(@Request() req: any) {
+  getConversations(@Request() req: AuthenticatedRequest) {
     return this.messageService.getConversations(req.user.id);
   }
 
   @Get('unread-count')
-  getUnreadCount(@Request() req: any) {
+  getUnreadCount(@Request() req: AuthenticatedRequest) {
     return this.messageService.getUnreadCount(req.user.id);
   }
 
   @Get(':userId')
   getMessageHistory(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('userId', ParseUUIDPipe) userId: string,
     @Query() dto: MessageHistoryDto,
   ) {
@@ -63,7 +64,7 @@ export class MessageController {
 
   @Patch(':userId/read')
   markAsRead(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('userId', ParseUUIDPipe) userId: string,
   ) {
     return this.messageService.markAsRead(req.user.id, userId);
