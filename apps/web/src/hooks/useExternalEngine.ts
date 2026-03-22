@@ -39,6 +39,15 @@ function normalizeWsUrl(raw: string): string {
   }
 }
 
+function isLocalhostUrl(wsUrl: string): boolean {
+  try {
+    const url = new URL(wsUrl);
+    return url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  } catch {
+    return wsUrl.includes('localhost') || wsUrl.includes('127.0.0.1');
+  }
+}
+
 /**
  * Hook for connecting to an external chess engine via WebSocket bridge.
  * Protocol: JSON messages (line, bestmove, engine_info, error, pong).
@@ -85,9 +94,13 @@ export function useExternalEngine(options: UseExternalEngineOptions) {
     setErrorMessage(null);
 
     const baseUrl = normalizeWsUrl(config.wsUrl);
-    const url = baseUrl.includes('?')
-      ? `${baseUrl}&key=${encodeURIComponent(config.secretKey)}`
-      : `${baseUrl}?key=${encodeURIComponent(config.secretKey)}`;
+    const isLocal = isLocalhostUrl(config.wsUrl);
+    // Skip key for localhost — connection is inherently secure
+    const url = isLocal || !config.secretKey
+      ? baseUrl
+      : baseUrl.includes('?')
+        ? `${baseUrl}&key=${encodeURIComponent(config.secretKey)}`
+        : `${baseUrl}?key=${encodeURIComponent(config.secretKey)}`;
 
     console.log('[ExternalEngine] Connecting to:', url);
 

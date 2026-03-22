@@ -60,6 +60,34 @@ export function useEngineConfig() {
   }, []);
   const [showEngineModal, setShowEngineModal] = useState(false);
 
+  // Auto-discover localhost bridge on common port
+  useEffect(() => {
+    // Only probe if no saved configs and no explicit user choice
+    if (savedConfigs.length > 0) return;
+    try {
+      if (localStorage.getItem('engineSource') === 'wasm') return;
+    } catch { /* ignore */ }
+
+    const probeUrl = 'ws://localhost:9090/ws';
+    let ws: WebSocket;
+    try { ws = new WebSocket(probeUrl); } catch { return; }
+    const timer = setTimeout(() => { ws.close(); }, 2000);
+    ws.onopen = () => {
+      clearTimeout(timer);
+      ws.close();
+      const cfg: ExternalEngineConfig = { name: 'Local Engine', wsUrl: 'ws://localhost:9090', secretKey: '' };
+      setSavedConfigs([cfg]);
+      saveEngineConfigs([cfg]);
+      setExternalConfig(cfg);
+      setEngineSource('external');
+      setExtUrlInput(cfg.wsUrl);
+      setExtNameInput(cfg.name);
+    };
+    ws.onerror = () => { clearTimeout(timer); };
+    ws.onclose = () => {};
+    return () => { clearTimeout(timer); ws.close(); };
+  }, []);
+
   // Auto-save UCI options to localStorage when they change
   useEffect(() => {
     if (savedConfigs.length === 0 || engineSource !== 'external') return;
