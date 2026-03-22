@@ -43,8 +43,10 @@ model User {
   gameAnalyses     GameAnalysis[]
   analyses         Analysis[]
   pgnImports       PgnImport[]
-  sentMessages     DirectMessage[]    @relation("SentMessages")
-  receivedMessages DirectMessage[]    @relation("ReceivedMessages")
+  sentMessages        DirectMessage[]  @relation("SentMessages")
+  receivedMessages    DirectMessage[]  @relation("ReceivedMessages")
+  sentFriendships     Friendship[]     @relation("FriendshipRequester")
+  receivedFriendships Friendship[]     @relation("FriendshipAddressee")
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -400,4 +402,26 @@ model LiveTournament {
 
   @@index([livechessUuid])
   @@map("live_tournaments")
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model Friendship {
+  id          String           @id @default(uuid()) @db.Uuid
+  requesterId String           @map("requester_id") @db.Uuid
+  addresseeId String           @map("addressee_id") @db.Uuid
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now()) @map("created_at")
+  updatedAt   DateTime         @updatedAt @map("updated_at")
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id])
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id])
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+  @@map("friendships")
 }
