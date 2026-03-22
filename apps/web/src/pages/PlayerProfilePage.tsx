@@ -1,8 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import type { PlayerProfileResponse } from '@kingside/shared';
+
+type FriendStatus = 'none' | 'pending' | 'friends' | 'loading';
+type FriendEntry = { friendshipId: string; user: { id: string } };
 
 const RATING_LABELS: Record<string, string> = {
   bullet: '⚡ Bullet',
@@ -38,11 +42,14 @@ function isOnline(lastSeenAt: string): boolean {
 export function PlayerProfilePage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
   const { username } = useParams<{ username: string }>();
   const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState('');
+  const [friendStatus, setFriendStatus] = useState<FriendStatus>('loading');
+  const [friendshipId, setFriendshipId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!username) return;
@@ -62,6 +69,56 @@ export function PlayerProfilePage() {
       })
       .finally(() => setLoading(false));
   }, [username, t]);
+
+  // Check friendship status
+  useEffect(() => {
+    if (!profile || !currentUser || profile.id === currentUser.id) {
+      setFriendStatus('none');
+      return;
+    }
+    setFriendStatus('loading');
+    api.get<{ data: FriendEntry[] }>('/api/friends')
+      .then(({ data }) => {
+        const entry = data.find((f) => f.user.id === profile.id);
+        if (entry) {
+          setFriendStatus('friends');
+          setFriendshipId(entry.friendshipId);
+        } else {
+          setFriendStatus('none');
+        }
+      })
+      .catch(() => setFriendStatus('none'));
+  }, [profile, currentUser]);
+
+  const handleAddFriend = useCallback(async () => {
+    if (!profile) return;
+    setFriendStatus('loading');
+    try {
+      await api.post(`/api/friends/request/${profile.id}`, {});
+      setFriendStatus('pending');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('already pending') || msg.includes('Already pending')) {
+        setFriendStatus('pending');
+      } else if (msg.includes('Already friends')) {
+        setFriendStatus('friends');
+      } else {
+        setFriendStatus('none');
+      }
+    }
+  }, [profile]);
+
+  const handleRemoveFriend = useCallback(async () => {
+    if (!friendshipId) return;
+    setFriendStatus('loading');
+    try {
+      await api.delete(`/api/friends/${friendshipId}`);
+      setFriendStatus('none');
+      setFriendshipId(null);
+    } catch {
+      setFriendStatus('friends');
+    }
+  }, [friendshipId]);
 
   if (loading) {
     return (
@@ -124,6 +181,25 @@ export function PlayerProfilePage() {
           >
             {t('playerProfile.sendMessage')}
           </button>
+          {currentUser && profile.id !== currentUser.id && friendStatus !== 'loading' && (
+            <>
+              {friendStatus === 'none' && (
+                <button className="player-profile-friend-btn" onClick={handleAddFriend}>
+                  {t('playerProfile.addFriend', 'Add Friend')}
+                </button>
+              )}
+              {friendStatus === 'pending' && (
+                <button className="player-profile-friend-btn player-profile-friend-btn--pending" disabled>
+                  {t('playerProfile.requestSent', 'Request Sent')}
+                </button>
+              )}
+              {friendStatus === 'friends' && (
+                <button className="player-profile-friend-btn player-profile-friend-btn--remove" onClick={handleRemoveFriend}>
+                  {t('playerProfile.removeFriend', 'Remove Friend')}
+                </button>
+              )}
+            </>
+          )}
           </div>
         </div>
       </div>
