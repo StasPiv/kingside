@@ -184,7 +184,7 @@ export class PuzzleService {
     let nextPuzzle = null;
     try {
       nextPuzzle = await this.getNextPuzzle(userId, puzzleId);
-    } catch {
+    } catch (e: unknown) { this.logger.warn(`Daily puzzle error: ${(e as Error).message ?? e}`);
       // no puzzles available — not critical
     }
 

@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Body,
   Controller,
@@ -36,7 +37,7 @@ export class PuzzleController {
   @UseGuards(JwtAuthGuard)
   @Get('next')
   getNextPuzzle(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Query('excludeId') excludeId?: string,
   ) {
     return this.puzzleService.getNextPuzzle(req.user.id, excludeId);
@@ -48,7 +49,7 @@ export class PuzzleController {
   @UseGuards(JwtAuthGuard)
   @Get('next/:theme')
   getNextPuzzleByTheme(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('theme') theme: string,
     @Query('excludeId') excludeId?: string,
   ) {
@@ -57,14 +58,14 @@ export class PuzzleController {
 
   @UseGuards(JwtAuthGuard)
   @Get('stats/me')
-  getMyStats(@Request() req: any) {
+  getMyStats(@Request() req: AuthenticatedRequest) {
     return this.puzzleService.getStats(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get('attempts')
   getAttempts(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Query('take', new DefaultValuePipe(20), ParseIntPipe) take: number,
     @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
   ) {
@@ -79,7 +80,7 @@ export class PuzzleController {
   @UseGuards(JwtAuthGuard)
   @Post(':id/attempts')
   submitAttempt(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
     @Body() dto: SubmitAttemptDto,
   ) {

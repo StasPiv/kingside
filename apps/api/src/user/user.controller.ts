@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Controller,
   Get,
@@ -32,7 +33,7 @@ export class UserController {
 
   @UseGuards(JwtAuthGuard)
   @Post('set-username')
-  async setUsername(@Request() req: any, @Body() dto: SetUsernameDto) {
+  async setUsername(@Request() req: AuthenticatedRequest, @Body() dto: SetUsernameDto) {
     const { user, isNewUser } = await this.userService.setUsername(req.user.id, dto.username);
     if (isNewUser) {
       const tokens = this.authService.generateTokens(user.id as string, user.username as string, false);
@@ -43,19 +44,19 @@ export class UserController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me/settings')
-  getSettings(@Request() req: any) {
+  getSettings(@Request() req: AuthenticatedRequest) {
     return this.userService.getSettings(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('me/settings')
-  updateSettings(@Request() req: any, @Body() dto: UpdateSettingsDto) {
+  updateSettings(@Request() req: AuthenticatedRequest, @Body() dto: UpdateSettingsDto) {
     return this.userService.updateSettings(req.user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard)
   @Patch('me/password')
-  changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
+  changePassword(@Request() req: AuthenticatedRequest, @Body() dto: ChangePasswordDto) {
     return this.userService.changePassword(req.user.id, dto);
   }
 

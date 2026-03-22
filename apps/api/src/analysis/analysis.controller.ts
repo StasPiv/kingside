@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Body,
   Controller,
@@ -22,18 +23,18 @@ export class AnalysisController {
   constructor(private readonly analysisService: AnalysisService) {}
 
   @Post()
-  create(@Request() req: any, @Body() dto: CreateAnalysisDto) {
+  create(@Request() req: AuthenticatedRequest, @Body() dto: CreateAnalysisDto) {
     return this.analysisService.create(req.user.id, dto);
   }
 
   @Get()
-  findAll(@Request() req: any) {
+  findAll(@Request() req: AuthenticatedRequest) {
     return this.analysisService.findAll(req.user.id);
   }
 
   @Get(':id')
   findOne(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.analysisService.findOne(req.user.id, id);
@@ -41,7 +42,7 @@ export class AnalysisController {
 
   @Put(':id')
   update(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAnalysisDto,
   ) {
@@ -50,7 +51,7 @@ export class AnalysisController {
 
   @Patch(':id')
   patch(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateAnalysisDto,
   ) {
@@ -59,7 +60,7 @@ export class AnalysisController {
 
   @Delete(':id')
   remove(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.analysisService.remove(req.user.id, id);

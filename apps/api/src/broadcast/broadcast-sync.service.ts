@@ -136,7 +136,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       if (!trimmed) continue;
       try {
         broadcasts.push(JSON.parse(trimmed));
-      } catch {
+      } catch (e: unknown) { this.logger.warn(`Broadcast sync parse error: ${(e as Error).message ?? e}`);
         // skip malformed lines
       }
     }
@@ -407,7 +407,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const chess = new Chess();
       chess.loadPgn(pgnText);
       return chess.fen();
-    } catch {
+    } catch (e: unknown) { this.logger.warn(`Broadcast stream error: ${(e as Error).message ?? e}`);
       return null;
     }
   }

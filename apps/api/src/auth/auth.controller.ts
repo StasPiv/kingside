@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Controller,
   Post,
@@ -53,7 +54,7 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  getMe(@Request() req: any) {
+  getMe(@Request() req: AuthenticatedRequest) {
     return this.authService.getMe(req.user.id);
   }
 
@@ -66,7 +67,7 @@ export class AuthController {
 
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
-  async googleCallback(@Request() req: any, @Res() res: Response) {
+  async googleCallback(@Request() req: AuthenticatedRequest, @Res() res: Response) {
     const profile = req.user as OAuthProfile;
     this.logger.log(`[Google OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`);
     try {
@@ -89,7 +90,7 @@ export class AuthController {
 
   @UseGuards(FacebookAuthGuard)
   @Get('facebook/callback')
-  async facebookCallback(@Request() req: any, @Res() res: Response) {
+  async facebookCallback(@Request() req: AuthenticatedRequest, @Res() res: Response) {
     const profile = req.user as OAuthProfile;
     this.logger.log(`[Facebook OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`);
     try {

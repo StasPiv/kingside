@@ -1,3 +1,4 @@
+import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Controller,
   Get,
@@ -21,20 +22,20 @@ export class WorkshopController {
   @Post('pgn-files')
   @UseInterceptors(FileInterceptor('file'))
   importPgn(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.workshopService.importPgn(req.user.id, file);
   }
 
   @Get('pgn-files')
-  findAllImports(@Request() req: any) {
+  findAllImports(@Request() req: AuthenticatedRequest) {
     return this.workshopService.findAllImports(req.user.id);
   }
 
   @Get('pgn-files/:id/games')
   findImportGames(
-    @Request() req: any,
+    @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.workshopService.findImportGames(req.user.id, id);
