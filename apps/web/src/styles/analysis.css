@@ -132,6 +132,16 @@
   cursor: default;
 }
 
+.analysis-controls-spacer {
+  width: 8px;
+}
+
+.analysis-export-btn {
+  font-size: 12px !important;
+  padding: 6px 10px !important;
+  white-space: nowrap;
+}
+
 /* Gap between board area and sidebar */
 .analysis-page {
   gap: 8px;

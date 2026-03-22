@@ -564,6 +564,34 @@ export function GameReviewPage() {
             <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>&#x2190;</button>
             <button onClick={gotoNext} disabled={isAtEnd} title={t('review.forward')}>&#x2192;</button>
             <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>&#x21E5;</button>
+            <span className="analysis-controls-spacer" />
+            <button
+              className="analysis-export-btn"
+              onClick={() => {
+                if (history.length === 0) return;
+                const headers: string[] = [];
+                headers.push(`[Event "${analysisTitle || 'Analysis'}"]`);
+                headers.push(`[Site "Kingside"]`);
+                headers.push(`[Date "${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}"]`);
+                if (pgnHeaders['White']) headers.push(`[White "${pgnHeaders['White']}"]`);
+                if (pgnHeaders['Black']) headers.push(`[Black "${pgnHeaders['Black']}"]`);
+                if (pgnHeaders['Result']) headers.push(`[Result "${pgnHeaders['Result']}"]`);
+                else headers.push('[Result "*"]');
+                const moves = serializeToAnnotatedPgn(history);
+                const pgn = headers.join('\n') + '\n\n' + moves + '\n';
+                const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${(analysisTitle || 'analysis').replace(/[^a-zA-Z0-9_-]/g, '_')}.pgn`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              disabled={history.length === 0}
+              title={t('review.exportPgn', 'Export PGN')}
+            >
+              &#x2B07; PGN
+            </button>
           </div>
         </div>
       </div>
