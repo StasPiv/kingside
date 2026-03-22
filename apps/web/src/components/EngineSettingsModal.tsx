@@ -1,4 +1,3 @@
-import { useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { ExternalEngineConfig } from '../hooks/useExternalEngine';
@@ -21,6 +20,8 @@ type Props = {
   savedConfigs: ExternalEngineConfig[];
   externalConfig: ExternalEngineConfig | null;
   setEngineOption: (name: string, value: string) => void;
+  connectionState?: string;
+  errorMessage?: string | null;
   onClose: () => void;
   onSwitchToWasm: () => void;
   onSwitchToExternal: () => void;
@@ -28,6 +29,20 @@ type Props = {
   onSelectSavedConfig: (cfg: ExternalEngineConfig) => void;
   onDeleteConfig: (wsUrl: string) => void;
 };
+
+function ConnectionStatus({ state, error }: { state?: string; error?: string | null }) {
+  if (!state || state === 'idle') return null;
+  const label =
+    state === 'connecting' ? 'Connecting...'
+    : state === 'ready' || state === 'analyzing' ? 'Connected'
+    : state === 'error' ? (error || 'Connection failed')
+    : state;
+  const cls =
+    state === 'connecting' ? 'engine-status--connecting'
+    : state === 'ready' || state === 'analyzing' ? 'engine-status--connected'
+    : 'engine-status--error';
+  return <div className={`engine-connection-status ${cls}`}>{label}</div>;
+}
 
 export function EngineSettingsModal({
   engineSource,
@@ -46,6 +61,8 @@ export function EngineSettingsModal({
   savedConfigs,
   externalConfig,
   setEngineOption,
+  connectionState,
+  errorMessage,
   onClose,
   onSwitchToWasm,
   onSwitchToExternal,
@@ -54,40 +71,14 @@ export function EngineSettingsModal({
   onDeleteConfig,
 }: Props) {
   const { t } = useTranslation();
-  const configFileRef = useRef<HTMLInputElement>(null);
-
-  const handleLoadConfigFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      if (!text) return;
-      const lines = text.split('\n');
-      let port = '9090';
-      let secret = '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('#') || !trimmed.includes(':')) continue;
-        const colonIdx = trimmed.indexOf(':');
-        const key = trimmed.slice(0, colonIdx).trim();
-        const val = trimmed.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, '');
-        if (key === 'port') port = val;
-        if (key === 'secret' || key === 'secret_key') secret = val;
-      }
-      setExtUrlInput(`ws://localhost:${port}`);
-      setExtKeyInput(secret);
-      if (!extNameInput) setExtNameInput('Local Engine');
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  }, [extNameInput, setExtUrlInput, setExtKeyInput, setExtNameInput]);
+  const isConnecting = connectionState === 'connecting';
+  const isLocalhost = extUrlInput.includes('localhost') || extUrlInput.includes('127.0.0.1');
 
   return (
     <div className="engine-modal-overlay" onClick={onClose}>
       <div className="engine-modal" onClick={(e) => e.stopPropagation()}>
         <div className="engine-modal-header">
-          <h3>Engine Settings</h3>
+          <h3>{t('engineSettings.title', 'Engine Settings')}</h3>
           <button className="engine-modal-close" onClick={onClose}>✕</button>
         </div>
 
@@ -123,21 +114,28 @@ export function EngineSettingsModal({
         {engineSource === 'external' && (
           <div className="engine-settings-form">
             <input
-              ref={configFileRef}
-              type="file"
-              accept=".yaml,.yml"
-              style={{ display: 'none' }}
-              onChange={handleLoadConfigFile}
+              type="text"
+              placeholder={t('engineSettings.namePlaceholder', 'Engine name')}
+              value={extNameInput}
+              onChange={(e) => setExtNameInput(e.target.value)}
+              className="engine-settings-input"
             />
-            <button
-              className="engine-load-config-btn"
-              onClick={() => configFileRef.current?.click()}
-            >
-              📂 {t('engineSettings.loadConfig')}
-            </button>
-            <input type="text" placeholder="Name" value={extNameInput} onChange={(e) => setExtNameInput(e.target.value)} className="engine-settings-input" />
-            <input type="text" placeholder="ws://host:port" value={extUrlInput} onChange={(e) => setExtUrlInput(e.target.value)} className="engine-settings-input" />
-            <input type="password" placeholder="Secret key" value={extKeyInput} onChange={(e) => setExtKeyInput(e.target.value)} className="engine-settings-input" />
+            <input
+              type="text"
+              placeholder="ws://host:port"
+              value={extUrlInput}
+              onChange={(e) => setExtUrlInput(e.target.value)}
+              className="engine-settings-input"
+            />
+            {!isLocalhost && (
+              <input
+                type="password"
+                placeholder={t('engineSettings.keyPlaceholder', 'Secret key (not needed for localhost)')}
+                value={extKeyInput}
+                onChange={(e) => setExtKeyInput(e.target.value)}
+                className="engine-settings-input"
+              />
+            )}
 
             <div className="engine-uci-options">
               <div className="engine-uci-row">
@@ -150,16 +148,26 @@ export function EngineSettingsModal({
               </div>
             </div>
 
+            <ConnectionStatus state={connectionState} error={errorMessage} />
+
             <div className="engine-settings-actions">
-              <button onClick={onConnectExternal} className="engine-connect-btn">Connect</button>
+              <button onClick={onConnectExternal} className="engine-connect-btn" disabled={isConnecting || !extUrlInput.trim()}>
+                {isConnecting ? t('engineSettings.connecting', 'Connecting...') : t('engineSettings.connect', 'Connect')}
+              </button>
             </div>
 
             {savedConfigs.length > 0 && (
               <div className="engine-saved-list">
-                <div className="engine-saved-label">Saved:</div>
+                <div className="engine-saved-label">{t('engineSettings.saved', 'Saved engines:')}</div>
                 {savedConfigs.map((cfg) => (
                   <div key={cfg.wsUrl} className="engine-saved-row">
-                    <button className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`} onClick={() => { onSelectSavedConfig(cfg); onClose(); }}>{cfg.name}</button>
+                    <button
+                      className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`}
+                      onClick={() => { onSelectSavedConfig(cfg); onClose(); }}
+                    >
+                      {cfg.name}
+                      <span className="engine-saved-url">{cfg.wsUrl}</span>
+                    </button>
                     <button className="engine-saved-delete" onClick={() => onDeleteConfig(cfg.wsUrl)} title="Delete">✕</button>
                   </div>
                 ))}

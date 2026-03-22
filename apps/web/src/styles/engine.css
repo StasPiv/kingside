@@ -437,3 +437,36 @@
   min-width: 14px;
   text-align: center;
 }
+
+.engine-connection-status {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  text-align: center;
+  margin: 8px 0;
+}
+
+.engine-status--connecting {
+  background: #1e2a4a;
+  color: #a0a0c0;
+  border: 1px solid #4a4a8e;
+}
+
+.engine-status--connected {
+  background: #0a2e1a;
+  color: #16a34a;
+  border: 1px solid #16a34a;
+}
+
+.engine-status--error {
+  background: #2e0a0a;
+  color: #ef4444;
+  border: 1px solid #ef4444;
+}
+
+.engine-saved-url {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  font-weight: normal;
+}

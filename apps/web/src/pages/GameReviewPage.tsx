@@ -698,6 +698,8 @@ export function GameReviewPage() {
           savedConfigs={ec.savedConfigs}
           externalConfig={ec.externalConfig}
           setEngineOption={setEngineOption}
+          connectionState={sfState}
+          errorMessage={engineErrorMessage}
           onClose={() => ec.setShowEngineModal(false)}
           onSwitchToWasm={ec.handleSwitchToWasm}
           onSwitchToExternal={() => ec.setEngineSource('external')}
