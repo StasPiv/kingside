@@ -566,6 +566,25 @@
   margin-bottom: 8px;
 }
 
+.workshop-analyses-new-btn {
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workshop-analyses-new-btn:hover {
+  background: #6366f1;
+}
+
+.workshop-analyses-toolbar__spacer {
+  flex: 1;
+}
+
 .workshop-analyses-select-btn,
 .workshop-analyses-cancel-btn {
   background: #3a3a6e;

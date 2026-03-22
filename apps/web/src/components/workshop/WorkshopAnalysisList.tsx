@@ -144,25 +144,18 @@ export function WorkshopAnalysisList() {
 
   return (
     <section className="workshop-section-block">
-      <h2 className="workshop-section-block__title">{t('workshop.myAnalyses.title')}</h2>
-      {!user ? (
-        <p className="workshop-section-block__empty">
-          {t('workshop.myAnalyses.loginRequired', 'Sign in to save your analyses')}
-        </p>
-      ) : loading ? (
-        <p className="workshop-section-block__empty">{t('common.loading')}</p>
-      ) : error ? (
-        <p className="workshop-section-block__empty">{error}</p>
-      ) : allAnalyses.length === 0 ? (
-        <p className="workshop-section-block__empty">{t('workshop.myAnalyses.empty')}</p>
-      ) : (
-        <>
-          <div className="workshop-analyses-toolbar">
-            {!selectMode ? (
-              <button className="workshop-analyses-select-btn" onClick={() => setSelectMode(true)}>
-                {t('workshop.myAnalyses.select', 'Select')}
-              </button>
-            ) : (
+      <div className="workshop-analyses-toolbar">
+        <button className="workshop-analyses-new-btn" onClick={() => navigate('/analysis')}>
+          + {t('workshop.myAnalyses.newAnalysis', 'New Analysis')}
+        </button>
+        <span className="workshop-analyses-toolbar__spacer" />
+        {!selectMode ? (
+          allAnalyses.length > 0 && (
+            <button className="workshop-analyses-select-btn" onClick={() => setSelectMode(true)}>
+              {t('workshop.myAnalyses.select', 'Select')}
+            </button>
+          )
+        ) : (
               <>
                 <label className="workshop-analyses-select-all">
                   <input
@@ -191,7 +184,19 @@ export function WorkshopAnalysisList() {
                 </button>
               </>
             )}
-          </div>
+      </div>
+      {!user ? (
+        <p className="workshop-section-block__empty">
+          {t('workshop.myAnalyses.loginRequired', 'Sign in to save your analyses')}
+        </p>
+      ) : loading ? (
+        <p className="workshop-section-block__empty">{t('common.loading')}</p>
+      ) : error ? (
+        <p className="workshop-section-block__empty">{error}</p>
+      ) : allAnalyses.length === 0 ? (
+        <p className="workshop-section-block__empty">{t('workshop.myAnalyses.empty')}</p>
+      ) : (
+        <>
           <div className="workshop-analyses-list">
             {visibleAnalyses.map((analysis) => (
               <div

@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { WorkshopAnalysisList } from '../components/workshop/WorkshopAnalysisList';
-import { WorkshopPgnUpload } from '../components/workshop/WorkshopPgnUpload';
 import { WorkshopPgnList } from '../components/workshop/WorkshopPgnList';
 import type { PgnFile } from '../components/workshop/WorkshopPgnList';
 
@@ -128,10 +127,7 @@ export function WorkshopPage() {
 
       <div className="workshop-page__content">
         {section === 'myAnalyses' && (
-          <>
-            <WorkshopPgnUpload />
-            <WorkshopAnalysisList />
-          </>
+          <WorkshopAnalysisList />
         )}
         {section === 'pgnFiles' && (
           fileLoading ? (

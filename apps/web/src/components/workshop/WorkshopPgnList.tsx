@@ -103,7 +103,6 @@ function PgnFilesList({ onSelectFile }: { onSelectFile: (file: PgnFile) => void 
   return (
     <section className="workshop-section-block">
       <div className="workshop-section-block__header">
-        <h2 className="workshop-section-block__title">{t('workshop.pgnFiles.title')}</h2>
         <input
           ref={inputRef}
           type="file"
