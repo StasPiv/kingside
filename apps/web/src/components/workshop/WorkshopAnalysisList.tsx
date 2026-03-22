@@ -96,8 +96,10 @@ export function WorkshopAnalysisList() {
       const a = document.createElement('a');
       a.href = url;
       a.download = `analyses-${new Date().toISOString().slice(0, 10)}.pgn`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
     } catch { /* ignore */ }
     finally { setExporting(false); }
   };

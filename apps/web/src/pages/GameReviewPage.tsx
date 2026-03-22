@@ -606,8 +606,13 @@ export function GameReviewPage() {
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = `${(analysisTitle || 'analysis').replace(/[^a-zA-Z0-9_-]/g, '_')}.pgn`;
+                a.style.display = 'none';
+                document.body.appendChild(a);
                 a.click();
-                URL.revokeObjectURL(url);
+                setTimeout(() => {
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }, 100);
               }}
               disabled={history.length === 0}
               title={t('review.exportPgn', 'Export PGN')}
