@@ -66,11 +66,18 @@ input:focus {
   border-color: #7c83ff;
 }
 
-/* Header */
+/* Header — fixed instead of sticky (sticky breaks with overflow:hidden on parent) */
 .header {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 100;
+}
+
+/* Offset content below fixed header (nav height ~48px) */
+.app {
+  padding-top: 48px;
 }
 
 .header nav {
