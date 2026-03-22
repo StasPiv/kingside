@@ -16,66 +16,10 @@ import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
+import { formatEval, formatPv } from '../utils/chessFormat';
+import { EvalBar } from '../components/EvalBar';
 import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types';
 import { formatPlayerName } from '../dgt.types';
-
-function formatEval(line: EvalLine, isBlackTurn = false): string {
-  const sign = isBlackTurn ? -1 : 1;
-  if (line.score.type === 'mate') {
-    const mateValue = sign * line.score.value;
-    return mateValue === 0 ? '#' : `M${Math.abs(mateValue)}`;
-  }
-  const cp = (sign * line.score.value) / 100;
-  return (cp >= 0 ? '+' : '') + cp.toFixed(2);
-}
-
-function evalToPercent(lines: EvalLine[], isBlackTurn: boolean): number {
-  if (lines.length === 0) return 50;
-  const line = lines[0];
-  const sign = isBlackTurn ? -1 : 1;
-  if (line.score.type === 'mate') {
-    const mateValue = sign * line.score.value;
-    return mateValue > 0 ? 95 : mateValue < 0 ? 5 : 50;
-  }
-  const cp = sign * line.score.value;
-  const pct = 50 + 50 * (2 / (1 + Math.exp(-0.004 * cp)) - 1);
-  return Math.max(2, Math.min(98, pct));
-}
-
-function formatPv(pv: string, fen: string): string {
-  try {
-    const chess = new Chess(fen);
-    const uciMoves = pv.split(' ');
-    const fenParts = fen.split(' ');
-    let isWhiteTurn = fenParts[1] === 'w';
-    let moveNumber = parseInt(fenParts[5] || '1', 10);
-    const parts: string[] = [];
-    for (const uci of uciMoves.slice(0, 8)) {
-      const from = uci.slice(0, 2);
-      const to = uci.slice(2, 4);
-      const promotion = uci.length > 4 ? uci[4] : undefined;
-      let move;
-      try {
-        move = chess.move({ from, to, promotion });
-      } catch {
-        break;
-      }
-      if (!move) break;
-      if (isWhiteTurn) {
-        parts.push(`${moveNumber}. ${move.san}`);
-      } else if (parts.length === 0) {
-        parts.push(`${moveNumber}... ${move.san}`);
-      } else {
-        parts.push(move.san);
-      }
-      if (!isWhiteTurn) moveNumber++;
-      isWhiteTurn = !isWhiteTurn;
-    }
-    return parts.join(' ');
-  } catch {
-    return '';
-  }
-}
 
 function loadGameIntoReview(
   game: DgtGame,
@@ -403,7 +347,6 @@ export function BroadcastGamePage() {
 
   const isBlackTurn = currentFen.split(' ')[1] === 'b';
   const evalIsBlackTurn = analysisFen ? analysisFen.split(' ')[1] === 'b' : isBlackTurn;
-  const whitePercent = evalToPercent(displayedLines, evalIsBlackTurn);
 
   const isAtStart = currentMove === null;
   const isAtEnd = currentMove !== null && !currentMove.next;
@@ -489,17 +432,7 @@ export function BroadcastGamePage() {
           )}
 
           <div className="analysis-eval-board-row">
-            <div className="eval-bar-container">
-              <div className="eval-bar">
-                <div
-                  className="eval-bar-white"
-                  style={{ transform: `scaleY(${whitePercent / 100})` }}
-                />
-                <div className="eval-bar-label">
-                  {displayedLines.length > 0 ? formatEval(displayedLines[0], evalIsBlackTurn) : '0.0'}
-                </div>
-              </div>
-            </div>
+            <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />
             <div className="board-container" ref={boardContainerRef}>
               <MemoChessboard options={boardOptions} />
             </div>

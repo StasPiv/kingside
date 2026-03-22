@@ -6,6 +6,7 @@ import type { Square } from 'chess.js';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { GameInfoPanel } from '../components/GameInfoPanel';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
+import { EvalBar } from '../components/EvalBar';
 import { useStablePosition } from '../hooks/useStablePosition';
 import type { EvalLine } from '../hooks/useStockfish';
 import { useEngine } from '../hooks/useEngine';
@@ -23,7 +24,7 @@ import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
-import { formatEval, evalToPercent, formatPv, formatCompact } from '../utils/chessFormat';
+import { formatEval, formatPv, formatCompact } from '../utils/chessFormat';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
@@ -434,7 +435,6 @@ export function GameReviewPage() {
   // --- Computed values ---
   const isBlackTurn = currentFen.split(' ')[1] === 'b';
   const evalIsBlackTurn = analysisFen ? analysisFen.split(' ')[1] === 'b' : isBlackTurn;
-  const whitePercent = evalToPercent(displayedLines, evalIsBlackTurn);
   const isAtStart = currentMove === null;
   const isAtEnd = currentMove !== null && !currentMove.next;
 
@@ -542,14 +542,7 @@ export function GameReviewPage() {
           )}
 
           <div className="analysis-eval-board-row">
-            <div className="eval-bar-container">
-              <div className="eval-bar">
-                <div className="eval-bar-white" style={{ transform: `scaleY(${whitePercent / 100})` }} />
-                <div className="eval-bar-label">
-                  {displayedLines.length > 0 ? formatEval(displayedLines[0], evalIsBlackTurn) : '0.0'}
-                </div>
-              </div>
-            </div>
+            <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />
             <div className="board-container" ref={boardContainerRef}>
               <MemoChessboard options={boardOptions} />
             </div>
