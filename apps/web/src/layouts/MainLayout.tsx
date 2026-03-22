@@ -62,10 +62,16 @@ export function MainLayout() {
     return () => { messagesSocket.off(MessageEvents.NEW_MESSAGE, onNewMessage); };
   }, [user]);
 
+  const [appVersion, setAppVersion] = useState('');
+
   useEffect(() => {
-    if (typeof __BUILD_VERSION__ === 'string') {
-      document.title = `Kingside (v.${__BUILD_VERSION__})`;
-    }
+    fetch('/version.json')
+      .then((r) => r.json())
+      .then((data: { version: string }) => {
+        setAppVersion(data.version);
+        document.title = `Kingside (v.${data.version})`;
+      })
+      .catch(() => {});
   }, []);
 
   const closeAll = () => {
@@ -77,7 +83,7 @@ export function MainLayout() {
     <div className="app">
       <header className="header">
         <nav>
-          <Link to="/lobby" className="logo" onClick={closeAll}>Kingside{typeof __BUILD_VERSION__ === 'string' ? ` (v.${__BUILD_VERSION__})` : ''}</Link>
+          <Link to="/lobby" className="logo" onClick={closeAll}>Kingside{appVersion ? ` (v.${appVersion})` : ''}</Link>
 
           <button
             className="hamburger"
