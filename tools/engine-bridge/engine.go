@@ -119,11 +119,11 @@ func (e *Engine) Analyze(fen string, depth int, multiPV int, lineCb func(LineMes
 
 	e.send(fmt.Sprintf("position fen %s", fen))
 
-	depthStr := ""
+	goCmd := "go infinite"
 	if depth > 0 {
-		depthStr = fmt.Sprintf(" depth %d", depth)
+		goCmd = fmt.Sprintf("go depth %d", depth)
 	}
-	e.send(fmt.Sprintf("go%s", depthStr))
+	e.send(goCmd)
 
 	for e.stdout.Scan() {
 		line := e.stdout.Text()
