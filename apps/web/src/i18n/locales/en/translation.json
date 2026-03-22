@@ -603,7 +603,8 @@
     "onlineCount": "{{count}} players online",
     "showing": "Showing {{count}} of {{total}}",
     "searchPlaceholder": "Search by username...",
-    "searchHint": "Enter at least 2 characters"
+    "searchHint": "Enter at least 2 characters",
+    "loadMore": "Load More"
   },
   "playerProfile": {
     "notFound": "Player not found",

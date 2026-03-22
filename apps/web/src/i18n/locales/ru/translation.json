@@ -603,7 +603,8 @@
     "onlineCount": "{{count}} игроков онлайн",
     "showing": "Показано {{count}} из {{total}}",
     "searchPlaceholder": "Поиск по имени...",
-    "searchHint": "Введите минимум 2 символа"
+    "searchHint": "Введите минимум 2 символа",
+    "loadMore": "Загрузить ещё"
   },
   "playerProfile": {
     "notFound": "Игрок не найден",

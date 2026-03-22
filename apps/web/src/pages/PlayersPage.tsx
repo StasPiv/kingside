@@ -63,11 +63,13 @@ export function PlayersPage() {
   const [topPlayers, setTopPlayers] = useState<TopPlayerItem[]>([]);
   const [topTotal, setTopTotal] = useState(0);
   const [topLoading, setTopLoading] = useState(false);
+  const [topLoadingMore, setTopLoadingMore] = useState(false);
 
   // Online players state
   const [onlinePlayers, setOnlinePlayers] = useState<OnlinePlayerItem[]>([]);
   const [onlineTotal, setOnlineTotal] = useState(0);
   const [onlineLoading, setOnlineLoading] = useState(false);
+  const [onlineLoadingMore, setOnlineLoadingMore] = useState(false);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,11 +77,13 @@ export function PlayersPage() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchDone, setSearchDone] = useState(false);
 
+  const PAGE_SIZE = 50;
+
   // Load top players
   const loadTop = useCallback(async (type: RatingType) => {
     setTopLoading(true);
     try {
-      const data = await api.get<TopPlayersResponse>(`/api/players/top?type=${type}&limit=50`);
+      const data = await api.get<TopPlayersResponse>(`/api/players/top?type=${type}&limit=${PAGE_SIZE}`);
       setTopPlayers(data.data);
       setTopTotal(data.total);
     } catch {
@@ -89,11 +93,21 @@ export function PlayersPage() {
     }
   }, []);
 
+  const loadMoreTop = useCallback(async () => {
+    setTopLoadingMore(true);
+    try {
+      const data = await api.get<TopPlayersResponse>(`/api/players/top?type=${ratingType}&limit=${PAGE_SIZE}&offset=${topPlayers.length}`);
+      setTopPlayers((prev) => [...prev, ...data.data]);
+      setTopTotal(data.total);
+    } catch { /* ignore */ }
+    finally { setTopLoadingMore(false); }
+  }, [ratingType, topPlayers.length]);
+
   // Load online players
   const loadOnline = useCallback(async () => {
     setOnlineLoading(true);
     try {
-      const data = await api.get<OnlinePlayersResponse>('/api/players/online?limit=50');
+      const data = await api.get<OnlinePlayersResponse>(`/api/players/online?limit=${PAGE_SIZE}`);
       setOnlinePlayers(data.data);
       setOnlineTotal(data.total);
     } catch {
@@ -102,6 +116,16 @@ export function PlayersPage() {
       setOnlineLoading(false);
     }
   }, []);
+
+  const loadMoreOnline = useCallback(async () => {
+    setOnlineLoadingMore(true);
+    try {
+      const data = await api.get<OnlinePlayersResponse>(`/api/players/online?limit=${PAGE_SIZE}&offset=${onlinePlayers.length}`);
+      setOnlinePlayers((prev) => [...prev, ...data.data]);
+      setOnlineTotal(data.total);
+    } catch { /* ignore */ }
+    finally { setOnlineLoadingMore(false); }
+  }, [onlinePlayers.length]);
 
   // Load on tab/type change
   useEffect(() => {
@@ -231,6 +255,17 @@ export function PlayersPage() {
                   {t('players.showing', { count: topPlayers.length, total: topTotal })}
                 </div>
               )}
+              {topPlayers.length < topTotal && (
+                <div className="players-load-more">
+                  <button
+                    className="players-load-more-btn"
+                    onClick={loadMoreTop}
+                    disabled={topLoadingMore}
+                  >
+                    {topLoadingMore ? t('common.loading') : t('players.loadMore', 'Load More')}
+                  </button>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -274,6 +309,17 @@ export function PlayersPage() {
               </table>
               {onlinePlayers.length === 0 && (
                 <div className="players-empty">{t('players.noOnline')}</div>
+              )}
+              {onlinePlayers.length < onlineTotal && (
+                <div className="players-load-more">
+                  <button
+                    className="players-load-more-btn"
+                    onClick={loadMoreOnline}
+                    disabled={onlineLoadingMore}
+                  >
+                    {onlineLoadingMore ? t('common.loading') : t('players.loadMore', 'Load More')}
+                  </button>
+                </div>
               )}
             </>
           )}
