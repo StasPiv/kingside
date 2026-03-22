@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { useChallenge } from '../hooks/useChallenge';
+import { ChallengeModal } from '../components/ChallengeModal';
+import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 
 type FriendItem = {
   friendshipId: string;
@@ -21,6 +24,8 @@ export function FriendsPage() {
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [challengeTarget, setChallengeTarget] = useState<{ id: string; username: string } | null>(null);
+  const { state: challengeState, incoming, error: challengeError, sendChallenge, acceptChallenge, declineChallenge, cancel: cancelChallenge } = useChallenge();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -114,6 +119,9 @@ export function FriendsPage() {
                   <span className="friends-item__rating">{f.user.ratingBlitz}</span>
                 </div>
                 <div className="friends-item__actions">
+                  <button className="friends-btn friends-btn--challenge" onClick={() => setChallengeTarget({ id: f.user.id, username: f.user.username })}>
+                    ⚔ {t('challenge.button', 'Challenge')}
+                  </button>
                   <button className="friends-btn friends-btn--remove" onClick={() => handleRemove(f.friendshipId)}>
                     ✕
                   </button>
@@ -154,6 +162,24 @@ export function FriendsPage() {
           <p>{t('friends.empty', 'No friends yet. Visit player profiles to send friend requests.')}</p>
           <Link to="/players" className="friends-link">{t('friends.browsePlayers', 'Browse Players')}</Link>
         </div>
+      )}
+
+      {challengeTarget && (
+        <ChallengeModal
+          targetUsername={challengeTarget.username}
+          waiting={challengeState === 'waiting'}
+          error={challengeError}
+          onSend={(timeInitial, increment) => sendChallenge({ targetUserId: challengeTarget.id, timeInitial, increment })}
+          onClose={() => { setChallengeTarget(null); cancelChallenge(); }}
+        />
+      )}
+
+      {incoming && (
+        <IncomingChallengeToast
+          challenge={incoming}
+          onAccept={acceptChallenge}
+          onDecline={declineChallenge}
+        />
       )}
     </div>
   );

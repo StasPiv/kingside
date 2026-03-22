@@ -25,6 +25,16 @@
     "empty": "No friends yet. Visit player profiles to send friend requests.",
     "browsePlayers": "Browse Players"
   },
+  "challenge": {
+    "title": "Challenge",
+    "button": "Challenge",
+    "selectTime": "Select time control:",
+    "send": "Send Challenge",
+    "waiting": "Waiting for response...",
+    "incoming": "challenges you to a game!",
+    "accept": "Accept",
+    "decline": "Decline"
+  },
   "broadcasts": {
     "title": "Broadcasts",
     "empty": "No broadcasts available",
