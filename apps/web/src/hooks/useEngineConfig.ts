@@ -7,9 +7,17 @@ const DEFAULT_MULTI_PV = 3;
 
 export function useEngineConfig() {
   const [savedConfigs, setSavedConfigs] = useState<ExternalEngineConfig[]>(() => loadEngineConfigs());
-  const [engineSource, setEngineSource] = useState<EngineSource>(() =>
-    loadEngineConfigs().length > 0 ? 'external' : 'wasm',
-  );
+  const [engineSource, setEngineSourceRaw] = useState<EngineSource>(() => {
+    try {
+      const saved = localStorage.getItem('engineSource');
+      if (saved === 'wasm' || saved === 'external') return saved;
+    } catch { /* ignore */ }
+    return loadEngineConfigs().length > 0 ? 'external' : 'wasm';
+  });
+  const setEngineSource = useCallback((source: EngineSource) => {
+    setEngineSourceRaw(source);
+    try { localStorage.setItem('engineSource', source); } catch { /* ignore */ }
+  }, []);
   const [externalConfig, setExternalConfig] = useState<ExternalEngineConfig | null>(() => {
     const configs = loadEngineConfigs();
     return configs.length > 0 ? configs[0] : null;
