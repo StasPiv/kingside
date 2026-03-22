@@ -437,14 +437,3 @@
   min-width: 14px;
   text-align: center;
 }
-
-.app-footer {
-  text-align: center;
-  padding: 8px 0;
-  opacity: 0.35;
-}
-
-.app-version {
-  font-size: 10px;
-  color: #888;
-}
