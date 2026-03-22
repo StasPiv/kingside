@@ -1,6 +1,7 @@
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
   Controller,
+  Delete,
   Get,
   Patch,
   Post,
@@ -12,6 +13,7 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { UserService } from './user.service';
+import { BlockService } from './block.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { SearchGamesDto } from './dto/search-games.dto';
@@ -24,6 +26,7 @@ export class UserController {
   constructor(
     private readonly userService: UserService,
     private readonly authService: AuthService,
+    private readonly blockService: BlockService,
   ) {}
 
   @Get('check-username')
@@ -76,5 +79,29 @@ export class UserController {
     @Query() dto: SearchGamesDto,
   ) {
     return this.userService.getUserGames(id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('block/:userId')
+  blockUser(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.blockService.blockUser(req.user.id, userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('unblock/:userId')
+  unblockUser(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.blockService.unblockUser(req.user.id, userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('blocked')
+  getBlockedUsers(@Request() req: AuthenticatedRequest) {
+    return this.blockService.getBlockedUsers(req.user.id);
   }
 }

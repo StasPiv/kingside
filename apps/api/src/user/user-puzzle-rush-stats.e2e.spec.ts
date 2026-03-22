@@ -21,6 +21,7 @@ import request from 'supertest';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { AuthService } from '../auth/auth.service';
+import { BlockService } from './block.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 describe('GET /users/:id/puzzle-rush-stats E2E', () => {
@@ -44,6 +45,7 @@ describe('GET /users/:id/puzzle-rush-stats E2E', () => {
       providers: [
         { provide: UserService, useValue: mockService },
         { provide: AuthService, useValue: { generateTokens: jest.fn() } },
+        { provide: BlockService, useValue: {} },
       ],
     })
       .overrideGuard(JwtAuthGuard)
@@ -225,6 +227,7 @@ describe('GET /users/:id/puzzle-rush-stats E2E', () => {
         providers: [
           { provide: UserService, useValue: mockService },
           { provide: AuthService, useValue: { generateTokens: jest.fn() } },
+        { provide: BlockService, useValue: {} },
         ],
       })
         .overrideGuard(JwtAuthGuard)
