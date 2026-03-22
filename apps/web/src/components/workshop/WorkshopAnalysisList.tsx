@@ -90,8 +90,19 @@ export function WorkshopAnalysisList() {
     if (selected.size === 0) return;
     setExporting(true);
     try {
-      const res = await api.post<string>('/api/analyses/export', { ids: Array.from(selected) });
-      const blob = new Blob([res], { type: 'application/x-chess-pgn' });
+      const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/analyses/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ ids: Array.from(selected) }),
+      });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const pgn = await res.text();
+      const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -100,8 +111,11 @@ export function WorkshopAnalysisList() {
       document.body.appendChild(a);
       a.click();
       setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-    } catch { /* ignore */ }
-    finally { setExporting(false); }
+    } catch (err) {
+      console.error('[Export PGN] Failed:', err);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const formatDate = (iso: string) => {
