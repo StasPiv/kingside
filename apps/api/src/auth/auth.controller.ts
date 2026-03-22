@@ -67,8 +67,8 @@ export class AuthController {
 
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
-  async googleCallback(@Request() req: AuthenticatedRequest, @Res() res: Response) {
-    const profile = req.user as OAuthProfile;
+  async googleCallback(@Request() req: { user: OAuthProfile }, @Res() res: Response) {
+    const profile = req.user;
     this.logger.log(`[Google OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`);
     try {
       const tokens = await this.authService.findOrCreateOAuthUser(profile);
@@ -90,8 +90,8 @@ export class AuthController {
 
   @UseGuards(FacebookAuthGuard)
   @Get('facebook/callback')
-  async facebookCallback(@Request() req: AuthenticatedRequest, @Res() res: Response) {
-    const profile = req.user as OAuthProfile;
+  async facebookCallback(@Request() req: { user: OAuthProfile }, @Res() res: Response) {
+    const profile = req.user;
     this.logger.log(`[Facebook OAuth] callback received for ${profile?.email ?? profile?.providerId ?? 'unknown'}`);
     try {
       const tokens = await this.authService.findOrCreateOAuthUser(profile);

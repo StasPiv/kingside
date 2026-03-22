@@ -33,7 +33,7 @@ export class MessageController {
       dto.text,
     );
 
-    this.messageGateway.notifyNewMessage(message, req.user.username);
+    this.messageGateway.notifyNewMessage(message, req.user.username ?? 'anonymous');
 
     return message;
   }
