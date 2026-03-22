@@ -295,6 +295,7 @@ export function useReviewState() {
     currentMove: state.currentMove,
     currentGlobalIndex,
     currentFen,
+    initialFen: state.initialFen,
     isInVariation,
     loadMoves,
     loadFromPgn,

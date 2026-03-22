@@ -46,6 +46,10 @@ function isResult(token: string): boolean {
 }
 
 export function parseAnnotatedPgn(pgn: string): ChessMove[] {
+  // Extract FEN header if present
+  const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
+  const startFen = fenMatch ? fenMatch[1] : undefined;
+
   // Strip PGN tag pairs (lines like [White "Name"]) before tokenizing
   const withoutHeaders = pgn.replace(/^\[.*\]\s*$/gm, '');
   const tokens = tokenize(withoutHeaders);
@@ -116,8 +120,17 @@ export function parseAnnotatedPgn(pgn: string): ChessMove[] {
     return moves;
   }
 
-  const chess = new Chess();
-  const history = parseMoves(chess, 1);
+  const chess = startFen ? new Chess(startFen) : new Chess();
+  // Compute starting ply from FEN (fullmove number * 2 - (white=1, black=0))
+  const startPly = startFen
+    ? (() => {
+        const parts = startFen.split(' ');
+        const fullmove = parseInt(parts[5] || '1', 10);
+        const isBlack = parts[1] === 'b';
+        return (fullmove - 1) * 2 + (isBlack ? 2 : 1);
+      })()
+    : 1;
+  const history = parseMoves(chess, startPly);
   linkAllMovesRecursively(history);
   return history;
 }

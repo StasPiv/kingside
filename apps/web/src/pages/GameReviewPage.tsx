@@ -47,6 +47,13 @@ type GameData = {
   };
 };
 
+const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+function buildPgnWithFen(moves: string, fen: string): string {
+  if (fen === DEFAULT_FEN) return moves;
+  return `[FEN "${fen}"]\n\n${moves}`;
+}
+
 type MoveData = {
   san: string;
   uci: string;
@@ -105,7 +112,7 @@ export function GameReviewPage() {
   const { inputMode } = useBoardSettings();
 
   const {
-    history, currentMove, currentGlobalIndex, currentFen,
+    history, currentMove, currentGlobalIndex, currentFen, initialFen,
     loadMoves, loadFromPgn, setInitialFen, gotoMove, gotoFirst, gotoLast,
     gotoPrevious, gotoNext, makeVariantMove, removeVariation,
     truncateRemaining, promoteVariation,
@@ -199,6 +206,9 @@ export function GameReviewPage() {
         getById(id).then((saved) => {
           if (saved?.pgn) {
             try {
+              // Restore custom starting position if FEN header present
+              const fenMatch = saved.pgn.match(/\[FEN\s+"([^"]+)"\]/);
+              if (fenMatch) setInitialFen(fenMatch[1]);
               loadFromPgn(parseAnnotatedPgn(saved.pgn));
               if (saved.currentPosition != null && saved.currentPosition > 0) {
                 pendingPositionRef.current = saved.currentPosition;
@@ -294,7 +304,8 @@ export function GameReviewPage() {
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
 
     localSaveTimerRef.current = setTimeout(async () => {
-      const pgn = serializeToAnnotatedPgn(history);
+      const movesOnly = serializeToAnnotatedPgn(history);
+      const pgn = buildPgnWithFen(movesOnly, initialFen);
       if (!localIdRef.current) {
         try {
           const entry = await createAnalysis(pgn, analysisTitle);
@@ -317,7 +328,7 @@ export function GameReviewPage() {
       }
     }, 2000);
     return () => { if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current); };
-  }, [gameId, history, analysisTitle, createAnalysis, updateAnalysis]);
+  }, [gameId, history, analysisTitle, initialFen, createAnalysis, updateAnalysis]);
 
   useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
