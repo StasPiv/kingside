@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
@@ -93,15 +93,29 @@ export function PlayersPage() {
     }
   }, []);
 
-  const loadMoreTop = useCallback(async () => {
-    setTopLoadingMore(true);
-    try {
-      const data = await api.get<TopPlayersResponse>(`/api/players/top?type=${ratingType}&limit=${PAGE_SIZE}&offset=${topPlayers.length}`);
-      setTopPlayers((prev) => [...prev, ...data.data]);
-      setTopTotal(data.total);
-    } catch { /* ignore */ }
-    finally { setTopLoadingMore(false); }
-  }, [ratingType, topPlayers.length]);
+  const topSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (tab !== 'top' || topPlayers.length >= topTotal || topLoading) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !topLoadingMore && topPlayers.length < topTotal) {
+          setTopLoadingMore(true);
+          api.get<TopPlayersResponse>(`/api/players/top?type=${ratingType}&limit=${PAGE_SIZE}&offset=${topPlayers.length}`)
+            .then((data) => {
+              setTopPlayers((prev) => [...prev, ...data.data]);
+              setTopTotal(data.total);
+            })
+            .catch(() => {})
+            .finally(() => setTopLoadingMore(false));
+        }
+      },
+      { threshold: 0.1 },
+    );
+    const el = topSentinelRef.current;
+    if (el) observer.observe(el);
+    return () => { if (el) observer.unobserve(el); };
+  }, [tab, topPlayers.length, topTotal, topLoadingMore, topLoading, ratingType]);
 
   // Load online players
   const loadOnline = useCallback(async () => {
@@ -117,15 +131,29 @@ export function PlayersPage() {
     }
   }, []);
 
-  const loadMoreOnline = useCallback(async () => {
-    setOnlineLoadingMore(true);
-    try {
-      const data = await api.get<OnlinePlayersResponse>(`/api/players/online?limit=${PAGE_SIZE}&offset=${onlinePlayers.length}`);
-      setOnlinePlayers((prev) => [...prev, ...data.data]);
-      setOnlineTotal(data.total);
-    } catch { /* ignore */ }
-    finally { setOnlineLoadingMore(false); }
-  }, [onlinePlayers.length]);
+  const onlineSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (tab !== 'online' || onlinePlayers.length >= onlineTotal || onlineLoading) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !onlineLoadingMore && onlinePlayers.length < onlineTotal) {
+          setOnlineLoadingMore(true);
+          api.get<OnlinePlayersResponse>(`/api/players/online?limit=${PAGE_SIZE}&offset=${onlinePlayers.length}`)
+            .then((data) => {
+              setOnlinePlayers((prev) => [...prev, ...data.data]);
+              setOnlineTotal(data.total);
+            })
+            .catch(() => {})
+            .finally(() => setOnlineLoadingMore(false));
+        }
+      },
+      { threshold: 0.1 },
+    );
+    const el = onlineSentinelRef.current;
+    if (el) observer.observe(el);
+    return () => { if (el) observer.unobserve(el); };
+  }, [tab, onlinePlayers.length, onlineTotal, onlineLoadingMore, onlineLoading]);
 
   // Load on tab/type change
   useEffect(() => {
@@ -256,14 +284,8 @@ export function PlayersPage() {
                 </div>
               )}
               {topPlayers.length < topTotal && (
-                <div className="players-load-more">
-                  <button
-                    className="players-load-more-btn"
-                    onClick={loadMoreTop}
-                    disabled={topLoadingMore}
-                  >
-                    {topLoadingMore ? t('common.loading') : t('players.loadMore', 'Load More')}
-                  </button>
+                <div ref={topSentinelRef} className="players-load-more">
+                  {topLoadingMore && <span>{t('common.loading')}</span>}
                 </div>
               )}
             </>
@@ -311,14 +333,8 @@ export function PlayersPage() {
                 <div className="players-empty">{t('players.noOnline')}</div>
               )}
               {onlinePlayers.length < onlineTotal && (
-                <div className="players-load-more">
-                  <button
-                    className="players-load-more-btn"
-                    onClick={loadMoreOnline}
-                    disabled={onlineLoadingMore}
-                  >
-                    {onlineLoadingMore ? t('common.loading') : t('players.loadMore', 'Load More')}
-                  </button>
+                <div ref={onlineSentinelRef} className="players-load-more">
+                  {onlineLoadingMore && <span>{t('common.loading')}</span>}
                 </div>
               )}
             </>
