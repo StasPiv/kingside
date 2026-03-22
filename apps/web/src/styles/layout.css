@@ -1,0 +1,231 @@
+
+/* Header — fixed instead of sticky (sticky breaks with overflow:hidden on parent) */
+.header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+/* Offset content below fixed header (nav height ~48px) */
+.app {
+  padding-top: 48px;
+}
+
+.header nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: #16213e;
+  border-bottom: 1px solid #1a1a3e;
+  gap: 8px;
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.logo:hover {
+  text-decoration: none;
+}
+
+.hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  background: transparent;
+  padding: 8px;
+  border-radius: 4px;
+}
+
+.hamburger span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: #e0e0e0;
+  border-radius: 1px;
+}
+
+.hamburger:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.nav-menu {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  justify-content: space-between;
+}
+
+.nav-link {
+  color: #a0a0c0;
+  text-decoration: none;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-link:hover {
+  color: #fff;
+  background: rgba(124, 131, 255, 0.1);
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Social login buttons */
+.social-login-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.social-login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+
+.social-login-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Dropdown */
+.dropdown {
+  position: relative;
+}
+
+.dropdown-toggle {
+  background: transparent;
+  color: #7c83ff;
+  padding: 6px 12px;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dropdown-toggle:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-toggle.nav-user {
+  color: #a0a0c0;
+}
+
+.dropdown-toggle.nav-user:hover {
+  color: #fff;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  background: #1e2a4a;
+  border: 1px solid #2a3a5e;
+  border-radius: 8px;
+  min-width: 180px;
+  padding: 4px 0;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+.dropdown-menu--right {
+  left: auto;
+  right: 0;
+}
+
+.dropdown-menu a,
+.dropdown-menu button {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  color: #e0e0e0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.dropdown-menu a:hover,
+.dropdown-menu button:hover {
+  background: rgba(124, 131, 255, 0.15);
+  color: #fff;
+  text-decoration: none;
+}
+
+.nav-btn {
+  background: transparent;
+  color: #a0a0c0;
+  padding: 6px 12px;
+}
+
+.nav-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app:has(.game-page) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.main:has(.game-page) {
+  max-width: none;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.app:has(.analysis-page) {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.main:has(.analysis-page) {
+  max-width: none;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+

@@ -1,0 +1,161 @@
+/* ===================== Board themes ===================== */
+
+/* default (classic) — no extra rules, inline styles handle it */
+
+[data-board-theme="green"] .board-square-light  { background-color: #ffffdd; }
+[data-board-theme="green"] .board-square-dark   { background-color: #86a666; }
+
+[data-board-theme="blue"] .board-square-light   { background-color: #dde6ef; }
+[data-board-theme="blue"] .board-square-dark    { background-color: #4b7399; }
+
+[data-board-theme="brown"] .board-square-light  { background-color: #d4b896; }
+[data-board-theme="brown"] .board-square-dark   { background-color: #6b3a2a; }
+
+/* ===================== Piece set preview tiles ===================== */
+
+.piece-set-options {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.piece-set-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.piece-set-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 4px;
+  border: 3px solid transparent;
+  background: #2a2a4a;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+
+.piece-set-preview img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.piece-set-option.active .piece-set-preview {
+  border-color: #81b64c;
+}
+
+.piece-set-label {
+  font-size: 12px;
+  color: #ccc;
+}
+
+/* VariantMoveList — variant-aware move list for GameReviewPage */
+.analysis-moves--variants {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  background: #16213e;
+  border-radius: 8px;
+  position: relative;
+}
+
+.vml-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  box-sizing: border-box;
+}
+
+.vml-moves {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #e0e0e0;
+}
+
+.vml-empty {
+  padding: 16px;
+  color: #666;
+  font-size: 14px;
+}
+
+.vml-move {
+  display: inline;
+  cursor: pointer;
+  padding: 2px 5px;
+  border-radius: 3px;
+  transition: background-color 0.1s ease;
+}
+
+.vml-move:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.vml-move.active {
+  background: rgba(124, 131, 255, 0.3);
+  color: #fff;
+  font-weight: 600;
+}
+
+.vml-move.variation {
+  font-size: 13px;
+}
+
+.vml-bracket {
+  display: inline;
+  color: #666;
+  font-size: 12px;
+  margin: 0 1px;
+}
+
+.vml-bracket-open { margin-right: 2px; }
+.vml-bracket-close { margin-left: 0; margin-right: 3px; }
+
+.vml-level-1 { color: #90caf9; }
+.vml-level-2 { color: #a5d6a7; }
+.vml-level-3 { color: #ffe082; }
+.vml-level-4 { color: #ef9a9a; }
+
+/* Variant editor toolbar */
+.analysis-variant-editor {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  background: #1a1a2e;
+  border-top: 1px solid #2a2a4a;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.analysis-variant-btn {
+  padding: 3px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #2a2a3e;
+  color: #ccc;
+  transition: background-color 0.1s ease;
+}
+
+.analysis-variant-btn:hover {
+  background: #3a3a5e;
+  color: #fff;
+}
+
+.analysis-variant-btn--danger:hover {
+  border-color: #f44336;
+  color: #f44336;
+}
+
+
+

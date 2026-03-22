@@ -1,0 +1,102 @@
+/* Settings page */
+.settings-page {
+  max-width: 500px;
+  margin: 0 auto;
+  padding-top: 20px;
+}
+
+.settings-page h1 {
+  margin-bottom: 24px;
+}
+
+.settings-section {
+  background: #16213e;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+
+.settings-section h2 {
+  font-size: 16px;
+  margin-bottom: 16px;
+  color: #a0a0c0;
+}
+
+.settings-field {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.settings-field:last-child {
+  border-bottom: none;
+}
+
+.settings-label {
+  color: #a0a0c0;
+  font-size: 14px;
+}
+
+.settings-value {
+  font-size: 14px;
+}
+
+.settings-section select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+}
+
+.settings-section select:focus {
+  border-color: #7c83ff;
+}
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.board-theme-options {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.board-theme-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.board-theme-option input[type="radio"] {
+  display: none;
+}
+
+.board-theme-preview {
+  display: block;
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  border: 3px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.board-theme-option.active .board-theme-preview {
+  border-color: #81b64c;
+}
+
+.board-theme-label {
+  font-size: 12px;
+  color: #ccc;
+}
+

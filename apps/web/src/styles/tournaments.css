@@ -1,0 +1,167 @@
+/* Live Tournaments Page */
+.live-tournaments-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.live-tournaments-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.live-tournaments-header h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.live-tournaments-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.live-tournament-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.live-tournament-name {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #e0e0ff;
+}
+
+.live-tournament-desc {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #808098;
+  line-height: 1.4;
+}
+
+.live-tournament-details {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.live-tournament-detail {
+  font-size: 13px;
+  color: #a0a0c0;
+}
+
+.live-tournament-links {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.live-tournament-watch-btn {
+  background: #7c83ff;
+  color: #fff;
+  text-decoration: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.live-tournament-watch-btn:hover {
+  background: #6a72e8;
+}
+
+.live-tournament-results-link {
+  color: #a0a0c0;
+  text-decoration: none;
+  padding: 6px 12px;
+  border: 1px solid #3a3a5e;
+  border-radius: 6px;
+  font-size: 13px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.live-tournament-card--link,
+.live-tournament-card--link:hover,
+.live-tournament-card--link:visited {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.live-tournament-card--link:hover {
+  border-color: #7c83ff;
+  background: #1e1e38;
+}
+
+.live-tournament-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.live-tournament-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.live-tournament-badge--live {
+  background: #4caf50;
+  color: #fff;
+}
+
+.live-tournament-badge--archived {
+  background: #3a3a5e;
+  color: #a0a0c0;
+}
+
+.broadcasts-archived-section {
+  margin-top: 32px;
+}
+
+.broadcasts-archived-section h2 {
+  font-size: 16px;
+  color: #808098;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.broadcasts-live-section {
+  margin-bottom: 32px;
+}
+
+.broadcasts-live-section h2 {
+  font-size: 16px;
+  color: #a0a0c0;
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.broadcasts-manual-section {
+  margin-top: 24px;
+}
+
+.broadcasts-manual-section h2 {
+  font-size: 14px;
+  color: #808098;
+  margin: 0 0 10px;
+}
+
+.live-tournament-results-link:hover {
+  color: #fff;
+  border-color: #7c83ff;
+}
+

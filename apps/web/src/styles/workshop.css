@@ -1,0 +1,711 @@
+/* ─── WorkshopPage ─────────────────────────────────────────────────── */
+
+/* Workshop breadcrumbs */
+
+.workshop-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.workshop-breadcrumbs__link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #8080cc;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.workshop-breadcrumbs__link:hover {
+  color: #a0a0ee;
+  text-decoration: underline;
+}
+
+.workshop-breadcrumbs__sep {
+  color: #666;
+}
+
+.workshop-breadcrumbs__current {
+  color: #c0c0e0;
+  font-weight: 600;
+}
+
+/* Workshop section tabs */
+
+.workshop-section-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.workshop-section-tab {
+  background: #2a2a4e;
+  color: #a0a0c0;
+  border: 1px solid #3a3a6e;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.workshop-section-tab:hover {
+  background: #3a3a6e;
+  color: #e0e0ff;
+}
+
+.workshop-section-tab.active {
+  background: #7c83ff;
+  color: #fff;
+  border-color: #7c83ff;
+}
+
+/* Workshop section block header */
+
+.workshop-section-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.workshop-section-block__header .workshop-section-block__title {
+  margin-bottom: 0;
+}
+
+/* PGN files list */
+
+.workshop-pgn-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workshop-pgn-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #1e2a4a;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.workshop-pgn-file-item:hover {
+  background: #2a3a6a;
+}
+
+.workshop-pgn-file-item__name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.workshop-pgn-file-item__meta {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.workshop-pgn-file-item__games {
+  font-size: 12px;
+  color: #a0a0c0;
+}
+
+.workshop-pgn-file-item__date {
+  font-size: 12px;
+  color: #808090;
+}
+
+/* PGN games list */
+
+.workshop-pgn-games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workshop-pgn-game-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  background: #1e2a4a;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 14px;
+}
+
+.workshop-pgn-game-item:hover {
+  background: #2a3a6a;
+}
+
+.workshop-pgn-game-item__players {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.workshop-pgn-game-item__meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.workshop-pgn-game-item__result {
+  color: #a0a0c0;
+  font-size: 13px;
+}
+
+.workshop-pgn-game-item__date {
+  color: #808090;
+  font-size: 12px;
+}
+
+.workshop-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.workshop-page__title {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 24px;
+  color: #e0e0e0;
+}
+
+.workshop-page__content {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.workshop-section-block {
+  background: #16213e;
+  border: 1px solid #2a2a4e;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.workshop-section-block__title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: #c0c0ff;
+}
+
+.workshop-section-block__loading,
+.workshop-section-block__empty {
+  color: #a0a0c0;
+  font-size: 14px;
+}
+
+.workshop-section-block__error {
+  color: #f44336;
+  font-size: 14px;
+}
+
+.workshop-section-block__desc {
+  color: #a0a0c0;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+/* Mode tabs (vs Human / vs Bot) */
+
+.workshop-mode-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.workshop-mode-tab {
+  background: #2a2a4e;
+  color: #a0a0c0;
+  border: 1px solid #3a3a6e;
+  border-radius: 8px;
+  padding: 8px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+
+.workshop-mode-tab:hover {
+  background: #3a3a6e;
+  color: #e0e0ff;
+}
+
+.workshop-mode-tab.active {
+  background: #7c83ff;
+  color: #fff;
+  border-color: #7c83ff;
+}
+
+/* TC panel inside workshop */
+
+.workshop-tc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* My Games list */
+
+.workshop-games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workshop-game-list-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #1e2a4a;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #e0e0e0;
+  transition: background 0.15s;
+  font-size: 14px;
+}
+
+.workshop-game-list-item:hover {
+  background: #2a3a6a;
+  text-decoration: none;
+}
+
+.workshop-game-list-item__result {
+  font-size: 16px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.workshop-game-list-item__result--win { color: #4caf50; }
+.workshop-game-list-item__result--loss { color: #f44336; }
+.workshop-game-list-item__result--draw { color: #a0a0c0; }
+
+.workshop-game-list-item__opponent {
+  flex: 1;
+  font-weight: 500;
+}
+
+.workshop-game-list-item__rating {
+  color: #a0a0c0;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.workshop-game-list-item__tc {
+  color: #a0a0c0;
+  font-size: 13px;
+  min-width: 40px;
+  text-align: center;
+}
+
+.workshop-game-list-item__result-label {
+  font-size: 12px;
+  min-width: 60px;
+  text-align: right;
+}
+
+.workshop-game-list-item__moves {
+  color: #a0a0c0;
+  font-size: 12px;
+  min-width: 60px;
+  text-align: right;
+}
+
+.workshop-game-list-item__opening {
+  color: #a0a0c0;
+  font-size: 12px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workshop-game-list-item__eco {
+  background: #2a2a4e;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 4px;
+  font-size: 11px;
+  color: #7c83ff;
+}
+
+/* Pagination */
+
+.workshop-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.workshop-pagination__btn {
+  background: #2a2a4e;
+  color: #a0a0ff;
+  border: 1px solid #4a4a7e;
+  border-radius: 6px;
+  padding: 6px 16px;
+  font-size: 13px;
+}
+
+.workshop-pagination__btn:hover:not(:disabled) {
+  background: #3a3a6e;
+}
+
+.workshop-pagination__info {
+  color: #a0a0c0;
+  font-size: 13px;
+}
+
+/* Tournaments */
+
+.workshop-tournaments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.workshop-tournament-card {
+  background: #1e2a4a;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.workshop-tournament-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.workshop-tournament-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.workshop-tournament-card__meta {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+  color: #a0a0c0;
+}
+
+.workshop-tournament-card__games {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workshop-tournament-card__game {
+  font-size: 13px;
+}
+
+.workshop-tournament-card__game-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #16213e;
+  border-radius: 6px;
+  text-decoration: none;
+  color: #c0c0ff;
+  transition: background 0.15s;
+}
+
+.workshop-tournament-card__game-link:hover {
+  background: #2a3a6a;
+  text-decoration: none;
+}
+
+.workshop-tournament-card__player {
+  flex: 1;
+}
+
+.workshop-tournament-card__player-rating {
+  color: #a0a0c0;
+  font-size: 12px;
+  margin-left: 4px;
+}
+
+.workshop-tournament-card__vs {
+  color: #a0a0c0;
+  font-size: 12px;
+}
+
+/* PGN Upload */
+
+.workshop-pgn-upload {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.workshop-pgn-upload__btn {
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.workshop-pgn-upload__btn:hover {
+  background: #6366f1;
+}
+
+.workshop-pgn-upload__btn--secondary {
+  background: #2a2a4e;
+  color: #a0a0ff;
+  border: 1px solid #4a4a7e;
+}
+
+.workshop-pgn-upload__btn--secondary:hover {
+  background: #3a3a6e;
+}
+
+/* Workshop: saved analyses list */
+.workshop-analyses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workshop-analysis-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #1e1e2e;
+  border: 1px solid #2e2e4e;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.workshop-analysis-item:hover {
+  background: #252540;
+}
+
+.workshop-analysis-item__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.workshop-analysis-item__title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workshop-analysis-item__meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.workshop-analysis-item__date {
+  font-size: 12px;
+  color: #888;
+}
+
+.workshop-analysis-item__opening {
+  font-size: 12px;
+  color: #a0a0c0;
+}
+
+.workshop-analysis-item__players {
+  font-size: 12px;
+  color: #80a0b0;
+}
+
+.workshop-analysis-item__delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.workshop-analysis-item__delete:hover {
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.1);
+}
+
+/* Analysis page: breadcrumbs navigation */
+.analysis-breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 0 8px;
+  width: 100%;
+  font-size: 14px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.analysis-breadcrumbs__link {
+  color: #8080cc;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 20ch;
+  min-width: 0;
+  transition: color 0.15s;
+}
+
+.analysis-breadcrumbs__link:hover {
+  color: #a0a0ee;
+  text-decoration: underline;
+}
+
+.analysis-breadcrumbs__sep {
+  color: #666;
+  flex-shrink: 0;
+}
+
+.analysis-breadcrumbs__current {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #c0c0e0;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s, color 0.15s;
+  min-width: 0;
+  overflow: hidden;
+  max-width: 25ch;
+}
+
+.analysis-breadcrumbs__current-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.analysis-breadcrumbs__current:hover {
+  color: #e0e0ff;
+  border-bottom-color: #5555aa;
+}
+
+.analysis-breadcrumbs__current:hover .analysis-title__edit-icon {
+  opacity: 1;
+}
+
+.analysis-breadcrumbs__input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Analysis page: Workshop shortcut link */
+.analysis-workshop-shortcut {
+  padding: 4px 0 2px;
+}
+
+.analysis-workshop-shortcut__link {
+  font-size: 12px;
+  color: #666;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.analysis-workshop-shortcut__link:hover {
+  color: #8080cc;
+  text-decoration: underline;
+}
+
+/* Analysis page: editable title */
+.analysis-title {
+  padding: 6px 0 8px;
+}
+
+.analysis-title__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #c0c0e0;
+  margin: 0;
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.analysis-title__text:hover {
+  color: #e0e0ff;
+  border-bottom-color: #5555aa;
+}
+
+.analysis-title__edit-icon {
+  font-size: 13px;
+  color: #666;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.analysis-title__text:hover .analysis-title__edit-icon {
+  opacity: 1;
+}
+
+.analysis-title__input {
+  width: 100%;
+  background: #1a1a2e;
+  border: 1px solid #5555aa;
+  border-radius: 4px;
+  color: #e0e0f0;
+  font-size: 15px;
+  font-weight: 600;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.analysis-title__input:focus {
+  border-color: #8080cc;
+}
+
+@media (max-width: 600px) {
+  .workshop-game-list-item__opening,
+  .workshop-game-list-item__moves {
+    display: none;
+  }
+
+  .workshop-tournament-card__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
