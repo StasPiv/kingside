@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+declare const __BUILD_DATE__: string;
+
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
   readonly VITE_TELEGRAM_BOT_USERNAME: string;
