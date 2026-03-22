@@ -12,7 +12,18 @@
     "profile": "Profile",
     "players": "Players",
     "messages": "Messages",
+    "friends": "Friends",
     "broadcasts": "Broadcasts"
+  },
+  "friends": {
+    "title": "Friends",
+    "requests": "Friend Requests",
+    "online": "Online",
+    "offline": "Offline",
+    "accept": "Accept",
+    "decline": "Decline",
+    "empty": "No friends yet. Visit player profiles to send friend requests.",
+    "browsePlayers": "Browse Players"
   },
   "broadcasts": {
     "title": "Broadcasts",

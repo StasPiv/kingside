@@ -1074,3 +1074,134 @@
   opacity: 1;
 }
 
+/* Friends Page */
+.friends-page {
+  max-width: 700px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.friends-page h1 {
+  font-size: 24px;
+  margin-bottom: 24px;
+}
+
+.friends-section {
+  margin-bottom: 24px;
+}
+
+.friends-section h2 {
+  font-size: 16px;
+  color: #a0a0c0;
+  margin-bottom: 12px;
+}
+
+.friends-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.friends-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #16213e;
+  border-radius: 8px;
+  border: 1px solid #2a2a4e;
+}
+
+.friends-item--request {
+  border-color: #4a4a8e;
+}
+
+.friends-item__info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.friends-item__name {
+  color: #c0c0ff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.friends-item__name:hover {
+  text-decoration: underline;
+}
+
+.friends-item__rating {
+  color: #888;
+  font-size: 13px;
+}
+
+.friends-item__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.friends-status {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.friends-status--online {
+  background: #16a34a;
+}
+
+.friends-status--offline {
+  background: #555;
+}
+
+.friends-btn {
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  border: none;
+  cursor: pointer;
+}
+
+.friends-btn--accept {
+  background: #16a34a;
+  color: #fff;
+}
+
+.friends-btn--accept:hover {
+  background: #15803d;
+}
+
+.friends-btn--decline {
+  background: #3a3a6e;
+  color: #c0c0ff;
+}
+
+.friends-btn--decline:hover {
+  background: #4a4a8e;
+}
+
+.friends-btn--remove {
+  background: transparent;
+  color: #888;
+  font-size: 16px;
+  padding: 4px 8px;
+}
+
+.friends-btn--remove:hover {
+  color: #dc2626;
+}
+
+.friends-empty {
+  text-align: center;
+  padding: 40px 16px;
+  color: #888;
+}
+
+.friends-link {
+  display: inline-block;
+  margin-top: 12px;
+  color: #7c83ff;
+}

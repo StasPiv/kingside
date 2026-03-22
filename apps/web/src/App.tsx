@@ -24,6 +24,7 @@ import { LiveGamesPage } from './pages/LiveGamesPage';
 import { WatchGamePage } from './pages/WatchGamePage';
 import { ExternalEngineHelpPage } from './pages/ExternalEngineHelpPage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
+import { FriendsPage } from './pages/FriendsPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
 
@@ -93,6 +94,7 @@ export function App() {
         <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />
         <Route path="/players" element={<PlayersPage />} />
         <Route path="/player/:username" element={<PlayerProfilePage />} />
+        <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
