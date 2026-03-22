@@ -19,6 +19,7 @@ export function WorkshopAnalysisList() {
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -118,6 +119,22 @@ export function WorkshopAnalysisList() {
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selected.size === 0) return;
+    const count = selected.size;
+    if (!window.confirm(t('workshop.myAnalyses.confirmDelete', `Delete ${count} analysis(es)?`))) return;
+    setDeleting(true);
+    try {
+      await Promise.all(Array.from(selected).map((id) => api.delete(`/api/analyses/${id}`).catch(() => {})));
+      setAllAnalyses((prev) => prev.filter((a) => !selected.has(a.id)));
+      setSelected(new Set());
+    } catch (err) {
+      console.error('[Delete analyses] Failed:', err);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -149,11 +166,18 @@ export function WorkshopAnalysisList() {
               {t('workshop.myAnalyses.selectAll', 'Select All')}
             </label>
             {selected.size > 0 && (
+              <>
               <button className="workshop-analyses-export-btn" onClick={handleExport} disabled={exporting}>
                 {exporting
                   ? t('common.loading')
                   : t('workshop.myAnalyses.exportPgn', `Export PGN (${selected.size})`)}
               </button>
+              <button className="workshop-analyses-delete-btn" onClick={handleBatchDelete} disabled={deleting}>
+                {deleting
+                  ? t('common.loading')
+                  : t('workshop.myAnalyses.deleteSelected', `Delete (${selected.size})`)}
+              </button>
+              </>
             )}
           </div>
           <div className="workshop-analyses-list">

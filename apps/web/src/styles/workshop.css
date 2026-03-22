@@ -595,6 +595,25 @@
   cursor: default;
 }
 
+.workshop-analyses-delete-btn {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workshop-analyses-delete-btn:hover {
+  background: #b91c1c;
+}
+
+.workshop-analyses-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .workshop-analysis-item__checkbox {
   flex-shrink: 0;
   cursor: pointer;
