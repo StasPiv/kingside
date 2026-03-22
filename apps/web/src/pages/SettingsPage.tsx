@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -18,6 +19,21 @@ export function SettingsPage() {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
+
+  useEffect(() => {
+    api.get<{ data: { id: string; username: string }[] }>('/api/users/blocked')
+      .then(({ data }) => setBlocked(data))
+      .catch(() => {});
+  }, []);
+
+  const handleUnblock = useCallback(async (userId: string) => {
+    try {
+      await api.delete(`/api/users/unblock/${userId}`);
+      setBlocked((prev) => prev.filter((b) => b.id !== userId));
+    } catch { /* ignore */ }
+  }, []);
+
   const [animationDuration, setAnimationDuration] = useState<number>(() => {
     const saved = localStorage.getItem('pieceAnimationDuration');
     return saved !== null ? parseInt(saved, 10) : 200;
@@ -183,6 +199,24 @@ export function SettingsPage() {
             onChange={toggleMute}
           />
         </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>{t('settings.blockedPlayers', 'Blocked Players')}</h2>
+        {blocked.length === 0 ? (
+          <p className="settings-empty">{t('settings.noBlocked', 'No blocked players')}</p>
+        ) : (
+          <div className="settings-blocked-list">
+            {blocked.map((b) => (
+              <div key={b.id} className="settings-blocked-item">
+                <Link to={`/player/${b.username}`} className="settings-blocked-name">{b.username}</Link>
+                <button className="settings-unblock-btn" onClick={() => handleUnblock(b.id)}>
+                  {t('settings.unblock', 'Unblock')}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="settings-section">

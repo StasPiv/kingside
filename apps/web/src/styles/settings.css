@@ -100,3 +100,47 @@
   color: #ccc;
 }
 
+.settings-empty {
+  color: #808098;
+  font-size: 14px;
+}
+
+.settings-blocked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-blocked-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #16213e;
+  border: 1px solid #2a2a4e;
+  border-radius: 6px;
+}
+
+.settings-blocked-name {
+  color: #c0c0ff;
+  text-decoration: none;
+}
+
+.settings-blocked-name:hover {
+  text-decoration: underline;
+}
+
+.settings-unblock-btn {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-unblock-btn:hover {
+  background: #15803d;
+}
+
