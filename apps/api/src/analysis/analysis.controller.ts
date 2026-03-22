@@ -4,14 +4,17 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Put,
   Request,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AnalysisService } from './analysis.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
@@ -30,6 +33,18 @@ export class AnalysisController {
   @Get()
   findAll(@Request() req: AuthenticatedRequest) {
     return this.analysisService.findAll(req.user.id);
+  }
+
+  @Post('export')
+  async exportPgn(
+    @Request() req: AuthenticatedRequest,
+    @Body('ids') ids: string[],
+    @Res() res: Response,
+  ) {
+    const pgn = await this.analysisService.exportPgn(req.user.id, ids ?? []);
+    res.setHeader('Content-Type', 'application/x-chess-pgn');
+    res.setHeader('Content-Disposition', 'attachment; filename="analyses.pgn"');
+    res.send(pgn);
   }
 
   @Get(':id')

@@ -93,6 +93,37 @@ export class AnalysisService {
     });
   }
 
+  async exportPgn(userId: string, ids: string[]): Promise<string> {
+    const analyses = await this.prisma.analysis.findMany({
+      where: { id: { in: ids }, userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (analyses.length === 0) {
+      throw new NotFoundException('No analyses found');
+    }
+
+    return analyses
+      .map((a) => {
+        const headers: string[] = [];
+        headers.push(`[Event "${a.title}"]`);
+        headers.push(`[Site "Kingside"]`);
+        const d = a.createdAt;
+        headers.push(`[Date "${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}"]`);
+        if (a.fen) {
+          headers.push(`[FEN "${a.fen}"]`);
+          headers.push(`[SetUp "1"]`);
+        }
+        if (a.opening) {
+          headers.push(`[Opening "${a.opening}"]`);
+        }
+        headers.push(`[Result "*"]`);
+        const moves = a.pgn ?? '*';
+        return headers.join('\n') + '\n\n' + moves;
+      })
+      .join('\n\n\n');
+  }
+
   async remove(userId: string, id: string) {
     const analysis = await this.prisma.analysis.findUnique({ where: { id } });
     if (!analysis) throw new NotFoundException('Analysis not found');
