@@ -63,22 +63,10 @@ export class UserController {
     return this.userService.changePassword(req.user.id, dto);
   }
 
-  @Get(':id')
-  getProfile(@Param('id', ParseUUIDPipe) id: string) {
-    return this.userService.getProfile(id);
-  }
-
-  @Get(':id/puzzle-rush-stats')
-  getPuzzleRushStats(@Param('id', ParseUUIDPipe) id: string) {
-    return this.userService.getPuzzleRushStats(id);
-  }
-
-  @Get(':id/games')
-  getUserGames(
-    @Param('id', ParseUUIDPipe) id: string,
-    @Query() dto: SearchGamesDto,
-  ) {
-    return this.userService.getUserGames(id, dto);
+  @UseGuards(JwtAuthGuard)
+  @Get('blocked')
+  getBlockedUsers(@Request() req: AuthenticatedRequest) {
+    return this.blockService.getBlockedUsers(req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -99,9 +87,21 @@ export class UserController {
     return this.blockService.unblockUser(req.user.id, userId);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Get('blocked')
-  getBlockedUsers(@Request() req: AuthenticatedRequest) {
-    return this.blockService.getBlockedUsers(req.user.id);
+  @Get(':id')
+  getProfile(@Param('id', ParseUUIDPipe) id: string) {
+    return this.userService.getProfile(id);
+  }
+
+  @Get(':id/puzzle-rush-stats')
+  getPuzzleRushStats(@Param('id', ParseUUIDPipe) id: string) {
+    return this.userService.getPuzzleRushStats(id);
+  }
+
+  @Get(':id/games')
+  getUserGames(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() dto: SearchGamesDto,
+  ) {
+    return this.userService.getUserGames(id, dto);
   }
 }
