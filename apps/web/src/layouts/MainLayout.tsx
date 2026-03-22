@@ -62,6 +62,12 @@ export function MainLayout() {
     return () => { messagesSocket.off(MessageEvents.NEW_MESSAGE, onNewMessage); };
   }, [user]);
 
+  useEffect(() => {
+    if (typeof __BUILD_VERSION__ === 'string') {
+      document.title = `Kingside (v.${__BUILD_VERSION__})`;
+    }
+  }, []);
+
   const closeAll = () => {
     setUserMenuOpen(false);
     setMobileMenuOpen(false);
@@ -71,7 +77,7 @@ export function MainLayout() {
     <div className="app">
       <header className="header">
         <nav>
-          <Link to="/lobby" className="logo" onClick={closeAll}>Kingside</Link>
+          <Link to="/lobby" className="logo" onClick={closeAll}>Kingside{typeof __BUILD_VERSION__ === 'string' ? ` (v.${__BUILD_VERSION__})` : ''}</Link>
 
           <button
             className="hamburger"
@@ -153,9 +159,6 @@ export function MainLayout() {
       <main className="main">
         <Outlet />
       </main>
-      <footer className="app-footer">
-        <span className="app-version">{typeof __BUILD_VERSION__ === 'string' ? `v.${__BUILD_VERSION__}` : ''}</span>
-      </footer>
     </div>
   );
 }
