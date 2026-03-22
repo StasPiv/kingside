@@ -1,3 +1,4 @@
+import { CacheService } from '../common/cache.service';
 /**
  * KS-225: E2E verification of Puzzle Rush Leaderboard API.
  *
@@ -60,6 +61,7 @@ describe('KS-225: Puzzle Rush Leaderboard E2E', () => {
       controllers: [PuzzleRushController],
       providers: [
         PuzzleRushService,
+        CacheService,
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis },
       ],
@@ -415,6 +417,7 @@ describe('KS-225: Puzzle Rush Leaderboard E2E', () => {
         controllers: [PuzzleRushController],
         providers: [
           PuzzleRushService,
+        CacheService,
           { provide: PrismaService, useValue: prisma },
           { provide: RedisService, useValue: redis },
         ],

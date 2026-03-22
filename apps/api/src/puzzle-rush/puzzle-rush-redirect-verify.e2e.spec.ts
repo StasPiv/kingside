@@ -1,3 +1,4 @@
+import { CacheService } from '../common/cache.service';
 /**
  * KS-244: Verification of KS-238 fix — /puzzle-rush/leaderboard
  * must NOT redirect to /lobby for unauthenticated users.
@@ -64,6 +65,7 @@ describe('KS-244: Verify KS-238 leaderboard redirect fix', () => {
         controllers: [PuzzleRushController],
         providers: [
           PuzzleRushService,
+        CacheService,
           { provide: PrismaService, useValue: prisma },
           { provide: RedisService, useValue: redis },
         ],
@@ -140,6 +142,7 @@ describe('KS-244: Verify KS-238 leaderboard redirect fix', () => {
         controllers: [PuzzleRushController],
         providers: [
           PuzzleRushService,
+        CacheService,
           { provide: PrismaService, useValue: prisma },
           { provide: RedisService, useValue: redis },
         ],
@@ -201,6 +204,7 @@ describe('KS-244: Verify KS-238 leaderboard redirect fix', () => {
         controllers: [PuzzleRushController],
         providers: [
           PuzzleRushService,
+        CacheService,
           { provide: PrismaService, useValue: prisma },
           { provide: RedisService, useValue: redis },
         ],

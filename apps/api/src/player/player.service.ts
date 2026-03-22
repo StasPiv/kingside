@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { CacheService } from '../common/cache.service';
 import type {
   RatingType,
   TopPlayerItem,
@@ -35,12 +36,22 @@ export class PlayerService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly i18n: I18nService,
+    private readonly cache: CacheService,
   ) {}
 
   async getTopPlayers(
     type: RatingType = 'blitz',
     limit = 20,
     offset = 0,
+  ): Promise<TopPlayersResponse> {
+    const cacheKey = `cache:players:top:${type}:${limit}:${offset}`;
+    return this.cache.getOrSet(cacheKey, 60, () => this.fetchTopPlayers(type, limit, offset));
+  }
+
+  private async fetchTopPlayers(
+    type: RatingType,
+    limit: number,
+    offset: number,
   ): Promise<TopPlayersResponse> {
     const ratingField = RATING_FIELD_MAP[type];
     const gamesField = GAMES_PLAYED_FIELD_MAP[type];

@@ -1,3 +1,4 @@
+import { CacheService } from '../common/cache.service';
 /**
  * KS-241: Verification of KS-238 fix — leaderboard no longer requires auth.
  *
@@ -67,6 +68,7 @@ describe('KS-241: Verify KS-238 leaderboard auth fix', () => {
     const noAuthModule: TestingModule = await Test.createTestingModule({
       controllers: [PuzzleRushController],
       providers: [
+        { provide: CacheService, useValue: { getOrSet: (_k: string, _t: number, fn: () => Promise<unknown>) => fn() } },
         PuzzleRushService,
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis },
@@ -84,6 +86,7 @@ describe('KS-241: Verify KS-238 leaderboard auth fix', () => {
     const authModule: TestingModule = await Test.createTestingModule({
       controllers: [PuzzleRushController],
       providers: [
+        { provide: CacheService, useValue: { getOrSet: (_k: string, _t: number, fn: () => Promise<unknown>) => fn() } },
         PuzzleRushService,
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis },

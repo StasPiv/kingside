@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { CacheService } from '../common/cache.service';
 
 interface PuzzleRushSessionPuzzleEntry {
   puzzleId: string;
@@ -35,6 +36,7 @@ export class PuzzleRushService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly cache: CacheService,
   ) {}
 
   private sessionKey(userId: string): string {
@@ -320,6 +322,13 @@ export class PuzzleRushService {
   }
 
   async getLeaderboard(timeMode: string, limit = 20): Promise<{
+    entries: { userId: string; username: string; score: number; createdAt: Date }[];
+  }> {
+    const cacheKey = `cache:puzzle-rush:leaderboard:${timeMode}:${limit}`;
+    return this.cache.getOrSet(cacheKey, 60, () => this.fetchLeaderboard(timeMode, limit));
+  }
+
+  private async fetchLeaderboard(timeMode: string, limit: number): Promise<{
     entries: { userId: string; username: string; score: number; createdAt: Date }[];
   }> {
     if (!TIME_MODES[timeMode]) {

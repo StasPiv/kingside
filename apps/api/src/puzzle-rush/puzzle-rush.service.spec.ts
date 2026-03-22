@@ -56,7 +56,8 @@ describe('PuzzleRushService', () => {
       del: jest.fn().mockResolvedValue(1),
     };
 
-    service = new PuzzleRushService(prisma, redis);
+    const mockCache = { getOrSet: (_k: string, _t: number, fn: () => Promise<unknown>) => fn() } as any;
+    service = new PuzzleRushService(prisma, redis, mockCache);
   });
 
   describe('startSession', () => {

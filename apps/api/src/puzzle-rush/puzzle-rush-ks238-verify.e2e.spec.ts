@@ -1,3 +1,4 @@
+import { CacheService } from '../common/cache.service';
 /**
  * KS-242: E2E verification of KS-238 fix — puzzle-rush leaderboard public access.
  *
@@ -67,6 +68,7 @@ describe('KS-242: Verify KS-238 fix — leaderboard public access', () => {
       controllers: [PuzzleRushController],
       providers: [
         PuzzleRushService,
+        CacheService,
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis },
       ],
@@ -84,6 +86,7 @@ describe('KS-242: Verify KS-238 fix — leaderboard public access', () => {
       controllers: [PuzzleRushController],
       providers: [
         PuzzleRushService,
+        CacheService,
         { provide: PrismaService, useValue: prisma },
         { provide: RedisService, useValue: redis },
       ],

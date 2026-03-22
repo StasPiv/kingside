@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { PlayerService } from './player.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { CacheService } from '../common/cache.service';
 import { I18nService } from 'nestjs-i18n';
 
 describe('PlayerService', () => {
@@ -38,6 +39,10 @@ describe('PlayerService', () => {
         {
           provide: I18nService,
           useValue: { t: (key: string) => key },
+        },
+        {
+          provide: CacheService,
+          useValue: { getOrSet: (_k: string, _t: number, fn: () => Promise<unknown>) => fn() },
         },
       ],
     }).compile();
