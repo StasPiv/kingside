@@ -17,6 +17,7 @@ export function WorkshopAnalysisList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -157,26 +158,37 @@ export function WorkshopAnalysisList() {
       ) : (
         <>
           <div className="workshop-analyses-toolbar">
-            <label className="workshop-analyses-select-all">
-              <input
-                type="checkbox"
-                checked={selected.size === allAnalyses.length && allAnalyses.length > 0}
-                onChange={toggleSelectAll}
-              />
-              {t('workshop.myAnalyses.selectAll', 'Select All')}
-            </label>
-            {selected.size > 0 && (
+            {!selectMode ? (
+              <button className="workshop-analyses-select-btn" onClick={() => setSelectMode(true)}>
+                {t('workshop.myAnalyses.select', 'Select')}
+              </button>
+            ) : (
               <>
-              <button className="workshop-analyses-export-btn" onClick={handleExport} disabled={exporting}>
-                {exporting
-                  ? t('common.loading')
-                  : t('workshop.myAnalyses.exportPgn', `Export PGN (${selected.size})`)}
-              </button>
-              <button className="workshop-analyses-delete-btn" onClick={handleBatchDelete} disabled={deleting}>
-                {deleting
-                  ? t('common.loading')
-                  : t('workshop.myAnalyses.deleteSelected', `Delete (${selected.size})`)}
-              </button>
+                <label className="workshop-analyses-select-all">
+                  <input
+                    type="checkbox"
+                    checked={selected.size === allAnalyses.length && allAnalyses.length > 0}
+                    onChange={toggleSelectAll}
+                  />
+                  {t('workshop.myAnalyses.selectAll', 'Select All')}
+                </label>
+                {selected.size > 0 && (
+                  <>
+                  <button className="workshop-analyses-export-btn" onClick={handleExport} disabled={exporting}>
+                    {exporting
+                      ? t('common.loading')
+                      : t('workshop.myAnalyses.exportPgn', `Export PGN (${selected.size})`)}
+                  </button>
+                  <button className="workshop-analyses-delete-btn" onClick={handleBatchDelete} disabled={deleting}>
+                    {deleting
+                      ? t('common.loading')
+                      : t('workshop.myAnalyses.deleteSelected', `Delete (${selected.size})`)}
+                  </button>
+                  </>
+                )}
+                <button className="workshop-analyses-cancel-btn" onClick={() => { setSelectMode(false); setSelected(new Set()); }}>
+                  {t('common.cancel', 'Cancel')}
+                </button>
               </>
             )}
           </div>
@@ -184,19 +196,21 @@ export function WorkshopAnalysisList() {
             {visibleAnalyses.map((analysis) => (
               <div
                 key={analysis.id}
-                className={`workshop-analysis-item${selected.has(analysis.id) ? ' workshop-analysis-item--selected' : ''}`}
-                onClick={() => { if (selected.size > 0) { toggleSelect(analysis.id, { stopPropagation: () => {} } as React.MouseEvent); } else { handleOpen(analysis); } }}
+                className={`workshop-analysis-item${selectMode && selected.has(analysis.id) ? ' workshop-analysis-item--selected' : ''}`}
+                onClick={() => { if (selectMode) { toggleSelect(analysis.id, { stopPropagation: () => {} } as React.MouseEvent); } else { handleOpen(analysis); } }}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === 'Enter' && handleOpen(analysis)}
               >
-                <input
-                  type="checkbox"
-                  className="workshop-analysis-item__checkbox"
-                  checked={selected.has(analysis.id)}
-                  onClick={(e) => toggleSelect(analysis.id, e)}
-                  onChange={() => {}}
-                />
+                {selectMode && (
+                  <input
+                    type="checkbox"
+                    className="workshop-analysis-item__checkbox"
+                    checked={selected.has(analysis.id)}
+                    onClick={(e) => toggleSelect(analysis.id, e)}
+                    onChange={() => {}}
+                  />
+                )}
                 <div className="workshop-analysis-item__main">
                   <span className="workshop-analysis-item__title">{analysis.title}</span>
                   <div className="workshop-analysis-item__meta">

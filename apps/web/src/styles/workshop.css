@@ -567,6 +567,26 @@
   margin-bottom: 8px;
 }
 
+.workshop-analyses-select-btn,
+.workshop-analyses-cancel-btn {
+  background: #3a3a6e;
+  color: #c0c0ff;
+  border: 1px solid #4a4a8e;
+  padding: 5px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workshop-analyses-select-btn:hover,
+.workshop-analyses-cancel-btn:hover {
+  background: #4a4a8e;
+}
+
+.workshop-analyses-cancel-btn {
+  margin-left: auto;
+}
+
 .workshop-analyses-select-all {
   display: flex;
   align-items: center;
