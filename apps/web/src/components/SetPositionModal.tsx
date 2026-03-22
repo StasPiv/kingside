@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
@@ -141,6 +141,37 @@ export function SetPositionModal({ onApply, onClose }: Props) {
     });
   }, [selectedPiece]);
 
+  const boardRef = useRef<HTMLDivElement>(null);
+  const BOARD_SIZE = 280;
+
+  const coordsToSquare = useCallback((clientX: number, clientY: number): string | null => {
+    const el = boardRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    if (x < 0 || y < 0 || x >= rect.width || y >= rect.height) return null;
+    const col = Math.floor((x / rect.width) * 8);
+    const row = Math.floor((y / rect.height) * 8);
+    const file = 'abcdefgh'[col];
+    const rank = 8 - row;
+    return `${file}${rank}`;
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    const piece = e.dataTransfer.getData('text/plain');
+    if (!piece) return;
+    const square = coordsToSquare(e.clientX, e.clientY);
+    if (!square) return;
+    setBoard((prev) => ({ ...prev, [square]: piece }));
+  }, [coordsToSquare]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  }, []);
+
   const editorPosition = useMemo(() => boardToPosition(board), [board]);
 
   const editorFen = useMemo(() => positionToFen(board, editorTurn, castling), [board, editorTurn, castling]);
@@ -192,11 +223,16 @@ export function SetPositionModal({ onApply, onClose }: Props) {
 
         {tab === 'editor' && (
           <div className="set-position-body set-position-editor">
-            <div className="set-position-editor__board">
+            <div
+              className="set-position-editor__board"
+              ref={boardRef}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+            >
               <Chessboard
                 options={{
                   position: editorFen,
-                  boardStyle: { width: 280, height: 280 },
+                  boardStyle: { width: BOARD_SIZE, height: BOARD_SIZE },
                   allowDragging: false,
                   onSquareClick: ({ square }: { square: string }) => handleSquareClick(square),
                   showNotation: true,
@@ -213,6 +249,8 @@ export function SetPositionModal({ onApply, onClose }: Props) {
                       key={p.piece}
                       className={`set-position-palette__piece set-position-palette__piece--white${selectedPiece === p.piece ? ' active' : ''}`}
                       onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.piece); setSelectedPiece(p.piece); }}
                       title={p.piece}
                     >
                       <PieceIcon piece={p.piece} pieceSet={pieceSet} />
@@ -226,6 +264,8 @@ export function SetPositionModal({ onApply, onClose }: Props) {
                       key={p.piece}
                       className={`set-position-palette__piece set-position-palette__piece--black${selectedPiece === p.piece ? ' active' : ''}`}
                       onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.piece); setSelectedPiece(p.piece); }}
                       title={p.piece}
                     >
                       <PieceIcon piece={p.piece} pieceSet={pieceSet} />
