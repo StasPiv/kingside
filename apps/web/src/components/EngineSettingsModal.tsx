@@ -171,6 +171,12 @@ export function EngineSettingsModal({
                     <button className="engine-saved-delete" onClick={() => onDeleteConfig(cfg.wsUrl)} title="Delete">✕</button>
                   </div>
                 ))}
+                <button
+                  className="engine-add-btn"
+                  onClick={() => { setExtNameInput(''); setExtUrlInput(''); setExtKeyInput(''); }}
+                >
+                  + {t('engineSettings.addEngine', 'Add Engine')}
+                </button>
               </div>
             )}
 

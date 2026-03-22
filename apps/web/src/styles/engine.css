@@ -470,3 +470,20 @@
   color: #666;
   font-weight: normal;
 }
+
+.engine-add-btn {
+  width: 100%;
+  padding: 8px;
+  margin-top: 4px;
+  background: transparent;
+  border: 1px dashed #4a4a8e;
+  color: #7c83ff;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.engine-add-btn:hover {
+  background: #1e2a4a;
+  border-color: #7c83ff;
+}
