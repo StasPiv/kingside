@@ -7,6 +7,7 @@ import { MemoChessboard } from '../components/MemoChessboard';
 import { GameInfoPanel } from '../components/GameInfoPanel';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
 import { EvalBar } from '../components/EvalBar';
+import { SetPositionModal } from '../components/SetPositionModal';
 import { useStablePosition } from '../hooks/useStablePosition';
 import type { EvalLine } from '../hooks/useStockfish';
 import { useEngine } from '../hooks/useEngine';
@@ -105,7 +106,7 @@ export function GameReviewPage() {
 
   const {
     history, currentMove, currentGlobalIndex, currentFen,
-    loadMoves, loadFromPgn, gotoMove, gotoFirst, gotoLast,
+    loadMoves, loadFromPgn, setInitialFen, gotoMove, gotoFirst, gotoLast,
     gotoPrevious, gotoNext, makeVariantMove, removeVariation,
     truncateRemaining, promoteVariation,
   } = useReviewState();
@@ -158,6 +159,7 @@ export function GameReviewPage() {
 
   // Engine config (extracted hook)
   const ec = useEngineConfig();
+  const [showSetPosition, setShowSetPosition] = useState(false);
   const [bridgePromoDismissed, setBridgePromoDismissed] = useState(() => {
     try { return localStorage.getItem('bridgePromoDismissed') === '1'; } catch { return false; }
   });
@@ -565,6 +567,15 @@ export function GameReviewPage() {
             <button onClick={gotoNext} disabled={isAtEnd} title={t('review.forward')}>&#x2192;</button>
             <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>&#x21E5;</button>
             <span className="analysis-controls-spacer" />
+            {!gameId && (
+              <button
+                className="analysis-export-btn"
+                onClick={() => setShowSetPosition(true)}
+                title={t('position.title', 'Set Position')}
+              >
+                FEN
+              </button>
+            )}
             <button
               className="analysis-export-btn"
               onClick={() => {
@@ -734,6 +745,16 @@ export function GameReviewPage() {
           onConnectExternal={ec.handleConnectExternal}
           onSelectSavedConfig={ec.handleSelectSavedConfig}
           onDeleteConfig={ec.handleDeleteConfig}
+        />
+      )}
+
+      {showSetPosition && (
+        <SetPositionModal
+          onApply={(fen) => {
+            setInitialFen(fen);
+            setShowSetPosition(false);
+          }}
+          onClose={() => setShowSetPosition(false)}
         />
       )}
     </div>

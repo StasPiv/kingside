@@ -961,3 +961,128 @@
   color: #aaa;
 }
 
+/* Set Position Modal */
+.set-position-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.set-position-modal {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 12px;
+  width: 500px;
+  max-width: 90vw;
+}
+
+.set-position-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2a2a4e;
+}
+
+.set-position-header h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.set-position-close {
+  background: transparent;
+  color: #888;
+  border: none;
+  font-size: 18px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.set-position-body {
+  padding: 20px;
+}
+
+.set-position-label {
+  display: block;
+  color: #a0a0c0;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.set-position-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #16213e;
+  border: 1px solid #2a2a4e;
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.set-position-input:focus {
+  border-color: #7c83ff;
+  outline: none;
+}
+
+.set-position-error {
+  color: #ef4444;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.set-position-presets {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.set-position-preset {
+  background: #2a2a4e;
+  color: #a0a0ff;
+  border: 1px solid #4a4a7e;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.set-position-preset:hover {
+  background: #3a3a6e;
+}
+
+.set-position-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.set-position-cancel {
+  background: #2a2a4e;
+  color: #a0a0c0;
+  border: 1px solid #4a4a7e;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.set-position-apply {
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.set-position-apply:hover {
+  background: #6366f1;
+}
+

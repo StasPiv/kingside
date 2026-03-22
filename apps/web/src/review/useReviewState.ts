@@ -20,11 +20,13 @@ type ReviewState = {
   history: ChessMove[];
   currentMove: ChessMove | null;
   nextGlobalIndex: number;
+  initialFen: string;
 };
 
 type ReviewAction =
   | { type: 'LOAD_MOVES'; payload: ApiMove[] }
   | { type: 'LOAD_FROM_PGN'; payload: ChessMove[] }
+  | { type: 'SET_INITIAL_FEN'; payload: string }
   | { type: 'GOTO_MOVE'; payload: ChessMove }
   | { type: 'GOTO_FIRST' }
   | { type: 'GOTO_PREVIOUS' }
@@ -89,6 +91,7 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         history,
         currentMove: lastMove,
         nextGlobalIndex: history.length,
+        initialFen: INITIAL_FEN,
       };
     }
     case 'LOAD_FROM_PGN': {
@@ -99,6 +102,15 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         history,
         currentMove: lastMove,
         nextGlobalIndex: maxIdx + 1,
+        initialFen: state.initialFen,
+      };
+    }
+    case 'SET_INITIAL_FEN': {
+      return {
+        history: [],
+        currentMove: null,
+        nextGlobalIndex: 0,
+        initialFen: action.payload,
       };
     }
     case 'GOTO_MOVE': {
@@ -135,6 +147,7 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         state.history,
       );
       return {
+        ...state,
         history: updatedHistory,
         currentMove: updatedCurrentMove,
         nextGlobalIndex: state.nextGlobalIndex + 1,
@@ -192,6 +205,7 @@ export function useReviewState() {
     history: [],
     currentMove: null,
     nextGlobalIndex: 0,
+    initialFen: INITIAL_FEN,
   });
 
   const loadMoves = useCallback((apiMoves: ApiMove[]) => {
@@ -200,6 +214,10 @@ export function useReviewState() {
 
   const loadFromPgn = useCallback((moves: ChessMove[]) => {
     dispatch({ type: 'LOAD_FROM_PGN', payload: moves });
+  }, []);
+
+  const setInitialFen = useCallback((fen: string) => {
+    dispatch({ type: 'SET_INITIAL_FEN', payload: fen });
   }, []);
 
   const gotoMove = useCallback((move: ChessMove) => {
@@ -213,7 +231,7 @@ export function useReviewState() {
 
   const makeVariantMove = useCallback(
     (from: string, to: string, promotion?: string): boolean => {
-      const fen = state.currentMove?.fen ?? INITIAL_FEN;
+      const fen = state.currentMove?.fen ?? state.initialFen;
       try {
         const chess = new Chess(fen);
         const move = chess.move({
@@ -265,7 +283,7 @@ export function useReviewState() {
     dispatch({ type: 'DELETE_REMAINING', payload: move });
   }, []);
 
-  const currentFen = state.currentMove?.fen ?? INITIAL_FEN;
+  const currentFen = state.currentMove?.fen ?? state.initialFen;
   const currentGlobalIndex = state.currentMove?.globalIndex ?? -1;
 
   // Check if current move is in a variation (not in the top-level main-line history)
@@ -280,6 +298,7 @@ export function useReviewState() {
     isInVariation,
     loadMoves,
     loadFromPgn,
+    setInitialFen,
     gotoMove,
     gotoFirst,
     gotoPrevious,
