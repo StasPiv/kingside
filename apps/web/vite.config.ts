@@ -5,30 +5,32 @@ import path from 'path';
 import { execSync } from 'child_process';
 import fs from 'fs';
 
-function versionPlugin(): Plugin {
-  function generateVersion() {
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const since = `${y}-${m}-${d}T00:00:00`;
-    let n = 1;
-    try {
-      const out = execSync(`git log --oneline --since='${since}'`, { encoding: 'utf-8' });
-      n = out.trim().split('\n').filter(Boolean).length || 1;
-    } catch { /* fallback */ }
-    const version = `${y}.${m}.${d}.${n}`;
-    const dest = path.resolve(__dirname, 'public/version.json');
-    fs.writeFileSync(dest, JSON.stringify({ version }));
-  }
+function getVersion(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const since = `${y}-${m}-${d}T00:00:00`;
+  let n = 1;
+  try {
+    const out = execSync(`git log --oneline --since='${since}'`, { encoding: 'utf-8' });
+    n = out.trim().split('\n').filter(Boolean).length || 1;
+  } catch { /* fallback */ }
+  return `${y}.${m}.${d}.${n}`;
+}
 
+function versionPlugin(): Plugin {
   return {
     name: 'version-json',
     buildStart() {
-      generateVersion();
+      const dest = path.resolve(__dirname, 'public/version.json');
+      fs.writeFileSync(dest, JSON.stringify({ version: getVersion() }));
     },
-    configureServer() {
-      generateVersion();
+    configureServer(server) {
+      server.middlewares.use('/version.json', (_req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ version: getVersion() }));
+      });
     },
   };
 }
