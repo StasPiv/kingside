@@ -185,7 +185,7 @@ export function WorkshopAnalysisList() {
               <div
                 key={analysis.id}
                 className={`workshop-analysis-item${selected.has(analysis.id) ? ' workshop-analysis-item--selected' : ''}`}
-                onClick={() => handleOpen(analysis)}
+                onClick={() => { if (selected.size > 0) { toggleSelect(analysis.id, { stopPropagation: () => {} } as React.MouseEvent); } else { handleOpen(analysis); } }}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => e.key === 'Enter' && handleOpen(analysis)}
