@@ -20,6 +20,7 @@ import {
 import request from 'supertest';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
+import { AuthService } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 describe('GET /users/:id/puzzle-rush-stats E2E', () => {
@@ -40,7 +41,10 @@ describe('GET /users/:id/puzzle-rush-stats E2E', () => {
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UserController],
-      providers: [{ provide: UserService, useValue: mockService }],
+      providers: [
+        { provide: UserService, useValue: mockService },
+        { provide: AuthService, useValue: { generateTokens: jest.fn() } },
+      ],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({
@@ -218,7 +222,10 @@ describe('GET /users/:id/puzzle-rush-stats E2E', () => {
     beforeAll(async () => {
       const module: TestingModule = await Test.createTestingModule({
         controllers: [UserController],
-        providers: [{ provide: UserService, useValue: mockService }],
+        providers: [
+          { provide: UserService, useValue: mockService },
+          { provide: AuthService, useValue: { generateTokens: jest.fn() } },
+        ],
       })
         .overrideGuard(JwtAuthGuard)
         .useValue({

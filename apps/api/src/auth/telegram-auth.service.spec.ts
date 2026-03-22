@@ -77,22 +77,17 @@ describe('AuthService.telegramAuth', () => {
   });
 
   describe('Scenario: Успешная авторизация', () => {
-    it('создаёт нового пользователя и возвращает JWT tokens', async () => {
+    it('возвращает pending tokens для нового пользователя (без создания в БД)', async () => {
       prisma.user.findUnique.mockResolvedValue(null);
-      prisma.user.create.mockResolvedValue(mockUser);
 
       const dto = buildTelegramData(BOT_TOKEN);
       const result = await service.telegramAuth(dto);
 
-      expect(prisma.user.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          telegramId: String(dto.id),
-          requiresUsernameSetup: true,
-        }),
-      });
+      expect(prisma.user.create).not.toHaveBeenCalled();
       expect(result.accessToken).toBe('mock-token');
       expect(result.refreshToken).toBe('mock-token');
       expect(result.isNewUser).toBe(true);
+      expect(result.requiresUsernameSetup).toBe(true);
     });
   });
 
