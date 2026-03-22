@@ -50,6 +50,7 @@ export function PlayerProfilePage() {
   const [error, setError] = useState('');
   const [friendStatus, setFriendStatus] = useState<FriendStatus>('loading');
   const [friendshipId, setFriendshipId] = useState<string | null>(null);
+  const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
     if (!username) return;
@@ -70,24 +71,26 @@ export function PlayerProfilePage() {
       .finally(() => setLoading(false));
   }, [username, t]);
 
-  // Check friendship status
+  // Check friendship and block status
   useEffect(() => {
     if (!profile || !currentUser || profile.id === currentUser.id) {
       setFriendStatus('none');
       return;
     }
     setFriendStatus('loading');
-    api.get<{ data: FriendEntry[] }>('/api/friends')
-      .then(({ data }) => {
-        const entry = data.find((f) => f.user.id === profile.id);
-        if (entry) {
-          setFriendStatus('friends');
-          setFriendshipId(entry.friendshipId);
-        } else {
-          setFriendStatus('none');
-        }
-      })
-      .catch(() => setFriendStatus('none'));
+    Promise.all([
+      api.get<{ data: FriendEntry[] }>('/api/friends'),
+      api.get<{ data: { id: string; username: string }[] }>('/api/users/blocked'),
+    ]).then(([friendsRes, blockedRes]) => {
+      const entry = friendsRes.data.find((f) => f.user.id === profile.id);
+      if (entry) {
+        setFriendStatus('friends');
+        setFriendshipId(entry.friendshipId);
+      } else {
+        setFriendStatus('none');
+      }
+      setIsBlocked(blockedRes.data.some((b) => b.id === profile.id));
+    }).catch(() => setFriendStatus('none'));
   }, [profile, currentUser]);
 
   const handleAddFriend = useCallback(async () => {
@@ -119,6 +122,22 @@ export function PlayerProfilePage() {
       setFriendStatus('friends');
     }
   }, [friendshipId]);
+
+  const handleBlock = useCallback(async () => {
+    if (!profile) return;
+    try {
+      await api.post(`/api/users/block/${profile.id}`, {});
+      setIsBlocked(true);
+    } catch { /* ignore */ }
+  }, [profile]);
+
+  const handleUnblock = useCallback(async () => {
+    if (!profile) return;
+    try {
+      await api.delete(`/api/users/unblock/${profile.id}`);
+      setIsBlocked(false);
+    } catch { /* ignore */ }
+  }, [profile]);
 
   if (loading) {
     return (
@@ -199,6 +218,17 @@ export function PlayerProfilePage() {
                 </button>
               )}
             </>
+          )}
+          {currentUser && profile.id !== currentUser.id && (
+            isBlocked ? (
+              <button className="player-profile-block-btn player-profile-block-btn--unblock" onClick={handleUnblock}>
+                {t('playerProfile.unblock', 'Unblock')}
+              </button>
+            ) : (
+              <button className="player-profile-block-btn" onClick={handleBlock}>
+                {t('playerProfile.block', 'Block')}
+              </button>
+            )
           )}
           </div>
         </div>

@@ -23,7 +23,9 @@
     "accept": "Accept",
     "decline": "Decline",
     "empty": "No friends yet. Visit player profiles to send friend requests.",
-    "browsePlayers": "Browse Players"
+    "browsePlayers": "Browse Players",
+    "blocked": "Blocked",
+    "unblock": "Unblock"
   },
   "challenge": {
     "title": "Challenge",
@@ -635,6 +637,8 @@
     "addFriend": "Add Friend",
     "requestSent": "Request Sent",
     "removeFriend": "Remove Friend",
+    "block": "Block",
+    "unblock": "Unblock",
     "puzzleRush": "Puzzle Rush",
     "best3min": "Best 3min",
     "best5min": "Best 5min",

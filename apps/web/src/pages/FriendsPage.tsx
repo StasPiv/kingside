@@ -22,6 +22,7 @@ export function FriendsPage() {
   const { t } = useTranslation();
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [challengeTarget, setChallengeTarget] = useState<{ id: string; username: string } | null>(null);
   const { state: challengeState, error: challengeError, sendChallenge, cancel: cancelChallenge } = useChallenge();
@@ -29,12 +30,14 @@ export function FriendsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [friendsRes, requestsRes] = await Promise.all([
+      const [friendsRes, requestsRes, blockedRes] = await Promise.all([
         api.get<{ data: FriendItem[] }>('/api/friends'),
         api.get<{ data: RequestItem[] }>('/api/friends/requests'),
+        api.get<{ data: { id: string; username: string }[] }>('/api/users/blocked'),
       ]);
       setFriends(friendsRes.data);
       setRequests(requestsRes.data);
+      setBlocked(blockedRes.data);
     } catch {
       // ignore
     } finally {
@@ -62,6 +65,13 @@ export function FriendsPage() {
     try {
       await api.delete(`/api/friends/${friendshipId}`);
       setFriends((prev) => prev.filter((f) => f.friendshipId !== friendshipId));
+    } catch { /* ignore */ }
+  }, []);
+
+  const handleUnblock = useCallback(async (userId: string) => {
+    try {
+      await api.delete(`/api/users/unblock/${userId}`);
+      setBlocked((prev) => prev.filter((b) => b.id !== userId));
     } catch { /* ignore */ }
   }, []);
 
@@ -156,7 +166,30 @@ export function FriendsPage() {
         </div>
       )}
 
-      {friends.length === 0 && requests.length === 0 && (
+      {/* Blocked users */}
+      {blocked.length > 0 && (
+        <div className="friends-section">
+          <h2>{t('friends.blocked', 'Blocked')} ({blocked.length})</h2>
+          <div className="friends-list">
+            {blocked.map((b) => (
+              <div key={b.id} className="friends-item friends-item--blocked">
+                <div className="friends-item__info">
+                  <Link to={`/player/${b.username}`} className="friends-item__name">
+                    {b.username}
+                  </Link>
+                </div>
+                <div className="friends-item__actions">
+                  <button className="friends-btn friends-btn--accept" onClick={() => handleUnblock(b.id)}>
+                    {t('friends.unblock', 'Unblock')}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {friends.length === 0 && requests.length === 0 && blocked.length === 0 && (
         <div className="friends-empty">
           <p>{t('friends.empty', 'No friends yet. Visit player profiles to send friend requests.')}</p>
           <Link to="/players" className="friends-link">{t('friends.browsePlayers', 'Browse Players')}</Link>

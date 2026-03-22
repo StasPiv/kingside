@@ -637,6 +637,42 @@
   background: #b91c1c;
 }
 
+.player-profile-block-btn {
+  margin-top: 10px;
+  margin-left: 8px;
+  background: #4a4a6e;
+  color: #a0a0c0;
+  border: 1px solid #555;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.player-profile-block-btn:hover {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+.player-profile-block-btn--unblock {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+.player-profile-block-btn--unblock:hover {
+  background: #4a4a6e;
+  color: #a0a0c0;
+  border-color: #555;
+}
+
+.friends-item--blocked {
+  border-color: #dc2626;
+  opacity: 0.7;
+}
+
 /* Messages Page */
 .messages-page {
   display: grid;
