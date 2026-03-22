@@ -63,6 +63,11 @@ function parseInfoLine(line: string): EvalLine | null {
 export function useStockfish(options: UseStockfishOptions = {}) {
   const { depth = 20, multiPv = 3, autoStart = true } = options;
 
+  const depthRef = useRef(depth);
+  const multiPvRef = useRef(multiPv);
+  depthRef.current = depth;
+  multiPvRef.current = multiPv;
+
   const [state, setState] = useState<StockfishState>('idle');
   const [lines, setLines] = useState<EvalLine[]>([]);
   const [analysisFen, setAnalysisFen] = useState<string | null>(null);
@@ -139,9 +144,9 @@ export function useStockfish(options: UseStockfishOptions = {}) {
             setBestMove(null);
             analysisGenRef.current += 1;
             setState('analyzing');
-            engine.postMessage(`setoption name MultiPV value ${multiPv}`);
+            engine.postMessage(`setoption name MultiPV value ${multiPvRef.current}`);
             engine.postMessage(`position fen ${lazyFen}`);
-            engine.postMessage(`go depth ${depth}`);
+            engine.postMessage(`go depth ${depthRef.current}`);
           } else {
             setState('ready');
           }
@@ -159,9 +164,9 @@ export function useStockfish(options: UseStockfishOptions = {}) {
             setBestMove(null);
             analysisGenRef.current += 1;
             setState('analyzing');
-            engine.postMessage(`setoption name MultiPV value ${multiPv}`);
+            engine.postMessage(`setoption name MultiPV value ${multiPvRef.current}`);
             engine.postMessage(`position fen ${pendingFen}`);
-            engine.postMessage(`go depth ${depth}`);
+            engine.postMessage(`go depth ${depthRef.current}`);
             return;
           }
         }
@@ -253,11 +258,11 @@ export function useStockfish(options: UseStockfishOptions = {}) {
       setBestMove(null);
       analysisGenRef.current += 1;
       setState('analyzing');
-      engineRef.current.postMessage(`setoption name MultiPV value ${multiPv}`);
+      engineRef.current.postMessage(`setoption name MultiPV value ${multiPvRef.current}`);
       engineRef.current.postMessage(`position fen ${fen}`);
-      engineRef.current.postMessage(`go depth ${depth}`);
+      engineRef.current.postMessage(`go depth ${depthRef.current}`);
     },
-    [],
+    [init],
   );
 
   const stop = useCallback(() => {
