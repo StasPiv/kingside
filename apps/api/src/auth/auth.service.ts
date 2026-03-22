@@ -238,7 +238,7 @@ export class AuthService {
     }
   }
 
-  async devBypass(secret: string) {
+  async devBypass(secret: string, username?: string) {
     const nodeEnv = this.configService.get<string>('NODE_ENV');
     if (nodeEnv === 'production') {
       throw new ForbiddenException('Not available in production');
@@ -250,7 +250,29 @@ export class AuthService {
       throw new ForbiddenException('Invalid secret');
     }
 
-    // Ensure DEV user exists
+    // If a specific username is requested, find or create that user
+    if (username) {
+      const existing = await this.prisma.user.findUnique({ where: { username } });
+      if (existing) {
+        await this.prisma.user.update({
+          where: { id: existing.id },
+          data: { lastSeenAt: new Date() },
+        });
+        return this.generateTokens(existing.id, existing.username);
+      }
+
+      const devPasswordHash = await bcrypt.hash('dev-no-login', 10);
+      const created = await this.prisma.user.create({
+        data: {
+          username,
+          email: `${username.toLowerCase()}@kingside.local`,
+          passwordHash: devPasswordHash,
+        },
+      });
+      return this.generateTokens(created.id, created.username);
+    }
+
+    // Default: ensure DEV user exists
     const devPasswordHash = await bcrypt.hash('dev-no-login', 10);
     const user = await this.prisma.user.upsert({
       where: { id: DEV_USER_ID },

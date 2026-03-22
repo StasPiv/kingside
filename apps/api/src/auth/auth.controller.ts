@@ -43,8 +43,8 @@ export class AuthController {
   }
 
   @Post('dev-bypass')
-  devBypass(@Body('secret') secret: string) {
-    return this.authService.devBypass(secret);
+  devBypass(@Body('secret') secret: string, @Body('user') user?: string) {
+    return this.authService.devBypass(secret, user);
   }
 
   @Post('telegram')
