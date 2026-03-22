@@ -7,6 +7,8 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { messagesSocket } from '../socket';
 import { MessageEvents } from '@kingside/shared';
+import { useChallenge } from '../hooks/useChallenge';
+import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -31,6 +33,7 @@ export function MainLayout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const { incoming, acceptChallenge, declineChallenge } = useChallenge();
 
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -170,6 +173,13 @@ export function MainLayout() {
       <main className="main">
         <Outlet />
       </main>
+      {user && incoming && (
+        <IncomingChallengeToast
+          challenge={incoming}
+          onAccept={acceptChallenge}
+          onDecline={declineChallenge}
+        />
+      )}
     </div>
   );
 }

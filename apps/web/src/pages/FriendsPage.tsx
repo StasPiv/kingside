@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useChallenge } from '../hooks/useChallenge';
 import { ChallengeModal } from '../components/ChallengeModal';
-import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 
 type FriendItem = {
   friendshipId: string;
@@ -25,7 +24,7 @@ export function FriendsPage() {
   const [requests, setRequests] = useState<RequestItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [challengeTarget, setChallengeTarget] = useState<{ id: string; username: string } | null>(null);
-  const { state: challengeState, incoming, error: challengeError, sendChallenge, acceptChallenge, declineChallenge, cancel: cancelChallenge } = useChallenge();
+  const { state: challengeState, error: challengeError, sendChallenge, cancel: cancelChallenge } = useChallenge();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -174,13 +173,6 @@ export function FriendsPage() {
         />
       )}
 
-      {incoming && (
-        <IncomingChallengeToast
-          challenge={incoming}
-          onAccept={acceptChallenge}
-          onDecline={declineChallenge}
-        />
-      )}
     </div>
   );
 }
