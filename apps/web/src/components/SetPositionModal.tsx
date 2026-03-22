@@ -13,9 +13,11 @@ const EMPTY_FEN = '8/8/8/8/8/8/8/8 w - - 0 1';
 
 type Tab = 'fen' | 'editor';
 
-const PIECE_PALETTE = [
+const WHITE_PIECES = [
   { piece: 'wK', label: '♔' }, { piece: 'wQ', label: '♕' }, { piece: 'wR', label: '♖' },
   { piece: 'wB', label: '♗' }, { piece: 'wN', label: '♘' }, { piece: 'wP', label: '♙' },
+];
+const BLACK_PIECES = [
   { piece: 'bK', label: '♚' }, { piece: 'bQ', label: '♛' }, { piece: 'bR', label: '♜' },
   { piece: 'bB', label: '♝' }, { piece: 'bN', label: '♞' }, { piece: 'bP', label: '♟' },
 ];
@@ -191,17 +193,37 @@ export function SetPositionModal({ onApply, onClose }: Props) {
             <div className="set-position-editor__controls">
               <div className="set-position-palette">
                 <div className="set-position-palette__label">{t('position.pieces', 'Pieces:')}</div>
-                <div className="set-position-palette__grid">
-                  {PIECE_PALETTE.map((p) => (
+                <div className="set-position-palette__row">
+                  <span className="set-position-palette__color-label">W</span>
+                  {WHITE_PIECES.map((p) => (
                     <button
                       key={p.piece}
-                      className={`set-position-palette__piece${selectedPiece === p.piece ? ' active' : ''}`}
+                      className={`set-position-palette__piece set-position-palette__piece--white${selectedPiece === p.piece ? ' active' : ''}`}
                       onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.piece); setSelectedPiece(p.piece); }}
                       title={p.piece}
                     >
                       {p.label}
                     </button>
                   ))}
+                </div>
+                <div className="set-position-palette__row">
+                  <span className="set-position-palette__color-label">B</span>
+                  {BLACK_PIECES.map((p) => (
+                    <button
+                      key={p.piece}
+                      className={`set-position-palette__piece set-position-palette__piece--black${selectedPiece === p.piece ? ' active' : ''}`}
+                      onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
+                      draggable
+                      onDragStart={(e) => { e.dataTransfer.setData('text/plain', p.piece); setSelectedPiece(p.piece); }}
+                      title={p.piece}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="set-position-palette__row">
                   <button
                     className={`set-position-palette__piece set-position-palette__eraser${selectedPiece === null ? ' active' : ''}`}
                     onClick={() => setSelectedPiece(null)}

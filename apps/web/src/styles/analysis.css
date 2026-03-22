@@ -1136,8 +1136,23 @@
 
 .set-position-palette__grid {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 4px;
+}
+
+.set-position-palette__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.set-position-palette__color-label {
+  width: 16px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #808098;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .set-position-palette__piece {
@@ -1162,6 +1177,38 @@
 
 .set-position-palette__piece.active {
   background: #7c83ff;
+  border-color: #7c83ff;
+}
+
+.set-position-palette__piece--white {
+  background: #e8e8e8;
+  color: #333;
+  border-color: #bbb;
+}
+
+.set-position-palette__piece--white:hover {
+  border-color: #7c83ff;
+}
+
+.set-position-palette__piece--white.active {
+  background: #7c83ff;
+  color: #fff;
+  border-color: #7c83ff;
+}
+
+.set-position-palette__piece--black {
+  background: #2a2a3e;
+  color: #e0e0e0;
+  border-color: #444;
+}
+
+.set-position-palette__piece--black:hover {
+  border-color: #7c83ff;
+}
+
+.set-position-palette__piece--black.active {
+  background: #7c83ff;
+  color: #fff;
   border-color: #7c83ff;
 }
 
