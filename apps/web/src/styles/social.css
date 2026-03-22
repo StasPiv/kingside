@@ -580,6 +580,37 @@
   color: #fff;
 }
 
+.player-profile-friend-btn {
+  margin-top: 10px;
+  margin-left: 8px;
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.player-profile-friend-btn:hover {
+  background: #15803d;
+}
+
+.player-profile-friend-btn--pending {
+  background: #4a4a8e;
+  cursor: default;
+  opacity: 0.7;
+}
+
+.player-profile-friend-btn--remove {
+  background: #dc2626;
+}
+
+.player-profile-friend-btn--remove:hover {
+  background: #b91c1c;
+}
+
 /* Messages Page */
 .messages-page {
   display: grid;
