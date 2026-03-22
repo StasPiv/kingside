@@ -591,6 +591,7 @@ export function GameReviewPage() {
               className="analysis-export-btn"
               onClick={() => {
                 try {
+                  console.log('[Export PGN] clicked, history.length =', history.length);
                   if (history.length === 0) return;
                   const headers: string[] = [];
                   headers.push(`[Event "${analysisTitle || 'Analysis'}"]`);
