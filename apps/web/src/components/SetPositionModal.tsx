@@ -90,6 +90,22 @@ function validateFen(fen: string): string | null {
   catch (e) { return e instanceof Error ? e.message : 'Invalid FEN'; }
 }
 
+function validateBoard(board: Record<string, string>, turn: 'w' | 'b'): string | null {
+  let wK = 0, bK = 0;
+  for (const [sq, piece] of Object.entries(board)) {
+    if (piece === 'wK') wK++;
+    if (piece === 'bK') bK++;
+    const rank = sq[1];
+    if ((piece === 'wP' || piece === 'bP') && (rank === '1' || rank === '8')) {
+      return `Pawn on ${sq} — pawns cannot be on rank 1 or 8`;
+    }
+  }
+  if (wK !== 1) return wK === 0 ? 'White king is missing' : 'Too many white kings';
+  if (bK !== 1) return bK === 0 ? 'Black king is missing' : 'Too many black kings';
+  // Opponent king must not be in check (chess.js validates this on construction)
+  return null;
+}
+
 function PieceIcon({ piece, pieceSet }: { piece: string; pieceSet: string }) {
   if (pieceSet === 'standard') {
     const labels: Record<string, string> = {
@@ -124,7 +140,10 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
     onApply(trimmed);
   };
 
+  const boardError = useMemo(() => validateBoard(board, editorTurn), [board, editorTurn]);
+
   const handleApplyEditor = () => {
+    if (boardError) { setError(boardError); return; }
     const fen = positionToFen(board, editorTurn, castling);
     const err = validateFen(fen);
     if (err) { setError(err); return; }
@@ -283,11 +302,12 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
                 </button>
               </div>
 
-              {error && <div className="set-position-error">{error}</div>}
+              {boardError && <div className="set-position-error">{boardError}</div>}
+              {error && !boardError && <div className="set-position-error">{error}</div>}
 
               <div className="set-position-actions">
                 <button className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
-                <button className="set-position-apply" onClick={handleApplyEditor}>{t('position.apply', 'Apply')}</button>
+                <button className="set-position-apply" onClick={handleApplyEditor} disabled={!!boardError}>{t('position.apply', 'Apply')}</button>
               </div>
             </div>
           </div>
