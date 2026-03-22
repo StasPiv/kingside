@@ -281,6 +281,6 @@ export function useStockfish(options: UseStockfishOptions = {}) {
     stop,
     init,
     cleanup,
-    isReady: state === 'ready' || state === 'analyzing',
+    isReady: state === 'idle' || state === 'ready' || state === 'analyzing',
   };
 }
