@@ -4,11 +4,13 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { MemoChessboard } from '../components/MemoChessboard';
+import { GameInfoPanel } from '../components/GameInfoPanel';
+import { EngineSettingsModal } from '../components/EngineSettingsModal';
 import { useStablePosition } from '../hooks/useStablePosition';
 import type { EvalLine } from '../hooks/useStockfish';
-import { useEngine, loadEngineConfigs, saveEngineConfigs } from '../hooks/useEngine';
+import { useEngine } from '../hooks/useEngine';
 import type { EngineSource } from '../hooks/useEngine';
-import type { ExternalEngineConfig } from '../hooks/useExternalEngine';
+import { useEngineConfig } from '../hooks/useEngineConfig';
 import { useContainerSize } from '../hooks/useContainerSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
@@ -21,6 +23,7 @@ import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
+import { formatEval, evalToPercent, formatPv, formatCompact } from '../utils/chessFormat';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
@@ -48,66 +51,6 @@ type MoveData = {
   fenAfter: string;
 };
 
-function formatEval(line: EvalLine, isBlackTurn = false): string {
-  const sign = isBlackTurn ? -1 : 1;
-  if (line.score.type === 'mate') {
-    const mateValue = sign * line.score.value;
-    return mateValue === 0 ? '#' : `M${Math.abs(mateValue)}`;
-  }
-  const cp = (sign * line.score.value) / 100;
-  return (cp >= 0 ? '+' : '') + cp.toFixed(2);
-}
-
-function evalToPercent(lines: EvalLine[], isBlackTurn: boolean): number {
-  if (lines.length === 0) return 50;
-  const line = lines[0];
-  const sign = isBlackTurn ? -1 : 1;
-  if (line.score.type === 'mate') {
-    const mateValue = sign * line.score.value;
-    return mateValue > 0 ? 95 : mateValue < 0 ? 5 : 50;
-  }
-  const cp = sign * line.score.value;
-  const pct = 50 + 50 * (2 / (1 + Math.exp(-0.004 * cp)) - 1);
-  return Math.max(2, Math.min(98, pct));
-}
-
-function formatPv(pv: string, fen: string): string {
-  try {
-    const chess = new Chess(fen);
-    const uciMoves = pv.split(' ');
-    const fenParts = fen.split(' ');
-    let isWhiteTurn = fenParts[1] === 'w';
-    let moveNumber = parseInt(fenParts[5] || '1', 10);
-    const parts: string[] = [];
-    for (const uci of uciMoves.slice(0, 20)) {
-      const from = uci.slice(0, 2);
-      const to = uci.slice(2, 4);
-      const promotion = uci.length > 4 ? uci[4] : undefined;
-      let move;
-      try {
-        move = chess.move({ from, to, promotion });
-      } catch {
-        break;
-      }
-      if (!move) break;
-      if (isWhiteTurn) {
-        parts.push(`${moveNumber}. ${move.san}`);
-      } else if (parts.length === 0) {
-        parts.push(`${moveNumber}... ${move.san}`);
-      } else {
-        parts.push(move.san);
-      }
-      if (!isWhiteTurn) moveNumber++;
-      isWhiteTurn = !isWhiteTurn;
-    }
-    return parts.join(' ');
-  } catch {
-    return '';
-  }
-}
-
-const DEFAULT_MULTI_PV = 3;
-
 export function GameReviewPage() {
   const params = useParams<{ id?: string; gameId?: string }>();
   const rawGameId = params.id ?? params.gameId;
@@ -122,7 +65,7 @@ export function GameReviewPage() {
   const [error, setError] = useState('');
   const pendingPositionRef = useRef<number | null>(null);
 
-  // Standalone analysis state (only used when gameId is undefined)
+  // Standalone analysis state
   const { create: createAnalysis, update: updateAnalysis, getById } = useSavedAnalyses();
   const localIdRef = useRef<string | undefined>(
     (location.state as { localId?: string } | null)?.localId ?? analysisId,
@@ -145,7 +88,7 @@ export function GameReviewPage() {
   });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(analysisTitle);
-  // Sync URL to /analysis/{localId} without triggering React Router navigation
+
   useEffect(() => {
     if (!gameId && localIdRef.current && !analysisId) {
       window.history.replaceState(null, '', '/analysis/' + localIdRef.current);
@@ -160,35 +103,19 @@ export function GameReviewPage() {
   const { inputMode } = useBoardSettings();
 
   const {
-    history,
-    currentMove,
-    currentGlobalIndex,
-    currentFen,
-    loadMoves,
-    loadFromPgn,
-    gotoMove,
-    gotoFirst,
-    gotoLast,
-    gotoPrevious,
-    gotoNext,
-    makeVariantMove,
-    removeVariation,
-    truncateRemaining,
-    promoteVariation,
+    history, currentMove, currentGlobalIndex, currentFen,
+    loadMoves, loadFromPgn, gotoMove, gotoFirst, gotoLast,
+    gotoPrevious, gotoNext, makeVariantMove, removeVariation,
+    truncateRemaining, promoteVariation,
   } = useReviewState();
 
   const game = useMemo(() => new Chess(), []);
 
-  // Panel collapse state — collapse info/engine on narrow screens so moves are visible
+  // Panel collapse state
   const [panelStates, setPanelStates] = useState(() => {
     const narrow = typeof window !== 'undefined' && window.innerWidth <= 768;
-    return {
-      gameInfo: !narrow,
-      engine: !narrow,
-      moves: true,
-    };
+    return { gameInfo: !narrow, engine: !narrow, moves: true };
   });
-
   const togglePanel = useCallback((panel: 'gameInfo' | 'engine' | 'moves') => {
     setPanelStates((prev) => ({ ...prev, [panel]: !prev[panel] }));
   }, []);
@@ -223,230 +150,57 @@ export function GameReviewPage() {
     typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
   const [analysisEnabled, setAnalysisEnabled] = useState<boolean>(() => {
     if (typeof WebAssembly === 'undefined') return false;
-    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) {
-      return false;
-    }
-    // Restore running state from localStorage (default: false = not running)
-    try {
-      return localStorage.getItem('analysisRunning') === 'true';
-    } catch {
-      return false;
-    }
+    if (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches) return false;
+    try { return localStorage.getItem('analysisRunning') === 'true'; } catch { return false; }
   });
   const [engineFailed, setEngineFailed] = useState(false);
 
-  // Engine source: wasm (browser Stockfish) or external (WebSocket bridge)
-  // Auto-select external if there's a saved config
-  const [savedConfigs, setSavedConfigs] = useState<ExternalEngineConfig[]>(() => loadEngineConfigs());
-  const [engineSource, setEngineSource] = useState<EngineSource>(() =>
-    loadEngineConfigs().length > 0 ? 'external' : 'wasm',
-  );
-  const [externalConfig, setExternalConfig] = useState<ExternalEngineConfig | null>(() => {
-    const configs = loadEngineConfigs();
-    return configs.length > 0 ? configs[0] : null;
-  });
-  const [showEngineSettings, setShowEngineSettings] = useState(false);
-  const [extUrlInput, setExtUrlInput] = useState(() => {
-    const configs = loadEngineConfigs();
-    return configs[0]?.wsUrl ?? '';
-  });
-  const [extKeyInput, setExtKeyInput] = useState(() => {
-    const configs = loadEngineConfigs();
-    return configs[0]?.secretKey ?? '';
-  });
-  const [extNameInput, setExtNameInput] = useState(() => {
-    const configs = loadEngineConfigs();
-    return configs[0]?.name ?? '';
-  });
-  const [uciThreads, setUciThreads] = useState(() => {
-    const configs = loadEngineConfigs();
-    return configs[0]?.uciOptions?.Threads ?? '1';
-  });
-  const [uciHash, setUciHash] = useState(() => {
-    const configs = loadEngineConfigs();
-    return configs[0]?.uciOptions?.Hash ?? '256';
-  });
-
-  const [multiPv, setMultiPvRaw] = useState(() => {
-    try {
-      const saved = localStorage.getItem('analysisMultiPv');
-      if (saved) { const n = Number(saved); if (n >= 1 && n <= 10) return n; }
-    } catch {}
-    return DEFAULT_MULTI_PV;
-  });
-  const setMultiPv = useCallback((v: number | ((prev: number) => number)) => {
-    setMultiPvRaw((prev) => {
-      const next = typeof v === 'function' ? v(prev) : v;
-      try { localStorage.setItem('analysisMultiPv', String(next)); } catch {}
-      return next;
-    });
-  }, []);
-  const [showEngineModal, setShowEngineModal] = useState(false);
-
-  // Auto-save UCI options to localStorage when they change
-  useEffect(() => {
-    if (savedConfigs.length === 0 || engineSource !== 'external') return;
-    const updated = savedConfigs.map((c) =>
-      c.wsUrl === externalConfig?.wsUrl
-        ? { ...c, uciOptions: { ...c.uciOptions, Threads: uciThreads, Hash: uciHash } }
-        : c,
-    );
-    saveEngineConfigs(updated);
-  }, [uciThreads, uciHash]);
+  // Engine config (extracted hook)
+  const ec = useEngineConfig();
 
   const {
-    lines,
-    analysisFen,
-    evaluate,
-    stop: stopEngine,
-    setOption: setEngineOption,
-    isReady,
-    state: sfState,
-    engineName,
-    engineSource: activeSource,
+    lines, analysisFen, evaluate, stop: stopEngine, setOption: setEngineOption,
+    isReady, state: sfState, engineName, engineSource: activeSource,
     errorMessage: engineErrorMessage,
   } = useEngine({
-    source: engineSource,
-    externalConfig,
-    depth: engineSource === 'external' ? 99 : 18,
-    multiPv,
+    source: ec.engineSource,
+    externalConfig: ec.externalConfig,
+    depth: ec.engineSource === 'external' ? 99 : 18,
+    multiPv: ec.multiPv,
     autoStart: analysisEnabled,
   });
 
-  const buildConfig = useCallback((): ExternalEngineConfig => ({
-    name: extNameInput.trim() || 'External Engine',
-    wsUrl: extUrlInput.trim(),
-    secretKey: extKeyInput.trim(),
-    uciOptions: { Threads: uciThreads, Hash: uciHash },
-  }), [extUrlInput, extKeyInput, extNameInput, uciThreads, uciHash]);
-
-  const handleConnectExternal = useCallback(() => {
-    if (!extUrlInput.trim()) return;
-    const cfg = buildConfig();
-    setExternalConfig(cfg);
-    setEngineSource('external');
-    setShowEngineSettings(false);
-    // Auto-save on connect
-    const updated = [...savedConfigs.filter((c) => c.wsUrl !== cfg.wsUrl), cfg];
-    setSavedConfigs(updated);
-    saveEngineConfigs(updated);
-  }, [extUrlInput, buildConfig, savedConfigs]);
-
-  const handleSaveConfig = useCallback(() => {
-    if (!extUrlInput.trim()) return;
-    const cfg = buildConfig();
-    const updated = [...savedConfigs.filter((c) => c.wsUrl !== cfg.wsUrl), cfg];
-    setSavedConfigs(updated);
-    saveEngineConfigs(updated);
-  }, [extUrlInput, buildConfig, savedConfigs]);
-
-  const handleDeleteConfig = useCallback((wsUrl: string) => {
-    const updated = savedConfigs.filter((c) => c.wsUrl !== wsUrl);
-    setSavedConfigs(updated);
-    saveEngineConfigs(updated);
-    if (externalConfig?.wsUrl === wsUrl) {
-      if (updated.length > 0) {
-        setExternalConfig(updated[0]);
-      } else {
-        setExternalConfig(null);
-        setEngineSource('wasm');
-      }
-    }
-  }, [savedConfigs, externalConfig]);
-
-  const handleSelectSavedConfig = useCallback((cfg: ExternalEngineConfig) => {
-    setExternalConfig(cfg);
-    setEngineSource('external');
-    setExtUrlInput(cfg.wsUrl);
-    setExtKeyInput(cfg.secretKey);
-    setExtNameInput(cfg.name);
-    setUciThreads(cfg.uciOptions?.Threads ?? '1');
-    setUciHash(cfg.uciOptions?.Hash ?? '256');
-    setShowEngineSettings(false);
-  }, []);
-
-  const handleSwitchToWasm = useCallback(() => {
-    setEngineSource('wasm');
-    setExternalConfig(null);
-    setShowEngineSettings(false);
-  }, []);
-
-  const configFileRef = useRef<HTMLInputElement>(null);
-
-  const handleLoadConfigFile = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      if (!text) return;
-      // Simple YAML parser for flat keys: "key: value"
-      const lines = text.split('\n');
-      let port = '9090';
-      let secret = '';
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('#') || !trimmed.includes(':')) continue;
-        const colonIdx = trimmed.indexOf(':');
-        const key = trimmed.slice(0, colonIdx).trim();
-        const val = trimmed.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, '');
-        if (key === 'port') port = val;
-        if (key === 'secret' || key === 'secret_key') secret = val;
-      }
-      setExtUrlInput(`ws://localhost:${port}`);
-      setExtKeyInput(secret);
-      if (!extNameInput) setExtNameInput('Local Engine');
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  }, [extNameInput]);
-
   const lastLinesRef = useRef<EvalLine[]>([]);
   const prevSourceRef = useRef<EngineSource>(activeSource);
-  // Reset cached lines when engine source changes to avoid showing stale data
   if (prevSourceRef.current !== activeSource) {
     lastLinesRef.current = [];
     prevSourceRef.current = activeSource;
   }
-  // For WASM: show lines only when all multiPv lines arrived (prevents flicker during depth updates).
-  // For external engine: show whatever lines are available (bridge may send different multiPv count).
-  if (activeSource === 'external' ? lines.length > 0 : lines.length === multiPv) {
+  if (activeSource === 'external' ? lines.length > 0 : lines.length === ec.multiPv) {
     lastLinesRef.current = lines;
   }
   const displayedLines = lastLinesRef.current.length > 0 ? lastLinesRef.current : lines;
 
+  // --- Data loading ---
   useEffect(() => {
     if (!gameId) {
       const pgn = (location.state as { pgn?: string } | null)?.pgn;
       if (pgn) {
-        try {
-          const parsedMoves = parseAnnotatedPgn(pgn);
-          loadFromPgn(parsedMoves);
-        } catch {
-          // ignore parse error — start with empty board
-        }
+        try { loadFromPgn(parseAnnotatedPgn(pgn)); } catch { /* ignore */ }
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
-        const analysisId = localIdRef.current;
-        getById(analysisId).then((saved) => {
+        const id = localIdRef.current;
+        getById(id).then((saved) => {
           if (saved?.pgn) {
             try {
-              const parsedMoves = parseAnnotatedPgn(saved.pgn);
-              loadFromPgn(parsedMoves);
-              // Queue position restore — a useEffect will navigate
-              // after React commits the loadFromPgn state update.
+              loadFromPgn(parseAnnotatedPgn(saved.pgn));
               if (saved.currentPosition != null && saved.currentPosition > 0) {
                 pendingPositionRef.current = saved.currentPosition;
               }
-            } catch {
-              // ignore
-            }
+            } catch { /* ignore */ }
             setPgnHeaders(parsePgnHeaders(saved.pgn));
           }
-          if (saved?.title) {
-            setAnalysisTitle(saved.title);
-            setTitleInput(saved.title);
-          }
+          if (saved?.title) { setAnalysisTitle(saved.title); setTitleInput(saved.title); }
           setLoading(false);
         });
         return;
@@ -458,77 +212,46 @@ export function GameReviewPage() {
     const fetchData = async () => {
       try {
         const isAuthenticated = Boolean(localStorage.getItem('token'));
-
-        const requests: [
-          Promise<GameData>,
-          Promise<MoveData[]>,
-          Promise<{ analysisPgn: string | null } | null>,
-        ] = [
+        const requests: [Promise<GameData>, Promise<MoveData[]>, Promise<{ analysisPgn: string | null } | null>] = [
           api.get<GameData>(`/api/games/${gameId}`),
           api.get<MoveData[]>(`/api/games/${gameId}/moves`),
-          isAuthenticated
-            ? api.get<{ analysisPgn: string | null }>(`/api/games/${gameId}/analysis`).catch(() => null)
-            : Promise.resolve(null),
+          isAuthenticated ? api.get<{ analysisPgn: string | null }>(`/api/games/${gameId}/analysis`).catch(() => null) : Promise.resolve(null),
         ];
-
         const [gData, mData, analysisData] = await Promise.all(requests);
         setGameData(gData);
-
         if (analysisData?.analysisPgn) {
-          try {
-            const parsedMoves = parseAnnotatedPgn(analysisData.analysisPgn);
-            loadFromPgn(parsedMoves);
-          } catch {
-            loadMoves(mData);
-          }
-        } else {
-          loadMoves(mData);
-        }
+          try { loadFromPgn(parseAnnotatedPgn(analysisData.analysisPgn)); } catch { loadMoves(mData); }
+        } else { loadMoves(mData); }
       } catch (err) {
         setError(err instanceof Error ? err.message : t('review.loadError'));
-      } finally {
-        setLoading(false);
-      }
+      } finally { setLoading(false); }
     };
-
     fetchData();
   }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
 
   useAnalysisPersistence(gameId, history);
 
-  // Suppress position save until initial restore is complete.
-  // Without this, save fires with the last-move index (from loadFromPgn default)
-  // BEFORE restore navigates to the saved position, overwriting it.
+  // --- Position save/restore ---
   const suppressPositionSaveRef = useRef(true);
 
-  // Restore pending position after moves have been loaded into state.
-  // Uses setTimeout to survive React strict mode's unmount-remount cycle:
-  // the cleanup cancels the timer from the first mount, and the second
-  // mount sets a new timer that actually fires.
   useEffect(() => {
     if (pendingPositionRef.current == null || history.length === 0) return;
     const target = pendingPositionRef.current;
     const timer = setTimeout(() => {
       pendingPositionRef.current = null;
-      // Find the move with the matching globalIndex (including variations) and navigate to it directly
       const targetMove = searchInHistory(history, target);
-      if (targetMove) {
-        gotoMove(targetMove);
-      }
-      // Allow position save after restore settles
+      if (targetMove) gotoMove(targetMove);
       setTimeout(() => { suppressPositionSaveRef.current = false; }, 1500);
     }, 100);
     return () => clearTimeout(timer);
   }, [history, gotoNext, gotoFirst]);
 
-  // If no position to restore, allow save immediately
   useEffect(() => {
     if (pendingPositionRef.current == null && history.length > 0) {
       suppressPositionSaveRef.current = false;
     }
   }, [history]);
 
-  // Save current position to API (debounced).
   const positionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentGlobalIndexRef = useRef(currentGlobalIndex);
   currentGlobalIndexRef.current = currentGlobalIndex;
@@ -541,8 +264,6 @@ export function GameReviewPage() {
     positionSaveRef.current = setTimeout(() => {
       const id = localIdRef.current;
       if (!id) return;
-      // Use FEN-based lookup to get a stable globalIndex that survives
-      // PGN round-trip (runtime indices differ from PGN-parsed indices).
       const fen = currentFenRef.current;
       let position = currentGlobalIndexRef.current;
       if (fen && fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {
@@ -563,44 +284,25 @@ export function GameReviewPage() {
   useEffect(() => {
     if (gameId) return;
     if (history.length === 0) return;
-
-    // Cancel any pending position-only save — the PGN save below will
-    // atomically include currentPosition, preventing a stale index from
-    // being written before the PGN update arrives.
-    if (positionSaveRef.current) {
-      clearTimeout(positionSaveRef.current);
-      positionSaveRef.current = null;
-    }
-
+    if (positionSaveRef.current) { clearTimeout(positionSaveRef.current); positionSaveRef.current = null; }
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
 
     localSaveTimerRef.current = setTimeout(async () => {
       const pgn = serializeToAnnotatedPgn(history);
-
       if (!localIdRef.current) {
         try {
           const entry = await createAnalysis(pgn, analysisTitle);
           localIdRef.current = entry.id;
           window.history.replaceState(null, '', '/analysis/' + entry.id);
-        } catch {
-          // ignore save errors
-        }
+        } catch { /* ignore */ }
       } else {
-        // Compute the position index that matches PGN serialization order.
-        // Runtime globalIndex can differ from PGN-deserialized globalIndex
-        // because PGN places variations after the branching move whereas
-        // runtime assigns them chronologically.  Re-parse the serialized
-        // PGN and look up the current FEN to get the stable index.
         let savedPosition: number | null = null;
         const fen = currentFenRef.current;
         if (fen && fen !== 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1') {
           try {
             const reparsed = parseAnnotatedPgn(pgn);
-            const idx = findGlobalIndexByFen(reparsed, fen);
-            savedPosition = idx;
-          } catch {
-            savedPosition = currentGlobalIndexRef.current;
-          }
+            savedPosition = findGlobalIndexByFen(reparsed, fen);
+          } catch { savedPosition = currentGlobalIndexRef.current; }
         }
         updateAnalysis(localIdRef.current, {
           pgn,
@@ -608,99 +310,65 @@ export function GameReviewPage() {
         }).catch(() => {});
       }
     }, 2000);
-
-    return () => {
-      if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
-    };
+    return () => { if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current); };
   }, [gameId, history, analysisTitle, createAnalysis, updateAnalysis]);
 
-  useEffect(() => {
-    game.load(currentFen);
-  }, [currentFen, game]);
+  useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
+  // --- Engine control ---
   const toggleAnalysis = useCallback(() => {
     setAnalysisEnabled((prev) => {
       const next = !prev;
-      if (prev) {
-        // Keep lastLinesRef — user should see last calculated lines after stop.
-        // Lines will be replaced on next Start.
-        stopEngine();
-      } else {
-        setEngineFailed(false);
-      }
-      try { localStorage.setItem('analysisRunning', String(next)); } catch {}
+      if (prev) { stopEngine(); } else { setEngineFailed(false); }
+      try { localStorage.setItem('analysisRunning', String(next)); } catch { /* ignore */ }
       return next;
     });
   }, []);
 
-  // When engine errors out: if external → delayed fallback to WASM; if WASM → disable
   useEffect(() => {
     if (sfState === 'error' && analysisEnabled) {
-      if (engineSource === 'external') {
-        // Delay fallback — give bridge time to accept the connection.
-        // Without this, a brief WebSocket error during handshake
-        // immediately switches to WASM even though bridge is running.
+      if (ec.engineSource === 'external') {
         const timer = setTimeout(() => {
-          console.log('[Engine] External engine failed, falling back to WASM');
-          setEngineSource('wasm');
-          setExternalConfig(null);
+          ec.setEngineSource('wasm');
+          ec.setExternalConfig(null);
         }, 3000);
         return () => clearTimeout(timer);
       } else {
         setEngineFailed(true);
         setAnalysisEnabled(false);
-        try { localStorage.setItem('analysisRunning', 'false'); } catch {}
+        try { localStorage.setItem('analysisRunning', 'false'); } catch { /* ignore */ }
       }
     }
     return undefined;
-  }, [sfState, analysisEnabled, engineSource]);
+  }, [sfState, analysisEnabled, ec.engineSource]);
 
-  // Skip the first evaluate after mount for external engine — the bridge
-  // may already be analyzing and sending line messages.  Re-sending
-  // "analyze" would reset the depth the engine already reached.
   const initialMountRef = useRef(true);
 
-  // Auto-evaluate when position changes (debounced to avoid WASM crashes)
   useEffect(() => {
     if (!analysisEnabled || !isReady || !currentFen) return;
-
-    // On initial mount with external engine that is already analyzing:
-    // don't send a new analyze command — just listen for lines already in progress.
-    if (initialMountRef.current && engineSource === 'external' && sfState === 'analyzing') {
+    if (initialMountRef.current && ec.engineSource === 'external' && sfState === 'analyzing') {
       initialMountRef.current = false;
       return;
     }
     initialMountRef.current = false;
-
-    const timer = setTimeout(() => {
-      evaluate(currentFen);
-    }, 150);
+    const timer = setTimeout(() => { evaluate(currentFen); }, 150);
     return () => clearTimeout(timer);
-  }, [currentFen, isReady, evaluate, analysisEnabled, engineSource]);
+  }, [currentFen, isReady, evaluate, analysisEnabled, ec.engineSource]);
 
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        gotoPrevious();
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        gotoNext();
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        gotoFirst();
-      } else if (e.key === 'End') {
-        e.preventDefault();
-        gotoLast();
-      }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); gotoPrevious(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); gotoNext(); }
+      else if (e.key === 'Home') { e.preventDefault(); gotoFirst(); }
+      else if (e.key === 'End') { e.preventDefault(); gotoLast(); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [gotoPrevious, gotoNext, gotoFirst, gotoLast]);
 
+  // --- Board setup ---
   const stablePosition = useStablePosition(currentFen);
-
   const boardStyle = useMemo(
     () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
     [boardWidth],
@@ -712,19 +380,12 @@ export function GameReviewPage() {
   );
 
   const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
-    game,
-    playerColor: null,
-    enabled: inputMode === 'click',
+    game, playerColor: null, enabled: inputMode === 'click',
     onMove: inputMode === 'click' ? onClickMove : undefined,
   });
 
-  // Highlight last move on board
   useEffect(() => {
-    if (currentMove) {
-      const from = currentMove.from as Square;
-      const to = currentMove.to as Square;
-      setLastMove(from, to);
-    }
+    if (currentMove) setLastMove(currentMove.from as Square, currentMove.to as Square);
   }, [currentMove, setLastMove]);
 
   const handleSquareClick = useCallback(
@@ -732,16 +393,8 @@ export function GameReviewPage() {
     [onSquareClick],
   );
 
-  // Handle piece drop — insert move or variation
   const handlePieceDrop = useCallback(
-    ({
-      sourceSquare,
-      targetSquare,
-    }: {
-      piece: unknown;
-      sourceSquare: string;
-      targetSquare: string | null;
-    }): boolean => {
+    ({ sourceSquare, targetSquare }: { piece: unknown; sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
       return makeVariantMove(sourceSquare, targetSquare);
     },
@@ -778,10 +431,10 @@ export function GameReviewPage() {
     [stablePosition, boardStyle, boardThemeOptions, squareStyles, handleSquareClick, inputMode],
   );
 
+  // --- Computed values ---
   const isBlackTurn = currentFen.split(' ')[1] === 'b';
   const evalIsBlackTurn = analysisFen ? analysisFen.split(' ')[1] === 'b' : isBlackTurn;
   const whitePercent = evalToPercent(displayedLines, evalIsBlackTurn);
-
   const isAtStart = currentMove === null;
   const isAtEnd = currentMove !== null && !currentMove.next;
 
@@ -797,14 +450,8 @@ export function GameReviewPage() {
 
   const gameInfo = gameData
     ? {
-        white: {
-          username: gameData.white.username,
-          rating: gameData.whiteRatingBefore ?? null,
-        },
-        black: {
-          username: gameData.black.username,
-          rating: gameData.blackRatingBefore ?? null,
-        },
+        white: { username: gameData.white.username, rating: gameData.whiteRatingBefore ?? null },
+        black: { username: gameData.black.username, rating: gameData.blackRatingBefore ?? null },
         opening: openingName || undefined,
         result: resultPgn,
       }
@@ -813,25 +460,15 @@ export function GameReviewPage() {
           white: { username: pgnHeaders['White'] },
           black: { username: pgnHeaders['Black'] },
           opening: openingName || undefined,
-          result:
-            pgnHeaders['Result'] && pgnHeaders['Result'] !== '*'
-              ? pgnHeaders['Result']
-              : undefined,
+          result: pgnHeaders['Result'] && pgnHeaders['Result'] !== '*' ? pgnHeaders['Result'] : undefined,
         }
       : undefined;
-
-  const formatCompact = (n: number): string => {
-    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-    return String(n);
-  };
 
   const topLine = displayedLines[0];
   const engineStats = analysisEnabled && sfState === 'analyzing' && topLine
     ? (() => {
         const parts = [`d${topLine.depth}`];
-        if (activeSource === 'external' && uciThreads !== '1') parts.push(`${uciThreads}cores`);
+        if (activeSource === 'external' && ec.uciThreads !== '1') parts.push(`${ec.uciThreads}cores`);
         if (topLine.nodes) parts.push(`${formatCompact(topLine.nodes)}n`);
         if (topLine.nps) parts.push(`${formatCompact(topLine.nps)}nps`);
         return ` · ${parts.join(' · ')}`;
@@ -842,19 +479,14 @@ export function GameReviewPage() {
     ? ` · ${t('analysis.notSupported', 'Not supported')}`
     : isTouchDevice && engineFailed
       ? ` · ${t('analysis.notSupportedMobile', 'Not supported on mobile')}`
-      : engineStats
-        ? engineStats
-        : analysisEnabled && sfState === 'loading'
-          ? ` · ${t('common.loading')}`
-          : analysisEnabled && sfState === 'error'
-            ? ` · ${t('analysis.engineError', 'Engine error')}`
-            : analysisEnabled && sfState === 'ready' && displayedLines.length === 0
-              ? ` · ${t('analysis.ready', 'Ready')}`
-              : !analysisEnabled && engineFailed
-                ? ` · ${t('analysis.engineError', 'Engine error')}`
-                : !analysisEnabled
-                  ? ` · ${t('analysis.off', 'Off')}`
-                  : '';
+      : engineStats ?? (
+          analysisEnabled && sfState === 'loading' ? ` · ${t('common.loading')}`
+          : analysisEnabled && sfState === 'error' ? ` · ${t('analysis.engineError', 'Engine error')}`
+          : analysisEnabled && sfState === 'ready' && displayedLines.length === 0 ? ` · ${t('analysis.ready', 'Ready')}`
+          : !analysisEnabled && engineFailed ? ` · ${t('analysis.engineError', 'Engine error')}`
+          : !analysisEnabled ? ` · ${t('analysis.off', 'Off')}`
+          : ''
+        );
 
   return (
     <div className="analysis-page" ref={analysisPageRef}>
@@ -862,9 +494,7 @@ export function GameReviewPage() {
         {!gameId && (
           <>
           <div className="analysis-workshop-shortcut">
-            <Link to="/workshop" className="analysis-workshop-shortcut__link">
-              {t('workshop.title')}
-            </Link>
+            <Link to="/workshop" className="analysis-workshop-shortcut__link">{t('workshop.title')}</Link>
           </div>
           <nav className="analysis-breadcrumbs">
             <Link to={breadcrumbRootUrl ?? '/workshop'} className="analysis-breadcrumbs__link">
@@ -873,25 +503,13 @@ export function GameReviewPage() {
             {breadcrumbSection && (
               <>
                 <span className="analysis-breadcrumbs__sep"> / </span>
-                <Link
-                  to={breadcrumbBackUrl ?? '/workshop'}
-                  state={breadcrumbBackState}
-                  className="analysis-breadcrumbs__link"
-                >
-                  {breadcrumbSection}
-                </Link>
+                <Link to={breadcrumbBackUrl ?? '/workshop'} state={breadcrumbBackState} className="analysis-breadcrumbs__link">{breadcrumbSection}</Link>
               </>
             )}
             {breadcrumbFileName && (
               <>
                 <span className="analysis-breadcrumbs__sep"> / </span>
-                <Link
-                  to={breadcrumbFileBackUrl ?? '/workshop/pgn-files'}
-                  state={breadcrumbFileBackState}
-                  className="analysis-breadcrumbs__link"
-                >
-                  {breadcrumbFileName}
-                </Link>
+                <Link to={breadcrumbFileBackUrl ?? '/workshop/pgn-files'} state={breadcrumbFileBackState} className="analysis-breadcrumbs__link">{breadcrumbFileName}</Link>
               </>
             )}
             <span className="analysis-breadcrumbs__sep"> / </span>
@@ -906,11 +524,7 @@ export function GameReviewPage() {
                 maxLength={100}
               />
             ) : (
-              <span
-                className="analysis-breadcrumbs__current"
-                onClick={handleTitleClick}
-                title={t('analysis.editTitle', 'Click to edit title')}
-              >
+              <span className="analysis-breadcrumbs__current" onClick={handleTitleClick} title={t('analysis.editTitle', 'Click to edit title')}>
                 <span className="analysis-breadcrumbs__current-text">{analysisTitle}</span>
                 <span className="analysis-title__edit-icon">✎</span>
               </span>
@@ -919,24 +533,18 @@ export function GameReviewPage() {
           </>
         )}
         <div className="analysis-board-wrapper">
-          {/* Black player row above board */}
           {gameData && (
             <div className="analysis-player-row">
               <span className="analysis-player-dot analysis-player-dot--black" />
               <span className="analysis-player-name">{gameData.black.username}</span>
-              {gameData.blackRatingBefore != null && (
-                <span className="analysis-player-rating">{gameData.blackRatingBefore}</span>
-              )}
+              {gameData.blackRatingBefore != null && <span className="analysis-player-rating">{gameData.blackRatingBefore}</span>}
             </div>
           )}
 
           <div className="analysis-eval-board-row">
             <div className="eval-bar-container">
               <div className="eval-bar">
-                <div
-                  className="eval-bar-white"
-                  style={{ transform: `scaleY(${whitePercent / 100})` }}
-                />
+                <div className="eval-bar-white" style={{ transform: `scaleY(${whitePercent / 100})` }} />
                 <div className="eval-bar-label">
                   {displayedLines.length > 0 ? formatEval(displayedLines[0], evalIsBlackTurn) : '0.0'}
                 </div>
@@ -947,211 +555,65 @@ export function GameReviewPage() {
             </div>
           </div>
 
-          {/* White player row below board */}
           {gameData && (
             <div className="analysis-player-row">
               <span className="analysis-player-dot analysis-player-dot--white" />
               <span className="analysis-player-name">{gameData.white.username}</span>
-              {gameData.whiteRatingBefore != null && (
-                <span className="analysis-player-rating">{gameData.whiteRatingBefore}</span>
-              )}
+              {gameData.whiteRatingBefore != null && <span className="analysis-player-rating">{gameData.whiteRatingBefore}</span>}
             </div>
           )}
 
           <div className="analysis-board-controls">
-            <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>
-              &#x21E4;
-            </button>
-            <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>
-              &#x2190;
-            </button>
-            <button onClick={gotoNext} disabled={isAtEnd} title={t('review.forward')}>
-              &#x2192;
-            </button>
-            <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>
-              &#x21E5;
-            </button>
+            <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>&#x21E4;</button>
+            <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>&#x2190;</button>
+            <button onClick={gotoNext} disabled={isAtEnd} title={t('review.forward')}>&#x2192;</button>
+            <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>&#x21E5;</button>
           </div>
         </div>
       </div>
 
       <div className="analysis-sidebar">
-        {/* Game Information panel — only when game data is present */}
         {gameData && (
-          <div className="analysis-panel">
-            <div
-              className="analysis-panel-header"
-              onClick={() => togglePanel('gameInfo')}
-            >
-              <span className="analysis-panel-header-left">
-                <span className="analysis-panel-icon">&#9432;</span>
-                <span className="analysis-panel-title">
-                  {t('review.gameInfo', 'Game Information')}
-                </span>
-              </span>
-              <span className="analysis-panel-header-right">
-                <Link
-                  to="/profile"
-                  className="analysis-panel-back-link"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {t('review.backToGames')}
-                </Link>
-                <span className="analysis-panel-chevron">
-                  {panelStates.gameInfo ? '▾' : '▸'}
-                </span>
-              </span>
-            </div>
-            {panelStates.gameInfo && (
-              <div className="analysis-panel-body">
-                <div className="analysis-game-players">
-                  <div className="analysis-game-player">
-                    <span className="analysis-player-dot analysis-player-dot--white" />
-                    <span className="analysis-game-player-name">{gameData.white.username}</span>
-                    {gameData.ratingChange && (
-                      <span className="analysis-player-rating">
-                        {gameData.ratingChange.whiteRatingBefore}
-                        <span
-                          className={`rating-diff ${
-                            gameData.ratingChange.whiteRatingAfter -
-                              gameData.ratingChange.whiteRatingBefore >
-                            0
-                              ? 'positive'
-                              : gameData.ratingChange.whiteRatingAfter -
-                                  gameData.ratingChange.whiteRatingBefore <
-                                0
-                                ? 'negative'
-                                : ''
-                          }`}
-                        >
-                          (
-                          {gameData.ratingChange.whiteRatingAfter -
-                            gameData.ratingChange.whiteRatingBefore >
-                          0
-                            ? '+'
-                            : ''}
-                          {gameData.ratingChange.whiteRatingAfter -
-                            gameData.ratingChange.whiteRatingBefore}
-                          )
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                  <span className="analysis-result-badge">{resultPgn}</span>
-                  <div className="analysis-game-player">
-                    <span className="analysis-player-dot analysis-player-dot--black" />
-                    <span className="analysis-game-player-name">{gameData.black.username}</span>
-                    {gameData.ratingChange && (
-                      <span className="analysis-player-rating">
-                        {gameData.ratingChange.blackRatingBefore}
-                        <span
-                          className={`rating-diff ${
-                            gameData.ratingChange.blackRatingAfter -
-                              gameData.ratingChange.blackRatingBefore >
-                            0
-                              ? 'positive'
-                              : gameData.ratingChange.blackRatingAfter -
-                                  gameData.ratingChange.blackRatingBefore <
-                                0
-                                ? 'negative'
-                                : ''
-                          }`}
-                        >
-                          (
-                          {gameData.ratingChange.blackRatingAfter -
-                            gameData.ratingChange.blackRatingBefore >
-                          0
-                            ? '+'
-                            : ''}
-                          {gameData.ratingChange.blackRatingAfter -
-                            gameData.ratingChange.blackRatingBefore}
-                          )
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          <GameInfoPanel
+            gameData={gameData}
+            resultPgn={resultPgn}
+            collapsed={!panelStates.gameInfo}
+            onToggle={() => togglePanel('gameInfo')}
+          />
         )}
 
         {/* Engine panel */}
         <div className="analysis-panel">
-          <div
-            className="analysis-panel-header"
-            onClick={() => togglePanel('engine')}
-          >
+          <div className="analysis-panel-header" onClick={() => togglePanel('engine')}>
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">&#9881;</span>
-              <span className="analysis-panel-title">
-                {engineName}{engineStatusSuffix}
-              </span>
+              <span className="analysis-panel-title">{engineName}{engineStatusSuffix}</span>
               {activeSource === 'external' && (
                 <span className={`engine-status-dot engine-status-dot--${sfState === 'ready' || sfState === 'analyzing' ? 'connected' : sfState === 'connecting' ? 'connecting' : 'disconnected'}`} />
               )}
               {engineErrorMessage && (
-                <span className="engine-error-detail" title={engineErrorMessage}>
-                  {engineErrorMessage}
-                </span>
+                <span className="engine-error-detail" title={engineErrorMessage}>{engineErrorMessage}</span>
               )}
             </span>
             <span className="analysis-panel-header-right">
               <span className="engine-multipv-controls" onClick={(e) => e.stopPropagation()}>
-                <button
-                  className="engine-multipv-btn"
-                  onClick={() => setMultiPv((v) => Math.max(1, v - 1))}
-                  disabled={multiPv <= 1}
-                  title="Fewer lines"
-                >−</button>
-                <span className="engine-multipv-value">{multiPv}</span>
-                <button
-                  className="engine-multipv-btn"
-                  onClick={() => setMultiPv((v) => Math.min(10, v + 1))}
-                  disabled={multiPv >= 10}
-                  title="More lines"
-                >+</button>
+                <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1} title="Fewer lines">−</button>
+                <span className="engine-multipv-value">{ec.multiPv}</span>
+                <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10} title="More lines">+</button>
               </span>
-              <button
-                className="engine-settings-btn"
-                onClick={(e) => { e.stopPropagation(); setShowEngineModal(true); }}
-                title="Engine settings"
-              >
-                ⚙
-              </button>
+              <button className="engine-settings-btn" onClick={(e) => { e.stopPropagation(); ec.setShowEngineModal(true); }} title="Engine settings">⚙</button>
               {wasmSupported && !(isTouchDevice && engineFailed) && (
                 <button
                   className="analysis-toggle-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleAnalysis();
-                  }}
-                  title={
-                    analysisEnabled
-                      ? t('analysis.stop', 'Stop analysis')
-                      : isTouchDevice
-                        ? t('analysis.startMobile', 'Start analysis (may not work on mobile)')
-                        : t('analysis.start', 'Start analysis')
-                  }
+                  onClick={(e) => { e.stopPropagation(); toggleAnalysis(); }}
+                  title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : isTouchDevice ? t('analysis.startMobile', 'Start analysis (may not work on mobile)') : t('analysis.start', 'Start analysis')}
                   data-testid="stockfish-toggle"
-                  style={{
-                    padding: '2px 10px',
-                    fontSize: 13,
-                    cursor: 'pointer',
-                    borderRadius: 4,
-                    border: '1px solid #555',
-                    background: analysisEnabled ? '#dc2626' : '#16a34a',
-                    color: '#fff',
-                    marginLeft: 8,
-                    whiteSpace: 'nowrap',
-                  }}
+                  style={{ padding: '2px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8, whiteSpace: 'nowrap' }}
                 >
                   {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
                 </button>
               )}
-              <span className="analysis-panel-chevron">
-                {panelStates.engine ? '▾' : '▸'}
-              </span>
+              <span className="analysis-panel-chevron">{panelStates.engine ? '▾' : '▸'}</span>
             </span>
           </div>
           {panelStates.engine && (
@@ -1160,9 +622,7 @@ export function GameReviewPage() {
                 {(analysisEnabled || displayedLines.length > 0) &&
                   displayedLines.map((line) => (
                     <div key={line.multipv} className="stockfish-line">
-                      <span
-                        className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}
-                      >
+                      <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
                         {formatEval(line, evalIsBlackTurn)}
                       </span>
                       <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
@@ -1173,20 +633,15 @@ export function GameReviewPage() {
           )}
         </div>
 
-        {/* Moves panel — takes remaining space */}
+        {/* Moves panel */}
         <div className="analysis-panel analysis-panel--flex">
-          <div
-            className="analysis-panel-header"
-            onClick={() => togglePanel('moves')}
-          >
+          <div className="analysis-panel-header" onClick={() => togglePanel('moves')}>
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">&#9776;</span>
               <span className="analysis-panel-title">{t('review.moves', 'Moves')}</span>
             </span>
             <span className="analysis-panel-header-right">
-              <span className="analysis-panel-chevron">
-                {panelStates.moves ? '▾' : '▸'}
-              </span>
+              <span className="analysis-panel-chevron">{panelStates.moves ? '▾' : '▸'}</span>
             </span>
           </div>
           {panelStates.moves && (
@@ -1205,97 +660,31 @@ export function GameReviewPage() {
         </div>
       </div>
 
-      {/* Engine Settings Modal */}
-      {showEngineModal && (
-        <div className="engine-modal-overlay" onClick={() => setShowEngineModal(false)}>
-          <div className="engine-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="engine-modal-header">
-              <h3>Engine Settings</h3>
-              <button className="engine-modal-close" onClick={() => setShowEngineModal(false)}>✕</button>
-            </div>
-
-            <div className="engine-settings-sources">
-              <button
-                className={`engine-source-btn${engineSource === 'wasm' ? ' active' : ''}`}
-                onClick={handleSwitchToWasm}
-              >
-                Browser Stockfish
-              </button>
-              <button
-                className={`engine-source-btn${engineSource === 'external' ? ' active' : ''}`}
-                onClick={() => setEngineSource('external')}
-              >
-                External Engine
-              </button>
-            </div>
-
-            <div className="engine-uci-options">
-              <div className="engine-uci-row">
-                <label>MultiPV (lines)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={multiPv}
-                  onChange={(e) => setMultiPv(Math.max(1, Math.min(10, Number(e.target.value))))}
-                  className="engine-uci-input"
-                />
-              </div>
-            </div>
-
-            {engineSource === 'external' && (
-              <div className="engine-settings-form">
-                <input
-                  ref={configFileRef}
-                  type="file"
-                  accept=".yaml,.yml"
-                  style={{ display: 'none' }}
-                  onChange={handleLoadConfigFile}
-                />
-                <button
-                  className="engine-load-config-btn"
-                  onClick={() => configFileRef.current?.click()}
-                >
-                  📂 {t('engineSettings.loadConfig')}
-                </button>
-                <input type="text" placeholder="Name" value={extNameInput} onChange={(e) => setExtNameInput(e.target.value)} className="engine-settings-input" />
-                <input type="text" placeholder="ws://host:port" value={extUrlInput} onChange={(e) => setExtUrlInput(e.target.value)} className="engine-settings-input" />
-                <input type="password" placeholder="Secret key" value={extKeyInput} onChange={(e) => setExtKeyInput(e.target.value)} className="engine-settings-input" />
-
-                <div className="engine-uci-options">
-                  <div className="engine-uci-row">
-                    <label>Threads</label>
-                    <input type="number" min={1} max={512} value={uciThreads} onChange={(e) => { setUciThreads(e.target.value); setEngineOption('Threads', e.target.value); }} className="engine-uci-input" />
-                  </div>
-                  <div className="engine-uci-row">
-                    <label>Hash (MB)</label>
-                    <input type="number" min={1} max={65536} value={uciHash} onChange={(e) => { setUciHash(e.target.value); setEngineOption('Hash', e.target.value); }} className="engine-uci-input" />
-                  </div>
-                </div>
-
-                <div className="engine-settings-actions">
-                  <button onClick={handleConnectExternal} className="engine-connect-btn">Connect</button>
-                </div>
-
-                {savedConfigs.length > 0 && (
-                  <div className="engine-saved-list">
-                    <div className="engine-saved-label">Saved:</div>
-                    {savedConfigs.map((cfg) => (
-                      <div key={cfg.wsUrl} className="engine-saved-row">
-                        <button className={`engine-saved-item${externalConfig?.wsUrl === cfg.wsUrl ? ' active' : ''}`} onClick={() => { handleSelectSavedConfig(cfg); setShowEngineModal(false); }}>{cfg.name}</button>
-                        <button className="engine-saved-delete" onClick={() => handleDeleteConfig(cfg.wsUrl)} title="Delete">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <Link to="/help/external-engine" className="engine-help-link" target="_blank">
-                  {t('engineHelp.linkText')}
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
+      {ec.showEngineModal && (
+        <EngineSettingsModal
+          engineSource={ec.engineSource}
+          multiPv={ec.multiPv}
+          setMultiPv={(v) => ec.setMultiPv(v)}
+          extUrlInput={ec.extUrlInput}
+          setExtUrlInput={ec.setExtUrlInput}
+          extKeyInput={ec.extKeyInput}
+          setExtKeyInput={ec.setExtKeyInput}
+          extNameInput={ec.extNameInput}
+          setExtNameInput={ec.setExtNameInput}
+          uciThreads={ec.uciThreads}
+          setUciThreads={ec.setUciThreads}
+          uciHash={ec.uciHash}
+          setUciHash={ec.setUciHash}
+          savedConfigs={ec.savedConfigs}
+          externalConfig={ec.externalConfig}
+          setEngineOption={setEngineOption}
+          onClose={() => ec.setShowEngineModal(false)}
+          onSwitchToWasm={ec.handleSwitchToWasm}
+          onSwitchToExternal={() => ec.setEngineSource('external')}
+          onConnectExternal={ec.handleConnectExternal}
+          onSelectSavedConfig={ec.handleSelectSavedConfig}
+          onDeleteConfig={ec.handleDeleteConfig}
+        />
       )}
     </div>
   );

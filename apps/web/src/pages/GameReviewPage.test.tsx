@@ -20,20 +20,65 @@ let stockfishLines: Array<{
 }> = [];
 
 vi.mock('../hooks/useStockfish', () => ({
-  useStockfish: (opts: { depth?: number; multiPv?: number }) => {
-    // Verify requested depth and multiPv
-    expect(opts.depth).toBe(18);
-    expect(opts.multiPv).toBe(3);
-    return {
-      state: stockfishState,
-      lines: stockfishLines,
-      bestMove: null,
-      evaluate: mockEvaluate,
-      stop: mockStop,
-      init: mockInit,
-      isReady: stockfishState === 'ready' || stockfishState === 'analyzing',
-    };
-  },
+  useStockfish: () => ({
+    state: stockfishState,
+    lines: stockfishLines,
+    bestMove: null,
+    evaluate: mockEvaluate,
+    stop: mockStop,
+    init: mockInit,
+    isReady: stockfishState === 'ready' || stockfishState === 'analyzing',
+  }),
+}));
+
+vi.mock('../hooks/useEngine', () => ({
+  useEngine: () => ({
+    state: stockfishState,
+    lines: stockfishLines,
+    analysisFen: null,
+    bestMove: null,
+    evaluate: mockEvaluate,
+    stop: mockStop,
+    setOption: vi.fn(),
+    init: mockInit,
+    cleanup: vi.fn(),
+    isReady: stockfishState === 'ready' || stockfishState === 'analyzing',
+    engineName: 'Stockfish 18 (WASM)',
+    engineSource: 'wasm' as const,
+    errorMessage: null,
+  }),
+  loadEngineConfigs: () => [],
+  saveEngineConfigs: vi.fn(),
+}));
+
+vi.mock('../hooks/useEngineConfig', () => ({
+  useEngineConfig: () => ({
+    engineSource: 'wasm' as const,
+    setEngineSource: vi.fn(),
+    externalConfig: null,
+    setExternalConfig: vi.fn(),
+    savedConfigs: [],
+    showEngineSettings: false,
+    setShowEngineSettings: vi.fn(),
+    extUrlInput: '',
+    setExtUrlInput: vi.fn(),
+    extKeyInput: '',
+    setExtKeyInput: vi.fn(),
+    extNameInput: '',
+    setExtNameInput: vi.fn(),
+    uciThreads: '1',
+    setUciThreads: vi.fn(),
+    uciHash: '256',
+    setUciHash: vi.fn(),
+    multiPv: 3,
+    setMultiPv: vi.fn(),
+    showEngineModal: false,
+    setShowEngineModal: vi.fn(),
+    handleConnectExternal: vi.fn(),
+    handleDeleteConfig: vi.fn(),
+    handleSelectSavedConfig: vi.fn(),
+    handleSwitchToWasm: vi.fn(),
+  }),
 }));
 
 vi.mock('../hooks/useContainerSize', () => ({

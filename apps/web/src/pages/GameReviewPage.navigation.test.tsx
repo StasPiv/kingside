@@ -21,6 +21,56 @@ vi.mock('../hooks/useStockfish', () => ({
   }),
 }));
 
+vi.mock('../hooks/useEngine', () => ({
+  useEngine: () => ({
+    state: 'ready',
+    lines: [],
+    analysisFen: null,
+    bestMove: null,
+    evaluate: mockEvaluate,
+    stop: mockStop,
+    setOption: vi.fn(),
+    init: mockInit,
+    cleanup: vi.fn(),
+    isReady: true,
+    engineName: 'Stockfish 18 (WASM)',
+    engineSource: 'wasm' as const,
+    errorMessage: null,
+  }),
+  loadEngineConfigs: () => [],
+  saveEngineConfigs: vi.fn(),
+}));
+
+vi.mock('../hooks/useEngineConfig', () => ({
+  useEngineConfig: () => ({
+    engineSource: 'wasm' as const,
+    setEngineSource: vi.fn(),
+    externalConfig: null,
+    setExternalConfig: vi.fn(),
+    savedConfigs: [],
+    showEngineSettings: false,
+    setShowEngineSettings: vi.fn(),
+    extUrlInput: '',
+    setExtUrlInput: vi.fn(),
+    extKeyInput: '',
+    setExtKeyInput: vi.fn(),
+    extNameInput: '',
+    setExtNameInput: vi.fn(),
+    uciThreads: '1',
+    setUciThreads: vi.fn(),
+    uciHash: '256',
+    setUciHash: vi.fn(),
+    multiPv: 3,
+    setMultiPv: vi.fn(),
+    showEngineModal: false,
+    setShowEngineModal: vi.fn(),
+    handleConnectExternal: vi.fn(),
+    handleDeleteConfig: vi.fn(),
+    handleSelectSavedConfig: vi.fn(),
+    handleSwitchToWasm: vi.fn(),
+  }),
+}));
+
 vi.mock('../hooks/useContainerSize', () => ({
   useContainerSize: () => ({ width: 400, height: 400 }),
 }));
