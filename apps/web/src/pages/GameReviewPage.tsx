@@ -158,6 +158,9 @@ export function GameReviewPage() {
 
   // Engine config (extracted hook)
   const ec = useEngineConfig();
+  const [bridgePromoDismissed, setBridgePromoDismissed] = useState(() => {
+    try { return localStorage.getItem('bridgePromoDismissed') === '1'; } catch { return false; }
+  });
 
   const {
     lines, analysisFen, evaluate, stop: stopEngine, setOption: setEngineOption,
@@ -573,6 +576,30 @@ export function GameReviewPage() {
             collapsed={!panelStates.gameInfo}
             onToggle={() => togglePanel('gameInfo')}
           />
+        )}
+
+        {activeSource === 'wasm' && !bridgePromoDismissed && (
+          <div className="bridge-promo">
+            <div className="bridge-promo__text">
+              <strong>{t('bridgePromo.title', 'Want deeper analysis?')}</strong>
+              <span>{t('bridgePromo.desc', 'Connect your local engine for unlimited depth and speed.')}</span>
+            </div>
+            <div className="bridge-promo__actions">
+              <Link to="/help/external-engine" className="bridge-promo__link">
+                {t('bridgePromo.learnMore', 'Learn more')}
+              </Link>
+              <button
+                className="bridge-promo__dismiss"
+                onClick={() => {
+                  setBridgePromoDismissed(true);
+                  try { localStorage.setItem('bridgePromoDismissed', '1'); } catch { /* ignore */ }
+                }}
+                title={t('bridgePromo.dismiss', 'Dismiss')}
+              >
+                ✕
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Engine panel */}

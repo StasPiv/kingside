@@ -681,6 +681,12 @@
   "engineSettings": {
     "loadConfig": "Загрузить config.yaml"
   },
+  "bridgePromo": {
+    "title": "Хотите более глубокий анализ?",
+    "desc": "Подключите локальный движок для неограниченной глубины и скорости.",
+    "learnMore": "Подробнее",
+    "dismiss": "Скрыть"
+  },
   "engineHelp": {
     "title": "Как подключить внешний движок",
     "backToAnalysis": "← Назад к анализу",

@@ -681,6 +681,12 @@
   "engineSettings": {
     "loadConfig": "Load config.yaml"
   },
+  "bridgePromo": {
+    "title": "Want deeper analysis?",
+    "desc": "Connect your local engine for unlimited depth and speed.",
+    "learnMore": "Learn more",
+    "dismiss": "Dismiss"
+  },
   "engineHelp": {
     "title": "How to Use External Engine",
     "backToAnalysis": "← Back to Analysis",

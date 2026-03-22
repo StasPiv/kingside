@@ -895,3 +895,59 @@
   text-decoration: underline;
 }
 
+/* Bridge promo banner */
+.bridge-promo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin: 0 0 4px;
+  background: linear-gradient(135deg, #1e2a4a 0%, #2a1e4a 100%);
+  border: 1px solid #4a4a8e;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.bridge-promo__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bridge-promo__text strong {
+  color: #c0c0ff;
+}
+
+.bridge-promo__text span {
+  color: #808098;
+  font-size: 12px;
+}
+
+.bridge-promo__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bridge-promo__link {
+  color: #7c83ff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.bridge-promo__dismiss {
+  background: transparent;
+  border: none;
+  color: #666;
+  font-size: 14px;
+  padding: 2px 4px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.bridge-promo__dismiss:hover {
+  color: #aaa;
+}
+
