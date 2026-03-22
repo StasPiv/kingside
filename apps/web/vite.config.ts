@@ -2,10 +2,25 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
+import { execSync } from 'child_process';
+
+function getBuildVersion(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  const since = `${y}-${m}-${d}T00:00:00`;
+  let n = 1;
+  try {
+    const out = execSync(`git log --oneline --since='${since}'`, { encoding: 'utf-8' });
+    n = out.trim().split('\n').filter(Boolean).length || 1;
+  } catch { /* fallback */ }
+  return `${y}.${m}.${d}.${n}`;
+}
 
 export default defineConfig({
   define: {
-    __BUILD_DATE__: JSON.stringify(new Date().toISOString()),
+    __BUILD_VERSION__: JSON.stringify(getBuildVersion()),
   },
   plugins: [
     react(),

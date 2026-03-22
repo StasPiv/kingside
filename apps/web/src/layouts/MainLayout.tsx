@@ -154,7 +154,7 @@ export function MainLayout() {
         <Outlet />
       </main>
       <footer className="app-footer">
-        <span className="app-version">{typeof __BUILD_DATE__ === 'string' ? __BUILD_DATE__.slice(0, 16) : ''}</span>
+        <span className="app-version">{typeof __BUILD_VERSION__ === 'string' ? `v.${__BUILD_VERSION__}` : ''}</span>
       </footer>
     </div>
   );
