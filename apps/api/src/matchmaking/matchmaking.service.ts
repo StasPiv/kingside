@@ -55,8 +55,13 @@ export class MatchmakingService {
 
     const queueKey = `matchmaking:${timeControlType}`;
 
-    // Get blocked users set for filtering
-    const blockedIds = await this.blockService.getBlockedIdSet(userId);
+    // Get blocked users set for filtering (fail-safe: empty set on error)
+    let blockedIds: Set<string>;
+    try {
+      blockedIds = await this.blockService.getBlockedIdSet(userId);
+    } catch {
+      blockedIds = new Set();
+    }
 
     // Look for opponent in rating range
     const candidates = await this.redis.zrangebyscore(

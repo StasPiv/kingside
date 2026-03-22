@@ -76,13 +76,21 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
       return sockets.some((s) => s.data.user?.id === userId);
     };
 
-    const result = await this.matchmakingService.joinQueue(
-      user.id,
-      data.timeInitial,
-      data.increment,
-      isOnline,
-      data.ratingFilter,
-    );
+    let result: Awaited<ReturnType<typeof this.matchmakingService.joinQueue>>;
+    try {
+      result = await this.matchmakingService.joinQueue(
+        user.id,
+        data.timeInitial,
+        data.increment,
+        isOnline,
+        data.ratingFilter,
+      );
+    } catch (e: unknown) {
+      this.logger.error(`joinQueue failed for ${user.username}: ${(e as Error).message}`);
+      this.playerQueues.delete(user.id);
+      client.emit(MatchmakingEvents.ERROR, { code: 'MATCHMAKING_ERROR', message: 'Failed to join queue' });
+      return;
+    }
 
     if (result) {
       this.playerQueues.delete(user.id);
