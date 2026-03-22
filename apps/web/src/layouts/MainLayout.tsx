@@ -153,6 +153,9 @@ export function MainLayout() {
       <main className="main">
         <Outlet />
       </main>
+      <footer className="app-footer">
+        <span className="app-version">v2026.03.22</span>
+      </footer>
     </div>
   );
 }
