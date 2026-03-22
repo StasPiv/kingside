@@ -38,31 +38,30 @@
 
 .workshop-section-tabs {
   display: flex;
-  gap: 8px;
+  gap: 0;
   margin-bottom: 24px;
+  border-bottom: 1px solid #2e2e4e;
 }
 
 .workshop-section-tab {
-  background: #2a2a4e;
-  color: #a0a0c0;
-  border: 1px solid #3a3a6e;
-  border-radius: 8px;
-  padding: 8px 20px;
+  background: none;
+  color: #808098;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 20px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s, border-color 0.15s;
 }
 
 .workshop-section-tab:hover {
-  background: #3a3a6e;
-  color: #e0e0ff;
+  color: #c0c0d0;
 }
 
 .workshop-section-tab.active {
-  background: #7c83ff;
   color: #fff;
-  border-color: #7c83ff;
+  border-bottom-color: #7c83ff;
 }
 
 /* Workshop section block header */
