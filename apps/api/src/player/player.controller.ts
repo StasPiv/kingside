@@ -1,9 +1,12 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { PlayerService } from './player.service';
 import { TopPlayersDto } from './dto/top-players.dto';
 import { OnlinePlayersDto } from './dto/online-players.dto';
 import { SearchPlayersDto } from './dto/search-players.dto';
+import { RedisRateLimitGuard, RateLimit } from '../common/redis-rate-limit.guard';
 
+@UseGuards(RedisRateLimitGuard)
+@RateLimit(60, 60)
 @Controller('players')
 export class PlayerController {
   constructor(private readonly playerService: PlayerService) {}
@@ -19,6 +22,7 @@ export class PlayerController {
   }
 
   @Get('search')
+  @RateLimit(30, 60)
   searchPlayers(@Query() dto: SearchPlayersDto) {
     return this.playerService.searchPlayers(dto.q, dto.limit);
   }

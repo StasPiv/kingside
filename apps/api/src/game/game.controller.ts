@@ -17,6 +17,7 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateGameWithBotDto, SaveAnalysisDto } from './dto/game.dto';
 import { LiveGamesDto } from './dto/live-games.dto';
+import { RedisRateLimitGuard, RateLimit } from '../common/redis-rate-limit.guard';
 import { GameService } from './game.service';
 import { LiveGameService } from './live-game.service';
 import { UserService } from '../user/user.service';
@@ -40,11 +41,15 @@ export class GameController {
   }
 
   @Get('live')
+  @UseGuards(RedisRateLimitGuard)
+  @RateLimit(60, 60)
   getLiveGames(@Query() dto: LiveGamesDto) {
     return this.liveGameService.getLiveGames(dto.type, dto.player, dto.limit, dto.offset);
   }
 
   @Get('live/count')
+  @UseGuards(RedisRateLimitGuard)
+  @RateLimit(120, 60)
   getLiveCount() {
     return this.liveGameService.getLiveCount();
   }
