@@ -1,4 +1,4 @@
-import { Injectable, Logger, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Chess, Square } from 'chess.js';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
@@ -155,7 +155,7 @@ export class GameService {
     });
 
     if (game.status !== 'active') {
-      throw new Error(this.i18n.t('messages.game.notActive'));
+      throw new BadRequestException(this.i18n.t('messages.game.notActive'));
     }
 
     const raw = await this.redis.hgetall(this.stateKey(gameId));
@@ -163,7 +163,7 @@ export class GameService {
 
     const expectedPlayer = activeColor === 'white' ? game.whiteId : game.blackId;
     if (userId !== expectedPlayer) {
-      throw new Error(this.i18n.t('messages.game.notYourTurn'));
+      throw new ForbiddenException(this.i18n.t('messages.game.notYourTurn'));
     }
 
     const { timedOut, clocks: timeoutClocks } = await this.clockService.checkTimeout(
@@ -201,7 +201,7 @@ export class GameService {
 
     const move = chess.move({ from, to, promotion });
     if (!move) {
-      throw new Error(this.i18n.t('messages.game.invalidMove'));
+      throw new BadRequestException(this.i18n.t('messages.game.invalidMove'));
     }
 
     const moveFlags: MoveFlags = {
@@ -281,10 +281,10 @@ export class GameService {
     });
 
     if (game.status !== 'active') {
-      throw new Error(this.i18n.t('messages.game.notActive'));
+      throw new BadRequestException(this.i18n.t('messages.game.notActive'));
     }
     if (userId !== game.whiteId && userId !== game.blackId) {
-      throw new Error(this.i18n.t('messages.game.notAPlayer'));
+      throw new ForbiddenException(this.i18n.t('messages.game.notAPlayer'));
     }
 
     const result = userId === game.whiteId ? 'black' : 'white';
@@ -300,10 +300,10 @@ export class GameService {
       select: { whiteId: true, blackId: true, status: true },
     });
     if (game.status !== 'active') {
-      throw new Error(this.i18n.t('messages.game.notActive'));
+      throw new BadRequestException(this.i18n.t('messages.game.notActive'));
     }
     if (userId !== game.whiteId && userId !== game.blackId) {
-      throw new Error(this.i18n.t('messages.game.notAPlayer'));
+      throw new ForbiddenException(this.i18n.t('messages.game.notAPlayer'));
     }
     await this.redis.set(`game:${gameId}:draw_offer`, userId, 'EX', 120);
   }
@@ -314,12 +314,12 @@ export class GameService {
       select: { whiteId: true, blackId: true, status: true },
     });
     if (game.status !== 'active') {
-      throw new Error(this.i18n.t('messages.game.notActive'));
+      throw new BadRequestException(this.i18n.t('messages.game.notActive'));
     }
 
     const offerer = await this.redis.get(`game:${gameId}:draw_offer`);
     if (!offerer || offerer === userId) {
-      throw new Error(this.i18n.t('messages.game.noDrawOffer'));
+      throw new BadRequestException(this.i18n.t('messages.game.noDrawOffer'));
     }
 
     const clocks = await this.clockService.stopClock(gameId);
