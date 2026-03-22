@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { MessageService } from './message.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BlockService } from '../user/block.service';
 import { I18nService } from 'nestjs-i18n';
 
 describe('MessageService', () => {
@@ -34,6 +35,7 @@ describe('MessageService', () => {
         MessageService,
         { provide: PrismaService, useValue: prisma },
         { provide: I18nService, useValue: { t: (key: string) => key } },
+        { provide: BlockService, useValue: { getBlockedIdSet: jest.fn().mockResolvedValue(new Set()) } },
       ],
     }).compile();
 

@@ -41,7 +41,8 @@ describe('MatchmakingService', () => {
       initGame: jest.fn().mockResolvedValue(undefined),
     } as any;
 
-    service = new MatchmakingService(redis, gameService, prisma);
+    const blockService = { getBlockedIdSet: jest.fn().mockResolvedValue(new Set()) } as any;
+    service = new MatchmakingService(redis, gameService, prisma, blockService);
   });
 
   describe('joinQueue', () => {

@@ -5,12 +5,14 @@ import {
 } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
+import { BlockService } from '../user/block.service';
 
 @Injectable()
 export class MessageService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
+    private readonly blockService: BlockService,
   ) {}
 
   async sendMessage(senderId: string, receiverId: string, text: string) {
@@ -25,6 +27,12 @@ export class MessageService {
 
     if (!receiver) {
       throw new NotFoundException(this.i18n.t('messages.user.notFound'));
+    }
+
+    // Check if either user blocked the other
+    const blockedIds = await this.blockService.getBlockedIdSet(senderId);
+    if (blockedIds.has(receiverId)) {
+      throw new BadRequestException('Cannot send message to this user');
     }
 
     const message = await this.prisma.directMessage.create({
@@ -47,6 +55,8 @@ export class MessageService {
   }
 
   async getConversations(userId: string) {
+    const blockedIds = await this.blockService.getBlockedIdSet(userId);
+
     // Get all unique conversation partners
     const sent = await this.prisma.directMessage.findMany({
       where: { senderId: userId },
@@ -67,7 +77,7 @@ export class MessageService {
         ...sent.map((s) => s.receiverId),
         ...received.map((r) => r.senderId),
       ]),
-    ];
+    ].filter((id) => !blockedIds.has(id));
 
     const conversations = await Promise.all(
       partnerIds.map(async (partnerId) => {

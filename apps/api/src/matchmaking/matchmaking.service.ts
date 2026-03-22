@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { BlockService } from '../user/block.service';
 import {
   classifyTimeControl,
   type TimeControlCategory,
@@ -30,6 +31,7 @@ export class MatchmakingService {
     private readonly redis: RedisService,
     private readonly gameService: GameService,
     private readonly prisma: PrismaService,
+    private readonly blockService: BlockService,
   ) {}
 
   async joinQueue(
@@ -53,6 +55,9 @@ export class MatchmakingService {
 
     const queueKey = `matchmaking:${timeControlType}`;
 
+    // Get blocked users set for filtering
+    const blockedIds = await this.blockService.getBlockedIdSet(userId);
+
     // Look for opponent in rating range
     const candidates = await this.redis.zrangebyscore(
       queueKey,
@@ -68,6 +73,11 @@ export class MatchmakingService {
         candidate.timeInitialSec !== timeInitialSec ||
         candidate.timeIncrementSec !== timeIncrementSec
       ) {
+        continue;
+      }
+
+      // Skip blocked users
+      if (blockedIds.has(candidate.userId)) {
         continue;
       }
 
