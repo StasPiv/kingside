@@ -129,7 +129,22 @@ export function useStockfish(options: UseStockfishOptions = {}) {
         if (initTimerRef.current) {
           clearTimeout(initTimerRef.current);
           initTimerRef.current = null;
-          setState('ready');
+          // Check for pending FEN queued by lazy-init evaluate call
+          const lazyFen = pendingFenRef.current;
+          if (lazyFen && engineRef.current) {
+            pendingFenRef.current = null;
+            linesBuffer.current.clear();
+            setLines([]);
+            setAnalysisFen(lazyFen);
+            setBestMove(null);
+            analysisGenRef.current += 1;
+            setState('analyzing');
+            engine.postMessage(`setoption name MultiPV value ${multiPv}`);
+            engine.postMessage(`position fen ${lazyFen}`);
+            engine.postMessage(`go depth ${depth}`);
+          } else {
+            setState('ready');
+          }
           return;
         }
         // If we were waiting for readyok after stop, dispatch pending eval
@@ -205,17 +220,22 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   }, [cleanup]);
 
   useEffect(() => {
-    if (autoStart) {
-      init();
-    }
     return cleanup;
-  }, [autoStart, init, cleanup]);
+  }, [cleanup]);
 
   const evaluate = useCallback(
     (fen: string) => {
       const s = stateRef.current;
-      if (!engineRef.current || s === 'loading' || s === 'idle' || s === 'error') return;
       fenRef.current = fen;
+
+      // Lazy init: if engine not started yet, init and queue the FEN
+      if (s === 'idle' && !engineRef.current) {
+        pendingFenRef.current = fen;
+        init();
+        return;
+      }
+
+      if (!engineRef.current || s === 'loading' || s === 'error') return;
 
       // If engine is currently analyzing, stop it and queue the new FEN.
       // The bestmove handler will trigger isready → readyok → start new analysis.

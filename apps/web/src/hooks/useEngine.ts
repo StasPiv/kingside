@@ -57,7 +57,6 @@ export function useEngine(options: UseEngineOptions): EngineResult {
   const wasm = useStockfish({
     depth,
     multiPv,
-    autoStart: autoStart && source === 'wasm',
   });
 
   const external = useExternalEngine({
