@@ -821,3 +821,44 @@ export type WsFriendStatusPayload = {
   userId: string;
   username: string;
 };
+
+// ─── Challenge (WebSocket via /messages namespace) ──────────────────
+
+export const ChallengeEvents = {
+  SEND: 'game:challenge:send',
+  RECEIVED: 'game:challenge:received',
+  ACCEPT: 'game:challenge:accept',
+  DECLINE: 'game:challenge:decline',
+  STARTED: 'game:challenge:started',
+  ERROR: 'game:challenge:error',
+} as const;
+
+export type WsChallengeSendPayload = {
+  targetUserId: string;
+  timeInitial: number;
+  increment: number;
+  color?: 'white' | 'black' | 'random';
+};
+
+export type WsChallengeReceivedPayload = {
+  challengeId: string;
+  from: { id: string; username: string; rating: number };
+  timeInitial: number;
+  increment: number;
+};
+
+export type WsChallengeAcceptPayload = {
+  challengeId: string;
+};
+
+export type WsChallengeDeclinePayload = {
+  challengeId: string;
+};
+
+export type WsChallengeStartedPayload = {
+  gameId: string;
+  color: 'white' | 'black';
+  opponent: { id: string; username: string };
+  timeInitial: number;
+  increment: number;
+};

@@ -1,14 +1,29 @@
 import { Logger } from '@nestjs/common';
 import {
+  ConnectedSocket,
+  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from '../auth/jwt.strategy';
-import { MessageEvents, FriendEvents } from '@kingside/shared';
+import { RedisService } from '../redis/redis.service';
+import { GameService } from '../game/game.service';
+import {
+  MessageEvents,
+  FriendEvents,
+  ChallengeEvents,
+  type WsChallengeSendPayload,
+  type WsChallengeAcceptPayload,
+  type WsChallengeDeclinePayload,
+} from '@kingside/shared';
+import { randomUUID } from 'crypto';
+
+const CHALLENGE_TTL_SEC = 60;
 
 @WebSocketGateway({ namespace: '/messages', cors: { origin: '*' } })
 export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -17,7 +32,11 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   private readonly logger = new Logger(MessageGateway.name);
 
-  constructor(private readonly jwtService: JwtService) {}
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly redis: RedisService,
+    private readonly gameService: GameService,
+  ) {}
 
   async handleConnection(client: Socket) {
     try {
@@ -39,6 +58,8 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.logger.log(`Messages client disconnected: ${client.id}`);
   }
 
+  // ─── Messages ──────────────────────────────────────────────────────
+
   notifyNewMessage(
     message: {
       id: string;
@@ -55,6 +76,8 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       senderUsername,
     });
   }
+
+  // ─── Friends ───────────────────────────────────────────────────────
 
   notifyFriendRequestReceived(
     addresseeId: string,
@@ -76,5 +99,144 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     payload: { userId: string; username: string },
   ) {
     this.server.to(`user:${userId}`).emit(event, payload);
+  }
+
+  // ─── Challenge ─────────────────────────────────────────────────────
+
+  @SubscribeMessage(ChallengeEvents.SEND)
+  async handleChallengeSend(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WsChallengeSendPayload,
+  ) {
+    const user = client.data.user;
+    if (!user) return;
+
+    const challengeId = randomUUID();
+    const challenge = {
+      id: challengeId,
+      fromId: user.id,
+      fromUsername: user.username,
+      targetUserId: data.targetUserId,
+      timeInitial: data.timeInitial,
+      increment: data.increment,
+      color: data.color ?? 'random',
+    };
+
+    try {
+      await this.redis.set(
+        `challenge:${challengeId}`,
+        JSON.stringify(challenge),
+        'EX',
+        CHALLENGE_TTL_SEC,
+      );
+
+      this.server.to(`user:${data.targetUserId}`).emit(ChallengeEvents.RECEIVED, {
+        challengeId,
+        from: { id: user.id, username: user.username, rating: 1500 },
+        timeInitial: data.timeInitial,
+        increment: data.increment,
+      });
+
+      this.logger.log(`Challenge ${challengeId}: ${user.username} -> ${data.targetUserId}`);
+    } catch (e: unknown) {
+      client.emit(ChallengeEvents.ERROR, {
+        message: 'Failed to send challenge',
+      });
+    }
+  }
+
+  @SubscribeMessage(ChallengeEvents.ACCEPT)
+  async handleChallengeAccept(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WsChallengeAcceptPayload,
+  ) {
+    const user = client.data.user;
+    if (!user) return;
+
+    try {
+      const raw = await this.redis.get(`challenge:${data.challengeId}`);
+      if (!raw) {
+        client.emit(ChallengeEvents.ERROR, { message: 'Challenge expired or not found' });
+        return;
+      }
+
+      const challenge = JSON.parse(raw);
+      if (challenge.targetUserId !== user.id) {
+        client.emit(ChallengeEvents.ERROR, { message: 'Not your challenge' });
+        return;
+      }
+
+      await this.redis.del(`challenge:${data.challengeId}`);
+
+      // Determine colors
+      let whiteId: string;
+      let blackId: string;
+      if (challenge.color === 'white') {
+        whiteId = challenge.fromId;
+        blackId = user.id;
+      } else if (challenge.color === 'black') {
+        whiteId = user.id;
+        blackId = challenge.fromId;
+      } else {
+        if (Math.random() < 0.5) {
+          whiteId = challenge.fromId;
+          blackId = user.id;
+        } else {
+          whiteId = user.id;
+          blackId = challenge.fromId;
+        }
+      }
+
+      const game = await this.gameService.createGame(
+        whiteId,
+        blackId,
+        challenge.timeInitial,
+        challenge.increment,
+      );
+      await this.gameService.initGame(game.id);
+
+      // Notify both players
+      const challengerColor = whiteId === challenge.fromId ? 'white' : 'black';
+      const accepterColor = whiteId === user.id ? 'white' : 'black';
+
+      this.server.to(`user:${challenge.fromId}`).emit(ChallengeEvents.STARTED, {
+        gameId: game.id,
+        color: challengerColor,
+        opponent: { id: user.id, username: user.username },
+        timeInitial: challenge.timeInitial,
+        increment: challenge.increment,
+      });
+
+      client.emit(ChallengeEvents.STARTED, {
+        gameId: game.id,
+        color: accepterColor,
+        opponent: { id: challenge.fromId, username: challenge.fromUsername },
+        timeInitial: challenge.timeInitial,
+        increment: challenge.increment,
+      });
+
+      this.logger.log(`Challenge ${data.challengeId} accepted → game ${game.id}`);
+    } catch (e: unknown) {
+      client.emit(ChallengeEvents.ERROR, { message: 'Failed to accept challenge' });
+    }
+  }
+
+  @SubscribeMessage(ChallengeEvents.DECLINE)
+  async handleChallengeDecline(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: WsChallengeDeclinePayload,
+  ) {
+    const user = client.data.user;
+    if (!user) return;
+
+    const raw = await this.redis.get(`challenge:${data.challengeId}`);
+    if (raw) {
+      const challenge = JSON.parse(raw);
+      await this.redis.del(`challenge:${data.challengeId}`);
+      this.server.to(`user:${challenge.fromId}`).emit(ChallengeEvents.DECLINE, {
+        challengeId: data.challengeId,
+        declinedBy: { id: user.id, username: user.username },
+      });
+    }
   }
 }
