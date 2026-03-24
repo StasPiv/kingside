@@ -161,4 +161,30 @@ describe('FriendService', () => {
       expect(result.data[0].user.username).toBe('Bob');
     });
   });
+
+  describe('getStatus', () => {
+    it('should return none when no friendship exists', async () => {
+      prisma.friendship.findFirst.mockResolvedValue(null);
+      const result = await service.getStatus(userA, userB);
+      expect(result).toEqual({ status: 'none' });
+    });
+
+    it('should return pending when request is pending', async () => {
+      prisma.friendship.findFirst.mockResolvedValue({ id: 'f1', status: 'PENDING' });
+      const result = await service.getStatus(userA, userB);
+      expect(result).toEqual({ status: 'pending', friendshipId: 'f1' });
+    });
+
+    it('should return friends when accepted', async () => {
+      prisma.friendship.findFirst.mockResolvedValue({ id: 'f1', status: 'ACCEPTED' });
+      const result = await service.getStatus(userA, userB);
+      expect(result).toEqual({ status: 'friends', friendshipId: 'f1' });
+    });
+
+    it('should return none when declined', async () => {
+      prisma.friendship.findFirst.mockResolvedValue({ id: 'f1', status: 'DECLINED' });
+      const result = await service.getStatus(userA, userB);
+      expect(result).toEqual({ status: 'none' });
+    });
+  });
 });
