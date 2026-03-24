@@ -1,0 +1,9 @@
+port: 9090
+secret: 87df3a1b807dc303505ee285b905a856
+engine_path: /home/pivovartsev/work/kingside/engines/stockfish/stockfish-ubuntu-x86-64-avx2
+options:
+    Hash: "256"
+    Threads: "8"
+rate_limit:
+    max_per_minute: 5
+    ban_after: 10

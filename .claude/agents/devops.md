@@ -63,3 +63,24 @@ description: DevOps-инженер проекта Kingside
 - ЗАПРЕЩЕНО изменять файлы в .claude/agents/
 - ЗАПРЕЩЕНО изменять файлы вне своей рабочей директории
 - 🔴 ЗАПРЕЩЕНО править application-код (backend: apps/api/src/, frontend: apps/web/src/). Если проблема деплоя вызвана ошибкой в коде приложения — сообщи координатору с описанием ошибки и укажи какой агент (backend/frontend) должен исправить. Devops правит ТОЛЬКО: Dockerfile, docker-compose, justfile, scripts/, .github/, конфиги (nginx, CI/CD), git hooks
+
+## Публикация релизов engine-bridge
+Код бриджа в `tools/engine-bridge/` (Go). Сборка и публикация — ответственность devops.
+```bash
+# Сборка для всех платформ
+cd tools/engine-bridge
+GOOS=linux GOARCH=amd64 go build -o kingside-engine-bridge-linux-amd64
+GOOS=darwin GOARCH=amd64 go build -o kingside-engine-bridge-macos-amd64
+GOOS=darwin GOARCH=arm64 go build -o kingside-engine-bridge-macos-arm64
+GOOS=windows GOARCH=amd64 go build -o kingside-engine-bridge-windows-amd64.exe
+
+# Публикация на GitHub (от имени StasPiv, НЕ stanislav-pivovartsev_mlt)
+gh release create engine-bridge-vX.Y.Z --repo StasPiv/kingside \
+  --title "Engine Bridge vX.Y.Z" \
+  --notes "Changelog" \
+  kingside-engine-bridge-linux-amd64 \
+  kingside-engine-bridge-macos-amd64 \
+  kingside-engine-bridge-macos-arm64 \
+  kingside-engine-bridge-windows-amd64.exe
+```
+🔴 ВСЕГДА публикуй от имени StasPiv. Если gh auth авторизован под другим аккаунтом — переключись: `gh auth login`.

@@ -37,6 +37,12 @@ for line in sys.stdin:
         task = d.get('task', '')
         pending_tasks[agent.lower()] = f'{agent} [{task}]'
 
+    elif t == 'agent_msg':
+        # v2: сообщение отправлено daemon-агенту
+        agent = d.get('agent', '')
+        task = d.get('task', '')
+        print(f'{now()} [{agent}] <<< задача {task} >>>')
+
     elif t == 'agent_init':
         agent = d.get('agent', '')
         sid = d.get('session_id', '')[:8]
@@ -46,12 +52,11 @@ for line in sys.stdin:
         print(f'{now()} [{sid}] === {name} ЗАПУЩЕН ===')
 
     elif t == 'system' and d.get('subtype') == 'init':
-        # fallback если agent_init не пришёл (старый формат)
         if sid not in agents:
-            model = d.get('model', '')
-            agents[sid] = sid
+            agent_name = d.get('agent', sid)
+            agents[sid] = agent_name.upper() if agent_name else sid
             start_ts[sid] = datetime.now()
-            print(f'{now()} [{sid}] === АГЕНТ ЗАПУЩЕН ({model}) ===')
+            print(f'{now()} [{sid}] === DAEMON {agents[sid]} ЗАПУЩЕН ===')
 
     elif t == 'assistant':
         msg = d.get('message', {})
@@ -75,9 +80,10 @@ for line in sys.stdin:
                 d_str = ''
 
     elif t == 'result':
-        name = agents.pop(sid, 'АГЕНТ')
-        start_ts.pop(sid, None)
+        name = agents.get(sid, 'АГЕНТ')
         cost = d.get('total_cost_usd', 0)
         d_str = delta(sid)
-        print(f'{now()}{d_str} [{sid}] === {name} ЗАВЕРШЁН (\${cost:.4f}) ===')
+        # В v2 daemon не завершается после result — обновляем таймер
+        start_ts[sid] = datetime.now()
+        print(f'{now()}{d_str} [{sid}] === {name} ГОТОВ (\${cost:.4f}) ===')
 "
