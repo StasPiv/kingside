@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell, FaUserFriends } from 'react-icons/fa';
@@ -33,7 +33,6 @@ export function MainLayout() {
   const { user, logout } = useAuth();
   const { t } = useTranslation();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { incoming, acceptChallenge, declineChallenge } = useChallenge();
   const [notifOpen, setNotifOpen] = useState(false);
@@ -116,7 +115,6 @@ export function MainLayout() {
 
   const closeAll = () => {
     setUserMenuOpen(false);
-    setMobileMenuOpen(false);
   };
 
   return (
@@ -128,22 +126,6 @@ export function MainLayout() {
             <Link to="/lobby" className="logo" onClick={closeAll} title={appVersion ? `v.${appVersion}` : undefined}>
               Kingside
             </Link>
-          </div>
-
-          {/* CENTER: Navigation (desktop) */}
-          <div className={`header-center${mobileMenuOpen ? ' header-center--open' : ''}`}>
-            <NavLink to="/lobby" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
-              {t('nav.play', 'Play')}
-            </NavLink>
-            <NavLink to="/puzzle" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
-              {t('nav.puzzles', 'Puzzles')}
-            </NavLink>
-            <NavLink to="/workshop" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
-              {t('nav.workshop', 'Workshop')}
-            </NavLink>
-            <NavLink to="/games/live" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
-              {t('nav.watch', 'Watch')}
-            </NavLink>
           </div>
 
           {/* RIGHT: Utilities + Profile */}
@@ -191,16 +173,6 @@ export function MainLayout() {
               </span>
             )}
 
-            {/* Hamburger (mobile only) */}
-            <button
-              className="hamburger"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label="Menu"
-            >
-              <span />
-              <span />
-              <span />
-            </button>
 
             {/* User dropdown / Login */}
             {user ? (
