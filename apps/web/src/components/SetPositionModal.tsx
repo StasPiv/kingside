@@ -228,25 +228,7 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
 
         {tab === 'editor' && (
           <div className="set-position-body set-position-editor">
-            <div
-              className="set-position-editor__board"
-              ref={boardEditorRef}
-              onTouchEnd={(e) => {
-                // Handle touch on mobile — map touch position to square
-                const touch = e.changedTouches[0];
-                if (!touch || !boardEditorRef.current) return;
-                const rect = boardEditorRef.current.getBoundingClientRect();
-                const x = touch.clientX - rect.left;
-                const y = touch.clientY - rect.top;
-                const col = Math.floor((x / rect.width) * 8);
-                const row = Math.floor((y / rect.height) * 8);
-                if (col < 0 || col > 7 || row < 0 || row > 7) return;
-                const file = String.fromCharCode(97 + col); // a-h
-                const rank = String(8 - row); // 8-1
-                handleSquareClick(`${file}${rank}`);
-                e.preventDefault();
-              }}
-            >
+            <div className="set-position-editor__board" ref={boardEditorRef} style={{ position: 'relative' }}>
               <Chessboard
                 options={{
                   position: editorFen,
@@ -256,6 +238,24 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
                   showNotation: true,
                 }}
               />
+              {/* Transparent overlay grid for mobile touch support */}
+              <div className="set-position-touch-overlay">
+                {Array.from({ length: 64 }, (_, i) => {
+                  const col = i % 8;
+                  const row = Math.floor(i / 8);
+                  const file = String.fromCharCode(97 + col);
+                  const rank = String(8 - row);
+                  const sq = `${file}${rank}`;
+                  return (
+                    <div
+                      key={sq}
+                      className="set-position-touch-cell"
+                      onClick={() => handleSquareClick(sq)}
+                      onTouchEnd={(e) => { e.preventDefault(); handleSquareClick(sq); }}
+                    />
+                  );
+                })}
+              </div>
             </div>
             <div className="set-position-editor__controls">
               <div className="set-position-palette">
