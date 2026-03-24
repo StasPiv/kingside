@@ -81,11 +81,18 @@ export function PlayerProfilePage() {
     Promise.all([
       api.get<{ data: FriendEntry[] }>('/api/friends'),
       api.get<{ data: { id: string; username: string }[] }>('/api/users/blocked'),
-    ]).then(([friendsRes, blockedRes]) => {
+      api.get<{ status: string; friendshipId?: string }>(`/api/friends/status/${profile.id}`)
+        .catch(() => ({ status: 'none' as string, friendshipId: undefined as string | undefined })),
+    ]).then(([friendsRes, blockedRes, statusRes]) => {
       const entry = friendsRes.data.find((f) => f.user.id === profile.id);
       if (entry) {
         setFriendStatus('friends');
         setFriendshipId(entry.friendshipId);
+      } else if (statusRes.status === 'pending') {
+        setFriendStatus('pending');
+      } else if (statusRes.status === 'accepted' || statusRes.status === 'friends') {
+        setFriendStatus('friends');
+        if (statusRes.friendshipId) setFriendshipId(statusRes.friendshipId);
       } else {
         setFriendStatus('none');
       }

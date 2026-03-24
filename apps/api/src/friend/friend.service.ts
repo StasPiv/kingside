@@ -115,6 +115,21 @@ export class FriendService {
     return { deleted: true };
   }
 
+  async getStatus(userId: string, targetUserId: string): Promise<{ status: string; friendshipId?: string }> {
+    const friendship = await this.prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { requesterId: userId, addresseeId: targetUserId },
+          { requesterId: targetUserId, addresseeId: userId },
+        ],
+      },
+    });
+    if (!friendship) return { status: 'none' };
+    if (friendship.status === 'ACCEPTED') return { status: 'friends', friendshipId: friendship.id };
+    if (friendship.status === 'PENDING') return { status: 'pending', friendshipId: friendship.id };
+    return { status: 'none' };
+  }
+
   async getFriends(userId: string) {
     const threshold = new Date(Date.now() - ONLINE_THRESHOLD_MS);
 

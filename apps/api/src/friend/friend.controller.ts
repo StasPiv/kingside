@@ -68,6 +68,14 @@ export class FriendController {
     return this.friendService.getFriends(req.user.id);
   }
 
+  @Get('status/:userId')
+  getStatus(
+    @Request() req: AuthenticatedRequest,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.friendService.getStatus(req.user.id, userId);
+  }
+
   @Get('requests')
   getIncomingRequests(@Request() req: AuthenticatedRequest) {
     return this.friendService.getIncomingRequests(req.user.id);
