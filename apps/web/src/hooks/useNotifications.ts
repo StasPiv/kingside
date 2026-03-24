@@ -66,8 +66,21 @@ export function useNotifications(enabled: boolean) {
       setUnreadCount((prev) => prev + 1);
     };
     messagesSocket.on(NotificationEvents.NEW, onNew);
-    return () => { messagesSocket.off(NotificationEvents.NEW, onNew); };
-  }, [enabled]);
+
+    // Re-fetch count on reconnect (catches missed events)
+    const onConnect = () => { fetchUnreadCount(); };
+    messagesSocket.on('connect', onConnect);
+
+    // Listen for external refresh requests (e.g. MessagesPage marked messages as read)
+    const onRefresh = () => { fetchUnreadCount(); };
+    window.addEventListener('notifications:refresh', onRefresh);
+
+    return () => {
+      messagesSocket.off(NotificationEvents.NEW, onNew);
+      messagesSocket.off('connect', onConnect);
+      window.removeEventListener('notifications:refresh', onRefresh);
+    };
+  }, [enabled, fetchUnreadCount]);
 
   return {
     notifications,

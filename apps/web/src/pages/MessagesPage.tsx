@@ -108,8 +108,10 @@ export function MessagesPage() {
       .catch(() => setMessages([]))
       .finally(() => setMsgLoading(false));
 
-    // Mark as read
-    api.patch<void>(`/api/messages/${selectedUserId}/read`, {}).catch(() => {});
+    // Mark as read + refresh notification badge
+    api.patch<void>(`/api/messages/${selectedUserId}/read`, {})
+      .then(() => { window.dispatchEvent(new Event('notifications:refresh')); })
+      .catch(() => {});
 
     // Update unread count in conversations list
     setConversations((prev) =>
