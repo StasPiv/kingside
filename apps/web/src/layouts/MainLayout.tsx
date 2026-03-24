@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FcGoogle } from 'react-icons/fc';
-import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell } from 'react-icons/fa';
+import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell, FaUserFriends } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { messagesSocket } from '../socket';
@@ -122,120 +122,144 @@ export function MainLayout() {
   return (
     <div className="app">
       <header className="header">
-        <nav>
-          <Link to="/lobby" className="logo" onClick={closeAll}>Kingside{appVersion ? ` (v.${appVersion})` : ''}</Link>
+        <nav className="header-nav">
+          {/* LEFT: Logo */}
+          <div className="header-left">
+            <Link to="/lobby" className="logo" onClick={closeAll} title={appVersion ? `v.${appVersion}` : undefined}>
+              Kingside
+            </Link>
+          </div>
 
-          {onlineCount != null && onlineCount > 0 && (
-            <span className="online-counter" title={t('nav.online', '{{count}} online', { count: onlineCount })}>
-              <span className="online-counter__dot" />
-              {onlineCount}
-            </span>
-          )}
+          {/* CENTER: Navigation (desktop) */}
+          <div className={`header-center${mobileMenuOpen ? ' header-center--open' : ''}`}>
+            <NavLink to="/lobby" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
+              {t('nav.play', 'Play')}
+            </NavLink>
+            <NavLink to="/puzzle" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
+              {t('nav.puzzles', 'Puzzles')}
+            </NavLink>
+            <NavLink to="/workshop" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
+              {t('nav.workshop', 'Workshop')}
+            </NavLink>
+            <NavLink to="/games/live" className={({ isActive }) => `header-nav-link${isActive ? ' active' : ''}`} onClick={closeAll}>
+              {t('nav.watch', 'Watch')}
+            </NavLink>
+          </div>
 
-          <button
-            className="hamburger"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Menu"
-          >
-            <span />
-            <span />
-            <span />
-          </button>
+          {/* RIGHT: Utilities + Profile */}
+          <div className="header-right">
+            {/* Bell + Messages: always visible (even mobile) */}
+            {user && (
+              <div className="nav-notification-wrapper">
+                <button
+                  className="header-icon-btn"
+                  onClick={handleNotifToggle}
+                  title={t('notifications.title', 'Notifications')}
+                >
+                  <FaBell size={15} />
+                  {notifUnreadCount > 0 && (
+                    <span className="header-icon-badge">
+                      {notifUnreadCount > 99 ? '99+' : notifUnreadCount}
+                    </span>
+                  )}
+                </button>
+                {notifOpen && (
+                  <NotificationDropdown
+                    notifications={notifications}
+                    loading={notifLoading}
+                    onClose={handleNotifClose}
+                    onMarkAsRead={markAsRead}
+                    onMarkAllAsRead={markAllAsRead}
+                  />
+                )}
+              </div>
+            )}
+            {user && (
+              <Link to="/messages" className="header-icon-btn" onClick={closeAll} title={t('nav.messages')}>
+                <FaEnvelope size={15} />
+                {unreadCount > 0 && (
+                  <span className="header-icon-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
+                )}
+              </Link>
+            )}
 
-          <div className={`nav-menu${mobileMenuOpen ? ' nav-menu--open' : ''}`}>
-            <div className="nav-links">
-              {user && (
-                <div className="nav-notification-wrapper">
-                  <button
-                    className="nav-link nav-notification-btn"
-                    onClick={handleNotifToggle}
-                    title={t('notifications.title', 'Notifications')}
-                  >
-                    <FaBell size={16} />
-                    {notifUnreadCount > 0 && (
-                      <span className="nav-notification-badge">
-                        {notifUnreadCount > 99 ? '99+' : notifUnreadCount}
-                      </span>
-                    )}
-                  </button>
-                  {notifOpen && (
-                    <NotificationDropdown
-                      notifications={notifications}
-                      loading={notifLoading}
-                      onClose={handleNotifClose}
-                      onMarkAsRead={markAsRead}
-                      onMarkAllAsRead={markAllAsRead}
-                    />
-                  )}
-                </div>
-              )}
-              {user && (
-                <Link to="/friends" className="nav-link" onClick={closeAll} title={t('nav.friends', 'Friends')}>
-                  👥
-                </Link>
-              )}
-              {user && (
-                <Link to="/messages" className="nav-link nav-messages-link" onClick={closeAll} title={t('nav.messages')}>
-                  <FaEnvelope size={16} />
-                  {unreadCount > 0 && (
-                    <span className="nav-messages-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
-                  )}
-                </Link>
-              )}
-              {user ? (
-                <div className="dropdown" ref={userMenuRef}>
-                  <button
-                    className="dropdown-toggle nav-user"
-                    onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  >
-                    {user.username}{user.ratingBlitz != null && ` (${user.ratingBlitz})`} <span className="dropdown-arrow">&#9662;</span>
-                  </button>
-                  {userMenuOpen && (
-                    <div className="dropdown-menu dropdown-menu--right">
-                      <Link to="/profile" onClick={closeAll}>{t('nav.profile')}</Link>
-                      <Link to="/settings" onClick={closeAll}>{t('nav.settings')}</Link>
-                      <button onClick={() => { logout(); closeAll(); }}>{t('nav.logout')}</button>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="social-login-buttons">
-                  <a href={`${API_URL}/api/auth/google`} className="social-login-btn social-login-btn--google" aria-label="Google">
-                    <FcGoogle size={20} />
-                  </a>
-                  <a href={`${API_URL}/api/auth/facebook`} className="social-login-btn social-login-btn--facebook" aria-label="Facebook">
-                    <FaFacebook size={20} color="#1877F2" />
-                  </a>
+            {/* Online counter (muted) */}
+            {onlineCount != null && onlineCount > 0 && (
+              <span className="online-counter" title={t('nav.online', '{{count}} online', { count: onlineCount })}>
+                <span className="online-counter__dot" />
+                {onlineCount}
+              </span>
+            )}
+
+            {/* Hamburger (mobile only) */}
+            <button
+              className="hamburger"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label="Menu"
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+
+            {/* User dropdown / Login */}
+            {user ? (
+              <div className="dropdown" ref={userMenuRef}>
+                <button
+                  className="dropdown-toggle nav-user"
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                >
+                  {user.username}{user.ratingBlitz != null && ` (${user.ratingBlitz})`} <span className="dropdown-arrow">&#9662;</span>
+                </button>
+                {userMenuOpen && (
+                  <div className="dropdown-menu dropdown-menu--right">
+                    <Link to="/profile" onClick={closeAll}>{t('nav.profile')}</Link>
+                    <Link to="/friends" onClick={closeAll}>
+                      <FaUserFriends size={14} style={{ marginRight: 6, verticalAlign: -2 }} />
+                      {t('nav.friends', 'Friends')}
+                    </Link>
+                    <Link to="/settings" onClick={closeAll}>{t('nav.settings')}</Link>
+                    <button onClick={() => { logout(); closeAll(); }}>{t('nav.logout')}</button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="social-login-buttons">
+                <a href={`${API_URL}/api/auth/google`} className="social-login-btn social-login-btn--google" aria-label="Google">
+                  <FcGoogle size={20} />
+                </a>
+                <a href={`${API_URL}/api/auth/facebook`} className="social-login-btn social-login-btn--facebook" aria-label="Facebook">
+                  <FaFacebook size={20} color="#1877F2" />
+                </a>
+                <a
+                  href="#"
+                  className="social-login-btn social-login-btn--telegram"
+                  aria-label="Telegram"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    const origin = window.location.origin;
+                    const returnTo = `${origin}/login`;
+                    window.location.href =
+                      `https://oauth.telegram.org/auth` +
+                      `?bot_id=${TELEGRAM_BOT_ID}` +
+                      `&origin=${encodeURIComponent(origin)}` +
+                      `&return_to=${encodeURIComponent(returnTo)}`;
+                  }}
+                >
+                  <FaTelegram size={20} color="#26A5E4" />
+                </a>
+                {isLocalhost && DEV_BYPASS_SECRET && (
                   <a
-                    href="#"
-                    className="social-login-btn social-login-btn--telegram"
-                    aria-label="Telegram"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      const origin = window.location.origin;
-                      const returnTo = `${origin}/login`;
-                      window.location.href =
-                        `https://oauth.telegram.org/auth` +
-                        `?bot_id=${TELEGRAM_BOT_ID}` +
-                        `&origin=${encodeURIComponent(origin)}` +
-                        `&return_to=${encodeURIComponent(returnTo)}`;
-                    }}
+                    href={`?dev_bypass=${DEV_BYPASS_SECRET}`}
+                    className="social-login-btn social-login-btn--dev"
+                    aria-label="Dev Bypass"
+                    title="Dev Bypass Login"
                   >
-                    <FaTelegram size={20} color="#26A5E4" />
+                    <FaCode size={20} color="#f59e0b" />
                   </a>
-                  {isLocalhost && DEV_BYPASS_SECRET && (
-                    <a
-                      href={`?dev_bypass=${DEV_BYPASS_SECRET}`}
-                      className="social-login-btn social-login-btn--dev"
-                      aria-label="Dev Bypass"
-                      title="Dev Bypass Login"
-                    >
-                      <FaCode size={20} color="#f59e0b" />
-                    </a>
-                  )}
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
         </nav>
       </header>

@@ -14,7 +14,10 @@
     "messages": "Messages",
     "friends": "Friends",
     "broadcasts": "Broadcasts",
-    "online": "{{count}} online"
+    "online": "{{count}} online",
+    "play": "Play",
+    "workshop": "Workshop",
+    "watch": "Watch"
   },
   "notifications": {
     "title": "Notifications",

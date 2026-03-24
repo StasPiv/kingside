@@ -14,7 +14,10 @@
     "messages": "Сообщения",
     "friends": "Друзья",
     "broadcasts": "Трансляции",
-    "online": "{{count}} онлайн"
+    "online": "{{count}} онлайн",
+    "play": "Играть",
+    "workshop": "Мастерская",
+    "watch": "Смотреть"
   },
   "notifications": {
     "title": "Уведомления",

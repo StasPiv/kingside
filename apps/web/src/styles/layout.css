@@ -13,14 +13,21 @@
   padding-top: 48px;
 }
 
-.header nav {
+.header-nav {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 24px;
+  padding: 0 20px;
   background: #16213e;
   border-bottom: 1px solid #1a1a3e;
-  gap: 8px;
+  height: 48px;
+}
+
+/* LEFT zone: logo */
+.header-left {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .logo {
@@ -33,19 +40,91 @@
   text-decoration: none;
 }
 
+/* CENTER zone: navigation */
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-nav-link {
+  color: #8888aa;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 12px 14px;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  line-height: 22px;
+}
+
+.header-nav-link:hover {
+  color: #c0c0e0;
+  text-decoration: none;
+}
+
+.header-nav-link.active {
+  color: #fff;
+  border-bottom-color: #7c83ff;
+}
+
+/* RIGHT zone: utilities + profile */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.header-icon-btn {
+  position: relative;
+  background: none;
+  border: none;
+  color: #8888aa;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.15s, background 0.15s;
+}
+
+.header-icon-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  text-decoration: none;
+}
+
+.header-icon-badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  background: #e53935;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+
 .online-counter {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: #8f8;
-  margin-left: 12px;
-  font-weight: 500;
+  gap: 4px;
+  font-size: 11px;
+  color: #666;
+  font-weight: 400;
+  padding: 0 6px;
 }
 
 .online-counter__dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #4caf50;
   display: inline-block;
@@ -70,34 +149,6 @@
 
 .hamburger:hover {
   background: rgba(255, 255, 255, 0.1);
-}
-
-.nav-menu {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex: 1;
-  justify-content: space-between;
-}
-
-.nav-link {
-  color: #a0a0c0;
-  text-decoration: none;
-  font-size: 14px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  transition: color 0.15s, background 0.15s;
-}
-
-.nav-link:hover {
-  color: #fff;
-  background: rgba(124, 131, 255, 0.1);
-}
-
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: 16px;
 }
 
 /* Social login buttons */
