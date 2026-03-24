@@ -115,6 +115,7 @@ model Game {
   moves        Move[]
   chatMessages ChatMessage[]
   analyses     GameAnalysis[]
+  report       GameReport?
 
   @@index([whiteId])
   @@index([blackId])
@@ -320,6 +321,23 @@ model GameAnalysis {
   @@index([gameId])
   @@index([userId])
   @@map("game_analyses")
+}
+
+model GameReport {
+  id             String   @id @default(uuid()) @db.Uuid
+  gameId         String   @unique @map("game_id") @db.Uuid
+  depth          Int      @default(18)
+  whiteAccuracy  Float    @map("white_accuracy")
+  blackAccuracy  Float    @map("black_accuracy")
+  moves          String   @db.Text  // JSON array of MoveAnalysis
+  status         String   @default("pending") // pending, analyzing, complete, error
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  game Game @relation(fields: [gameId], references: [id])
+
+  @@index([gameId])
+  @@map("game_reports")
 }
 
 model Broadcast {

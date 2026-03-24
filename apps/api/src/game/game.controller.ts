@@ -20,6 +20,7 @@ import { CreateGameWithBotDto, SaveAnalysisDto } from './dto/game.dto';
 import { LiveGamesDto } from './dto/live-games.dto';
 import { RedisRateLimitGuard, RateLimit } from '../common/redis-rate-limit.guard';
 import { GameService } from './game.service';
+import { GameReportService } from './game-report.service';
 import { LiveGameService } from './live-game.service';
 import { UserService } from '../user/user.service';
 
@@ -27,6 +28,7 @@ import { UserService } from '../user/user.service';
 export class GameController {
   constructor(
     private readonly gameService: GameService,
+    private readonly gameReportService: GameReportService,
     private readonly liveGameService: LiveGameService,
     private readonly userService: UserService,
   ) {}
@@ -74,6 +76,17 @@ export class GameController {
   @Get(':id/moves')
   getGameMoves(@Param('id', ParseUUIDPipe) id: string) {
     return this.gameService.getGameMoves(id);
+  }
+
+  @Get(':id/report')
+  getReport(@Param('id', ParseUUIDPipe) id: string) {
+    return this.gameReportService.getReport(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/analyze')
+  analyzeGame(@Param('id', ParseUUIDPipe) id: string) {
+    return this.gameReportService.analyze(id);
   }
 
   @UseGuards(JwtAuthGuard)

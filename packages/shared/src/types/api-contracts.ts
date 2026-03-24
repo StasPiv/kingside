@@ -138,6 +138,32 @@ export type CreateGameResponse = {
   id: string;
 };
 
+// ─── Game Report (REST) ─────────────────────────────────────────────
+
+export type MoveClassification = 'brilliant' | 'best' | 'good' | 'inaccuracy' | 'mistake' | 'blunder' | 'book';
+
+export type MoveAnalysisItem = {
+  moveNumber: number;
+  color: 'white' | 'black';
+  san: string;
+  uci: string;
+  evalBefore: { type: 'cp' | 'mate'; value: number } | null;
+  evalAfter: { type: 'cp' | 'mate'; value: number } | null;
+  bestMove: string | null;
+  cpLoss: number;
+  classification: MoveClassification;
+};
+
+/** GET /api/games/:id/report, POST /api/games/:id/analyze */
+export type GameReportResponse = {
+  id: string;
+  gameId: string;
+  whiteAccuracy: number;
+  blackAccuracy: number;
+  moves: MoveAnalysisItem[];
+  status: 'pending' | 'analyzing' | 'complete' | 'error';
+} | null;
+
 // ─── Puzzle (REST) ───────────────────────────────────────────────────
 
 export type FindPuzzlesQuery = {
