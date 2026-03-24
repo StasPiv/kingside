@@ -258,7 +258,11 @@
     align-items: center;
   }
 
-  .analysis-sidebar,
+  .analysis-sidebar {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
   .puzzle-sidebar {
     width: 100% !important;
     max-width: 480px;
@@ -313,13 +317,17 @@
     height: auto;
     overflow: visible;
     flex-direction: column;
-    padding: 4px;
+    align-items: stretch;
+    padding: 0;
   }
 
   .analysis-sidebar {
     flex: none;
     min-height: 0;
     overflow: visible;
+    /* Full width on mobile (KS-912) */
+    width: 100% !important;
+    max-width: 100% !important;
     /* Push sidebar below fixed board-area (KS-907) */
     /* board(calc(100vw-40px)) + player-rows(56px) + controls(36px) + padding(16px) */
     margin-top: calc(100vw - 40px + 108px);
@@ -490,6 +498,8 @@
     flex: none;
     min-height: 0;
     overflow: visible;
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   .puzzle-sidebar {
