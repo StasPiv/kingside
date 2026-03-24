@@ -65,6 +65,23 @@ export function MainLayout() {
     return () => { messagesSocket.off(MessageEvents.NEW_MESSAGE, onNewMessage); };
   }, [user]);
 
+  // Online players count
+  const [onlineCount, setOnlineCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    const fetchCount = () => {
+      fetch(`${API_URL}/api/players/online?limit=1`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data: { total?: number } | null) => {
+          if (data?.total != null) setOnlineCount(data.total);
+        })
+        .catch(() => {});
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
   const [appVersion, setAppVersion] = useState('');
 
   useEffect(() => {
@@ -87,6 +104,13 @@ export function MainLayout() {
       <header className="header">
         <nav>
           <Link to="/lobby" className="logo" onClick={closeAll}>Kingside{appVersion ? ` (v.${appVersion})` : ''}</Link>
+
+          {onlineCount != null && onlineCount > 0 && (
+            <span className="online-counter" title={t('nav.online', '{{count}} online', { count: onlineCount })}>
+              <span className="online-counter__dot" />
+              {onlineCount}
+            </span>
+          )}
 
           <button
             className="hamburger"
