@@ -328,9 +328,19 @@
     /* Full width on mobile (KS-912) */
     width: 100% !important;
     max-width: 100% !important;
+    min-width: 0 !important;
+    contain: none;
     /* Push sidebar below fixed board-area (KS-907) */
     /* board(calc(100vw-40px)) + player-rows(56px) + controls(36px) + padding(16px) */
     margin-top: calc(100vw - 40px + 108px);
+  }
+
+  /* All panels full width (KS-912) */
+  .analysis-panel,
+  .analysis-panel--flex,
+  .game-report-panel {
+    width: 100% !important;
+    max-width: 100% !important;
   }
 
   /* Hide EvalGraph and bridge promo on mobile (KS-901) */
