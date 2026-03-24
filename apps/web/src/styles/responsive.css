@@ -264,8 +264,13 @@
     flex: 0 1 auto;
     width: auto !important;
     max-width: 100%;
-    overflow: hidden;
+    overflow: visible;
     min-height: 0;
+    /* Sticky board at top while scrolling on mobile (KS-901) */
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #0f172a;
   }
 
   .analysis-page .board-container {
