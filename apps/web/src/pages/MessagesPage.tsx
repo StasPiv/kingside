@@ -110,7 +110,10 @@ export function MessagesPage() {
 
     // Mark as read + refresh notification badge
     api.patch<void>(`/api/messages/${selectedUserId}/read`, {})
-      .then(() => { window.dispatchEvent(new Event('notifications:refresh')); })
+      .then(() => {
+        window.dispatchEvent(new Event('messages:read'));
+        window.dispatchEvent(new Event('notifications:refresh'));
+      })
       .catch(() => {});
 
     // Update unread count in conversations list

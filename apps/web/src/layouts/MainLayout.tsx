@@ -81,7 +81,19 @@ export function MainLayout() {
       setUnreadCount((prev) => prev + 1);
     };
     messagesSocket.on(MessageEvents.NEW_MESSAGE, onNewMessage);
-    return () => { messagesSocket.off(MessageEvents.NEW_MESSAGE, onNewMessage); };
+
+    // Re-fetch message unread count when messages are read (dispatched by MessagesPage)
+    const onMessagesRead = () => {
+      api.get<{ count: number }>('/api/messages/unread-count')
+        .then((data) => setUnreadCount(data.count))
+        .catch(() => {});
+    };
+    window.addEventListener('messages:read', onMessagesRead);
+
+    return () => {
+      messagesSocket.off(MessageEvents.NEW_MESSAGE, onNewMessage);
+      window.removeEventListener('messages:read', onMessagesRead);
+    };
   }, [user]);
 
   // Online players count
