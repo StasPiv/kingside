@@ -1,6 +1,7 @@
 import {
   Injectable,
   Inject,
+  forwardRef,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -15,7 +16,7 @@ export class MessageService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly blockService: BlockService,
-    @Inject(NotificationService) private readonly notifications: NotificationService,
+    @Inject(forwardRef(() => NotificationService)) private readonly notifications: NotificationService,
   ) {}
 
   async sendMessage(senderId: string, receiverId: string, text: string) {

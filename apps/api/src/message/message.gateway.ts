@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -37,7 +37,7 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly jwtService: JwtService,
     private readonly redis: RedisService,
     private readonly gameService: GameService,
-    private readonly notifications: NotificationService,
+    @Inject(forwardRef(() => NotificationService)) private readonly notifications: NotificationService,
   ) {}
 
   async handleConnection(client: Socket) {
