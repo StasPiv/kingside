@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { messagesSocket } from '../socket';
+import { FriendEvents } from '@kingside/shared';
 import { useChallenge } from '../hooks/useChallenge';
 import { ChallengeModal } from '../components/ChallengeModal';
 
@@ -43,6 +45,26 @@ export function FriendsPage() {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Realtime friend status updates
+  useEffect(() => {
+    const onOnline = (data: { userId: string }) => {
+      setFriends((prev) =>
+        prev.map((f) => f.user.id === data.userId ? { ...f, online: true } : f),
+      );
+    };
+    const onOffline = (data: { userId: string }) => {
+      setFriends((prev) =>
+        prev.map((f) => f.user.id === data.userId ? { ...f, online: false } : f),
+      );
+    };
+    messagesSocket.on(FriendEvents.STATUS_ONLINE, onOnline);
+    messagesSocket.on(FriendEvents.STATUS_OFFLINE, onOffline);
+    return () => {
+      messagesSocket.off(FriendEvents.STATUS_ONLINE, onOnline);
+      messagesSocket.off(FriendEvents.STATUS_OFFLINE, onOffline);
+    };
+  }, []);
 
   const handleAccept = useCallback(async (requestId: string) => {
     try {
