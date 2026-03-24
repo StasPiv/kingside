@@ -236,12 +236,16 @@
   }
 
   .dropdown-menu {
-    position: static;
-    box-shadow: none;
-    border: none;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 6px;
-    margin-top: 2px;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: auto;
+    background: #1e2a4a;
+    border: 1px solid #2a3a5e;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    margin-top: 4px;
+    z-index: 200;
   }
 
   .main {
@@ -261,16 +265,21 @@
   }
 
   .analysis-board-area {
-    flex: 0 1 auto;
-    width: auto !important;
-    max-width: 100%;
-    overflow: visible;
-    min-height: 0;
-    /* Sticky board at top while scrolling on mobile (KS-901) */
-    position: sticky;
-    top: 0;
+    /* Fixed board at top — does NOT scroll with page (KS-907) */
+    position: fixed;
+    top: 48px; /* below fixed header */
+    left: 0;
+    right: 0;
     z-index: 10;
     background: #0f172a;
+    width: 100% !important;
+    max-width: 100%;
+    overflow: hidden;
+    min-height: 0;
+    padding: 4px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
 
   .analysis-page .board-container {
@@ -311,6 +320,9 @@
     flex: none;
     min-height: 0;
     overflow: visible;
+    /* Push sidebar below fixed board-area (KS-907) */
+    /* board(calc(100vw-40px)) + player-rows(56px) + controls(36px) + padding(16px) */
+    margin-top: calc(100vw - 40px + 108px);
   }
 
   /* Hide EvalGraph and bridge promo on mobile (KS-901) */
