@@ -184,7 +184,7 @@ export class StockfishService implements OnModuleDestroy {
         const lines = data.toString().split('\n');
 
         for (const line of lines) {
-          const infoMatch = line.match(/^info .* depth (\d+) .* score (cp|mate) (-?\d+)/);
+          const infoMatch = line.match(/^info depth (\d+) .* score (cp|mate) (-?\d+)/);
           if (infoMatch) {
             lastDepth = parseInt(infoMatch[1], 10);
             lastScore = {
