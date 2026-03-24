@@ -25,6 +25,9 @@ import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
+import { EvalGraph } from '../components/EvalGraph';
+import { GameReportPanel } from '../components/GameReportPanel';
+import { useGameReport } from '../hooks/useGameReport';
 import { formatEval, formatPv, formatCompact } from '../utils/chessFormat';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
@@ -119,6 +122,10 @@ export function GameReviewPage() {
   } = useReviewState();
 
   const game = useMemo(() => new Chess(), []);
+
+  // Game Report
+  const { report: gameReport, analyzing: reportAnalyzing, error: reportError, fetchReport, analyze: analyzeGame } = useGameReport(gameId);
+  useEffect(() => { if (gameId) fetchReport(); }, [gameId, fetchReport]);
 
   // Panel collapse state
   const [panelStates, setPanelStates] = useState(() => {
@@ -637,6 +644,30 @@ export function GameReviewPage() {
             collapsed={!panelStates.gameInfo}
             onToggle={() => togglePanel('gameInfo')}
           />
+        )}
+
+        {/* Game Report: EvalGraph + Accuracy + Classifications */}
+        {gameId && (
+          <>
+            {gameReport && gameReport.status === 'complete' && (
+              <EvalGraph
+                moves={gameReport.moves}
+                currentMoveIndex={currentGlobalIndex != null ? currentGlobalIndex - 1 : undefined}
+                onSelectMove={(idx) => {
+                  const target = history.find((m) => m.globalIndex === idx + 1);
+                  if (target) gotoMove(target);
+                }}
+              />
+            )}
+            <GameReportPanel
+              report={gameReport}
+              analyzing={reportAnalyzing}
+              error={reportError}
+              onAnalyze={analyzeGame}
+              whiteName={typeof gameData?.white === 'object' ? gameData.white.username : (gameData?.white ?? 'White')}
+              blackName={typeof gameData?.black === 'object' ? gameData.black.username : (gameData?.black ?? 'Black')}
+            />
+          </>
         )}
 
         {activeSource === 'wasm' && !bridgePromoDismissed && (
