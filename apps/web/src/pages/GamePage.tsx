@@ -21,7 +21,10 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
+import { useChallenge } from '../hooks/useChallenge';
 import { socket } from '../socket';
+
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 function msToSeconds(clocks: ClockPayload): { white: number; black: number } {
   return {
@@ -62,6 +65,8 @@ export function GamePage() {
   pendingPremoveRef.current = pendingPremove;
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [showResultModal, setShowResultModal] = useState(false);
+  const [gameMeta, setGameMeta] = useState<{ opponentId: string; timeInitial: number; increment: number } | null>(null);
+  const { sendChallenge, state: challengeState } = useChallenge();
   const chatEndRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -80,6 +85,36 @@ export function GamePage() {
     const saved = localStorage.getItem('pieceAnimationDuration');
     return saved !== null ? parseInt(saved, 10) : 200;
   });
+  // Fetch game meta (opponent id, time control) for rematch
+  useEffect(() => {
+    if (!gameId || !user) return;
+    const token = localStorage.getItem('token');
+    fetch(`${API_URL}/api/games/${gameId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((g) => {
+        if (!g) return;
+        const opponentId = g.whiteId === user.id ? g.blackId : g.whiteId;
+        setGameMeta({
+          opponentId,
+          timeInitial: g.timeInitialSec ?? 300,
+          increment: g.timeIncrementSec ?? 0,
+        });
+      })
+      .catch(() => {});
+  }, [gameId, user]);
+
+  const handleRematch = useCallback(() => {
+    if (!gameMeta) return;
+    sendChallenge({
+      targetUserId: gameMeta.opponentId,
+      timeInitial: gameMeta.timeInitial,
+      increment: gameMeta.increment,
+      color: 'random',
+    });
+  }, [gameMeta, sendChallenge]);
+
   const { playSound, muted, toggleMute } = useSounds();
   const { showNotation, customPieces, darkSquareStyle, lightSquareStyle, inputMode } = useBoardSettings();
   // Stable callback ref used to break the circular dependency between
@@ -516,6 +551,15 @@ export function GamePage() {
               </div>
             )}
             <div className="game-result-actions">
+              {!isBot && gameMeta && (
+                <button
+                  className="result-btn"
+                  onClick={handleRematch}
+                  disabled={challengeState === 'waiting'}
+                >
+                  {challengeState === 'waiting' ? t('gameResult.rematchSent', 'Sent...') : t('gameResult.rematch', 'Rematch')}
+                </button>
+              )}
               <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
               <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
             </div>
@@ -580,6 +624,15 @@ export function GamePage() {
               )}
             </div>
             <div className="result-modal-actions">
+              {!isBot && gameMeta && (
+                <button
+                  className="result-btn"
+                  onClick={handleRematch}
+                  disabled={challengeState === 'waiting'}
+                >
+                  {challengeState === 'waiting' ? t('gameResult.rematchSent', 'Sent...') : t('gameResult.rematch', 'Rematch')}
+                </button>
+              )}
               <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
               <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
               <Link to="/" className="result-btn">{t('gameResult.home')}</Link>
