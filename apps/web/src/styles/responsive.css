@@ -351,19 +351,20 @@
     order: 4;
   }
 
-  /* Moves panel: no internal scroll, expand fully (KS-901) */
+  /* Moves panel: scrollable container to prevent scrollIntoView from scrolling page (KS-909) */
   .analysis-panel--flex {
     flex: none;
   }
 
   .analysis-panel-body--scroll {
-    overflow: visible;
+    overflow: hidden;
     flex: none;
   }
 
   .analysis-panel-body--scroll .review-moves-container {
-    overflow: visible;
-    max-height: none;
+    overflow-y: auto;
+    max-height: 50vh;
+    overscroll-behavior: contain;
   }
 
   /* Notation block: flex within panel, internal scroll only */
@@ -628,33 +629,35 @@
     margin-bottom: 4px;
   }
 
-  /* Game review: notation block — no internal scroll (KS-901) */
+  /* Game review: notation — scrollable container to prevent page scroll (KS-909) */
   .analysis-moves--variants {
     height: auto;
     flex: none;
     min-height: 0;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .analysis-moves--variants .review-move-list-wrapper {
-    overflow: visible;
+    overflow: hidden;
     flex: none;
     min-height: 0;
   }
 
   .analysis-moves--variants .review-moves-container {
-    overflow-y: visible;
+    overflow-y: auto;
     flex: none;
     min-height: 0;
+    max-height: 50vh;
+    overscroll-behavior: contain;
     padding-bottom: 8px;
   }
 
-  /* Game review: notation — no internal scroll, expand fully (KS-901) */
   .analysis-page .analysis-panel-body--scroll .review-moves-container {
     flex: none;
     min-height: 0;
-    max-height: none;
-    overflow-y: visible;
+    max-height: 50vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     padding-bottom: 8px;
   }
 
