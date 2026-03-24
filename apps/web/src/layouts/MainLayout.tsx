@@ -1,14 +1,16 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link, Outlet } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FcGoogle } from 'react-icons/fc';
-import { FaFacebook, FaTelegram, FaCode, FaEnvelope } from 'react-icons/fa';
+import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { messagesSocket } from '../socket';
 import { MessageEvents } from '@kingside/shared';
 import { useChallenge } from '../hooks/useChallenge';
+import { useNotifications } from '../hooks/useNotifications';
 import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
+import { NotificationDropdown } from '../components/NotificationDropdown';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -34,6 +36,24 @@ export function MainLayout() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { incoming, acceptChallenge, declineChallenge } = useChallenge();
+  const [notifOpen, setNotifOpen] = useState(false);
+  const {
+    notifications,
+    unreadCount: notifUnreadCount,
+    loading: notifLoading,
+    fetchNotifications,
+    markAsRead,
+    markAllAsRead,
+  } = useNotifications(!!user);
+
+  const handleNotifToggle = useCallback(() => {
+    setNotifOpen((prev) => {
+      if (!prev) fetchNotifications();
+      return !prev;
+    });
+  }, [fetchNotifications]);
+
+  const handleNotifClose = useCallback(() => setNotifOpen(false), []);
 
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -124,6 +144,31 @@ export function MainLayout() {
 
           <div className={`nav-menu${mobileMenuOpen ? ' nav-menu--open' : ''}`}>
             <div className="nav-links">
+              {user && (
+                <div className="nav-notification-wrapper">
+                  <button
+                    className="nav-link nav-notification-btn"
+                    onClick={handleNotifToggle}
+                    title={t('notifications.title', 'Notifications')}
+                  >
+                    <FaBell size={16} />
+                    {notifUnreadCount > 0 && (
+                      <span className="nav-notification-badge">
+                        {notifUnreadCount > 99 ? '99+' : notifUnreadCount}
+                      </span>
+                    )}
+                  </button>
+                  {notifOpen && (
+                    <NotificationDropdown
+                      notifications={notifications}
+                      loading={notifLoading}
+                      onClose={handleNotifClose}
+                      onMarkAsRead={markAsRead}
+                      onMarkAllAsRead={markAllAsRead}
+                    />
+                  )}
+                </div>
+              )}
               {user && (
                 <Link to="/friends" className="nav-link" onClick={closeAll} title={t('nav.friends', 'Friends')}>
                   👥

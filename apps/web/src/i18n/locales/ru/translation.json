@@ -16,6 +16,15 @@
     "broadcasts": "Трансляции",
     "online": "{{count}} онлайн"
   },
+  "notifications": {
+    "title": "Уведомления",
+    "empty": "Нет уведомлений",
+    "markAllRead": "Прочитать все",
+    "challengeReceived": "Вызов от {{from}}",
+    "friendRequest": "Запрос дружбы от {{from}}",
+    "gameStarted": "Партия начата с {{opponent}}",
+    "newMessage": "Сообщение от {{from}}"
+  },
   "friends": {
     "title": "Друзья",
     "requests": "Запросы дружбы",

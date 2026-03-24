@@ -16,6 +16,15 @@
     "broadcasts": "Broadcasts",
     "online": "{{count}} online"
   },
+  "notifications": {
+    "title": "Notifications",
+    "empty": "No notifications",
+    "markAllRead": "Mark all read",
+    "challengeReceived": "Challenge from {{from}}",
+    "friendRequest": "Friend request from {{from}}",
+    "gameStarted": "Game started vs {{opponent}}",
+    "newMessage": "Message from {{from}}"
+  },
   "friends": {
     "title": "Friends",
     "requests": "Friend Requests",
