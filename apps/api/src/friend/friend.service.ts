@@ -2,16 +2,21 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
 @Injectable()
 export class FriendService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(NotificationService) private readonly notifications: NotificationService,
+  ) {}
 
   async sendRequest(requesterId: string, addresseeId: string) {
     if (requesterId === addresseeId) {
@@ -45,12 +50,21 @@ export class FriendService {
       await this.prisma.friendship.delete({ where: { id: existing.id } });
     }
 
-    return this.prisma.friendship.create({
+    const friendship = await this.prisma.friendship.create({
       data: { requesterId, addresseeId },
       include: {
+        requester: { select: { id: true, username: true } },
         addressee: { select: { id: true, username: true } },
       },
     });
+
+    this.notifications.create(addresseeId, 'friend_request', {
+      requestId: friendship.id,
+      fromId: requesterId,
+      fromUsername: friendship.requester.username ?? 'Unknown',
+    }).catch(() => {});
+
+    return friendship;
   }
 
   async acceptRequest(userId: string, requestId: string) {

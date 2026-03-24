@@ -1,11 +1,13 @@
 import {
   Injectable,
+  Inject,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { BlockService } from '../user/block.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class MessageService {
@@ -13,6 +15,7 @@ export class MessageService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly blockService: BlockService,
+    @Inject(NotificationService) private readonly notifications: NotificationService,
   ) {}
 
   async sendMessage(senderId: string, receiverId: string, text: string) {
@@ -46,6 +49,17 @@ export class MessageService {
         readAt: true,
       },
     });
+
+    // Create notification for receiver
+    const sender = await this.prisma.user.findUnique({
+      where: { id: senderId },
+      select: { username: true },
+    });
+    this.notifications.create(receiverId, 'message', {
+      senderId,
+      senderUsername: sender?.username ?? 'Unknown',
+      preview: text.slice(0, 100),
+    }).catch(() => {}); // fire-and-forget
 
     return {
       ...message,

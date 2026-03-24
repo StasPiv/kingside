@@ -22,6 +22,7 @@ import {
   type WsChallengeDeclinePayload,
 } from '@kingside/shared';
 import { randomUUID } from 'crypto';
+import { NotificationService } from '../notification/notification.service';
 
 const CHALLENGE_TTL_SEC = 60;
 
@@ -36,6 +37,7 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly jwtService: JwtService,
     private readonly redis: RedisService,
     private readonly gameService: GameService,
+    private readonly notifications: NotificationService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -136,6 +138,14 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
         timeInitial: data.timeInitial,
         increment: data.increment,
       });
+
+      this.notifications.create(data.targetUserId, 'challenge_received', {
+        challengeId,
+        fromId: user.id,
+        fromUsername: user.username,
+        timeInitial: data.timeInitial,
+        increment: data.increment,
+      }).catch(() => {});
 
       this.logger.log(`Challenge ${challengeId}: ${user.username} -> ${data.targetUserId}`);
     } catch (e: unknown) {
