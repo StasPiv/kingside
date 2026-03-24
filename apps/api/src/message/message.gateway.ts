@@ -12,6 +12,7 @@ import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { RedisService } from '../redis/redis.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { GameService } from '../game/game.service';
 import {
   MessageEvents,
@@ -25,6 +26,8 @@ import { randomUUID } from 'crypto';
 import { NotificationService } from '../notification/notification.service';
 
 const CHALLENGE_TTL_SEC = 60;
+const ONLINE_SET_KEY = 'online_users';
+const DISCONNECT_GRACE_MS = 5_000;
 
 @WebSocketGateway({ namespace: '/messages', cors: { origin: '*' } })
 export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -32,10 +35,12 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
   server!: Server;
 
   private readonly logger = new Logger(MessageGateway.name);
+  private readonly disconnectTimers = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly jwtService: JwtService,
     private readonly redis: RedisService,
+    private readonly prisma: PrismaService,
     private readonly gameService: GameService,
     @Inject(forwardRef(() => NotificationService)) private readonly notifications: NotificationService,
   ) {}
@@ -50,6 +55,21 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
       await client.join(`user:${payload.sub}`);
+
+      // Cancel pending offline timer
+      const pending = this.disconnectTimers.get(payload.sub);
+      if (pending) {
+        clearTimeout(pending);
+        this.disconnectTimers.delete(payload.sub);
+      }
+
+      // Track online + notify friends
+      const wasOnline = await this.redis.sismember(ONLINE_SET_KEY, payload.sub);
+      await this.redis.sadd(ONLINE_SET_KEY, payload.sub);
+      if (!wasOnline) {
+        this.broadcastFriendStatus(payload.sub, payload.username ?? '', FriendEvents.STATUS_ONLINE);
+      }
+
       this.logger.log(`Messages client connected: ${payload.username} (${client.id})`);
     } catch {
       client.disconnect();
@@ -57,7 +77,43 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
   }
 
   async handleDisconnect(client: Socket) {
+    const user = client.data?.user;
     this.logger.log(`Messages client disconnected: ${client.id}`);
+
+    if (user?.id) {
+      // Grace period — user may reconnect quickly (page reload)
+      const timer = setTimeout(async () => {
+        this.disconnectTimers.delete(user.id);
+        // Check if user reconnected (has other sockets)
+        const sockets = await this.server.fetchSockets();
+        const stillConnected = sockets.some((s) => s.data.user?.id === user.id);
+        if (!stillConnected) {
+          await this.redis.srem(ONLINE_SET_KEY, user.id);
+          this.broadcastFriendStatus(user.id, user.username ?? '', FriendEvents.STATUS_OFFLINE);
+        }
+      }, DISCONNECT_GRACE_MS);
+      this.disconnectTimers.set(user.id, timer);
+    }
+  }
+
+  private async broadcastFriendStatus(userId: string, username: string, event: string) {
+    try {
+      const friendships = await this.prisma.friendship.findMany({
+        where: {
+          status: 'ACCEPTED',
+          OR: [{ requesterId: userId }, { addresseeId: userId }],
+        },
+        select: { requesterId: true, addresseeId: true },
+      });
+      const friendIds = friendships.map((f) =>
+        f.requesterId === userId ? f.addresseeId : f.requesterId,
+      );
+      for (const friendId of friendIds) {
+        this.server.to(`user:${friendId}`).emit(event, { userId, username });
+      }
+    } catch (e: unknown) {
+      this.logger.warn(`Failed to broadcast friend status: ${(e as Error).message}`);
+    }
   }
 
   // ─── Messages ──────────────────────────────────────────────────────
