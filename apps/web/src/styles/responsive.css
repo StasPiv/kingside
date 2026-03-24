@@ -403,6 +403,16 @@
 
 /* Responsive: mobile */
 @media (max-width: 480px) {
+  /* Notification dropdown: fit within screen (KS-902) */
+  .notification-dropdown {
+    position: fixed;
+    top: 48px;
+    right: 4px;
+    left: 4px;
+    width: auto;
+    max-width: none;
+  }
+
   .main {
     padding: 8px;
     overflow-x: hidden;
