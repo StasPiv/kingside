@@ -141,6 +141,30 @@ export type RatingHistoryResponse = {
   data: RatingHistoryItem[];
 };
 
+// ─── Notifications (REST + WS) ──────────────────────────────────────
+
+export type NotificationType = 'challenge_received' | 'friend_request' | 'game_started' | 'message';
+
+export type NotificationItem = {
+  id: string;
+  type: NotificationType;
+  payload: Record<string, unknown>;
+  read: boolean;
+  createdAt: string;
+};
+
+export type NotificationsResponse = {
+  data: NotificationItem[];
+};
+
+export type NotificationUnreadCountResponse = {
+  count: number;
+};
+
+export const NotificationEvents = {
+  NEW: 'notification:new',
+} as const;
+
 // ─── Game (REST) ────────────────────────────────────────────────────
 
 export type CreateGameWithBotRequest = {
