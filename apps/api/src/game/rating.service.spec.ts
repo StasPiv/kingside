@@ -23,6 +23,9 @@ describe('RatingService', () => {
         findUniqueOrThrow: jest.fn(),
         update: jest.fn().mockResolvedValue(undefined),
       },
+      ratingHistory: {
+        create: jest.fn().mockResolvedValue(undefined),
+      },
     };
 
     protection = {

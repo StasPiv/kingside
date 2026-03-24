@@ -126,6 +126,21 @@ export type SearchGamesQuery = {
   skip?: number;
 };
 
+// ─── Rating History (REST) ──────────────────────────────────────────
+
+/** GET /api/users/:id/rating-history?category=blitz */
+export type RatingHistoryItem = {
+  id: string;
+  category: string;
+  rating: number;
+  gameId: string | null;
+  createdAt: string;
+};
+
+export type RatingHistoryResponse = {
+  data: RatingHistoryItem[];
+};
+
 // ─── Game (REST) ────────────────────────────────────────────────────
 
 export type CreateGameWithBotRequest = {

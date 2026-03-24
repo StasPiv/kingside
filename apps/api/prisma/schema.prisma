@@ -49,6 +49,7 @@ model User {
   receivedFriendships Friendship[]     @relation("FriendshipAddressee")
   blockedUsers        BlockedUser[]    @relation("Blocker")
   blockedByUsers      BlockedUser[]    @relation("Blocked")
+  ratingHistory       RatingHistory[]
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -458,4 +459,18 @@ model BlockedUser {
   @@unique([blockerId, blockedId])
   @@index([blockedId])
   @@map("blocked_users")
+}
+
+model RatingHistory {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  category  String   // bullet, blitz, rapid, classical
+  rating    Int
+  gameId    String?  @map("game_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, category, createdAt])
+  @@map("rating_history")
 }

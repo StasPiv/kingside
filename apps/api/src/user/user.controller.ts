@@ -92,6 +92,14 @@ export class UserController {
     return this.userService.getProfile(id);
   }
 
+  @Get(':id/rating-history')
+  getRatingHistory(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('category') category?: string,
+  ) {
+    return this.userService.getRatingHistory(id, category);
+  }
+
   @Get(':id/puzzle-rush-stats')
   getPuzzleRushStats(@Param('id', ParseUUIDPipe) id: string) {
     return this.userService.getPuzzleRushStats(id);

@@ -224,6 +224,33 @@ export class UserService {
     };
   }
 
+  async getRatingHistory(userId: string, category?: string) {
+    const where: Record<string, unknown> = { userId };
+    if (category && ['bullet', 'blitz', 'rapid', 'classical'].includes(category)) {
+      where.category = category;
+    }
+
+    const entries = await this.prisma.ratingHistory.findMany({
+      where,
+      orderBy: { createdAt: 'asc' },
+      take: 500,
+      select: {
+        id: true,
+        category: true,
+        rating: true,
+        gameId: true,
+        createdAt: true,
+      },
+    });
+
+    return {
+      data: entries.map((e) => ({
+        ...e,
+        createdAt: e.createdAt.toISOString(),
+      })),
+    };
+  }
+
   async getPuzzleRushStats(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

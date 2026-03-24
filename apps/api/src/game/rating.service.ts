@@ -95,6 +95,13 @@ export class RatingService {
           blackRatingAfter: newBlackRating,
         },
       }),
+      // Record rating history for both players
+      this.prisma.ratingHistory.create({
+        data: { userId: game.whiteId, category: game.timeControlType, rating: newWhiteRating, gameId },
+      }),
+      this.prisma.ratingHistory.create({
+        data: { userId: game.blackId, category: game.timeControlType, rating: newBlackRating, gameId },
+      }),
     ]);
 
     this.logger.log(
