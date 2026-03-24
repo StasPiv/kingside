@@ -35,12 +35,30 @@ function classifyMove(cpLoss: number): MoveClassification {
   return 'blunder';
 }
 
-/** Convert eval to centipawns (mate = ±10000) for loss calculation */
-function evalToCp(ev: { type: 'cp' | 'mate'; value: number }): number {
+const MAX_CP_LOSS = 1000;
+
+/**
+ * Convert Stockfish eval (side-to-move perspective) to White's perspective in centipawns.
+ * Stockfish always reports score from the side-to-move viewpoint.
+ * sideToMove: who is about to move in the position that was evaluated.
+ */
+function evalToWhiteCp(
+  ev: { type: 'cp' | 'mate'; value: number },
+  sideToMove: 'white' | 'black',
+): number {
+  let cp: number;
   if (ev.type === 'mate') {
-    return ev.value > 0 ? 10000 - ev.value * 10 : -10000 - ev.value * 10;
+    if (ev.value === 0) {
+      // Checkmate on the board — side to move lost
+      cp = -10000;
+    } else {
+      cp = ev.value > 0 ? 10000 : -10000;
+    }
+  } else {
+    cp = ev.value;
   }
-  return ev.value;
+  // Stockfish score is from side-to-move POV; flip if black to move
+  return sideToMove === 'white' ? cp : -cp;
 }
 
 /**
@@ -123,51 +141,63 @@ export class GameReportService {
 
       // Replay game and evaluate each position
       const chess = new Chess();
-      let prevEval: { type: 'cp' | 'mate'; value: number } | null = null;
+      // prevEvalWhiteCp: evaluation of the position BEFORE the move, in White's centipawns
+      let prevEvalWhiteCp: number | null = null;
+      let prevEvalRaw: { type: 'cp' | 'mate'; value: number } | null = null;
 
-      // Evaluate starting position
+      // Evaluate starting position (white to move)
       const startResult = await this.stockfish.analyze(chess.fen(), ANALYSIS_DEPTH);
       if (startResult.score) {
-        prevEval = startResult.score;
+        prevEvalRaw = startResult.score;
+        prevEvalWhiteCp = evalToWhiteCp(startResult.score, 'white');
       }
 
       for (const move of game.moves) {
         const isWhite = move.color === 'white';
 
+        // Side to move BEFORE this move
+        const sideBeforeMove: 'white' | 'black' = isWhite ? 'white' : 'black';
+
         // Make the move
         chess.move(move.san);
 
+        // Side to move AFTER this move (opponent)
+        const sideAfterMove: 'white' | 'black' = isWhite ? 'black' : 'white';
+
         // Evaluate position after move
-        let evalAfter: { type: 'cp' | 'mate'; value: number } | null = null;
+        let evalAfterRaw: { type: 'cp' | 'mate'; value: number } | null = null;
+        let evalAfterWhiteCp: number | null = null;
         let bestMoveUci: string | null = null;
 
         if (!chess.isGameOver()) {
           const result = await this.stockfish.analyze(chess.fen(), ANALYSIS_DEPTH);
           if (result.score) {
-            evalAfter = result.score;
+            evalAfterRaw = result.score;
+            evalAfterWhiteCp = evalToWhiteCp(result.score, sideAfterMove);
           }
           bestMoveUci = result.bestMove !== '(none)' ? result.bestMove : null;
         } else {
-          // Game over — assign definitive eval
           if (chess.isCheckmate()) {
-            evalAfter = { type: 'mate', value: 0 };
+            // The side that just moved delivered checkmate — great for them
+            evalAfterRaw = { type: 'mate', value: 0 };
+            evalAfterWhiteCp = isWhite ? 10000 : -10000;
           } else {
-            evalAfter = { type: 'cp', value: 0 }; // draw
+            evalAfterRaw = { type: 'cp', value: 0 };
+            evalAfterWhiteCp = 0;
           }
         }
 
-        // Calculate cp loss from the player's perspective
+        // cpLoss: how much White's eval dropped (for white) or rose (for black)
         let cpLoss = 0;
-        if (prevEval && evalAfter) {
-          const prevCp = evalToCp(prevEval);
-          const afterCp = evalToCp(evalAfter);
-          // evalAfter is from perspective of side to move AFTER the move (opponent)
-          // So from the mover's perspective: loss = prevCp - (-afterCp) = prevCp + afterCp (if white)
+        if (prevEvalWhiteCp !== null && evalAfterWhiteCp !== null) {
           if (isWhite) {
-            cpLoss = Math.max(0, prevCp - (-afterCp));
+            // White wants eval to stay high; loss = before - after
+            cpLoss = prevEvalWhiteCp - evalAfterWhiteCp;
           } else {
-            cpLoss = Math.max(0, (-prevCp) - afterCp);
+            // Black wants eval to go down; loss = after - before (from black's POV)
+            cpLoss = evalAfterWhiteCp - prevEvalWhiteCp;
           }
+          cpLoss = Math.min(Math.max(0, cpLoss), MAX_CP_LOSS);
         }
 
         const classification = classifyMove(cpLoss);
@@ -177,15 +207,16 @@ export class GameReportService {
           color: move.color as 'white' | 'black',
           san: move.san,
           uci: move.uci,
-          evalBefore: prevEval,
-          evalAfter: evalAfter,
+          evalBefore: prevEvalRaw,
+          evalAfter: evalAfterRaw,
           bestMove: bestMoveUci,
           cpLoss: Math.round(cpLoss),
           classification,
         });
 
-        // Update prevEval for next iteration (from side-to-move perspective)
-        prevEval = evalAfter;
+        // Update for next iteration
+        prevEvalRaw = evalAfterRaw;
+        prevEvalWhiteCp = evalAfterWhiteCp;
       }
 
       // Calculate accuracy
