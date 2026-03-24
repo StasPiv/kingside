@@ -1118,6 +1118,7 @@
 
 .set-position-editor__board {
   flex-shrink: 0;
+  touch-action: none;
 }
 
 .set-position-editor__controls {

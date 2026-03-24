@@ -160,6 +160,7 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
     onApply(fen);
   };
 
+  const boardEditorRef = useRef<HTMLDivElement>(null);
   const selectedPieceRef = useRef(selectedPiece);
   selectedPieceRef.current = selectedPiece;
 
@@ -227,7 +228,25 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
 
         {tab === 'editor' && (
           <div className="set-position-body set-position-editor">
-            <div className="set-position-editor__board">
+            <div
+              className="set-position-editor__board"
+              ref={boardEditorRef}
+              onTouchEnd={(e) => {
+                // Handle touch on mobile — map touch position to square
+                const touch = e.changedTouches[0];
+                if (!touch || !boardEditorRef.current) return;
+                const rect = boardEditorRef.current.getBoundingClientRect();
+                const x = touch.clientX - rect.left;
+                const y = touch.clientY - rect.top;
+                const col = Math.floor((x / rect.width) * 8);
+                const row = Math.floor((y / rect.height) * 8);
+                if (col < 0 || col > 7 || row < 0 || row > 7) return;
+                const file = String.fromCharCode(97 + col); // a-h
+                const rank = String(8 - row); // 8-1
+                handleSquareClick(`${file}${rank}`);
+                e.preventDefault();
+              }}
+            >
               <Chessboard
                 options={{
                   position: editorFen,
