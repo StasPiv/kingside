@@ -272,41 +272,81 @@
     flex: none;
   }
 
-  /* Analysis review: fit everything in viewport on mobile — NO page scroll */
+  /* Analysis review: allow page scroll on mobile (KS-901) */
   body:has(.analysis-page) {
-    overflow: hidden;
-    height: 100dvh;
+    overflow: auto;
+    height: auto;
   }
 
   .app:has(.analysis-page) {
-    height: 100dvh;
+    height: auto;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .main:has(.analysis-page) {
-    flex: 1;
+    flex: none;
     min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+    display: block;
+    overflow: visible;
     padding: 0;
   }
 
   .analysis-page {
-    flex: 1;
+    flex: none;
     min-height: 0;
     height: auto;
-    overflow: hidden;
+    overflow: visible;
     flex-direction: column;
     padding: 4px;
   }
 
   .analysis-sidebar {
-    flex: 1;
+    flex: none;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
+  }
+
+  /* Hide EvalGraph and bridge promo on mobile (KS-901) */
+  .eval-graph {
+    display: none;
+  }
+
+  .bridge-promo {
+    display: none;
+  }
+
+  /* Sidebar panel order on mobile: Engine(1), Moves(2), GameReport(3), GameInfo(4) (KS-901) */
+  .analysis-sidebar > .analysis-panel:has(.stockfish-lines) {
+    order: 1;
+  }
+
+  .analysis-sidebar > .analysis-panel--flex {
+    order: 2;
+  }
+
+  .analysis-sidebar > .game-report-panel {
+    order: 3;
+  }
+
+  .analysis-sidebar > .analysis-panel:first-child {
+    order: 4;
+  }
+
+  /* Moves panel: no internal scroll, expand fully (KS-901) */
+  .analysis-panel--flex {
+    flex: none;
+  }
+
+  .analysis-panel-body--scroll {
+    overflow: visible;
+    flex: none;
+  }
+
+  .analysis-panel-body--scroll .review-moves-container {
+    overflow: visible;
+    max-height: none;
   }
 
   /* Notation block: flex within panel, internal scroll only */
@@ -419,9 +459,9 @@
 
   .analysis-sidebar {
     gap: 0;
-    flex: 1;
+    flex: none;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .puzzle-sidebar {
@@ -487,10 +527,11 @@
     padding: 16px;
   }
 
-  /* Game review: constrain board so notation is visible below */
+  /* Game review: fixed board width, not dependent on vh (KS-901) */
   .analysis-page .board-container {
     flex: none;
-    width: min(calc(100vw - 54px), calc(100vh - 500px));
+    width: calc(100vw - 40px);
+    max-width: 400px;
   }
 
   /* Analysis: compact nav controls on mobile */
@@ -560,57 +601,34 @@
     margin-bottom: 4px;
   }
 
-  /* Game review: notation block — flex, fills remaining space */
+  /* Game review: notation block — no internal scroll (KS-901) */
   .analysis-moves--variants {
     height: auto;
-    flex: 1;
+    flex: none;
     min-height: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .analysis-moves--variants .review-move-list-wrapper {
-    overflow: hidden;
-    flex: 1;
+    overflow: visible;
+    flex: none;
     min-height: 0;
   }
 
   .analysis-moves--variants .review-moves-container {
-    overflow-y: auto;
-    flex: 1;
+    overflow-y: visible;
+    flex: none;
     min-height: 0;
     padding-bottom: 8px;
   }
 
-  /* Game review: notation scroll container — fills remaining space on mobile */
+  /* Game review: notation — no internal scroll, expand fully (KS-901) */
   .analysis-page .analysis-panel-body--scroll .review-moves-container {
-    flex: 1;
+    flex: none;
     min-height: 0;
     max-height: none;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-color: #7c83ff #2a3a5e;
-    scrollbar-width: auto;
-    scrollbar-gutter: stable;
-    padding-bottom: 44px;
-  }
-
-  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar {
-    width: 8px;
-  }
-
-  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-track {
-    background: #2a3a5e;
-    border-radius: 4px;
-  }
-
-  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-thumb {
-    background: #7c83ff;
-    border-radius: 4px;
-    min-height: 30px;
-  }
-
-  .analysis-page .analysis-panel-body--scroll .review-moves-container::-webkit-scrollbar-thumb:active {
-    background: #9ba0ff;
+    overflow-y: visible;
+    padding-bottom: 8px;
   }
 
   /* Game review: compact player row on mobile */
@@ -620,6 +638,30 @@
 
   .analysis-player-name {
     font-size: 12px;
+  }
+
+  /* GameReportPanel: compact one-line accuracy on mobile (KS-901) */
+  .game-report-accuracy {
+    display: flex;
+    gap: 16px;
+    flex-direction: row;
+  }
+
+  .game-report-accuracy__player {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .game-report-accuracy__name {
+    font-size: 12px;
+  }
+
+  .game-report-accuracy__value {
+    font-size: 13px;
+  }
+
+  .game-report-classifications {
+    display: none;
   }
 
   /* Game page: keep full-height fixed layout, no page scroll */
