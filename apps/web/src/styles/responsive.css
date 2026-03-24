@@ -555,6 +555,43 @@
     padding: 16px;
   }
 
+  /* Board Editor modal: stack vertically on mobile (KS-910) */
+  .set-position-modal--wide {
+    width: calc(100vw - 16px);
+    max-width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  .set-position-editor {
+    flex-direction: column;
+  }
+
+  .set-position-editor__board {
+    width: 100%;
+  }
+
+  .set-position-editor__board .board-container {
+    width: calc(100vw - 64px) !important;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  .set-position-editor__controls {
+    width: 100%;
+  }
+
+  .set-position-editor__fen {
+    word-break: normal;
+    overflow-x: auto;
+    white-space: nowrap;
+    font-size: 10px;
+  }
+
+  .set-position-palette__row {
+    flex-wrap: wrap;
+  }
+
   /* Game review: fixed board width, not dependent on vh (KS-901) */
   .analysis-page .board-container {
     flex: none;
