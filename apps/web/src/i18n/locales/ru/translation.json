@@ -13,7 +13,8 @@
     "players": "Игроки",
     "messages": "Сообщения",
     "friends": "Друзья",
-    "broadcasts": "Трансляции"
+    "broadcasts": "Трансляции",
+    "online": "{{count}} онлайн"
   },
   "friends": {
     "title": "Друзья",

@@ -13,7 +13,8 @@
     "players": "Players",
     "messages": "Messages",
     "friends": "Friends",
-    "broadcasts": "Broadcasts"
+    "broadcasts": "Broadcasts",
+    "online": "{{count}} online"
   },
   "friends": {
     "title": "Friends",
