@@ -30,14 +30,19 @@ describe('FriendService', () => {
         delete: jest.fn(),
       },
     };
-    service = new FriendService(prisma as any);
+    const notifications = { create: jest.fn().mockResolvedValue({}) } as any;
+    service = new FriendService(prisma as any, notifications);
   });
 
   describe('sendRequest', () => {
     it('should create a pending request', async () => {
       prisma.user.findUnique.mockResolvedValue({ id: userB });
       prisma.friendship.findFirst.mockResolvedValue(null);
-      prisma.friendship.create.mockResolvedValue({ id: 'f1', status: 'PENDING' });
+      prisma.friendship.create.mockResolvedValue({
+        id: 'f1', status: 'PENDING',
+        requester: { id: userA, username: 'userA' },
+        addressee: { id: userB, username: 'userB' },
+      });
 
       const result = await service.sendRequest(userA, userB);
 
