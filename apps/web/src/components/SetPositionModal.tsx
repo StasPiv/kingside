@@ -235,7 +235,7 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
                   boardStyle: { width: 280, height: 280 },
                   allowDragging: false,
                   onSquareClick: ({ square }: { square: string }) => handleSquareClick(square),
-                  showNotation: true,
+                  showNotation: false,
                 }}
               />
               {/* Transparent overlay grid for mobile touch support */}
