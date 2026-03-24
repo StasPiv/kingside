@@ -62,13 +62,22 @@ function evalToWhiteCp(
 }
 
 /**
- * Calculate accuracy from centipawn loss using a formula similar to chess.com.
- * accuracy = 103.1668 * exp(-0.04354 * cpLoss) - 3.1668
- * Clamped to [0, 100].
+ * Per-MOVE accuracy from centipawn loss (chess.com-style exponential).
+ * Applied to each move individually, then averaged — NOT to average cpLoss.
  */
-function accuracyFromCpLoss(avgCpLoss: number): number {
-  const raw = 103.1668 * Math.exp(-0.04354 * avgCpLoss) - 3.1668;
-  return Math.round(Math.max(0, Math.min(100, raw)) * 10) / 10;
+function moveAccuracy(cpLoss: number): number {
+  if (cpLoss <= 0) return 100;
+  const raw = 103.1668 * Math.exp(-0.04354 * cpLoss) - 3.1668;
+  return Math.max(0, Math.min(100, raw));
+}
+
+/**
+ * Calculate player accuracy: average of per-move accuracies.
+ */
+function averageAccuracy(moves: { cpLoss: number }[]): number {
+  if (moves.length === 0) return 100;
+  const sum = moves.reduce((s, m) => s + moveAccuracy(m.cpLoss), 0);
+  return Math.round((sum / moves.length) * 10) / 10;
 }
 
 const ANALYSIS_DEPTH = 18;
@@ -219,19 +228,12 @@ export class GameReportService {
         prevEvalWhiteCp = evalAfterWhiteCp;
       }
 
-      // Calculate accuracy
+      // Calculate accuracy: average of per-move accuracies (not accuracy of average cpLoss!)
       const whiteMoves = moveAnalyses.filter((m) => m.color === 'white');
       const blackMoves = moveAnalyses.filter((m) => m.color === 'black');
 
-      const whiteAvgLoss = whiteMoves.length > 0
-        ? whiteMoves.reduce((sum, m) => sum + m.cpLoss, 0) / whiteMoves.length
-        : 0;
-      const blackAvgLoss = blackMoves.length > 0
-        ? blackMoves.reduce((sum, m) => sum + m.cpLoss, 0) / blackMoves.length
-        : 0;
-
-      const whiteAccuracy = accuracyFromCpLoss(whiteAvgLoss);
-      const blackAccuracy = accuracyFromCpLoss(blackAvgLoss);
+      const whiteAccuracy = averageAccuracy(whiteMoves);
+      const blackAccuracy = averageAccuracy(blackMoves);
 
       // Save result
       const updated = await this.prisma.gameReport.update({
