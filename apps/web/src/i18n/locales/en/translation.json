@@ -345,7 +345,9 @@
     "defeat": "Defeat",
     "rating": "Rating",
     "newGame": "New Game",
-    "home": "Home"
+    "home": "Home",
+    "rematch": "Rematch",
+    "rematchSent": "Sent..."
   },
   "review": {
     "loadError": "Failed to load game",
