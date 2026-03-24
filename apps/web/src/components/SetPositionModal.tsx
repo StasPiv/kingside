@@ -1,7 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import { Chessboard } from 'react-chessboard';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 
 type Props = {
@@ -129,7 +128,8 @@ function PieceIcon({ piece, pieceSet }: { piece: string; pieceSet: string }) {
 
 export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
   const { t } = useTranslation();
-  const { pieceSet } = useBoardSettings();
+  const { pieceSet: rawPieceSet, darkSquareStyle, lightSquareStyle } = useBoardSettings();
+  const pieceSet = rawPieceSet === 'standard' ? 'cburnett' : rawPieceSet;
   const startFen = initialFen || INITIAL_FEN;
   const [tab, setTab] = useState<Tab>('fen');
   const [fenInput, setFenInput] = useState(startFen);
@@ -228,31 +228,33 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
 
         {tab === 'editor' && (
           <div className="set-position-body set-position-editor">
-            <div className="set-position-editor__board" ref={boardEditorRef} style={{ position: 'relative' }}>
-              <Chessboard
-                options={{
-                  position: editorFen,
-                  boardStyle: { width: 280, height: 280 },
-                  allowDragging: false,
-                  onSquareClick: ({ square }: { square: string }) => handleSquareClick(square),
-                  showNotation: false,
-                }}
-              />
-              {/* Transparent overlay grid for mobile touch support */}
-              <div className="set-position-touch-overlay">
+            <div className="set-position-editor__board" ref={boardEditorRef}>
+              <div className="set-position-grid">
                 {Array.from({ length: 64 }, (_, i) => {
                   const col = i % 8;
                   const row = Math.floor(i / 8);
                   const file = String.fromCharCode(97 + col);
                   const rank = String(8 - row);
                   const sq = `${file}${rank}`;
+                  const piece = board[sq];
+                  const isLight = (col + row) % 2 === 0;
                   return (
                     <div
                       key={sq}
-                      className="set-position-touch-cell"
-                      onClick={() => handleSquareClick(sq)}
+                      className="set-position-grid__cell"
+                      style={isLight ? lightSquareStyle : darkSquareStyle}
                       onTouchEnd={(e) => { e.preventDefault(); handleSquareClick(sq); }}
-                    />
+                      onClick={() => handleSquareClick(sq)}
+                    >
+                      {piece && (
+                        <img
+                          src={`/pieces/${pieceSet}/${piece}.svg`}
+                          alt={piece}
+                          className="set-position-grid__piece"
+                          draggable={false}
+                        />
+                      )}
+                    </div>
                   );
                 })}
               </div>

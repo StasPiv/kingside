@@ -1122,21 +1122,30 @@
   position: relative;
 }
 
-.set-position-touch-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+.set-position-grid {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
   grid-template-rows: repeat(8, 1fr);
-  z-index: 10;
+  width: 280px;
+  height: 280px;
+  border-radius: 4px;
+  overflow: hidden;
 }
 
-.set-position-touch-cell {
+.set-position-grid__cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.set-position-grid__piece {
+  width: 80%;
+  height: 80%;
+  pointer-events: none;
 }
 
 .set-position-editor__controls {
