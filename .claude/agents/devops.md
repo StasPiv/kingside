@@ -84,3 +84,12 @@ gh release create engine-bridge-vX.Y.Z --repo StasPiv/kingside \
   kingside-engine-bridge-windows-amd64.exe
 ```
 🔴 ВСЕГДА публикуй от имени StasPiv. Если gh auth авторизован под другим аккаунтом — переключись: `gh auth login`.
+
+## Прямые сообщения между агентами
+Для оперативных вопросов, уточнений и мелких проблем — обращайся к координатору напрямую вместо создания задачи в Jira:
+```bash
+curl -s -X POST http://localhost:9876/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"from": "devops", "to": "coordinator", "message": "текст"}'
+```
+Координатор решит — нужна ли отдельная задача или можно решить вопрос сразу. Задачи в Jira создавай только когда работа значимая и требует отчётности.

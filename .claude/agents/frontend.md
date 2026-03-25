@@ -87,3 +87,12 @@ node /home/pivovartsev/work/kingside/scripts/record-verification.js \
 ```
 Действия: click:selector, wait:ms, type:selector:text, reload, screenshot:name.png
 Результат — GIF файл, прикрепи к задаче через jira_add_attachment.
+
+## Прямые сообщения между агентами
+Для оперативных вопросов, уточнений и мелких проблем — обращайся к координатору напрямую вместо создания задачи в Jira:
+```bash
+curl -s -X POST http://localhost:9876/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"from": "frontend", "to": "coordinator", "message": "текст"}'
+```
+Координатор решит — нужна ли отдельная задача или можно решить вопрос сразу. Задачи в Jira создавай только когда работа значимая и требует отчётности.

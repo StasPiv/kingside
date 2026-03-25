@@ -495,6 +495,34 @@ def send_to_agent(agent: str, prompt: str):
     daemon.send_message(prompt)
 
 
+def handle_agent_message(handler, payload):
+    """Обрабатывает POST /agent/message — прямое сообщение между агентами."""
+    sender = payload.get("from", "")
+    target = payload.get("to", "")
+    message = payload.get("message", "")
+
+    if not target or not message:
+        handler.send_response(400)
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "missing 'to' or 'message'"}).encode())
+        return
+
+    valid_agents = get_valid_agents()
+    if target not in valid_agents:
+        handler.send_response(404)
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": f"unknown agent '{target}'"}).encode())
+        return
+
+    prefix = f"[from {sender}] " if sender else ""
+    send_to_agent(target, f"{prefix}{message}")
+    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars)")
+
+    handler.send_response(200)
+    handler.end_headers()
+    handler.wfile.write(json.dumps({"status": "delivered", "to": target}).encode())
+
+
 def launch_agent(key, summary, agent, prompt=None):
     """Формирует промпт и отправляет его daemon-агенту."""
     if not prompt:
@@ -739,6 +767,19 @@ def telegram_poll_loop():
 class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0]
+
+        if path == "/agent/message":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            handle_agent_message(self, payload)
+            return
+
         if path != "/webhook/jira":
             self.send_response(404)
             self.end_headers()
