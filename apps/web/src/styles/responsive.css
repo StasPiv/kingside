@@ -318,11 +318,13 @@
     padding: 0;
   }
 
-  /* Board: full width, max 50vh height */
+  /* Board: 42dvh square, centered (KS-924) */
   .analysis-page .board-container {
-    width: 100vw !important;
+    width: min(100vw, 42dvh) !important;
     max-width: 100vw !important;
-    height: min(100vw, 50vh) !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
   }
 
   /* Hide eval bar on mobile — board takes full width */
@@ -365,25 +367,32 @@
     height: 24px;
   }
 
-  /* Navigation controls: fixed at bottom of board-area, touch-friendly */
+  /* Navigation controls: compact row (KS-924) */
   .analysis-board-controls {
     flex: none;
-    height: 44px;
+    height: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    padding: 0 4px;
+    gap: 0;
+    padding: 0 2px;
     overflow-x: auto;
     flex-wrap: nowrap;
   }
 
   .analysis-board-controls button {
-    min-width: 40px;
-    min-height: 40px;
-    font-size: 15px;
-    padding: 6px 8px;
+    min-width: 32px;
+    min-height: 28px;
+    font-size: 13px;
+    padding: 2px 6px;
     flex-shrink: 0;
+  }
+
+  /* FEN/PGN export buttons: compact (KS-924) */
+  .analysis-export-btn {
+    font-size: 11px !important;
+    padding: 2px 6px !important;
+    min-width: auto !important;
   }
 
   /* Sidebar: scrollable content area */
