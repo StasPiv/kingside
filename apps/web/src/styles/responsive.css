@@ -330,10 +330,39 @@
     display: none;
   }
 
-  /* Player rows: compact */
+  /* Hide breadcrumbs/workshop shortcut on mobile — save vertical space (KS-916) */
+  .analysis-workshop-shortcut {
+    display: none;
+  }
+
+  .analysis-breadcrumbs {
+    display: none;
+  }
+
+  /* Player row above board (black): compact info-bar ~28px (KS-916) */
   .analysis-player-row {
-    height: 24px;
+    height: 28px;
     padding: 0 8px;
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .analysis-player-name {
+    font-size: 12px;
+  }
+
+  .analysis-player-rating {
+    font-size: 11px;
+  }
+
+  .analysis-player-dot {
+    width: 8px;
+    height: 8px;
+  }
+
+  /* Player row below board (white): even more compact ~24px */
+  .analysis-board-wrapper > .analysis-player-row:last-of-type {
+    height: 24px;
   }
 
   /* Navigation controls: fixed at bottom of board-area, touch-friendly */
@@ -419,12 +448,7 @@
     max-height: none;
   }
 
-  /* Workshop shortcut / breadcrumbs: compact */
-  .analysis-workshop-shortcut,
-  .analysis-breadcrumbs {
-    padding: 4px 8px;
-    font-size: 12px;
-  }
+  /* Workshop shortcut / breadcrumbs: hidden on mobile (KS-916) */
 
   .puzzle-list {
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -671,14 +695,7 @@
 
   /* Game review: notation — no internal scroll, sidebar scrolls (KS-914) */
 
-  /* Game review: compact player row on mobile */
-  .analysis-player-row {
-    height: 28px;
-  }
-
-  .analysis-player-name {
-    font-size: 12px;
-  }
+  /* Player row sizing now handled in 768px block (KS-916) */
 
   /* GameReportPanel: compact one-line accuracy on mobile (KS-901) */
   .game-report-accuracy {
