@@ -64,6 +64,17 @@ type MoveData = {
 };
 
 export function AnalysisPage() {
+  // Add class to body/app for mobile layout (fallback for browsers without :has() support)
+  useEffect(() => {
+    document.body.classList.add('has-analysis-page');
+    const app = document.querySelector('.app');
+    app?.classList.add('has-analysis-page');
+    return () => {
+      document.body.classList.remove('has-analysis-page');
+      app?.classList.remove('has-analysis-page');
+    };
+  }, []);
+
   const params = useParams<{ id?: string; gameId?: string }>();
   const rawGameId = params.id ?? params.gameId;
   const isAnalysisRoute = params.id !== undefined;
