@@ -372,15 +372,18 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 0 8px;
+    gap: 2px;
+    padding: 0 4px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
   }
 
   .analysis-board-controls button {
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 16px;
-    padding: 8px 12px;
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 15px;
+    padding: 6px 8px;
+    flex-shrink: 0;
   }
 
   /* Sidebar: scrollable content area */
