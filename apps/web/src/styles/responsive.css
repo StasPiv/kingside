@@ -442,47 +442,16 @@
     overflow: hidden;
   }
 
-  /* Moves scroll: container is the scroll target (KS-927 v4) */
-  /* Parents must NOT clip — only .review-moves-container scrolls */
+  /* Moves scroll: let base CSS handle it — just ensure flex chain works (KS-927 v5) */
   .analysis-panel-body--scroll {
     flex: 1;
     min-height: 0;
-    overflow: visible;
-  }
-
-  .analysis-panel-body--scroll .review-move-list-wrapper {
-    overflow: visible;
-  }
-
-  .analysis-panel-body--scroll .review-moves-container {
-    overflow-y: auto !important;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    /* Board ~42vh + header 48px + controls 32px + tabs 36px + panel-header 34px + misc 40px */
-    max-height: calc(100vh - 42vh - 190px) !important;
-  }
-
-  .analysis-moves--variants {
-    height: auto;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .analysis-moves--variants .review-move-list-wrapper {
-    overflow: hidden;
-    flex: 1;
-    min-height: 0;
-  }
-
-  .analysis-moves--variants .review-moves-container {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    max-height: none;
-    flex: 1;
-    min-height: 0;
   }
+
+  /* analysis-moves--variants: let base CSS handle scroll (KS-927 v5) */
 
   /* Workshop shortcut / breadcrumbs: hidden on mobile (KS-916) */
 
