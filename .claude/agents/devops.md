@@ -100,3 +100,10 @@ curl -s -X POST http://localhost:9876/agent/message \
   -H "Content-Type: application/json" \
   -d '{"from": "devops", "to": "отправитель", "message": "ответ"}'
 ```
+
+🔴 Когда получаешь сообщение с префиксом `[Telegram ...]` — это сообщение от пользователя из Telegram. Ответ отправляй в Telegram:
+```bash
+curl -s -X POST http://localhost:9876/telegram/send \
+  -H "Content-Type: application/json" \
+  -d '{"message": "ответ"}'
+```

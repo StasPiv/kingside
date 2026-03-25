@@ -80,6 +80,13 @@ curl -s -X POST http://localhost:9876/agent/message \
   -d '{"from": "backend", "to": "отправитель", "message": "ответ"}'
 ```
 
+🔴 Когда получаешь сообщение с префиксом `[Telegram ...]` — это сообщение от пользователя из Telegram. Ответ отправляй в Telegram:
+```bash
+curl -s -X POST http://localhost:9876/telegram/send \
+  -H "Content-Type: application/json" \
+  -d '{"message": "ответ"}'
+```
+
 ## Ограничения
 - ЗАПРЕЩЕНО изменять файлы в .claude/agents/
 - ЗАПРЕЩЕНО изменять файлы вне своей рабочей директории
