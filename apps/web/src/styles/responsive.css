@@ -395,12 +395,11 @@
     min-width: auto !important;
   }
 
-  /* Sidebar: scrollable content area */
+  /* Sidebar: flex container, Moves panel scrolls internally (KS-927) */
   .analysis-sidebar {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
+    overflow: hidden;
     width: 100% !important;
     max-width: 100% !important;
     min-width: 0 !important;
@@ -428,14 +427,19 @@
   .analysis-sidebar > .game-report-panel { order: 3; }
   .analysis-sidebar > .analysis-panel:first-child { order: 4; }
 
-  /* Moves panel: no internal scroll — sidebar scrolls */
+  /* Moves panel: takes remaining sidebar space, scrolls internally (KS-927) */
   .analysis-panel--flex {
-    flex: none;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .analysis-panel-body--scroll {
-    overflow: visible;
-    flex: none;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
   }
 
   .analysis-panel-body--scroll .review-moves-container {
@@ -445,19 +449,24 @@
 
   .analysis-moves--variants {
     height: auto;
-    flex: none;
+    flex: 1;
     min-height: 0;
-    overflow: visible;
+    overflow: hidden;
   }
 
   .analysis-moves--variants .review-move-list-wrapper {
-    overflow: visible;
-    flex: none;
+    overflow: hidden;
+    flex: 1;
+    min-height: 0;
   }
 
   .analysis-moves--variants .review-moves-container {
-    overflow: visible;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     max-height: none;
+    flex: 1;
+    min-height: 0;
   }
 
   /* Workshop shortcut / breadcrumbs: hidden on mobile (KS-916) */
