@@ -523,6 +523,23 @@ def handle_agent_message(handler, payload):
     handler.wfile.write(json.dumps({"status": "delivered", "to": target}).encode())
 
 
+def handle_telegram_send(handler, payload):
+    """Обрабатывает POST /telegram/send — агент отправляет сообщение в Telegram."""
+    message = payload.get("message", "")
+    if not message:
+        handler.send_response(400)
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
+        return
+
+    send_telegram(message)
+    log(f"Telegram send: {message[:80]}")
+
+    handler.send_response(200)
+    handler.end_headers()
+    handler.wfile.write(json.dumps({"status": "sent"}).encode())
+
+
 def launch_agent(key, summary, agent, prompt=None):
     """Формирует промпт и отправляет его daemon-агенту."""
     if not prompt:
@@ -783,6 +800,18 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             handle_agent_message(self, payload)
+            return
+
+        if path == "/telegram/send":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            handle_telegram_send(self, payload)
             return
 
         if path != "/webhook/jira":
