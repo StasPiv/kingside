@@ -1450,6 +1450,9 @@
     flex: 1;
     min-height: 0;
     overflow: hidden;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .analysis-split-panel + .analysis-split-panel {
@@ -1487,8 +1490,11 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    width: 100%;
+    max-width: 100%;
   }
 
   .analysis-split-panel__content .analysis-panel-body {
