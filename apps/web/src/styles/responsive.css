@@ -442,21 +442,16 @@
     overflow: hidden;
   }
 
+  /* Moves scroll: container is the scroll target (KS-927 v4) */
+  /* Parents must NOT clip — only .review-moves-container scrolls */
   .analysis-panel-body--scroll {
     flex: 1;
     min-height: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    overflow: visible;
   }
 
-  /* Moves scroll: explicit max-height since flex chain is unreliable on mobile (KS-927 v3) */
   .analysis-panel-body--scroll .review-move-list-wrapper {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    overflow: visible;
   }
 
   .analysis-panel-body--scroll .review-moves-container {
@@ -464,7 +459,7 @@
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     /* Board ~42vh + header 48px + controls 32px + tabs 36px + panel-header 34px + misc 40px */
-    max-height: calc(100vh - 42vh - 190px);
+    max-height: calc(100vh - 42vh - 190px) !important;
   }
 
   .analysis-moves--variants {
