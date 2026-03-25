@@ -75,6 +75,7 @@ export function GameReviewPage() {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mobileTab, setMobileTab] = useState<'moves' | 'engine' | 'report'>('moves');
   const pendingPositionRef = useRef<number | null>(null);
 
   // Standalone analysis state
@@ -637,18 +638,36 @@ export function GameReviewPage() {
       </div>
 
       <div className="analysis-sidebar">
+        {/* Desktop-only: GameInfoPanel */}
         {gameData && (
-          <GameInfoPanel
-            gameData={gameData}
-            resultPgn={resultPgn}
-            collapsed={!panelStates.gameInfo}
-            onToggle={() => togglePanel('gameInfo')}
-          />
+          <div className="analysis-desktop-only">
+            <GameInfoPanel
+              gameData={gameData}
+              resultPgn={resultPgn}
+              collapsed={!panelStates.gameInfo}
+              onToggle={() => togglePanel('gameInfo')}
+            />
+          </div>
         )}
 
-        {/* Game Report: EvalGraph + Accuracy + Classifications */}
+        {/* Mobile tab bar */}
+        <div className="analysis-mobile-tabs">
+          <button className={`analysis-mobile-tab${mobileTab === 'moves' ? ' active' : ''}`} onClick={() => setMobileTab('moves')}>
+            {t('review.moves', 'Moves')}
+          </button>
+          <button className={`analysis-mobile-tab${mobileTab === 'engine' ? ' active' : ''}`} onClick={() => setMobileTab('engine')}>
+            {t('analysis.engine', 'Engine')}
+          </button>
+          {gameId && (
+            <button className={`analysis-mobile-tab${mobileTab === 'report' ? ' active' : ''}`} onClick={() => setMobileTab('report')}>
+              {t('analysis.report', 'Report')}
+            </button>
+          )}
+        </div>
+
+        {/* Report content — desktop: always visible if gameId; mobile: only when report tab active */}
         {gameId && (
-          <>
+          <div className={`analysis-tab-content analysis-tab-content--report${mobileTab !== 'report' ? ' analysis-mobile-hidden' : ''}`}>
             {gameReport && gameReport.status === 'complete' && (
               <EvalGraph
                 moves={gameReport.moves}
@@ -667,11 +686,12 @@ export function GameReviewPage() {
               whiteName={typeof gameData?.white === 'object' ? gameData.white.username : (gameData?.white ?? 'White')}
               blackName={typeof gameData?.black === 'object' ? gameData.black.username : (gameData?.black ?? 'Black')}
             />
-          </>
+          </div>
         )}
 
+        {/* Bridge promo — desktop only */}
         {activeSource === 'wasm' && !bridgePromoDismissed && (
-          <div className="bridge-promo">
+          <div className="bridge-promo analysis-desktop-only">
             <div className="bridge-promo__text">
               <strong>{t('bridgePromo.title', 'Want deeper analysis?')}</strong>
               <span>{t('bridgePromo.desc', 'Connect your local engine for unlimited depth and speed.')}</span>
@@ -694,9 +714,9 @@ export function GameReviewPage() {
           </div>
         )}
 
-        {/* Engine panel */}
-        <div className="analysis-panel">
-          <div className="analysis-panel-header" onClick={() => togglePanel('engine')}>
+        {/* Engine content — desktop: collapsible panel; mobile: only when engine tab active */}
+        <div className={`analysis-tab-content analysis-tab-content--engine analysis-panel${mobileTab !== 'engine' ? ' analysis-mobile-hidden' : ''}`}>
+          <div className="analysis-panel-header analysis-desktop-only" onClick={() => togglePanel('engine')}>
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">&#9881;</span>
               <span className="analysis-panel-title">{engineName}{engineStatusSuffix}</span>
@@ -728,7 +748,25 @@ export function GameReviewPage() {
               <span className="analysis-panel-chevron">{panelStates.engine ? '▾' : '▸'}</span>
             </span>
           </div>
-          {panelStates.engine && (
+          {/* Mobile: engine controls inline */}
+          <div className="analysis-mobile-engine-controls">
+            <span className="engine-multipv-controls">
+              <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
+              <span className="engine-multipv-value">{ec.multiPv}</span>
+              <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10}>+</button>
+            </span>
+            <button className="engine-settings-btn" onClick={() => ec.setShowEngineModal(true)}>⚙</button>
+            {wasmSupported && !(isTouchDevice && engineFailed) && (
+              <button
+                className="analysis-toggle-btn"
+                onClick={toggleAnalysis}
+                style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8 }}
+              >
+                {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+              </button>
+            )}
+          </div>
+          {(panelStates.engine || mobileTab === 'engine') && (
             <div className="analysis-panel-body">
               <div className="stockfish-lines">
                 {(analysisEnabled || displayedLines.length > 0) &&
@@ -745,9 +783,9 @@ export function GameReviewPage() {
           )}
         </div>
 
-        {/* Moves panel */}
-        <div className="analysis-panel analysis-panel--flex">
-          <div className="analysis-panel-header" onClick={() => togglePanel('moves')}>
+        {/* Moves content — desktop: collapsible panel; mobile: only when moves tab active */}
+        <div className={`analysis-tab-content analysis-tab-content--moves analysis-panel analysis-panel--flex${mobileTab !== 'moves' ? ' analysis-mobile-hidden' : ''}`}>
+          <div className="analysis-panel-header analysis-desktop-only" onClick={() => togglePanel('moves')}>
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">&#9776;</span>
               <span className="analysis-panel-title">{t('review.moves', 'Moves')}</span>
@@ -756,7 +794,7 @@ export function GameReviewPage() {
               <span className="analysis-panel-chevron">{panelStates.moves ? '▾' : '▸'}</span>
             </span>
           </div>
-          {panelStates.moves && (
+          {(panelStates.moves || mobileTab === 'moves') && (
             <div className="analysis-panel-body analysis-panel-body--scroll">
               <ReviewMoveList
                 history={history}
