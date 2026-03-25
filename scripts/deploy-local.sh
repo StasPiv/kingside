@@ -29,6 +29,19 @@ if [ -f "$REPO_DIR/.env" ]; then
     set +a
 fi
 
+# Fix circular symlinks in node_modules (created by worktree agents)
+for d in apps/web/node_modules apps/api/node_modules; do
+    if [ -L "$REPO_DIR/$d" ] && [ "$(readlink "$REPO_DIR/$d")" = "$REPO_DIR/$d" ]; then
+        echo "[pre-deploy] Удалён circular symlink: $d"
+        rm "$REPO_DIR/$d"
+    fi
+done
+# Ensure node_modules are installed
+if [ ! -d "$REPO_DIR/node_modules/vite" ]; then
+    echo "[pre-deploy] node_modules отсутствуют — npm install..."
+    npm install --prefix "$REPO_DIR" 2>&1 | tail -3
+fi
+
 echo "=== Деплой Kingside (direct rsync) ==="
 echo "Локальный репозиторий: $REPO_DIR"
 echo "Сервер: $REMOTE_HOST:$REMOTE_DIR"
