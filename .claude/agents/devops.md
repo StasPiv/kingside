@@ -93,3 +93,10 @@ curl -s -X POST http://localhost:9876/agent/message \
   -d '{"from": "devops", "to": "coordinator", "message": "текст"}'
 ```
 Координатор решит — нужна ли отдельная задача или можно решить вопрос сразу. Задачи в Jira создавай только когда работа значимая и требует отчётности.
+
+🔴 Когда получаешь прямое сообщение (с префиксом `[from agent_name]`) — ОБЯЗАТЕЛЬНО ответь отправителю тем же способом:
+```bash
+curl -s -X POST http://localhost:9876/agent/message \
+  -H "Content-Type: application/json" \
+  -d '{"from": "devops", "to": "отправитель", "message": "ответ"}'
+```
