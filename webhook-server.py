@@ -751,13 +751,18 @@ def telegram_poll_loop():
 
             log(f"Telegram сообщение от {display}: {text[:100]}")
 
-            comment_text = f"[Telegram] {display}: {text}"
-            ok = add_jira_comment(JIRA_TARGET_ISSUE, comment_text)
+            # Определяем целевого агента: @agent в начале или coordinator по умолчанию
+            valid_agents = get_valid_agents()
+            target_agent = "coordinator"
+            agent_msg = text
+            match = re.match(r"^@(\w+)\s+", text)
+            if match and match.group(1).lower() in valid_agents:
+                target_agent = match.group(1).lower()
+                agent_msg = text[match.end():]
 
-            if ok:
-                send_telegram(f"✅ Сообщение переслано в {JIRA_TARGET_ISSUE}")
-            else:
-                send_telegram(f"❌ Не удалось переслать в {JIRA_TARGET_ISSUE}")
+            send_to_agent(target_agent, f"[Telegram {display}] {agent_msg}")
+            log(f"Telegram -> {target_agent}: {agent_msg[:80]}")
+            send_telegram(f"✅ Сообщение отправлено агенту {target_agent}")
 
 
 # ---------------------------------------------------------------------------
