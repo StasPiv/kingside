@@ -523,6 +523,11 @@ def handle_agent_message(handler, payload):
     handler.wfile.write(json.dumps({"status": "delivered", "to": target}).encode())
 
 
+def _escape_html(text: str) -> str:
+    """Экранирует HTML-символы для Telegram API."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def handle_telegram_send(handler, payload):
     """Обрабатывает POST /telegram/send — агент отправляет сообщение в Telegram."""
     message = payload.get("message", "")
@@ -532,7 +537,7 @@ def handle_telegram_send(handler, payload):
         handler.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
         return
 
-    send_telegram(message)
+    send_telegram(_escape_html(message))
     log(f"Telegram send: {message[:80]}")
 
     handler.send_response(200)
