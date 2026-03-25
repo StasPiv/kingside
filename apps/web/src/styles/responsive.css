@@ -413,6 +413,11 @@
     min-width: 0 !important;
     contain: none;
     margin-top: 0;
+    box-sizing: border-box;
+  }
+
+  .analysis-sidebar * {
+    box-sizing: border-box;
   }
 
   /* All panels full width */

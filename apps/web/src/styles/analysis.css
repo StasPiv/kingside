@@ -1500,11 +1500,18 @@
   .analysis-split-panel__content .analysis-panel-body {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     min-height: 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
   }
 
   .analysis-split-panel__content .analysis-panel-body--scroll {
     overflow-y: auto;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* Show mobile engine controls */
@@ -1515,6 +1522,8 @@
     padding: 4px 6px;
     flex-shrink: 0;
     border-bottom: 1px solid #333;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* Stockfish lines: remove min-height, wrap long PV lines on mobile */
