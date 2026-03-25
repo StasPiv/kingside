@@ -318,13 +318,21 @@
     padding: 0;
   }
 
-  /* Board: 42dvh square, centered (KS-924) */
+  /* Board: 42vh square, centered (KS-924/KS-929) */
+  /* vh fallback for browsers without dvh support */
   .analysis-page .board-container {
-    width: min(100vw, 42dvh) !important;
+    width: min(100vw, 42vh) !important;
     max-width: 100vw !important;
     height: auto !important;
     aspect-ratio: 1 / 1;
     margin: 0 auto;
+  }
+
+  /* dvh override for modern browsers */
+  @supports (height: 1dvh) {
+    .analysis-page .board-container {
+      width: min(100vw, 42dvh) !important;
+    }
   }
 
   /* Hide eval bar on mobile — board takes full width */
@@ -332,13 +340,13 @@
     display: none;
   }
 
-  /* Hide breadcrumbs/workshop shortcut on mobile — save vertical space (KS-916) */
+  /* Hide breadcrumbs/workshop shortcut on mobile — save vertical space (KS-916/KS-929) */
   .analysis-workshop-shortcut {
-    display: none;
+    display: none !important;
   }
 
   .analysis-breadcrumbs {
-    display: none;
+    display: none !important;
   }
 
   /* Player row above board (black): compact info-bar ~28px (KS-916) */
