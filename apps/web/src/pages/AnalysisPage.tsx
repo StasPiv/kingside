@@ -75,7 +75,9 @@ export function AnalysisPage() {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [mobileTab, setMobileTab] = useState<'moves' | 'engine' | 'report'>('moves');
+  type MobileTabId = 'moves' | 'engine' | 'report';
+  const [panel1Tab, setPanel1Tab] = useState<MobileTabId>('moves');
+  const [panel2Tab, setPanel2Tab] = useState<MobileTabId>('engine');
   const pendingPositionRef = useRef<number | null>(null);
 
   // Standalone analysis state
@@ -650,24 +652,9 @@ export function AnalysisPage() {
           </div>
         )}
 
-        {/* Mobile tab bar */}
-        <div className="analysis-mobile-tabs">
-          <button className={`analysis-mobile-tab${mobileTab === 'moves' ? ' active' : ''}`} onClick={() => setMobileTab('moves')}>
-            {t('review.moves', 'Moves')}
-          </button>
-          <button className={`analysis-mobile-tab${mobileTab === 'engine' ? ' active' : ''}`} onClick={() => setMobileTab('engine')}>
-            {t('analysis.engine', 'Engine')}
-          </button>
-          {gameId && (
-            <button className={`analysis-mobile-tab${mobileTab === 'report' ? ' active' : ''}`} onClick={() => setMobileTab('report')}>
-              {t('analysis.report', 'Report')}
-            </button>
-          )}
-        </div>
-
-        {/* Report content — desktop: always visible if gameId; mobile: only when report tab active */}
+        {/* Desktop: Report (always visible if gameId) */}
         {gameId && (
-          <div className={`analysis-tab-content analysis-tab-content--report${mobileTab !== 'report' ? ' analysis-mobile-hidden' : ''}`}>
+          <div className="analysis-desktop-only">
             {gameReport && gameReport.status === 'complete' && (
               <EvalGraph
                 moves={gameReport.moves}
@@ -714,9 +701,9 @@ export function AnalysisPage() {
           </div>
         )}
 
-        {/* Engine content — desktop: collapsible panel; mobile: only when engine tab active */}
-        <div className={`analysis-tab-content analysis-tab-content--engine analysis-panel${mobileTab !== 'engine' ? ' analysis-mobile-hidden' : ''}`}>
-          <div className="analysis-panel-header analysis-desktop-only" onClick={() => togglePanel('engine')}>
+        {/* Desktop: Engine panel (collapsible) */}
+        <div className="analysis-panel analysis-desktop-only">
+          <div className="analysis-panel-header" onClick={() => togglePanel('engine')}>
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">&#9881;</span>
               <span className="analysis-panel-title">{engineName}{engineStatusSuffix}</span>
@@ -738,7 +725,7 @@ export function AnalysisPage() {
                 <button
                   className="analysis-toggle-btn"
                   onClick={(e) => { e.stopPropagation(); toggleAnalysis(); }}
-                  title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : isTouchDevice ? t('analysis.startMobile', 'Start analysis (may not work on mobile)') : t('analysis.start', 'Start analysis')}
+                  title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : t('analysis.start', 'Start analysis')}
                   data-testid="stockfish-toggle"
                   style={{ padding: '2px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8, whiteSpace: 'nowrap' }}
                 >
@@ -748,25 +735,7 @@ export function AnalysisPage() {
               <span className="analysis-panel-chevron">{panelStates.engine ? '▾' : '▸'}</span>
             </span>
           </div>
-          {/* Mobile: engine controls inline */}
-          <div className="analysis-mobile-engine-controls">
-            <span className="engine-multipv-controls">
-              <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
-              <span className="engine-multipv-value">{ec.multiPv}</span>
-              <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10}>+</button>
-            </span>
-            <button className="engine-settings-btn" onClick={() => ec.setShowEngineModal(true)}>⚙</button>
-            {wasmSupported && !(isTouchDevice && engineFailed) && (
-              <button
-                className="analysis-toggle-btn"
-                onClick={toggleAnalysis}
-                style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8 }}
-              >
-                {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
-              </button>
-            )}
-          </div>
-          {(panelStates.engine || mobileTab === 'engine') && (
+          {panelStates.engine && (
             <div className="analysis-panel-body">
               <div className="stockfish-lines">
                 {(analysisEnabled || displayedLines.length > 0) &&
@@ -783,9 +752,9 @@ export function AnalysisPage() {
           )}
         </div>
 
-        {/* Moves content — desktop: collapsible panel; mobile: only when moves tab active */}
-        <div className={`analysis-tab-content analysis-tab-content--moves analysis-panel analysis-panel--flex${mobileTab !== 'moves' ? ' analysis-mobile-hidden' : ''}`}>
-          <div className="analysis-panel-header analysis-desktop-only" onClick={() => togglePanel('moves')}>
+        {/* Desktop: Moves panel (collapsible) */}
+        <div className="analysis-panel analysis-panel--flex analysis-desktop-only">
+          <div className="analysis-panel-header" onClick={() => togglePanel('moves')}>
             <span className="analysis-panel-header-left">
               <span className="analysis-panel-icon">&#9776;</span>
               <span className="analysis-panel-title">{t('review.moves', 'Moves')}</span>
@@ -794,7 +763,7 @@ export function AnalysisPage() {
               <span className="analysis-panel-chevron">{panelStates.moves ? '▾' : '▸'}</span>
             </span>
           </div>
-          {(panelStates.moves || mobileTab === 'moves') && (
+          {panelStates.moves && (
             <div className="analysis-panel-body analysis-panel-body--scroll">
               <ReviewMoveList
                 history={history}
@@ -808,6 +777,99 @@ export function AnalysisPage() {
             </div>
           )}
         </div>
+
+        {/* ===== Mobile: Two split panels ===== */}
+        {[
+          { tab: panel1Tab, setTab: setPanel1Tab, id: 'panel1' },
+          { tab: panel2Tab, setTab: setPanel2Tab, id: 'panel2' },
+        ].map(({ tab, setTab, id }) => (
+          <div key={id} className="analysis-split-panel">
+            <div className="analysis-split-panel__tabs">
+              <button className={`analysis-split-tab${tab === 'moves' ? ' active' : ''}`} onClick={() => setTab('moves')}>
+                {t('review.moves', 'Moves')}
+              </button>
+              <button className={`analysis-split-tab${tab === 'engine' ? ' active' : ''}`} onClick={() => setTab('engine')}>
+                {t('analysis.engine', 'Engine')}
+              </button>
+              {gameId && (
+                <button className={`analysis-split-tab${tab === 'report' ? ' active' : ''}`} onClick={() => setTab('report')}>
+                  {t('analysis.report', 'Report')}
+                </button>
+              )}
+            </div>
+            <div className="analysis-split-panel__content">
+              {tab === 'moves' && (
+                <div className="analysis-panel-body analysis-panel-body--scroll">
+                  <ReviewMoveList
+                    history={history}
+                    currentGlobalIndex={currentGlobalIndex}
+                    onMoveClick={gotoMove}
+                    onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
+                    onDeleteVariation={(move) => removeVariation(move as ChessMove)}
+                    onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
+                    gameInfo={gameInfo}
+                  />
+                </div>
+              )}
+              {tab === 'engine' && (
+                <>
+                  <div className="analysis-mobile-engine-controls">
+                    <span className="engine-multipv-controls">
+                      <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
+                      <span className="engine-multipv-value">{ec.multiPv}</span>
+                      <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10}>+</button>
+                    </span>
+                    <button className="engine-settings-btn" onClick={() => ec.setShowEngineModal(true)}>⚙</button>
+                    {wasmSupported && !(isTouchDevice && engineFailed) && (
+                      <button
+                        className="analysis-toggle-btn"
+                        onClick={toggleAnalysis}
+                        style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8 }}
+                      >
+                        {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+                      </button>
+                    )}
+                  </div>
+                  <div className="analysis-panel-body">
+                    <div className="stockfish-lines">
+                      {(analysisEnabled || displayedLines.length > 0) &&
+                        displayedLines.map((line) => (
+                          <div key={line.multipv} className="stockfish-line">
+                            <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
+                              {formatEval(line, evalIsBlackTurn)}
+                            </span>
+                            <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </>
+              )}
+              {tab === 'report' && gameId && (
+                <>
+                  {gameReport && gameReport.status === 'complete' && (
+                    <EvalGraph
+                      moves={gameReport.moves}
+                      currentMoveIndex={currentGlobalIndex != null ? currentGlobalIndex - 1 : undefined}
+                      onSelectMove={(idx) => {
+                        const target = history.find((m) => m.globalIndex === idx + 1);
+                        if (target) gotoMove(target);
+                      }}
+                    />
+                  )}
+                  <GameReportPanel
+                    report={gameReport}
+                    analyzing={reportAnalyzing}
+                    error={reportError}
+                    onAnalyze={analyzeGame}
+                    whiteName={typeof gameData?.white === 'object' ? gameData.white.username : (gameData?.white ?? 'White')}
+                    blackName={typeof gameData?.black === 'object' ? gameData.black.username : (gameData?.black ?? 'Black')}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
 
       {ec.showEngineModal && (

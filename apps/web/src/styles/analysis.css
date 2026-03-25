@@ -1428,8 +1428,8 @@
   vertical-align: middle;
 }
 
-/* Mobile tab bar - hidden on desktop */
-.analysis-mobile-tabs {
+/* Mobile split panels - hidden on desktop */
+.analysis-split-panel {
   display: none;
 }
 
@@ -1438,77 +1438,77 @@
 }
 
 @media (max-width: 768px) {
-  /* Show mobile tabs */
-  .analysis-mobile-tabs {
-    display: flex;
-    gap: 0;
-    border-bottom: 2px solid #333;
-    margin-bottom: 0;
-    flex-shrink: 0;
-  }
-
-  .analysis-mobile-tab {
-    flex: 1;
-    padding: 8px 4px;
-    background: transparent;
-    border: none;
-    color: #999;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
-    text-align: center;
-  }
-
-  .analysis-mobile-tab.active {
-    color: #7c83ff;
-    border-bottom-color: #7c83ff;
-  }
-
   /* Hide desktop-only elements */
   .analysis-desktop-only {
     display: none !important;
   }
 
-  /* Hide inactive tabs on mobile */
-  .analysis-mobile-hidden {
-    display: none !important;
+  /* Show split panels */
+  .analysis-split-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .analysis-split-panel + .analysis-split-panel {
+    border-top: 1px solid #333;
+  }
+
+  .analysis-split-panel__tabs {
+    display: flex;
+    flex-shrink: 0;
+    height: 28px;
+    border-bottom: 1px solid #333;
+  }
+
+  .analysis-split-tab {
+    flex: 1;
+    padding: 0 4px;
+    background: transparent;
+    border: none;
+    color: #777;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    text-align: center;
+    line-height: 26px;
+  }
+
+  .analysis-split-tab.active {
+    color: #7c83ff;
+    border-bottom-color: #7c83ff;
+  }
+
+  .analysis-split-panel__content {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .analysis-split-panel__content .analysis-panel-body {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+  }
+
+  .analysis-split-panel__content .analysis-panel-body--scroll {
+    overflow-y: auto;
   }
 
   /* Show mobile engine controls */
   .analysis-mobile-engine-controls {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
+    gap: 6px;
+    padding: 4px 6px;
+    flex-shrink: 0;
     border-bottom: 1px solid #333;
-  }
-
-  /* Remove collapsible headers on mobile (content shown directly) */
-  .analysis-tab-content .analysis-panel-header.analysis-desktop-only {
-    display: none !important;
-  }
-
-  /* Active tab content fills remaining space */
-  .analysis-tab-content:not(.analysis-mobile-hidden) {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
-  }
-
-  .analysis-tab-content--moves:not(.analysis-mobile-hidden) .analysis-panel-body {
-    display: block;
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  .analysis-tab-content--engine:not(.analysis-mobile-hidden) .analysis-panel-body {
-    flex: 1;
-    overflow-y: auto;
-    min-height: 0;
   }
 
   /* Stockfish lines: remove min-height, wrap long PV lines on mobile */
