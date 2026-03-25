@@ -7,11 +7,11 @@ import ru from '../i18n/locales/ru/translation.json';
 /**
  * KS-308: Unit-тесты для чистых функций анализа Stockfish
  *
- * Функции formatEval, evalToPercent, formatPv не экспортируются из GameReviewPage,
+ * Функции formatEval, evalToPercent, formatPv не экспортируются из AnalysisPage,
  * поэтому тестируем их логику напрямую, воспроизводя реализацию.
  */
 
-// --- Воспроизведение логики из GameReviewPage ---
+// --- Воспроизведение логики из AnalysisPage ---
 
 type EvalLine = {
   depth: number;

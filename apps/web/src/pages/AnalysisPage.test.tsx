@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
-import { GameReviewPage } from './GameReviewPage';
+import { AnalysisPage } from './AnalysisPage';
 import { act } from '@testing-library/react';
 
 // --- Mocks ---
@@ -124,7 +124,7 @@ vi.mock('react-router-dom', async () => {
 
 // --- Tests ---
 
-describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
+describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stockfishState = 'ready';
@@ -132,10 +132,10 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
   });
 
   /**
-   * Сценарий 6: Страница GameReviewPage загружается без ошибок
+   * Сценарий 6: Страница AnalysisPage загружается без ошибок
    */
   it('загружается и отображает данные игры', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -149,7 +149,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
    * Сценарий 1: Eval bar отображается корректно
    */
   it('eval bar отображается с дефолтным значением 0.0 без линий', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -169,7 +169,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
       { depth: 18, multipv: 3, score: { type: 'cp', value: 100 }, pv: 'g1f3 d7d5' },
     ];
 
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       // +0.50 appears in eval-bar-label and line span (formatEval uses toFixed(2))
@@ -188,7 +188,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
       { depth: 18, multipv: 3, score: { type: 'cp', value: 100 }, pv: 'g1f3 d7d5' },
     ];
 
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('+0.50').length).toBeGreaterThanOrEqual(1);
@@ -213,7 +213,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
       { depth: 18, multipv: 3, score: { type: 'cp', value: 50 }, pv: 'g1f3' },
     ];
 
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       // M3 appears in eval-bar-label and line span
@@ -232,7 +232,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
       { depth: 18, multipv: 3, score: { type: 'cp', value: 50 }, pv: 'g1f3' },
     ];
 
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('#').length).toBeGreaterThanOrEqual(1);
@@ -243,7 +243,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
    * Сценарий 3: Автоматический анализ запускается при переходе между ходами
    */
   it('evaluate вызывается при загрузке страницы', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(mockEvaluate).toHaveBeenCalled();
@@ -254,7 +254,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
    * Сценарий 3: Evaluate вызывается при навигации клавишами
    */
   it('evaluate перезапускается при навигации по ходам', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -275,7 +275,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
    * Сценарий 6: Список ходов отображается корректно
    */
   it('список ходов отображается с номерами', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('1.e4').length).toBeGreaterThanOrEqual(1);
@@ -290,7 +290,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
    * Сценарий 7: Навигация кнопками работает
    */
   it('кнопки навигации присутствуют', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -313,7 +313,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
       { depth: 18, multipv: 3, score: { type: 'cp', value: -50 }, pv: 'g1f3' },
     ];
 
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('-1.50').length).toBeGreaterThanOrEqual(1);
@@ -331,7 +331,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
       { depth: 18, multipv: 3, score: { type: 'cp', value: -50 }, pv: 'g1f3' },
     ];
 
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('M2').length).toBeGreaterThanOrEqual(1);
@@ -342,7 +342,7 @@ describe('KS-308: GameReviewPage — Stockfish analysis verification', () => {
    * Stockfish 18 label отображается
    */
   it('Stockfish 18 label отображается', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/review/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
 
     await waitFor(() => {
       expect(screen.getByText(/Stockfish 18/)).toBeInTheDocument();

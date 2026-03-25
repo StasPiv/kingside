@@ -465,7 +465,7 @@ export function useChessGame() {
     makeMove,
     removeVariation,
     truncateRemaining,
-    // aliases used by GameReviewPage
+    // aliases used by AnalysisPage
     load: loadHistory,
     goToMove: gotoMove,
     goToStart: gotoFirst,

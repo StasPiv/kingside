@@ -56,7 +56,7 @@
   color: #ccc;
 }
 
-/* VariantMoveList — variant-aware move list for GameReviewPage */
+/* VariantMoveList — variant-aware move list for AnalysisPage */
 .analysis-moves--variants {
   display: flex;
   flex-direction: column;

@@ -29,7 +29,7 @@ import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
 
 // Lazy-loaded heavy pages
-const GameReviewPage = lazy(() => import('./pages/GameReviewPage').then(m => ({ default: m.GameReviewPage })));
+const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 const BroadcastGamePage = lazy(() => import('./pages/BroadcastGamePage').then(m => ({ default: m.BroadcastGamePage })));
 const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ default: m.PuzzleRushPage })));
 
@@ -76,7 +76,7 @@ export function App() {
         <Route path="/games/live" element={<LiveGamesPage />} />
         <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
-        <Route path="/game/:gameId/review" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><GameReviewPage /></Suspense></ProtectedRoute>} />
+        <Route path="/game/:gameId/review" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
         <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle-rush" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><PuzzleRushPage /></Suspense></ProtectedRoute>} />
@@ -86,9 +86,9 @@ export function App() {
         <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
         <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
         <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
-        <Route path="/analysis" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><GameReviewPage /></Suspense></ProtectedRoute>} />
+        <Route path="/analysis" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense></ProtectedRoute>} />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
-        <Route path="/analysis/:id" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><GameReviewPage /></Suspense></ProtectedRoute>} />
+        <Route path="/analysis/:id" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense></ProtectedRoute>} />
         <Route path="/workshop" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />

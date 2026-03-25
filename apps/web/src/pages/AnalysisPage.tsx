@@ -63,7 +63,7 @@ type MoveData = {
   fenAfter: string;
 };
 
-export function GameReviewPage() {
+export function AnalysisPage() {
   const params = useParams<{ id?: string; gameId?: string }>();
   const rawGameId = params.id ?? params.gameId;
   const isAnalysisRoute = params.id !== undefined;

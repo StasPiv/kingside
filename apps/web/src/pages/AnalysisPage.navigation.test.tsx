@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
-import { GameReviewPage } from './GameReviewPage';
+import { AnalysisPage } from './AnalysisPage';
 import { act } from '@testing-library/react';
 
 // --- Mocks ---
@@ -128,7 +128,7 @@ describe('KS-311: Верификация навигации по ходам на
   it('загружает данные игры при параметре gameId', async () => {
     mockParams = { gameId: 'game-1' };
 
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -142,7 +142,7 @@ describe('KS-311: Верификация навигации по ходам на
   it('загружает данные игры при параметре gameId (альтернативный формат)', async () => {
     mockParams = { gameId: 'game-1' };
 
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -154,7 +154,7 @@ describe('KS-311: Верификация навигации по ходам на
    * Сценарий 2: Навигация вперёд по ходам
    */
   it('навигация вперёд клавишей ArrowRight переключает ходы', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -181,7 +181,7 @@ describe('KS-311: Верификация навигации по ходам на
    * Сценарий 2: Навигация назад по ходам
    */
   it('навигация назад клавишей ArrowLeft переключает ходы', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -202,7 +202,7 @@ describe('KS-311: Верификация навигации по ходам на
    * Сценарий 4: Клавиша Home — переход в начало партии
    */
   it('клавиша Home переводит на начальную позицию', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -227,7 +227,7 @@ describe('KS-311: Верификация навигации по ходам на
    * Сценарий 4: Клавиша End — переход в конец партии
    */
   it('клавиша End переводит на последний ход', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -254,7 +254,7 @@ describe('KS-311: Верификация навигации по ходам на
    * Сценарий 5: Крайний случай — ArrowLeft на начальной позиции не ломается
    */
   it('ArrowLeft на начальной позиции не вызывает ошибку', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -277,7 +277,7 @@ describe('KS-311: Верификация навигации по ходам на
    * Сценарий 5: Крайний случай — ArrowRight на последнем ходу не ломается
    */
   it('ArrowRight на последнем ходу не вызывает ошибку', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -295,7 +295,7 @@ describe('KS-311: Верификация навигации по ходам на
    * Сценарий 2: Кнопки навигации работают
    */
   it('кнопка "Go to start" блокирует навигацию назад', async () => {
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
@@ -317,7 +317,7 @@ describe('KS-311: Верификация навигации по ходам на
   it('параметр gameId загружает данные игры', async () => {
     mockParams = { gameId: 'game-1' };
 
-    renderWithProviders(<GameReviewPage />, { route: '/analysis/game-1' });
+    renderWithProviders(<AnalysisPage />, { route: '/analysis/game-1' });
 
     await waitFor(() => {
       expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
