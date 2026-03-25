@@ -445,13 +445,26 @@
   .analysis-panel-body--scroll {
     flex: 1;
     min-height: 0;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Full flex chain: panel-body → wrapper → container (scrolls) (KS-927 v2) */
+  .analysis-panel-body--scroll .review-move-list-wrapper {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
 
   .analysis-panel-body--scroll .review-moves-container {
-    overflow: visible;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     max-height: none;
   }
 
