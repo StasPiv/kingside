@@ -1508,6 +1508,25 @@
   .analysis-tab-content--engine:not(.analysis-mobile-hidden) .analysis-panel-body {
     flex: 1;
     overflow-y: auto;
+    min-height: 0;
+  }
+
+  /* Stockfish lines: remove min-height, wrap long PV lines on mobile */
+  .stockfish-lines {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .stockfish-pv {
+    white-space: normal;
+    word-break: break-word;
+    overflow-x: visible;
+    height: auto;
+  }
+
+  .stockfish-line {
+    flex-wrap: wrap;
   }
 }
 
