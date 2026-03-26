@@ -2,16 +2,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
-import type { Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { api } from '../api';
-import { useContainerWidth } from '../hooks/useContainerWidth';
-import { useFastDrag } from '../hooks/useFastDrag';
-import { useStablePosition } from '../hooks/useStablePosition';
-import { useBoardTheme } from '../hooks/useBoardTheme';
-import { useBoardSettings } from '../hooks/useBoardSettings';
-import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { MemoChessboard } from '../components/MemoChessboard';
+import { PuzzleBoard } from '../components/PuzzleBoard';
 import type { PuzzleDto } from '@kingside/shared';
 
 type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
@@ -32,10 +25,6 @@ export function PuzzlePage() {
   const [totalSolved, setTotalSolved] = useState(0);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
-  const boardContainerRef = useRef<HTMLDivElement>(null);
-  const boardWidth = useContainerWidth(boardContainerRef);
-  const { boardThemeOptions, customPieces } = useBoardTheme();
-  const { inputMode } = useBoardSettings();
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -163,60 +152,7 @@ export function PuzzlePage() {
     [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
   );
 
-  const onClickMove = useCallback(
-    (from: Square, to: Square): boolean => onPieceDrop({ sourceSquare: from, targetSquare: to }),
-    [onPieceDrop],
-  );
-
-  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
-    game: game ?? null,
-    playerColor: boardOrientation,
-    enabled: status === 'thinking',
-    onMove: inputMode === 'click' ? onClickMove : undefined,
-  });
-
-  useEffect(() => {
-    if (moveIndex > 0 && puzzleMoves[moveIndex - 1]) {
-      const uci = puzzleMoves[moveIndex - 1];
-      setLastMove(uci.slice(0, 2) as Square, uci.slice(2, 4) as Square);
-    }
-  }, [moveIndex, puzzleMoves, setLastMove]);
-
-  const handleSquareClick = useCallback(
-    ({ square }: { piece: unknown; square: string }) => {
-      onSquareClick(square as Square);
-    },
-    [onSquareClick],
-  );
-
-  const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
-    onPieceDrop: onPieceDrop,
-    boardOrientation: boardOrientation,
-    enabled: status === 'thinking' && inputMode === 'drag',
-  });
-
-  const boardStyle = useMemo(
-    () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
-    [boardWidth],
-  );
-
-  const stablePosition = useStablePosition(game?.fen() ?? '');
-
-  const boardOptions = useMemo(
-    () => ({
-      position: stablePosition,
-      boardOrientation: boardOrientation,
-      animationDurationInMs: suppressAnimationRef.current ? 0 : 200,
-      allowDragging: false,
-      showNotation: true,
-      squareStyles,
-      onSquareClick: handleSquareClick,
-      ...(boardStyle && { boardStyle }),
-      ...boardThemeOptions,
-      ...(customPieces && { pieces: customPieces }),
-    }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick],
-  );
+  const lastMoveUci = moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null;
 
   const handleNext = useCallback(async () => {
     const nextPuzzle = await submitAttemptResult(status === 'correct');
@@ -291,11 +227,13 @@ export function PuzzlePage() {
           )}
         </div>
 
-        <div className="board-container" ref={boardContainerRef}>
-          {game && (
-            <MemoChessboard options={boardOptions} />
-          )}
-        </div>
+        <PuzzleBoard
+          game={game}
+          boardOrientation={boardOrientation}
+          enabled={status === 'thinking'}
+          onPieceDrop={onPieceDrop}
+          lastMoveUci={lastMoveUci}
+        />
 
         <div className="puzzle-actions">
           {status === 'correct' && (

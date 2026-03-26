@@ -5,13 +5,7 @@ import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../ApiError';
-import { useContainerWidth } from '../hooks/useContainerWidth';
-import { useFastDrag } from '../hooks/useFastDrag';
-import { useStablePosition } from '../hooks/useStablePosition';
-import { useBoardTheme } from '../hooks/useBoardTheme';
-import { useBoardSettings } from '../hooks/useBoardSettings';
-import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { MemoChessboard } from '../components/MemoChessboard';
+import { PuzzleBoard } from '../components/PuzzleBoard';
 
 type RushScreen = 'start' | 'playing' | 'result';
 type TimeLimitOption = 180 | 300;
@@ -43,10 +37,7 @@ export function PuzzleRushPage() {
   const [lastMoveUci, setLastMoveUci] = useState<string | null>(null);
 
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
-  const boardContainerRef = useRef<HTMLDivElement>(null);
-  const boardWidth = useContainerWidth(boardContainerRef);
-  const { boardThemeOptions, customPieces } = useBoardTheme();
-  const { inputMode } = useBoardSettings();
+  // Board rendering delegated to PuzzleBoard component
 
   // Suppress animation when loading a new puzzle to avoid chaotic
   // piece movement from old position to new position ("board jerk").
@@ -316,59 +307,7 @@ export function PuzzleRushPage() {
     [game, screen, feedback, submitting, endGame, loadNextPuzzle, isPromotionMove],
   );
 
-  const onClickMove = useCallback(
-    (from: Square, to: Square): boolean => onPieceDrop({ sourceSquare: from, targetSquare: to }),
-    [onPieceDrop],
-  );
-
-  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
-    game: game ?? null,
-    playerColor: boardOrientation,
-    enabled: screen === 'playing' && !feedback && !submitting,
-    onMove: inputMode === 'click' ? onClickMove : undefined,
-  });
-
-  useEffect(() => {
-    if (lastMoveUci) {
-      setLastMove(lastMoveUci.slice(0, 2) as Square, lastMoveUci.slice(2, 4) as Square);
-    }
-  }, [lastMoveUci, setLastMove]);
-
-  const handleSquareClick = useCallback(
-    ({ square }: { piece: unknown; square: string }) => {
-      onSquareClick(square as Square);
-    },
-    [onSquareClick],
-  );
-
-  const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
-    onPieceDrop: onPieceDrop,
-    boardOrientation: boardOrientation,
-    enabled: screen === 'playing' && !feedback && !submitting && inputMode === 'drag',
-  });
-
-  const boardStyle = useMemo(
-    () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
-    [boardWidth],
-  );
-
-  const stablePosition = useStablePosition(game?.fen() ?? '');
-
-  const boardOptions = useMemo(
-    () => ({
-      position: stablePosition,
-      boardOrientation: boardOrientation,
-      animationDurationInMs: (suppressAnimationRef.current || puzzleTransitionRef.current) ? 0 : 150,
-      allowDragging: false,
-      showNotation: true,
-      squareStyles,
-      onSquareClick: handleSquareClick,
-      ...(boardStyle && { boardStyle }),
-      ...boardThemeOptions,
-      ...(customPieces && { pieces: customPieces }),
-    }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick],
-  );
+  const boardEnabled = screen === 'playing' && !feedback && !submitting;
 
   const formatTime = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
@@ -491,8 +430,16 @@ export function PuzzleRushPage() {
           <p className="puzzle-hint">{t('puzzle.findBestMove')}</p>
         </div>
 
-        <div className="board-container" ref={boardContainerRef}>
-          {game && <MemoChessboard key={boardKey} options={boardOptions} />}
+        <PuzzleBoard
+          game={game}
+          boardOrientation={boardOrientation}
+          enabled={boardEnabled}
+          onPieceDrop={onPieceDrop}
+          lastMoveUci={lastMoveUci}
+          suppressAnimation={puzzleTransitionRef.current}
+          boardKey={boardKey}
+        >
+          {/* Promotion dialog rendered as child */}
           {pendingPromotion && (
             <div className="promotion-overlay" onClick={handlePromotionCancel}>
               <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
@@ -516,7 +463,7 @@ export function PuzzleRushPage() {
               </div>
             </div>
           )}
-        </div>
+        </PuzzleBoard>
       </div>
     </div>
   );
