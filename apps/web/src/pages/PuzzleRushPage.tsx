@@ -438,6 +438,7 @@ export function PuzzleRushPage() {
           lastMoveUci={lastMoveUci}
           suppressAnimation={puzzleTransitionRef.current}
           boardKey={boardKey}
+          status={feedback === 'correct' ? 'correct' : feedback === 'wrong' ? 'incorrect' : 'thinking'}
         >
           {/* Promotion dialog rendered as child */}
           {pendingPromotion && (

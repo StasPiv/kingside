@@ -1070,6 +1070,32 @@ body:has(.puzzle-rush-board) {
   align-items: center;
 }
 
+/* Puzzle status indicator lamp */
+.puzzle-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 5;
+  transition: background-color 0.3s, box-shadow 0.3s;
+}
+
+.puzzle-indicator--thinking {
+  background: #555;
+}
+
+.puzzle-indicator--correct {
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+
+.puzzle-indicator--incorrect {
+  background: #ef4444;
+  box-shadow: 0 0 8px #ef4444;
+}
+
 /* Puzzle eval info (shown after solving) */
 .puzzle-eval-info {
   display: flex;

@@ -309,17 +309,6 @@ export function PuzzlePage() {
           {status === 'thinking' && (
             <p className="puzzle-hint">{t('puzzle.findBestMove')}</p>
           )}
-          {status === 'correct' && (
-            <p className="puzzle-correct">{t('puzzle.correct')}</p>
-          )}
-          {status === 'incorrect' && (
-            <p className="puzzle-incorrect">
-              {t('puzzle.incorrect')}
-              {solutionMove && (
-                <span className="puzzle-solution-hint"> — {t('puzzle.correctWas', 'The correct move was shown on the board')}</span>
-              )}
-            </p>
-          )}
         </div>
 
         {(status === 'correct' || status === 'incorrect') && isGenerated && puzzle && (() => {
@@ -361,6 +350,7 @@ export function PuzzlePage() {
           enabled={status === 'thinking'}
           onPieceDrop={onPieceDrop}
           lastMoveUci={lastMoveUci}
+          status={status}
         />
 
         <div className="puzzle-actions">

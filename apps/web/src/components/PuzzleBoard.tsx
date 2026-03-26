@@ -17,6 +17,7 @@ interface PuzzleBoardProps {
   lastMoveUci?: string | null;
   suppressAnimation?: boolean;
   boardKey?: string | number;
+  status?: 'thinking' | 'correct' | 'incorrect' | null;
   children?: ReactNode;
 }
 
@@ -28,6 +29,7 @@ export function PuzzleBoard({
   lastMoveUci,
   suppressAnimation = false,
   boardKey,
+  status,
   children,
 }: PuzzleBoardProps) {
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -99,6 +101,9 @@ export function PuzzleBoard({
 
   return (
     <div className="board-container" ref={boardContainerRef}>
+      {status != null && (
+        <div className={`puzzle-indicator puzzle-indicator--${status}`} />
+      )}
       {game && <MemoChessboard key={boardKey} options={boardOptions} />}
       {children}
     </div>
