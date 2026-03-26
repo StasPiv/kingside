@@ -1464,3 +1464,101 @@
 .challenge-toast__decline:hover {
   background: #4a4a8e;
 }
+
+/* Rating History Chart */
+.rating-history {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.rating-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.rating-history__title {
+  margin: 0;
+  font-size: 16px;
+  color: #e0e0e0;
+}
+
+.rating-history__filters {
+  display: flex;
+  gap: 4px;
+}
+
+.rating-history__filter {
+  background: transparent;
+  border: 1px solid #444;
+  color: #888;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rating-history__filter.active {
+  border-width: 2px;
+}
+
+.rating-history__filter:hover {
+  border-color: #666;
+  color: #ccc;
+}
+
+.rating-history__empty {
+  color: #666;
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+.rating-history__chart {
+  position: relative;
+}
+
+.rating-history__svg {
+  width: 100%;
+  height: 120px;
+  cursor: crosshair;
+}
+
+.rating-history__labels {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: calc(100% - 40px);
+  font-size: 10px;
+  color: #555;
+  pointer-events: none;
+}
+
+.rating-history__tooltip {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #fff;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.rating-history__summary {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #888;
+  margin-top: 4px;
+}

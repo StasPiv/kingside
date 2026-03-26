@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { RatingHistoryChart } from '../components/RatingHistoryChart';
 import type { PlayerProfileResponse } from '@kingside/shared';
 
 type FriendStatus = 'none' | 'pending' | 'friends' | 'loading';
@@ -252,6 +253,11 @@ export function PlayerProfilePage() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Rating History Chart */}
+      <div className="player-profile-section">
+        <RatingHistoryChart userId={profile.id} />
       </div>
 
       {/* Puzzle Rush */}
