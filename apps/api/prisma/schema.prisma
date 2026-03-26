@@ -504,8 +504,9 @@ model GeneratedPuzzle {
   depth         Int      @default(18)
   createdBy     String?  @map("created_by") @db.Uuid
   popularity    Int      @default(0)
-  nbPlays       Int      @default(0) @map("nb_plays")
-  createdAt     DateTime @default(now()) @map("created_at")
+  nbPlays        Int      @default(0) @map("nb_plays")
+  sourceMetadata String?  @map("source_metadata") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([rating])
   @@index([themes])

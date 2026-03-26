@@ -64,6 +64,7 @@ export class PuzzleGeneratorController {
         sourceType: p.sourceType || 'pgn_import',
         sourceId: p.sourceId || null,
         sourceMoveNum: p.sourceMoveNum ?? 0,
+        sourceMetadata: p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null,
         depth: 14,
         createdBy: req.user.id,
       })),
@@ -128,6 +129,7 @@ export class PuzzleGeneratorController {
         sourceType: p.sourceType,
         sourceId: p.sourceId,
         sourceMoveNum: p.sourceMoveNum,
+        sourceMetadata: p.sourceMetadata ? JSON.parse(p.sourceMetadata) : null,
         createdAt: p.createdAt.toISOString(),
       })),
       total,
@@ -173,6 +175,7 @@ export class PuzzleGeneratorController {
       themes: puzzle.themes.split(' ').filter(Boolean),
       sourceType: puzzle.sourceType,
       sourceId: puzzle.sourceId,
+      sourceMetadata: puzzle.sourceMetadata ? JSON.parse(puzzle.sourceMetadata) : null,
     };
   }
 
@@ -194,6 +197,7 @@ export class PuzzleGeneratorController {
       sourceType: puzzle.sourceType,
       sourceId: puzzle.sourceId,
       sourceMoveNum: puzzle.sourceMoveNum,
+      sourceMetadata: puzzle.sourceMetadata ? JSON.parse(puzzle.sourceMetadata) : null,
       depth: puzzle.depth,
       createdAt: puzzle.createdAt.toISOString(),
     };
