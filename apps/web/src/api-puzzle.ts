@@ -5,6 +5,9 @@ import type { PuzzleDto, PuzzleAttemptResponse, PuzzleAttemptResult, PuzzleRushR
 
 export type PuzzleNextParams = {
   theme?: string;
+  themes?: string[];
+  ratingMin?: number;
+  ratingMax?: number;
 };
 
 export type PuzzleAttemptRequest = {
@@ -62,8 +65,13 @@ export type PuzzleRushLeaderboardParams = {
 export const puzzleApi = {
   /** Get next puzzle matched to user rating */
   getNext: (params?: PuzzleNextParams) => {
-    const query = params?.theme ? `?theme=${encodeURIComponent(params.theme)}` : '';
-    return api.get<PuzzleDto>(`/api/puzzles/next${query}`);
+    const q = new URLSearchParams();
+    if (params?.theme) q.set('theme', params.theme);
+    if (params?.themes?.length) q.set('themes', params.themes.join(','));
+    if (params?.ratingMin != null) q.set('ratingMin', String(params.ratingMin));
+    if (params?.ratingMax != null) q.set('ratingMax', String(params.ratingMax));
+    const qs = q.toString();
+    return api.get<PuzzleDto>(`/api/puzzles/next${qs ? `?${qs}` : ''}`);
   },
 
   /** Get puzzle by ID */

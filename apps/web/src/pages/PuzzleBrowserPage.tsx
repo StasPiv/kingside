@@ -5,15 +5,6 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { PuzzleDto, PuzzleTheme } from '@kingside/shared';
 
-type DifficultyLevel = 'easy' | 'medium' | 'hard' | 'expert';
-
-const DIFFICULTY_RANGES: Record<DifficultyLevel, { min: number; max: number }> = {
-  easy: { min: 0, max: 1200 },
-  medium: { min: 1200, max: 1800 },
-  hard: { min: 1800, max: 2400 },
-  expert: { min: 2400, max: 9999 },
-};
-
 const THEME_CATEGORIES = {
   tactics: [
     'fork', 'pin', 'skewer', 'discoveredAttack', 'doubleCheck',
@@ -53,8 +44,10 @@ export function PuzzleBrowserPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const [selectedTheme, setSelectedTheme] = useState<PuzzleTheme | ''>('');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyLevel | ''>('');
+  const [selectedThemes, setSelectedThemes] = useState<Set<PuzzleTheme>>(new Set());
+  const [ratingMin, setRatingMin] = useState(600);
+  const [ratingMax, setRatingMax] = useState(2800);
+  const [ratingEnabled, setRatingEnabled] = useState(false);
   const [themeCategory, setThemeCategory] = useState<keyof typeof THEME_CATEGORIES>('tactics');
 
   const fetchPuzzles = useCallback(async (p: number) => {
@@ -63,11 +56,10 @@ export function PuzzleBrowserPage() {
     try {
       const params = new URLSearchParams();
       params.set('limit', String(PAGE_SIZE));
-      if (selectedTheme) params.append('themes[]', selectedTheme);
-      if (selectedDifficulty) {
-        const range = DIFFICULTY_RANGES[selectedDifficulty];
-        params.set('ratingMin', String(range.min));
-        params.set('ratingMax', String(range.max));
+      if (selectedThemes.size > 0) params.set('themes', Array.from(selectedThemes).join(','));
+      if (ratingEnabled) {
+        params.set('ratingMin', String(ratingMin));
+        params.set('ratingMax', String(ratingMax));
       }
       const data = await api.get<PuzzleDto[]>(`/api/puzzles?${params.toString()}`);
       const list = Array.isArray(data) ? data : [];
@@ -78,7 +70,7 @@ export function PuzzleBrowserPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedTheme, selectedDifficulty, t]);
+  }, [selectedThemes, ratingEnabled, ratingMin, ratingMax, t]);
 
   useEffect(() => {
     setPage(1);
@@ -92,15 +84,20 @@ export function PuzzleBrowserPage() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
 
-  const handleThemeSelect = (theme: PuzzleTheme) => {
-    setSelectedTheme(theme === selectedTheme ? '' : theme);
+  const handleThemeToggle = (theme: PuzzleTheme) => {
+    setSelectedThemes((prev) => {
+      const next = new Set(prev);
+      if (next.has(theme)) next.delete(theme); else next.add(theme);
+      return next;
+    });
   };
 
-  const handleDifficultySelect = (diff: DifficultyLevel) => {
-    setSelectedDifficulty(diff === selectedDifficulty ? '' : diff);
+  const handleClearFilters = () => {
+    setSelectedThemes(new Set());
+    setRatingEnabled(false);
+    setRatingMin(600);
+    setRatingMax(2800);
   };
-
-  const difficulties: DifficultyLevel[] = ['easy', 'medium', 'hard', 'expert'];
 
   return (
     <div className="puzzle-browser-page">
@@ -113,18 +110,18 @@ export function PuzzleBrowserPage() {
 
       <div className="puzzle-filters">
         <div className="filter-section">
-          <h3>{t('puzzleBrowser.difficulty')}</h3>
-          <div className="difficulty-filters">
-            {difficulties.map((diff) => (
-              <button
-                key={diff}
-                className={`filter-btn ${selectedDifficulty === diff ? 'active' : ''}`}
-                onClick={() => handleDifficultySelect(diff)}
-              >
-                {t(`puzzleBrowser.difficulties.${diff}`)}
-              </button>
-            ))}
-          </div>
+          <h3>{t('puzzleBrowser.rating', 'Rating Range')}</h3>
+          <label className="puzzle-filter-toggle">
+            <input type="checkbox" checked={ratingEnabled} onChange={(e) => setRatingEnabled(e.target.checked)} />
+            {t('puzzleBrowser.filterByRating', 'Filter by rating')}
+          </label>
+          {ratingEnabled && (
+            <div className="puzzle-rating-range">
+              <input type="range" min={600} max={2800} step={50} value={ratingMin} onChange={(e) => setRatingMin(Math.min(Number(e.target.value), ratingMax - 50))} />
+              <input type="range" min={600} max={2800} step={50} value={ratingMax} onChange={(e) => setRatingMax(Math.max(Number(e.target.value), ratingMin + 50))} />
+              <span className="puzzle-rating-range__label">{ratingMin} — {ratingMax}</span>
+            </div>
+          )}
         </div>
 
         <div className="filter-section">
@@ -144,14 +141,30 @@ export function PuzzleBrowserPage() {
             {THEME_CATEGORIES[themeCategory].map((theme) => (
               <button
                 key={theme}
-                className={`filter-btn theme-btn ${selectedTheme === theme ? 'active' : ''}`}
-                onClick={() => handleThemeSelect(theme)}
+                className={`filter-btn theme-btn ${selectedThemes.has(theme) ? 'active' : ''}`}
+                onClick={() => handleThemeToggle(theme)}
               >
                 {t(`puzzleBrowser.themes.${theme}`)}
               </button>
             ))}
           </div>
+          {selectedThemes.size > 0 && (
+            <div className="puzzle-selected-themes">
+              {Array.from(selectedThemes).map((theme) => (
+                <span key={theme} className="puzzle-theme-chip">
+                  {t(`puzzleBrowser.themes.${theme}`)}
+                  <button onClick={() => handleThemeToggle(theme)}>×</button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
+
+        {(selectedThemes.size > 0 || ratingEnabled) && (
+          <button className="puzzle-clear-filters" onClick={handleClearFilters}>
+            {t('puzzleBrowser.clearFilters', 'Clear Filters')}
+          </button>
+        )}
       </div>
 
       {error && <div className="error">{error}</div>}
