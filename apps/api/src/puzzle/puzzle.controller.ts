@@ -34,13 +34,26 @@ export class PuzzleController {
     });
   }
 
+  /**
+   * GET /puzzles/themes — list all available themes with counts.
+   */
+  @Get('themes')
+  getThemes() {
+    return this.puzzleService.getThemes();
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('next')
   getNextPuzzle(
     @Request() req: AuthenticatedRequest,
     @Query('excludeId') excludeId?: string,
+    @Query() dto: FindPuzzlesDto,
   ) {
-    return this.puzzleService.getNextPuzzle(req.user.id, excludeId);
+    return this.puzzleService.getNextPuzzle(req.user.id, excludeId, {
+      themes: dto.themes,
+      ratingMin: dto.ratingMin,
+      ratingMax: dto.ratingMax,
+    });
   }
 
   /**

@@ -17,15 +17,19 @@ export class PuzzleService {
    * Get a puzzle matching the user's current rating (±200 range).
    * Excludes puzzles the user has already solved.
    */
-  async getNextPuzzle(userId: string, excludeId?: string) {
+  async getNextPuzzle(
+    userId: string,
+    excludeId?: string,
+    filters?: { themes?: string[]; ratingMin?: number; ratingMax?: number },
+  ) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { ratingPuzzle: true },
     });
 
     const range = 200;
-    const minRating = user.ratingPuzzle - range;
-    const maxRating = user.ratingPuzzle + range;
+    const minRating = filters?.ratingMin ?? user.ratingPuzzle - range;
+    const maxRating = filters?.ratingMax ?? user.ratingPuzzle + range;
 
     const attemptedIds = await this.prisma.puzzleAttempt.findMany({
       where: { userId },
@@ -37,20 +41,30 @@ export class PuzzleService {
       excludeIds.push(excludeId);
     }
 
+    const where: Record<string, unknown> = {
+      rating: { gte: minRating, lte: maxRating },
+      id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
+    };
+
+    if (filters?.themes && filters.themes.length > 0) {
+      where.AND = filters.themes.map((t) => ({ themes: { contains: t } }));
+    }
+
     const puzzles = await this.prisma.puzzle.findMany({
-      where: {
-        rating: { gte: minRating, lte: maxRating },
-        id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
-      },
+      where,
       take: 10,
       orderBy: { popularity: 'desc' },
     });
 
     if (puzzles.length === 0) {
+      const fallbackWhere: Record<string, unknown> = {
+        id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
+      };
+      if (filters?.themes && filters.themes.length > 0) {
+        fallbackWhere.AND = filters.themes.map((t) => ({ themes: { contains: t } }));
+      }
       const fallback = await this.prisma.puzzle.findFirst({
-        where: {
-          id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
-        },
+        where: fallbackWhere,
         orderBy: { rating: 'asc' },
       });
       if (!fallback) {
@@ -97,6 +111,26 @@ export class PuzzleService {
     });
 
     return puzzles.map((p) => this.formatPuzzle(p));
+  }
+
+  /**
+   * Get all available puzzle themes with counts.
+   */
+  async getThemes(): Promise<{ theme: string; count: number }[]> {
+    const puzzles = await this.prisma.puzzle.findMany({
+      select: { themes: true },
+    });
+
+    const counts = new Map<string, number>();
+    for (const p of puzzles) {
+      for (const t of p.themes.split(' ').filter(Boolean)) {
+        counts.set(t, (counts.get(t) ?? 0) + 1);
+      }
+    }
+
+    return Array.from(counts.entries())
+      .map(([theme, count]) => ({ theme, count }))
+      .sort((a, b) => b.count - a.count);
   }
 
   /**
