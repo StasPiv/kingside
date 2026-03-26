@@ -796,8 +796,23 @@ def telegram_poll_loop():
 # Веб-интерфейс логов (SSE + HTML)
 # ---------------------------------------------------------------------------
 
+AGENT_COLORS = {
+    "COORDINATOR": "#f0a",
+    "FRONTEND": "#0cf",
+    "BACKEND": "#f80",
+    "LAYOUT": "#bf0",
+    "DEVOPS": "#f55",
+    "QA": "#fa0",
+    "ARCHITECT": "#a8f",
+}
+
+
+def _agent_color(name: str) -> str:
+    return AGENT_COLORS.get(name.upper(), "#888")
+
+
 def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task: dict) -> str | None:
-    """Форматирует JSON-строку из agents.log в читаемый текст. Возвращает None если пропустить."""
+    """Форматирует JSON-строку из agents.log в HTML. Возвращает None если пропустить."""
     t = data.get("type", "")
     sid = data.get("session_id", "")[:8]
 
@@ -805,52 +820,122 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
         agent = data.get("agent", "")
         task = data.get("task", "")
         current_task[agent.lower()] = task
-        return f'<span class="msg">[{agent} {task}] &lt;&lt;&lt; новое сообщение &gt;&gt;&gt;</span>'
+        color = _agent_color(agent)
+        return (
+            f'<div class="ev ev-msg">'
+            f'<span class="badge" style="background:{color}">{_esc(agent)}</span>'
+            f'<span class="task">{_esc(task)}</span>'
+            f'<span class="lbl">новое сообщение</span>'
+            f'</div>'
+        )
 
     if t == "agent_init":
         agent = data.get("agent", "")
         sid = data.get("session_id", "")[:8]
         agents_map[sid] = agent.upper()
         agent_sid[agent.lower()] = sid
-        return f'<span class="init">[{agent.upper()}] === DAEMON ЗАПУЩЕН ===</span>'
+        color = _agent_color(agent)
+        return (
+            f'<div class="ev ev-init">'
+            f'<span class="badge" style="background:{color}">{_esc(agent.upper())}</span>'
+            f'daemon запущен'
+            f'</div>'
+        )
 
     if t == "system" and data.get("subtype") == "init":
         if sid not in agents_map:
             agents_map[sid] = sid
         return None
 
-    def _label(s):
+    def _label_parts(s):
         name = agents_map.get(s, s)
+        task = ""
         for aname, asid in agent_sid.items():
             if asid == s:
                 task = current_task.get(aname, "")
-                if task:
-                    return f"{name} {task}"
-        return name
+                break
+        return name, task
 
     if t == "assistant":
         msg = data.get("message", {})
-        lbl = _label(sid)
+        name, task = _label_parts(sid)
+        color = _agent_color(name)
         parts = []
         for c in msg.get("content", []):
-            if c.get("type") == "thinking":
+            ct = c.get("type", "")
+            if ct == "thinking":
                 text = c.get("thinking", "")
                 if text:
-                    parts.append(f'<span class="think">[{lbl}] {_esc(text)}</span>')
-            elif c.get("type") == "text":
+                    # Сворачиваемый thinking
+                    short = text[:120] + ("..." if len(text) > 120 else "")
+                    parts.append(
+                        f'<div class="ev ev-think">'
+                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
+                        f'<details><summary class="think-sum">{_esc(short)}</summary>'
+                        f'<pre class="think-full">{_esc(text)}</pre></details>'
+                        f'</div>'
+                    )
+            elif ct == "text":
                 text = c.get("text", "")
                 if text:
-                    parts.append(f'<span class="text">[{lbl}] {_esc(text)}</span>')
-            elif c.get("type") == "tool_use":
+                    parts.append(
+                        f'<div class="ev ev-text">'
+                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
+                        f'<span class="text-body">{_esc(text)}</span>'
+                        f'</div>'
+                    )
+            elif ct == "tool_use":
                 tname = c.get("name", "")
-                inp = json.dumps(c.get("input", {}), ensure_ascii=False)
-                parts.append(f'<span class="tool">[{lbl}] {_esc(tname)} -&gt; {_esc(inp)}</span>')
+                inp = c.get("input", {})
+                inp_str = json.dumps(inp, ensure_ascii=False)
+                # Короткие параметры inline, длинные — сворачиваемые
+                if len(inp_str) > 200:
+                    parts.append(
+                        f'<div class="ev ev-tool">'
+                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
+                        f'<span class="tool-name">{_esc(tname)}</span>'
+                        f'<details><summary class="tool-short">{_esc(inp_str[:100])}...</summary>'
+                        f'<pre class="tool-full">{_esc(inp_str)}</pre></details>'
+                        f'</div>'
+                    )
+                else:
+                    parts.append(
+                        f'<div class="ev ev-tool">'
+                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
+                        f'<span class="tool-name">{_esc(tname)}</span>'
+                        f'<span class="tool-args">{_esc(inp_str)}</span>'
+                        f'</div>'
+                    )
+            elif ct == "tool_result":
+                content = c.get("content", "")
+                if isinstance(content, list):
+                    content = " ".join(x.get("text", "") for x in content if isinstance(x, dict))
+                if content:
+                    short = content[:150] + ("..." if len(content) > 150 else "")
+                    parts.append(
+                        f'<div class="ev ev-tool-result">'
+                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'<details><summary class="tr-sum">{_esc(short)}</summary>'
+                        f'<pre class="tr-full">{_esc(content)}</pre></details>'
+                        f'</div>'
+                    )
         return "\n".join(parts) if parts else None
 
     if t == "result":
-        lbl = _label(sid)
+        name, task = _label_parts(sid)
+        color = _agent_color(name)
         cost = data.get("total_cost_usd", 0)
-        return f'<span class="result">[{lbl}] === ГОТОВ (${cost:.4f}) ===</span>'
+        return (
+            f'<div class="ev ev-result">'
+            f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+            f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
+            f'<span class="cost">${cost:.4f}</span> готов'
+            f'</div>'
+        )
 
     return None
 
@@ -919,23 +1004,46 @@ def _stream_logs_sse(wfile):
 LOGS_HTML = """<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kingside Agents</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #1a1a2e; color: #e0e0e0; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; }
-  #log { padding: 12px; white-space: pre-wrap; word-wrap: break-word; line-height: 1.5; }
-  .msg { color: #ffd700; font-weight: bold; }
-  .init { color: #00ff88; font-weight: bold; }
-  .think { color: #888; font-style: italic; }
-  .text { color: #e0e0e0; }
-  .tool { color: #64b5f6; }
-  .result { color: #00ff88; font-weight: bold; }
-  .ts { color: #666; }
+  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; }
+  #log { padding: 8px; max-width: 1200px; margin: 0 auto; }
+  .ev { padding: 6px 10px; margin: 2px 0; border-radius: 6px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .ev-msg { background: #1c2333; border-left: 3px solid #ffd700; }
+  .ev-init { background: #0d2818; border-left: 3px solid #00ff88; }
+  .ev-think { background: #161b22; border-left: 3px solid #444; }
+  .ev-text { background: #161b22; border-left: 3px solid #58a6ff; }
+  .ev-tool { background: #1c1e2a; border-left: 3px solid #64b5f6; }
+  .ev-tool-result { background: #161b22; border-left: 3px solid #555; }
+  .ev-result { background: #0d2818; border-left: 3px solid #00ff88; font-weight: 600; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 700;
+           color: #fff; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0; }
+  .task { color: #8b949e; font-size: 12px; flex-shrink: 0; }
+  .ts { color: #484f58; font-size: 11px; font-family: monospace; flex-shrink: 0; }
+  .lbl { color: #ffd700; font-weight: 600; }
+  .cost { color: #f0883e; font-weight: 700; font-family: monospace; }
+  .text-body { color: #c9d1d9; word-break: break-word; }
+  .tool-name { color: #d2a8ff; font-weight: 600; font-family: monospace; }
+  .tool-args { color: #7d8590; font-family: monospace; font-size: 12px; word-break: break-all; }
+  details { display: inline; }
+  summary { cursor: pointer; color: #7d8590; font-size: 12px; font-family: monospace; }
+  summary:hover { color: #c9d1d9; }
+  .think-sum { color: #6e7681; font-style: italic; }
+  .think-full, .tool-full, .tr-full { color: #8b949e; font-size: 12px; margin-top: 4px; white-space: pre-wrap;
+           word-break: break-all; max-height: 400px; overflow-y: auto; background: #0d1117; padding: 8px; border-radius: 4px; }
+  .tr-sum { color: #6e7681; }
+  #status { position: fixed; top: 0; right: 0; padding: 4px 12px; background: #161b22; border-bottom-left-radius: 8px;
+            font-size: 11px; color: #3fb950; border: 1px solid #21262d; }
+  #status.off { color: #f85149; }
 </style>
 </head><body>
+<div id="status">connected</div>
 <div id="log"></div>
 <script>
 const log = document.getElementById('log');
+const status = document.getElementById('status');
 let autoScroll = true;
 window.addEventListener('scroll', () => {
   autoScroll = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 50;
@@ -944,11 +1052,13 @@ const es = new EventSource('/logs/stream');
 es.onmessage = (e) => {
   const ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
   const div = document.createElement('div');
-  div.innerHTML = '<span class="ts">' + ts + '</span> ' + e.data;
-  log.appendChild(div);
+  div.innerHTML = e.data.replace(/^(<div class="ev[^"]*">)/, '$1<span class="ts">' + ts + '</span>');
+  // Unwrap the outer div since e.data already contains div
+  while (div.firstChild) log.appendChild(div.firstChild);
   if (autoScroll) window.scrollTo(0, document.body.scrollHeight);
 };
-es.onerror = () => { setTimeout(() => location.reload(), 3000); };
+es.onopen = () => { status.textContent = 'connected'; status.className = ''; };
+es.onerror = () => { status.textContent = 'reconnecting...'; status.className = 'off'; };
 </script>
 </body></html>"""
 
