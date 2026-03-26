@@ -1253,6 +1253,7 @@ if (SpeechRecognition) {
 
   micBtn.addEventListener('click', () => {
     if (isRecording) {
+      isRecording = false;
       recognition.stop();
     } else {
       finalText = input.value;
@@ -1265,7 +1266,11 @@ if (SpeechRecognition) {
     micBtn.classList.add('recording');
   };
   recognition.onend = () => {
-    isRecording = false;
+    if (isRecording) {
+      // Браузер оборвал — перезапускаем
+      recognition.start();
+      return;
+    }
     micBtn.classList.remove('recording');
   };
   recognition.onresult = (e) => {
