@@ -1145,3 +1145,61 @@ body:has(.puzzle-rush-board) {
   color: #fff;
 }
 
+.puzzle-browser-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid #333;
+  margin-bottom: 16px;
+}
+
+.puzzle-browser-tab {
+  padding: 8px 20px;
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+
+.puzzle-browser-tab.active {
+  color: #7c83ff;
+  border-bottom-color: #7c83ff;
+}
+
+.generate-puzzles-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.generate-puzzles-btn {
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.generate-puzzles-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.generate-puzzles-result {
+  color: #4ade80;
+  font-size: 13px;
+}
+
+.generate-puzzles-error {
+  color: #ef4444;
+  font-size: 13px;
+}
+

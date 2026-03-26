@@ -33,11 +33,23 @@ const THEME_CATEGORIES = {
 
 const PAGE_SIZE = 20;
 
+type GeneratedPuzzle = {
+  id: string;
+  fen: string;
+  moves: string[];
+  rating: number;
+  themes: string[];
+  sourceType: string;
+  sourceId: string | null;
+  createdAt: string;
+};
+
 export function PuzzleBrowserPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const [activeTab, setActiveTab] = useState<'library' | 'generated'>('library');
   const [puzzles, setPuzzles] = useState<PuzzleDto[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -72,10 +84,32 @@ export function PuzzleBrowserPage() {
     }
   }, [selectedThemes, ratingEnabled, ratingMin, ratingMax, t]);
 
+  // Generated puzzles
+  const [genPuzzles, setGenPuzzles] = useState<GeneratedPuzzle[]>([]);
+  const [genTotal, setGenTotal] = useState(0);
+  const [genLoading, setGenLoading] = useState(false);
+
+  const fetchGenerated = useCallback(async () => {
+    setGenLoading(true);
+    try {
+      const data = await api.get<{ data: GeneratedPuzzle[]; total: number }>('/api/puzzles/generated?limit=50');
+      setGenPuzzles(data.data ?? []);
+      setGenTotal(data.total ?? 0);
+    } catch {
+      setGenPuzzles([]);
+    } finally {
+      setGenLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    setPage(1);
-    fetchPuzzles(1);
-  }, [fetchPuzzles]);
+    if (activeTab === 'library') {
+      setPage(1);
+      fetchPuzzles(1);
+    } else {
+      fetchGenerated();
+    }
+  }, [fetchPuzzles, activeTab, fetchGenerated]);
 
   const handlePageChange = (newPage: number) => {
     setPage(newPage);
@@ -108,6 +142,17 @@ export function PuzzleBrowserPage() {
         </p>
       )}
 
+      <div className="puzzle-browser-tabs">
+        <button className={`puzzle-browser-tab${activeTab === 'library' ? ' active' : ''}`} onClick={() => setActiveTab('library')}>
+          {t('puzzleBrowser.library', 'Library')}
+        </button>
+        <button className={`puzzle-browser-tab${activeTab === 'generated' ? ' active' : ''}`} onClick={() => setActiveTab('generated')}>
+          {t('puzzleBrowser.generated', 'Generated')} {genTotal > 0 && `(${genTotal})`}
+        </button>
+      </div>
+
+      {activeTab === 'library' && (
+      <>
       <div className="puzzle-filters">
         <div className="filter-section">
           <h3>{t('puzzleBrowser.rating', 'Rating Range')}</h3>
@@ -228,6 +273,42 @@ export function PuzzleBrowserPage() {
             </div>
           )}
         </>
+      )}
+      </>
+      )}
+
+      {activeTab === 'generated' && (
+        genLoading ? (
+          <div className="loading">{t('common.loading')}</div>
+        ) : genPuzzles.length === 0 ? (
+          <div className="puzzle-empty">{t('puzzleBrowser.noGenerated', 'No generated puzzles yet. Analyze a game and click "Generate Puzzles".')}</div>
+        ) : (
+          <div className="puzzle-list">
+            {genPuzzles.map((puzzle) => (
+              <div key={puzzle.id} className="puzzle-card">
+                <div className="puzzle-card-header">
+                  <span className="puzzle-rating">{puzzle.rating}</span>
+                </div>
+                <div className="puzzle-card-themes">
+                  {puzzle.themes.slice(0, 3).map((theme) => (
+                    <span key={theme} className="puzzle-theme-tag">
+                      {t(`puzzleBrowser.themes.${theme}`, theme)}
+                    </span>
+                  ))}
+                  {puzzle.themes.length > 3 && (
+                    <span className="puzzle-theme-tag more">+{puzzle.themes.length - 3}</span>
+                  )}
+                </div>
+                <button
+                  className="puzzle-solve-btn"
+                  onClick={() => navigate(`/puzzle/${puzzle.id}?source=generated`)}
+                >
+                  {t('puzzleBrowser.solve')}
+                </button>
+              </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   );
