@@ -372,17 +372,29 @@ export function PuzzlePage() {
                 try { setup.move({ from: s.slice(0, 2), to: s.slice(2, 4), promotion: s[4] }); } catch { /* */ }
               }
               const afterSetupFen = setup.fen();
-              // Build PGN from player's moves (skip setup move)
+              // Build PGN from player's moves (skip setup move), respecting turn
               const c = new Chess(afterSetupFen);
-              const sans: string[] = [];
+              const fenParts = afterSetupFen.split(' ');
+              let isWhiteTurn = fenParts[1] === 'w';
+              let moveNum = parseInt(fenParts[5] || '1', 10);
+              const pgnParts: string[] = [];
               for (let i = 1; i < moves.length; i++) {
                 const uci = moves[i];
                 try {
                   const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-                  if (mv) sans.push(mv.san);
+                  if (!mv) break;
+                  if (isWhiteTurn) {
+                    pgnParts.push(`${moveNum}. ${mv.san}`);
+                  } else if (pgnParts.length === 0) {
+                    pgnParts.push(`${moveNum}... ${mv.san}`);
+                  } else {
+                    pgnParts.push(mv.san);
+                  }
+                  if (!isWhiteTurn) moveNum++;
+                  isWhiteTurn = !isWhiteTurn;
                 } catch { break; }
               }
-              const pgn = sans.map((san, i) => i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ${san}` : san).join(' ');
+              const pgn = pgnParts.join(' ');
               const params = new URLSearchParams({ fen: afterSetupFen, pgn, side: boardOrientation });
               window.open(`/analysis?${params.toString()}`, '_blank');
             }}

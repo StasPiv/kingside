@@ -149,8 +149,20 @@ export function AnalysisPage() {
       if (puzzleSide) setBoardOrientation(puzzleSide);
       if (puzzlePgn) {
         try {
-          const parsed = parseAnnotatedPgn(puzzlePgn);
-          loadFromPgn(parsed);
+          // Parse PGN with custom FEN using chess.js
+          const c = new Chess(puzzleFen);
+          c.loadPgn(puzzlePgn);
+          const verbose = c.history({ verbose: true });
+          const replay = new Chess(puzzleFen);
+          const chessMoves: ChessMove[] = verbose.map((m) => {
+            const mv = replay.move(m.san);
+            return {
+              san: mv!.san,
+              uci: mv!.from + mv!.to + (mv!.promotion || ''),
+              fenAfter: replay.fen(),
+            } as unknown as ChessMove;
+          });
+          loadFromPgn(chessMoves);
         } catch { /* ignore parse errors */ }
       }
     }
