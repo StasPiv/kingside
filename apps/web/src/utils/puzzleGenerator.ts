@@ -98,14 +98,22 @@ export async function generatePuzzlesFromPgn(
   const puzzles: GeneratedPuzzleData[] = [];
 
   // Create Stockfish worker
-  const worker = new Worker('/stockfish/stockfish.js');
+  // Use single-threaded build (works without cross-origin isolation)
+  const worker = new Worker('/stockfish/stockfish-18-single.js');
   const sendCmd = (cmd: string) => worker.postMessage(cmd);
 
-  // Wait for engine ready
-  await new Promise<void>((resolve) => {
+  worker.onerror = (err) => {
+    console.error('[PuzzleGenerator] Worker error:', err);
+  };
+
+  // Wait for engine ready (timeout 15s)
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Stockfish init timeout')), 15000);
     const handler = (e: MessageEvent) => {
       if (typeof e.data === 'string' && e.data.includes('uciok')) {
+        clearTimeout(timer);
         worker.removeEventListener('message', handler);
+        console.log('[PuzzleGenerator] Stockfish ready');
         resolve();
       }
     };
