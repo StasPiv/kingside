@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -50,7 +50,11 @@ export function PuzzleBrowserPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'library' | 'generated'>('library');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') === 'generated' ? 'generated' : 'library';
+  const setActiveTab = (tab: 'library' | 'generated') => {
+    setSearchParams(tab === 'generated' ? { tab: 'generated' } : {}, { replace: true });
+  };
   const [puzzles, setPuzzles] = useState<PuzzleDto[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
