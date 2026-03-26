@@ -12,7 +12,6 @@ import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
 import { PuzzlePage } from './pages/PuzzlePage';
 import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
 import { PuzzleRushReviewPage } from './pages/PuzzleRushReviewPage';
-import { ProfilePage } from './pages/ProfilePage';
 import { WorkshopPage } from './pages/WorkshopPage';
 import { BroadcastsPage } from './pages/BroadcastsPage';
 import { BroadcastTournamentPage } from './pages/BroadcastTournamentPage';
@@ -56,6 +55,12 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ProfileRedirect() {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/lobby" replace />;
+  return <Navigate to={`/player/${user.username}`} replace />;
+}
+
 export function App() {
   const [searchParams] = useSearchParams();
   const devSecret = import.meta.env.VITE_DEV_BYPASS_SECRET;
@@ -97,7 +102,7 @@ export function App() {
         <Route path="/friends" element={<ProtectedRoute><FriendsPage /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
-        <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><ProfileRedirect /></ProtectedRoute>} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
