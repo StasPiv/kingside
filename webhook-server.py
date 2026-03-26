@@ -817,21 +817,11 @@ def _format_tool_use(tname: str, inp: dict) -> str:
     if tname == "Bash":
         cmd = inp.get("command", "")
         desc = inp.get("description", "")
+        parts = '<span class="tool-name">$</span>'
         if desc:
-            if len(cmd) > 300:
-                return (
-                    f'<span class="tool-name">$</span> <span class="tool-desc">{_esc(desc)}</span>'
-                    f'<details><summary class="tool-short">{_esc(cmd[:100])}...</summary>'
-                    f'<pre class="tool-code">{_esc(cmd)}</pre></details>'
-                )
-            return f'<span class="tool-name">$</span> <span class="tool-desc">{_esc(desc)}</span> <code class="tool-cmd">{_esc(cmd)}</code>'
-        if len(cmd) > 300:
-            return (
-                f'<span class="tool-name">$</span>'
-                f'<details><summary class="tool-short">{_esc(cmd[:100])}...</summary>'
-                f'<pre class="tool-code">{_esc(cmd)}</pre></details>'
-            )
-        return f'<span class="tool-name">$</span> <code class="tool-cmd">{_esc(cmd)}</code>'
+            parts += f' <span class="tool-desc">{_esc(desc)}</span>'
+        parts += f'<pre class="tool-code">{_esc(cmd)}</pre>'
+        return parts
 
     if tname == "Read":
         path = inp.get("file_path", "")
@@ -849,8 +839,7 @@ def _format_tool_use(tname: str, inp: dict) -> str:
         return (
             f'<span class="tool-name">Write</span> <span class="tool-path">{_esc(path)}</span>'
             f' <span class="tool-meta">{lines} lines</span>'
-            f'<details><summary class="tool-short">show content</summary>'
-            f'<pre class="tool-full">{_esc(content)}</pre></details>'
+            f'<pre class="tool-code">{_esc(content)}</pre>'
         )
 
     if tname == "Edit":
@@ -897,19 +886,12 @@ def _format_tool_use(tname: str, inp: dict) -> str:
         if desc:
             header += f' <span class="tool-desc">{_esc(desc)}</span>'
         if prompt:
-            short = prompt[:150] + ("..." if len(prompt) > 150 else "")
-            header += f'<details><summary class="tool-short">{_esc(short)}</summary><pre class="tool-full">{_esc(prompt)}</pre></details>'
+            header += f'<pre class="tool-code">{_esc(prompt)}</pre>'
         return header
 
     # Fallback: generic JSON
-    inp_str = json.dumps(inp, ensure_ascii=False)
-    if len(inp_str) > 200:
-        return (
-            f'<span class="tool-name">{_esc(tname)}</span>'
-            f'<details><summary class="tool-short">{_esc(inp_str[:120])}...</summary>'
-            f'<pre class="tool-full">{_esc(inp_str)}</pre></details>'
-        )
-    return f'<span class="tool-name">{_esc(tname)}</span> <span class="tool-args">{_esc(inp_str)}</span>'
+    inp_str = json.dumps(inp, ensure_ascii=False, indent=2)
+    return f'<span class="tool-name">{_esc(tname)}</span><pre class="tool-code">{_esc(inp_str)}</pre>'
 
 
 def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task: dict) -> str | None:
@@ -967,14 +949,11 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
             if ct == "thinking":
                 text = c.get("thinking", "")
                 if text:
-                    # Сворачиваемый thinking
-                    short = text[:120] + ("..." if len(text) > 120 else "")
                     parts.append(
                         f'<div class="ev ev-think">'
                         f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
                         f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
-                        f'<details><summary class="think-sum">{_esc(short)}</summary>'
-                        f'<pre class="think-full">{_esc(text)}</pre></details>'
+                        f'<pre class="think-text">{_esc(text)}</pre>'
                         f'</div>'
                     )
             elif ct == "text":
@@ -1003,12 +982,10 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
                 if isinstance(content, list):
                     content = " ".join(x.get("text", "") for x in content if isinstance(x, dict))
                 if content:
-                    short = content[:150] + ("..." if len(content) > 150 else "")
                     parts.append(
                         f'<div class="ev ev-tool-result">'
                         f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
-                        f'<details><summary class="tr-sum">{_esc(short)}</summary>'
-                        f'<pre class="tr-full">{_esc(content)}</pre></details>'
+                        f'<pre class="tool-code">{_esc(content)}</pre>'
                         f'</div>'
                     )
         return "\n".join(parts) if parts else None
@@ -1133,10 +1110,8 @@ LOGS_HTML = """<!DOCTYPE html>
   details { display: inline; }
   summary { cursor: pointer; color: #7d8590; font-size: 12px; font-family: monospace; }
   summary:hover { color: #c9d1d9; }
-  .think-sum { color: #6e7681; font-style: italic; }
-  .think-full, .tool-full, .tr-full { color: #8b949e; font-size: 12px; margin-top: 4px; white-space: pre-wrap;
-           word-break: break-all; max-height: 400px; overflow-y: auto; background: #0d1117; padding: 8px; border-radius: 4px; }
-  .tr-sum { color: #6e7681; }
+  .think-text { color: #6e7681; font-style: italic; font-size: 12px; white-space: pre-wrap; word-break: break-word;
+                margin-top: 2px; background: none; }
   #status { position: fixed; top: 0; right: 0; padding: 4px 12px; background: #161b22; border-bottom-left-radius: 8px;
             font-size: 11px; color: #3fb950; border: 1px solid #21262d; }
   #status.off { color: #f85149; }
