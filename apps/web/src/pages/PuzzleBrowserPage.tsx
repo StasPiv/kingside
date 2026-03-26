@@ -303,12 +303,28 @@ export function PuzzleBrowserPage() {
                     <span className="puzzle-theme-tag more">+{puzzle.themes.length - 3}</span>
                   )}
                 </div>
-                <button
-                  className="puzzle-solve-btn"
-                  onClick={() => navigate(`/puzzle/${puzzle.id}?source=generated`)}
-                >
-                  {t('puzzleBrowser.solve')}
-                </button>
+                <div className="puzzle-card-actions">
+                  <button
+                    className="puzzle-solve-btn"
+                    onClick={() => navigate(`/puzzle/${puzzle.id}?source=generated`)}
+                  >
+                    {t('puzzleBrowser.solve')}
+                  </button>
+                  <button
+                    className="puzzle-delete-btn"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await api.delete(`/api/puzzles/generated/${puzzle.id}`);
+                        setGenPuzzles((prev) => prev.filter((p) => p.id !== puzzle.id));
+                        setGenTotal((n) => n - 1);
+                      } catch { /* ignore */ }
+                    }}
+                    title={t('common.delete', 'Delete')}
+                  >
+                    ×
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -320,6 +336,21 @@ export function PuzzleBrowserPage() {
           <button className="generate-puzzles-btn" onClick={() => setShowGenerator(true)}>
             {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
           </button>
+          {genTotal > 0 && (
+            <button
+              className="puzzle-delete-all-btn"
+              onClick={async () => {
+                if (!confirm(t('puzzleBrowser.confirmDeleteAll', 'Delete all generated puzzles?'))) return;
+                try {
+                  await api.delete('/api/puzzles/generated/all');
+                  setGenPuzzles([]);
+                  setGenTotal(0);
+                } catch { /* ignore */ }
+              }}
+            >
+              {t('puzzleBrowser.deleteAll', 'Delete All')}
+            </button>
+          )}
         </div>
       )}
 

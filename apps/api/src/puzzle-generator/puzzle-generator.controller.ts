@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Post,
   Param,
@@ -177,6 +178,35 @@ export class PuzzleGeneratorController {
       sourceId: puzzle.sourceId,
       sourceMetadata: puzzle.sourceMetadata ? JSON.parse(puzzle.sourceMetadata) : null,
     };
+  }
+
+  /**
+   * DELETE /api/puzzles/generated/all — delete all own generated puzzles.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete('all')
+  async deleteAll(@Request() req: AuthenticatedRequest) {
+    const result = await this.prisma.generatedPuzzle.deleteMany({
+      where: { createdBy: req.user.id },
+    });
+    return { deleted: result.count };
+  }
+
+  /**
+   * DELETE /api/puzzles/generated/:id — delete one own puzzle.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  async deleteOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const puzzle = await this.prisma.generatedPuzzle.findUnique({ where: { id } });
+    if (!puzzle || puzzle.createdBy !== req.user.id) {
+      return { deleted: 0 };
+    }
+    await this.prisma.generatedPuzzle.delete({ where: { id } });
+    return { deleted: 1 };
   }
 
   /**

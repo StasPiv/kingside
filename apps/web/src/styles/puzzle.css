@@ -1462,3 +1462,43 @@ body:has(.puzzle-rush-board) {
   font-size: 12px;
 }
 
+
+/* Puzzle card actions */
+.puzzle-card-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.puzzle-delete-btn {
+  background: transparent;
+  border: 1px solid #555;
+  color: #888;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.puzzle-delete-btn:hover {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.puzzle-delete-all-btn {
+  background: transparent;
+  border: 1px solid #dc2626;
+  color: #dc2626;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.puzzle-delete-all-btn:hover {
+  background: rgba(220, 38, 38, 0.1);
+}
