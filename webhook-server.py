@@ -783,9 +783,23 @@ def telegram_poll_loop():
                 target_agent = match.group(1).lower()
                 agent_msg = text[match.end():]
 
-            send_to_agent(target_agent, f"[Telegram {display}] {agent_msg}")
+            prompt_text = f"[Telegram {display}] {agent_msg}"
+            _log_user_prompt(target_agent, prompt_text, source=f"Telegram {display}")
+            send_to_agent(target_agent, prompt_text)
             log(f"Telegram -> {target_agent}: {agent_msg[:80]}")
             send_telegram(f"✅ Сообщение отправлено агенту {target_agent}")
+
+
+def _log_user_prompt(agent: str, text: str, source: str = "web"):
+    """Записывает пользовательский промпт в agents.log для отображения в /logs."""
+    log_file = os.path.join(LOG_DIR, "agents.log")
+    with open(log_file, "a") as lf:
+        lf.write(json.dumps({
+            "type": "user_prompt",
+            "agent": agent,
+            "text": text,
+            "source": source,
+        }) + "\n")
 
 
 # ---------------------------------------------------------------------------
@@ -898,6 +912,20 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
     """Форматирует JSON-строку из agents.log в HTML. Возвращает None если пропустить."""
     t = data.get("type", "")
     sid = data.get("session_id", "")[:8]
+
+    if t == "user_prompt":
+        agent = data.get("agent", "")
+        text = data.get("text", "")
+        source = data.get("source", "web")
+        color = _agent_color(agent)
+        return (
+            f'<div class="ev ev-user">'
+            f'<span class="badge badge-user">{_esc(source)}</span>'
+            f'<span class="prompt-arrow">→</span>'
+            f'<span class="badge" style="background:{color}">{_esc(agent.upper())}</span>'
+            f'<pre class="user-text">{_esc(text)}</pre>'
+            f'</div>'
+        )
 
     if t == "agent_msg":
         agent = data.get("agent", "")
@@ -1073,7 +1101,8 @@ LOGS_HTML = """<!DOCTYPE html>
 <title>Kingside Agents</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px; }
+  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px;
+         padding-bottom: 80px; }
   #log { padding: 8px; max-width: 1200px; margin: 0 auto; }
   .ev { padding: 6px 10px; margin: 2px 0; border-radius: 6px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .ev-msg { background: #1c2333; border-left: 3px solid #ffd700; }
@@ -1083,8 +1112,13 @@ LOGS_HTML = """<!DOCTYPE html>
   .ev-tool { background: #1c1e2a; border-left: 3px solid #64b5f6; }
   .ev-tool-result { background: #161b22; border-left: 3px solid #555; }
   .ev-result { background: #0d2818; border-left: 3px solid #00ff88; font-weight: 600; }
+  .ev-user { background: #1a1a30; border-left: 3px solid #a371f7; }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 700;
            color: #fff; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0; }
+  .badge-user { background: #6e40c9; }
+  .prompt-arrow { color: #6e7681; }
+  .user-text { color: #e2c5ff; font-size: 13px; white-space: pre-wrap; word-break: break-word;
+               margin-top: 2px; background: none; }
   .task { color: #8b949e; font-size: 12px; flex-shrink: 0; }
   .ts { color: #484f58; font-size: 11px; font-family: monospace; flex-shrink: 0; }
   .lbl { color: #ffd700; font-weight: 600; }
@@ -1113,30 +1147,92 @@ LOGS_HTML = """<!DOCTYPE html>
   .think-text { color: #6e7681; font-style: italic; font-size: 12px; white-space: pre-wrap; word-break: break-word;
                 margin-top: 2px; background: none; }
   #status { position: fixed; top: 0; right: 0; padding: 4px 12px; background: #161b22; border-bottom-left-radius: 8px;
-            font-size: 11px; color: #3fb950; border: 1px solid #21262d; }
+            font-size: 11px; color: #3fb950; border: 1px solid #21262d; z-index: 10; }
   #status.off { color: #f85149; }
+  #input-bar { position: fixed; bottom: 0; left: 0; right: 0; background: #161b22; border-top: 1px solid #21262d;
+               padding: 8px 12px; display: flex; gap: 8px; align-items: center; z-index: 10; }
+  #agent-select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px;
+                  padding: 6px 10px; font-size: 13px; }
+  #prompt-input { flex: 1; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px;
+                  padding: 8px 12px; font-size: 14px; font-family: inherit; resize: none; min-height: 38px; max-height: 120px; }
+  #prompt-input:focus { outline: none; border-color: #58a6ff; }
+  #send-btn { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 8px 16px;
+              font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  #send-btn:hover { background: #2ea043; }
+  #send-btn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
 </style>
 </head><body>
 <div id="status">connected</div>
 <div id="log"></div>
+<div id="input-bar">
+  <select id="agent-select">
+    <option value="coordinator">coordinator</option>
+    <option value="backend">backend</option>
+    <option value="frontend">frontend</option>
+    <option value="layout">layout</option>
+    <option value="devops">devops</option>
+    <option value="architect">architect</option>
+  </select>
+  <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1"></textarea>
+  <button id="send-btn">Send</button>
+</div>
 <script>
 const log = document.getElementById('log');
 const status = document.getElementById('status');
+const input = document.getElementById('prompt-input');
+const agentSel = document.getElementById('agent-select');
+const sendBtn = document.getElementById('send-btn');
+
 let autoScroll = true;
 window.addEventListener('scroll', () => {
-  autoScroll = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 50;
+  autoScroll = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 100;
 });
+
 const es = new EventSource('/logs/stream');
 es.onmessage = (e) => {
   const ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
   const div = document.createElement('div');
   div.innerHTML = e.data.replace(/^(<div class="ev[^"]*">)/, '$1<span class="ts">' + ts + '</span>');
-  // Unwrap the outer div since e.data already contains div
   while (div.firstChild) log.appendChild(div.firstChild);
   if (autoScroll) window.scrollTo(0, document.body.scrollHeight);
 };
 es.onopen = () => { status.textContent = 'connected'; status.className = ''; };
 es.onerror = () => { status.textContent = 'reconnecting...'; status.className = 'off'; };
+
+// Auto-resize textarea
+input.addEventListener('input', () => {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+});
+
+async function sendPrompt() {
+  const text = input.value.trim();
+  if (!text) return;
+  const agent = agentSel.value;
+  sendBtn.disabled = true;
+  try {
+    const res = await fetch('/prompt', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({agent, text}),
+    });
+    if (res.ok) {
+      input.value = '';
+      input.style.height = 'auto';
+    }
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+sendBtn.addEventListener('click', sendPrompt);
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendPrompt();
+  }
+});
 </script>
 </body></html>"""
 
@@ -1144,6 +1240,36 @@ es.onerror = () => { status.textContent = 'reconnecting...'; status.className = 
 class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0]
+
+        if path == "/prompt":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            agent = payload.get("agent", "coordinator").lower()
+            text = payload.get("text", "").strip()
+            if not text:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(b'{"error":"empty text"}')
+                return
+            valid = get_valid_agents()
+            if agent not in valid:
+                self.send_response(400)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"unknown agent: {agent}"}).encode())
+                return
+            _log_user_prompt(agent, text, source="web")
+            send_to_agent(agent, f"[Web] {text}")
+            log(f"Web prompt -> {agent}: {text[:80]}")
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "sent", "agent": agent}).encode())
+            return
 
         if path == "/agent/message":
             content_length = int(self.headers.get("Content-Length", 0))
