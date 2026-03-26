@@ -280,11 +280,27 @@ export function PuzzlePage() {
         <span>{t('puzzle.streak', { count: streak })}</span>
         <span>{t('puzzle.totalSolved', { count: totalSolved })}</span>
         {puzzle && <span>{t('puzzle.puzzleRating', { rating: puzzle.rating })}</span>}
-        {isGenerated && puzzle && (puzzle as unknown as { sourceId?: string }).sourceId && (
-          <Link to={`/game/${(puzzle as unknown as { sourceId: string }).sourceId}/review`} className="puzzle-source-link">
-            {t('puzzle.fromGame', 'From game')} →
-          </Link>
-        )}
+        {isGenerated && puzzle && (() => {
+          const p = puzzle as unknown as { sourceId?: string; sourceMetadata?: { white?: string; black?: string; event?: string; date?: string }; sourceMoveNum?: number };
+          if (p.sourceId) {
+            return (
+              <Link to={`/game/${p.sourceId}/review`} className="puzzle-source-link">
+                {t('puzzle.fromGame', 'From game')} →
+              </Link>
+            );
+          }
+          if (p.sourceMetadata) {
+            const m = p.sourceMetadata;
+            const label = m.white && m.black ? `${m.white} vs ${m.black}` : m.event || '';
+            return label ? (
+              <span className="puzzle-source-info">
+                {label}
+                {p.sourceMoveNum ? `, move ${p.sourceMoveNum}` : ''}
+              </span>
+            ) : null;
+          }
+          return null;
+        })()}
       </div>
 
       <div className="puzzle-board-area">

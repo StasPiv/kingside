@@ -1,5 +1,13 @@
 import { Chess } from 'chess.js';
 
+export type SourceMetadata = {
+  white?: string;
+  black?: string;
+  event?: string;
+  date?: string;
+  result?: string;
+};
+
 export type GeneratedPuzzleData = {
   fen: string;
   moves: string; // space-separated UCI moves
@@ -9,6 +17,7 @@ export type GeneratedPuzzleData = {
   sourceType: string;
   sourceId: string | null;
   sourceMoveNum: number;
+  sourceMetadata?: SourceMetadata;
 };
 
 export type GenerationProgress = {
@@ -135,6 +144,19 @@ export async function generatePuzzlesFromPgn(
       continue;
     }
 
+    // Parse PGN headers for source metadata
+    const metadata: SourceMetadata = {};
+    const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
+    let hMatch;
+    while ((hMatch = headerRegex.exec(gamePgn)) !== null) {
+      const [, key, value] = hMatch;
+      if (key === 'White') metadata.white = value;
+      else if (key === 'Black') metadata.black = value;
+      else if (key === 'Event') metadata.event = value;
+      else if (key === 'Date') metadata.date = value;
+      else if (key === 'Result') metadata.result = value;
+    }
+
     const moves = chess.history({ verbose: true });
     const positions: { fen: string; moveNum: number }[] = [];
     const replay = new Chess();
@@ -177,6 +199,7 @@ export async function generatePuzzlesFromPgn(
           sourceType: 'pgn_import',
           sourceId: null,
           sourceMoveNum: moveNum,
+          sourceMetadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         });
       }
     }
