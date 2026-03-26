@@ -290,6 +290,18 @@
 
 .main:has(.analysis-page) {
   max-width: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+body.has-analysis-page .main {
+  max-width: none;
+  margin: 0;
   padding: 0;
   flex: 1;
   min-height: 0;
