@@ -817,10 +817,21 @@ def _format_tool_use(tname: str, inp: dict) -> str:
     if tname == "Bash":
         cmd = inp.get("command", "")
         desc = inp.get("description", "")
-        header = f'<span class="tool-name">$ </span>'
         if desc:
-            header += f'<span class="tool-desc">{_esc(desc)}</span><br>'
-        return f'{header}<pre class="tool-code">{_esc(cmd)}</pre>'
+            if len(cmd) > 300:
+                return (
+                    f'<span class="tool-name">$</span> <span class="tool-desc">{_esc(desc)}</span>'
+                    f'<details><summary class="tool-short">{_esc(cmd[:100])}...</summary>'
+                    f'<pre class="tool-code">{_esc(cmd)}</pre></details>'
+                )
+            return f'<span class="tool-name">$</span> <span class="tool-desc">{_esc(desc)}</span> <code class="tool-cmd">{_esc(cmd)}</code>'
+        if len(cmd) > 300:
+            return (
+                f'<span class="tool-name">$</span>'
+                f'<details><summary class="tool-short">{_esc(cmd[:100])}...</summary>'
+                f'<pre class="tool-code">{_esc(cmd)}</pre></details>'
+            )
+        return f'<span class="tool-name">$</span> <code class="tool-cmd">{_esc(cmd)}</code>'
 
     if tname == "Read":
         path = inp.get("file_path", "")
@@ -1107,6 +1118,8 @@ LOGS_HTML = """<!DOCTYPE html>
   .tool-desc { color: #8b949e; font-style: italic; }
   .tool-path { color: #79c0ff; font-family: monospace; }
   .tool-meta { color: #6e7681; font-size: 11px; }
+  .tool-cmd { color: #e6edf3; background: #161b22; padding: 2px 8px; border-radius: 4px;
+              font-size: 12px; word-break: break-all; border: 1px solid #21262d; }
   .tool-code { color: #e6edf3; background: #0d1117; padding: 6px 10px; border-radius: 4px; margin-top: 4px;
                font-size: 12px; white-space: pre-wrap; word-break: break-all; border: 1px solid #21262d; }
   .tool-pattern { color: #ffa657; background: #1c1e2a; padding: 1px 6px; border-radius: 3px; }
