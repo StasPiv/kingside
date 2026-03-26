@@ -1264,7 +1264,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": f"unknown agent: {agent}"}).encode())
                 return
             _log_user_prompt(agent, text, source="web")
-            send_to_agent(agent, f"[Web] {text}")
+            send_to_agent(agent, f"[Web] {text}\n\nОтветь текстовым сообщением. НЕ отправляй ответ в Telegram и НЕ создавай комментарий в Jira — ответ виден в веб-интерфейсе.")
             log(f"Web prompt -> {agent}: {text[:80]}")
             self.send_response(200)
             self.end_headers()
