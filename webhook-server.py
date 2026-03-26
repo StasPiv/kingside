@@ -811,6 +811,96 @@ def _agent_color(name: str) -> str:
     return AGENT_COLORS.get(name.upper(), "#888")
 
 
+def _format_tool_use(tname: str, inp: dict) -> str:
+    """Форматирует tool_use в читаемый HTML в зависимости от типа инструмента."""
+
+    if tname == "Bash":
+        cmd = inp.get("command", "")
+        desc = inp.get("description", "")
+        header = f'<span class="tool-name">$ </span>'
+        if desc:
+            header += f'<span class="tool-desc">{_esc(desc)}</span><br>'
+        return f'{header}<pre class="tool-code">{_esc(cmd)}</pre>'
+
+    if tname == "Read":
+        path = inp.get("file_path", "")
+        offset = inp.get("offset", "")
+        limit = inp.get("limit", "")
+        extra = ""
+        if offset or limit:
+            extra = f' <span class="tool-meta">L{offset or 1}' + (f'-{int(offset or 0) + int(limit)}' if limit else '') + '</span>'
+        return f'<span class="tool-name">Read</span> <span class="tool-path">{_esc(path)}</span>{extra}'
+
+    if tname == "Write":
+        path = inp.get("file_path", "")
+        content = inp.get("content", "")
+        lines = content.count("\n") + 1
+        return (
+            f'<span class="tool-name">Write</span> <span class="tool-path">{_esc(path)}</span>'
+            f' <span class="tool-meta">{lines} lines</span>'
+            f'<details><summary class="tool-short">show content</summary>'
+            f'<pre class="tool-full">{_esc(content)}</pre></details>'
+        )
+
+    if tname == "Edit":
+        path = inp.get("file_path", "")
+        old = inp.get("old_string", "")
+        new = inp.get("new_string", "")
+        return (
+            f'<span class="tool-name">Edit</span> <span class="tool-path">{_esc(path)}</span>'
+            f'<div class="diff-block">'
+            f'<pre class="diff-del">{_esc(old)}</pre>'
+            f'<pre class="diff-add">{_esc(new)}</pre>'
+            f'</div>'
+        )
+
+    if tname == "Glob":
+        pattern = inp.get("pattern", "")
+        path = inp.get("path", "")
+        return f'<span class="tool-name">Glob</span> <span class="tool-path">{_esc(pattern)}</span>' + (f' in {_esc(path)}' if path else '')
+
+    if tname == "Grep":
+        pattern = inp.get("pattern", "")
+        path = inp.get("path", "")
+        return f'<span class="tool-name">Grep</span> <code class="tool-pattern">{_esc(pattern)}</code>' + (f' in {_esc(path)}' if path else '')
+
+    if tname.startswith("mcp__"):
+        # MCP tool: показать имя коротко + параметры
+        short_name = tname.split("__")[-1]
+        params = []
+        for k, v in inp.items():
+            vs = str(v)
+            if len(vs) > 100:
+                vs = vs[:100] + "..."
+            params.append(f'<span class="tool-param-key">{_esc(k)}</span>=<span class="tool-param-val">{_esc(vs)}</span>')
+        params_html = ", ".join(params)
+        return f'<span class="tool-name">{_esc(short_name)}</span> {params_html}'
+
+    if tname == "Agent":
+        desc = inp.get("description", "")
+        prompt = inp.get("prompt", "")
+        agent_type = inp.get("subagent_type", "")
+        header = f'<span class="tool-name">Agent</span>'
+        if agent_type:
+            header += f' <span class="tool-meta">{_esc(agent_type)}</span>'
+        if desc:
+            header += f' <span class="tool-desc">{_esc(desc)}</span>'
+        if prompt:
+            short = prompt[:150] + ("..." if len(prompt) > 150 else "")
+            header += f'<details><summary class="tool-short">{_esc(short)}</summary><pre class="tool-full">{_esc(prompt)}</pre></details>'
+        return header
+
+    # Fallback: generic JSON
+    inp_str = json.dumps(inp, ensure_ascii=False)
+    if len(inp_str) > 200:
+        return (
+            f'<span class="tool-name">{_esc(tname)}</span>'
+            f'<details><summary class="tool-short">{_esc(inp_str[:120])}...</summary>'
+            f'<pre class="tool-full">{_esc(inp_str)}</pre></details>'
+        )
+    return f'<span class="tool-name">{_esc(tname)}</span> <span class="tool-args">{_esc(inp_str)}</span>'
+
+
 def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task: dict) -> str | None:
     """Форматирует JSON-строку из agents.log в HTML. Возвращает None если пропустить."""
     t = data.get("type", "")
@@ -889,27 +979,14 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
             elif ct == "tool_use":
                 tname = c.get("name", "")
                 inp = c.get("input", {})
-                inp_str = json.dumps(inp, ensure_ascii=False)
-                # Короткие параметры inline, длинные — сворачиваемые
-                if len(inp_str) > 200:
-                    parts.append(
-                        f'<div class="ev ev-tool">'
-                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
-                        f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
-                        f'<span class="tool-name">{_esc(tname)}</span>'
-                        f'<details><summary class="tool-short">{_esc(inp_str[:100])}...</summary>'
-                        f'<pre class="tool-full">{_esc(inp_str)}</pre></details>'
-                        f'</div>'
-                    )
-                else:
-                    parts.append(
-                        f'<div class="ev ev-tool">'
-                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
-                        f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
-                        f'<span class="tool-name">{_esc(tname)}</span>'
-                        f'<span class="tool-args">{_esc(inp_str)}</span>'
-                        f'</div>'
-                    )
+                tool_html = _format_tool_use(tname, inp)
+                parts.append(
+                    f'<div class="ev ev-tool">'
+                    f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                    f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
+                    f'{tool_html}'
+                    f'</div>'
+                )
             elif ct == "tool_result":
                 content = c.get("content", "")
                 if isinstance(content, list):
@@ -1025,8 +1102,21 @@ LOGS_HTML = """<!DOCTYPE html>
   .lbl { color: #ffd700; font-weight: 600; }
   .cost { color: #f0883e; font-weight: 700; font-family: monospace; }
   .text-body { color: #c9d1d9; word-break: break-word; }
-  .tool-name { color: #d2a8ff; font-weight: 600; font-family: monospace; }
+  .tool-name { color: #d2a8ff; font-weight: 600; font-family: monospace; white-space: nowrap; }
   .tool-args { color: #7d8590; font-family: monospace; font-size: 12px; word-break: break-all; }
+  .tool-desc { color: #8b949e; font-style: italic; }
+  .tool-path { color: #79c0ff; font-family: monospace; }
+  .tool-meta { color: #6e7681; font-size: 11px; }
+  .tool-code { color: #e6edf3; background: #0d1117; padding: 6px 10px; border-radius: 4px; margin-top: 4px;
+               font-size: 12px; white-space: pre-wrap; word-break: break-all; border: 1px solid #21262d; }
+  .tool-pattern { color: #ffa657; background: #1c1e2a; padding: 1px 6px; border-radius: 3px; }
+  .tool-param-key { color: #7ee787; }
+  .tool-param-val { color: #c9d1d9; }
+  .diff-block { margin-top: 4px; font-family: monospace; font-size: 12px; width: 100%; }
+  .diff-del { background: #3d1117; color: #ffa198; padding: 4px 8px; border-radius: 4px 4px 0 0; margin: 0;
+              white-space: pre-wrap; word-break: break-all; border: 1px solid #5d1a1a; }
+  .diff-add { background: #0d2818; color: #7ee787; padding: 4px 8px; border-radius: 0 0 4px 4px; margin: 0;
+              white-space: pre-wrap; word-break: break-all; border: 1px solid #1a4d2e; border-top: none; }
   details { display: inline; }
   summary { cursor: pointer; color: #7d8590; font-size: 12px; font-family: monospace; }
   summary:hover { color: #c9d1d9; }
