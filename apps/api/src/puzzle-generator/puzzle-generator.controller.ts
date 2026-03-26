@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Post,
@@ -7,6 +8,7 @@ import {
   Request,
   UseGuards,
   ParseUUIDPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
@@ -141,6 +143,61 @@ export class PuzzleGeneratorController {
       sourceType: puzzle.sourceType,
       sourceId: puzzle.sourceId,
     };
+  }
+
+  /**
+   * POST /api/puzzles/generated/batch — save array of generated puzzles from client.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('batch')
+  async batch(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { puzzles: Array<{
+      fen: string;
+      moves: string;
+      rating: number;
+      gap?: number;
+      depth?: number;
+      sourceType: string;
+      sourceId?: string;
+      sourceMoveNum?: number;
+      themes?: string;
+    }> },
+  ) {
+    const puzzles = body?.puzzles;
+    if (!Array.isArray(puzzles)) {
+      throw new BadRequestException('puzzles must be an array');
+    }
+
+    if (puzzles.length === 0) return { created: 0 };
+    if (puzzles.length > 200) {
+      throw new BadRequestException('Maximum 200 puzzles per batch');
+    }
+
+    // Validate each puzzle
+    for (const p of puzzles) {
+      if (!p.fen || typeof p.fen !== 'string') throw new BadRequestException('Each puzzle must have a fen string');
+      if (!p.moves || typeof p.moves !== 'string') throw new BadRequestException('Each puzzle must have a moves string');
+      if (!p.rating || p.rating <= 0) throw new BadRequestException('Each puzzle must have rating > 0');
+      if (!p.sourceType) throw new BadRequestException('Each puzzle must have sourceType');
+    }
+
+    const data = puzzles.map((p) => ({
+      fen: p.fen,
+      moves: p.moves,
+      rating: p.rating,
+      gap: p.gap ?? 0,
+      depth: p.depth ?? 18,
+      sourceType: p.sourceType,
+      sourceId: p.sourceId ?? null,
+      sourceMoveNum: p.sourceMoveNum ?? null,
+      themes: p.themes ?? '',
+      createdBy: req.user.id,
+    }));
+
+    const result = await this.prisma.generatedPuzzle.createMany({ data });
+
+    return { created: result.count };
   }
 
   /**
