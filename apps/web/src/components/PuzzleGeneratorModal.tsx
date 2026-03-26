@@ -116,12 +116,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
               {t('puzzleGenerator.analyzing', 'Analyzing...')}
             </div>
             <div className="puzzle-generator-progress-detail">
-              {t('puzzleGenerator.gameProgress', {
-                game: progress.gameIndex + 1,
-                totalGames: progress.totalGames,
-                position: progress.positionIndex + 1,
-                totalPositions: progress.totalPositions,
-              }) || `Game ${progress.gameIndex + 1}/${progress.totalGames}, Position ${progress.positionIndex + 1}/${progress.totalPositions}`}
+              Game {progress.gameIndex + 1}/{progress.totalGames}, Position {progress.positionIndex + 1}/{progress.totalPositions}
             </div>
             <div className="puzzle-generator-progress-bar">
               <div
@@ -134,7 +129,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
               />
             </div>
             <div className="puzzle-generator-progress-found">
-              {t('puzzleGenerator.found', { count: progress.puzzlesFound }) || `${progress.puzzlesFound} puzzles found`}
+              {progress.puzzlesFound} puzzles found
             </div>
             <button className="puzzle-generator-abort" onClick={handleAbort}>
               {t('common.cancel', 'Cancel')}
@@ -145,7 +140,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
         {result && (
           <div className="puzzle-generator-result">
             <div className="puzzle-generator-result-count">
-              {t('puzzleGenerator.resultCount', { count: result.length }) || `${result.length} puzzles generated`}
+              {result.length} puzzles generated
             </div>
             {result.length > 0 && (
               <>
