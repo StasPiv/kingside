@@ -86,6 +86,7 @@ export function AnalysisPage() {
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   type MobileTabId = 'moves' | 'engine' | 'report';
   const [panel1Tab, setPanel1Tab] = useState<MobileTabId>('moves');
   const [panel2Tab, setPanel2Tab] = useState<MobileTabId>('engine');
@@ -107,6 +108,7 @@ export function AnalysisPage() {
   const urlParams = new URLSearchParams(location.search);
   const puzzleFen = (location.state as { puzzleFen?: string } | null)?.puzzleFen ?? urlParams.get('fen') ?? undefined;
   const puzzlePgn = (location.state as { puzzlePgn?: string } | null)?.puzzlePgn ?? urlParams.get('pgn') ?? undefined;
+  const puzzleSide = urlParams.get('side') as 'white' | 'black' | null;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
@@ -144,6 +146,7 @@ export function AnalysisPage() {
   useEffect(() => {
     if (puzzleFen && !gameId && !analysisId) {
       setInitialFen(puzzleFen);
+      if (puzzleSide) setBoardOrientation(puzzleSide);
       if (puzzlePgn) {
         try {
           const parsed = parseAnnotatedPgn(puzzlePgn);
@@ -484,7 +487,7 @@ export function AnalysisPage() {
 
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop: handleFastDragDrop,
-    boardOrientation: 'white',
+    boardOrientation,
     allowBothColors: true,
     enabled: !loading && inputMode === 'drag',
   });
@@ -492,7 +495,7 @@ export function AnalysisPage() {
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
-      boardOrientation: 'white' as const,
+      boardOrientation,
       animationDurationInMs: suppressAnimationRef.current ? 0 : 200,
       allowDragging: false,
       showNotation: true,
@@ -501,7 +504,7 @@ export function AnalysisPage() {
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardStyle, boardThemeOptions, squareStyles, handleSquareClick, inputMode],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, handleSquareClick, inputMode],
   );
 
   // --- Computed values ---

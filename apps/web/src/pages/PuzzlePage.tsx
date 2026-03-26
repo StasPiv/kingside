@@ -374,7 +374,7 @@ export function PuzzlePage() {
                 } catch { break; }
               }
               const pgn = sans.map((san, i) => i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ${san}` : san).join(' ');
-              const params = new URLSearchParams({ fen: puzzle.fen, pgn });
+              const params = new URLSearchParams({ fen: puzzle.fen, pgn, side: boardOrientation });
               window.open(`/analysis?${params.toString()}`, '_blank');
             }}
           >
