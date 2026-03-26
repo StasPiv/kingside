@@ -48,7 +48,7 @@ export class PuzzleGeneratorController {
   @UseGuards(JwtAuthGuard)
   @Post('batch')
   async batch(
-    @Body() body: { puzzles: Array<{ fen: string; moves: string; rating: number; gap: number; themes: string; sourceType: string; sourceId?: string | null; sourceMoveNum?: number }> },
+    @Body() body: { puzzles: Array<{ fen: string; moves: string; rating: number; gap: number; themes: string; sourceType: string; sourceId?: string | null; sourceMoveNum?: number; sourceMetadata?: Record<string, string> }> },
     @Request() req: AuthenticatedRequest,
   ) {
     const puzzles = body.puzzles ?? [];
