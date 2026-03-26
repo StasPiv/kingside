@@ -1070,6 +1070,31 @@ body:has(.puzzle-rush-board) {
   align-items: center;
 }
 
+/* Puzzle eval info (shown after solving) */
+.puzzle-eval-info {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #aaa;
+  flex-wrap: wrap;
+}
+
+.puzzle-eval-best {
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.puzzle-eval-second {
+  color: #f59e0b;
+}
+
+.puzzle-eval-gap {
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Puzzle filter enhancements */
 .puzzle-filter-toggle {
   display: flex;

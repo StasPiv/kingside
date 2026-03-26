@@ -6,6 +6,10 @@ export type SourceMetadata = {
   event?: string;
   date?: string;
   result?: string;
+  bestScore?: number;
+  bestMove?: string;
+  secondBestScore?: number;
+  secondBestMove?: string;
 };
 
 export type GeneratedPuzzleData = {
@@ -225,7 +229,13 @@ export async function generatePuzzlesFromPgn(
           sourceType: 'pgn_import',
           sourceId: null,
           sourceMoveNum: moveNum,
-          sourceMetadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+          sourceMetadata: {
+            ...metadata,
+            bestScore: scoreToCP(best.score),
+            bestMove: best.pv[0],
+            secondBestScore: scoreToCP(second.score),
+            secondBestMove: second.pv[0],
+          },
         });
       }
     }
