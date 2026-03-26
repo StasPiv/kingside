@@ -220,6 +220,26 @@ export async function generatePuzzlesFromPgn(
         if (isSacrifice) themes.push('sacrifice');
         const estimatedRating = Math.min(2800, Math.max(600, 1200 + Math.floor(gap / 5)));
 
+        // Analyze position AFTER setup move to get player's best/second moves
+        let playerBestScore: number | undefined;
+        let playerBestMove: string | undefined;
+        let playerSecondScore: number | undefined;
+        let playerSecondMove: string | undefined;
+        try {
+          const setupMove = best.pv[0];
+          const afterSetup = new Chess(fen);
+          afterSetup.move({ from: setupMove.slice(0, 2), to: setupMove.slice(2, 4), promotion: setupMove[4] });
+          const playerLines = await analyzePosition(worker, afterSetup.fen(), Math.max(10, depth - 4), multiPv);
+          if (playerLines.length >= 1) {
+            playerBestScore = scoreToCP(playerLines[0].score);
+            playerBestMove = playerLines[0].pv[0];
+          }
+          if (playerLines.length >= 2) {
+            playerSecondScore = scoreToCP(playerLines[1].score);
+            playerSecondMove = playerLines[1].pv[0];
+          }
+        } catch { /* ignore */ }
+
         puzzles.push({
           fen,
           moves: best.pv.slice(0, 8).join(' '),
@@ -231,10 +251,10 @@ export async function generatePuzzlesFromPgn(
           sourceMoveNum: moveNum,
           sourceMetadata: {
             ...metadata,
-            bestScore: scoreToCP(best.score),
-            bestMove: best.pv[0],
-            secondBestScore: scoreToCP(second.score),
-            secondBestMove: second.pv[0],
+            bestScore: playerBestScore,
+            bestMove: playerBestMove,
+            secondBestScore: playerSecondScore,
+            secondBestMove: playerSecondMove,
           },
         });
       }

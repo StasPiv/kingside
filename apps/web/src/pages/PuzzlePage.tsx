@@ -328,11 +328,17 @@ export function PuzzlePage() {
             if (Math.abs(cp) >= 10000) return cp > 0 ? 'M' : '-M';
             return (cp >= 0 ? '+' : '') + (cp / 100).toFixed(1);
           };
-          // Convert UCI to SAN using the puzzle FEN
+          // Convert UCI to SAN using position after setup move (player's turn)
           const uciToSan = (uci: string | undefined): string => {
             if (!uci || uci.length < 4) return uci || '?';
             try {
               const c = new Chess(puzzle.fen);
+              // Play setup move first to reach player's position
+              const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
+              if (moves[0]) {
+                const s = moves[0];
+                c.move({ from: s.slice(0, 2), to: s.slice(2, 4), promotion: s[4] });
+              }
               const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
               return mv?.san || uci;
             } catch { return uci; }
