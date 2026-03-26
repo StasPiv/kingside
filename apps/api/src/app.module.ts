@@ -24,6 +24,7 @@ import { PlayerModule } from './player/player.module';
 import { MessageModule } from './message/message.module';
 import { FriendModule } from './friend/friend.module';
 import { NotificationModule } from './notification/notification.module';
+import { PuzzleGeneratorModule } from './puzzle-generator/puzzle-generator.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 
@@ -63,6 +64,7 @@ import { HealthController } from './health.controller';
     MessageModule,
     FriendModule,
     NotificationModule,
+    PuzzleGeneratorModule,
   ],
 })
 export class AppModule implements NestModule {

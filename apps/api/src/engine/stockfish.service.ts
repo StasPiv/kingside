@@ -321,6 +321,97 @@ export class StockfishService implements OnModuleDestroy {
     });
   }
 
+  /**
+   * Analyze a position with MultiPV (multiple principal variations).
+   * Returns top N moves with their scores.
+   */
+  async analyzeMultiPV(
+    fen: string,
+    depth: number,
+    multiPV: number,
+  ): Promise<{ pv: string; score: { type: 'cp' | 'mate'; value: number }; bestMove: string }[]> {
+    const d = Math.max(1, Math.min(30, depth));
+    const mpv = Math.max(1, Math.min(5, multiPV));
+    const worker = await this.acquireWorker();
+
+    try {
+      this.sendCommand(worker, 'ucinewgame');
+      await this.waitForReady(worker);
+      this.sendCommand(worker, 'setoption name Skill Level value 20');
+      this.sendCommand(worker, `setoption name MultiPV value ${mpv}`);
+      this.sendCommand(worker, `position fen ${fen}`);
+      await this.waitForReady(worker);
+
+      const lines = await this.searchMultiPV(worker, d, mpv);
+
+      // Reset MultiPV to 1
+      this.sendCommand(worker, 'setoption name MultiPV value 1');
+
+      return lines;
+    } finally {
+      this.releaseWorker(worker);
+    }
+  }
+
+  private searchMultiPV(
+    worker: EngineWorker,
+    depth: number,
+    multiPV: number,
+  ): Promise<{ pv: string; score: { type: 'cp' | 'mate'; value: number }; bestMove: string }[]> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        worker.process.stdout?.off('data', onData);
+        reject(new Error('Stockfish MultiPV search timeout'));
+      }, depth * 3000 + 15000);
+
+      // Track best lines by multipv index at final depth
+      const pvLines = new Map<number, { pv: string; score: { type: 'cp' | 'mate'; value: number }; bestMove: string }>();
+      let maxDepthSeen = 0;
+
+      const onData = (data: Buffer) => {
+        const lines = data.toString().split('\n');
+
+        for (const line of lines) {
+          const infoMatch = line.match(
+            /^info depth (\d+) .* multipv (\d+) .* score (cp|mate) (-?\d+) .* pv (.+)/,
+          );
+          if (infoMatch) {
+            const lineDepth = parseInt(infoMatch[1], 10);
+            const pvIndex = parseInt(infoMatch[2], 10);
+            const scoreType = infoMatch[3] as 'cp' | 'mate';
+            const scoreValue = parseInt(infoMatch[4], 10);
+            const pvMoves = infoMatch[5].trim();
+            const bestMove = pvMoves.split(' ')[0];
+
+            if (lineDepth >= maxDepthSeen) {
+              maxDepthSeen = lineDepth;
+              pvLines.set(pvIndex, {
+                pv: pvMoves,
+                score: { type: scoreType, value: scoreValue },
+                bestMove,
+              });
+            }
+          }
+
+          if (line.match(/^bestmove /)) {
+            clearTimeout(timeout);
+            worker.process.stdout?.off('data', onData);
+
+            const result: { pv: string; score: { type: 'cp' | 'mate'; value: number }; bestMove: string }[] = [];
+            for (let i = 1; i <= multiPV; i++) {
+              const entry = pvLines.get(i);
+              if (entry) result.push(entry);
+            }
+            resolve(result);
+          }
+        }
+      };
+
+      worker.process.stdout?.on('data', onData);
+      this.sendCommand(worker, `go depth ${depth}`);
+    });
+  }
+
   onModuleDestroy(): void {
     for (const worker of this.workers) {
       try {

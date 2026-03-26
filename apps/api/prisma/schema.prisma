@@ -489,3 +489,27 @@ model Notification {
   @@index([userId, read, createdAt])
   @@map("notifications")
 }
+
+model GeneratedPuzzle {
+  id            String   @id @default(uuid()) @db.Uuid
+  fen           String
+  moves         String
+  rating        Int      @default(1500)
+  ratingDev     Int      @default(350) @map("rating_dev")
+  themes        String   @default("")
+  sourceType    String   @map("source_type")   // game, pgn, fen
+  sourceId      String?  @map("source_id")
+  sourceMoveNum Int?     @map("source_move_num")
+  gap           Int      @default(0)           // cp gap between best and second-best
+  depth         Int      @default(18)
+  createdBy     String?  @map("created_by") @db.Uuid
+  popularity    Int      @default(0)
+  nbPlays       Int      @default(0) @map("nb_plays")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([rating])
+  @@index([themes])
+  @@index([sourceType, sourceId])
+  @@index([createdBy])
+  @@map("generated_puzzles")
+}
