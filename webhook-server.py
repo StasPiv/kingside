@@ -1160,6 +1160,11 @@ LOGS_HTML = """<!DOCTYPE html>
               font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
   #send-btn:hover { background: #2ea043; }
   #send-btn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+  #mic-btn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px;
+             font-size: 18px; cursor: pointer; color: #8b949e; }
+  #mic-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+  #mic-btn.recording { color: #f85149; border-color: #f85149; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
 </style>
 </head><body>
 <div id="status">connected</div>
@@ -1174,6 +1179,7 @@ LOGS_HTML = """<!DOCTYPE html>
     <option value="architect">architect</option>
   </select>
   <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1"></textarea>
+  <button id="mic-btn" title="Голосовой ввод">🎤</button>
   <button id="send-btn">Send</button>
 </div>
 <script>
@@ -1233,6 +1239,55 @@ input.addEventListener('keydown', (e) => {
     sendPrompt();
   }
 });
+
+// Voice input
+const micBtn = document.getElementById('mic-btn');
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SpeechRecognition) {
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'ru-RU';
+  recognition.interimResults = true;
+  recognition.continuous = true;
+  let finalText = '';
+  let isRecording = false;
+
+  micBtn.addEventListener('click', () => {
+    if (isRecording) {
+      recognition.stop();
+    } else {
+      finalText = input.value;
+      recognition.start();
+    }
+  });
+
+  recognition.onstart = () => {
+    isRecording = true;
+    micBtn.classList.add('recording');
+  };
+  recognition.onend = () => {
+    isRecording = false;
+    micBtn.classList.remove('recording');
+  };
+  recognition.onresult = (e) => {
+    let interim = '';
+    for (let i = 0; i < e.results.length; i++) {
+      const t = e.results[i][0].transcript;
+      if (e.results[i].isFinal) {
+        finalText += (finalText ? ' ' : '') + t;
+      } else {
+        interim = t;
+      }
+    }
+    input.value = finalText + (interim ? ' ' + interim : '');
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  };
+  recognition.onerror = (e) => {
+    if (e.error !== 'no-speech') console.error('Speech error:', e.error);
+  };
+} else {
+  micBtn.style.display = 'none';
+}
 </script>
 </body></html>"""
 
