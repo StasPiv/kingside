@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
+import { api } from '../api';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
@@ -18,6 +19,8 @@ type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
 export function PuzzlePage() {
   const { t } = useTranslation();
   const { id: puzzleId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const isGenerated = searchParams.get('source') === 'generated';
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [game, setGame] = useState<Chess | null>(null);
   const [status, setStatus] = useState<PuzzleStatus>('thinking');
@@ -70,16 +73,21 @@ export function PuzzlePage() {
     setLoading(true);
     setError('');
     try {
-      const data = specificId
-        ? await puzzleApi.getById(specificId)
-        : await puzzleApi.getNext();
+      let data: PuzzleDto;
+      if (isGenerated && specificId) {
+        data = await api.get<PuzzleDto>(`/api/puzzles/generated/${specificId}`);
+      } else if (specificId) {
+        data = await puzzleApi.getById(specificId);
+      } else {
+        data = await puzzleApi.getNext();
+      }
       initPuzzle(data);
     } catch {
       setError('Failed to load puzzle');
     } finally {
       setLoading(false);
     }
-  }, [initPuzzle]);
+  }, [initPuzzle, isGenerated]);
 
   useEffect(() => {
     loadPuzzle(puzzleId);
