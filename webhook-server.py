@@ -13,6 +13,7 @@ import urllib.request
 import urllib.parse
 import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from datetime import datetime
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1248,7 +1249,10 @@ if __name__ == "__main__":
     cleanup_thread = threading.Thread(target=cleanup_stale_worktrees, daemon=True)
     cleanup_thread.start()
 
-    server = HTTPServer(("127.0.0.1", PORT), WebhookHandler)
+    class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
+        daemon_threads = True
+
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), WebhookHandler)
     log(f"Webhook-сервер v2.0 запущен на порту {PORT} (daemon-режим агентов)")
     try:
         server.serve_forever()
