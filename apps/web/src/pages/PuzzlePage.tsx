@@ -328,13 +328,22 @@ export function PuzzlePage() {
             if (Math.abs(cp) >= 10000) return cp > 0 ? 'M' : '-M';
             return (cp >= 0 ? '+' : '') + (cp / 100).toFixed(1);
           };
+          // Convert UCI to SAN using the puzzle FEN
+          const uciToSan = (uci: string | undefined): string => {
+            if (!uci || uci.length < 4) return uci || '?';
+            try {
+              const c = new Chess(puzzle.fen);
+              const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+              return mv?.san || uci;
+            } catch { return uci; }
+          };
           return (
             <div className="puzzle-eval-info">
-              <span className="puzzle-eval-best">Best: {m.bestMove} ({formatCp(m.bestScore)})</span>
+              <span className="puzzle-eval-best">{uciToSan(m.bestMove)} ({formatCp(m.bestScore)})</span>
               {m.secondBestScore != null && (
-                <span className="puzzle-eval-second">2nd: {m.secondBestMove} ({formatCp(m.secondBestScore)})</span>
+                <span className="puzzle-eval-second">{uciToSan(m.secondBestMove)} ({formatCp(m.secondBestScore)})</span>
               )}
-              <span className="puzzle-eval-gap">Gap: {(puzzle as unknown as { gap?: number }).gap ?? Math.abs((m.bestScore ?? 0) - (m.secondBestScore ?? 0))}cp</span>
+              <span className="puzzle-eval-gap">{t('puzzle.gap', 'Gap')}: {(puzzle as unknown as { gap?: number }).gap ?? Math.abs((m.bestScore ?? 0) - (m.secondBestScore ?? 0))}cp</span>
             </div>
           );
         })()}
