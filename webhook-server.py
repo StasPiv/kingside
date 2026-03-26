@@ -791,6 +791,167 @@ def telegram_poll_loop():
 # Webhook handler
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Веб-интерфейс логов (SSE + HTML)
+# ---------------------------------------------------------------------------
+
+def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task: dict) -> str | None:
+    """Форматирует JSON-строку из agents.log в читаемый текст. Возвращает None если пропустить."""
+    t = data.get("type", "")
+    sid = data.get("session_id", "")[:8]
+
+    if t == "agent_msg":
+        agent = data.get("agent", "")
+        task = data.get("task", "")
+        current_task[agent.lower()] = task
+        return f'<span class="msg">[{agent} {task}] &lt;&lt;&lt; новое сообщение &gt;&gt;&gt;</span>'
+
+    if t == "agent_init":
+        agent = data.get("agent", "")
+        sid = data.get("session_id", "")[:8]
+        agents_map[sid] = agent.upper()
+        agent_sid[agent.lower()] = sid
+        return f'<span class="init">[{agent.upper()}] === DAEMON ЗАПУЩЕН ===</span>'
+
+    if t == "system" and data.get("subtype") == "init":
+        if sid not in agents_map:
+            agents_map[sid] = sid
+        return None
+
+    def _label(s):
+        name = agents_map.get(s, s)
+        for aname, asid in agent_sid.items():
+            if asid == s:
+                task = current_task.get(aname, "")
+                if task:
+                    return f"{name} {task}"
+        return name
+
+    if t == "assistant":
+        msg = data.get("message", {})
+        lbl = _label(sid)
+        parts = []
+        for c in msg.get("content", []):
+            if c.get("type") == "thinking":
+                text = c.get("thinking", "")
+                if text:
+                    parts.append(f'<span class="think">[{lbl}] {_esc(text)}</span>')
+            elif c.get("type") == "text":
+                text = c.get("text", "")
+                if text:
+                    parts.append(f'<span class="text">[{lbl}] {_esc(text)}</span>')
+            elif c.get("type") == "tool_use":
+                tname = c.get("name", "")
+                inp = json.dumps(c.get("input", {}), ensure_ascii=False)
+                parts.append(f'<span class="tool">[{lbl}] {_esc(tname)} -&gt; {_esc(inp)}</span>')
+        return "\n".join(parts) if parts else None
+
+    if t == "result":
+        lbl = _label(sid)
+        cost = data.get("total_cost_usd", 0)
+        return f'<span class="result">[{lbl}] === ГОТОВ (${cost:.4f}) ===</span>'
+
+    return None
+
+
+def _esc(text: str) -> str:
+    """Экранирует HTML."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _stream_logs_sse(wfile):
+    """SSE-стрим: читает agents.log и шлёт форматированные события."""
+    log_file = os.path.join(LOG_DIR, "agents.log")
+    agents_map = {}
+    agent_sid_map = {}
+    current_task_map = {}
+
+    with open(log_file, "r") as f:
+        # Прочитаем весь файл для инициализации маппингов, отправим последние 100 строк
+        lines = f.readlines()
+        recent = lines[-200:] if len(lines) > 200 else lines
+
+        for line in lines:
+            try:
+                data = json.loads(line.strip())
+                # Инициализируем маппинги без вывода
+                t = data.get("type", "")
+                if t == "agent_init":
+                    agent = data.get("agent", "")
+                    sid = data.get("session_id", "")[:8]
+                    agents_map[sid] = agent.upper()
+                    agent_sid_map[agent.lower()] = sid
+                elif t == "agent_msg":
+                    agent = data.get("agent", "")
+                    task = data.get("task", "")
+                    current_task_map[agent.lower()] = task
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        # Отправляем последние строки
+        for line in recent:
+            try:
+                data = json.loads(line.strip())
+                formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
+                if formatted:
+                    wfile.write(f"data: {formatted}\n\n".encode())
+            except (json.JSONDecodeError, ValueError):
+                pass
+        wfile.flush()
+
+        # Теперь tail -f
+        while True:
+            line = f.readline()
+            if not line:
+                time.sleep(0.3)
+                continue
+            try:
+                data = json.loads(line.strip())
+                formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
+                if formatted:
+                    wfile.write(f"data: {formatted}\n\n".encode())
+                    wfile.flush()
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+
+LOGS_HTML = """<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>Kingside Agents</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #e0e0e0; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px; }
+  #log { padding: 12px; white-space: pre-wrap; word-wrap: break-word; line-height: 1.5; }
+  .msg { color: #ffd700; font-weight: bold; }
+  .init { color: #00ff88; font-weight: bold; }
+  .think { color: #888; font-style: italic; }
+  .text { color: #e0e0e0; }
+  .tool { color: #64b5f6; }
+  .result { color: #00ff88; font-weight: bold; }
+  .ts { color: #666; }
+</style>
+</head><body>
+<div id="log"></div>
+<script>
+const log = document.getElementById('log');
+let autoScroll = true;
+window.addEventListener('scroll', () => {
+  autoScroll = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 50;
+});
+const es = new EventSource('/logs/stream');
+es.onmessage = (e) => {
+  const ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
+  const div = document.createElement('div');
+  div.innerHTML = '<span class="ts">' + ts + '</span> ' + e.data;
+  log.appendChild(div);
+  if (autoScroll) window.scrollTo(0, document.body.scrollHeight);
+};
+es.onerror = () => { setTimeout(() => location.reload(), 3000); };
+</script>
+</body></html>"""
+
+
 class WebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = self.path.split("?")[0]
@@ -1014,8 +1175,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
         self.wfile.write(b'{"status":"notified"}')
 
     def do_GET(self):
-        if self.path == "/health":
-            # Статус всех daemon-агентов
+        path = self.path.split("?")[0]
+
+        if path == "/health":
             status = {}
             with agent_daemons_lock:
                 for name, daemon in agent_daemons.items():
@@ -1032,6 +1194,26 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({"status": "ok", "daemons": status}).encode())
             return
+
+        if path == "/logs":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(LOGS_HTML.encode())
+            return
+
+        if path == "/logs/stream":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Connection", "keep-alive")
+            self.end_headers()
+            try:
+                _stream_logs_sse(self.wfile)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+            return
+
         self.send_response(404)
         self.end_headers()
 
