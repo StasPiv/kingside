@@ -47,12 +47,12 @@ export class PuzzleController {
   getNextPuzzle(
     @Request() req: AuthenticatedRequest,
     @Query('excludeId') excludeId?: string,
-    @Query() dto: FindPuzzlesDto,
+    @Query() dto?: FindPuzzlesDto,
   ) {
     return this.puzzleService.getNextPuzzle(req.user.id, excludeId, {
-      themes: dto.themes,
-      ratingMin: dto.ratingMin,
-      ratingMax: dto.ratingMax,
+      themes: dto?.themes,
+      ratingMin: dto?.ratingMin,
+      ratingMax: dto?.ratingMax,
     });
   }
 

@@ -285,9 +285,6 @@ export function PuzzleBrowserPage() {
         ) : genPuzzles.length === 0 ? (
           <div className="puzzle-empty">
             <p>{t('puzzleBrowser.noGenerated', 'No generated puzzles yet.')}</p>
-            <button className="generate-puzzles-btn" onClick={() => setShowGenerator(true)}>
-              {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
-            </button>
           </div>
         ) : (
           <div className="puzzle-list">
