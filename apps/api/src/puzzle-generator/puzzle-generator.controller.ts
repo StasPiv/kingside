@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Body,
   Param,
   Query,
   Request,
@@ -39,6 +40,37 @@ export class PuzzleGeneratorController {
     }
 
     return { error: 'sourceType=game and sourceId required' };
+  }
+
+  /**
+   * POST /api/puzzles/generated/batch — save multiple generated puzzles.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('batch')
+  async batch(
+    @Body() body: { puzzles: Array<{ fen: string; moves: string; rating: number; gap: number; themes: string; sourceType: string; sourceId?: string | null; sourceMoveNum?: number }> },
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const puzzles = body.puzzles ?? [];
+    if (puzzles.length === 0) return { count: 0 };
+
+    const created = await this.prisma.generatedPuzzle.createMany({
+      data: puzzles.slice(0, 200).map((p) => ({
+        fen: p.fen,
+        moves: p.moves,
+        rating: p.rating,
+        gap: p.gap,
+        themes: p.themes,
+        sourceType: p.sourceType || 'pgn_import',
+        sourceId: p.sourceId || null,
+        sourceMoveNum: p.sourceMoveNum ?? 0,
+        depth: 14,
+        createdBy: req.user.id,
+      })),
+      skipDuplicates: true,
+    });
+
+    return { count: created.count };
   }
 
   /**

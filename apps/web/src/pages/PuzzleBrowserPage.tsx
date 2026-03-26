@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { PuzzleDto, PuzzleTheme } from '@kingside/shared';
+import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
 
 const THEME_CATEGORIES = {
   tactics: [
@@ -55,6 +56,7 @@ export function PuzzleBrowserPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showGenerator, setShowGenerator] = useState(false);
 
   const [selectedThemes, setSelectedThemes] = useState<Set<PuzzleTheme>>(new Set());
   const [ratingMin, setRatingMin] = useState(600);
@@ -281,7 +283,12 @@ export function PuzzleBrowserPage() {
         genLoading ? (
           <div className="loading">{t('common.loading')}</div>
         ) : genPuzzles.length === 0 ? (
-          <div className="puzzle-empty">{t('puzzleBrowser.noGenerated', 'No generated puzzles yet. Analyze a game and click "Generate Puzzles".')}</div>
+          <div className="puzzle-empty">
+            <p>{t('puzzleBrowser.noGenerated', 'No generated puzzles yet.')}</p>
+            <button className="generate-puzzles-btn" onClick={() => setShowGenerator(true)}>
+              {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
+            </button>
+          </div>
         ) : (
           <div className="puzzle-list">
             {genPuzzles.map((puzzle) => (
@@ -309,6 +316,18 @@ export function PuzzleBrowserPage() {
             ))}
           </div>
         )
+      )}
+
+      {activeTab === 'generated' && !genLoading && (
+        <div className="puzzle-generator-action">
+          <button className="generate-puzzles-btn" onClick={() => setShowGenerator(true)}>
+            {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
+          </button>
+        </div>
+      )}
+
+      {showGenerator && (
+        <PuzzleGeneratorModal onClose={() => { setShowGenerator(false); if (activeTab === 'generated') fetchGenerated(); }} />
       )}
     </div>
   );
