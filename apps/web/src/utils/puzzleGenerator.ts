@@ -100,7 +100,7 @@ export async function generatePuzzlesFromPgn(
   onProgress: (progress: GenerationProgress) => void,
   options: { depth?: number; multiPv?: number; gapThreshold?: number; abortSignal?: AbortSignal } = {},
 ): Promise<GeneratedPuzzleData[]> {
-  const { depth = 14, multiPv = 3, gapThreshold = 150, abortSignal } = options;
+  const { depth = 14, multiPv = 3, gapThreshold = 300, abortSignal } = options;
 
   // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
@@ -184,10 +184,36 @@ export async function generatePuzzlesFromPgn(
 
       const best = lines[0];
       const second = lines[1];
-      const gap = Math.abs(scoreToCP(best.score) - scoreToCP(second.score));
+      const bestCp = scoreToCP(best.score);
+      const gap = Math.abs(bestCp - scoreToCP(second.score));
 
-      if (gap >= gapThreshold && best.pv.length >= 2) {
+      // Filter: skip positions where one side is already winning (>500cp)
+      if (Math.abs(bestCp) > 500 && gap < 500) continue;
+
+      // Check if best move is a sacrifice (piece lands on attacked square)
+      let isSacrifice = false;
+      if (best.pv.length >= 1) {
+        try {
+          const testChess = new Chess(fen);
+          const from = best.pv[0].slice(0, 2);
+          const to = best.pv[0].slice(2, 4);
+          const piece = testChess.get(from as Parameters<typeof testChess.get>[0]);
+          if (piece && piece.type !== 'p') {
+            // Check if target square is attacked by opponent
+            const opponent = piece.color === 'w' ? 'b' : 'w';
+            if (testChess.isAttacked(to as Parameters<typeof testChess.isAttacked>[0], opponent)) {
+              isSacrifice = true;
+            }
+          }
+        } catch { /* ignore */ }
+      }
+
+      // Lower threshold for sacrifices (200cp), otherwise use gapThreshold (300cp default)
+      const effectiveThreshold = isSacrifice ? Math.max(200, gapThreshold * 0.66) : gapThreshold;
+
+      if (gap >= effectiveThreshold && best.pv.length >= 2) {
         const themes = classifyThemes(gap, best.pv, fen);
+        if (isSacrifice) themes.push('sacrifice');
         const estimatedRating = Math.min(2800, Math.max(600, 1200 + Math.floor(gap / 5)));
 
         puzzles.push({

@@ -43,7 +43,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
       const puzzles = await generatePuzzlesFromPgn(
         pgnText,
         (p) => setProgress(p),
-        { depth: 14, multiPv: 3, gapThreshold: 150, abortSignal: abortRef.current.signal },
+        { depth: 14, multiPv: 3, gapThreshold: 300, abortSignal: abortRef.current.signal },
       );
       setResult(puzzles);
     } catch (err) {
