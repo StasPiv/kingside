@@ -1203,6 +1203,7 @@ es.onmessage = (e) => {
   const div = document.createElement('div');
   div.innerHTML = e.data.replace(/^(<div class="ev[^"]*">)/, '$1<span class="ts">' + ts + '</span>');
   while (div.firstChild) log.appendChild(div.firstChild);
+  while (log.childElementCount > 2000) log.removeChild(log.firstChild);
   if (autoScroll) window.scrollTo(0, document.body.scrollHeight);
 };
 es.onopen = () => { status.textContent = 'connected'; status.className = ''; };
