@@ -1070,6 +1070,25 @@ body:has(.puzzle-rush-board) {
   align-items: center;
 }
 
+/* Fixed-height slots to prevent board shift */
+.puzzle-info-slot {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.puzzle-actions-slot {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
 /* Puzzle status indicator lamp */
 .puzzle-indicator {
   width: 12px;

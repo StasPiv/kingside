@@ -305,13 +305,10 @@ export function PuzzlePage() {
       </div>
 
       <div className="puzzle-board-area">
-        <div className="puzzle-status-bar">
-          {status === 'thinking' && (
+        <div className="puzzle-info-slot">
+          {status === 'thinking' ? (
             <p className="puzzle-hint">{t('puzzle.findBestMove')}</p>
-          )}
-        </div>
-
-        {(status === 'correct' || status === 'incorrect') && isGenerated && puzzle && (() => {
+          ) : (status === 'correct' || status === 'incorrect') && isGenerated && puzzle ? (() => {
           const m = (puzzle as unknown as { sourceMetadata?: { bestScore?: number; bestMove?: string; secondBestScore?: number; secondBestMove?: string } }).sourceMetadata;
           if (!m || m.bestScore == null) return null;
           const formatCp = (cp: number) => {
@@ -342,7 +339,8 @@ export function PuzzlePage() {
               <span className="puzzle-eval-gap">{t('puzzle.gap', 'Gap')}: {(puzzle as unknown as { gap?: number }).gap ?? Math.abs((m.bestScore ?? 0) - (m.secondBestScore ?? 0))}cp</span>
             </div>
           );
-        })()}
+        })() : <span>&nbsp;</span>}
+        </div>
 
         <PuzzleBoard
           game={game}
@@ -353,41 +351,42 @@ export function PuzzlePage() {
           status={status}
         />
 
-        <div className="puzzle-actions">
-          {status === 'correct' && (
-            <button className="play-btn" onClick={handleNext}>
-              {t('puzzle.next')}
-            </button>
-          )}
-          {status === 'incorrect' && (
-            <>
-              <button onClick={handleRetry}>{t('puzzle.retry')}</button>
-              <button
-                className="puzzle-analyze-btn"
-                onClick={() => {
-                  if (!puzzle) return;
-                  const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
-                  // Build PGN from puzzle moves
-                  const c = new Chess(puzzle.fen);
-                  const sans: string[] = [];
-                  for (const uci of moves) {
-                    try {
-                      const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
-                      if (mv) sans.push(mv.san);
-                    } catch { break; }
-                  }
-                  const pgn = sans.map((san, i) => i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ${san}` : san).join(' ');
-                  const params = new URLSearchParams({ fen: puzzle.fen, pgn });
-                  window.open(`/analysis?${params.toString()}`, '_blank');
-                }}
-              >
-                {t('puzzle.analyze', 'Analyze')}
-              </button>
-              <button className="play-btn" onClick={handleNext}>
-                {t('puzzle.next')}
-              </button>
-            </>
-          )}
+        <div className="puzzle-actions-slot">
+          <button
+            className="play-btn"
+            onClick={status === 'incorrect' ? handleRetry : handleNext}
+            style={{ visibility: status === 'thinking' ? 'hidden' : 'visible' }}
+          >
+            {status === 'incorrect' ? t('puzzle.retry') : t('puzzle.next')}
+          </button>
+          <button
+            className="puzzle-analyze-btn"
+            style={{ visibility: status === 'incorrect' ? 'visible' : 'hidden' }}
+            onClick={() => {
+              if (!puzzle) return;
+              const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
+              const c = new Chess(puzzle.fen);
+              const sans: string[] = [];
+              for (const uci of moves) {
+                try {
+                  const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+                  if (mv) sans.push(mv.san);
+                } catch { break; }
+              }
+              const pgn = sans.map((san, i) => i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ${san}` : san).join(' ');
+              const params = new URLSearchParams({ fen: puzzle.fen, pgn });
+              window.open(`/analysis?${params.toString()}`, '_blank');
+            }}
+          >
+            {t('puzzle.analyze', 'Analyze')}
+          </button>
+          <button
+            className="play-btn"
+            onClick={handleNext}
+            style={{ visibility: status === 'incorrect' ? 'visible' : 'hidden' }}
+          >
+            {t('puzzle.next')}
+          </button>
         </div>
       </div>
     </div>
