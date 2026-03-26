@@ -68,7 +68,12 @@ export function App() {
   const location = useLocation();
 
   if (devSecret && searchParams.has('dev_bypass')) {
-    return <DevBypassPage secret={searchParams.get('dev_bypass') ?? ''} user={searchParams.get('user') ?? undefined} returnTo={location.pathname} />;
+    const returnParams = new URLSearchParams(searchParams);
+    returnParams.delete('dev_bypass');
+    returnParams.delete('user');
+    const returnSearch = returnParams.toString();
+    const returnTo = returnSearch ? `${location.pathname}?${returnSearch}` : location.pathname;
+    return <DevBypassPage secret={searchParams.get('dev_bypass') ?? ''} user={searchParams.get('user') ?? undefined} returnTo={returnTo} />;
   }
 
   return (
