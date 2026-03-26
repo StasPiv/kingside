@@ -24,7 +24,7 @@ type PuzzleRushStats = {
   totalSessions: number;
 };
 
-type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | 'broadcasts' | 'players' | 'liveGames' | null;
+type ModalId = 'human' | 'bot' | 'puzzles' | 'rush' | 'workshop' | 'broadcasts' | 'players' | 'liveGames' | null;
 
 export function LobbyPage() {
   const { t } = useTranslation();
@@ -513,6 +513,14 @@ export function LobbyPage() {
       ctaKey: 'lobby.teasers.bot.cta',
     },
     {
+      id: 'puzzles' as const,
+      icon: '🧩',
+      titleKey: 'lobby.teasers.puzzles.title',
+      descKey: 'lobby.teasers.puzzles.description',
+      ctaKey: 'lobby.teasers.puzzles.cta',
+      to: '/puzzles',
+    },
+    {
       id: 'rush' as const,
       icon: '⚡',
       titleKey: 'lobby.teasers.rush.title',
@@ -558,6 +566,7 @@ export function LobbyPage() {
     bot: botModalContent,
     rush: rushModalContent,
     workshop: workshopModalContent,
+    puzzles: null,
     broadcasts: null,
     players: null,
     liveGames: null,

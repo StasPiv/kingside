@@ -208,6 +208,11 @@
         "description": "Solve today's hand-picked chess puzzle. A new challenge awaits you every day.",
         "cta": "Solve Puzzle"
       },
+      "puzzles": {
+        "title": "Puzzles",
+        "description": "Improve your tactical vision. Solve puzzles matched to your rating or generate from your own games.",
+        "cta": "Solve Puzzles"
+      },
       "rush": {
         "title": "Puzzle Rush",
         "description": "Solve as many puzzles as you can before time runs out. Can you beat your personal record?",
