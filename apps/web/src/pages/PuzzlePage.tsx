@@ -172,7 +172,7 @@ export function PuzzlePage() {
     game: game ?? null,
     playerColor: boardOrientation,
     enabled: status === 'thinking',
-    onMove: inputMode === 'click' ? onClickMove : undefined,
+    onMove: onClickMove,
   });
 
   useEffect(() => {
