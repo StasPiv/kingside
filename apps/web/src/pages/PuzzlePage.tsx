@@ -365,16 +365,25 @@ export function PuzzlePage() {
             onClick={() => {
               if (!puzzle) return;
               const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
-              const c = new Chess(puzzle.fen);
+              // Play setup move to get the position the player actually sees
+              const setup = new Chess(puzzle.fen);
+              if (moves[0]) {
+                const s = moves[0];
+                try { setup.move({ from: s.slice(0, 2), to: s.slice(2, 4), promotion: s[4] }); } catch { /* */ }
+              }
+              const afterSetupFen = setup.fen();
+              // Build PGN from player's moves (skip setup move)
+              const c = new Chess(afterSetupFen);
               const sans: string[] = [];
-              for (const uci of moves) {
+              for (let i = 1; i < moves.length; i++) {
+                const uci = moves[i];
                 try {
                   const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
                   if (mv) sans.push(mv.san);
                 } catch { break; }
               }
               const pgn = sans.map((san, i) => i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ${san}` : san).join(' ');
-              const params = new URLSearchParams({ fen: puzzle.fen, pgn, side: boardOrientation });
+              const params = new URLSearchParams({ fen: afterSetupFen, pgn, side: boardOrientation });
               window.open(`/analysis?${params.toString()}`, '_blank');
             }}
           >
