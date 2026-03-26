@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { api } from '../api';
@@ -11,6 +11,7 @@ type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
 
 export function PuzzlePage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { id: puzzleId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const isGenerated = searchParams.get('source') === 'generated';
@@ -371,6 +372,26 @@ export function PuzzlePage() {
           {status === 'incorrect' && (
             <>
               <button onClick={handleRetry}>{t('puzzle.retry')}</button>
+              <button
+                className="puzzle-analyze-btn"
+                onClick={() => {
+                  if (!puzzle) return;
+                  const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
+                  // Build PGN from puzzle moves
+                  const c = new Chess(puzzle.fen);
+                  const sans: string[] = [];
+                  for (const uci of moves) {
+                    try {
+                      const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+                      if (mv) sans.push(mv.san);
+                    } catch { break; }
+                  }
+                  const pgn = sans.map((san, i) => i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ${san}` : san).join(' ');
+                  navigate('/analysis', { state: { puzzleFen: puzzle.fen, puzzlePgn: pgn } });
+                }}
+              >
+                {t('puzzle.analyze', 'Analyze')}
+              </button>
               <button className="play-btn" onClick={handleNext}>
                 {t('puzzle.next')}
               </button>

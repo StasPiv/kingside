@@ -104,6 +104,8 @@ export function AnalysisPage() {
   const breadcrumbFileName = (location.state as { breadcrumbFileName?: string } | null)?.breadcrumbFileName;
   const breadcrumbFileBackUrl = (location.state as { breadcrumbFileBackUrl?: string } | null)?.breadcrumbFileBackUrl;
   const breadcrumbFileBackState = (location.state as { breadcrumbFileBackState?: unknown } | null)?.breadcrumbFileBackState;
+  const puzzleFen = (location.state as { puzzleFen?: string } | null)?.puzzleFen;
+  const puzzlePgn = (location.state as { puzzlePgn?: string } | null)?.puzzlePgn;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
@@ -136,6 +138,19 @@ export function AnalysisPage() {
   } = useReviewState();
 
   const game = useMemo(() => new Chess(), []);
+
+  // Load puzzle position if navigated from PuzzlePage
+  useEffect(() => {
+    if (puzzleFen && !gameId && !analysisId) {
+      setInitialFen(puzzleFen);
+      if (puzzlePgn) {
+        try {
+          const parsed = parseAnnotatedPgn(puzzlePgn);
+          loadFromPgn(parsed);
+        } catch { /* ignore parse errors */ }
+      }
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Game Report
   const { report: gameReport, analyzing: reportAnalyzing, error: reportError, fetchReport, analyze: analyzeGame } = useGameReport(gameId);
