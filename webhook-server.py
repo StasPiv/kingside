@@ -1073,7 +1073,8 @@ def _stream_logs_sse(wfile):
                 data = json.loads(line.strip())
                 formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
                 if formatted:
-                    wfile.write(f"data: {formatted}\n\n".encode())
+                    sse_data = "\n".join(f"data: {line}" for line in formatted.split("\n"))
+                    wfile.write(f"{sse_data}\n\n".encode())
             except (json.JSONDecodeError, ValueError):
                 pass
         wfile.flush()
@@ -1088,7 +1089,8 @@ def _stream_logs_sse(wfile):
                 data = json.loads(line.strip())
                 formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
                 if formatted:
-                    wfile.write(f"data: {formatted}\n\n".encode())
+                    sse_data = "\n".join(f"data: {line}" for line in formatted.split("\n"))
+                    wfile.write(f"{sse_data}\n\n".encode())
                     wfile.flush()
             except (json.JSONDecodeError, ValueError):
                 pass
