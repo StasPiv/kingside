@@ -1163,8 +1163,9 @@ LOGS_HTML = """<!DOCTYPE html>
   #mic-btn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px;
              font-size: 18px; cursor: pointer; color: #8b949e; }
   #mic-btn:hover { border-color: #58a6ff; color: #58a6ff; }
-  #mic-btn.recording { color: #f85149; border-color: #f85149; animation: pulse 1s infinite; }
+  #mic-btn.recording { color: #f85149; border-color: #f85149; animation: pulse 1s infinite; background: #1a0a0a; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  #mic-status { color: #f85149; font-size: 11px; font-weight: 600; letter-spacing: 0.5px; }
 </style>
 </head><body>
 <div id="status">connected</div>
@@ -1179,7 +1180,7 @@ LOGS_HTML = """<!DOCTYPE html>
     <option value="architect">architect</option>
   </select>
   <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1"></textarea>
-  <button id="mic-btn" title="Голосовой ввод">🎤</button>
+  <button id="mic-btn" title="Голосовой ввод">🎤</button><span id="mic-status"></span>
   <button id="send-btn">Send</button>
 </div>
 <script>
@@ -1261,17 +1262,19 @@ if (SpeechRecognition) {
     }
   });
 
+  const micStatus = document.getElementById('mic-status');
   recognition.onstart = () => {
     isRecording = true;
     micBtn.classList.add('recording');
+    micStatus.textContent = 'REC';
   };
   recognition.onend = () => {
     if (isRecording) {
-      // Браузер оборвал — перезапускаем
       recognition.start();
       return;
     }
     micBtn.classList.remove('recording');
+    micStatus.textContent = '';
   };
   recognition.onresult = (e) => {
     let interim = '';
