@@ -24,8 +24,27 @@ export function PuzzlePage() {
   const [streak, setStreak] = useState(0);
   const [totalSolved, setTotalSolved] = useState(0);
   const [solutionMove, setSolutionMove] = useState<string | null>(null);
+  const [allSolved, setAllSolved] = useState(false);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
+
+  // Track solved generated puzzles in localStorage
+  const markSolved = useCallback((id: string) => {
+    try {
+      const key = 'solvedGeneratedPuzzles';
+      const solved: string[] = JSON.parse(localStorage.getItem(key) || '[]');
+      if (!solved.includes(id)) {
+        solved.push(id);
+        localStorage.setItem(key, JSON.stringify(solved));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const getSolvedIds = useCallback((): string[] => {
+    try {
+      return JSON.parse(localStorage.getItem('solvedGeneratedPuzzles') || '[]');
+    } catch { return []; }
+  }, []);
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
@@ -172,14 +191,33 @@ export function PuzzlePage() {
   const lastMoveUci = solutionMove ?? (moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null);
 
   const handleNext = useCallback(async () => {
+    // Mark current puzzle as solved for generated puzzles
+    if (isGenerated && puzzle) {
+      markSolved(puzzle.id);
+    }
     const nextPuzzle = await submitAttemptResult(status === 'correct');
     if (nextPuzzle) {
       initPuzzle(nextPuzzle);
+    } else if (isGenerated) {
+      // For generated puzzles: load next unsolved
+      try {
+        const solvedIds = getSolvedIds();
+        const list = await api.get<{ data: Array<{ id: string }> }>('/api/puzzles/generated?limit=50');
+        const unsolved = (list.data ?? []).filter((p) => !solvedIds.includes(p.id));
+        if (unsolved.length === 0) {
+          setAllSolved(true);
+          return;
+        }
+        const nextId = unsolved[Math.floor(Math.random() * unsolved.length)].id;
+        const data = await api.get<PuzzleDto>(`/api/puzzles/generated/${nextId}`);
+        initPuzzle(data);
+      } catch {
+        setAllSolved(true);
+      }
     } else {
-      // Fallback: if submitAttempt didn't return nextPuzzle (e.g. attempt was already submitted)
       await loadPuzzle();
     }
-  }, [submitAttemptResult, status, initPuzzle, loadPuzzle]);
+  }, [submitAttemptResult, status, initPuzzle, loadPuzzle, isGenerated, puzzle, markSolved, getSolvedIds]);
 
   // Auto-advance to next puzzle after successful solve
   useEffect(() => {
@@ -211,6 +249,19 @@ export function PuzzlePage() {
     return <div className="loading">{t('common.loading')}</div>;
   }
 
+  if (allSolved) {
+    return (
+      <div className="puzzle-page">
+        <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
+        <h1>{t('puzzle.title')}</h1>
+        <div className="puzzle-all-solved">
+          <p>{t('puzzle.allSolved', 'All puzzles solved! Generate new ones from PGN.')}</p>
+          <Link to="/puzzles" className="play-btn">{t('puzzle.backToPuzzles')}</Link>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="puzzle-page">
@@ -229,6 +280,11 @@ export function PuzzlePage() {
         <span>{t('puzzle.streak', { count: streak })}</span>
         <span>{t('puzzle.totalSolved', { count: totalSolved })}</span>
         {puzzle && <span>{t('puzzle.puzzleRating', { rating: puzzle.rating })}</span>}
+        {isGenerated && puzzle && (puzzle as unknown as { sourceId?: string }).sourceId && (
+          <Link to={`/game/${(puzzle as unknown as { sourceId: string }).sourceId}/review`} className="puzzle-source-link">
+            {t('puzzle.fromGame', 'From game')} →
+          </Link>
+        )}
       </div>
 
       <div className="puzzle-board-area">
