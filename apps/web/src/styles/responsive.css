@@ -274,15 +274,13 @@
 
   /* ===== KS-914: Flexbox mobile layout for analysis page ===== */
 
-  /* Lock viewport — no body scroll */
-  body:has(.analysis-page),
+  /* Lock viewport — no body scroll (class-based, works on all browsers) */
   body.has-analysis-page {
     overflow: hidden !important;
     height: 100vh;
     height: 100dvh;
   }
 
-  .app:has(.analysis-page),
   .app.has-analysis-page {
     height: 100vh;
     height: 100dvh;
@@ -291,7 +289,6 @@
     overflow: hidden;
   }
 
-  .main:has(.analysis-page),
   body.has-analysis-page .main {
     flex: 1;
     min-height: 0;
