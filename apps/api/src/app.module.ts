@@ -53,6 +53,7 @@ import { HealthController } from './health.controller';
     GameModule,
     MatchmakingModule,
     PuzzleRushModule,
+    PuzzleGeneratorModule,
     PuzzleModule,
     TournamentModule,
     AnalysisModule,
@@ -64,7 +65,6 @@ import { HealthController } from './health.controller';
     MessageModule,
     FriendModule,
     NotificationModule,
-    PuzzleGeneratorModule,
   ],
 })
 export class AppModule implements NestModule {
