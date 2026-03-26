@@ -104,8 +104,9 @@ export function AnalysisPage() {
   const breadcrumbFileName = (location.state as { breadcrumbFileName?: string } | null)?.breadcrumbFileName;
   const breadcrumbFileBackUrl = (location.state as { breadcrumbFileBackUrl?: string } | null)?.breadcrumbFileBackUrl;
   const breadcrumbFileBackState = (location.state as { breadcrumbFileBackState?: unknown } | null)?.breadcrumbFileBackState;
-  const puzzleFen = (location.state as { puzzleFen?: string } | null)?.puzzleFen;
-  const puzzlePgn = (location.state as { puzzlePgn?: string } | null)?.puzzlePgn;
+  const urlParams = new URLSearchParams(location.search);
+  const puzzleFen = (location.state as { puzzleFen?: string } | null)?.puzzleFen ?? urlParams.get('fen') ?? undefined;
+  const puzzlePgn = (location.state as { puzzlePgn?: string } | null)?.puzzlePgn ?? urlParams.get('pgn') ?? undefined;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
     return state?.title ?? getDefaultTitle();
