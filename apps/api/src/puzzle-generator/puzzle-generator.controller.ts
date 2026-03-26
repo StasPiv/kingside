@@ -117,7 +117,8 @@ export class PuzzleGeneratorController {
     ]);
 
     return {
-      data: data.map((p: Record<string, unknown>) => ({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: data.map((p: any) => ({
         id: p.id,
         fen: p.fen,
         moves: p.moves.split(' '),
