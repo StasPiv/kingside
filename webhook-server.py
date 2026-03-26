@@ -1154,7 +1154,7 @@ LOGS_HTML = """<!DOCTYPE html>
   #agent-select { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px;
                   padding: 6px 10px; font-size: 13px; }
   #prompt-input { flex: 1; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 6px;
-                  padding: 8px 12px; font-size: 14px; font-family: inherit; resize: none; min-height: 38px; max-height: 120px; }
+                  padding: 8px 12px; font-size: 14px; font-family: inherit; resize: none; min-height: 38px; max-height: 300px; overflow-y: auto; }
   #prompt-input:focus { outline: none; border-color: #58a6ff; }
   #send-btn { background: #238636; color: #fff; border: none; border-radius: 6px; padding: 8px 16px;
               font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
@@ -1209,7 +1209,7 @@ es.onerror = () => { status.textContent = 'reconnecting...'; status.className = 
 // Auto-resize textarea
 input.addEventListener('input', () => {
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  input.style.height = Math.min(input.scrollHeight, 300) + 'px';
 });
 
 async function sendPrompt() {
@@ -1258,6 +1258,7 @@ if (SpeechRecognition) {
       recognition.stop();
     } else {
       finalText = input.value;
+      lastFinalIdx = 0;
       recognition.start();
     }
   });
@@ -1276,19 +1277,22 @@ if (SpeechRecognition) {
     micBtn.classList.remove('recording');
     micStatus.textContent = '';
   };
+  let lastFinalIdx = 0;
   recognition.onresult = (e) => {
+    let final = finalText;
     let interim = '';
-    for (let i = 0; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
+    for (let i = lastFinalIdx; i < e.results.length; i++) {
       if (e.results[i].isFinal) {
-        finalText += (finalText ? ' ' : '') + t;
+        final += (final ? ' ' : '') + e.results[i][0].transcript;
+        lastFinalIdx = i + 1;
       } else {
-        interim = t;
+        interim += e.results[i][0].transcript;
       }
     }
-    input.value = finalText + (interim ? ' ' + interim : '');
+    finalText = final;
+    input.value = final + (interim ? ' ' + interim : '');
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    input.style.height = Math.min(input.scrollHeight, 300) + 'px';
   };
   recognition.onerror = (e) => {
     if (e.error !== 'no-speech') console.error('Speech error:', e.error);
