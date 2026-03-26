@@ -23,6 +23,7 @@ export function PuzzlePage() {
   const [error, setError] = useState('');
   const [streak, setStreak] = useState(0);
   const [totalSolved, setTotalSolved] = useState(0);
+  const [solutionMove, setSolutionMove] = useState<string | null>(null);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
 
@@ -54,6 +55,7 @@ export function PuzzlePage() {
     setGame(chess);
     setMoveIndex(1);
     setStatus('thinking');
+    setSolutionMove(null);
     startTimeRef.current = Date.now();
     attemptSubmittedRef.current = false;
   }, []);
@@ -110,6 +112,21 @@ export function PuzzlePage() {
         setStatus('incorrect');
         setStreak(0);
         submitAttemptResult(false);
+        // Show correct move after delay
+        setTimeout(() => {
+          setSolutionMove(expectedMove);
+          // Play the correct move on the board after another delay
+          setTimeout(() => {
+            if (game) {
+              const copy = new Chess(game.fen());
+              try {
+                copy.move({ from, to, promotion });
+                setGame(copy);
+                setMoveIndex((idx) => idx + 1);
+              } catch { /* ignore */ }
+            }
+          }, 800);
+        }, 600);
         return false;
       }
 
@@ -152,7 +169,7 @@ export function PuzzlePage() {
     [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
   );
 
-  const lastMoveUci = moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null;
+  const lastMoveUci = solutionMove ?? (moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null);
 
   const handleNext = useCallback(async () => {
     const nextPuzzle = await submitAttemptResult(status === 'correct');
@@ -223,7 +240,12 @@ export function PuzzlePage() {
             <p className="puzzle-correct">{t('puzzle.correct')}</p>
           )}
           {status === 'incorrect' && (
-            <p className="puzzle-incorrect">{t('puzzle.incorrect')}</p>
+            <p className="puzzle-incorrect">
+              {t('puzzle.incorrect')}
+              {solutionMove && (
+                <span className="puzzle-solution-hint"> — {t('puzzle.correctWas', 'The correct move was shown on the board')}</span>
+              )}
+            </p>
           )}
         </div>
 
