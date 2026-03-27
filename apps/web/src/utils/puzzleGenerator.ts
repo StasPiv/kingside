@@ -287,23 +287,16 @@ export async function generatePuzzlesFromPgn(
       const secondCp = analysis.lines.length >= 2 ? scoreToCP(analysis.lines[1].score) : 0;
       const gap = analysis.lines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
 
-      // Check if bestMove was obvious at low depths (1-6)
-      const shallowThreshold = 6;
-      let obviousAtShallow = false;
-      for (let d = 1; d <= shallowThreshold; d++) {
-        if (analysis.bestByDepth.get(d) === bestMoveUci) {
-          obviousAtShallow = true;
-          break;
-        }
-      }
+      // Eval growth: compare eval at depth 1 vs depth 14
+      const evalAtShallow = analysis.evalByDepth.get(1) ?? analysis.evalByDepth.get(2) ?? bestCp;
+      const evalAtDeep = bestCp;
+      const evalGrowth = evalAtDeep - evalAtShallow;
+      const EVAL_GROWTH_THRESHOLD = 60;
 
-      console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} firstAppear=${analysis.firstAppearance} obvious=${obviousAtShallow} gap=${gap} bestCp=${bestCp} secondCp=${secondCp}`);
+      console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`);
 
-      // Skip if best move was obvious at shallow depths
-      if (obviousAtShallow) continue;
-
-      // Skip positions where second best is already winning/losing (>300cp)
-      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) continue;
+      // Skip if eval doesn't grow significantly with depth
+      if (evalGrowth < EVAL_GROWTH_THRESHOLD) continue;
 
       // Check if best move is a sacrifice
       let isSacrifice = false;
@@ -363,6 +356,7 @@ export async function generatePuzzlesFromPgn(
 type AnalysisResult = {
   lines: InfoLine[];
   bestByDepth: Map<number, string>; // depth → bestMove UCI at that depth
+  evalByDepth: Map<number, number>; // depth → eval (cp) of best move at that depth
   firstAppearance: number; // depth at which final bestMove first appeared
 };
 
@@ -375,6 +369,7 @@ function analyzePosition(
   return new Promise((resolve) => {
     const finalLines = new Map<number, InfoLine>();
     const bestByDepth = new Map<number, string>();
+    const evalByDepth = new Map<number, number>();
 
     const handler = (e: MessageEvent) => {
       const msg = typeof e.data === 'string' ? e.data : '';
@@ -382,9 +377,10 @@ function analyzePosition(
       if (msg.startsWith('info') && msg.includes(' pv ')) {
         const info = parseInfoLine(msg);
         if (info) {
-          // Track bestMove (multipv 1) at each depth
+          // Track bestMove and eval (multipv 1) at each depth
           if (info.multipv === 1) {
             bestByDepth.set(info.depth, info.pv[0]);
+            evalByDepth.set(info.depth, scoreToCP(info.score));
           }
           // Keep final lines for the target depth range
           if (info.depth >= depth - 2) {
@@ -407,7 +403,7 @@ function analyzePosition(
           }
         }
 
-        resolve({ lines, bestByDepth, firstAppearance });
+        resolve({ lines, bestByDepth, evalByDepth, firstAppearance });
       }
     };
 
