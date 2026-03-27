@@ -215,7 +215,8 @@ export async function generatePuzzlesFromPgn(
       // Lower threshold for sacrifices (200cp), otherwise use gapThreshold (300cp default)
       const effectiveThreshold = isSacrifice ? Math.max(200, gapThreshold * 0.66) : gapThreshold;
 
-      if (gap >= effectiveThreshold && best.pv.length >= 2) {
+      const isMate = best.score.type === 'mate';
+      if (gap >= effectiveThreshold && best.pv.length >= (isMate ? 1 : 2)) {
         const themes = classifyThemes(gap, best.pv, fen);
         if (isSacrifice) themes.push('sacrifice');
         const estimatedRating = Math.min(2800, Math.max(600, 1200 + Math.floor(gap / 5)));
