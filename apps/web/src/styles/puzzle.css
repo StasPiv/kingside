@@ -1547,3 +1547,13 @@ body:has(.puzzle-rush-board) {
 .puzzle-delete-all-btn:hover {
   background: rgba(220, 38, 38, 0.1);
 }
+
+.puzzle-card-title {
+  font-size: 12px;
+  color: #aaa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}

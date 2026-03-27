@@ -273,6 +273,7 @@ export async function generatePuzzlesFromPgn(
       try {
         const check = new Chess(fen);
         if (check.isGameOver()) continue;
+        if (check.moves().length <= 1) continue; // skip forced moves
       } catch { continue; }
 
       // Analyze position

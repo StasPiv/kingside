@@ -13,6 +13,8 @@ type GeneratedPuzzle = {
   themes: string[];
   sourceType: string;
   sourceId: string | null;
+  sourceMoveNum: number | null;
+  sourceMetadata: { white?: string; black?: string; event?: string } | null;
   createdAt: string;
 };
 
@@ -63,6 +65,12 @@ export function PuzzleBrowserPage() {
           {genPuzzles.map((puzzle) => (
             <div key={puzzle.id} className="puzzle-card">
               <div className="puzzle-card-header">
+                <span className="puzzle-card-title">
+                  {puzzle.sourceMetadata?.white && puzzle.sourceMetadata?.black
+                    ? `${puzzle.sourceMetadata.white} vs ${puzzle.sourceMetadata.black}`
+                    : puzzle.sourceMetadata?.event || `#${puzzle.id.slice(0, 6)}`}
+                  {puzzle.sourceMoveNum ? `, move ${puzzle.sourceMoveNum}` : ''}
+                </span>
                 <span className="puzzle-rating">{puzzle.rating}</span>
               </div>
               <div className="puzzle-card-themes">
