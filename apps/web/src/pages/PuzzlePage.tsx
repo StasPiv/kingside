@@ -49,15 +49,18 @@ export function PuzzlePage() {
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
-    const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
     const setupGame = new Chess(puzzle.fen);
-    if (moves.length <= 1) {
-      // Single-move puzzle (e.g. mate in 1): player IS the side to move
+    if (isGenerated) {
+      // Generated puzzles: player IS the side to move (no auto setup)
       return setupGame.turn() === 'w' ? 'white' as const : 'black' as const;
     }
-    // Multi-move: setup move plays first, player is opposite side
+    const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
+    if (moves.length <= 1) {
+      return setupGame.turn() === 'w' ? 'white' as const : 'black' as const;
+    }
+    // Lichess puzzles: setup move plays first, player is opposite side
     return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
-  }, [puzzle, game]);
+  }, [puzzle, game, isGenerated]);
 
   const initPuzzle = useCallback((data: PuzzleDto) => {
     setPuzzle(data);
@@ -65,17 +68,17 @@ export function PuzzlePage() {
     setPuzzleMoves(moves);
 
     const chess = new Chess(data.fen);
-    if (moves.length > 1) {
-      // Multi-move puzzle: play setup move automatically
+    if (isGenerated) {
+      // Generated puzzles: no auto move, player finds moves[0]
+      setGame(chess);
+      setMoveIndex(0);
+    } else if (moves.length > 1) {
+      // Lichess puzzles: play first move automatically (context), player finds moves[1]
       const uci = moves[0];
-      const from = uci.slice(0, 2);
-      const to = uci.slice(2, 4);
-      const promotion = uci.length > 4 ? uci[4] : undefined;
-      chess.move({ from, to, promotion });
+      chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
       setGame(chess);
       setMoveIndex(1);
     } else {
-      // Single-move puzzle (e.g. mate in 1): no setup, player finds the move
       setGame(chess);
       setMoveIndex(0);
     }
