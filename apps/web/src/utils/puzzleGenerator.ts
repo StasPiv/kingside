@@ -74,30 +74,63 @@ function scoreToCP(score: { type: 'cp' | 'mate'; value: number }): number {
   return score.value;
 }
 
-function classifyThemes(gap: number, pv: string[], fen: string): string[] {
+function classifyThemes(gap: number, pv: string[], fen: string, isMate: boolean, mateDist: number): string[] {
   const themes: string[] = [];
-  if (gap >= 500) themes.push('crushing');
-  else if (gap >= 300) themes.push('advantage');
+  const chess = new Chess(fen);
+  const pieces = chess.board().flat().filter(Boolean).length;
 
-  // Check if it's a mate
+  // Mate themes
+  if (isMate) {
+    themes.push('mate');
+    if (mateDist === 1) themes.push('mateIn1');
+    else if (mateDist === 2) themes.push('mateIn2');
+    else if (mateDist === 3) themes.push('mateIn3');
+    else if (mateDist <= 5) themes.push('mateIn5');
+  } else {
+    if (gap >= 500) themes.push('crushing');
+    else if (gap >= 300) themes.push('advantage');
+  }
+
+  // Length
   if (pv.length <= 2) themes.push('oneMove');
-  if (pv.length <= 4) themes.push('short');
+  else if (pv.length <= 4) themes.push('short');
   if (pv.length >= 10) themes.push('long');
 
-  // Check position features
-  const chess = new Chess(fen);
-  const turn = chess.turn();
-  if (chess.isCheck()) themes.push('check');
+  // Endgame
+  if (pieces <= 10) themes.push('endgame');
 
-  // Simple tactical detection from move types
+  // Tactical detection
   try {
     const move = chess.move({ from: pv[0].slice(0, 2), to: pv[0].slice(2, 4), promotion: pv[0][4] });
     if (move?.captured) themes.push('capture');
     if (move?.san.includes('+')) themes.push('check');
+    if (move?.san.includes('#')) themes.push('checkmate');
   } catch { /* ignore */ }
 
   if (themes.length === 0) themes.push('tactical');
   return themes;
+}
+
+/** Estimate puzzle rating based on position complexity */
+function estimateRating(fen: string, pv: string[], isMate: boolean, mateDist: number): number {
+  const chess = new Chess(fen);
+  const possibleMoves = chess.moves().length;
+  const pieces = chess.board().flat().filter(Boolean).length;
+  const solutionLength = pv.length;
+
+  if (isMate) {
+    // Mate puzzles: base on mate distance + legal moves
+    // M1 with few options = easy, M3 with many options = hard
+    const base = 600 + mateDist * 300;
+    const movesBonus = Math.min(400, possibleMoves * 15);
+    return Math.min(2800, Math.max(600, base + movesBonus));
+  }
+
+  // Tactical puzzles: possibleMoves (complexity) + solutionLength + pieces
+  const movesScore = possibleMoves * 12;       // more legal moves = harder to find the right one
+  const lengthScore = solutionLength * 80;     // longer solution = harder
+  const piecesScore = Math.max(0, pieces - 10) * 10; // more pieces = more complex
+  return Math.min(2800, Math.max(600, 600 + movesScore + lengthScore + piecesScore));
 }
 
 /**
@@ -206,10 +239,7 @@ export async function generatePuzzlesFromPgn(
       const secondCp = lines.length >= 2 ? scoreToCP(lines[1].score) : 0;
       const gap = lines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
 
-      // Filter: skip positions where one side is already winning (>500cp)
-      if (Math.abs(bestCp) > 500 && gap < 500) continue;
-
-      // Check if best move is a sacrifice (piece lands on attacked square)
+      // Check if best move is a sacrifice
       let isSacrifice = false;
       if (best.pv.length >= 1) {
         try {
@@ -218,7 +248,6 @@ export async function generatePuzzlesFromPgn(
           const to = best.pv[0].slice(2, 4);
           const piece = testChess.get(from as Parameters<typeof testChess.get>[0]);
           if (piece && piece.type !== 'p') {
-            // Check if target square is attacked by opponent
             const opponent = piece.color === 'w' ? 'b' : 'w';
             if (testChess.isAttacked(to as Parameters<typeof testChess.isAttacked>[0], opponent)) {
               isSacrifice = true;
@@ -227,21 +256,14 @@ export async function generatePuzzlesFromPgn(
         } catch { /* ignore */ }
       }
 
-      // Lower threshold for sacrifices (200cp), otherwise use gapThreshold (300cp default)
       const effectiveThreshold = isSacrifice ? Math.max(200, gapThreshold * 0.66) : gapThreshold;
-
       const isMate = best.score.type === 'mate';
+      const mateDist = isMate ? Math.abs(best.score.value) : 0;
+
       if (gap >= effectiveThreshold && best.pv.length >= (isMate ? 1 : 2)) {
-        const themes = classifyThemes(gap, best.pv, fen);
+        const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
         if (isSacrifice) themes.push('sacrifice');
-        let estimatedRating: number;
-        if (isMate) {
-          // Mate puzzles: rating based on distance to mate
-          const mateDist = Math.abs(best.score.value);
-          estimatedRating = Math.min(2800, 600 + mateDist * 400); // M1=1000, M2=1400, M3=1800
-        } else {
-          estimatedRating = Math.min(2800, Math.max(600, 1200 + Math.floor(gap / 5)));
-        }
+        const rating = estimateRating(fen, best.pv, isMate, mateDist);
 
         // Analyze position AFTER setup move to get player's best/second moves
         let playerBestScore: number | undefined;
@@ -266,7 +288,7 @@ export async function generatePuzzlesFromPgn(
         puzzles.push({
           fen,
           moves: best.pv.slice(0, 8).join(' '),
-          rating: estimatedRating,
+          rating,
           gap,
           themes: themes.join(' '),
           sourceType: 'pgn_import',
