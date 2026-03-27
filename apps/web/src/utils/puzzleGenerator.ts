@@ -309,7 +309,8 @@ export async function generatePuzzlesFromPgn(
       if (gap >= effectiveThreshold && best.pv.length >= (isMate ? 1 : 2)) {
         const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
         if (isSacrifice) themes.push('sacrifice');
-        const rating = estimateRating(fen, best.pv, isMate, mateDist);
+        // Player solves 1 move; pass only pv[0] so playerMoves=1
+        const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
 
         // Analyze position AFTER setup move to get player's best/second moves
         let playerBestScore: number | undefined;
