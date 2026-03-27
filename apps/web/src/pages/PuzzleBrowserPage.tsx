@@ -18,51 +18,107 @@ type GeneratedPuzzle = {
   createdAt: string;
 };
 
+const PAGE_SIZE = 20;
+
 export function PuzzleBrowserPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const [genPuzzles, setGenPuzzles] = useState<GeneratedPuzzle[]>([]);
-  const [genTotal, setGenTotal] = useState(0);
-  const [genLoading, setGenLoading] = useState(true);
+  const [puzzles, setPuzzles] = useState<GeneratedPuzzle[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<'createdAt' | 'rating'>('createdAt');
+  const [order, setOrder] = useState<'asc' | 'desc'>('desc');
+  const [loading, setLoading] = useState(true);
   const [showGenerator, setShowGenerator] = useState(false);
 
-  const fetchGenerated = useCallback(async () => {
-    setGenLoading(true);
+  const fetchPuzzles = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await api.get<{ data: GeneratedPuzzle[]; total: number }>('/api/puzzles/generated?limit=50');
-      setGenPuzzles(data.data ?? []);
-      setGenTotal(data.total ?? 0);
+      const offset = (page - 1) * PAGE_SIZE;
+      const data = await api.get<{ data: GeneratedPuzzle[]; total: number }>(
+        `/api/puzzles/generated?limit=${PAGE_SIZE}&offset=${offset}&sort=${sort}&order=${order}`
+      );
+      setPuzzles(data.data ?? []);
+      setTotal(data.total ?? 0);
     } catch {
-      setGenPuzzles([]);
+      setPuzzles([]);
     } finally {
-      setGenLoading(false);
+      setLoading(false);
     }
-  }, []);
+  }, [page, sort, order]);
 
   useEffect(() => {
-    fetchGenerated();
-  }, [fetchGenerated]);
+    fetchPuzzles();
+  }, [fetchPuzzles]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const toggleSort = (field: 'createdAt' | 'rating') => {
+    if (sort === field) {
+      setOrder((o) => (o === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSort(field);
+      setOrder('desc');
+    }
+    setPage(1);
+  };
 
   return (
     <div className="puzzle-browser-page">
       <h1>{t('puzzleBrowser.title')}</h1>
-      {user && (
-        <p className="user-info">
-          {t('puzzleBrowser.yourRating', { rating: user.ratingPuzzle ?? '—' })}
-        </p>
-      )}
 
-      {genLoading ? (
+      {/* Toolbar */}
+      <div className="puzzle-toolbar">
+        <div className="puzzle-toolbar__left">
+          <button className="generate-puzzles-btn" onClick={() => setShowGenerator(true)}>
+            {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
+          </button>
+          {total > 0 && (
+            <button
+              className="puzzle-delete-all-btn"
+              onClick={async () => {
+                if (!confirm(t('puzzleBrowser.confirmDeleteAll', 'Delete all generated puzzles?'))) return;
+                try {
+                  await api.delete('/api/puzzles/generated/all');
+                  setPuzzles([]);
+                  setTotal(0);
+                  setPage(1);
+                } catch { /* ignore */ }
+              }}
+            >
+              {t('puzzleBrowser.deleteAll', 'Delete All')}
+            </button>
+          )}
+        </div>
+        <div className="puzzle-toolbar__right">
+          <span className="puzzle-toolbar__total">{total} puzzles</span>
+          <button
+            className={`puzzle-sort-btn${sort === 'createdAt' ? ' active' : ''}`}
+            onClick={() => toggleSort('createdAt')}
+          >
+            {t('puzzleBrowser.sortDate', 'Date')} {sort === 'createdAt' && (order === 'desc' ? '↓' : '↑')}
+          </button>
+          <button
+            className={`puzzle-sort-btn${sort === 'rating' ? ' active' : ''}`}
+            onClick={() => toggleSort('rating')}
+          >
+            {t('puzzleBrowser.sortRating', 'Rating')} {sort === 'rating' && (order === 'desc' ? '↓' : '↑')}
+          </button>
+        </div>
+      </div>
+
+      {/* List */}
+      {loading ? (
         <div className="loading">{t('common.loading')}</div>
-      ) : genPuzzles.length === 0 ? (
+      ) : puzzles.length === 0 ? (
         <div className="puzzle-empty">
           <p>{t('puzzleBrowser.noGenerated', 'No generated puzzles yet.')}</p>
         </div>
       ) : (
         <div className="puzzle-list">
-          {genPuzzles.map((puzzle) => (
+          {puzzles.map((puzzle) => (
             <div key={puzzle.id} className="puzzle-card">
               <div className="puzzle-card-header">
                 <span className="puzzle-card-title">
@@ -96,8 +152,8 @@ export function PuzzleBrowserPage() {
                     e.stopPropagation();
                     try {
                       await api.delete(`/api/puzzles/generated/${puzzle.id}`);
-                      setGenPuzzles((prev) => prev.filter((p) => p.id !== puzzle.id));
-                      setGenTotal((n) => n - 1);
+                      setPuzzles((prev) => prev.filter((p) => p.id !== puzzle.id));
+                      setTotal((n) => n - 1);
                     } catch { /* ignore */ }
                   }}
                   title={t('common.delete', 'Delete')}
@@ -110,31 +166,23 @@ export function PuzzleBrowserPage() {
         </div>
       )}
 
-      {!genLoading && (
-        <div className="puzzle-generator-action">
-          <button className="generate-puzzles-btn" onClick={() => setShowGenerator(true)}>
-            {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="puzzle-pagination">
+          <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            {t('puzzleBrowser.prev', 'Prev')}
           </button>
-          {genTotal > 0 && (
-            <button
-              className="puzzle-delete-all-btn"
-              onClick={async () => {
-                if (!confirm(t('puzzleBrowser.confirmDeleteAll', 'Delete all generated puzzles?'))) return;
-                try {
-                  await api.delete('/api/puzzles/generated/all');
-                  setGenPuzzles([]);
-                  setGenTotal(0);
-                } catch { /* ignore */ }
-              }}
-            >
-              {t('puzzleBrowser.deleteAll', 'Delete All')}
-            </button>
-          )}
+          <span className="puzzle-pagination__info">
+            Page {page} of {totalPages}
+          </span>
+          <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+            {t('puzzleBrowser.next', 'Next')}
+          </button>
         </div>
       )}
 
       {showGenerator && (
-        <PuzzleGeneratorModal onClose={() => { setShowGenerator(false); fetchGenerated(); }} />
+        <PuzzleGeneratorModal onClose={() => { setShowGenerator(false); fetchPuzzles(); }} />
       )}
     </div>
   );

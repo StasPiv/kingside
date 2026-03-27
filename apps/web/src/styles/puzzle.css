@@ -1557,3 +1557,70 @@ body:has(.puzzle-rush-board) {
   flex: 1;
   min-width: 0;
 }
+
+/* Puzzle toolbar */
+.puzzle-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.puzzle-toolbar__left,
+.puzzle-toolbar__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.puzzle-toolbar__total {
+  font-size: 13px;
+  color: #888;
+}
+
+.puzzle-sort-btn {
+  background: transparent;
+  border: 1px solid #444;
+  color: #888;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.puzzle-sort-btn.active {
+  border-color: #7c83ff;
+  color: #7c83ff;
+}
+
+/* Puzzle pagination */
+.puzzle-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 8px 0;
+}
+
+.puzzle-pagination button {
+  background: transparent;
+  border: 1px solid #555;
+  color: #ccc;
+  padding: 4px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.puzzle-pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.puzzle-pagination__info {
+  font-size: 13px;
+  color: #888;
+}
