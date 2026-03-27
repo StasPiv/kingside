@@ -111,27 +111,72 @@ function classifyThemes(gap: number, pv: string[], fen: string, isMate: boolean,
   return themes;
 }
 
-/** Estimate puzzle rating based on position complexity */
+const PIECE_VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+/** Estimate puzzle rating based on move type (obvious/standard/hard/brilliant) */
 function estimateRating(fen: string, pv: string[], isMate: boolean, mateDist: number): number {
   const chess = new Chess(fen);
-  const possibleMoves = chess.moves().length;
-  const pieces = chess.board().flat().filter(Boolean).length;
-  const solutionLength = pv.length;
-  console.log('[estimateRating]', { possibleMoves, pieces, solutionLength, isMate, mateDist });
+  const allMoves = chess.moves({ verbose: true });
+  const solutionUci = pv[0];
+  const from = solutionUci.slice(0, 2);
+  const to = solutionUci.slice(2, 4);
+  const promotion = solutionUci[4];
 
-  if (isMate) {
-    // Mate puzzles: base on mate distance + legal moves
-    // M1 with few options = easy, M3 with many options = hard
-    const base = 600 + mateDist * 300;
-    const movesBonus = Math.min(400, possibleMoves * 15);
-    return Math.min(2800, Math.max(600, base + movesBonus));
+  const move = chess.move({ from, to, promotion });
+  if (!move) return 1500;
+  chess.undo();
+
+  const isCapture = !!move.captured;
+  const isCheck = move.san.includes('+') || move.san.includes('#');
+  const isQuietMove = !isCapture && !isCheck;
+
+  const opponent = move.color === 'w' ? 'b' : 'w';
+  const isTargetDefended = chess.isAttacked(to as Parameters<typeof chess.isAttacked>[0], opponent);
+
+  const movedPieceValue = PIECE_VALUE[move.piece] || 0;
+  const capturedPieceValue = move.captured ? (PIECE_VALUE[move.captured] || 0) : 0;
+  const isSacrifice = isTargetDefended && movedPieceValue > capturedPieceValue;
+  const isBigSacrifice = isSacrifice && movedPieceValue >= 5;
+
+  const isHangingCapture = isCapture && !isTargetDefended && capturedPieceValue >= 3;
+
+  const temptingAlternatives = allMoves.filter(m =>
+    (m.captured || m.san.includes('+')) &&
+    !(m.from === from && m.to === to)
+  ).length;
+
+  let rating = 1200;
+
+  if (isHangingCapture) {
+    rating = 700;
+  } else if (isCapture && !isTargetDefended) {
+    rating = 800;
+  } else if (isCapture && capturedPieceValue > movedPieceValue) {
+    rating = 900;
+  } else if (isCheck && !isQuietMove) {
+    rating = 1000;
+  } else if (isCapture) {
+    rating = 1100;
+  } else if (isCheck) {
+    rating = 1200;
+  } else if (isBigSacrifice) {
+    rating = 1800;
+  } else if (isSacrifice) {
+    rating = 1600;
+  } else if (isQuietMove) {
+    rating = 1500;
   }
 
-  // Tactical puzzles: possibleMoves (complexity) + solutionLength + pieces
-  const movesScore = possibleMoves * 12;       // more legal moves = harder to find the right one
-  const lengthScore = solutionLength * 80;     // longer solution = harder
-  const piecesScore = Math.max(0, pieces - 10) * 10; // more pieces = more complex
-  return Math.min(2800, Math.max(600, 600 + movesScore + lengthScore + piecesScore));
+  const playerMoves = Math.ceil(pv.length / 2);
+  rating += (playerMoves - 1) * 150;
+
+  rating += Math.min(300, temptingAlternatives * 50);
+
+  if (isMate && mateDist === 1) {
+    rating = Math.min(rating, 1200);
+  }
+
+  return Math.min(2800, Math.max(600, Math.round(rating / 50) * 50));
 }
 
 /**
@@ -264,8 +309,7 @@ export async function generatePuzzlesFromPgn(
       if (gap >= effectiveThreshold && best.pv.length >= (isMate ? 1 : 2)) {
         const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
         if (isSacrifice) themes.push('sacrifice');
-        // Player solves 1 move, not the full PV continuation
-        const rating = estimateRating(fen, best.pv.slice(0, 1), isMate, mateDist);
+        const rating = estimateRating(fen, best.pv, isMate, mateDist);
 
         // Analyze position AFTER setup move to get player's best/second moves
         let playerBestScore: number | undefined;
