@@ -246,15 +246,14 @@ export async function generatePuzzlesFromPgn(
     }
 
     const moves = chess.history({ verbose: true });
-    const positions: { fen: string; moveNum: number; playedUci: string }[] = [];
+    const positions: { fen: string; moveNum: number }[] = [];
     // Use FEN from PGN header if present, otherwise standard start
     const fenMatch = gamePgn.match(/\[FEN\s+"([^"]+)"\]/);
     const startFen = fenMatch ? fenMatch[1] : undefined;
     const replay = startFen ? new Chess(startFen) : new Chess();
     for (let i = 0; i < moves.length; i++) {
-      const m = moves[i];
-      positions.push({ fen: replay.fen(), moveNum: i + 1, playedUci: m.from + m.to + (m.promotion || '') });
-      replay.move(m.san);
+      positions.push({ fen: replay.fen(), moveNum: i + 1 });
+      replay.move(moves[i].san);
     }
 
     for (let pi = 0; pi < positions.length; pi++) {
@@ -268,7 +267,7 @@ export async function generatePuzzlesFromPgn(
         puzzlesFound: puzzles.length,
       });
 
-      const { fen, moveNum, playedUci } = positions[pi];
+      const { fen, moveNum } = positions[pi];
 
       // Skip terminal positions (checkmate, stalemate, draw)
       try {
@@ -277,22 +276,28 @@ export async function generatePuzzlesFromPgn(
         if (check.moves().length <= 1) continue; // skip forced moves
       } catch { continue; }
 
-      // Analyze position
-      const lines = await analyzePosition(worker, fen, depth, multiPv);
-      if (lines.length === 0) continue;
+      // Dual-depth analysis: depth 14 for truth, depth 10 for "obviousness"
+      const deepLines = await analyzePosition(worker, fen, depth, multiPv);
+      if (deepLines.length === 0) continue;
 
-      const best = lines[0];
+      const best = deepLines[0];
+      const bestMoveUci = best.pv[0];
 
-      // Skip if player found the best move in the game
-      if (best.pv[0] === playedUci) continue;
+      // Shallow analysis to check if bestMove is obvious
+      const shallowDepth = Math.max(8, depth - 4);
+      const shallowLines = await analyzePosition(worker, fen, shallowDepth, multiPv);
+      const shallowBestMove = shallowLines.length > 0 ? shallowLines[0].pv[0] : null;
+
+      // Skip if best move is obvious (found at shallow depth too)
+      if (shallowBestMove === bestMoveUci) continue;
 
       const bestCp = scoreToCP(best.score);
       // If only 1 line returned (e.g. forced mate), treat gap as huge
-      const secondCp = lines.length >= 2 ? scoreToCP(lines[1].score) : 0;
-      const gap = lines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
+      const secondCp = deepLines.length >= 2 ? scoreToCP(deepLines[1].score) : 0;
+      const gap = deepLines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
 
       // Skip positions where second best is already winning/losing (>300cp)
-      if (lines.length >= 2 && Math.abs(secondCp) > 300) continue;
+      if (deepLines.length >= 2 && Math.abs(secondCp) > 300) continue;
 
       // Check if best move is a sacrifice
       let isSacrifice = false;
@@ -325,7 +330,7 @@ export async function generatePuzzlesFromPgn(
         if (rating < 1500) continue;
 
         // Use scores from THIS position's analysis (same side moves)
-        const secondLine = lines.length >= 2 ? lines[1] : null;
+        const secondLine = deepLines.length >= 2 ? deepLines[1] : null;
 
         puzzles.push({
           fen,
