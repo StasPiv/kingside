@@ -246,14 +246,15 @@ export async function generatePuzzlesFromPgn(
     }
 
     const moves = chess.history({ verbose: true });
-    const positions: { fen: string; moveNum: number }[] = [];
+    const positions: { fen: string; moveNum: number; playedUci: string }[] = [];
     // Use FEN from PGN header if present, otherwise standard start
     const fenMatch = gamePgn.match(/\[FEN\s+"([^"]+)"\]/);
     const startFen = fenMatch ? fenMatch[1] : undefined;
     const replay = startFen ? new Chess(startFen) : new Chess();
     for (let i = 0; i < moves.length; i++) {
-      positions.push({ fen: replay.fen(), moveNum: i + 1 });
-      replay.move(moves[i].san);
+      const m = moves[i];
+      positions.push({ fen: replay.fen(), moveNum: i + 1, playedUci: m.from + m.to + (m.promotion || '') });
+      replay.move(m.san);
     }
 
     for (let pi = 0; pi < positions.length; pi++) {
@@ -267,7 +268,7 @@ export async function generatePuzzlesFromPgn(
         puzzlesFound: puzzles.length,
       });
 
-      const { fen, moveNum } = positions[pi];
+      const { fen, moveNum, playedUci } = positions[pi];
 
       // Skip terminal positions (checkmate, stalemate, draw)
       try {
@@ -281,6 +282,10 @@ export async function generatePuzzlesFromPgn(
       if (lines.length === 0) continue;
 
       const best = lines[0];
+
+      // Skip if player found the best move in the game
+      if (best.pv[0] === playedUci) continue;
+
       const bestCp = scoreToCP(best.score);
       // If only 1 line returned (e.g. forced mate), treat gap as huge
       const secondCp = lines.length >= 2 ? scoreToCP(lines[1].score) : 0;
