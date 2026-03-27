@@ -326,9 +326,6 @@ export async function generatePuzzlesFromPgn(
         // Player solves 1 move; pass only pv[0] so playerMoves=1
         const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
 
-        // Skip puzzles below minimum rating
-        if (rating < 1500) continue;
-
         // Use scores from THIS position's analysis (same side moves)
         const secondLine = deepLines.length >= 2 ? deepLines[1] : null;
 
