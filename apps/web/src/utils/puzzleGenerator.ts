@@ -298,9 +298,6 @@ export async function generatePuzzlesFromPgn(
       // Skip if best move is obvious (found at shallow depth too)
       if (match) continue;
 
-      // Skip positions where second best is already winning/losing (>300cp)
-      if (deepLines.length >= 2 && Math.abs(secondCp) > 300) continue;
-
       // Check if best move is a sacrifice
       let isSacrifice = false;
       if (best.pv.length >= 1) {
