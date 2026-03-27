@@ -188,7 +188,7 @@ export async function generatePuzzlesFromPgn(
   onProgress: (progress: GenerationProgress) => void,
   options: { depth?: number; multiPv?: number; gapThreshold?: number; abortSignal?: AbortSignal } = {},
 ): Promise<GeneratedPuzzleData[]> {
-  const { depth = 14, multiPv = 3, gapThreshold = 300, abortSignal } = options;
+  const { depth = 14, multiPv = 3, gapThreshold = 100, abortSignal } = options;
 
   // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
@@ -315,6 +315,9 @@ export async function generatePuzzlesFromPgn(
         if (isSacrifice) themes.push('sacrifice');
         // Player solves 1 move; pass only pv[0] so playerMoves=1
         const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
+
+        // Skip puzzles below minimum rating
+        if (rating < 1500) continue;
 
         // Use scores from THIS position's analysis (same side moves)
         const secondLine = lines.length >= 2 ? lines[1] : null;
