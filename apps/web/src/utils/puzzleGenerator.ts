@@ -284,7 +284,7 @@ export async function generatePuzzlesFromPgn(
       const bestMoveUci = best.pv[0];
 
       // Shallow analysis to check if bestMove is obvious
-      const shallowDepth = 6;
+      const shallowDepth = 5;
       const shallowLines = await analyzePosition(worker, fen, shallowDepth, multiPv);
       const shallowBestMove = shallowLines.length > 0 ? shallowLines[0].pv[0] : null;
 
