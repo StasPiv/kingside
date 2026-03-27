@@ -284,17 +284,19 @@ export async function generatePuzzlesFromPgn(
       const bestMoveUci = best.pv[0];
 
       // Shallow analysis to check if bestMove is obvious
-      const shallowDepth = 5;
+      const shallowDepth = 3;
       const shallowLines = await analyzePosition(worker, fen, shallowDepth, multiPv);
       const shallowBestMove = shallowLines.length > 0 ? shallowLines[0].pv[0] : null;
 
-      // Skip if best move is obvious (found at shallow depth too)
-      if (shallowBestMove === bestMoveUci) continue;
-
       const bestCp = scoreToCP(best.score);
-      // If only 1 line returned (e.g. forced mate), treat gap as huge
       const secondCp = deepLines.length >= 2 ? scoreToCP(deepLines[1].score) : 0;
       const gap = deepLines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
+      const match = shallowBestMove === bestMoveUci;
+
+      console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} shallowBest=${shallowBestMove} match=${match} gap=${gap} bestCp=${bestCp} secondCp=${secondCp}`);
+
+      // Skip if best move is obvious (found at shallow depth too)
+      if (match) continue;
 
       // Skip positions where second best is already winning/losing (>300cp)
       if (deepLines.length >= 2 && Math.abs(secondCp) > 300) continue;
