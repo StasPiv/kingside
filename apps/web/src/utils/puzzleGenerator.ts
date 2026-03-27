@@ -65,7 +65,12 @@ function parseInfoLine(line: string): InfoLine | null {
 }
 
 function scoreToCP(score: { type: 'cp' | 'mate'; value: number }): number {
-  if (score.type === 'mate') return score.value > 0 ? 10000 : -10000;
+  if (score.type === 'mate') {
+    // Differentiate by mate distance: mate in 1 = 10000, mate in 2 = 9900, etc.
+    const dist = Math.abs(score.value);
+    const base = 10000 - (dist - 1) * 100;
+    return score.value > 0 ? base : -base;
+  }
   return score.value;
 }
 
@@ -193,12 +198,13 @@ export async function generatePuzzlesFromPgn(
 
       // Analyze position
       const lines = await analyzePosition(worker, fen, depth, multiPv);
-      if (lines.length < 2) continue;
+      if (lines.length === 0) continue;
 
       const best = lines[0];
-      const second = lines[1];
       const bestCp = scoreToCP(best.score);
-      const gap = Math.abs(bestCp - scoreToCP(second.score));
+      // If only 1 line returned (e.g. forced mate), treat gap as huge
+      const secondCp = lines.length >= 2 ? scoreToCP(lines[1].score) : 0;
+      const gap = lines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
 
       // Filter: skip positions where one side is already winning (>500cp)
       if (Math.abs(bestCp) > 500 && gap < 500) continue;
