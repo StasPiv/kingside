@@ -231,14 +231,7 @@ export function PuzzlePage() {
     }
   }, [submitAttemptResult, status, initPuzzle, loadPuzzle, isGenerated, puzzle, markSolved, getSolvedIds]);
 
-  // Auto-advance to next puzzle after successful solve
-  useEffect(() => {
-    if (status !== 'correct') return;
-    const timer = setTimeout(() => {
-      handleNext();
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [status, handleNext]);
+  // No auto-advance — user clicks Next manually after any result.
 
   const handleRetry = () => {
     if (!puzzle) return;
@@ -363,20 +356,15 @@ export function PuzzlePage() {
         />
 
         <div className="puzzle-actions-slot">
-          <button
-            className="play-btn"
-            onClick={status === 'incorrect' ? handleRetry : handleNext}
-            style={{ visibility: status === 'thinking' ? 'hidden' : 'visible' }}
-          >
-            {status === 'incorrect' ? t('puzzle.retry') : t('puzzle.next')}
-          </button>
+          {status === 'incorrect' && (
+            <button onClick={handleRetry}>{t('puzzle.retry')}</button>
+          )}
           <button
             className="puzzle-analyze-btn"
-            style={{ visibility: status === 'incorrect' ? 'visible' : 'hidden' }}
+            style={{ visibility: status === 'thinking' ? 'hidden' : 'visible' }}
             onClick={() => {
               if (!puzzle) return;
               const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
-              // Build PGN from all moves starting at puzzle.fen
               const c = new Chess(puzzle.fen);
               const fenParts = puzzle.fen.split(' ');
               let isWhiteTurn = fenParts[1] === 'w';
@@ -407,7 +395,7 @@ export function PuzzlePage() {
           <button
             className="play-btn"
             onClick={handleNext}
-            style={{ visibility: status === 'incorrect' ? 'visible' : 'hidden' }}
+            style={{ visibility: status === 'thinking' ? 'hidden' : 'visible' }}
           >
             {t('puzzle.next')}
           </button>
