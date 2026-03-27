@@ -149,19 +149,20 @@ export function AnalysisPage() {
       if (puzzleSide) setBoardOrientation(puzzleSide);
       if (puzzlePgn) {
         try {
-          // Parse PGN with custom FEN using chess.js
-          const c = new Chess(puzzleFen);
-          c.loadPgn(puzzlePgn);
-          const verbose = c.history({ verbose: true });
+          // Parse SAN moves from PGN and apply with custom FEN
+          const sanMoves = puzzlePgn.replace(/\d+\.\.\./g, '').replace(/\d+\./g, '').trim().split(/\s+/).filter(Boolean);
           const replay = new Chess(puzzleFen);
-          const chessMoves: ChessMove[] = verbose.map((m) => {
-            const mv = replay.move(m.san);
-            return {
-              san: mv!.san,
-              uci: mv!.from + mv!.to + (mv!.promotion || ''),
+          const chessMoves: ChessMove[] = [];
+          for (const san of sanMoves) {
+            if (san === '*' || san === '1-0' || san === '0-1' || san === '1/2-1/2') break;
+            const mv = replay.move(san);
+            if (!mv) break;
+            chessMoves.push({
+              san: mv.san,
+              uci: mv.from + mv.to + (mv.promotion || ''),
               fenAfter: replay.fen(),
-            } as unknown as ChessMove;
-          });
+            } as unknown as ChessMove);
+          }
           loadFromPgn(chessMoves);
         } catch { /* ignore parse errors */ }
       }

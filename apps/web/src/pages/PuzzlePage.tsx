@@ -172,7 +172,10 @@ export function PuzzlePage() {
       setMoveIndex(nextIndex);
 
       // Check if puzzle is complete
-      if (nextIndex >= puzzleMoves.length) {
+      // Generated puzzles: solved after first correct move
+      // Lichess puzzles: solved after all moves
+      const isSolved = isGenerated ? true : nextIndex >= puzzleMoves.length;
+      if (isSolved) {
         setStatus('correct');
         setStreak((s) => s + 1);
         setTotalSolved((n) => n + 1);
