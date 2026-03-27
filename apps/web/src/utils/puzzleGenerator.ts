@@ -276,30 +276,34 @@ export async function generatePuzzlesFromPgn(
         if (check.moves().length <= 1) continue; // skip forced moves
       } catch { continue; }
 
-      // Dual-depth analysis: depth 14 for truth, depth 10 for "obviousness"
-      const deepLines = await analyzePosition(worker, fen, depth, multiPv);
-      if (deepLines.length === 0) continue;
+      // Single analysis with depth history tracking
+      const analysis = await analyzePosition(worker, fen, depth, multiPv);
+      if (analysis.lines.length === 0) continue;
 
-      const best = deepLines[0];
+      const best = analysis.lines[0];
       const bestMoveUci = best.pv[0];
 
-      // Shallow analysis to check if bestMove is obvious
-      const shallowDepth = 3;
-      const shallowLines = await analyzePosition(worker, fen, shallowDepth, multiPv);
-      const shallowBestMove = shallowLines.length > 0 ? shallowLines[0].pv[0] : null;
-
       const bestCp = scoreToCP(best.score);
-      const secondCp = deepLines.length >= 2 ? scoreToCP(deepLines[1].score) : 0;
-      const gap = deepLines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
-      const match = shallowBestMove === bestMoveUci;
+      const secondCp = analysis.lines.length >= 2 ? scoreToCP(analysis.lines[1].score) : 0;
+      const gap = analysis.lines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
 
-      console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} shallowBest=${shallowBestMove} match=${match} gap=${gap} bestCp=${bestCp} secondCp=${secondCp}`);
+      // Check if bestMove was obvious at low depths (1-6)
+      const shallowThreshold = 6;
+      let obviousAtShallow = false;
+      for (let d = 1; d <= shallowThreshold; d++) {
+        if (analysis.bestByDepth.get(d) === bestMoveUci) {
+          obviousAtShallow = true;
+          break;
+        }
+      }
 
-      // Skip if best move is obvious (found at shallow depth too)
-      if (match) continue;
+      console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} firstAppear=${analysis.firstAppearance} obvious=${obviousAtShallow} gap=${gap} bestCp=${bestCp} secondCp=${secondCp}`);
+
+      // Skip if best move was obvious at shallow depths
+      if (obviousAtShallow) continue;
 
       // Skip positions where second best is already winning/losing (>300cp)
-      if (deepLines.length >= 2 && Math.abs(secondCp) > 300) continue;
+      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) continue;
 
       // Check if best move is a sacrifice
       let isSacrifice = false;
@@ -329,7 +333,7 @@ export async function generatePuzzlesFromPgn(
         const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
 
         // Use scores from THIS position's analysis (same side moves)
-        const secondLine = deepLines.length >= 2 ? deepLines[1] : null;
+        const secondLine = analysis.lines.length >= 2 ? analysis.lines[1] : null;
 
         puzzles.push({
           fen,
@@ -356,29 +360,54 @@ export async function generatePuzzlesFromPgn(
   return puzzles;
 }
 
+type AnalysisResult = {
+  lines: InfoLine[];
+  bestByDepth: Map<number, string>; // depth → bestMove UCI at that depth
+  firstAppearance: number; // depth at which final bestMove first appeared
+};
+
 function analyzePosition(
   worker: Worker,
   fen: string,
   depth: number,
   multiPv: number,
-): Promise<InfoLine[]> {
+): Promise<AnalysisResult> {
   return new Promise((resolve) => {
-    const lines = new Map<number, InfoLine>();
+    const finalLines = new Map<number, InfoLine>();
+    const bestByDepth = new Map<number, string>();
 
     const handler = (e: MessageEvent) => {
       const msg = typeof e.data === 'string' ? e.data : '';
 
       if (msg.startsWith('info') && msg.includes(' pv ')) {
         const info = parseInfoLine(msg);
-        if (info && info.depth >= depth - 2) {
-          lines.set(info.multipv, info);
+        if (info) {
+          // Track bestMove (multipv 1) at each depth
+          if (info.multipv === 1) {
+            bestByDepth.set(info.depth, info.pv[0]);
+          }
+          // Keep final lines for the target depth range
+          if (info.depth >= depth - 2) {
+            finalLines.set(info.multipv, info);
+          }
         }
       }
 
       if (msg.startsWith('bestmove')) {
         worker.removeEventListener('message', handler);
-        const sorted = Array.from(lines.values()).sort((a, b) => a.multipv - b.multipv);
-        resolve(sorted);
+        const lines = Array.from(finalLines.values()).sort((a, b) => a.multipv - b.multipv);
+        const finalBest = lines.length > 0 ? lines[0].pv[0] : '';
+
+        // Find first depth where finalBest appeared as best
+        let firstAppearance = depth;
+        for (let d = 1; d <= depth; d++) {
+          if (bestByDepth.get(d) === finalBest) {
+            firstAppearance = d;
+            break;
+          }
+        }
+
+        resolve({ lines, bestByDepth, firstAppearance });
       }
     };
 
