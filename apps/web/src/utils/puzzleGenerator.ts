@@ -285,6 +285,9 @@ export async function generatePuzzlesFromPgn(
       const secondCp = lines.length >= 2 ? scoreToCP(lines[1].score) : 0;
       const gap = lines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
 
+      // Skip positions where second best is already winning/losing (>300cp) — except mates
+      if (best.score.type !== 'mate' && lines.length >= 2 && Math.abs(secondCp) > 300) continue;
+
       // Check if best move is a sacrifice
       let isSacrifice = false;
       if (best.pv.length >= 1) {
