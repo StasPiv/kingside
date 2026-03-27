@@ -188,7 +188,7 @@ export async function generatePuzzlesFromPgn(
   onProgress: (progress: GenerationProgress) => void,
   options: { depth?: number; multiPv?: number; gapThreshold?: number; abortSignal?: AbortSignal } = {},
 ): Promise<GeneratedPuzzleData[]> {
-  const { depth = 14, multiPv = 3, gapThreshold = 100, abortSignal } = options;
+  const { depth = 14, multiPv = 3, gapThreshold = 50, abortSignal } = options;
 
   // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
@@ -284,7 +284,7 @@ export async function generatePuzzlesFromPgn(
       const bestMoveUci = best.pv[0];
 
       // Shallow analysis to check if bestMove is obvious
-      const shallowDepth = Math.max(8, depth - 4);
+      const shallowDepth = 8;
       const shallowLines = await analyzePosition(worker, fen, shallowDepth, multiPv);
       const shallowBestMove = shallowLines.length > 0 ? shallowLines[0].pv[0] : null;
 
