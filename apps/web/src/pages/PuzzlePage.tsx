@@ -49,13 +49,13 @@ export function PuzzlePage() {
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
-    // The first move in puzzle.moves is the opponent's last move.
-    // After that move, it's the player's turn.
-    // If moveIndex is 0, the first move hasn't been played yet.
-    // We need to determine the player's color based on whose turn it is after the setup move.
+    const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
     const setupGame = new Chess(puzzle.fen);
-    // The side to move in the FEN makes the "setup" move, then it's the player's turn.
-    // So the player's color is opposite of the side to move in FEN.
+    if (moves.length <= 1) {
+      // Single-move puzzle (e.g. mate in 1): player IS the side to move
+      return setupGame.turn() === 'w' ? 'white' as const : 'black' as const;
+    }
+    // Multi-move: setup move plays first, player is opposite side
     return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
   }, [puzzle, game]);
 
@@ -65,15 +65,20 @@ export function PuzzlePage() {
     setPuzzleMoves(moves);
 
     const chess = new Chess(data.fen);
-    if (moves.length > 0) {
+    if (moves.length > 1) {
+      // Multi-move puzzle: play setup move automatically
       const uci = moves[0];
       const from = uci.slice(0, 2);
       const to = uci.slice(2, 4);
       const promotion = uci.length > 4 ? uci[4] : undefined;
       chess.move({ from, to, promotion });
+      setGame(chess);
+      setMoveIndex(1);
+    } else {
+      // Single-move puzzle (e.g. mate in 1): no setup, player finds the move
+      setGame(chess);
+      setMoveIndex(0);
     }
-    setGame(chess);
-    setMoveIndex(1);
     setStatus('thinking');
     setSolutionMove(null);
     startTimeRef.current = Date.now();
