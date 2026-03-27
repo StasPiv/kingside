@@ -234,7 +234,14 @@ export async function generatePuzzlesFromPgn(
       if (gap >= effectiveThreshold && best.pv.length >= (isMate ? 1 : 2)) {
         const themes = classifyThemes(gap, best.pv, fen);
         if (isSacrifice) themes.push('sacrifice');
-        const estimatedRating = Math.min(2800, Math.max(600, 1200 + Math.floor(gap / 5)));
+        let estimatedRating: number;
+        if (isMate) {
+          // Mate puzzles: rating based on distance to mate
+          const mateDist = Math.abs(best.score.value);
+          estimatedRating = Math.min(2800, 600 + mateDist * 400); // M1=1000, M2=1400, M3=1800
+        } else {
+          estimatedRating = Math.min(2800, Math.max(600, 1200 + Math.floor(gap / 5)));
+        }
 
         // Analyze position AFTER setup move to get player's best/second moves
         let playerBestScore: number | undefined;
