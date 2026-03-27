@@ -86,9 +86,17 @@ export class PuzzleGeneratorController {
     @Query('source') source?: string, // my_games, all
     @Query('limit') limitStr?: string,
     @Query('offset') offsetStr?: string,
+    @Query('sort') sort?: string,
+    @Query('order') order?: string,
   ) {
     const limit = Math.min(50, parseInt(limitStr ?? '20', 10) || 20);
     const offset = parseInt(offsetStr ?? '0', 10) || 0;
+
+    const allowedSort = ['rating', 'createdAt'] as const;
+    const sortField = allowedSort.includes(sort as typeof allowedSort[number])
+      ? (sort as typeof allowedSort[number])
+      : 'createdAt';
+    const sortOrder: 'asc' | 'desc' = order === 'asc' ? 'asc' : 'desc';
 
     const where: Record<string, unknown> = {};
 
@@ -113,7 +121,7 @@ export class PuzzleGeneratorController {
         where,
         take: limit,
         skip: offset,
-        orderBy: { createdAt: 'desc' },
+        orderBy: { [sortField]: sortOrder },
       }),
       this.prisma.generatedPuzzle.count({ where }),
     ]);
