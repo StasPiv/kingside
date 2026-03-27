@@ -163,7 +163,10 @@ export async function generatePuzzlesFromPgn(
 
     const moves = chess.history({ verbose: true });
     const positions: { fen: string; moveNum: number }[] = [];
-    const replay = new Chess();
+    // Use FEN from PGN header if present, otherwise standard start
+    const fenMatch = gamePgn.match(/\[FEN\s+"([^"]+)"\]/);
+    const startFen = fenMatch ? fenMatch[1] : undefined;
+    const replay = startFen ? new Chess(startFen) : new Chess();
     for (let i = 0; i < moves.length; i++) {
       positions.push({ fen: replay.fen(), moveNum: i + 1 });
       replay.move(moves[i].san);
