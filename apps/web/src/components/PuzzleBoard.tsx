@@ -42,7 +42,7 @@ export function PuzzleBoard({
     [onPieceDrop],
   );
 
-  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
+  const { squareStyles, setLastMove, clearLastMove, onSquareClick } = useBoardHighlights({
     game: game ?? null,
     playerColor: boardOrientation,
     enabled,
@@ -50,16 +50,13 @@ export function PuzzleBoard({
   });
 
   // Sync last move highlight
-  if (lastMoveUci && lastMoveUci.length >= 4) {
-    // Use effect-free approach via ref would be better, but setLastMove is stable
-    // This is called during render which is fine for useBoardHighlights
-  }
-  // Use a memo to avoid stale closure
   const lastMoveRef = useRef(lastMoveUci);
   if (lastMoveRef.current !== lastMoveUci) {
     lastMoveRef.current = lastMoveUci;
     if (lastMoveUci && lastMoveUci.length >= 4) {
       setLastMove(lastMoveUci.slice(0, 2) as Square, lastMoveUci.slice(2, 4) as Square);
+    } else {
+      clearLastMove();
     }
   }
 

@@ -36,6 +36,8 @@ interface UseBoardHighlightsResult {
   onSquareClick: (square: Square) => void;
   /** Call after a move is made to record the last move */
   setLastMove: (from: Square, to: Square) => void;
+  /** Clear last move highlight */
+  clearLastMove: () => void;
   /** Clear selected square (e.g. after a drag drop) */
   clearSelection: () => void;
 }
@@ -52,6 +54,10 @@ export function useBoardHighlights({
   const setLastMove = useCallback((from: Square, to: Square) => {
     setLastMoveState({ from, to });
     setSelectedSquare(null);
+  }, []);
+
+  const clearLastMove = useCallback(() => {
+    setLastMoveState(null);
   }, []);
 
   const clearSelection = useCallback(() => {
@@ -134,5 +140,5 @@ export function useBoardHighlights({
     return styles;
   }, [selectedSquare, lastMove, game, enabled]);
 
-  return { squareStyles, onSquareClick, setLastMove, clearSelection };
+  return { squareStyles, onSquareClick, setLastMove, clearLastMove, clearSelection };
 }
