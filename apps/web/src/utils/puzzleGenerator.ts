@@ -182,6 +182,12 @@ export async function generatePuzzlesFromPgn(
 
       const { fen, moveNum } = positions[pi];
 
+      // Skip terminal positions (checkmate, stalemate, draw)
+      try {
+        const check = new Chess(fen);
+        if (check.isGameOver()) continue;
+      } catch { continue; }
+
       // Analyze position
       const lines = await analyzePosition(worker, fen, depth, multiPv);
       if (lines.length < 2) continue;
