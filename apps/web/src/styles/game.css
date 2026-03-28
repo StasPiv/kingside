@@ -64,7 +64,7 @@
 
 .board-container {
   border-radius: 4px;
-  overflow: hidden;
+  overflow: visible;
   aspect-ratio: 1;
   touch-action: none;
   -webkit-touch-callout: none;

@@ -68,7 +68,7 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Eval bar + board row: fills remaining height inside board-wrapper.
@@ -79,7 +79,7 @@
   align-items: stretch;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   width: 100%;
 }
 
@@ -89,7 +89,7 @@
    Also capped by viewport height. */
 .analysis-page .board-container {
   flex: none;
-  width: min(calc(55vw - 80px), calc(100vh - 190px));
+  width: min(calc(55vw - 70px), calc(100vh - 190px));
   min-width: 0;
   align-self: flex-start;
 }
