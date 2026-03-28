@@ -824,3 +824,50 @@
   }
 }
 
+
+/* PGN file action buttons */
+.workshop-pgn-file-item__action {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.workshop-pgn-file-item__action:hover {
+  color: #ccc;
+  background: rgba(255,255,255,0.05);
+}
+
+.workshop-pgn-file-item__action--delete:hover {
+  color: #dc2626;
+}
+
+.workshop-pgn-file-item__edit {
+  background: #0f172a;
+  color: #e0e0e0;
+  border: 1px solid #7c83ff;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.workshop-pgn-games-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.workshop-pgn-games-header .workshop-section-block__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
