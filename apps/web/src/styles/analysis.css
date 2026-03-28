@@ -12,15 +12,18 @@
   box-sizing: border-box;
 }
 
+/* KS-970: flex: 0 0 auto — board-area shrink-wraps the board.
+   No fixed 55% — avoids gap between board and sidebar on wide screens.
+   Board size is determined by board-container's max-width (viewport height). */
 .analysis-board-area {
   display: flex;
   flex-direction: column;
   gap: 0;
   align-items: stretch;
   overflow: hidden;
-  flex: 0 1 55%;
+  flex: 0 0 auto;
   min-width: 0;
-  max-width: 100%;
+  max-width: 65%;
 }
 
 .eval-bar-container {
