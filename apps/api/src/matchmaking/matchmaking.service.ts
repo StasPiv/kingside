@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,6 +25,7 @@ interface QueueEntry {
 
 @Injectable()
 export class MatchmakingService {
+  private readonly logger = new Logger(MatchmakingService.name);
   private readonly RATING_RANGE = 200;
 
   constructor(
@@ -70,6 +71,10 @@ export class MatchmakingService {
       rating + this.RATING_RANGE,
     );
 
+    this.logger.log(
+      `joinQueue: ${userId} (rating ${rating}) seeking ${timeInitialSec}+${timeIncrementSec} in ${queueKey}, candidates: ${candidates.length}`,
+    );
+
     for (const candidateData of candidates) {
       const candidate: QueueEntry = JSON.parse(candidateData);
 
@@ -78,21 +83,25 @@ export class MatchmakingService {
         candidate.timeInitialSec !== timeInitialSec ||
         candidate.timeIncrementSec !== timeIncrementSec
       ) {
+        this.logger.debug(`Skipping candidate ${candidate.userId}: self or different time control`);
         continue;
       }
 
       // Skip blocked users
       if (blockedIds.has(candidate.userId)) {
+        this.logger.debug(`Skipping candidate ${candidate.userId}: blocked`);
         continue;
       }
 
       // Check mutual rating filter: both players must accept each other
       if (!this.isMatchAllowedByFilters(rating, ratingRange, candidate)) {
+        this.logger.debug(`Skipping candidate ${candidate.userId}: rating filter mismatch`);
         continue;
       }
 
       // Check if candidate is still online
       if (isOnline && !(await isOnline(candidate.userId))) {
+        this.logger.log(`Removing offline candidate ${candidate.userId} from queue`);
         await this.redis.zrem(queueKey, candidateData);
         continue;
       }
@@ -130,6 +139,7 @@ export class MatchmakingService {
     }
 
     // No match found - add to queue
+    this.logger.log(`No match found for ${userId}, adding to queue`);
     const entry: QueueEntry = {
       userId,
       rating,
