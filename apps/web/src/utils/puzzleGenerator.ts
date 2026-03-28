@@ -272,8 +272,9 @@ export async function generatePuzzlesFromPgn(
       // Skip terminal positions (checkmate, stalemate, draw)
       try {
         const check = new Chess(fen);
-        if (check.isGameOver()) continue;
-        if (check.moves().length <= 1) continue; // skip forced moves
+        if (check.isGameOver()) { console.log(`[PuzzleGen] pos=${pi} SKIP: gameOver`); continue; }
+        const legalMoves = check.moves().length;
+        if (legalMoves <= 1) { console.log(`[PuzzleGen] pos=${pi} SKIP: legalMoves=${legalMoves}`); continue; }
       } catch { continue; }
 
       // Single analysis with depth history tracking
@@ -293,13 +294,17 @@ export async function generatePuzzlesFromPgn(
       const evalGrowth = evalAtDeep - evalAtShallow;
       const EVAL_GROWTH_THRESHOLD = 25;
 
-      console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`);
-
       // Skip if eval doesn't grow significantly with depth
-      if (evalGrowth < EVAL_GROWTH_THRESHOLD) continue;
+      if (evalGrowth < EVAL_GROWTH_THRESHOLD) {
+        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: growth=${evalGrowth} < ${EVAL_GROWTH_THRESHOLD}`);
+        continue;
+      }
 
       // Skip positions where second best is already winning/losing (>300cp)
-      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) continue;
+      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) {
+        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: |secondCp|=${Math.abs(secondCp)} > 300`);
+        continue;
+      }
 
       // Check if best move is a sacrifice
       let isSacrifice = false;
@@ -322,7 +327,16 @@ export async function generatePuzzlesFromPgn(
       const isMate = best.score.type === 'mate';
       const mateDist = isMate ? Math.abs(best.score.value) : 0;
 
-      if (gap >= effectiveThreshold && best.pv.length >= (isMate ? 1 : 2)) {
+      if (gap < effectiveThreshold) {
+        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: gap=${gap} < threshold=${effectiveThreshold}`);
+        continue;
+      }
+      if (best.pv.length < (isMate ? 1 : 2)) {
+        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: pv.length=${best.pv.length} < ${isMate ? 1 : 2}`);
+        continue;
+      }
+
+      {
         const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
         if (isSacrifice) themes.push('sacrifice');
         // Player solves 1 move; pass only pv[0] so playerMoves=1
@@ -330,6 +344,8 @@ export async function generatePuzzlesFromPgn(
 
         // Use scores from THIS position's analysis (same side moves)
         const secondLine = analysis.lines.length >= 2 ? analysis.lines[1] : null;
+
+        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} ACCEPTED: growth=${evalGrowth} gap=${gap} rating=${rating}`);
 
         puzzles.push({
           fen,
