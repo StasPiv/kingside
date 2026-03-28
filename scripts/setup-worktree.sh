@@ -19,13 +19,9 @@ if [ ! -f "$SCHEMA" ]; then
     exit 1
 fi
 
-if [ -d "$PRISMA_OUT" ] && [ "$(ls -A "$PRISMA_OUT" 2>/dev/null)" ]; then
-    echo "  Prisma Client уже сгенерирован, пропускаем"
-else
-    echo "  Генерация Prisma Client..."
-    npx prisma generate --schema="$SCHEMA"
-    echo "  Prisma Client сгенерирован: $PRISMA_OUT"
-fi
+echo "  Генерация Prisma Client..."
+npx prisma generate --schema="$SCHEMA"
+echo "  Prisma Client сгенерирован: $PRISMA_OUT"
 
 # 2. Сборка packages/shared
 SHARED_DIR="$WORKTREE_DIR/packages/shared"
