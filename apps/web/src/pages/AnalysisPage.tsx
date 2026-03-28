@@ -547,8 +547,10 @@ export function AnalysisPage() {
       ? {
           white: { username: pgnHeaders['White'] },
           black: { username: pgnHeaders['Black'] },
-          opening: openingName || undefined,
+          opening: openingName || pgnHeaders['Opening'] || undefined,
           result: pgnHeaders['Result'] && pgnHeaders['Result'] !== '*' ? pgnHeaders['Result'] : undefined,
+          event: pgnHeaders['Event'] && pgnHeaders['Event'] !== '?' ? pgnHeaders['Event'] : undefined,
+          date: pgnHeaders['Date'] && pgnHeaders['Date'] !== '????.??.??' ? pgnHeaders['Date'] : undefined,
         }
       : undefined;
 

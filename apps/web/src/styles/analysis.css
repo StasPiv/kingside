@@ -276,6 +276,71 @@
   background: #5a5a7e;
 }
 
+/* Game info in notation panel */
+.review-game-info {
+  padding: 8px 12px;
+  border-bottom: 1px solid #333;
+  font-size: 13px;
+}
+
+.review-game-info-opening {
+  color: #7c83ff;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.review-game-info-players {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.review-game-info-player {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #e0e0e0;
+}
+
+.review-game-info-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.review-game-info-color--white {
+  background: #fff;
+  border: 1px solid #555;
+}
+
+.review-game-info-color--black {
+  background: #333;
+  border: 1px solid #555;
+}
+
+.review-game-info-rating {
+  color: #888;
+  font-size: 11px;
+}
+
+.review-game-info-vs {
+  color: #666;
+  font-size: 11px;
+}
+
+.review-game-info-result {
+  color: #aaa;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.review-game-info-meta {
+  color: #666;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
 .analysis-sidebar {
   display: flex;
   flex-direction: column;

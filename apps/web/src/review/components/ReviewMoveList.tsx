@@ -15,6 +15,8 @@ export interface GameInfo {
   black: { username: string; rating?: number | null };
   opening?: string;
   result?: string;
+  event?: string;
+  date?: string;
 }
 
 interface ContextMenuState {
@@ -204,6 +206,13 @@ export function ReviewMoveList({
           </div>
           {gameInfo.result && (
             <div className="review-game-info-result">{gameInfo.result}</div>
+          )}
+          {(gameInfo.event || gameInfo.date) && (
+            <div className="review-game-info-meta">
+              {gameInfo.event && <span>{gameInfo.event}</span>}
+              {gameInfo.event && gameInfo.date && <span> — </span>}
+              {gameInfo.date && <span>{gameInfo.date}</span>}
+            </div>
           )}
         </div>
       )}
