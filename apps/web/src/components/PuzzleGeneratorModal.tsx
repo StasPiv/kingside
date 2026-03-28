@@ -31,6 +31,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
   const [progress, setProgress] = useState<GenerationProgress | null>(null);
   const [result, setResult] = useState<GeneratedPuzzleData[] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<{ saved: number; total: number } | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -80,13 +81,23 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     if (!result || result.length === 0 || saving) return;
     setSaving(true);
     setError(null);
+    const BATCH_SIZE = 200;
+    const total = result.length;
+    let savedCount = 0;
+    setSaveProgress({ saved: 0, total });
     try {
-      await api.post('/api/puzzles/generated/batch', { puzzles: result });
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        const batch = result.slice(i, i + BATCH_SIZE);
+        await api.post('/api/puzzles/generated/batch', { puzzles: batch });
+        savedCount += batch.length;
+        setSaveProgress({ saved: savedCount, total });
+      }
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
+      setSaveProgress(null);
     }
   }, [result, saving]);
 
@@ -172,7 +183,11 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                 </div>
                 {!saved ? (
                   <button className="puzzle-generator-save" onClick={handleSave} disabled={saving}>
-                    {saving ? t('common.loading') : t('puzzleGenerator.save', 'Save to Server')}
+                    {saving && saveProgress
+                      ? `${t('puzzleGenerator.saving', 'Saving')} ${saveProgress.saved}/${saveProgress.total}...`
+                      : saving
+                        ? t('common.loading')
+                        : t('puzzleGenerator.save', 'Save to Server')}
                   </button>
                 ) : (
                   <div className="puzzle-generator-saved">
