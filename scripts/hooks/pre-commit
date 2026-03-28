@@ -1,0 +1,52 @@
+#!/bin/bash
+# Pre-commit hook: проверка типов TypeScript (tsc --noEmit)
+# Предотвращает коммиты с TS ошибками
+# Устанавливается через: bash scripts/install-hooks.sh
+
+REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null)"
+if [ -z "$REPO_DIR" ]; then
+    exit 0
+fi
+
+# Пропускаем проверку для internal: коммитов (через env variable)
+if [ "$SKIP_TSC_CHECK" = "1" ]; then
+    exit 0
+fi
+
+echo "[pre-commit] Проверка типов TypeScript..."
+
+ERRORS=0
+
+# apps/api
+if [ -f "$REPO_DIR/apps/api/tsconfig.json" ]; then
+    echo "  Checking apps/api..."
+    npx --prefix "$REPO_DIR" tsc --noEmit --project "$REPO_DIR/apps/api/tsconfig.json" 2>&1
+    if [ $? -ne 0 ]; then
+        echo "  ❌ apps/api: TS ошибки"
+        ERRORS=1
+    else
+        echo "  ✅ apps/api: OK"
+    fi
+fi
+
+# apps/web
+if [ -f "$REPO_DIR/apps/web/tsconfig.json" ]; then
+    echo "  Checking apps/web..."
+    npx --prefix "$REPO_DIR" tsc --noEmit --project "$REPO_DIR/apps/web/tsconfig.json" 2>&1
+    if [ $? -ne 0 ]; then
+        echo "  ❌ apps/web: TS ошибки"
+        ERRORS=1
+    else
+        echo "  ✅ apps/web: OK"
+    fi
+fi
+
+if [ $ERRORS -ne 0 ]; then
+    echo ""
+    echo "[pre-commit] Коммит отклонён — исправьте TS ошибки."
+    echo "Для пропуска проверки: SKIP_TSC_CHECK=1 git commit ..."
+    exit 1
+fi
+
+echo "[pre-commit] Типы OK"
+exit 0

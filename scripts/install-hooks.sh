@@ -1,5 +1,5 @@
 #!/bin/bash
-# Устанавливает git hooks (post-commit, post-merge)
+# Устанавливает git hooks (pre-commit, post-commit, post-merge)
 # Автодеплой отключён. Деплой запускается вручную: just deploy
 # Запуск: bash scripts/install-hooks.sh
 
@@ -29,7 +29,27 @@ install_hook() {
     echo "  Установлен: $hook_name -> $HOOK_SRC"
 }
 
+install_pre_commit() {
+    local hook_path="$GIT_HOOKS_DIR/pre-commit"
+    local src="$SCRIPT_DIR/hooks/pre-commit"
+
+    if [ ! -f "$src" ]; then
+        echo "  WARN: $src не найден, пропускаем pre-commit"
+        return
+    fi
+
+    if [ -f "$hook_path" ] && [ ! -L "$hook_path" ]; then
+        echo "  WARN: pre-commit уже существует, создаём резервную копию: pre-commit.bak"
+        cp "$hook_path" "${hook_path}.bak"
+    fi
+
+    ln -sf "$src" "$hook_path"
+    chmod +x "$hook_path"
+    echo "  Установлен: pre-commit -> $src"
+}
+
 echo "=== Установка git hooks ==="
+install_pre_commit
 install_hook "post-commit"
 install_hook "post-merge"
 echo ""
