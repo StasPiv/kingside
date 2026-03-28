@@ -103,4 +103,48 @@ export class WorkshopService {
       orderBy: { position: 'asc' },
     });
   }
+
+  async deleteFile(userId: string, fileId: string) {
+    const file = await this.prisma.pgnImport.findUnique({ where: { id: fileId } });
+    if (!file) throw new NotFoundException('PGN import not found');
+    if (file.userId !== userId) throw new ForbiddenException();
+
+    await this.prisma.pgnImport.delete({ where: { id: fileId } });
+  }
+
+  async renameFile(userId: string, fileId: string, fileName: string) {
+    const file = await this.prisma.pgnImport.findUnique({ where: { id: fileId } });
+    if (!file) throw new NotFoundException('PGN import not found');
+    if (file.userId !== userId) throw new ForbiddenException();
+
+    const updated = await this.prisma.pgnImport.update({
+      where: { id: fileId },
+      data: { fileName },
+      include: { _count: { select: { games: true } } },
+    });
+
+    return {
+      id: updated.id,
+      fileName: updated.fileName,
+      gamesCount: updated._count.games,
+      createdAt: updated.createdAt,
+    };
+  }
+
+  async deleteGame(userId: string, fileId: string, gameId: string) {
+    const file = await this.prisma.pgnImport.findUnique({ where: { id: fileId } });
+    if (!file) throw new NotFoundException('PGN import not found');
+    if (file.userId !== userId) throw new ForbiddenException();
+
+    const game = await this.prisma.pgnImportGame.findUnique({ where: { id: gameId } });
+    if (!game || game.importId !== fileId) throw new NotFoundException('Game not found');
+
+    await this.prisma.pgnImportGame.delete({ where: { id: gameId } });
+
+    // If no games left, delete the file too
+    const remaining = await this.prisma.pgnImportGame.count({ where: { importId: fileId } });
+    if (remaining === 0) {
+      await this.prisma.pgnImport.delete({ where: { id: fileId } });
+    }
+  }
 }

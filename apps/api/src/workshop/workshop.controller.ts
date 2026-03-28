@@ -1,9 +1,14 @@
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import {
+  Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Request,
   UploadedFile,
@@ -39,5 +44,33 @@ export class WorkshopController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.workshopService.findImportGames(req.user.id, id);
+  }
+
+  @Delete('pgn-files/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteFile(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.workshopService.deleteFile(req.user.id, id);
+  }
+
+  @Patch('pgn-files/:id')
+  renameFile(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { fileName: string },
+  ) {
+    return this.workshopService.renameFile(req.user.id, id, body.fileName);
+  }
+
+  @Delete('pgn-files/:fileId/games/:gameId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteGame(
+    @Request() req: AuthenticatedRequest,
+    @Param('fileId', ParseUUIDPipe) fileId: string,
+    @Param('gameId', ParseUUIDPipe) gameId: string,
+  ) {
+    return this.workshopService.deleteGame(req.user.id, fileId, gameId);
   }
 }
