@@ -6,6 +6,7 @@ import type { Square } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { ApiError } from '../ApiError';
 import { PuzzleBoard } from '../components/PuzzleBoard';
+import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 
 type RushScreen = 'start' | 'playing' | 'result';
 type TimeLimitOption = 180 | 300;
@@ -15,6 +16,7 @@ const MAX_LIVES = 3;
 export function PuzzleRushPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { playSound } = useSounds();
 
   // Screen state
   const [screen, setScreen] = useState<RushScreen>('start');
@@ -162,6 +164,7 @@ export function PuzzleRushPage() {
       const copy = new Chess(game.fen());
       const move = copy.move({ from, to, promotion });
       if (!move) return;
+      playSound(soundEventFromSan(move.san));
 
       const uci = from + to + (promotion ?? '');
 
@@ -189,11 +192,12 @@ export function PuzzleRushPage() {
               const opMove = response.expectedMove;
               setTimeout(() => {
                 const next = new Chess(copy.fen());
-                next.move({
+                const opResult = next.move({
                   from: opMove.slice(0, 2),
                   to: opMove.slice(2, 4),
                   promotion: opMove.length > 4 ? opMove[4] : undefined,
                 });
+                if (opResult) playSound(soundEventFromSan(opResult.san));
                 setGame(next);
                 setLastMoveUci(opMove);
               }, 200);
@@ -247,6 +251,7 @@ export function PuzzleRushPage() {
       const copy = new Chess(game.fen());
       const move = copy.move({ from: sourceSquare, to: targetSquare });
       if (!move) return false;
+      playSound(soundEventFromSan(move.san));
 
       const uci = sourceSquare + targetSquare;
 
@@ -274,11 +279,12 @@ export function PuzzleRushPage() {
               const opMove = response.expectedMove;
               setTimeout(() => {
                 const next = new Chess(copy.fen());
-                next.move({
+                const opResult = next.move({
                   from: opMove.slice(0, 2),
                   to: opMove.slice(2, 4),
                   promotion: opMove.length > 4 ? opMove[4] : undefined,
                 });
+                if (opResult) playSound(soundEventFromSan(opResult.san));
                 setGame(next);
                 setLastMoveUci(opMove);
               }, 200);
