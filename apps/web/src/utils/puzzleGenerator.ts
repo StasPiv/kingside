@@ -188,7 +188,7 @@ export async function generatePuzzlesFromPgn(
   onProgress: (progress: GenerationProgress) => void,
   options: { depth?: number; multiPv?: number; gapThreshold?: number; abortSignal?: AbortSignal } = {},
 ): Promise<GeneratedPuzzleData[]> {
-  const { depth = 14, multiPv = 3, gapThreshold = 100, abortSignal } = options;
+  const { depth = 14, multiPv = 3, gapThreshold = 50, abortSignal } = options;
 
   // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
