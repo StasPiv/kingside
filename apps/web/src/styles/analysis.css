@@ -71,7 +71,8 @@
   overflow: hidden;
 }
 
-/* Eval bar + board row: fills remaining height inside board-wrapper */
+/* Eval bar + board row: fills remaining height inside board-wrapper.
+   KS-970: explicit width: 100% so children can resolve percentages. */
 .analysis-eval-board-row {
   display: flex;
   gap: 0;
@@ -79,16 +80,16 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  width: 100%;
 }
 
 /* Board container: square board that fits available space.
-   KS-970: flex: 1 fills remaining space after eval-bar (38px).
-   max-width caps board at viewport-height-based size.
-   JS reads container width via ResizeObserver — must be correct on first render. */
+   KS-970: use calc(100% - 38px) for eval-bar. Parent has width:100% for
+   reliable percentage resolution. Cap at viewport-height-based size. */
 .analysis-page .board-container {
-  flex: 1;
+  flex: none;
+  width: min(calc(100% - 38px), calc(100vh - 190px));
   min-width: 0;
-  max-width: calc(100vh - 190px);
   align-self: flex-start;
 }
 
