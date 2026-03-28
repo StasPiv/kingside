@@ -16,7 +16,6 @@ import { useEngineConfig } from '../hooks/useEngineConfig';
 import { useContainerSize } from '../hooks/useContainerSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
-import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { api } from '../api';
 import { useReviewState } from '../review/useReviewState';
@@ -132,7 +131,6 @@ export function AnalysisPage() {
   const containerSize = useContainerSize(boardContainerRef);
   const boardWidth = Math.min(containerSize.width, containerSize.height);
   const { boardThemeOptions } = useBoardTheme();
-  const { inputMode } = useBoardSettings();
 
   const {
     history, currentMove, currentGlobalIndex, currentFen, initialFen,
@@ -470,8 +468,8 @@ export function AnalysisPage() {
   );
 
   const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
-    game, playerColor: null, enabled: inputMode === 'click',
-    onMove: inputMode === 'click' ? onClickMove : undefined,
+    game, playerColor: null, enabled: true,
+    onMove: onClickMove,
   });
 
   useEffect(() => {
@@ -503,7 +501,7 @@ export function AnalysisPage() {
     onPieceDrop: handleFastDragDrop,
     boardOrientation,
     allowBothColors: true,
-    enabled: !loading && inputMode === 'drag',
+    enabled: !loading,
   });
 
   const boardOptions = useMemo(
@@ -518,7 +516,7 @@ export function AnalysisPage() {
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, handleSquareClick, inputMode],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, handleSquareClick],
   );
 
   // --- Computed values ---

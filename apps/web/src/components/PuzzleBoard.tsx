@@ -6,7 +6,6 @@ import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useBoardTheme } from '../hooks/useBoardTheme';
-import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 
 interface PuzzleBoardProps {
@@ -35,8 +34,6 @@ export function PuzzleBoard({
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const { boardThemeOptions, customPieces } = useBoardTheme();
-  const { inputMode } = useBoardSettings();
-
   const onClickMove = useCallback(
     (from: Square, to: Square): boolean => onPieceDrop({ sourceSquare: from, targetSquare: to }),
     [onPieceDrop],
@@ -46,7 +43,7 @@ export function PuzzleBoard({
     game: game ?? null,
     playerColor: boardOrientation,
     enabled,
-    onMove: inputMode === 'click' ? onClickMove : undefined,
+    onMove: onClickMove,
   });
 
   // Sync last move highlight
@@ -70,7 +67,7 @@ export function PuzzleBoard({
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop,
     boardOrientation,
-    enabled: enabled && inputMode === 'drag',
+    enabled,
   });
 
   const boardStyle = useMemo(

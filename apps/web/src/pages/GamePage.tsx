@@ -117,7 +117,7 @@ export function GamePage() {
   }, [gameMeta, sendChallenge]);
 
   const { playSound, muted, toggleMute } = useSounds();
-  const { showNotation, customPieces, darkSquareStyle, lightSquareStyle, inputMode } = useBoardSettings();
+  const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
   // Stable callback ref used to break the circular dependency between
   // useBoardHighlights (needs onMove) and onDrop (needs clearSelection).
   const onMoveForTouchRef = useRef<((from: Square, to: Square) => boolean) | undefined>(undefined);
@@ -129,7 +129,7 @@ export function GamePage() {
     game,
     playerColor,
     enabled: status === 'active',
-    onMove: inputMode === 'click' ? onMoveForTouch : undefined,
+    onMove: onMoveForTouch,
   });
 
   useEffect(() => {
@@ -395,8 +395,7 @@ export function GamePage() {
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
-    // In click mode, drag-and-drop is disabled.
-    enabled: status === 'active' && inputMode === 'drag',
+    enabled: status === 'active',
   });
 
   const stablePosition = useStablePosition(fen);

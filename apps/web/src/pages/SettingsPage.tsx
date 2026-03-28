@@ -12,7 +12,7 @@ export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { muted, toggleMute } = useSounds();
-  const { boardTheme, pieceSet, selectTheme, selectPieceSet, inputMode, setInputMode } = useBoardSettings();
+  const { boardTheme, pieceSet, selectTheme, selectPieceSet } = useBoardSettings();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -121,17 +121,6 @@ export function SettingsPage() {
               </label>
             ))}
           </div>
-        </div>
-
-        <div className="settings-field" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, marginTop: 16 }}>
-          <label>Режим ввода ходов</label>
-          <select
-            value={inputMode}
-            onChange={(e) => setInputMode(e.target.value as 'drag' | 'click')}
-          >
-            <option value="drag">Перетаскивание</option>
-            <option value="click">Два клика</option>
-          </select>
         </div>
 
         <div className="settings-field" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 8, marginTop: 16 }}>
