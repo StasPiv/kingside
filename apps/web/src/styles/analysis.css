@@ -82,12 +82,13 @@
 }
 
 /* Board container: square board that fits available space.
-   flex-basis sets desired size from viewport height.
-   flex-shrink: 1 lets it shrink when eval-bar + board exceed container.
-   KS-970: was flex: none which prevented shrinking. */
+   KS-970: JS reads container width via ResizeObserver and sets inline style
+   on Chessboard. CSS must give the correct initial width — no flex-shrink
+   tricks, because JS captures width before shrink takes effect.
+   38px = eval-bar width. */
 .analysis-page .board-container {
-  flex: 0 1 calc(100vh - 190px);
-  max-width: calc(100vh - 190px);
+  flex: none;
+  width: min(calc(100% - 38px), calc(100vh - 190px));
   min-width: 0;
   align-self: flex-start;
 }
