@@ -180,6 +180,7 @@ export function PuzzleRushPage() {
           setLives(response.lives);
 
           if (response.finished) {
+            playSound('puzzle-gameover');
             endGame(response.scoreId);
             return;
           }
@@ -269,6 +270,7 @@ export function PuzzleRushPage() {
           setLives(response.lives);
 
           if (response.finished) {
+            playSound('puzzle-gameover');
             endGame(response.scoreId);
             return;
           }

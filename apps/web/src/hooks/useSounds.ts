@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-export type SoundEvent = 'move' | 'capture' | 'check' | 'castle' | 'game-end' | 'puzzle-correct' | 'puzzle-incorrect';
+export type SoundEvent = 'move' | 'capture' | 'check' | 'castle' | 'game-end' | 'puzzle-correct' | 'puzzle-incorrect' | 'puzzle-gameover';
 
 function getAudioContext(): AudioContext | null {
   try {
@@ -92,6 +92,19 @@ function playPuzzleIncorrect(ctx: AudioContext): void {
   playTone(ctx, 131, 0.5, t + 0.1, 'sine', 0.15);
 }
 
+function playPuzzleGameover(ctx: AudioContext): void {
+  const t = ctx.currentTime;
+  // Dramatic descending: C4 → Ab3 → F3 → Db3 (diminished, tragic)
+  playTone(ctx, 262, 0.3, t, 'triangle', 0.35);
+  playTone(ctx, 208, 0.3, t + 0.2, 'triangle', 0.3);
+  playTone(ctx, 175, 0.3, t + 0.4, 'triangle', 0.25);
+  playTone(ctx, 139, 0.6, t + 0.6, 'triangle', 0.2);
+  // Deep rumble
+  playTone(ctx, 65, 0.9, t + 0.2, 'sine', 0.2);
+  // Dissonant overtone
+  playTone(ctx, 147, 0.5, t + 0.6, 'square', 0.08);
+}
+
 const SOUND_MUTED_KEY = 'soundMuted';
 
 export function useSounds() {
@@ -143,6 +156,9 @@ export function useSounds() {
           break;
         case 'puzzle-incorrect':
           playPuzzleIncorrect(ctx);
+          break;
+        case 'puzzle-gameover':
+          playPuzzleGameover(ctx);
           break;
       }
     },
