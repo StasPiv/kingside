@@ -8,6 +8,8 @@ const cached = localStorage.getItem('locale');
 const browserLang = navigator.language.split('-')[0];
 const lng = cached === 'ru' || cached === 'en' ? cached : browserLang === 'ru' ? 'ru' : 'en';
 
+console.log('[i18n] navigator.language:', navigator.language, '| browserLang:', browserLang, '| cached:', cached, '| chosen:', lng);
+
 i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },
