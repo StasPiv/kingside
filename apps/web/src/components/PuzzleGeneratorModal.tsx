@@ -2,8 +2,9 @@ import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import type { GeneratedPuzzleData, GenerationProgress, PuzzleGenSettings } from '../utils/puzzleGenerator';
+import type { GeneratedPuzzleData, GenerationProgress, PuzzleGenSettings, BridgeConfig } from '../utils/puzzleGenerator';
 import { generatePuzzlesFromPgn, DEFAULT_PUZZLE_GEN_SETTINGS } from '../utils/puzzleGenerator';
+import { loadEngineConfigs } from '../hooks/useEngine';
 
 const LS_KEY = 'puzzleGenSettings';
 
@@ -36,7 +37,14 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [settings, setSettings] = useState<PuzzleGenSettings>(loadSettings);
+  const [engineType, setEngineType] = useState<'wasm' | 'bridge'>('wasm');
   const abortRef = useRef<AbortController | null>(null);
+
+  const savedConfigs = loadEngineConfigs();
+  const hasBridge = savedConfigs.length > 0;
+  const bridgeConfig: BridgeConfig | undefined = engineType === 'bridge' && hasBridge
+    ? { wsUrl: savedConfigs[0].wsUrl, secretKey: savedConfigs[0].secretKey }
+    : undefined;
 
   const updateSetting = <K extends keyof PuzzleGenSettings>(key: K, value: PuzzleGenSettings[K]) => {
     setSettings((prev) => {
@@ -67,7 +75,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     setSaved(false);
     abortRef.current = new AbortController();
     try {
-      const puzzles = await generatePuzzlesFromPgn(pgnText, (p) => setProgress(p), { ...settings, abortSignal: abortRef.current.signal });
+      const puzzles = await generatePuzzlesFromPgn(pgnText, (p) => setProgress(p), { ...settings, abortSignal: abortRef.current.signal, bridgeConfig });
       setResult(puzzles);
     } catch (err) {
       if (err instanceof Error && err.name !== 'AbortError') setError(err.message);
@@ -141,12 +149,17 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                     <label><input type="checkbox" checked={settings.skipAttackedByLesser} onChange={(e) => updateSetting('skipAttackedByLesser', e.target.checked)} /> Skip attacked by lesser</label>
                     <label><input type="checkbox" checked={settings.skipUndefendedAfterMove} onChange={(e) => updateSetting('skipUndefendedAfterMove', e.target.checked)} /> Skip undefended after move</label>
                   </div>
+                  <div className="puzzle-gen-engine-select">
+                    <span>Engine:</span>
+                    <label><input type="radio" name="engine" value="wasm" checked={engineType === 'wasm'} onChange={() => setEngineType('wasm')} /> WASM (browser)</label>
+                    <label><input type="radio" name="engine" value="bridge" checked={engineType === 'bridge'} onChange={() => setEngineType('bridge')} disabled={!hasBridge} /> Bridge (external){!hasBridge && ' — not configured'}</label>
+                  </div>
                   <button className="puzzle-gen-settings-reset" onClick={resetSettings}>Reset to defaults</button>
                 </div>
               )}
             </div>
 
-            <button className="puzzle-generator-start" onClick={handleGenerate} disabled={!pgnText.trim()}>
+            <button className="puzzle-generator-start" onClick={handleGenerate} disabled={!pgnText.trim() || (engineType === 'bridge' && !hasBridge)}>
               {t('puzzleGenerator.generate', 'Generate Puzzles')}
             </button>
           </div>

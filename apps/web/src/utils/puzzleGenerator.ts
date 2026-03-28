@@ -1,4 +1,8 @@
 import { Chess } from 'chess.js';
+import type { EngineAdapter, AnalysisResult, InfoLine, BridgeConfig } from './engineAdapter';
+import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
+
+export type { BridgeConfig };
 
 export type SourceMetadata = {
   white?: string;
@@ -32,37 +36,6 @@ export type GenerationProgress = {
   puzzlesFound: number;
 };
 
-type InfoLine = {
-  multipv: number;
-  depth: number;
-  score: { type: 'cp' | 'mate'; value: number };
-  pv: string[];
-};
-
-function parseInfoLine(line: string): InfoLine | null {
-  const depthMatch = line.match(/\bdepth (\d+)/);
-  const multipvMatch = line.match(/\bmultipv (\d+)/);
-  const pvMatch = line.match(/\bpv (.+)/);
-
-  if (!depthMatch || !pvMatch) return null;
-
-  const depth = parseInt(depthMatch[1], 10);
-  const multipv = multipvMatch ? parseInt(multipvMatch[1], 10) : 1;
-  const pv = pvMatch[1].split(/\s+/);
-
-  let score: { type: 'cp' | 'mate'; value: number };
-  const cpMatch = line.match(/\bscore cp (-?\d+)/);
-  const mateMatch = line.match(/\bscore mate (-?\d+)/);
-  if (mateMatch) {
-    score = { type: 'mate', value: parseInt(mateMatch[1], 10) };
-  } else if (cpMatch) {
-    score = { type: 'cp', value: parseInt(cpMatch[1], 10) };
-  } else {
-    return null;
-  }
-
-  return { depth, multipv, score, pv };
-}
 
 function scoreToCP(score: { type: 'cp' | 'mate'; value: number }): number {
   if (score.type === 'mate') {
@@ -206,42 +179,33 @@ export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
 export async function generatePuzzlesFromPgn(
   pgn: string,
   onProgress: (progress: GenerationProgress) => void,
-  options: Partial<PuzzleGenSettings> & { abortSignal?: AbortSignal } = {},
+  options: Partial<PuzzleGenSettings> & { abortSignal?: AbortSignal; bridgeConfig?: BridgeConfig } = {},
 ): Promise<GeneratedPuzzleData[]> {
   const settings = { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...options };
   const { depth, multiPv, gapThreshold, maxSecondCp, skipHangingCapture, skipAttackedByLesser, skipUndefendedAfterMove } = settings;
-  const { abortSignal } = options;
+  const { abortSignal, bridgeConfig } = options;
 
   // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
   const puzzles: GeneratedPuzzleData[] = [];
 
-  // Create Stockfish worker
-  // Use single-threaded build (works without cross-origin isolation)
-  const worker = new Worker('/stockfish/stockfish-18-single.js');
-  const sendCmd = (cmd: string) => worker.postMessage(cmd);
+  // Create engine adapter
+  let engine: EngineAdapter;
+  if (bridgeConfig) {
+    engine = new BridgeEngineAdapter(bridgeConfig);
+  } else {
+    engine = new WasmEngineAdapter();
+  }
 
-  worker.onerror = (err) => {
-    console.error('[PuzzleGenerator] Worker error:', err);
-  };
+  await engine.init();
 
-  // Wait for engine ready (timeout 15s)
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Stockfish init timeout')), 15000);
-    const handler = (e: MessageEvent) => {
-      if (typeof e.data === 'string' && e.data.includes('uciok')) {
-        clearTimeout(timer);
-        worker.removeEventListener('message', handler);
-        console.log('[PuzzleGenerator] Stockfish ready');
-        resolve();
-      }
-    };
-    worker.addEventListener('message', handler);
-    sendCmd('uci');
-  });
-
-  sendCmd(`setoption name MultiPV value ${multiPv}`);
-  sendCmd(`setoption name Threads value 1`);
+  engine.setOption('MultiPV', String(multiPv));
+  if (bridgeConfig) {
+    engine.setOption('Threads', '16');
+    engine.setOption('Hash', '256');
+  } else {
+    engine.setOption('Threads', '1');
+  }
 
   for (let gi = 0; gi < games.length; gi++) {
     if (abortSignal?.aborted) break;
@@ -300,7 +264,7 @@ export async function generatePuzzlesFromPgn(
       } catch { continue; }
 
       // Single analysis with depth history tracking
-      const analysis = await analyzePosition(worker, fen, depth, multiPv);
+      const analysis = await engine.analyze(fen, depth, multiPv);
       if (analysis.lines.length === 0) continue;
 
       const best = analysis.lines[0];
@@ -413,69 +377,10 @@ export async function generatePuzzlesFromPgn(
     }
   }
 
-  worker.terminate();
+  engine.destroy();
   return puzzles;
 }
 
-type AnalysisResult = {
-  lines: InfoLine[];
-  bestByDepth: Map<number, string>; // depth → bestMove UCI at that depth
-  evalByDepth: Map<number, number>; // depth → eval (cp) of best move at that depth
-  firstAppearance: number; // depth at which final bestMove first appeared
-};
-
-function analyzePosition(
-  worker: Worker,
-  fen: string,
-  depth: number,
-  multiPv: number,
-): Promise<AnalysisResult> {
-  return new Promise((resolve) => {
-    const finalLines = new Map<number, InfoLine>();
-    const bestByDepth = new Map<number, string>();
-    const evalByDepth = new Map<number, number>();
-
-    const handler = (e: MessageEvent) => {
-      const msg = typeof e.data === 'string' ? e.data : '';
-
-      if (msg.startsWith('info') && msg.includes(' pv ')) {
-        const info = parseInfoLine(msg);
-        if (info) {
-          // Track bestMove and eval (multipv 1) at each depth
-          if (info.multipv === 1) {
-            bestByDepth.set(info.depth, info.pv[0]);
-            evalByDepth.set(info.depth, scoreToCP(info.score));
-          }
-          // Keep final lines for the target depth range
-          if (info.depth >= depth - 2) {
-            finalLines.set(info.multipv, info);
-          }
-        }
-      }
-
-      if (msg.startsWith('bestmove')) {
-        worker.removeEventListener('message', handler);
-        const lines = Array.from(finalLines.values()).sort((a, b) => a.multipv - b.multipv);
-        const finalBest = lines.length > 0 ? lines[0].pv[0] : '';
-
-        // Find first depth where finalBest appeared as best
-        let firstAppearance = depth;
-        for (let d = 1; d <= depth; d++) {
-          if (bestByDepth.get(d) === finalBest) {
-            firstAppearance = d;
-            break;
-          }
-        }
-
-        resolve({ lines, bestByDepth, evalByDepth, firstAppearance });
-      }
-    };
-
-    worker.addEventListener('message', handler);
-    worker.postMessage(`position fen ${fen}`);
-    worker.postMessage(`go depth ${depth}`);
-  });
-}
 
 function splitPgnIntoGames(pgn: string): string[] {
   const games: string[] = [];
