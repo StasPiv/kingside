@@ -442,3 +442,15 @@ body.has-analysis-page .main {
   margin-top: 2px;
 }
 
+
+.header-features-link {
+  color: #7c83ff;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px 8px;
+}
+
+.header-features-link:hover {
+  color: #a0a5ff;
+}

@@ -209,6 +209,7 @@ export function MainLayout() {
               </div>
             ) : (
               <div className="social-login-buttons">
+                <Link to="/features" className="header-features-link">{t('nav.features', 'Features')}</Link>
                 <a href={`${API_URL}/api/auth/google`} className="social-login-btn social-login-btn--google" aria-label="Google">
                   <FcGoogle size={20} />
                 </a>
