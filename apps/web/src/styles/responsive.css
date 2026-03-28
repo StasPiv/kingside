@@ -321,11 +321,11 @@
     padding: 0;
   }
 
-  /* Board: 42vh square, centered (KS-924/KS-929) */
-  /* vh fallback for browsers without dvh support */
+  /* Board: 42vh square, centered (KS-924/KS-929/KS-1012) */
+  /* calc(100vw - 16px) avoids overflow on mobile browsers */
   .analysis-page .board-container {
-    width: min(100vw, 42vh) !important;
-    max-width: 100vw !important;
+    width: min(calc(100vw - 16px), 42vh) !important;
+    max-width: calc(100vw - 16px) !important;
     height: auto !important;
     aspect-ratio: 1 / 1;
     margin: 0 auto;
@@ -334,7 +334,7 @@
   /* dvh override for modern browsers */
   @supports (height: 1dvh) {
     .analysis-page .board-container {
-      width: min(100vw, 42dvh) !important;
+      width: min(calc(100vw - 16px), 42dvh) !important;
     }
   }
 
