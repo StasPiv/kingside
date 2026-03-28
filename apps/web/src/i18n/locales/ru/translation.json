@@ -394,6 +394,8 @@
   },
   "puzzle": {
     "title": "Задачи",
+    "whiteToMove": "Ход белых",
+    "blackToMove": "Ход чёрных",
     "rating": "Рейтинг: {{rating}}",
     "solve": "Решить",
     "next": "Далее",

@@ -1,4 +1,5 @@
 import { useRef, useMemo, useCallback, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Square } from 'chess.js';
 import type { Chess } from 'chess.js';
 import { MemoChessboard } from './MemoChessboard';
@@ -31,6 +32,7 @@ export function PuzzleBoard({
   status,
   children,
 }: PuzzleBoardProps) {
+  const { t } = useTranslation();
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const { boardThemeOptions, customPieces } = useBoardTheme();
@@ -103,6 +105,11 @@ export function PuzzleBoard({
 
   return (
     <div className="board-container" ref={boardContainerRef}>
+      <div className={`puzzle-turn-indicator puzzle-turn-indicator--${boardOrientation}`}>
+        {boardOrientation === 'white'
+          ? t('puzzle.whiteToMove', 'White to move')
+          : t('puzzle.blackToMove', 'Black to move')}
+      </div>
       {status != null && (
         <div className={`puzzle-indicator puzzle-indicator--${status}`} />
       )}

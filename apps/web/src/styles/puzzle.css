@@ -1115,6 +1115,44 @@ body:has(.puzzle-rush-board) {
   box-shadow: 0 0 8px #ef4444;
 }
 
+/* Turn indicator */
+.puzzle-turn-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.puzzle-turn-indicator::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.puzzle-turn-indicator--white {
+  color: #e0e0e0;
+}
+
+.puzzle-turn-indicator--white::before {
+  background: #fff;
+  border: 1px solid #999;
+}
+
+.puzzle-turn-indicator--black {
+  color: #e0e0e0;
+}
+
+.puzzle-turn-indicator--black::before {
+  background: #333;
+  border: 1px solid #555;
+}
+
 /* Puzzle eval info (shown after solving) */
 .puzzle-eval-info {
   display: flex;

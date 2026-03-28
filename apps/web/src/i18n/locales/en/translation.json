@@ -394,6 +394,8 @@
   },
   "puzzle": {
     "title": "Puzzles",
+    "whiteToMove": "White to move",
+    "blackToMove": "Black to move",
     "rating": "Rating: {{rating}}",
     "solve": "Solve",
     "next": "Next",
