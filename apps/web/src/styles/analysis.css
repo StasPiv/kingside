@@ -84,11 +84,12 @@
 }
 
 /* Board container: square board that fits available space.
-   KS-970: use calc(100% - 38px) for eval-bar. Parent has width:100% for
-   reliable percentage resolution. Cap at viewport-height-based size. */
+   KS-970: use vw units directly — percentage resolution in nested flex is unreliable.
+   55vw = board-area share, -46px = eval-bar(38) + page-padding(8).
+   Also capped by viewport height. */
 .analysis-page .board-container {
   flex: none;
-  width: min(calc(100% - 38px), calc(100vh - 190px));
+  width: min(calc(55vw - 46px), calc(100vh - 190px));
   min-width: 0;
   align-self: flex-start;
 }
