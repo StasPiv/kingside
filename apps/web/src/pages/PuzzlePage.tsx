@@ -26,6 +26,7 @@ export function PuzzlePage() {
   const [totalSolved, setTotalSolved] = useState(0);
   const [solutionMove, setSolutionMove] = useState<string | null>(null);
   const [allSolved, setAllSolved] = useState(false);
+  const [ratingChange, setRatingChange] = useState<{ before: number; after: number } | null>(null);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
 
@@ -84,6 +85,7 @@ export function PuzzlePage() {
     }
     setStatus('thinking');
     setSolutionMove(null);
+    setRatingChange(null);
     startTimeRef.current = Date.now();
     attemptSubmittedRef.current = false;
   }, []);
@@ -117,13 +119,21 @@ export function PuzzlePage() {
     attemptSubmittedRef.current = true;
     const timeMs = Date.now() - startTimeRef.current;
     try {
+      if (isGenerated) {
+        // Generated puzzle: use Glicko attempt API
+        const res = await api.post<{ userRatingBefore: number; userRatingAfter: number }>(
+          `/api/puzzles/generated/${puzzle.id}/attempt`,
+          { solved, timeMs },
+        );
+        setRatingChange({ before: res.userRatingBefore, after: res.userRatingAfter });
+        return null;
+      }
       const response = await puzzleApi.submitAttempt(puzzle.id, { result: solved ? 'solved' : 'failed', timeMs });
       return response.nextPuzzle;
     } catch {
-      // non-critical: attempt recording failed, don't block UX
       return null;
     }
-  }, [puzzle]);
+  }, [puzzle, isGenerated]);
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
@@ -338,6 +348,11 @@ export function PuzzlePage() {
             </div>
           );
         })() : <span>&nbsp;</span>}
+        {ratingChange && (
+          <span className={`puzzle-rating-change ${ratingChange.after >= ratingChange.before ? 'positive' : 'negative'}`}>
+            {ratingChange.after >= ratingChange.before ? '+' : ''}{ratingChange.after - ratingChange.before} ({ratingChange.after})
+          </span>
+        )}
         </div>
 
         <PuzzleBoard
