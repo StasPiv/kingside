@@ -446,6 +446,27 @@ export class GameService {
     });
   }
 
+  async getActiveGameForUser(userId: string): Promise<{ gameId: string; opponent: string; timeControlType: string } | null> {
+    const game = await this.prisma.game.findFirst({
+      where: {
+        status: 'active',
+        OR: [{ whiteId: userId }, { blackId: userId }],
+      },
+      include: {
+        white: { select: { username: true } },
+        black: { select: { username: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!game) return null;
+    const isWhite = game.whiteId === userId;
+    return {
+      gameId: game.id,
+      opponent: isWhite ? (game.black.username ?? '?') : (game.white.username ?? '?'),
+      timeControlType: game.timeControlType ?? '',
+    };
+  }
+
   async getGameMoves(gameId: string) {
     return this.prisma.move.findMany({
       where: { gameId },

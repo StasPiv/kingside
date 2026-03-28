@@ -17,7 +17,8 @@
     "online": "{{count}} онлайн",
     "play": "Играть",
     "workshop": "Мастерская",
-    "watch": "Смотреть"
+    "watch": "Смотреть",
+    "backToGame": "Вернуться в партию"
   },
   "notifications": {
     "title": "Уведомления",

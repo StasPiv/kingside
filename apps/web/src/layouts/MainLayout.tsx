@@ -9,6 +9,7 @@ import { messagesSocket } from '../socket';
 import { MessageEvents } from '@kingside/shared';
 import { useChallenge } from '../hooks/useChallenge';
 import { useNotifications } from '../hooks/useNotifications';
+import { useActiveGame } from '../hooks/useActiveGame';
 import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 import { NotificationDropdown } from '../components/NotificationDropdown';
 
@@ -44,6 +45,7 @@ export function MainLayout() {
     markAsRead,
     markAllAsRead,
   } = useNotifications(!!user);
+  const { activeGame } = useActiveGame(!!user);
 
   const handleNotifToggle = useCallback(() => {
     setNotifOpen((prev) => {
@@ -142,6 +144,11 @@ export function MainLayout() {
 
           {/* RIGHT: Utilities + Profile */}
           <div className="header-right">
+            {activeGame && (
+              <Link to={`/game/${activeGame.gameId}`} className="active-game-btn">
+                {t('nav.backToGame', 'Back to game')}
+              </Link>
+            )}
             <Link to="/features" className="header-features-link">{t('nav.features', 'Features')}</Link>
             {/* Bell + Messages: always visible (even mobile) */}
             {user && (

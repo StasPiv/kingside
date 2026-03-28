@@ -34,6 +34,12 @@ export class GameController {
   ) {}
 
   @UseGuards(JwtAuthGuard)
+  @Get('active')
+  async getActiveGame(@Request() req: AuthenticatedRequest) {
+    return this.gameService.getActiveGameForUser(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('my')
   getMyGames(
     @Request() req: AuthenticatedRequest,
