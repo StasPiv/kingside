@@ -266,7 +266,6 @@ export function GamePage() {
     if (clocks.white === 0 || clocks.black === 0) {
       if (!timeoutClaimedRef.current) {
         timeoutClaimedRef.current = true;
-        console.log('[GamePage] Claiming timeout, clocks:', clocks, 'connected:', socket.connected);
         socket.emit('game:claim-timeout', { gameId });
       }
     }
