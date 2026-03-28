@@ -298,6 +298,9 @@ export async function generatePuzzlesFromPgn(
       // Skip if eval doesn't grow significantly with depth
       if (evalGrowth < EVAL_GROWTH_THRESHOLD) continue;
 
+      // Skip positions where second best is already winning/losing (>300cp)
+      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) continue;
+
       // Check if best move is a sacrifice
       let isSacrifice = false;
       if (best.pv.length >= 1) {
