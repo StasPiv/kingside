@@ -41,6 +41,18 @@ export function useFastDrag(
 
   const suppressAnimationRef = useRef(false);
 
+  /** Minimum distance (px) before a pointerdown becomes a drag. */
+  const DRAG_THRESHOLD = 4;
+
+  /** Pending pointerdown that hasn't crossed the drag threshold yet. */
+  const pendingRef = useRef<{
+    sourceSquare: string;
+    pieceEl: HTMLElement;
+    startX: number;
+    startY: number;
+    pointerId: number;
+  } | null>(null);
+
   const dragStateRef = useRef<{
     sourceSquare: string;
     pieceEl: HTMLElement;
@@ -86,18 +98,15 @@ export function useFastDrag(
       if (e.button !== 0) return;
 
       const target = e.target as HTMLElement;
-      // Find the piece element (has data-piece attribute)
       const pieceEl = target.closest<HTMLElement>('[data-piece]');
       if (!pieceEl) return;
 
-      // Find the square element (has data-square attribute)
       const squareEl = target.closest<HTMLElement>('[data-square]');
       if (!squareEl) return;
 
       const sourceSquare = squareEl.getAttribute('data-square');
       if (!sourceSquare) return;
 
-      // Prevent dragging opponent's pieces: data-piece starts with 'w' or 'b'
       if (!optionsRef.current.allowBothColors) {
         const dataPiece = pieceEl.getAttribute('data-piece');
         if (dataPiece) {
@@ -106,15 +115,30 @@ export function useFastDrag(
         }
       }
 
-      // Find the board element (the grid container with id ending in '-board')
+      // Don't start drag immediately — wait for pointer movement beyond threshold.
+      // This allows click events (onPieceClick) to fire for click-to-move.
+      pendingRef.current = {
+        sourceSquare,
+        pieceEl,
+        startX: e.clientX,
+        startY: e.clientY,
+        pointerId: e.pointerId,
+      };
+    };
+
+    /** Promote a pending pointerdown into an active drag. */
+    const startDrag = (e: PointerEvent) => {
+      const pending = pendingRef.current;
+      if (!pending) return;
+      pendingRef.current = null;
+
       const boardEl = container.querySelector<HTMLElement>('div[id$="-board"]');
       if (!boardEl) return;
 
       const boardRect = boardEl.getBoundingClientRect();
       const squareSize = boardRect.width / 8;
 
-      // Create ghost element
-      const ghost = pieceEl.cloneNode(true) as HTMLElement;
+      const ghost = pending.pieceEl.cloneNode(true) as HTMLElement;
       ghost.style.cssText = `
         position: fixed;
         top: 0;
@@ -127,19 +151,16 @@ export function useFastDrag(
         opacity: 1;
       `;
 
-      // Center ghost on cursor
       const ghostX = e.clientX - squareSize / 2;
       const ghostY = e.clientY - squareSize / 2;
       ghost.style.transform = `translate3d(${ghostX}px, ${ghostY}px, 0)`;
 
       document.body.appendChild(ghost);
-
-      // Hide original piece
-      pieceEl.style.opacity = '0';
+      pending.pieceEl.style.opacity = '0';
 
       dragStateRef.current = {
-        sourceSquare,
-        pieceEl,
+        sourceSquare: pending.sourceSquare,
+        pieceEl: pending.pieceEl,
         ghost,
         squareSize,
         boardRect,
@@ -147,19 +168,23 @@ export function useFastDrag(
         offsetY: squareSize / 2,
       };
 
-      optionsRef.current.onPiecePickup?.(sourceSquare);
-
-      // Visual feedback: grabbing cursor
+      optionsRef.current.onPiecePickup?.(pending.sourceSquare);
       container.classList.add('dragging');
-
-      // Capture pointer on the container (not e.target) for reliable tracking.
-      // Using e.target (often a deep SVG child) can lose capture in Chrome
-      // when the element is re-rendered or removed by React.
-      container.setPointerCapture(e.pointerId);
-      e.preventDefault();
+      container.setPointerCapture(pending.pointerId);
     };
 
     const onPointerMove = (e: PointerEvent) => {
+      // Check if we need to promote pending → active drag
+      const pending = pendingRef.current;
+      if (pending && !dragStateRef.current) {
+        const dx = e.clientX - pending.startX;
+        const dy = e.clientY - pending.startY;
+        if (dx * dx + dy * dy >= DRAG_THRESHOLD * DRAG_THRESHOLD) {
+          startDrag(e);
+        }
+        return;
+      }
+
       const state = dragStateRef.current;
       if (!state) return;
 
@@ -169,6 +194,13 @@ export function useFastDrag(
     };
 
     const onPointerUp = (e: PointerEvent) => {
+      // If pointer was released before crossing drag threshold,
+      // it's a click — let React handle it normally.
+      if (pendingRef.current) {
+        pendingRef.current = null;
+        return;
+      }
+
       const state = dragStateRef.current;
       if (!state) return;
 
@@ -317,6 +349,8 @@ export function useFastDrag(
     };
 
     const onPointerCancel = () => {
+      pendingRef.current = null;
+
       const state = dragStateRef.current;
       if (!state) return;
 
