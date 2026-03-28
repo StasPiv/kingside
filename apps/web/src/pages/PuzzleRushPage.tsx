@@ -50,24 +50,31 @@ export function PuzzleRushPage() {
   const [boardKey, setBoardKey] = useState(0);
 
   const setupPuzzle = useCallback((fen: string, setupMove: string) => {
+    // 1. Show position BEFORE setup move (no animation)
     puzzleTransitionRef.current = true;
     setBoardKey((k) => k + 1);
-    const chess = new Chess(fen);
-    // User plays opposite to the side making the setup move
-    const orientationAfterSetup = chess.turn() === 'w' ? 'black' : 'white';
+    const pre = new Chess(fen);
+    const orientationAfterSetup = pre.turn() === 'w' ? 'black' : 'white';
     setBoardOrientation(orientationAfterSetup);
-    // Apply setup move
-    chess.move({
-      from: setupMove.slice(0, 2),
-      to: setupMove.slice(2, 4),
-      promotion: setupMove.length > 4 ? setupMove[4] : undefined,
-    });
-    setGame(chess);
+    setGame(pre);
     setFeedback(null);
-    setLastMoveUci(setupMove);
-    // Reset after React commits the new position
-    requestAnimationFrame(() => { puzzleTransitionRef.current = false; });
-  }, []);
+    setLastMoveUci(null);
+    // After React renders the pre-move position, enable animation and play setup move
+    requestAnimationFrame(() => {
+      puzzleTransitionRef.current = false;
+      setTimeout(() => {
+        const post = new Chess(fen);
+        const result = post.move({
+          from: setupMove.slice(0, 2),
+          to: setupMove.slice(2, 4),
+          promotion: setupMove.length > 4 ? setupMove[4] : undefined,
+        });
+        if (result) playSound(soundEventFromSan(result.san));
+        setGame(post);
+        setLastMoveUci(setupMove);
+      }, 150);
+    });
+  }, [playSound]);
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) {

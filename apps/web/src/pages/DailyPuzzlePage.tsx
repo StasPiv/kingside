@@ -42,20 +42,24 @@ export function DailyPuzzlePage() {
         // Load the initial FEN
         game.load(data.puzzle.fen);
 
-        // The first move in the solution is the "setup" move (opponent's last move)
-        // Apply it so the player sees the position after that move
+        // Show position BEFORE setup move first
+        setFen(game.fen());
+        const colorToPlay = game.turn() === 'w' ? 'black' : 'white';
+        setPlayerColor(colorToPlay);
+        setMoveIndex(0);
+        setState('solving');
+
+        // Animate setup move after a short delay
         const setupMove = moves[0];
         const from = setupMove.substring(0, 2) as Square;
         const to = setupMove.substring(2, 4) as Square;
         const promotion = setupMove.length > 4 ? setupMove[4] : undefined;
-        game.move({ from, to, promotion: promotion as 'q' | 'r' | 'b' | 'n' | undefined });
-
-        setFen(game.fen());
-        // Player plays the opposite color of whoever just moved
-        const colorToPlay = game.turn() === 'w' ? 'white' : 'black';
-        setPlayerColor(colorToPlay);
-        setMoveIndex(1); // Next expected move is index 1
-        setState('solving');
+        setTimeout(() => {
+          const result = game.move({ from, to, promotion: promotion as 'q' | 'r' | 'b' | 'n' | undefined });
+          if (result) playSound(soundEventFromSan(result.san));
+          setFen(game.fen());
+          setMoveIndex(1);
+        }, 400);
       })
       .catch((e) => {
         setError(e.message || t('puzzle.loadError'));

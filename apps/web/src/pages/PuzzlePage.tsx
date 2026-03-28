@@ -77,11 +77,17 @@ export function PuzzlePage() {
       setGame(chess);
       setMoveIndex(0);
     } else if (moves.length > 1) {
-      // Lichess puzzles: play first move automatically (context), player finds moves[1]
-      const uci = moves[0];
-      chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+      // Lichess puzzles: show pre-move position, then animate setup move
       setGame(chess);
-      setMoveIndex(1);
+      setMoveIndex(0);
+      const uci = moves[0];
+      setTimeout(() => {
+        const post = new Chess(data.fen);
+        const result = post.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+        if (result) playSound(soundEventFromSan(result.san));
+        setGame(post);
+        setMoveIndex(1);
+      }, 400);
     } else {
       setGame(chess);
       setMoveIndex(0);
@@ -91,7 +97,7 @@ export function PuzzlePage() {
     setRatingChange(null);
     startTimeRef.current = Date.now();
     attemptSubmittedRef.current = false;
-  }, []);
+  }, [playSound]);
 
   const loadPuzzle = useCallback(async (specificId?: string) => {
     setLoading(true);
