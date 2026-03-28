@@ -294,37 +294,34 @@ export async function generatePuzzlesFromPgn(
       const evalGrowth = evalAtDeep - evalAtShallow;
       const EVAL_GROWTH_THRESHOLD = 25;
 
-      // Check sacrifice
-      let isSacrifice = false;
+      // Check if bestMove captures an undefended piece
+      let isHangingCapture = false;
       if (best.pv.length >= 1) {
         try {
           const testChess = new Chess(fen);
-          const from = best.pv[0].slice(0, 2);
-          const to = best.pv[0].slice(2, 4);
-          const piece = testChess.get(from as Parameters<typeof testChess.get>[0]);
-          if (piece && piece.type !== 'p') {
-            const opponent = piece.color === 'w' ? 'b' : 'w';
-            if (testChess.isAttacked(to as Parameters<typeof testChess.isAttacked>[0], opponent)) {
-              isSacrifice = true;
-            }
+          const moveObj = testChess.move({ from: best.pv[0].slice(0, 2), to: best.pv[0].slice(2, 4), promotion: best.pv[0][4] });
+          if (moveObj?.captured) {
+            // After capture, check if opponent can recapture on the same square
+            const recaptures = testChess.moves({ verbose: true }).filter(m => m.to === moveObj.to && m.captured);
+            if (recaptures.length === 0) isHangingCapture = true;
           }
+          testChess.undo();
         } catch { /* ignore */ }
       }
 
-      const effectiveThreshold = isSacrifice ? Math.max(200, gapThreshold * 0.66) : gapThreshold;
       const isMate = best.score.type === 'mate';
       const mateDist = isMate ? Math.abs(best.score.value) : 0;
       const logBase = `[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`;
 
       // Apply filters with explicit skip reason
-      if (evalGrowth < EVAL_GROWTH_THRESHOLD) {
-        console.log(`${logBase} SKIP:growth<${EVAL_GROWTH_THRESHOLD}`); continue;
+      if (isHangingCapture) {
+        console.log(`${logBase} SKIP:hangingCapture`); continue;
       }
       if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) {
         console.log(`${logBase} SKIP:|secondCp|=${Math.abs(secondCp)}>300`); continue;
       }
-      if (gap < effectiveThreshold) {
-        console.log(`${logBase} SKIP:gap<${effectiveThreshold}`); continue;
+      if (gap < gapThreshold) {
+        console.log(`${logBase} SKIP:gap<${gapThreshold}`); continue;
       }
       if (best.pv.length < (isMate ? 1 : 2)) {
         console.log(`${logBase} SKIP:pv.length=${best.pv.length}<${isMate ? 1 : 2}`); continue;
@@ -332,14 +329,11 @@ export async function generatePuzzlesFromPgn(
 
       {
         const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
-        if (isSacrifice) themes.push('sacrifice');
         const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
         console.log(`${logBase} ACCEPTED rating=${rating}`);
 
         // Use scores from THIS position's analysis (same side moves)
         const secondLine = analysis.lines.length >= 2 ? analysis.lines[1] : null;
-
-        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} ACCEPTED: growth=${evalGrowth} gap=${gap} rating=${rating}`);
 
         puzzles.push({
           fen,
