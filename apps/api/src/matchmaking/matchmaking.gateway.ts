@@ -102,27 +102,49 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
         increment: data.increment,
       };
 
-      client.emit(MatchmakingEvents.FOUND, {
+      const initiatorPayload: WsMatchmakingFoundPayload = {
         ...matchData,
         color: result.color,
         opponent: result.opponent,
-      });
+      };
 
-      const opponentSockets = await this.server.fetchSockets();
-      const opponentSocket = opponentSockets.find(
-        (s) => s.data.user?.id === result.opponent.id,
-      );
+      const opponentPayload: WsMatchmakingFoundPayload = {
+        ...matchData,
+        color: result.color === 'white' ? 'black' : 'white',
+        opponent: { id: user.id, username: user.username },
+      };
 
-      if (opponentSocket) {
-        this.playerQueues.delete(result.opponent.id);
-        opponentSocket.emit(MatchmakingEvents.FOUND, {
-          ...matchData,
-          color: result.color === 'white' ? 'black' : 'white',
-          opponent: { id: user.id, username: user.username },
-        });
+      // Fetch all sockets once and deliver to ALL sockets of each player
+      // (handles multiple tabs / reconnects)
+      const allSockets = await this.server.fetchSockets();
+
+      let initiatorDelivered = 0;
+      let opponentDelivered = 0;
+
+      for (const sock of allSockets) {
+        const sockUserId = sock.data.user?.id;
+        if (sockUserId === user.id) {
+          sock.emit(MatchmakingEvents.FOUND, initiatorPayload);
+          initiatorDelivered++;
+        } else if (sockUserId === result.opponent?.id) {
+          sock.emit(MatchmakingEvents.FOUND, opponentPayload);
+          opponentDelivered++;
+        }
       }
 
-      this.logger.log(`Match found: ${result.gameId}`);
+      if (opponentDelivered > 0) {
+        this.playerQueues.delete(result.opponent!.id);
+      }
+
+      this.logger.log(
+        `Match found: ${result.gameId} — delivered to initiator: ${initiatorDelivered}, opponent: ${opponentDelivered} socket(s)`,
+      );
+
+      if (opponentDelivered === 0) {
+        this.logger.warn(
+          `Match ${result.gameId}: opponent ${result.opponent?.id} has NO connected sockets!`,
+        );
+      }
     }
   }
 
