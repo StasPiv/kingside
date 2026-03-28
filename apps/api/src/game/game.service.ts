@@ -447,9 +447,11 @@ export class GameService {
   }
 
   async getActiveGameForUser(userId: string): Promise<{ gameId: string; opponent: string; timeControlType: string } | null> {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const game = await this.prisma.game.findFirst({
       where: {
         status: 'active',
+        createdAt: { gte: twoHoursAgo },
         OR: [{ whiteId: userId }, { blackId: userId }],
       },
       include: {
@@ -459,6 +461,18 @@ export class GameService {
       orderBy: { createdAt: 'desc' },
     });
     if (!game) return null;
+
+    // Verify game still has Redis state (not stale)
+    const raw = await this.redis.hgetall(this.stateKey(game.id));
+    if (!raw.fen) {
+      // Stale: DB says active but Redis state gone — clean up
+      await this.prisma.game.update({
+        where: { id: game.id },
+        data: { status: 'finished', result: 'draw', termination: 'abandon', finishedAt: new Date() },
+      });
+      return null;
+    }
+
     const isWhite = game.whiteId === userId;
     return {
       gameId: game.id,
