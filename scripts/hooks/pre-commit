@@ -19,6 +19,8 @@ ERRORS=0
 
 # apps/api
 if [ -f "$REPO_DIR/apps/api/tsconfig.json" ]; then
+    echo "  Generating Prisma client..."
+    npx --prefix "$REPO_DIR" prisma generate --schema="$REPO_DIR/apps/api/prisma/schema.prisma" 2>&1 | tail -1
     echo "  Checking apps/api..."
     npx --prefix "$REPO_DIR" tsc --noEmit --project "$REPO_DIR/apps/api/tsconfig.json" 2>&1
     if [ $? -ne 0 ]; then
