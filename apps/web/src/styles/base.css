@@ -52,7 +52,7 @@ button:disabled {
   cursor: not-allowed;
 }
 
-input {
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]) {
   padding: 10px 14px;
   border: 1px solid #333;
   border-radius: 6px;
@@ -62,8 +62,16 @@ input {
   outline: none;
 }
 
-input:focus {
+input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):focus {
   border-color: #7c83ff;
+}
+
+input[type="range"] {
+  -webkit-appearance: auto;
+  appearance: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 /* Help button — small "?" link to /features#section */
