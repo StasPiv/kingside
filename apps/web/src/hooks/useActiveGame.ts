@@ -25,6 +25,20 @@ export function useActiveGame(isLoggedIn: boolean) {
 
   useEffect(() => {
     fetchActiveGame();
+    // Poll every 10 seconds to catch game start/end
+    const interval = setInterval(fetchActiveGame, 10_000);
+    return () => clearInterval(interval);
+  }, [fetchActiveGame]);
+
+  // Listen for game:end event dispatched by GamePage
+  useEffect(() => {
+    const onGameEnd = () => {
+      setActiveGame(null);
+      // Re-fetch after a short delay (server may still be processing)
+      setTimeout(fetchActiveGame, 1000);
+    };
+    window.addEventListener('game:ended', onGameEnd);
+    return () => window.removeEventListener('game:ended', onGameEnd);
   }, [fetchActiveGame]);
 
   return { activeGame, refetchActiveGame: fetchActiveGame };
