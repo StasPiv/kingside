@@ -102,15 +102,17 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
         increment: data.increment,
       };
 
+      const color = result.color as 'white' | 'black';
+
       const initiatorPayload: WsMatchmakingFoundPayload = {
         ...matchData,
-        color: result.color,
+        color,
         opponent: result.opponent,
       };
 
       const opponentPayload: WsMatchmakingFoundPayload = {
         ...matchData,
-        color: result.color === 'white' ? 'black' : 'white',
+        color: color === 'white' ? 'black' : 'white',
         opponent: { id: user.id, username: user.username },
       };
 

@@ -455,7 +455,7 @@ export type WsMatchmakingJoinPayload = {
 export type WsMatchmakingFoundPayload = {
   gameId: string;
   color: PieceColor;
-  opponent: string;
+  opponent: { id: string; username: string | null } | null;
   timeControl: string;
   timeInitial: number;
   increment: number;
