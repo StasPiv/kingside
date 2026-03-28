@@ -175,6 +175,7 @@ export function GamePage() {
 
   useEffect(() => {
     const onGameState = (state: WsGameStatePayload) => {
+      console.log('[WS] game:state received, status=' + state.status + ', clocks=' + JSON.stringify(state.clocks));
       if (state.color) setPlayerColor(state.color);
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
@@ -183,6 +184,7 @@ export function GamePage() {
     };
 
     const onGameMove = (data: WsGameMoveServerPayload) => {
+      console.log('[WS] game:move received, san=' + data.san + ', clocks=' + JSON.stringify(data.clocks));
       // If the FEN already matches, this is a server echo of our own
       // move (already applied optimistically).  Only update clocks
       // (for server-authoritative time) — skip board state changes
@@ -207,6 +209,7 @@ export function GamePage() {
     };
 
     const onGameEnd = (data: WsGameEndPayload) => {
+      console.log('[WS] game:end received', JSON.stringify(data));
       setPendingPremove(null);
       setStatus('finished');
       setResult(data.result);
@@ -221,7 +224,7 @@ export function GamePage() {
     const onDrawOffered = () => setDrawOffered(true);
     const onChatMessage = (msg: WsChatMessagePayload) => setMessages((prev) => [...prev, msg]);
     const onError = (data: WsErrorPayload) => {
-      console.error('Game error:', data.message);
+      console.error('[WS] Game error:', data.message);
     };
 
     socket.on(GameEvents.STATE, onGameState);
@@ -251,9 +254,13 @@ export function GamePage() {
       return;
     }
     const turn = game.turn() === 'w' ? 'white' : 'black';
+    console.log('[Clock] interval start, turn=' + turn + ', status=' + status);
     const interval = setInterval(() => {
       setClocks((prev) => {
         const next = Math.max(0, prev[turn] - 1);
+        if (next <= 5 || next % 10 === 0) {
+          console.log('[Clock] tick ' + turn + ': ' + prev[turn] + ' -> ' + next);
+        }
         return { ...prev, [turn]: next };
       });
     }, 1000);
@@ -263,9 +270,11 @@ export function GamePage() {
   // Claim timeout when any clock reaches 0
   useEffect(() => {
     if (status !== 'active') return;
+    console.log('[Timeout] check: white=' + clocks.white + ' black=' + clocks.black + ' claimed=' + timeoutClaimedRef.current + ' connected=' + socket.connected);
     if (clocks.white === 0 || clocks.black === 0) {
       if (!timeoutClaimedRef.current) {
         timeoutClaimedRef.current = true;
+        console.log('[Timeout] SENDING game:claim-timeout for game ' + gameId);
         socket.emit('game:claim-timeout', { gameId });
       }
     }
