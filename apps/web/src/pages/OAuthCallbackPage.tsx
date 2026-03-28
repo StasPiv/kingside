@@ -71,7 +71,7 @@ export function OAuthCallbackPage() {
     if (requiresUsernameSetup) return;
     if (user) {
       console.log('[OAuthCallback] user found, navigating to /lobby', { userId: user.id, username: user.username });
-      navigate('/lobby', { replace: true });
+      navigate('/', { replace: true });
     } else {
       console.log('[OAuthCallback] no user after loading complete, navigating to /login');
       navigate('/login', {
@@ -83,7 +83,7 @@ export function OAuthCallbackPage() {
 
   const handleUsernameSetupSuccess = async () => {
     await refreshUser();
-    navigate('/lobby', { replace: true });
+    navigate('/', { replace: true });
   };
 
   if (requiresUsernameSetup) {

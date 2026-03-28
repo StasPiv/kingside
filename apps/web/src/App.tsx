@@ -52,13 +52,20 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { t } = useTranslation();
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  if (user) return <Navigate to="/lobby" replace />;
+  if (user) return <Navigate to="/" replace />;
   return <>{children}</>;
+}
+
+function HomePage() {
+  const { user, loading } = useAuth();
+  const { t } = useTranslation();
+  if (loading) return <div className="loading">{t('common.loading')}</div>;
+  return user ? <LobbyPage /> : <FeaturesPage />;
 }
 
 function ProfileRedirect() {
   const { user } = useAuth();
-  if (!user) return <Navigate to="/lobby" replace />;
+  if (!user) return <Navigate to="/" replace />;
   return <Navigate to={`/player/${user.username}`} replace />;
 }
 
@@ -80,6 +87,7 @@ export function App() {
   return (
     <Routes>
       <Route element={<MainLayout />}>
+        <Route index element={<HomePage />} />
         <Route path="/features" element={<FeaturesPage />} />
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
@@ -115,7 +123,7 @@ export function App() {
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<Suspense fallback={<LazyFallback />}><BroadcastGamePage /></Suspense>} />
-        <Route path="*" element={<Navigate to="/lobby" replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
   );

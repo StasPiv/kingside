@@ -71,7 +71,7 @@ export function LoginPage() {
           );
         } else {
           loginWithTokens(accessToken, refreshToken);
-          navigate('/lobby', { replace: true });
+          navigate('/', { replace: true });
         }
       })
       .catch(() => {

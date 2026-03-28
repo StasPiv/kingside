@@ -25,7 +25,7 @@ export function DevBypassPage({ secret, user, returnTo }: DevBypassPageProps) {
       .post<AuthTokenResponse>('/api/auth/dev-bypass', { secret, ...(user ? { user } : {}) })
       .then(({ accessToken, refreshToken }) => {
         loginWithTokens(accessToken, refreshToken);
-        navigate(returnTo || '/lobby', { replace: true });
+        navigate(returnTo || '/', { replace: true });
       })
       .catch(() => {
         navigate('/login', {
