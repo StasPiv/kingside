@@ -1009,11 +1009,11 @@ body:has(.puzzle-rush-board) {
 
 /* KS-1008: increased vh offset from 310 to 345 to account for turn indicator (~35px) */
 .puzzle-page .board-container {
-  width: min(calc(100vh - 345px), calc(100vw - 32px));
+  width: min(calc(100vh - 380px), calc(100vw - 32px));
 }
 
 .daily-puzzle-page .board-container {
-  width: min(calc(100vh - 345px), calc(100vw - 32px));
+  width: min(calc(100vh - 380px), calc(100vw - 32px));
 }
 
 .puzzle-rush-page .board-container {
