@@ -138,23 +138,66 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
               </button>
               {showAdvanced && (
                 <div className="puzzle-gen-advanced__body">
-                  <div className="puzzle-gen-settings-grid">
-                    <label>Depth <input type="number" min={8} max={22} value={settings.depth} onChange={(e) => updateSetting('depth', Number(e.target.value))} /></label>
-                    <label>MultiPV <input type="number" min={2} max={5} value={settings.multiPv} onChange={(e) => updateSetting('multiPv', Number(e.target.value))} /></label>
-                    <label>Gap (cp) <input type="number" min={10} value={settings.gapThreshold} onChange={(e) => updateSetting('gapThreshold', Number(e.target.value))} /></label>
-                    <label>Max 2nd (cp) <input type="number" min={50} value={settings.maxSecondCp} onChange={(e) => updateSetting('maxSecondCp', Number(e.target.value))} /></label>
+                  {/* ENGINE */}
+                  <h4 className="puzzle-gen-section-title">{t('puzzleGenerator.sectionEngine', 'ENGINE')}</h4>
+                  <div className="puzzle-gen-engine-tabs">
+                    <button className={`puzzle-gen-engine-tab${engineType === 'wasm' ? ' active' : ''}`} onClick={() => setEngineType('wasm')}>
+                      WASM
+                    </button>
+                    <button className={`puzzle-gen-engine-tab${engineType === 'bridge' ? ' active' : ''}`} onClick={() => setEngineType('bridge')} disabled={!hasBridge}>
+                      Bridge
+                    </button>
                   </div>
-                  <div className="puzzle-gen-settings-checks">
-                    <label><input type="checkbox" checked={settings.skipHangingCapture} onChange={(e) => updateSetting('skipHangingCapture', e.target.checked)} /> Skip hanging captures</label>
-                    <label><input type="checkbox" checked={settings.skipAttackedByLesser} onChange={(e) => updateSetting('skipAttackedByLesser', e.target.checked)} /> Skip attacked by lesser</label>
-                    <label><input type="checkbox" checked={settings.skipUndefendedAfterMove} onChange={(e) => updateSetting('skipUndefendedAfterMove', e.target.checked)} /> Skip undefended after move</label>
+                  <p className="puzzle-gen-engine-hint">
+                    {engineType === 'wasm'
+                      ? t('puzzleGenerator.engineWasmHint', 'Browser Stockfish (1 thread, slower)')
+                      : hasBridge
+                        ? t('puzzleGenerator.engineBridgeHint', 'External engine via WebSocket (multi-threaded, faster)')
+                        : t('puzzleGenerator.engineBridgeNotConfigured', 'Configure external engine in Analysis page first')}
+                  </p>
+
+                  {/* ANALYSIS */}
+                  <h4 className="puzzle-gen-section-title">{t('puzzleGenerator.sectionAnalysis', 'ANALYSIS')}</h4>
+                  <div className="puzzle-gen-params">
+                    <div className="puzzle-gen-param">
+                      <label>{t('puzzleGenerator.depth', 'Depth')}: {settings.depth}</label>
+                      <input type="range" min={8} max={22} value={settings.depth} onChange={(e) => updateSetting('depth', Number(e.target.value))} />
+                    </div>
+                    <div className="puzzle-gen-param">
+                      <label>{t('puzzleGenerator.lines', 'Lines')}</label>
+                      <input type="number" min={2} max={5} value={settings.multiPv} onChange={(e) => updateSetting('multiPv', Number(e.target.value))} />
+                    </div>
+                    <div className="puzzle-gen-param">
+                      <label>{t('puzzleGenerator.minGap', 'Min gap (cp)')}</label>
+                      <input type="number" min={10} value={settings.gapThreshold} onChange={(e) => updateSetting('gapThreshold', Number(e.target.value))} />
+                    </div>
+                    <div className="puzzle-gen-param">
+                      <label>{t('puzzleGenerator.maxSecond', 'Max 2nd eval (cp)')}</label>
+                      <input type="number" min={50} value={settings.maxSecondCp} onChange={(e) => updateSetting('maxSecondCp', Number(e.target.value))} />
+                    </div>
                   </div>
-                  <div className="puzzle-gen-engine-select">
-                    <span>Engine:</span>
-                    <label><input type="radio" name="engine" value="wasm" checked={engineType === 'wasm'} onChange={() => setEngineType('wasm')} /> WASM (browser)</label>
-                    <label><input type="radio" name="engine" value="bridge" checked={engineType === 'bridge'} onChange={() => setEngineType('bridge')} disabled={!hasBridge} /> Bridge (external){!hasBridge && ' — not configured'}</label>
+
+                  {/* FILTERS */}
+                  <h4 className="puzzle-gen-section-title">{t('puzzleGenerator.sectionFilters', 'FILTERS')}</h4>
+                  <div className="puzzle-gen-filters">
+                    <label className="puzzle-gen-filter">
+                      <input type="checkbox" checked={settings.skipHangingCapture} onChange={(e) => updateSetting('skipHangingCapture', e.target.checked)} />
+                      <span>{t('puzzleGenerator.skipHanging', 'Skip hanging captures')}</span>
+                      <span className="puzzle-gen-filter-hint">{t('puzzleGenerator.skipHangingHint', 'Exclude obvious free pieces')}</span>
+                    </label>
+                    <label className="puzzle-gen-filter">
+                      <input type="checkbox" checked={settings.skipAttackedByLesser} onChange={(e) => updateSetting('skipAttackedByLesser', e.target.checked)} />
+                      <span>{t('puzzleGenerator.skipAttacked', 'Skip attacked by lesser')}</span>
+                      <span className="puzzle-gen-filter-hint">{t('puzzleGenerator.skipAttackedHint', 'Exclude moves where piece lands on attacked square')}</span>
+                    </label>
+                    <label className="puzzle-gen-filter">
+                      <input type="checkbox" checked={settings.skipUndefendedAfterMove} onChange={(e) => updateSetting('skipUndefendedAfterMove', e.target.checked)} />
+                      <span>{t('puzzleGenerator.skipUndefended', 'Skip undefended after move')}</span>
+                      <span className="puzzle-gen-filter-hint puzzle-gen-filter-hint--warning">{t('puzzleGenerator.skipUndefendedHint', 'May filter out valid puzzles — use with caution')}</span>
+                    </label>
                   </div>
-                  <button className="puzzle-gen-settings-reset" onClick={resetSettings}>Reset to defaults</button>
+
+                  <button className="puzzle-gen-settings-reset" onClick={resetSettings}>{t('puzzleGenerator.resetDefaults', 'Reset to defaults')}</button>
                 </div>
               )}
             </div>

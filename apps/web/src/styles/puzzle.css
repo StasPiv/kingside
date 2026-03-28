@@ -1690,57 +1690,139 @@ body:has(.puzzle-rush-board) {
   border-radius: 6px;
 }
 
-.puzzle-gen-settings-grid {
+/* Section titles */
+.puzzle-gen-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #666;
+  margin: 12px 0 6px;
+  text-transform: uppercase;
+}
+
+.puzzle-gen-section-title:first-child {
+  margin-top: 0;
+}
+
+/* Engine tabs */
+.puzzle-gen-engine-tabs {
+  display: flex;
+  gap: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #333;
+}
+
+.puzzle-gen-engine-tab {
+  flex: 1;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: transparent;
+  color: #888;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.puzzle-gen-engine-tab.active {
+  background: rgba(124, 131, 255, 0.2);
+  color: #7c83ff;
+}
+
+.puzzle-gen-engine-tab:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.puzzle-gen-engine-hint {
+  font-size: 11px;
+  color: #666;
+  margin-top: 4px;
+}
+
+/* Analysis params */
+.puzzle-gen-params {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 8px;
 }
 
-.puzzle-gen-settings-grid label {
+.puzzle-gen-param {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: #aaa;
-  gap: 6px;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.puzzle-gen-settings-grid input[type="number"] {
-  width: 60px;
+.puzzle-gen-param label {
+  font-size: 11px;
+  color: #aaa;
+}
+
+.puzzle-gen-param input[type="number"] {
+  width: 100%;
   background: #0f172a;
   color: #e0e0e0;
   border: 1px solid #333;
   border-radius: 4px;
-  padding: 2px 4px;
+  padding: 4px 6px;
   font-size: 12px;
-  text-align: right;
 }
 
-.puzzle-gen-settings-checks {
-  margin-top: 8px;
+.puzzle-gen-param input[type="range"] {
+  width: 100%;
+  accent-color: #7c83ff;
+}
+
+/* Filters */
+.puzzle-gen-filters {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
-.puzzle-gen-settings-checks label {
+.puzzle-gen-filter {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 0 8px;
+  align-items: start;
   font-size: 12px;
-  color: #aaa;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  color: #ccc;
   cursor: pointer;
 }
 
+.puzzle-gen-filter input[type="checkbox"] {
+  grid-row: 1 / 3;
+  margin-top: 2px;
+}
+
+.puzzle-gen-filter-hint {
+  grid-column: 2;
+  font-size: 10px;
+  color: #666;
+  line-height: 1.3;
+}
+
+.puzzle-gen-filter-hint--warning {
+  color: #f59e0b;
+}
+
+/* Reset link */
 .puzzle-gen-settings-reset {
-  margin-top: 8px;
-  background: transparent;
-  border: 1px solid #555;
-  color: #888;
-  padding: 3px 10px;
-  border-radius: 4px;
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: #666;
   font-size: 11px;
   cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.puzzle-gen-settings-reset:hover {
+  color: #aaa;
 }
 
 /* Rating change after puzzle solve */
