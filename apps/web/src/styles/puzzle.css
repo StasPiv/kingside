@@ -1090,30 +1090,42 @@ body:has(.puzzle-rush-board) {
   padding: 4px 0;
 }
 
-/* Puzzle status indicator lamp */
+/* Puzzle status indicator lamp — left bottom, hidden by default (KS-1008) */
 .puzzle-indicator {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   position: absolute;
-  top: 4px;
-  right: 4px;
+  bottom: 6px;
+  left: 6px;
   z-index: 5;
-  transition: background-color 0.3s, box-shadow 0.3s;
+  opacity: 0;
+  transition: opacity 0.3s, background-color 0.3s, box-shadow 0.3s;
 }
 
 .puzzle-indicator--thinking {
-  background: #555;
+  background: transparent;
+  opacity: 0;
 }
 
 .puzzle-indicator--correct {
   background: #22c55e;
-  box-shadow: 0 0 8px #22c55e;
+  box-shadow: 0 0 10px #22c55e;
+  opacity: 1;
+  animation: puzzle-lamp-flash 2s ease-out forwards;
 }
 
 .puzzle-indicator--incorrect {
   background: #ef4444;
-  box-shadow: 0 0 8px #ef4444;
+  box-shadow: 0 0 10px #ef4444;
+  opacity: 1;
+  animation: puzzle-lamp-flash 2s ease-out forwards;
+}
+
+@keyframes puzzle-lamp-flash {
+  0% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 /* Turn indicator — small dot in top-right corner of board (KS-1008) */
