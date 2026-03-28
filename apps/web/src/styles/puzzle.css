@@ -1132,7 +1132,7 @@ body:has(.puzzle-rush-board) {
 .puzzle-turn-indicator {
   position: absolute;
   top: 6px;
-  left: 6px;
+  right: 6px;
   z-index: 5;
   font-size: 0;
   line-height: 0;
