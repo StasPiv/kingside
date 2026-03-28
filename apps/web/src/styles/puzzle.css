@@ -1009,11 +1009,11 @@ body:has(.puzzle-rush-board) {
 
 /* KS-1008: increased vh offset from 310 to 345 to account for turn indicator (~35px) */
 .puzzle-page .board-container {
-  width: min(calc(100vh - 380px), calc(100vw - 32px));
+  width: min(calc(100vh - 310px), calc(100vw - 32px));
 }
 
 .daily-puzzle-page .board-container {
-  width: min(calc(100vh - 380px), calc(100vw - 32px));
+  width: min(calc(100vh - 310px), calc(100vw - 32px));
 }
 
 .puzzle-rush-page .board-container {
@@ -1116,7 +1116,7 @@ body:has(.puzzle-rush-board) {
   box-shadow: 0 0 8px #ef4444;
 }
 
-/* Turn indicator */
+/* Turn indicator — positioned absolutely so it doesn't take flow space (KS-1008) */
 .puzzle-turn-indicator {
   display: flex;
   align-items: center;
@@ -1125,7 +1125,12 @@ body:has(.puzzle-rush-board) {
   font-weight: 600;
   padding: 4px 10px;
   border-radius: 4px;
-  margin-bottom: 6px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: rgba(15, 23, 42, 0.85);
 }
 
 .puzzle-turn-indicator::before {
