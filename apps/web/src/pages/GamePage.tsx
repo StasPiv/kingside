@@ -221,6 +221,7 @@ export function GamePage() {
       setShowResultModal(true);
       refreshUser();
       playSound('game-end');
+      window.dispatchEvent(new Event('game:ended'));
     };
 
     const onDrawOffered = () => setDrawOffered(true);
