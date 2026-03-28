@@ -80,8 +80,10 @@
   align-items: stretch;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   width: 100%;
+  padding-right: 16px;
+  box-sizing: border-box;
 }
 
 /* Board container: square board that adapts to available space.
