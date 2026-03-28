@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-export type SoundEvent = 'move' | 'capture' | 'check' | 'castle' | 'game-end';
+export type SoundEvent = 'move' | 'capture' | 'check' | 'castle' | 'game-end' | 'puzzle-correct' | 'puzzle-incorrect';
 
 function getAudioContext(): AudioContext | null {
   try {
@@ -71,6 +71,20 @@ function playGameEnd(ctx: AudioContext): void {
   });
 }
 
+function playPuzzleCorrect(ctx: AudioContext): void {
+  const t = ctx.currentTime;
+  // Rising two-note chime: G5 → C6
+  playTone(ctx, 784, 0.15, t, 'sine', 0.35);
+  playTone(ctx, 1047, 0.25, t + 0.12, 'sine', 0.4);
+}
+
+function playPuzzleIncorrect(ctx: AudioContext): void {
+  const t = ctx.currentTime;
+  // Low descending buzz: E4 → C4
+  playTone(ctx, 330, 0.15, t, 'square', 0.2);
+  playTone(ctx, 262, 0.2, t + 0.12, 'square', 0.15);
+}
+
 const SOUND_MUTED_KEY = 'soundMuted';
 
 export function useSounds() {
@@ -116,6 +130,12 @@ export function useSounds() {
           break;
         case 'game-end':
           playGameEnd(ctx);
+          break;
+        case 'puzzle-correct':
+          playPuzzleCorrect(ctx);
+          break;
+        case 'puzzle-incorrect':
+          playPuzzleIncorrect(ctx);
           break;
       }
     },

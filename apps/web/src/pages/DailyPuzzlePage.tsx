@@ -10,12 +10,14 @@ import { useStablePosition } from '../hooks/useStablePosition';
 import { MemoChessboard } from '../components/MemoChessboard';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
+import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import type { PuzzleDto, DailyPuzzleResponse } from '@kingside/shared';
 
 type PuzzleState = 'loading' | 'solving' | 'correct' | 'failed';
 
 export function DailyPuzzlePage() {
   const { t } = useTranslation();
+  const { playSound } = useSounds();
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [game] = useState(() => new Chess());
   const [fen, setFen] = useState('');
@@ -66,6 +68,7 @@ export function DailyPuzzlePage() {
       if (idx >= moves.length) {
         // All moves done — puzzle solved
         setState('correct');
+        playSound('puzzle-correct');
         if (puzzle) {
           api.post('/api/puzzles/daily/solve', { puzzleId: puzzle.id, solved: true }).catch(() => {});
         }
@@ -121,6 +124,7 @@ export function DailyPuzzlePage() {
           // Wrong move — undo and mark as failed
           game.undo();
           setState('failed');
+          playSound('puzzle-incorrect');
           if (puzzle) {
             api.post('/api/puzzles/daily/solve', { puzzleId: puzzle.id, solved: false }).catch(() => {});
           }

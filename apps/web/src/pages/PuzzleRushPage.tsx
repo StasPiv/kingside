@@ -187,6 +187,7 @@ export function PuzzleRushPage() {
           if (response.correct) {
             if (response.nextPuzzle) {
               setFeedback('correct');
+              playSound('puzzle-correct');
               loadNextPuzzle(response.nextPuzzle);
             } else if (response.expectedMove) {
               const opMove = response.expectedMove;
@@ -204,6 +205,7 @@ export function PuzzleRushPage() {
             }
           } else {
             setFeedback('wrong');
+            playSound('puzzle-incorrect');
             if (response.nextPuzzle) {
               loadNextPuzzle(response.nextPuzzle);
             }
@@ -274,6 +276,7 @@ export function PuzzleRushPage() {
           if (response.correct) {
             if (response.nextPuzzle) {
               setFeedback('correct');
+              playSound('puzzle-correct');
               loadNextPuzzle(response.nextPuzzle);
             } else if (response.expectedMove) {
               const opMove = response.expectedMove;
@@ -291,6 +294,7 @@ export function PuzzleRushPage() {
             }
           } else {
             setFeedback('wrong');
+            playSound('puzzle-incorrect');
             if (response.nextPuzzle) {
               loadNextPuzzle(response.nextPuzzle);
             }

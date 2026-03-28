@@ -6,6 +6,7 @@ import { puzzleApi } from '../api-puzzle';
 import { api } from '../api';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { HelpButton } from '../components/HelpButton';
+import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import type { PuzzleDto } from '@kingside/shared';
 
 type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
@@ -13,6 +14,7 @@ type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
 export function PuzzlePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { playSound } = useSounds();
   const { id: puzzleId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const isGenerated = searchParams.get('source') === 'generated';
@@ -149,6 +151,7 @@ export function PuzzlePage() {
 
       if (sourceSquare !== from || targetSquare !== to) {
         setStatus('incorrect');
+        playSound('puzzle-incorrect');
         setStreak(0);
         submitAttemptResult(false);
         // Show correct move after delay
@@ -173,6 +176,7 @@ export function PuzzlePage() {
       const move = copy.move({ from, to, promotion });
       if (!move) {
         setStatus('incorrect');
+        playSound('puzzle-incorrect');
         setStreak(0);
         submitAttemptResult(false);
         return false;
@@ -188,6 +192,7 @@ export function PuzzlePage() {
       const isSolved = isGenerated ? true : nextIndex >= puzzleMoves.length;
       if (isSolved) {
         setStatus('correct');
+        playSound('puzzle-correct');
         setStreak((s) => s + 1);
         setTotalSolved((n) => n + 1);
         submitAttemptResult(true);
