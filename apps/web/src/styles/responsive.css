@@ -312,10 +312,11 @@
     padding: 0;
   }
 
-  /* Board area: fixed size, no scroll */
+  /* Board area: full width on mobile, override desktop max-width (KS-1012) */
   .analysis-board-area {
     flex: none;
     width: 100%;
+    max-width: 100% !important;
     overflow: hidden;
     min-height: 0;
     padding: 0;
