@@ -5,6 +5,9 @@ export const INITIAL_RATING = 1500;
 export const SUPPORTED_LANGUAGES = ['en', 'ru'] as const;
 
 export const TIME_CONTROLS = {
+  // Ultra-bullet
+  '0.25_0': { initialTime: 15, increment: 0 },
+  '0.5_0': { initialTime: 30, increment: 0 },
   // Bullet
   '1_0': { initialTime: 60, increment: 0 },
   '1_1': { initialTime: 60, increment: 1 },

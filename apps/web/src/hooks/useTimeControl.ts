@@ -19,6 +19,8 @@ export const TC_LABEL_KEYS: Record<TimeControlCategory, string> = {
 } as const;
 
 export const PRESETS: TimeControlPreset[] = [
+  { minutes: 0.25, increment: 0, category: 'bullet' },
+  { minutes: 0.5, increment: 0, category: 'bullet' },
   { minutes: 1, increment: 0, category: 'bullet' },
   { minutes: 1, increment: 1, category: 'bullet' },
   { minutes: 2, increment: 1, category: 'bullet' },
