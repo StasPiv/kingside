@@ -508,9 +508,30 @@ model GeneratedPuzzle {
   sourceMetadata String?  @map("source_metadata") @db.Text
   createdAt      DateTime @default(now()) @map("created_at")
 
+  attempts GeneratedPuzzleAttempt[]
+
   @@index([rating])
   @@index([themes])
   @@index([sourceType, sourceId])
   @@index([createdBy])
   @@map("generated_puzzles")
+}
+
+model GeneratedPuzzleAttempt {
+  id                  String   @id @default(uuid()) @db.Uuid
+  puzzleId            String   @map("puzzle_id") @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  solved              Boolean
+  timeMs              Int      @map("time_ms")
+  userRatingBefore    Int      @map("user_rating_before")
+  userRatingAfter     Int      @map("user_rating_after")
+  puzzleRatingBefore  Int      @map("puzzle_rating_before")
+  puzzleRatingAfter   Int      @map("puzzle_rating_after")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  puzzle GeneratedPuzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
+
+  @@index([puzzleId])
+  @@index([userId])
+  @@map("generated_puzzle_attempts")
 }

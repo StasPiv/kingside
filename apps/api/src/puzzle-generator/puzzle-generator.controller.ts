@@ -14,12 +14,15 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { PuzzleGeneratorService } from './puzzle-generator.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { GlickoRatingService } from './glicko-rating.service';
+import { NotFoundException } from '@nestjs/common';
 
 @Controller('puzzles/generated')
 export class PuzzleGeneratorController {
   constructor(
     private readonly generator: PuzzleGeneratorService,
     private readonly prisma: PrismaService,
+    private readonly glicko: GlickoRatingService,
   ) {}
 
   /**
@@ -238,6 +241,72 @@ export class PuzzleGeneratorController {
       sourceMetadata: puzzle.sourceMetadata ? JSON.parse(puzzle.sourceMetadata) : null,
       depth: puzzle.depth,
       createdAt: puzzle.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * POST /api/puzzles/generated/:id/attempt
+   * Submit attempt: Glicko-1 for puzzle + Elo K=32 for player.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/attempt')
+  async submitAttempt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { solved: boolean; timeMs: number },
+  ) {
+    const puzzle = await this.prisma.generatedPuzzle.findUnique({ where: { id } });
+    if (!puzzle) throw new NotFoundException('Puzzle not found');
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: req.user.id },
+      select: { ratingPuzzle: true },
+    });
+
+    const puzzleRatingBefore = puzzle.rating;
+    const userRatingBefore = user.ratingPuzzle;
+
+    // Glicko-1 for puzzle
+    const { newRating: puzzleRatingAfter, newRD: puzzleRDAfter } =
+      this.glicko.updatePuzzleRating(puzzle.rating, puzzle.ratingDev, user.ratingPuzzle, body.solved);
+
+    // Elo K=32 for player
+    const userRatingAfter = this.glicko.updatePlayerRating(user.ratingPuzzle, puzzle.rating, body.solved);
+
+    // Save all in transaction
+    await this.prisma.$transaction([
+      this.prisma.generatedPuzzleAttempt.create({
+        data: {
+          puzzleId: id,
+          userId: req.user.id,
+          solved: body.solved,
+          timeMs: body.timeMs,
+          userRatingBefore,
+          userRatingAfter,
+          puzzleRatingBefore,
+          puzzleRatingAfter,
+        },
+      }),
+      this.prisma.generatedPuzzle.update({
+        where: { id },
+        data: {
+          rating: puzzleRatingAfter,
+          ratingDev: puzzleRDAfter,
+          nbPlays: { increment: 1 },
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: req.user.id },
+        data: { ratingPuzzle: userRatingAfter },
+      }),
+    ]);
+
+    return {
+      userRatingBefore,
+      userRatingAfter,
+      puzzleRatingBefore,
+      puzzleRatingAfter,
+      puzzleRDAfter,
     };
   }
 }
