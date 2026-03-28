@@ -736,5 +736,45 @@
     "faqConfigMac": "macOS",
     "faqSecretKeyNote": "Always wrap secret_key in quotes — hex strings like 5caa... may be misinterpreted by YAML without them.",
     "faqWindowsPathNote": "On Windows use .\\  prefix for relative paths to the engine executable."
+  },
+  "features": {
+    "hero": {
+      "title": "Play chess. Analyze. Improve.",
+      "subtitle": "Free online chess platform with deep analysis, puzzles, and live broadcasts",
+      "ctaPlay": "Start playing",
+      "ctaLearn": "Learn more"
+    },
+    "play": {
+      "title": "Play Online",
+      "description": "Challenge players worldwide in bullet, blitz, rapid or classical. Play against bots (8 levels) to practice. Custom time controls available."
+    },
+    "analyze": {
+      "title": "Deep Analysis",
+      "description": "Stockfish 18 runs in your browser — no downloads needed. Connect your own engine for unlimited depth. Get accuracy scores, move classifications, and eval graphs."
+    },
+    "puzzles": {
+      "title": "Puzzles & Training",
+      "description": "Solve the daily puzzle. Race against the clock in Puzzle Rush. Generate custom puzzles from any PGN — train on your own mistakes. Filter by theme: forks, pins, mates, sacrifices."
+    },
+    "workshop": {
+      "title": "Workshop",
+      "description": "Import and manage PGN files. Save your analyses. Set up any position with the board editor."
+    },
+    "broadcasts": {
+      "title": "Live Broadcasts",
+      "description": "Watch top tournament games in real-time with engine analysis."
+    },
+    "social": {
+      "title": "Community",
+      "description": "Add friends, see who's online, challenge them to a game. Direct messages. Real-time notifications."
+    },
+    "customize": {
+      "title": "Personalize",
+      "description": "Choose your board theme. Adjust sounds and animations. Play in English or Russian. Connect a DGT board."
+    },
+    "cta": {
+      "title": "Ready to play?",
+      "button": "Create free account"
+    }
   }
 }

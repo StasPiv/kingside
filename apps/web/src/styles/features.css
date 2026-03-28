@@ -1,0 +1,91 @@
+/* Features page — basic structure (KS-985 will add full layout/responsive) */
+.features-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.features-hero {
+  text-align: center;
+  padding: 60px 0 40px;
+}
+
+.features-hero__title {
+  font-size: 32px;
+  color: #e0e0e0;
+  margin: 0 0 12px;
+}
+
+.features-hero__subtitle {
+  font-size: 16px;
+  color: #888;
+  margin: 0 0 24px;
+}
+
+.features-hero__cta {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.features-btn {
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+}
+
+.features-btn--primary {
+  background: #7c83ff;
+  color: #fff;
+}
+
+.features-btn--secondary {
+  background: transparent;
+  border: 1px solid #555;
+  color: #ccc;
+}
+
+.features-section {
+  padding: 40px 0;
+  border-top: 1px solid #222;
+}
+
+.features-section__inner {
+  text-align: center;
+}
+
+.features-section__icon {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.features-section__title {
+  font-size: 24px;
+  color: #e0e0e0;
+  margin: 0 0 12px;
+}
+
+.features-section__desc {
+  font-size: 15px;
+  color: #999;
+  line-height: 1.6;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.features-cta-footer {
+  text-align: center;
+  padding: 60px 0;
+  border-top: 1px solid #222;
+}
+
+.features-cta-footer__title {
+  font-size: 28px;
+  color: #e0e0e0;
+  margin: 0 0 20px;
+}

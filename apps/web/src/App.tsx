@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-rou
 import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
+import { FeaturesPage } from './pages/FeaturesPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
@@ -79,6 +80,7 @@ export function App() {
   return (
     <Routes>
       <Route element={<MainLayout />}>
+        <Route path="/features" element={<FeaturesPage />} />
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
