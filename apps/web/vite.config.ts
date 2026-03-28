@@ -67,11 +67,37 @@ export default defineConfig({
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
-        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // Only precache static assets (icons, fonts). JS/CSS have content-hash
+        // in filenames and are handled via NetworkFirst to avoid stale chunks.
+        globPatterns: ['**/*.{svg,png,woff2}'],
         globIgnores: ['**/stockfish/**'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
+          {
+            // JS and CSS: network first, fall back to cache
+            urlPattern: /\.(?:js|css)$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'assets-cache',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 86400,
+              },
+            },
+          },
+          {
+            // index.html: always fetch fresh
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'html-cache',
+              expiration: {
+                maxEntries: 5,
+                maxAgeSeconds: 3600,
+              },
+            },
+          },
           {
             urlPattern: /^https?:\/\/.*\/api\/(?!auth\/)/,
             handler: 'NetworkFirst',
