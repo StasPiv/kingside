@@ -333,7 +333,7 @@ export class GameService {
     await this.redis.del(`game:${gameId}:draw_offer`);
   }
 
-  private async endGame(
+  async endGame(
     gameId: string,
     result: GameResult,
     termination: Termination,

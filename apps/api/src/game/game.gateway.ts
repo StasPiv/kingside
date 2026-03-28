@@ -14,6 +14,7 @@ import { GameService } from './game.service';
 import { BotGameService } from './bot-game.service';
 import { ChatService } from '../chat/chat.service';
 import { StockfishService } from '../engine/stockfish.service';
+import { GameClockService } from './game-clock.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import {
   GameEvents,
@@ -58,6 +59,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly chatService: ChatService,
     private readonly stockfishService: StockfishService,
     private readonly liveGameService: LiveGameService,
+    private readonly clockService: GameClockService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -279,6 +281,40 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
 
     await this.gameService.handleDrawDecline(data.gameId, userId);
+  }
+
+  @SubscribeMessage('game:claim-timeout')
+  async handleClaimTimeout(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { gameId: string },
+  ) {
+    const userId = client.data.user?.id;
+    if (!userId) return;
+
+    try {
+      const { state } = await this.gameService.getGameState(data.gameId);
+      if (state.status !== 'active') return;
+
+      const activeColor = state.fen.split(' ')[1] === 'w' ? 'white' : 'black';
+      const { timedOut } = await this.clockService.checkTimeout(
+        data.gameId,
+        activeColor,
+      );
+
+      if (timedOut) {
+        const result = activeColor === 'white' ? 'black' : 'white';
+        const ratingChange = await this.gameService.endGame(data.gameId, result, 'timeout');
+        const endPayload: WsGameEndPayload = {
+          result: result as GameResult,
+          termination: 'timeout',
+          ...(ratingChange ? { ratingChange } : {}),
+        };
+        this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
+        this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
+      }
+    } catch (e: any) {
+      this.logger.error(`Claim timeout failed: ${e.message}`);
+    }
   }
 
   @SubscribeMessage(GameEvents.CHAT_SEND)

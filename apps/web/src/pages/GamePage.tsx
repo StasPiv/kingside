@@ -247,13 +247,16 @@ export function GamePage() {
     if (status !== 'active') return;
     const turn = game.turn() === 'w' ? 'white' : 'black';
     const interval = setInterval(() => {
-      setClocks((prev) => ({
-        ...prev,
-        [turn]: Math.max(0, prev[turn] - 1),
-      }));
+      setClocks((prev) => {
+        const next = Math.max(0, prev[turn] - 1);
+        if (next === 0 && prev[turn] > 0) {
+          socket.emit('game:claim-timeout', { gameId });
+        }
+        return { ...prev, [turn]: next };
+      });
     }, 1000);
     return () => clearInterval(interval);
-  }, [status, fen, game]);
+  }, [status, fen, game, gameId]);
 
   const isPromotionMove = useCallback((from: Square, to: Square): boolean => {
     const piece = game.get(from);
