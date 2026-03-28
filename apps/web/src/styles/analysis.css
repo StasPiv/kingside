@@ -89,7 +89,7 @@
    Also capped by viewport height. */
 .analysis-page .board-container {
   flex: none;
-  width: min(calc(55vw - 46px), calc(100vh - 190px));
+  width: min(calc(55vw - 70px), calc(100vh - 190px));
   min-width: 0;
   align-self: flex-start;
 }
