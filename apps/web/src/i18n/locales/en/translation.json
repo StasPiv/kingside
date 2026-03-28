@@ -740,41 +740,52 @@
   "features": {
     "hero": {
       "title": "Play chess. Analyze. Improve.",
-      "subtitle": "Free online chess platform with deep analysis, puzzles, and live broadcasts",
+      "subtitle": "User Guide",
       "ctaPlay": "Start playing",
       "ctaLearn": "Learn more"
     },
     "play": {
       "title": "Play Online",
-      "description": "Challenge players worldwide in bullet, blitz, rapid or classical. Play against bots (8 levels) to practice. Custom time controls available."
+      "description": "Challenge players worldwide in bullet, blitz, rapid or classical. Play against bots (8 levels) to practice. Custom time controls available.",
+      "guide": "Play against other players or bots.\n\nOnline games:\n1. Go to Lobby (home page)\n2. Select time control: Bullet (1-2 min), Blitz (3-5 min), Rapid (10-15 min), Classical (30+ min)\n3. Or create a custom time control with any initial time and increment\n4. Click \"Play\" — matchmaking finds an opponent of similar rating\n5. During the game: move pieces by dragging or clicking. Premove is supported — make your next move while opponent is thinking\n6. After the game: click \"Rematch\" to play again with the same opponent\n\nBot games:\n1. In the Lobby, switch to \"Play Bot\" tab\n2. Choose difficulty level (1-20, where 1 is beginner and 20 is Stockfish at full strength)\n3. Choose your color (White, Black, or Random)\n4. Choose time control\n5. Click \"Play\"\n\nWatch live games:\nClick \"Live Games\" in the menu to spectate ongoing games between other players.\n\nChallenge a friend:\nVisit a player's profile and click \"Challenge\". Choose time control and send the challenge."
     },
     "analyze": {
       "title": "Deep Analysis",
-      "description": "Stockfish 18 runs in your browser — no downloads needed. Connect your own engine for unlimited depth. Get accuracy scores, move classifications, and eval graphs."
+      "description": "Stockfish 18 runs in your browser — no downloads needed. Connect your own engine for unlimited depth. Get accuracy scores, move classifications, and eval graphs.",
+      "guide": "Analyze any chess position with Stockfish 18.\n\nBasic analysis:\n1. Go to Workshop > New Analysis, or click \"Review\" after a game\n2. Click \"Start\" to activate the engine\n3. The engine shows the best move and evaluation. Use +/− buttons to change the number of lines (MultiPV, 1-10)\n4. Navigate moves with arrow keys or buttons. Click on any move in the notation to jump to that position\n\nVariations:\n- Make an alternative move on the board — it creates a variation branch\n- Right-click a variation to promote or delete it\n\nGame Report:\nAfter a finished game, click \"Analyze\" to get a full report:\n- Accuracy percentage for both players\n- Each move classified: Brilliant (!!) / Best / Good / Inaccuracy (?!) / Mistake (?) / Blunder (??)\n- Eval graph showing the advantage over time\n\nBoard Editor:\nClick \"FEN\" button to open the position editor. Place pieces freely to analyze any position.\n\nExternal engines:\nClick the gear icon (⚙) in the engine panel to connect a stronger engine running on your computer via Engine Bridge.\n\nExport:\nClick \"↓ PGN\" to download the game with your analysis and variations.\n\nMobile:\nOn mobile, the screen splits into two panels below the board. Each panel has tabs (Moves / Engine) so you can see notation and engine lines simultaneously."
     },
     "puzzles": {
       "title": "Puzzles & Training",
-      "description": "Solve the daily puzzle. Race against the clock in Puzzle Rush. Generate custom puzzles from any PGN — train on your own mistakes. Filter by theme: forks, pins, mates, sacrifices."
+      "description": "Solve the daily puzzle. Race against the clock in Puzzle Rush. Generate custom puzzles from any PGN — train on your own mistakes. Filter by theme: forks, pins, mates, sacrifices.",
+      "guide": "Solve chess puzzles to improve your tactical vision.\n\nDaily Puzzle:\nA new puzzle every day. Find it on the home page or go to Daily Puzzle in the menu.\n\nPuzzle Rush:\n1. Go to Puzzle Rush in the menu\n2. Choose time limit: 3 minutes or 5 minutes\n3. Solve as many puzzles as possible before time runs out\n4. Your best scores appear on the leaderboard\n\nGenerate Puzzles from Games:\n1. Go to Puzzles (menu)\n2. Click \"Generate from PGN\" at the top\n3. Upload a .pgn file or paste PGN text\n4. Open \"Advanced Settings\" to tune generation:\n   - Depth (8-22): analysis depth, higher = better but slower\n   - Lines (2-5): number of engine lines to compare\n   - Gap (cp): minimum difference between best and second-best move\n   - Max 2nd line (cp): skip positions where the alternative is already strong\n   - Skip hanging captures: filter out trivial free-piece captures\n   - Skip attacked by lesser: filter moves where the piece lands on a square attacked by a cheaper piece\n   - Skip undefended after move: filter moves leaving the piece undefended\n5. Click \"Generate Puzzles\" and wait for analysis\n6. Review generated puzzles and click \"Save to Server\"\n\nSolving:\nThe board shows the position — find the best move. After solving or failing, click \"Next\" for the next puzzle. Click \"Analysis\" to open the position in the analysis board."
     },
     "workshop": {
       "title": "Workshop",
-      "description": "Import and manage PGN files. Save your analyses. Set up any position with the board editor."
+      "description": "Import and manage PGN files. Save your analyses. Set up any position with the board editor.",
+      "guide": "Your personal chess workspace.\n\nMy Analyses:\nSaved analyses appear here. Click any to continue where you left off. Each analysis preserves your variations and annotations.\n\nPGN Files:\n1. Go to Workshop > PGN Files\n2. Click \"Upload\" to import a .pgn file\n3. Click a file to see its games. Click a game to open it in the analysis board\n4. Rename a file: click the pencil icon (✎) on the file card\n5. Delete a file: click × on the file card (deletes all games inside)\n6. Delete a single game: click × next to the game in the game list"
     },
     "broadcasts": {
       "title": "Live Broadcasts",
-      "description": "Watch top tournament games in real-time with engine analysis."
+      "description": "Watch top tournament games in real-time with engine analysis.",
+      "guide": "Watch live chess tournament games with real-time engine analysis.\n\n1. Go to Broadcasts in the menu\n2. Active tournaments appear in the list automatically\n3. To add a tournament manually: paste a chess-results.com URL or DGT LiveChess UUID in the input field and click \"Load\"\n4. Click a tournament to see rounds, click a round to see games\n5. Click a game to watch it live with the analysis board"
     },
     "social": {
       "title": "Community",
-      "description": "Add friends, see who's online, challenge them to a game. Direct messages. Real-time notifications."
+      "description": "Add friends, see who's online, challenge them to a game. Direct messages. Real-time notifications.",
+      "guide": "Connect with other players.\n\nFriends:\n1. Visit a player's profile (Players page or search)\n2. Click \"Add Friend\". They will receive a notification\n3. Go to Friends page to see who's online. Online friends have a green dot\n4. Click a friend's name to view their profile, or click \"Challenge\" to start a game\n\nMessages:\nClick the envelope icon in the header to open direct messages. Click a friend to start a conversation.\n\nNotifications:\nThe bell icon in the header shows unread notifications: friend requests, challenges, game invitations. Click to view and manage.\n\nBlocking:\nOn a player's profile, click \"Block\" to prevent them from messaging you or appearing in matchmaking."
     },
     "customize": {
       "title": "Personalize",
-      "description": "Choose your board theme. Adjust sounds and animations. Play in English or Russian. Connect a DGT board."
+      "description": "Choose your board theme. Adjust sounds and animations. Play in English or Russian. Connect a DGT board.",
+      "guide": "Personalize your experience.\n\nSettings page (click your username > Settings):\n- Board theme: Classic, Green, Blue, Brown\n- Piece set: Standard, Cburnett, Alpha, Merida\n- Notation: show/hide coordinates on the board\n- Input mode: drag or click\n- Sound effects: on/off\n- Move animation speed\n- Language: English or Russian\n\nDGT Board:\nConnect a DGT electronic chess board for over-the-board play with digital recording."
     },
     "cta": {
       "title": "Ready to play?",
       "button": "Create free account"
+    },
+    "rating": {
+      "title": "Rating System",
+      "guide": "Track your progress with Elo ratings.\n\n- Separate ratings for each time control: Bullet, Blitz, Rapid, Classical, and Puzzles\n- Starting rating: 1500\n- Rating changes after each game based on the result and opponent's rating\n- View your rating history chart on your profile page\n- See other players' profiles: click their name anywhere in the app\n- Players page shows all registered players sorted by rating\n- Online counter in the header shows how many players are currently on the site"
     }
   }
 }

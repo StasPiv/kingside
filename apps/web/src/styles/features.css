@@ -245,3 +245,20 @@
     transform: translateY(0);
   }
 }
+
+.features-section__guide {
+  text-align: left;
+  font-size: 14px;
+  color: #bbb;
+  line-height: 1.7;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.features-section__guide p {
+  margin: 0;
+}
+
+.features-section__spacer {
+  height: 8px;
+}

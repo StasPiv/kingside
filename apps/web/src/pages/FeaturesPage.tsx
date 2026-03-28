@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
-const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize'] as const;
+const SECTIONS = ['play', 'analyze', 'puzzles', 'workshop', 'broadcasts', 'social', 'customize', 'rating'] as const;
 const ICONS: Record<string, string> = {
   play: '♟', analyze: '🔍', puzzles: '🧩', workshop: '🛠',
-  broadcasts: '📡', social: '👥', customize: '🎨',
+  broadcasts: '📡', social: '👥', customize: '🎨', rating: '📊',
 };
 
 export function FeaturesPage() {
@@ -22,13 +22,19 @@ export function FeaturesPage() {
         </div>
       </section>
 
-      {/* Feature sections */}
+      {/* Guide sections */}
       {SECTIONS.map((key) => (
         <section key={key} id={key} className={`features-section features-section--${key}`}>
           <div className="features-section__inner">
             <span className="features-section__icon">{ICONS[key]}</span>
             <h2 className="features-section__title">{t(`features.${key}.title`)}</h2>
-            <p className="features-section__desc">{t(`features.${key}.description`)}</p>
+            <div className="features-section__guide">
+              {t(`features.${key}.guide`).split('\n').map((line, i) => (
+                <p key={i} className={line.trim() === '' ? 'features-section__spacer' : undefined}>
+                  {line}
+                </p>
+              ))}
+            </div>
           </div>
         </section>
       ))}
