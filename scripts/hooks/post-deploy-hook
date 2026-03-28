@@ -37,16 +37,20 @@ if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/prisma/"; th
     [ -f "$REPO_DIR/apps/api/src/main.ts" ] && touch "$REPO_DIR/apps/api/src/main.ts"
 fi
 
-# Перезапуск nest dev-сервера при изменениях в apps/api/src/
+# Пересборка и перезапуск nest при изменениях в apps/api/src/
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/src/"; then
-    # Очистка tsc кэша чтобы гарантировать полную перекомпиляцию
+    echo "[post-hook] API: изменения в apps/api/src/ — пересборка..."
     rm -f "$REPO_DIR/apps/api/tsconfig.tsbuildinfo" 2>/dev/null
-    # Принудительный перезапуск nest --watch процесса
+    # nest build для обновления dist/
+    cd "$REPO_DIR"
+    npx --prefix "$REPO_DIR" nest build --path "$REPO_DIR/apps/api/tsconfig.json" 2>/dev/null || \
+        npm run build --workspace=@kingside/api 2>/dev/null || \
+        echo "[post-hook] WARN: nest build failed"
+    echo "[post-hook] API: nest build done"
+    # Перезапуск nest --watch
     pkill -f "nest start --watch" 2>/dev/null && \
-        echo "[post-hook] nest --watch process killed — turbo перезапустит" || true
-    # Fallback: touch entry point на случай если pkill не сработал
+        echo "[post-hook] nest --watch killed — перезапустится" || true
     [ -f "$REPO_DIR/apps/api/src/main.ts" ] && touch "$REPO_DIR/apps/api/src/main.ts"
-    echo "[post-hook] API: tsc cache cleared + nest restarted"
 fi
 
 # Перезапуск Vite dev-сервера при изменениях в apps/web/src/
