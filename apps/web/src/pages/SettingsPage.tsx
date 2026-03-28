@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
@@ -14,12 +14,6 @@ export function SettingsPage() {
   const { muted, toggleMute } = useSounds();
   const { boardTheme, pieceSet, selectTheme, selectPieceSet } = useBoardSettings();
 
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState('');
-  const [passwordLoading, setPasswordLoading] = useState(false);
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
 
   useEffect(() => {
@@ -51,30 +45,6 @@ export function SettingsPage() {
     i18n.changeLanguage(locale);
     localStorage.setItem('locale', locale);
     await api.patch('/api/users/me/settings', { locale });
-  };
-
-  const handlePasswordSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setPasswordError('');
-    setPasswordSuccess('');
-
-    if (newPassword !== confirmPassword) {
-      setPasswordError(t('settings.passwordMismatch'));
-      return;
-    }
-
-    setPasswordLoading(true);
-    try {
-      await api.patch('/api/users/me/password', { currentPassword, newPassword });
-      setPasswordSuccess(t('settings.passwordChanged'));
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-    } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : t('settings.passwordError'));
-    } finally {
-      setPasswordLoading(false);
-    }
   };
 
   return (
@@ -209,44 +179,6 @@ export function SettingsPage() {
         )}
       </section>
 
-      <section className="settings-section">
-        <h2>{t('settings.changePassword')}</h2>
-        <form className="settings-form" onSubmit={handlePasswordSubmit}>
-          {passwordError && <div className="error">{passwordError}</div>}
-          {passwordSuccess && <div className="success">{passwordSuccess}</div>}
-          <div className="settings-field">
-            <label>{t('settings.currentPassword')}</label>
-            <input
-              type="password"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              required
-            />
-          </div>
-          <div className="settings-field">
-            <label>{t('settings.newPassword')}</label>
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-              minLength={8}
-            />
-          </div>
-          <div className="settings-field">
-            <label>{t('settings.confirmNewPassword')}</label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" disabled={passwordLoading}>
-            {passwordLoading ? t('settings.updatingPassword') : t('settings.updatePassword')}
-          </button>
-        </form>
-      </section>
     </div>
   );
 }
