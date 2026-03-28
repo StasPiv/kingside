@@ -64,6 +64,13 @@ export function PuzzleBoard({
     [onSquareClick],
   );
 
+  const handlePieceClick = useCallback(
+    ({ square }: { isSparePiece?: boolean; piece?: unknown; square: string | null }) => {
+      if (square) onSquareClick(square as Square);
+    },
+    [onSquareClick],
+  );
+
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop,
     boardOrientation,
@@ -86,11 +93,12 @@ export function PuzzleBoard({
       showNotation: true,
       squareStyles,
       onSquareClick: handleSquareClick,
+      onPieceClick: handlePieceClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
       ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick, suppressAnimation],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick, handlePieceClick, suppressAnimation],
   );
 
   return (

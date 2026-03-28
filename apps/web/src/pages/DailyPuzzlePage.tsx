@@ -206,6 +206,13 @@ export function DailyPuzzlePage() {
     [onSquareClick],
   );
 
+  const handlePieceClick = useCallback(
+    ({ square }: { isSparePiece?: boolean; piece?: unknown; square: string | null }) => {
+      if (square) onSquareClick(square as Square);
+    },
+    [onSquareClick],
+  );
+
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop: handlePieceDrop,
     boardOrientation: playerColor,
@@ -228,11 +235,12 @@ export function DailyPuzzlePage() {
       showNotation: true,
       squareStyles,
       onSquareClick: handleSquareClick,
+      onPieceClick: handlePieceClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
       ...(customPieces && { pieces: customPieces }),
     }),
-    [stablePosition, playerColor, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick],
+    [stablePosition, playerColor, boardStyle, boardThemeOptions, customPieces, squareStyles, handleSquareClick, handlePieceClick],
   );
 
   const themes = puzzle?.themes ?? [];

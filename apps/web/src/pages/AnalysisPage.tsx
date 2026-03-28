@@ -481,6 +481,13 @@ export function AnalysisPage() {
     [onSquareClick],
   );
 
+  const handlePieceClick = useCallback(
+    ({ square }: { isSparePiece?: boolean; piece?: unknown; square: string | null }) => {
+      if (square) onSquareClick(square as Square);
+    },
+    [onSquareClick],
+  );
+
   const handlePieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { piece: unknown; sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
@@ -513,10 +520,11 @@ export function AnalysisPage() {
       showNotation: true,
       squareStyles,
       onSquareClick: handleSquareClick,
+      onPieceClick: handlePieceClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, handleSquareClick],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, handleSquareClick, handlePieceClick],
   );
 
   // --- Computed values ---

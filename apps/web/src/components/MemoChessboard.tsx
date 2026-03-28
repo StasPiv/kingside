@@ -70,6 +70,8 @@ function areOptionsEqual(
   if (prevOpts.darkSquareStyle !== nextOpts.darkSquareStyle) return false;
   if (prevOpts.lightSquareStyle !== nextOpts.lightSquareStyle) return false;
   if (prevOpts.pieces !== nextOpts.pieces) return false;
+  if (prevOpts.onSquareClick !== nextOpts.onSquareClick) return false;
+  if (prevOpts.onPieceClick !== nextOpts.onPieceClick) return false;
 
   return true;
 }

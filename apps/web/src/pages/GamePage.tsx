@@ -424,6 +424,13 @@ export function GamePage() {
     [onSquareClick],
   );
 
+  const handlePieceClick = useCallback(
+    ({ square }: { isSparePiece?: boolean; piece?: unknown; square: string | null }) => {
+      if (square) onSquareClick(square as Square);
+    },
+    [onSquareClick],
+  );
+
   const boardOptions = useMemo(
     () => ({
       position: stablePosition,
@@ -437,8 +444,9 @@ export function GamePage() {
       ...(boardStyle && { boardStyle }),
       squareStyles: mergedSquareStyles,
       onSquareClick: handleSquareClick,
+      onPieceClick: handlePieceClick,
     }),
-    [stablePosition, playerColor, boardStyle, animationDuration, mergedSquareStyles, showNotation, isOpponentMove, handleSquareClick, darkSquareStyle, lightSquareStyle, customPieces],
+    [stablePosition, playerColor, boardStyle, animationDuration, mergedSquareStyles, showNotation, isOpponentMove, handleSquareClick, handlePieceClick, darkSquareStyle, lightSquareStyle, customPieces],
   );
 
   return (
