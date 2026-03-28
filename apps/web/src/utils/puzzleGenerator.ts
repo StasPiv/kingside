@@ -291,7 +291,7 @@ export async function generatePuzzlesFromPgn(
       const evalAtShallow = analysis.evalByDepth.get(1) ?? analysis.evalByDepth.get(2) ?? bestCp;
       const evalAtDeep = bestCp;
       const evalGrowth = evalAtDeep - evalAtShallow;
-      const EVAL_GROWTH_THRESHOLD = 60;
+      const EVAL_GROWTH_THRESHOLD = 25;
 
       console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`);
 
