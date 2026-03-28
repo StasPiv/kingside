@@ -31,7 +31,7 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () =
 
 export function MainLayout() {
   const { user, logout } = useAuth();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const { incoming, acceptChallenge, declineChallenge } = useChallenge();
@@ -186,6 +186,18 @@ export function MainLayout() {
               </span>
             )}
 
+            {/* Language switcher */}
+            <button
+              className="lang-switcher"
+              onClick={() => {
+                const next = i18n.language === 'ru' ? 'en' : 'ru';
+                i18n.changeLanguage(next);
+                localStorage.setItem('locale', next);
+              }}
+              title={i18n.language === 'ru' ? 'Switch to English' : 'Переключить на русский'}
+            >
+              {i18n.language === 'ru' ? 'EN' : 'RU'}
+            </button>
 
             {/* User dropdown / Login */}
             {user ? (
