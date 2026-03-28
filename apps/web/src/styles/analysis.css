@@ -25,6 +25,7 @@
 
 .eval-bar-container {
   width: 38px;
+  flex-shrink: 0;
   display: flex;
   align-items: stretch;
 }
@@ -68,7 +69,7 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 /* Eval bar + board row: fills remaining height inside board-wrapper.
@@ -79,17 +80,18 @@
   align-items: stretch;
   min-height: 0;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
   width: 100%;
 }
 
-/* Board container: square board that fits available space.
-   KS-970: use vw units directly — percentage resolution in nested flex is unreliable.
-   55vw = board-area share, -46px = eval-bar(38) + page-padding(8).
-   Also capped by viewport height. */
+/* Board container: square board that adapts to available space.
+   KS-970: flex: 1 fills remaining space after eval-bar (which has flex-shrink: 0).
+   max-width caps board size based on viewport height so it stays square.
+   On wide screens: board fills space up to max-width.
+   On narrow screens: board shrinks with available space. */
 .analysis-page .board-container {
-  flex: none;
-  width: min(calc(55vw - 100px), calc(100vh - 190px));
+  flex: 1 1 0%;
+  max-width: calc(100vh - 190px);
   min-width: 0;
   align-self: flex-start;
 }
