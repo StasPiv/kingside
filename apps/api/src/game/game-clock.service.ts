@@ -62,17 +62,31 @@ export class GameClockService {
     return { whiteMs, blackMs, lastTick: now, running: true };
   }
 
-  async getClocks(gameId: string): Promise<ClockState> {
+  async getClocks(gameId: string, activeColor?: 'white' | 'black'): Promise<ClockState> {
     const raw = await this.redis.hgetall(this.clockKey(gameId));
     if (!raw.white_ms) {
       return { whiteMs: 0, blackMs: 0, lastTick: 0, running: false };
     }
 
     const running = raw.running === '1';
+    const now = Date.now();
+    let whiteMs = Number(raw.white_ms);
+    let blackMs = Number(raw.black_ms);
+
+    // Subtract elapsed time from active player's clock
+    if (running && activeColor) {
+      const elapsed = now - Number(raw.last_tick);
+      if (activeColor === 'white') {
+        whiteMs = Math.max(0, whiteMs - elapsed);
+      } else {
+        blackMs = Math.max(0, blackMs - elapsed);
+      }
+    }
+
     return {
-      whiteMs: Number(raw.white_ms),
-      blackMs: Number(raw.black_ms),
-      lastTick: Number(raw.last_tick),
+      whiteMs,
+      blackMs,
+      lastTick: (running && activeColor) ? now : Number(raw.last_tick),
       running,
     };
   }

@@ -136,13 +136,14 @@ export class GameService {
       },
     });
 
+    const activeColor = raw.active_color as 'white' | 'black';
     const state: GameState = {
       fen: raw.fen,
       moves: JSON.parse(raw.moves || '[]'),
       status: raw.status,
-      activeColor: raw.active_color as 'white' | 'black',
+      activeColor,
     };
-    const clocks = await this.clockService.getClocks(gameId);
+    const clocks = await this.clockService.getClocks(gameId, activeColor);
 
     const players = { white: game.white.username ?? '', black: game.black.username ?? '' };
     return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players, isBot: game.isBot, botLevel: game.botLevel };
