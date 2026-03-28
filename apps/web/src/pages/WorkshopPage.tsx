@@ -36,7 +36,13 @@ export function WorkshopPage() {
           return res.json();
         })
         .then((data) => {
-          const files: PgnFile[] = data.data ?? data;
+          const raw: any[] = data.data ?? data;
+          const files: PgnFile[] = raw.map((item) => ({
+            id: item.id,
+            name: item.fileName ?? item.name,
+            gameCount: item.gamesCount ?? item.gameCount,
+            uploadedAt: item.createdAt ?? item.uploadedAt,
+          }));
           const found = files.find((f) => f.id === fileId);
           if (found) {
             setResolvedFile(found);
