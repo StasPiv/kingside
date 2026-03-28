@@ -41,7 +41,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const user = await api.get<User | null>('/api/auth/me');
       const currentToken = localStorage.getItem('token');
       console.log('[AuthContext] fetchMe success', { userId: user?.id, username: user?.username, tokenChanged: tokenAtStart !== currentToken });
-      if (user?.locale) {
+      // Only apply server locale if user has explicitly chosen one
+      // (localStorage already has a locale). Otherwise, keep browser-detected language.
+      if (user?.locale && localStorage.getItem('locale')) {
         i18n.changeLanguage(user.locale);
         localStorage.setItem('locale', user.locale);
       }
