@@ -294,19 +294,7 @@ export async function generatePuzzlesFromPgn(
       const evalGrowth = evalAtDeep - evalAtShallow;
       const EVAL_GROWTH_THRESHOLD = 25;
 
-      // Skip if eval doesn't grow significantly with depth
-      if (evalGrowth < EVAL_GROWTH_THRESHOLD) {
-        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: growth=${evalGrowth} < ${EVAL_GROWTH_THRESHOLD}`);
-        continue;
-      }
-
-      // Skip positions where second best is already winning/losing (>300cp)
-      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) {
-        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: |secondCp|=${Math.abs(secondCp)} > 300`);
-        continue;
-      }
-
-      // Check if best move is a sacrifice
+      // Check sacrifice
       let isSacrifice = false;
       if (best.pv.length >= 1) {
         try {
@@ -326,21 +314,27 @@ export async function generatePuzzlesFromPgn(
       const effectiveThreshold = isSacrifice ? Math.max(200, gapThreshold * 0.66) : gapThreshold;
       const isMate = best.score.type === 'mate';
       const mateDist = isMate ? Math.abs(best.score.value) : 0;
+      const logBase = `[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`;
 
+      // Apply filters with explicit skip reason
+      if (evalGrowth < EVAL_GROWTH_THRESHOLD) {
+        console.log(`${logBase} SKIP:growth<${EVAL_GROWTH_THRESHOLD}`); continue;
+      }
+      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) {
+        console.log(`${logBase} SKIP:|secondCp|=${Math.abs(secondCp)}>300`); continue;
+      }
       if (gap < effectiveThreshold) {
-        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: gap=${gap} < threshold=${effectiveThreshold}`);
-        continue;
+        console.log(`${logBase} SKIP:gap<${effectiveThreshold}`); continue;
       }
       if (best.pv.length < (isMate ? 1 : 2)) {
-        console.log(`[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} SKIP: pv.length=${best.pv.length} < ${isMate ? 1 : 2}`);
-        continue;
+        console.log(`${logBase} SKIP:pv.length=${best.pv.length}<${isMate ? 1 : 2}`); continue;
       }
 
       {
         const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
         if (isSacrifice) themes.push('sacrifice');
-        // Player solves 1 move; pass only pv[0] so playerMoves=1
         const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
+        console.log(`${logBase} ACCEPTED rating=${rating}`);
 
         // Use scores from THIS position's analysis (same side moves)
         const secondLine = analysis.lines.length >= 2 ? analysis.lines[1] : null;
