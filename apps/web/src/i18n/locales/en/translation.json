@@ -17,7 +17,8 @@
     "online": "{{count}} online",
     "play": "Play",
     "workshop": "Workshop",
-    "watch": "Watch"
+    "watch": "Watch",
+    "backToGame": "Back to game"
   },
   "notifications": {
     "title": "Notifications",
