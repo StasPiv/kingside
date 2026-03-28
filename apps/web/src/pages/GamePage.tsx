@@ -248,13 +248,8 @@ export function GamePage() {
     };
   }, [gameId, game, updateFromState, refreshUser, playSound, setLastMove]);
 
-  const timeoutClaimedRef = useRef(false);
-
   useEffect(() => {
-    if (status !== 'active') {
-      timeoutClaimedRef.current = false;
-      return;
-    }
+    if (status !== 'active') return;
     const turn = game.turn() === 'w' ? 'white' : 'black';
     console.log('[Clock] interval start, turn=' + turn + ', status=' + status);
     const interval = setInterval(() => {
@@ -270,17 +265,20 @@ export function GamePage() {
   }, [status, fen, game]);
 
   // Claim timeout when any clock reaches 0 (only after receiving server state)
+  // Retry every 2s because client clock may reach 0 before server clock (rounding)
   useEffect(() => {
     if (status !== 'active' || !stateReceivedRef.current) return;
-    console.log('[Timeout] check: white=' + clocks.white + ' black=' + clocks.black + ' claimed=' + timeoutClaimedRef.current + ' connected=' + socket.connected);
-    if (clocks.white === 0 || clocks.black === 0) {
-      if (!timeoutClaimedRef.current) {
-        timeoutClaimedRef.current = true;
-        console.log('[Timeout] SENDING game:claim-timeout for game ' + gameId);
-        socket.emit('game:claim-timeout', { gameId });
-      }
-    }
-  }, [status, clocks, gameId]);
+    if (clocks.white > 0 && clocks.black > 0) return;
+
+    console.log('[Timeout] clock at 0, starting claim interval. white=' + clocks.white + ' black=' + clocks.black);
+    const sendClaim = () => {
+      console.log('[Timeout] SENDING game:claim-timeout for game ' + gameId);
+      socket.emit('game:claim-timeout', { gameId });
+    };
+    sendClaim();
+    const interval = setInterval(sendClaim, 2000);
+    return () => clearInterval(interval);
+  }, [status, clocks.white === 0 || clocks.black === 0, gameId]);
 
   const isPromotionMove = useCallback((from: Square, to: Square): boolean => {
     const piece = game.get(from);
