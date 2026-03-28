@@ -41,6 +41,10 @@ function isMoveNumber(token: string): boolean {
   return /^\d+\.+$/.test(token);
 }
 
+function isContinuationDots(token: string): boolean {
+  return /^\.{2,}$/.test(token);
+}
+
 function isResult(token: string): boolean {
   return token === '*' || token === '1-0' || token === '0-1' || token === '1/2-1/2';
 }
@@ -65,7 +69,7 @@ export function parseAnnotatedPgn(pgn: string): ChessMove[] {
 
       if (token === ')' || isResult(token)) break;
 
-      if (isMoveNumber(token)) {
+      if (isMoveNumber(token) || isContinuationDots(token)) {
         pos++;
         continue;
       }
