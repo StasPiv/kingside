@@ -32,6 +32,7 @@ import { formatEval, formatPv, formatCompact } from '../utils/chessFormat';
 import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHistoryUtils';
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
+import { HelpButton } from '../components/HelpButton';
 
 type GameData = {
   id: string;
@@ -585,6 +586,7 @@ export function AnalysisPage() {
           <>
           <div className="analysis-workshop-shortcut">
             <Link to="/workshop" className="analysis-workshop-shortcut__link">{t('workshop.title')}</Link>
+            <HelpButton section="analyze" />
           </div>
           <nav className="analysis-breadcrumbs">
             <Link to={breadcrumbRootUrl ?? '/workshop'} className="analysis-breadcrumbs__link">

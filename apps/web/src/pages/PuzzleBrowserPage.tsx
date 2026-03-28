@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { PuzzleGeneratorModal } from '../components/PuzzleGeneratorModal';
+import { HelpButton } from '../components/HelpButton';
 
 type GeneratedPuzzle = {
   id: string;
@@ -67,7 +68,7 @@ export function PuzzleBrowserPage() {
 
   return (
     <div className="puzzle-browser-page">
-      <h1>{t('puzzleBrowser.title')}</h1>
+      <h1>{t('puzzleBrowser.title')}<HelpButton section="puzzles" /></h1>
 
       {/* Toolbar */}
       <div className="puzzle-toolbar">

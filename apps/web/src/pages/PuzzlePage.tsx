@@ -5,6 +5,7 @@ import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { api } from '../api';
 import { PuzzleBoard } from '../components/PuzzleBoard';
+import { HelpButton } from '../components/HelpButton';
 import type { PuzzleDto } from '@kingside/shared';
 
 type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
@@ -268,7 +269,7 @@ export function PuzzlePage() {
     return (
       <div className="puzzle-page">
         <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
-        <h1>{t('puzzle.title')}</h1>
+        <h1>{t('puzzle.title')}<HelpButton section="puzzles" /></h1>
         <div className="puzzle-all-solved">
           <p>{t('puzzle.allSolved', 'All puzzles solved! Generate new ones from PGN.')}</p>
           <Link to="/puzzles" className="play-btn">{t('puzzle.backToPuzzles')}</Link>
@@ -289,7 +290,7 @@ export function PuzzlePage() {
   return (
     <div className="puzzle-page">
       <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
-      <h1>{t('puzzle.title')}</h1>
+      <h1>{t('puzzle.title')}<HelpButton section="puzzles" /></h1>
 
       <div className="puzzle-stats">
         <span>{t('puzzle.streak', { count: streak })}</span>
