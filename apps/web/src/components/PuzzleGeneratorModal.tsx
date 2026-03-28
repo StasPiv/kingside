@@ -134,7 +134,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
             {/* Advanced Settings */}
             <div className="puzzle-gen-advanced">
               <button className="puzzle-gen-advanced__toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
-                {showAdvanced ? '▾' : '▸'} Advanced Settings
+                {showAdvanced ? '▾' : '▸'} {t('puzzleGenerator.advancedSettings', 'Advanced Settings')}
               </button>
               {showAdvanced && (
                 <div className="puzzle-gen-advanced__body">
@@ -212,12 +212,12 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
           <div className="puzzle-generator-progress">
             <div className="puzzle-generator-progress-text">{t('puzzleGenerator.analyzing', 'Analyzing...')}</div>
             <div className="puzzle-generator-progress-detail">
-              Game {progress.gameIndex + 1}/{progress.totalGames}, Position {progress.positionIndex + 1}/{progress.totalPositions}
+              {t('puzzleGenerator.progressDetail', 'Game {{game}}/{{totalGames}}, Position {{pos}}/{{totalPos}}', { game: progress.gameIndex + 1, totalGames: progress.totalGames, pos: progress.positionIndex + 1, totalPos: progress.totalPositions })}
             </div>
             <div className="puzzle-generator-progress-bar">
               <div className="puzzle-generator-progress-fill" style={{ width: `${progress.totalPositions > 0 ? ((progress.gameIndex * 100 + (progress.positionIndex / progress.totalPositions) * 100) / Math.max(progress.totalGames, 1)) : 0}%` }} />
             </div>
-            <div className="puzzle-generator-progress-found">{progress.puzzlesFound} puzzles found</div>
+            <div className="puzzle-generator-progress-found">{t('puzzleGenerator.puzzlesFound', '{{count}} puzzles found', { count: progress.puzzlesFound })}</div>
             <button className="puzzle-generator-abort" onClick={() => abortRef.current?.abort()}>{t('common.cancel', 'Cancel')}</button>
           </div>
         )}
