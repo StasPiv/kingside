@@ -183,12 +183,34 @@ function estimateRating(fen: string, pv: string[], isMate: boolean, mateDist: nu
  * Analyze positions from a PGN game and find puzzles.
  * Uses a Stockfish WASM worker directly.
  */
+export interface PuzzleGenSettings {
+  depth: number;
+  multiPv: number;
+  gapThreshold: number;
+  maxSecondCp: number;
+  skipHangingCapture: boolean;
+  skipAttackedByLesser: boolean;
+  skipUndefendedAfterMove: boolean;
+}
+
+export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
+  depth: 14,
+  multiPv: 3,
+  gapThreshold: 50,
+  maxSecondCp: 300,
+  skipHangingCapture: true,
+  skipAttackedByLesser: true,
+  skipUndefendedAfterMove: false,
+};
+
 export async function generatePuzzlesFromPgn(
   pgn: string,
   onProgress: (progress: GenerationProgress) => void,
-  options: { depth?: number; multiPv?: number; gapThreshold?: number; abortSignal?: AbortSignal } = {},
+  options: Partial<PuzzleGenSettings> & { abortSignal?: AbortSignal } = {},
 ): Promise<GeneratedPuzzleData[]> {
-  const { depth = 14, multiPv = 3, gapThreshold = 50, abortSignal } = options;
+  const settings = { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...options };
+  const { depth, multiPv, gapThreshold, maxSecondCp, skipHangingCapture, skipAttackedByLesser, skipUndefendedAfterMove } = settings;
+  const { abortSignal } = options;
 
   // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
@@ -294,18 +316,47 @@ export async function generatePuzzlesFromPgn(
       const evalGrowth = evalAtDeep - evalAtShallow;
       const EVAL_GROWTH_THRESHOLD = 25;
 
-      // Check if bestMove captures an undefended piece
+      // Analyze bestMove properties
       let isHangingCapture = false;
+      let attackedByLesser = false;
+      let undefendedAfterMove = false;
       if (best.pv.length >= 1) {
         try {
           const testChess = new Chess(fen);
-          const moveObj = testChess.move({ from: best.pv[0].slice(0, 2), to: best.pv[0].slice(2, 4), promotion: best.pv[0][4] });
-          if (moveObj?.captured) {
-            // After capture, check if opponent can recapture on the same square
-            const recaptures = testChess.moves({ verbose: true }).filter(m => m.to === moveObj.to && m.captured);
-            if (recaptures.length === 0) isHangingCapture = true;
+          const from = best.pv[0].slice(0, 2);
+          const to = best.pv[0].slice(2, 4);
+          const movedPiece = testChess.get(from as Parameters<typeof testChess.get>[0]);
+          const movedValue = movedPiece ? (PIECE_VALUE[movedPiece.type] || 0) : 0;
+          const moveObj = testChess.move({ from, to, promotion: best.pv[0][4] });
+
+          if (moveObj) {
+            // Hanging capture: captured piece and no recapture possible
+            if (moveObj.captured) {
+              const recaptures = testChess.moves({ verbose: true }).filter(m => m.to === moveObj.to && m.captured);
+              if (recaptures.length === 0) isHangingCapture = true;
+            }
+
+            // Attacked by lesser: after move, piece on target attacked by cheaper piece
+            const opponent = moveObj.color === 'w' ? 'b' : 'w';
+            if (testChess.isAttacked(to as Parameters<typeof testChess.isAttacked>[0], opponent)) {
+              const attackerMoves = testChess.moves({ verbose: true }).filter(m => m.to === to);
+              const cheapestAttacker = Math.min(...attackerMoves.map(m => PIECE_VALUE[m.piece] || 0));
+              if (cheapestAttacker < movedValue) attackedByLesser = true;
+
+              // Undefended: attacked but not defended by own pieces
+              testChess.undo();
+              testChess.move(moveObj.san); // replay to check own defense
+              // Swap turn to check if own side defends
+              // chess.js doesn't have "isDefended" — approximate: undo, check if own piece attacks the square
+              const ownColor = moveObj.color;
+              const preMove = new Chess(fen);
+              // Check if any own piece (other than the moved one) attacks the target square
+              const ownAttacks = preMove.moves({ verbose: true }).filter(m => m.to === to && m.from !== from);
+              if (ownAttacks.length === 0) undefendedAfterMove = true;
+            }
+
+            testChess.undo();
           }
-          testChess.undo();
         } catch { /* ignore */ }
       }
 
@@ -314,11 +365,17 @@ export async function generatePuzzlesFromPgn(
       const logBase = `[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`;
 
       // Apply filters with explicit skip reason
-      if (isHangingCapture) {
+      if (skipHangingCapture && isHangingCapture) {
         console.log(`${logBase} SKIP:hangingCapture`); continue;
       }
-      if (analysis.lines.length >= 2 && Math.abs(secondCp) > 300) {
-        console.log(`${logBase} SKIP:|secondCp|=${Math.abs(secondCp)}>300`); continue;
+      if (skipAttackedByLesser && attackedByLesser) {
+        console.log(`${logBase} SKIP:attackedByLesser`); continue;
+      }
+      if (skipUndefendedAfterMove && undefendedAfterMove) {
+        console.log(`${logBase} SKIP:undefendedAfterMove`); continue;
+      }
+      if (analysis.lines.length >= 2 && Math.abs(secondCp) > maxSecondCp) {
+        console.log(`${logBase} SKIP:|secondCp|=${Math.abs(secondCp)}>${maxSecondCp}`); continue;
       }
       if (gap < gapThreshold) {
         console.log(`${logBase} SKIP:gap<${gapThreshold}`); continue;

@@ -1624,3 +1624,77 @@ body:has(.puzzle-rush-board) {
   font-size: 13px;
   color: #888;
 }
+
+/* Puzzle generator advanced settings */
+.puzzle-gen-advanced {
+  margin-top: 8px;
+}
+
+.puzzle-gen-advanced__toggle {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.puzzle-gen-advanced__body {
+  margin-top: 8px;
+  padding: 8px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 6px;
+}
+
+.puzzle-gen-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.puzzle-gen-settings-grid label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #aaa;
+  gap: 6px;
+}
+
+.puzzle-gen-settings-grid input[type="number"] {
+  width: 60px;
+  background: #0f172a;
+  color: #e0e0e0;
+  border: 1px solid #333;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.puzzle-gen-settings-checks {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.puzzle-gen-settings-checks label {
+  font-size: 12px;
+  color: #aaa;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.puzzle-gen-settings-reset {
+  margin-top: 8px;
+  background: transparent;
+  border: 1px solid #555;
+  color: #888;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}

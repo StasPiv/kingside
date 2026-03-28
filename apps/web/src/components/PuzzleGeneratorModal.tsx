@@ -2,8 +2,22 @@ import { useState, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import type { GeneratedPuzzleData, GenerationProgress } from '../utils/puzzleGenerator';
-import { generatePuzzlesFromPgn } from '../utils/puzzleGenerator';
+import type { GeneratedPuzzleData, GenerationProgress, PuzzleGenSettings } from '../utils/puzzleGenerator';
+import { generatePuzzlesFromPgn, DEFAULT_PUZZLE_GEN_SETTINGS } from '../utils/puzzleGenerator';
+
+const LS_KEY = 'puzzleGenSettings';
+
+function loadSettings(): PuzzleGenSettings {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) return { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...JSON.parse(raw) };
+  } catch { /* ignore */ }
+  return { ...DEFAULT_PUZZLE_GEN_SETTINGS };
+}
+
+function saveSettings(s: PuzzleGenSettings) {
+  localStorage.setItem(LS_KEY, JSON.stringify(s));
+}
 
 interface PuzzleGeneratorModalProps {
   onClose: () => void;
@@ -19,15 +33,28 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [settings, setSettings] = useState<PuzzleGenSettings>(loadSettings);
   const abortRef = useRef<AbortController | null>(null);
+
+  const updateSetting = <K extends keyof PuzzleGenSettings>(key: K, value: PuzzleGenSettings[K]) => {
+    setSettings((prev) => {
+      const next = { ...prev, [key]: value };
+      saveSettings(next);
+      return next;
+    });
+  };
+
+  const resetSettings = () => {
+    setSettings({ ...DEFAULT_PUZZLE_GEN_SETTINGS });
+    saveSettings({ ...DEFAULT_PUZZLE_GEN_SETTINGS });
+  };
 
   const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
-      setPgnText(ev.target?.result as string ?? '');
-    };
+    reader.onload = (ev) => setPgnText(ev.target?.result as string ?? '');
     reader.readAsText(file);
   }, []);
 
@@ -38,27 +65,16 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     setResult(null);
     setSaved(false);
     abortRef.current = new AbortController();
-
     try {
-      const puzzles = await generatePuzzlesFromPgn(
-        pgnText,
-        (p) => setProgress(p),
-        { depth: 14, multiPv: 3, abortSignal: abortRef.current.signal },
-      );
+      const puzzles = await generatePuzzlesFromPgn(pgnText, (p) => setProgress(p), { ...settings, abortSignal: abortRef.current.signal });
       setResult(puzzles);
     } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') {
-        setError(err.message);
-      }
+      if (err instanceof Error && err.name !== 'AbortError') setError(err.message);
     } finally {
       setGenerating(false);
       abortRef.current = null;
     }
-  }, [pgnText, generating]);
-
-  const handleAbort = useCallback(() => {
-    abortRef.current?.abort();
-  }, []);
+  }, [pgnText, generating, settings]);
 
   const handleSave = useCallback(async () => {
     if (!result || result.length === 0 || saving) return;
@@ -85,12 +101,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
         {!generating && !result && (
           <div className="puzzle-generator-input">
             <div className="puzzle-generator-upload">
-              <input
-                type="file"
-                accept=".pgn"
-                onChange={handleFileUpload}
-                className="puzzle-generator-file"
-              />
+              <input type="file" accept=".pgn" onChange={handleFileUpload} className="puzzle-generator-file" />
               <span className="puzzle-generator-or">{t('common.or', 'or')}</span>
             </div>
             <textarea
@@ -98,13 +109,33 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
               placeholder={t('puzzleGenerator.pastePgn', 'Paste PGN here...')}
               value={pgnText}
               onChange={(e) => setPgnText(e.target.value)}
-              rows={8}
+              rows={6}
             />
-            <button
-              className="puzzle-generator-start"
-              onClick={handleGenerate}
-              disabled={!pgnText.trim()}
-            >
+
+            {/* Advanced Settings */}
+            <div className="puzzle-gen-advanced">
+              <button className="puzzle-gen-advanced__toggle" onClick={() => setShowAdvanced(!showAdvanced)}>
+                {showAdvanced ? '▾' : '▸'} Advanced Settings
+              </button>
+              {showAdvanced && (
+                <div className="puzzle-gen-advanced__body">
+                  <div className="puzzle-gen-settings-grid">
+                    <label>Depth <input type="number" min={8} max={22} value={settings.depth} onChange={(e) => updateSetting('depth', Number(e.target.value))} /></label>
+                    <label>MultiPV <input type="number" min={2} max={5} value={settings.multiPv} onChange={(e) => updateSetting('multiPv', Number(e.target.value))} /></label>
+                    <label>Gap (cp) <input type="number" min={10} value={settings.gapThreshold} onChange={(e) => updateSetting('gapThreshold', Number(e.target.value))} /></label>
+                    <label>Max 2nd (cp) <input type="number" min={50} value={settings.maxSecondCp} onChange={(e) => updateSetting('maxSecondCp', Number(e.target.value))} /></label>
+                  </div>
+                  <div className="puzzle-gen-settings-checks">
+                    <label><input type="checkbox" checked={settings.skipHangingCapture} onChange={(e) => updateSetting('skipHangingCapture', e.target.checked)} /> Skip hanging captures</label>
+                    <label><input type="checkbox" checked={settings.skipAttackedByLesser} onChange={(e) => updateSetting('skipAttackedByLesser', e.target.checked)} /> Skip attacked by lesser</label>
+                    <label><input type="checkbox" checked={settings.skipUndefendedAfterMove} onChange={(e) => updateSetting('skipUndefendedAfterMove', e.target.checked)} /> Skip undefended after move</label>
+                  </div>
+                  <button className="puzzle-gen-settings-reset" onClick={resetSettings}>Reset to defaults</button>
+                </div>
+              )}
+            </div>
+
+            <button className="puzzle-generator-start" onClick={handleGenerate} disabled={!pgnText.trim()}>
               {t('puzzleGenerator.generate', 'Generate Puzzles')}
             </button>
           </div>
@@ -112,36 +143,21 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
 
         {generating && progress && (
           <div className="puzzle-generator-progress">
-            <div className="puzzle-generator-progress-text">
-              {t('puzzleGenerator.analyzing', 'Analyzing...')}
-            </div>
+            <div className="puzzle-generator-progress-text">{t('puzzleGenerator.analyzing', 'Analyzing...')}</div>
             <div className="puzzle-generator-progress-detail">
               Game {progress.gameIndex + 1}/{progress.totalGames}, Position {progress.positionIndex + 1}/{progress.totalPositions}
             </div>
             <div className="puzzle-generator-progress-bar">
-              <div
-                className="puzzle-generator-progress-fill"
-                style={{
-                  width: `${progress.totalPositions > 0
-                    ? ((progress.gameIndex * 100 + (progress.positionIndex / progress.totalPositions) * 100) / Math.max(progress.totalGames, 1))
-                    : 0}%`,
-                }}
-              />
+              <div className="puzzle-generator-progress-fill" style={{ width: `${progress.totalPositions > 0 ? ((progress.gameIndex * 100 + (progress.positionIndex / progress.totalPositions) * 100) / Math.max(progress.totalGames, 1)) : 0}%` }} />
             </div>
-            <div className="puzzle-generator-progress-found">
-              {progress.puzzlesFound} puzzles found
-            </div>
-            <button className="puzzle-generator-abort" onClick={handleAbort}>
-              {t('common.cancel', 'Cancel')}
-            </button>
+            <div className="puzzle-generator-progress-found">{progress.puzzlesFound} puzzles found</div>
+            <button className="puzzle-generator-abort" onClick={() => abortRef.current?.abort()}>{t('common.cancel', 'Cancel')}</button>
           </div>
         )}
 
         {result && (
           <div className="puzzle-generator-result">
-            <div className="puzzle-generator-result-count">
-              {result.length} puzzles generated
-            </div>
+            <div className="puzzle-generator-result-count">{result.length} puzzles generated</div>
             {result.length > 0 && (
               <>
                 <div className="puzzle-generator-result-list">
@@ -152,11 +168,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                       <span className="puzzle-themes-inline">{p.themes}</span>
                     </div>
                   ))}
-                  {result.length > 10 && (
-                    <div className="puzzle-generator-result-more">
-                      ...{t('puzzleGenerator.andMore', { count: result.length - 10 })}
-                    </div>
-                  )}
+                  {result.length > 10 && <div className="puzzle-generator-result-more">...and {result.length - 10} more</div>}
                 </div>
                 {!saved ? (
                   <button className="puzzle-generator-save" onClick={handleSave} disabled={saving}>
@@ -165,9 +177,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                 ) : (
                   <div className="puzzle-generator-saved">
                     <span>{t('puzzleGenerator.saved', 'Saved!')}</span>
-                    <button onClick={() => { onClose(); navigate('/puzzles'); }}>
-                      {t('puzzleGenerator.goToTraining', 'Go to Training')}
-                    </button>
+                    <button onClick={() => { onClose(); navigate('/puzzles'); }}>{t('puzzleGenerator.goToTraining', 'Go to Training')}</button>
                   </div>
                 )}
               </>
