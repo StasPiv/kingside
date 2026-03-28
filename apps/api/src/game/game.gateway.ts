@@ -292,6 +292,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
 
     try {
+      // Check DB status to avoid race conditions with other endGame calls
+      const dbGame = await this.gameService.getGame(data.gameId);
+      if (dbGame.status !== 'active') return;
+
       const { state } = await this.gameService.getGameState(data.gameId);
       if (state.status !== 'active') return;
 
@@ -313,7 +317,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
       }
     } catch (e: any) {
-      this.logger.error(`Claim timeout failed: ${e.message}`);
+      this.logger.error(`Claim timeout failed for game ${data.gameId}: ${e.message}`);
     }
   }
 
