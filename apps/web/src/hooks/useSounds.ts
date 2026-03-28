@@ -73,16 +73,23 @@ function playGameEnd(ctx: AudioContext): void {
 
 function playPuzzleCorrect(ctx: AudioContext): void {
   const t = ctx.currentTime;
-  // Rising two-note chime: G5 → C6
-  playTone(ctx, 784, 0.15, t, 'sine', 0.35);
-  playTone(ctx, 1047, 0.25, t + 0.12, 'sine', 0.4);
+  // Triumphant rising arpeggio: C5 → E5 → G5 → C6 (major chord, bright)
+  playTone(ctx, 523, 0.18, t, 'sine', 0.3);
+  playTone(ctx, 659, 0.18, t + 0.1, 'sine', 0.35);
+  playTone(ctx, 784, 0.18, t + 0.2, 'sine', 0.35);
+  playTone(ctx, 1047, 0.4, t + 0.3, 'sine', 0.4);
+  // Add shimmer overtone on final note
+  playTone(ctx, 2094, 0.3, t + 0.32, 'sine', 0.1);
 }
 
 function playPuzzleIncorrect(ctx: AudioContext): void {
   const t = ctx.currentTime;
-  // Low descending buzz: E4 → C4
-  playTone(ctx, 330, 0.15, t, 'square', 0.2);
-  playTone(ctx, 262, 0.2, t + 0.12, 'square', 0.15);
+  // Sad descending minor: E4 → Eb4 → C4, with heavy tone
+  playTone(ctx, 330, 0.25, t, 'triangle', 0.3);
+  playTone(ctx, 311, 0.25, t + 0.18, 'triangle', 0.25);
+  playTone(ctx, 262, 0.45, t + 0.36, 'triangle', 0.2);
+  // Low rumble underneath
+  playTone(ctx, 131, 0.5, t + 0.1, 'sine', 0.15);
 }
 
 const SOUND_MUTED_KEY = 'soundMuted';
