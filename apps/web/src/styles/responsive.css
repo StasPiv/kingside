@@ -513,12 +513,13 @@
     gap: 12px;
   }
 
+  /* KS-1008: increased vh offset for turn indicator */
   .puzzle-page .board-container {
-    width: min(calc(100vh - 310px), calc(100vw - 16px));
+    width: min(calc(100vh - 345px), calc(100vw - 16px));
   }
 
   .daily-puzzle-page .board-container {
-    width: min(calc(100vh - 310px), calc(100vw - 16px));
+    width: min(calc(100vh - 345px), calc(100vw - 16px));
   }
 
   .puzzle-rush-page .board-container {
