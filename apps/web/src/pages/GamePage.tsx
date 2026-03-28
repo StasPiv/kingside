@@ -243,20 +243,33 @@ export function GamePage() {
     };
   }, [gameId, game, updateFromState, refreshUser, playSound, setLastMove]);
 
+  const timeoutClaimedRef = useRef(false);
+
   useEffect(() => {
-    if (status !== 'active') return;
+    if (status !== 'active') {
+      timeoutClaimedRef.current = false;
+      return;
+    }
     const turn = game.turn() === 'w' ? 'white' : 'black';
     const interval = setInterval(() => {
       setClocks((prev) => {
         const next = Math.max(0, prev[turn] - 1);
-        if (next === 0 && prev[turn] > 0) {
-          socket.emit('game:claim-timeout', { gameId });
-        }
         return { ...prev, [turn]: next };
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [status, fen, game, gameId]);
+  }, [status, fen, game]);
+
+  // Claim timeout when any clock reaches 0
+  useEffect(() => {
+    if (status !== 'active') return;
+    if (clocks.white === 0 || clocks.black === 0) {
+      if (!timeoutClaimedRef.current) {
+        timeoutClaimedRef.current = true;
+        socket.emit('game:claim-timeout', { gameId });
+      }
+    }
+  }, [status, clocks, gameId]);
 
   const isPromotionMove = useCallback((from: Square, to: Square): boolean => {
     const piece = game.get(from);
