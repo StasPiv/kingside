@@ -18,8 +18,9 @@
   gap: 0;
   align-items: stretch;
   overflow: hidden;
-  flex: 0 0 55%;
+  flex: 0 1 55%;
   min-width: 0;
+  max-width: 100%;
 }
 
 .eval-bar-container {
@@ -83,6 +84,7 @@
 .analysis-page .board-container {
   flex: none;
   width: min(100%, calc(100vh - 190px));
+  max-width: 100%;
   min-width: 0;
   align-self: flex-start;
 }
