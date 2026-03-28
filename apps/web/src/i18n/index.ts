@@ -5,7 +5,7 @@ import en from './locales/en/translation.json';
 import ru from './locales/ru/translation.json';
 
 // Languages mapped to Russian (CIS / post-Soviet countries)
-const RU_LANGS = new Set(['ru', 'uk', 'be', 'kk', 'uz', 'ky', 'tg', 'az', 'ka', 'hy', 'cs']);
+const RU_LANGS = new Set(['ru', 'uk', 'be', 'kk', 'uz', 'ky', 'tg', 'az', 'ka', 'hy']);
 
 const cached = localStorage.getItem('locale');
 const browserLang = navigator.language.split('-')[0];
