@@ -67,6 +67,8 @@
   gap: 4px;
   flex: 1;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* Eval bar + board row: fills remaining height inside board-wrapper */
@@ -75,16 +77,17 @@
   gap: 0;
   align-items: stretch;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
-/* Board container: cap width so the square board never overflows vertically.
-   100% keeps it within the eval+board row width; calc(100vh - 150px) limits
-   it to the available viewport height (minus navbar, breadcrumbs, controls,
-   padding).  aspect-ratio:1 (from base .board-container) keeps it square. */
+/* Board container: square board that fits available space.
+   flex-basis sets desired size from viewport height.
+   flex-shrink: 1 lets it shrink when eval-bar + board exceed container.
+   KS-970: was flex: none which prevented shrinking. */
 .analysis-page .board-container {
-  flex: none;
-  width: min(100%, calc(100vh - 190px));
-  max-width: 100%;
+  flex: 0 1 calc(100vh - 190px);
+  max-width: calc(100vh - 190px);
   min-width: 0;
   align-self: flex-start;
 }
