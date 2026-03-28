@@ -65,3 +65,27 @@ input {
 input:focus {
   border-color: #7c83ff;
 }
+
+/* Help button — small "?" link to /features#section */
+.help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(124, 131, 255, 0.15);
+  color: #7c83ff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  margin-left: 8px;
+  vertical-align: middle;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.help-btn:hover {
+  background: rgba(124, 131, 255, 0.3);
+  text-decoration: none;
+}

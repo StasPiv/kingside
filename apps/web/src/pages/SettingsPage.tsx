@@ -6,6 +6,7 @@ import { api } from '../api';
 import type { Locale } from '@kingside/shared';
 import { useSounds } from '../hooks/useSounds';
 import { useBoardSettings, BOARD_THEMES, PIECE_SETS } from '../hooks/useBoardSettings';
+import { HelpButton } from '../components/HelpButton';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
@@ -78,7 +79,7 @@ export function SettingsPage() {
 
   return (
     <div className="settings-page">
-      <h1>{t('settings.title')}</h1>
+      <h1>{t('settings.title')}<HelpButton section="customize" /></h1>
 
       <section className="settings-section">
         <h2>{t('settings.profile')}</h2>

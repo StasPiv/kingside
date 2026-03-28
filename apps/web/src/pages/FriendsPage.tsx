@@ -6,6 +6,7 @@ import { messagesSocket } from '../socket';
 import { FriendEvents } from '@kingside/shared';
 import { useChallenge } from '../hooks/useChallenge';
 import { ChallengeModal } from '../components/ChallengeModal';
+import { HelpButton } from '../components/HelpButton';
 
 type FriendItem = {
   friendshipId: string;
@@ -97,7 +98,7 @@ export function FriendsPage() {
 
   return (
     <div className="friends-page">
-      <h1>{t('friends.title', 'Friends')}</h1>
+      <h1>{t('friends.title', 'Friends')}<HelpButton section="social" /></h1>
 
       {/* Incoming requests */}
       {requests.length > 0 && (

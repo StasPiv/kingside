@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { WorkshopAnalysisList } from '../components/workshop/WorkshopAnalysisList';
 import { WorkshopPgnList } from '../components/workshop/WorkshopPgnList';
 import type { PgnFile } from '../components/workshop/WorkshopPgnList';
+import { HelpButton } from '../components/HelpButton';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -93,6 +94,7 @@ export function WorkshopPage() {
         >
           {t('workshop.title')}
         </button>
+        <HelpButton section="workshop" />
         <span className="workshop-breadcrumbs__sep"> / </span>
         {section === 'myAnalyses' ? (
           <span className="workshop-breadcrumbs__current">

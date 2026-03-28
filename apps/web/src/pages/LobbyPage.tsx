@@ -7,6 +7,7 @@ import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../hooks/u
 import { useMatchmaking } from '../hooks/useMatchmaking';
 import { useBotGame } from '../hooks/useBotGame';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
+import { HelpButton } from '../components/HelpButton';
 
 type WorkshopGame = {
   id: string;
@@ -574,7 +575,7 @@ export function LobbyPage() {
 
   return (
     <div className="lobby-page">
-      <h1>{t('lobby.title')}</h1>
+      <h1>{t('lobby.title')}<HelpButton section="play" /></h1>
       {user && (
         <p className="user-info">
           {user.username} &middot; {t('lobby.rating', { rating: user[`rating${activeTab !== 'custom' ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : 'Blitz'}` as keyof typeof user] })}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { HelpButton } from '../components/HelpButton';
 import type { DgtTournamentResult } from '../dgt.types';
 import type { LiveTournamentsResponse, LiveTournamentItem } from '@kingside/shared';
 
@@ -94,7 +95,7 @@ export function BroadcastsPage() {
 
   return (
     <div className="broadcasts-page">
-      <h1>{t('broadcasts.title')}</h1>
+      <h1>{t('broadcasts.title')}<HelpButton section="broadcasts" /></h1>
 
       {tournamentsLoading ? (
         <div className="players-loading">{t('common.loading')}</div>

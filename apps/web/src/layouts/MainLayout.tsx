@@ -142,6 +142,7 @@ export function MainLayout() {
 
           {/* RIGHT: Utilities + Profile */}
           <div className="header-right">
+            <Link to="/features" className="header-features-link">{t('nav.features', 'Features')}</Link>
             {/* Bell + Messages: always visible (even mobile) */}
             {user && (
               <div className="nav-notification-wrapper">
@@ -209,7 +210,6 @@ export function MainLayout() {
               </div>
             ) : (
               <div className="social-login-buttons">
-                <Link to="/features" className="header-features-link">{t('nav.features', 'Features')}</Link>
                 <a href={`${API_URL}/api/auth/google`} className="social-login-btn social-login-btn--google" aria-label="Google">
                   <FcGoogle size={20} />
                 </a>

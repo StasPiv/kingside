@@ -22,6 +22,7 @@ import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { useChallenge } from '../hooks/useChallenge';
+import { HelpButton } from '../components/HelpButton';
 import { socket } from '../socket';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
@@ -441,6 +442,7 @@ export function GamePage() {
   return (
     <div className="game-page" ref={gamePageRef}>
       <Link to="/" className="back-nav-link">&larr; {t('game.backToLobby')}</Link>
+      <HelpButton section="play" />
       <div className="game-board-area" ref={boardAreaRef}>
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
