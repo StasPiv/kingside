@@ -291,12 +291,16 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.user?.id;
     if (!userId) return;
 
+    this.logger.log(`[claim-timeout] received from ${userId} for game ${data.gameId}`);
+
     try {
       // Check DB status to avoid race conditions with other endGame calls
       const dbGame = await this.gameService.getGame(data.gameId);
+      this.logger.log(`[claim-timeout] DB status: ${dbGame.status}`);
       if (dbGame.status !== 'active') return;
 
       const { state } = await this.gameService.getGameState(data.gameId);
+      this.logger.log(`[claim-timeout] Redis status: ${state.status}, fen turn: ${state.fen.split(' ')[1]}`);
       if (state.status !== 'active') return;
 
       const activeColor = state.fen.split(' ')[1] === 'w' ? 'white' : 'black';
@@ -304,6 +308,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         data.gameId,
         activeColor,
       );
+
+      this.logger.log(`[claim-timeout] activeColor=${activeColor}, timedOut=${timedOut}`);
 
       if (timedOut) {
         const result = activeColor === 'white' ? 'black' : 'white';
@@ -313,6 +319,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
           termination: 'timeout',
           ...(ratingChange ? { ratingChange } : {}),
         };
+        this.logger.log(`[claim-timeout] emitting END to game:${data.gameId}`);
         this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
         this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
       }
