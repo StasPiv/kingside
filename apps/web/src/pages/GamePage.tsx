@@ -50,7 +50,8 @@ export function GamePage() {
   const [fen, setFen] = useState(INITIAL_FEN);
   const [moves, setMoves] = useState<string[]>([]);
   const [clocks, setClocks] = useState({ white: 300, black: 300 });
-  const [status, setStatus] = useState('active');
+  const [status, setStatus] = useState('waiting');
+  const stateReceivedRef = useRef(false);
   const [result, setResult] = useState<string | null>(null);
   const [playerColor, setPlayerColor] = useState<'white' | 'black'>(routeColor ?? 'white');
   const [messages, setMessages] = useState<WsChatMessagePayload[]>([]);
@@ -176,6 +177,7 @@ export function GamePage() {
   useEffect(() => {
     const onGameState = (state: WsGameStatePayload) => {
       console.log('[WS] game:state received, status=' + state.status + ', clocks=' + JSON.stringify(state.clocks));
+      stateReceivedRef.current = true;
       if (state.color) setPlayerColor(state.color);
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
@@ -267,9 +269,9 @@ export function GamePage() {
     return () => clearInterval(interval);
   }, [status, fen, game]);
 
-  // Claim timeout when any clock reaches 0
+  // Claim timeout when any clock reaches 0 (only after receiving server state)
   useEffect(() => {
-    if (status !== 'active') return;
+    if (status !== 'active' || !stateReceivedRef.current) return;
     console.log('[Timeout] check: white=' + clocks.white + ' black=' + clocks.black + ' claimed=' + timeoutClaimedRef.current + ' connected=' + socket.connected);
     if (clocks.white === 0 || clocks.black === 0) {
       if (!timeoutClaimedRef.current) {
