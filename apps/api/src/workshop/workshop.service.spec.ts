@@ -5,7 +5,7 @@ describe('WorkshopService', () => {
   let service: WorkshopService;
   let prisma: {
     pgnImport: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock };
-    pgnImportGame: { findMany: jest.Mock };
+    pgnImportGame: { findMany: jest.Mock; count: jest.Mock; aggregate: jest.Mock; createMany: jest.Mock };
   };
 
   const userId = 'user-1';
@@ -18,7 +18,7 @@ describe('WorkshopService', () => {
         findMany: jest.fn(),
         findUnique: jest.fn(),
       },
-      pgnImportGame: { findMany: jest.fn() },
+      pgnImportGame: { findMany: jest.fn(), count: jest.fn(), aggregate: jest.fn(), createMany: jest.fn() },
     };
     service = new WorkshopService(prisma as any);
   });
@@ -60,6 +60,71 @@ describe('WorkshopService', () => {
           data: expect.objectContaining({ userId, fileName: 'game' }),
         }),
       );
+    });
+
+    it('should add only new games on re-import with same fileName', async () => {
+      const existingGames = [
+        { pgn: '[White "Alice"]\n[Black "Bob"]\n[Date "2026.03.01"]\n[Result "1-0"]\n\n1. e4 e5 1-0' },
+      ];
+
+      prisma.pgnImport.findFirst.mockResolvedValue({
+        id: 'existing-import',
+        fileName: 'game',
+        createdAt: new Date(),
+        games: existingGames,
+      });
+
+      prisma.pgnImportGame.count.mockResolvedValue(2);
+      prisma.pgnImportGame.aggregate.mockResolvedValue({ _max: { position: 0 } });
+      prisma.pgnImportGame.createMany.mockResolvedValue({ count: 1 });
+
+      // Re-import with same game + one new
+      const pgn = '[White "Alice"]\n[Black "Bob"]\n[Date "2026.03.01"]\n[Result "1-0"]\n\n1. e4 e5 1-0\n\n[White "Eve"]\n[Black "Frank"]\n[Date "2026.03.03"]\n[Result "0-1"]\n\n1. d4 d5 0-1';
+      const file = {
+        buffer: Buffer.from(pgn),
+        originalname: 'game.pgn',
+      } as Express.Multer.File;
+
+      const result = await service.importPgn(userId, file);
+
+      expect(result.id).toBe('existing-import');
+      expect(result.added).toBe(1);
+      expect(prisma.pgnImportGame.createMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.arrayContaining([
+            expect.objectContaining({ white: 'Eve', black: 'Frank' }),
+          ]),
+        }),
+      );
+      // Should NOT create a new PgnImport
+      expect(prisma.pgnImport.create).not.toHaveBeenCalled();
+    });
+
+    it('should return added: 0 when all games are duplicates', async () => {
+      const existingGames = [
+        { pgn: '[White "Alice"]\n[Black "Bob"]\n[Date "2026.03.01"]\n[Result "1-0"]\n\n1. e4 e5 1-0' },
+      ];
+
+      prisma.pgnImport.findFirst.mockResolvedValue({
+        id: 'existing-import',
+        fileName: 'game',
+        createdAt: new Date(),
+        games: existingGames,
+      });
+
+      prisma.pgnImportGame.count.mockResolvedValue(1);
+
+      const pgn = '[White "Alice"]\n[Black "Bob"]\n[Date "2026.03.01"]\n[Result "1-0"]\n\n1. e4 e5 1-0';
+      const file = {
+        buffer: Buffer.from(pgn),
+        originalname: 'game.pgn',
+      } as Express.Multer.File;
+
+      const result = await service.importPgn(userId, file);
+
+      expect(result.id).toBe('existing-import');
+      expect(result.added).toBe(0);
+      expect(prisma.pgnImport.create).not.toHaveBeenCalled();
     });
   });
 
