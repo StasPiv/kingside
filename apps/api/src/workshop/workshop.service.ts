@@ -13,6 +13,8 @@ export class WorkshopService {
 
   /**
    * Parse uploaded PGN file and persist as PgnImport + PgnImportGames.
+   * If a PgnImport with the same fileName already exists for this user,
+   * appends only new (non-duplicate) games to it.
    */
   async importPgn(
     userId: string,
@@ -31,6 +33,47 @@ export class WorkshopService {
 
     const fileName = file.originalname.replace(/\.pgn$/i, '');
 
+    // Check for existing import with same fileName
+    const existing = await this.prisma.pgnImport.findFirst({
+      where: { userId, fileName },
+      include: { games: { select: { pgn: true } } },
+    });
+
+    if (existing) {
+      // Deduplicate: only add games whose PGN is not already present
+      const existingPgns = new Set(existing.games.map((g) => g.pgn.trim()));
+      const newGames = games.filter((g) => !existingPgns.has(g.pgn.trim()));
+
+      if (newGames.length === 0) {
+        const total = await this.prisma.pgnImportGame.count({ where: { importId: existing.id } });
+        return { id: existing.id, fileName, gamesCount: total, createdAt: existing.createdAt, added: 0 };
+      }
+
+      // Get max position for ordering
+      const maxPos = await this.prisma.pgnImportGame.aggregate({
+        where: { importId: existing.id },
+        _max: { position: true },
+      });
+      const startPos = (maxPos._max.position ?? -1) + 1;
+
+      await this.prisma.pgnImportGame.createMany({
+        data: newGames.map((g, i) => ({
+          importId: existing.id,
+          pgn: g.pgn,
+          white: g.white,
+          black: g.black,
+          result: g.result,
+          date: g.date,
+          opening: g.opening,
+          position: startPos + i,
+        })),
+      });
+
+      const total = await this.prisma.pgnImportGame.count({ where: { importId: existing.id } });
+      return { id: existing.id, fileName, gamesCount: total, createdAt: existing.createdAt, added: newGames.length };
+    }
+
+    // No existing import — create new
     const pgnImport = await this.prisma.pgnImport.create({
       data: {
         userId,
@@ -57,6 +100,7 @@ export class WorkshopService {
       fileName: pgnImport.fileName,
       gamesCount: pgnImport._count.games,
       createdAt: pgnImport.createdAt,
+      added: pgnImport._count.games,
     };
   }
 

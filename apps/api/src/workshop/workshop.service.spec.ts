@@ -4,7 +4,7 @@ import { WorkshopService } from './workshop.service';
 describe('WorkshopService', () => {
   let service: WorkshopService;
   let prisma: {
-    pgnImport: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock };
+    pgnImport: { create: jest.Mock; findFirst: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock };
     pgnImportGame: { findMany: jest.Mock };
   };
 
@@ -14,6 +14,7 @@ describe('WorkshopService', () => {
     prisma = {
       pgnImport: {
         create: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
         findMany: jest.fn(),
         findUnique: jest.fn(),
       },
