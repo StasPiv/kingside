@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,6 +10,8 @@ import { parsePgnGames } from './pgn.parser';
 
 @Injectable()
 export class WorkshopService {
+  private readonly logger = new Logger(WorkshopService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -39,10 +42,26 @@ export class WorkshopService {
       include: { games: { select: { pgn: true } } },
     });
 
+    this.logger.log(
+      `importPgn: fileName="${fileName}", parsed=${games.length}, existingImport=${existing?.id ?? 'none'}, existingGames=${existing?.games.length ?? 0}`,
+    );
+
     if (existing) {
-      // Deduplicate: only add games whose PGN is not already present
-      const existingPgns = new Set(existing.games.map((g) => g.pgn.trim()));
-      const newGames = games.filter((g) => !existingPgns.has(g.pgn.trim()));
+      // Deduplicate using a normalized key: white+black+date+result+moves-line
+      const gameKey = (pgn: string) => {
+        const white = pgn.match(/\[White\s+"([^"]*)"\]/)?.[1] ?? '';
+        const black = pgn.match(/\[Black\s+"([^"]*)"\]/)?.[1] ?? '';
+        const date = pgn.match(/\[Date\s+"([^"]*)"\]/)?.[1] ?? '';
+        const result = pgn.match(/\[Result\s+"([^"]*)"\]/)?.[1] ?? '';
+        // Extract moves line (everything after empty line, without result at end)
+        const movesMatch = pgn.match(/\n\n([\s\S]+)/);
+        const moves = movesMatch ? movesMatch[1].replace(/\s+/g, ' ').trim() : '';
+        return `${white}|${black}|${date}|${result}|${moves}`;
+      };
+      const existingKeys = new Set(existing.games.map((g) => gameKey(g.pgn)));
+      const newGames = games.filter((g) => !existingKeys.has(gameKey(g.pgn)));
+
+      this.logger.log(`importPgn: dedup result — ${newGames.length} new games out of ${games.length}`);
 
       if (newGames.length === 0) {
         const total = await this.prisma.pgnImportGame.count({ where: { importId: existing.id } });
