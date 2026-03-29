@@ -493,10 +493,17 @@
       "next": "Next",
       "page": "Page {{current}} of {{total}}"
     },
+    "categories": {
+      "all": "All",
+      "game_review": "Games",
+      "puzzle": "Puzzles",
+      "analysis": "Free"
+    },
     "myAnalyses": {
       "title": "My Analyses",
       "delete": "Delete",
-      "empty": "No saved analyses yet"
+      "empty": "No saved analyses yet",
+      "searchPlaceholder": "Search by title..."
     },
     "tournaments": {
       "title": "Top Active Tournaments",

@@ -559,6 +559,49 @@
   background: rgba(244, 67, 54, 0.1);
 }
 
+.workshop-category-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #333;
+}
+
+.workshop-category-tab {
+  padding: 6px 14px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.workshop-category-tab.active {
+  color: #7c83ff;
+  border-bottom-color: #7c83ff;
+}
+
+.workshop-search {
+  margin-bottom: 10px;
+}
+
+.workshop-search input {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: #0f172a;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #e0e0e0;
+}
+
+.workshop-analysis-item__cat-icon {
+  margin-right: 6px;
+  font-size: 13px;
+}
+
 .workshop-analyses-toolbar {
   display: flex;
   align-items: center;

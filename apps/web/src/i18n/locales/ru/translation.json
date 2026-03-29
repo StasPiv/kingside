@@ -493,10 +493,17 @@
       "next": "Вперёд",
       "page": "Страница {{current}} из {{total}}"
     },
+    "categories": {
+      "all": "Все",
+      "game_review": "Партии",
+      "puzzle": "Задачи",
+      "analysis": "Свободные"
+    },
     "myAnalyses": {
       "title": "Мои анализы",
       "delete": "Удалить",
-      "empty": "Нет сохранённых анализов"
+      "empty": "Нет сохранённых анализов",
+      "searchPlaceholder": "Поиск по названию..."
     },
     "tournaments": {
       "title": "Топ активных турниров",

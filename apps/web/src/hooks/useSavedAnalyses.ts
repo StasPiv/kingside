@@ -22,10 +22,11 @@ export function parsePgnHeaders(pgn: string): Record<string, string> {
 
 export function useSavedAnalyses() {
   const create = useCallback(
-    async (pgn: string, title?: string): Promise<AnalysisResponse> => {
+    async (pgn: string, title?: string, category?: string): Promise<AnalysisResponse> => {
       return api.post<AnalysisResponse>('/api/analyses', {
         pgn,
         title: title ?? getDefaultTitle(),
+        ...(category ? { category } : {}),
       });
     },
     [],

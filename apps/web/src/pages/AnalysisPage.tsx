@@ -379,7 +379,8 @@ export function AnalysisPage() {
       const pgn = buildPgnWithFen(movesOnly, initialFen);
       if (!localIdRef.current) {
         try {
-          const entry = await createAnalysis(pgn, analysisTitle);
+          const category = gameId ? 'game_review' : puzzleFen ? 'puzzle' : 'analysis';
+          const entry = await createAnalysis(pgn, analysisTitle, category);
           localIdRef.current = entry.id;
           window.history.replaceState(null, '', '/analysis/' + entry.id);
         } catch { /* ignore */ }

@@ -21,6 +21,8 @@ export function WorkshopAnalysisList() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'game_review' | 'puzzle' | 'analysis'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -32,8 +34,21 @@ export function WorkshopAnalysisList() {
       .finally(() => setLoading(false));
   }, [user, t]);
 
-  const visibleAnalyses = allAnalyses.slice(0, visibleCount);
-  const hasMore = visibleCount < allAnalyses.length;
+  const filteredAnalyses = allAnalyses.filter((a) => {
+    // Category filter: "all" hides puzzles
+    const cat = (a as unknown as { category?: string }).category ?? 'analysis';
+    if (categoryFilter === 'all' && cat === 'puzzle') return false;
+    if (categoryFilter !== 'all' && cat !== categoryFilter) return false;
+    // Search
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      if (!(a.title?.toLowerCase().includes(q) || a.opening?.toLowerCase().includes(q))) return false;
+    }
+    return true;
+  });
+
+  const visibleAnalyses = filteredAnalyses.slice(0, visibleCount);
+  const hasMore = visibleCount < filteredAnalyses.length;
 
   // Infinite scroll via IntersectionObserver
   useEffect(() => {
@@ -142,8 +157,37 @@ export function WorkshopAnalysisList() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
+  const CATEGORY_ICON: Record<string, string> = {
+    game_review: '♟',
+    puzzle: '🧩',
+    analysis: '🔍',
+  };
+
   return (
     <section className="workshop-section-block">
+      {/* Category tabs */}
+      <div className="workshop-category-tabs">
+        {(['all', 'game_review', 'puzzle', 'analysis'] as const).map((cat) => (
+          <button
+            key={cat}
+            className={`workshop-category-tab${categoryFilter === cat ? ' active' : ''}`}
+            onClick={() => { setCategoryFilter(cat); setVisibleCount(PAGE_SIZE); }}
+          >
+            {t(`workshop.categories.${cat}`, cat === 'all' ? 'All' : cat === 'game_review' ? 'Games' : cat === 'puzzle' ? 'Puzzles' : 'Free')}
+          </button>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div className="workshop-search">
+        <input
+          type="text"
+          placeholder={t('workshop.myAnalyses.searchPlaceholder', 'Search by title...')}
+          value={searchQuery}
+          onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(PAGE_SIZE); }}
+        />
+      </div>
+
       <div className="workshop-analyses-toolbar">
         <button className="workshop-analyses-new-btn" onClick={() => navigate('/analysis')}>
           + {t('workshop.myAnalyses.newAnalysis', 'New Analysis')}
@@ -217,7 +261,10 @@ export function WorkshopAnalysisList() {
                   />
                 )}
                 <div className="workshop-analysis-item__main">
-                  <span className="workshop-analysis-item__title">{analysis.title}</span>
+                  <span className="workshop-analysis-item__title">
+                    <span className="workshop-analysis-item__cat-icon">{CATEGORY_ICON[(analysis as unknown as { category?: string }).category ?? 'analysis'] ?? '🔍'}</span>
+                    {analysis.title}
+                  </span>
                   <div className="workshop-analysis-item__meta">
                     <span className="workshop-analysis-item__date">{formatDate(analysis.createdAt)}</span>
                     {analysis.opening && (
