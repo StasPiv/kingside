@@ -1,16 +1,41 @@
-import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { AnalysisListItem } from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
 
 const PAGE_SIZE = 20;
+const LS_SAVED_FILTERS_KEY = 'workshopSavedFilters';
+
+type CategoryFilter = 'all' | 'game_review' | 'puzzle' | 'analysis';
+
+type SavedFilter = {
+  name: string;
+  category: CategoryFilter;
+  tags: string[];
+  search: string;
+};
+
+function loadSavedFilters(): SavedFilter[] {
+  try { return JSON.parse(localStorage.getItem(LS_SAVED_FILTERS_KEY) || '[]'); } catch { return []; }
+}
+
+function saveSavedFilters(filters: SavedFilter[]) {
+  localStorage.setItem(LS_SAVED_FILTERS_KEY, JSON.stringify(filters));
+}
 
 export function WorkshopAnalysisList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Init from URL
+  const urlCategory = (searchParams.get('category') as CategoryFilter) || 'all';
+  const urlTags = searchParams.get('tags')?.split(',').filter(Boolean) || [];
+  const urlSearch = searchParams.get('search') || '';
+
   const [allAnalyses, setAllAnalyses] = useState<AnalysisListItem[]>([]);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -21,11 +46,64 @@ export function WorkshopAnalysisList() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'game_review' | 'puzzle' | 'analysis'>('all');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [categoryFilter, setCategoryFilterState] = useState<CategoryFilter>(urlCategory);
+  const [searchQuery, setSearchQueryState] = useState(urlSearch);
+  const [selectedTags, setSelectedTagsState] = useState<string[]>(urlTags);
   const [addingTagId, setAddingTagId] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(loadSavedFilters);
+
+  // Sync state → URL
+  const updateUrl = useCallback((cat: CategoryFilter, tags: string[], search: string) => {
+    const params: Record<string, string> = {};
+    if (cat !== 'all') params.category = cat;
+    if (tags.length > 0) params.tags = tags.join(',');
+    if (search) params.search = search;
+    setSearchParams(params, { replace: true });
+  }, [setSearchParams]);
+
+  const setCategoryFilter = (cat: CategoryFilter) => {
+    setCategoryFilterState(cat);
+    setVisibleCount(PAGE_SIZE);
+    updateUrl(cat, selectedTags, searchQuery);
+  };
+
+  const setSearchQuery = (q: string) => {
+    setSearchQueryState(q);
+    setVisibleCount(PAGE_SIZE);
+    updateUrl(categoryFilter, selectedTags, q);
+  };
+
+  const setSelectedTags = (updater: string[] | ((prev: string[]) => string[])) => {
+    setSelectedTagsState((prev) => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      updateUrl(categoryFilter, next, searchQuery);
+      return next;
+    });
+  };
+
+  const handleSaveFilter = () => {
+    const name = prompt(t('workshop.myAnalyses.saveFilterPrompt', 'Filter name:'));
+    if (!name?.trim()) return;
+    const filter: SavedFilter = { name: name.trim(), category: categoryFilter, tags: [...selectedTags], search: searchQuery };
+    const updated = [...savedFilters, filter];
+    setSavedFilters(updated);
+    saveSavedFilters(updated);
+  };
+
+  const handleApplyFilter = (filter: SavedFilter) => {
+    setCategoryFilterState(filter.category);
+    setSelectedTagsState(filter.tags);
+    setSearchQueryState(filter.search);
+    setVisibleCount(PAGE_SIZE);
+    updateUrl(filter.category, filter.tags, filter.search);
+  };
+
+  const handleDeleteFilter = (idx: number) => {
+    const updated = savedFilters.filter((_, i) => i !== idx);
+    setSavedFilters(updated);
+    saveSavedFilters(updated);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -203,12 +281,28 @@ export function WorkshopAnalysisList() {
           {selectedTags.map((tag) => (
             <span key={tag} className="workshop-tag-chip workshop-tag-chip--active">
               {tag}
-              <button onClick={() => setSelectedTags((prev) => prev.filter((t2) => t2 !== tag))}>×</button>
+              <button onClick={() => setSelectedTags((prev: string[]) => prev.filter((t2: string) => t2 !== tag))}>×</button>
             </span>
           ))}
           <button className="workshop-tag-clear" onClick={() => setSelectedTags([])}>
             {t('workshop.myAnalyses.clearTags', 'Clear')}
           </button>
+          <button className="workshop-tag-clear" onClick={handleSaveFilter}>
+            {t('workshop.myAnalyses.saveFilter', 'Save filter')}
+          </button>
+        </div>
+      )}
+
+      {/* Saved filters */}
+      {savedFilters.length > 0 && (
+        <div className="workshop-saved-filters">
+          <span className="workshop-saved-filters__label">{t('workshop.myAnalyses.savedFilters', 'Saved:')}</span>
+          {savedFilters.map((f, i) => (
+            <span key={i} className="workshop-saved-filter-chip" onClick={() => handleApplyFilter(f)}>
+              {f.name}
+              <button onClick={(e) => { e.stopPropagation(); handleDeleteFilter(i); }}>×</button>
+            </span>
+          ))}
         </div>
       )}
 

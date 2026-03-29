@@ -505,7 +505,10 @@
       "empty": "No saved analyses yet",
       "searchPlaceholder": "Search by title...",
       "tagPlaceholder": "tag...",
-      "clearTags": "Clear"
+      "clearTags": "Clear",
+      "saveFilter": "Save filter",
+      "saveFilterPrompt": "Filter name:",
+      "savedFilters": "Saved:"
     },
     "tournaments": {
       "title": "Top Active Tournaments",

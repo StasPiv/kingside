@@ -647,6 +647,54 @@
   border-radius: 0;
 }
 
+.workshop-saved-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.workshop-saved-filters__label {
+  font-size: 11px;
+  color: #666;
+}
+
+.workshop-saved-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: rgba(76, 175, 80, 0.12);
+  color: #81c784;
+  font-size: 11px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.workshop-saved-filter-chip:hover {
+  background: rgba(76, 175, 80, 0.2);
+}
+
+.workshop-saved-filter-chip button {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0;
+  border-radius: 0;
+}
+
+.workshop-saved-filter-chip:hover button {
+  opacity: 0.7;
+}
+
+.workshop-saved-filter-chip button:hover {
+  opacity: 1;
+}
+
 .workshop-tag-add {
   background: rgba(124, 131, 255, 0.1);
   border: 1px dashed #555;

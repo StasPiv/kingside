@@ -505,7 +505,10 @@
       "empty": "Нет сохранённых анализов",
       "searchPlaceholder": "Поиск по названию...",
       "tagPlaceholder": "метка...",
-      "clearTags": "Очистить"
+      "clearTags": "Очистить",
+      "saveFilter": "Сохранить фильтр",
+      "saveFilterPrompt": "Название фильтра:",
+      "savedFilters": "Сохранённые:"
     },
     "tournaments": {
       "title": "Топ активных турниров",
