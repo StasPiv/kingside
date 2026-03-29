@@ -55,7 +55,7 @@ export class PuzzleGeneratorController {
   @UseGuards(JwtAuthGuard)
   @Post('batch')
   async batch(
-    @Body() body: { puzzles: Array<{ fen: string; moves: string; rating: number; gap: number; themes: string; sourceType: string; sourceId?: string | null; sourceMoveNum?: number; sourceMetadata?: Record<string, string> }> },
+    @Body() body: { puzzles: Array<{ fen: string; moves: string; rating: number; gap: number; themes: string; sourceType: string; sourceId?: string | null; sourceMoveNum?: number; sourceMetadata?: Record<string, string>; acceptedMoves?: string }> },
     @Request() req: AuthenticatedRequest,
   ) {
     const puzzles = body.puzzles ?? [];
@@ -72,6 +72,7 @@ export class PuzzleGeneratorController {
         sourceId: p.sourceId || null,
         sourceMoveNum: p.sourceMoveNum ?? 0,
         sourceMetadata: p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null,
+        acceptedMoves: p.acceptedMoves || null,
         depth: 14,
         createdBy: req.user.id,
       })),
@@ -163,6 +164,7 @@ export class PuzzleGeneratorController {
         sourceId: p.sourceId,
         sourceMoveNum: p.sourceMoveNum,
         sourceMetadata: p.sourceMetadata ? JSON.parse(p.sourceMetadata) : null,
+        acceptedMoves: p.acceptedMoves ?? null,
         isPublic: p.isPublic,
         createdBy: p.createdBy,
         createdAt: p.createdAt.toISOString(),
@@ -225,6 +227,7 @@ export class PuzzleGeneratorController {
       sourceType: puzzle.sourceType,
       sourceId: puzzle.sourceId,
       sourceMetadata: puzzle.sourceMetadata ? JSON.parse(puzzle.sourceMetadata) : null,
+      acceptedMoves: puzzle.acceptedMoves ?? null,
       isPublic: puzzle.isPublic,
     };
   }
@@ -316,6 +319,7 @@ export class PuzzleGeneratorController {
       sourceId: puzzle.sourceId,
       sourceMoveNum: puzzle.sourceMoveNum,
       sourceMetadata: puzzle.sourceMetadata ? JSON.parse(puzzle.sourceMetadata) : null,
+      acceptedMoves: puzzle.acceptedMoves ?? null,
       depth: puzzle.depth,
       createdAt: puzzle.createdAt.toISOString(),
     };

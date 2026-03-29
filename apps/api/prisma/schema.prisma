@@ -511,6 +511,7 @@ model GeneratedPuzzle {
   popularity     Int      @default(0)
   nbPlays        Int      @default(0) @map("nb_plays")
   sourceMetadata String?  @map("source_metadata") @db.Text
+  acceptedMoves  String?  @map("accepted_moves")
   createdAt      DateTime @default(now()) @map("created_at")
 
   attempts GeneratedPuzzleAttempt[]
