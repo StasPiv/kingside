@@ -43,6 +43,19 @@ export function splitPgn(content: string): string[] {
   return games.filter((g) => g.length > 0);
 }
 
+/**
+ * Extract the best available date string for sorting.
+ * Prefers UTCDate+UTCTime (chess.com/lichess) for precise ordering.
+ * Falls back to Date header.
+ */
+function extractSortDate(pgn: string): string | null {
+  const utcDate = extractHeader(pgn, 'UTCDate');
+  const utcTime = extractHeader(pgn, 'UTCTime');
+  if (utcDate && utcTime) return `${utcDate} ${utcTime}`;
+  if (utcDate) return utcDate;
+  return extractHeader(pgn, 'Date');
+}
+
 export function parsePgnGames(content: string): ParsedPgnGame[] {
   const rawGames = splitPgn(content);
   return rawGames.map((pgn) => ({
@@ -50,7 +63,7 @@ export function parsePgnGames(content: string): ParsedPgnGame[] {
     white: extractHeader(pgn, 'White'),
     black: extractHeader(pgn, 'Black'),
     result: extractHeader(pgn, 'Result'),
-    date: extractHeader(pgn, 'Date'),
+    date: extractSortDate(pgn),
     opening: extractHeader(pgn, 'Opening'),
   }));
 }
