@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { api } from '../../api';
+import { ImportExternalModal } from './ImportExternalModal';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -48,6 +50,14 @@ function PgnFilesList({ onSelectFile }: { onSelectFile: (file: PgnFile) => void 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const [importSource, setImportSource] = useState<'chesscom' | 'lichess' | null>(null);
+  const [externalAccounts, setExternalAccounts] = useState<{ chesscomUsername?: string; lichessUsername?: string }>({});
+
+  useEffect(() => {
+    api.get<{ chesscomUsername?: string; lichessUsername?: string }>('/api/users/me/settings')
+      .then(setExternalAccounts)
+      .catch(() => {});
+  }, []);
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
@@ -136,6 +146,16 @@ function PgnFilesList({ onSelectFile }: { onSelectFile: (file: PgnFile) => void 
         <button className="workshop-pgn-upload__btn" onClick={() => inputRef.current?.click()} disabled={uploading}>
           {uploading ? t('workshop.pgnFiles.uploading') : t('workshop.pgnFiles.uploadButton')}
         </button>
+        {externalAccounts.chesscomUsername && (
+          <button className="workshop-import-btn" onClick={() => setImportSource('chesscom')}>
+            {t('workshop.import.fromChesscom', 'Import chess.com')}
+          </button>
+        )}
+        {externalAccounts.lichessUsername && (
+          <button className="workshop-import-btn" onClick={() => setImportSource('lichess')}>
+            {t('workshop.import.fromLichess', 'Import lichess')}
+          </button>
+        )}
       </div>
 
       {uploadError && <p className="workshop-section-block__error">{uploadError}</p>}
@@ -181,6 +201,14 @@ function PgnFilesList({ onSelectFile }: { onSelectFile: (file: PgnFile) => void 
             </div>
           ))}
         </div>
+      )}
+
+      {importSource && (
+        <ImportExternalModal
+          source={importSource}
+          onClose={() => setImportSource(null)}
+          onImported={() => { loadFiles(); }}
+        />
       )}
     </section>
   );

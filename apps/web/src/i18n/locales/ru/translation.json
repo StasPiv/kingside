@@ -115,6 +115,10 @@
     "passwordMismatch": "Пароли не совпадают",
     "passwordChanged": "Пароль успешно изменён",
     "passwordError": "Не удалось сменить пароль",
+    "externalAccounts": "Внешние аккаунты",
+    "externalUsername": "имя пользователя",
+    "externalSaved": "Сохранено",
+    "externalError": "Не удалось сохранить",
     "blockedPlayers": "Заблокированные игроки",
     "noBlocked": "Нет заблокированных игроков",
     "unblock": "Разблокировать",
@@ -515,6 +519,20 @@
       "empty": "Нет активных турниров",
       "error": "Не удалось загрузить турниры",
       "activePlayers": "{{count}} игроков"
+    },
+    "import": {
+      "title": "Импорт из {{source}}",
+      "fromChesscom": "Импорт chess.com",
+      "fromLichess": "Импорт lichess",
+      "period": "Период",
+      "lastMonth": "Последний месяц",
+      "lastYear": "Последний год",
+      "allTime": "Всё время",
+      "gameType": "Тип партий",
+      "allTypes": "Все",
+      "limit": "Макс. партий",
+      "importBtn": "Импортировать",
+      "success": "Импортировано партий: {{count}}"
     },
     "pgnUpload": {
       "title": "Загрузка PGN",

@@ -481,6 +481,59 @@
   background: #3a3a6e;
 }
 
+.workshop-import-btn {
+  background: rgba(124, 131, 255, 0.15);
+  color: #9ca3ff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workshop-import-btn:hover {
+  background: rgba(124, 131, 255, 0.25);
+}
+
+.import-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.import-field label {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.import-btn {
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.import-result {
+  text-align: center;
+  padding: 16px;
+}
+
+.import-result p {
+  color: #4caf50;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
 /* Workshop: saved analyses list */
 .workshop-analyses-list {
   display: flex;

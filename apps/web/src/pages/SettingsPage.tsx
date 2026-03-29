@@ -15,12 +15,38 @@ export function SettingsPage() {
   const { boardTheme, pieceSet, selectTheme, selectPieceSet } = useBoardSettings();
 
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
+  const [chesscomUsername, setChesscomUsername] = useState('');
+  const [lichessUsername, setLichessUsername] = useState('');
+  const [externalSaving, setExternalSaving] = useState(false);
+  const [externalStatus, setExternalStatus] = useState<string | null>(null);
 
   useEffect(() => {
     api.get<{ data: { id: string; username: string }[] }>('/api/users/blocked')
       .then(({ data }) => setBlocked(data))
       .catch(() => {});
+    api.get<{ chesscomUsername?: string; lichessUsername?: string }>('/api/users/me/settings')
+      .then((data) => {
+        if (data.chesscomUsername) setChesscomUsername(data.chesscomUsername);
+        if (data.lichessUsername) setLichessUsername(data.lichessUsername);
+      })
+      .catch(() => {});
   }, []);
+
+  const handleSaveExternalAccounts = async () => {
+    setExternalSaving(true);
+    setExternalStatus(null);
+    try {
+      await api.patch('/api/users/me/external-accounts', {
+        chesscomUsername: chesscomUsername.trim() || null,
+        lichessUsername: lichessUsername.trim() || null,
+      });
+      setExternalStatus(t('settings.externalSaved', 'Saved'));
+    } catch {
+      setExternalStatus(t('settings.externalError', 'Failed to save'));
+    } finally {
+      setExternalSaving(false);
+    }
+  };
 
   const handleUnblock = useCallback(async (userId: string) => {
     try {
@@ -159,6 +185,22 @@ export function SettingsPage() {
             onChange={toggleMute}
           />
         </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>{t('settings.externalAccounts', 'External Accounts')}</h2>
+        <div className="settings-field">
+          <label>chess.com</label>
+          <input type="text" value={chesscomUsername} onChange={(e) => setChesscomUsername(e.target.value)} placeholder={t('settings.externalUsername', 'username')} />
+        </div>
+        <div className="settings-field">
+          <label>lichess.org</label>
+          <input type="text" value={lichessUsername} onChange={(e) => setLichessUsername(e.target.value)} placeholder={t('settings.externalUsername', 'username')} />
+        </div>
+        <button onClick={handleSaveExternalAccounts} disabled={externalSaving} style={{ marginTop: 8 }}>
+          {externalSaving ? t('common.loading') : t('common.save', 'Save')}
+        </button>
+        {externalStatus && <span style={{ marginLeft: 8, fontSize: 12, color: externalStatus.includes('Failed') ? '#ef4444' : '#4caf50' }}>{externalStatus}</span>}
       </section>
 
       <section className="settings-section">

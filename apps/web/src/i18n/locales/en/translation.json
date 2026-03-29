@@ -115,6 +115,10 @@
     "passwordMismatch": "Passwords do not match",
     "passwordChanged": "Password changed successfully",
     "passwordError": "Failed to change password",
+    "externalAccounts": "External Accounts",
+    "externalUsername": "username",
+    "externalSaved": "Saved",
+    "externalError": "Failed to save",
     "blockedPlayers": "Blocked Players",
     "noBlocked": "No blocked players",
     "unblock": "Unblock",
@@ -515,6 +519,20 @@
       "empty": "No active tournaments",
       "error": "Failed to load tournaments",
       "activePlayers": "{{count}} players"
+    },
+    "import": {
+      "title": "Import from {{source}}",
+      "fromChesscom": "Import chess.com",
+      "fromLichess": "Import lichess",
+      "period": "Period",
+      "lastMonth": "Last month",
+      "lastYear": "Last year",
+      "allTime": "All time",
+      "gameType": "Game type",
+      "allTypes": "All",
+      "limit": "Max games",
+      "importBtn": "Import",
+      "success": "{{count}} games imported"
     },
     "pgnUpload": {
       "title": "PGN Upload",
