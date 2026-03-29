@@ -162,7 +162,7 @@ export function PuzzleBrowserPage() {
                   {puzzle.sourceMetadata?.white && puzzle.sourceMetadata?.black
                     ? `${puzzle.sourceMetadata.white} vs ${puzzle.sourceMetadata.black}`
                     : puzzle.sourceMetadata?.event || `#${puzzle.id.slice(0, 6)}`}
-                  {puzzle.sourceMoveNum ? `, move ${puzzle.sourceMoveNum}` : ''}
+                  {puzzle.sourceMoveNum ? `, ${t('puzzleBrowser.moveNum', 'move {{num}}', { num: puzzle.sourceMoveNum })}` : ''}
                 </span>
                 <span className="puzzle-rating">{puzzle.rating}</span>
               </div>
@@ -227,7 +227,7 @@ export function PuzzleBrowserPage() {
             {t('puzzleBrowser.prev', 'Prev')}
           </button>
           <span className="puzzle-pagination__info">
-            Page {page} of {totalPages}
+            {t('puzzleBrowser.pageInfo', 'Page {{current}} of {{total}}', { current: page, total: totalPages })}
           </span>
           <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
             {t('puzzleBrowser.next', 'Next')}
