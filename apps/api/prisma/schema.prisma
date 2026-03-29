@@ -266,6 +266,7 @@ model Analysis {
   pgn             String?  @db.Text
   fen             String?
   opening         String?
+  category        String   @default("analysis")
   currentPosition Int?     @map("current_position")
 
   createdAt DateTime @default(now()) @map("created_at")

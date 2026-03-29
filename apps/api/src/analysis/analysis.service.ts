@@ -47,6 +47,7 @@ export class AnalysisService {
         pgn: dto.pgn ?? null,
         fen: dto.fen ?? null,
         opening,
+        category: dto.category ?? 'analysis',
       },
     });
   }
@@ -58,6 +59,7 @@ export class AnalysisService {
         id: true,
         title: true,
         opening: true,
+        category: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },

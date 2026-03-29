@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 
 export class CreateAnalysisDto {
   @IsOptional()
@@ -12,4 +12,9 @@ export class CreateAnalysisDto {
   @IsOptional()
   @IsString()
   fen?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['analysis', 'game_review', 'puzzle'])
+  category?: string;
 }
