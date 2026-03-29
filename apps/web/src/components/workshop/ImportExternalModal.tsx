@@ -10,9 +10,11 @@ interface ImportExternalModalProps {
 
 export function ImportExternalModal({ source, onClose, onImported }: ImportExternalModalProps) {
   const { t } = useTranslation();
-  const [period, setPeriod] = useState<'month' | 'year' | 'all'>('month');
-  const [gameType, setGameType] = useState<'all' | 'bullet' | 'blitz' | 'rapid'>('all');
-  const [limit, setLimit] = useState(50);
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [timeClass, setTimeClass] = useState<string>('');
+  const [maxGames, setMaxGames] = useState(50);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ imported: number } | null>(null);
@@ -22,10 +24,11 @@ export function ImportExternalModal({ source, onClose, onImported }: ImportExter
     setError(null);
     try {
       const data = await api.post<{ imported: number; fileId: string }>('/api/workshop/import-external', {
-        source,
-        period,
-        gameType: gameType === 'all' ? undefined : gameType,
-        limit,
+        platform: source,
+        year,
+        month,
+        ...(maxGames ? { maxGames } : {}),
+        ...(timeClass ? { timeClass } : {}),
       });
       setResult({ imported: data.imported });
       onImported();
@@ -37,6 +40,13 @@ export function ImportExternalModal({ source, onClose, onImported }: ImportExter
   };
 
   const sourceName = source === 'chesscom' ? 'chess.com' : 'lichess.org';
+
+  const months = [
+    t('workshop.import.jan', 'Jan'), t('workshop.import.feb', 'Feb'), t('workshop.import.mar', 'Mar'),
+    t('workshop.import.apr', 'Apr'), t('workshop.import.may', 'May'), t('workshop.import.jun', 'Jun'),
+    t('workshop.import.jul', 'Jul'), t('workshop.import.aug', 'Aug'), t('workshop.import.sep', 'Sep'),
+    t('workshop.import.oct', 'Oct'), t('workshop.import.nov', 'Nov'), t('workshop.import.dec', 'Dec'),
+  ];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -54,18 +64,27 @@ export function ImportExternalModal({ source, onClose, onImported }: ImportExter
         ) : (
           <div className="import-form">
             <div className="import-field">
-              <label>{t('workshop.import.period', 'Period')}</label>
-              <select value={period} onChange={(e) => setPeriod(e.target.value as 'month' | 'year' | 'all')}>
-                <option value="month">{t('workshop.import.lastMonth', 'Last month')}</option>
-                <option value="year">{t('workshop.import.lastYear', 'Last year')}</option>
-                <option value="all">{t('workshop.import.allTime', 'All time')}</option>
+              <label>{t('workshop.import.year', 'Year')}</label>
+              <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
+                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="import-field">
+              <label>{t('workshop.import.month', 'Month')}</label>
+              <select value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+                {months.map((name, i) => (
+                  <option key={i + 1} value={i + 1}>{name}</option>
+                ))}
               </select>
             </div>
 
             <div className="import-field">
               <label>{t('workshop.import.gameType', 'Game type')}</label>
-              <select value={gameType} onChange={(e) => setGameType(e.target.value as 'all' | 'bullet' | 'blitz' | 'rapid')}>
-                <option value="all">{t('workshop.import.allTypes', 'All')}</option>
+              <select value={timeClass} onChange={(e) => setTimeClass(e.target.value)}>
+                <option value="">{t('workshop.import.allTypes', 'All')}</option>
                 <option value="bullet">Bullet</option>
                 <option value="blitz">Blitz</option>
                 <option value="rapid">Rapid</option>
@@ -74,7 +93,7 @@ export function ImportExternalModal({ source, onClose, onImported }: ImportExter
 
             <div className="import-field">
               <label>{t('workshop.import.limit', 'Max games')}</label>
-              <input type="number" min={1} max={500} value={limit} onChange={(e) => setLimit(Number(e.target.value))} />
+              <input type="number" min={1} max={500} value={maxGames} onChange={(e) => setMaxGames(Number(e.target.value))} />
             </div>
 
             {error && <div className="error" style={{ marginTop: 8 }}>{error}</div>}
