@@ -503,7 +503,9 @@
       "title": "Мои анализы",
       "delete": "Удалить",
       "empty": "Нет сохранённых анализов",
-      "searchPlaceholder": "Поиск по названию..."
+      "searchPlaceholder": "Поиск по названию...",
+      "tagPlaceholder": "метка...",
+      "clearTags": "Очистить"
     },
     "tournaments": {
       "title": "Топ активных турниров",

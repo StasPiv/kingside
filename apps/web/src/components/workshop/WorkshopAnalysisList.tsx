@@ -23,6 +23,9 @@ export function WorkshopAnalysisList() {
   const [deleting, setDeleting] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'game_review' | 'puzzle' | 'analysis'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [addingTagId, setAddingTagId] = useState<string | null>(null);
+  const [tagInput, setTagInput] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -34,15 +37,21 @@ export function WorkshopAnalysisList() {
       .finally(() => setLoading(false));
   }, [user, t]);
 
+  // All unique tags for autocomplete
+  const allTags = Array.from(new Set(allAnalyses.flatMap((a) => a.tags ?? [])));
+
   const filteredAnalyses = allAnalyses.filter((a) => {
-    // Category filter: "all" hides puzzles
-    const cat = (a as unknown as { category?: string }).category ?? 'analysis';
+    const cat = a.category ?? 'analysis';
     if (categoryFilter === 'all' && cat === 'puzzle') return false;
     if (categoryFilter !== 'all' && cat !== categoryFilter) return false;
-    // Search
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       if (!(a.title?.toLowerCase().includes(q) || a.opening?.toLowerCase().includes(q))) return false;
+    }
+    // Tag filter (AND)
+    if (selectedTags.length > 0) {
+      const aTags = a.tags ?? [];
+      if (!selectedTags.every((tag) => aTags.includes(tag))) return false;
     }
     return true;
   });
@@ -188,6 +197,21 @@ export function WorkshopAnalysisList() {
         />
       </div>
 
+      {/* Tag filter chips */}
+      {selectedTags.length > 0 && (
+        <div className="workshop-tag-filters">
+          {selectedTags.map((tag) => (
+            <span key={tag} className="workshop-tag-chip workshop-tag-chip--active">
+              {tag}
+              <button onClick={() => setSelectedTags((prev) => prev.filter((t2) => t2 !== tag))}>×</button>
+            </span>
+          ))}
+          <button className="workshop-tag-clear" onClick={() => setSelectedTags([])}>
+            {t('workshop.myAnalyses.clearTags', 'Clear')}
+          </button>
+        </div>
+      )}
+
       <div className="workshop-analyses-toolbar">
         <button className="workshop-analyses-new-btn" onClick={() => navigate('/analysis')}>
           + {t('workshop.myAnalyses.newAnalysis', 'New Analysis')}
@@ -262,13 +286,66 @@ export function WorkshopAnalysisList() {
                 )}
                 <div className="workshop-analysis-item__main">
                   <span className="workshop-analysis-item__title">
-                    <span className="workshop-analysis-item__cat-icon">{CATEGORY_ICON[(analysis as unknown as { category?: string }).category ?? 'analysis'] ?? '🔍'}</span>
+                    <span className="workshop-analysis-item__cat-icon">{CATEGORY_ICON[analysis.category ?? 'analysis'] ?? '🔍'}</span>
                     {analysis.title}
                   </span>
                   <div className="workshop-analysis-item__meta">
                     <span className="workshop-analysis-item__date">{formatDate(analysis.createdAt)}</span>
                     {analysis.opening && (
                       <span className="workshop-analysis-item__opening">{analysis.opening}</span>
+                    )}
+                  </div>
+                  {/* Tags */}
+                  <div className="workshop-analysis-item__tags">
+                    {(analysis.tags ?? []).map((tag) => (
+                      <span
+                        key={tag}
+                        className="workshop-tag-chip"
+                        onClick={(e) => { e.stopPropagation(); if (!selectedTags.includes(tag)) setSelectedTags((prev) => [...prev, tag]); }}
+                      >
+                        {tag}
+                        <button onClick={(e) => {
+                          e.stopPropagation();
+                          const newTags = (analysis.tags ?? []).filter((t2) => t2 !== tag);
+                          api.patch(`/api/analyses/${analysis.id}`, { tags: newTags }).then(() => {
+                            setAllAnalyses((prev) => prev.map((a) => a.id === analysis.id ? { ...a, tags: newTags } : a));
+                          }).catch(() => {});
+                        }}>×</button>
+                      </span>
+                    ))}
+                    {addingTagId === analysis.id ? (
+                      <span className="workshop-tag-input-wrap">
+                        <input
+                          type="text"
+                          className="workshop-tag-input"
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && tagInput.trim()) {
+                              e.stopPropagation();
+                              const newTag = tagInput.trim().toLowerCase();
+                              const newTags = [...new Set([...(analysis.tags ?? []), newTag])];
+                              api.patch(`/api/analyses/${analysis.id}`, { tags: newTags }).then(() => {
+                                setAllAnalyses((prev) => prev.map((a) => a.id === analysis.id ? { ...a, tags: newTags } : a));
+                              }).catch(() => {});
+                              setTagInput('');
+                              setAddingTagId(null);
+                            }
+                            if (e.key === 'Escape') { setAddingTagId(null); setTagInput(''); }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                          list={`tags-${analysis.id}`}
+                          placeholder={t('workshop.myAnalyses.tagPlaceholder', 'tag...')}
+                        />
+                        <datalist id={`tags-${analysis.id}`}>
+                          {allTags.filter((tag) => !(analysis.tags ?? []).includes(tag)).map((tag) => (
+                            <option key={tag} value={tag} />
+                          ))}
+                        </datalist>
+                      </span>
+                    ) : (
+                      <button className="workshop-tag-add" onClick={(e) => { e.stopPropagation(); setAddingTagId(analysis.id); setTagInput(''); }}>+</button>
                     )}
                   </div>
                 </div>

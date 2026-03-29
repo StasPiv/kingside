@@ -503,7 +503,9 @@
       "title": "My Analyses",
       "delete": "Delete",
       "empty": "No saved analyses yet",
-      "searchPlaceholder": "Search by title..."
+      "searchPlaceholder": "Search by title...",
+      "tagPlaceholder": "tag...",
+      "clearTags": "Clear"
     },
     "tournaments": {
       "title": "Top Active Tournaments",

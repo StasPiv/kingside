@@ -614,6 +614,8 @@ export type AnalysisListItem = {
   id: string;
   title: string;
   opening: string | null;
+  category: string | null;
+  tags: string[];
   createdAt: string;
 };
 
