@@ -175,7 +175,16 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                       <label>{t('puzzleGenerator.maxSecond', 'Max 2nd eval (cp)')}</label>
                       <input type="number" min={50} value={settings.maxSecondCp} onChange={(e) => updateSetting('maxSecondCp', Number(e.target.value))} />
                     </div>
+                    <div className="puzzle-gen-param">
+                      <label>{t('puzzleGenerator.acceptedMoves', 'Accepted moves')}</label>
+                      <input type="number" min={1} max={3} value={settings.acceptedMoves} onChange={(e) => updateSetting('acceptedMoves', Number(e.target.value))} />
+                    </div>
                   </div>
+                  {settings.acceptedMoves > 1 && (
+                    <p className="puzzle-gen-engine-hint">
+                      {t('puzzleGenerator.acceptedMovesHint', 'MultiPV will be auto-increased to {{n}} for {{m}} accepted moves', { n: Math.max(settings.multiPv, settings.acceptedMoves + 1), m: settings.acceptedMoves })}
+                    </p>
+                  )}
 
                   {/* FILTERS */}
                   <h4 className="puzzle-gen-section-title">{t('puzzleGenerator.sectionFilters', 'FILTERS')}</h4>

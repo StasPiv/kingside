@@ -19,6 +19,7 @@ export type SourceMetadata = {
 export type GeneratedPuzzleData = {
   fen: string;
   moves: string; // space-separated UCI moves
+  acceptedMoves?: string; // space-separated UCI moves (multiple correct answers)
   rating: number;
   gap: number;
   themes: string;
@@ -164,6 +165,7 @@ export interface PuzzleGenSettings {
   skipHangingCapture: boolean;
   skipAttackedByLesser: boolean;
   skipUndefendedAfterMove: boolean;
+  acceptedMoves: number;
 }
 
 export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
@@ -174,6 +176,7 @@ export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
   skipHangingCapture: true,
   skipAttackedByLesser: true,
   skipUndefendedAfterMove: false,
+  acceptedMoves: 1,
 };
 
 export async function generatePuzzlesFromPgn(
@@ -182,7 +185,9 @@ export async function generatePuzzlesFromPgn(
   options: Partial<PuzzleGenSettings> & { abortSignal?: AbortSignal; bridgeConfig?: BridgeConfig } = {},
 ): Promise<GeneratedPuzzleData[]> {
   const settings = { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...options };
-  const { depth, multiPv, gapThreshold, maxSecondCp, skipHangingCapture, skipAttackedByLesser, skipUndefendedAfterMove } = settings;
+  const { depth, gapThreshold, maxSecondCp, skipHangingCapture, skipAttackedByLesser, skipUndefendedAfterMove, acceptedMoves } = settings;
+  // Ensure multiPv is at least acceptedMoves + 1 (need gap after N-th move)
+  const effectiveMultiPv = Math.max(settings.multiPv, acceptedMoves + 1);
   const { abortSignal, bridgeConfig } = options;
 
   // Parse PGN into individual games
@@ -199,7 +204,7 @@ export async function generatePuzzlesFromPgn(
 
   await engine.init();
 
-  engine.setOption('MultiPV', String(multiPv));
+  engine.setOption('MultiPV', String(effectiveMultiPv));
   if (bridgeConfig) {
     engine.setOption('Threads', '16');
     engine.setOption('Hash', '256');
@@ -264,15 +269,22 @@ export async function generatePuzzlesFromPgn(
       } catch { continue; }
 
       // Single analysis with depth history tracking
-      const analysis = await engine.analyze(fen, depth, multiPv);
+      const analysis = await engine.analyze(fen, depth, effectiveMultiPv);
       if (analysis.lines.length === 0) continue;
 
       const best = analysis.lines[0];
       const bestMoveUci = best.pv[0];
 
       const bestCp = scoreToCP(best.score);
+      // For acceptedMoves=N, gap is between N-th and (N+1)-th line
+      const N = acceptedMoves;
+      const nthCp = analysis.lines.length > N - 1 ? scoreToCP(analysis.lines[N - 1].score) : bestCp;
+      const nextCp = analysis.lines.length > N ? scoreToCP(analysis.lines[N].score) : 0;
+      const gap = analysis.lines.length > N ? Math.abs(nthCp - nextCp) : (best.score.type === 'mate' ? 10000 : 0);
+      // topSpread: difference between 1st and N-th move (must be small for multiple accepted)
+      const topSpread = Math.abs(bestCp - nthCp);
+      const TOP_SPREAD_THRESHOLD = 30;
       const secondCp = analysis.lines.length >= 2 ? scoreToCP(analysis.lines[1].score) : 0;
-      const gap = analysis.lines.length >= 2 ? Math.abs(bestCp - secondCp) : (best.score.type === 'mate' ? 10000 : 0);
 
       // Eval growth: compare eval at depth 1 vs depth 14
       const evalAtShallow = analysis.evalByDepth.get(1) ?? analysis.evalByDepth.get(2) ?? bestCp;
@@ -344,6 +356,9 @@ export async function generatePuzzlesFromPgn(
       if (gap < gapThreshold) {
         console.log(`${logBase} SKIP:gap<${gapThreshold}`); continue;
       }
+      if (N > 1 && topSpread > TOP_SPREAD_THRESHOLD) {
+        console.log(`${logBase} SKIP:topSpread=${topSpread}>${TOP_SPREAD_THRESHOLD}`); continue;
+      }
       if (best.pv.length < (isMate ? 1 : 2)) {
         console.log(`${logBase} SKIP:pv.length=${best.pv.length}<${isMate ? 1 : 2}`); continue;
       }
@@ -356,9 +371,13 @@ export async function generatePuzzlesFromPgn(
         // Use scores from THIS position's analysis (same side moves)
         const secondLine = analysis.lines.length >= 2 ? analysis.lines[1] : null;
 
+        // Collect accepted moves (top N lines' first moves)
+        const acceptedMovesList = analysis.lines.slice(0, N).map((l) => l.pv[0]).filter(Boolean);
+
         puzzles.push({
           fen,
           moves: best.pv.slice(0, 8).join(' '),
+          acceptedMoves: acceptedMovesList.length > 1 ? acceptedMovesList.join(' ') : undefined,
           rating,
           gap,
           themes: themes.join(' '),

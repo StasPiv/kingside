@@ -155,7 +155,14 @@ export function PuzzlePage() {
       const to = expectedMove.slice(2, 4);
       const promotion = expectedMove.length > 4 ? expectedMove[4] : undefined;
 
-      if (sourceSquare !== from || targetSquare !== to) {
+      // For generated puzzles with multiple accepted moves (first move only)
+      const playerUci = sourceSquare + targetSquare;
+      const acceptedList = isGenerated && moveIndex === 0 && (puzzle as unknown as { acceptedMoves?: string }).acceptedMoves
+        ? (puzzle as unknown as { acceptedMoves: string }).acceptedMoves.split(' ')
+        : null;
+      const isAccepted = acceptedList ? acceptedList.some((m) => m.startsWith(playerUci)) : false;
+
+      if (!isAccepted && (sourceSquare !== from || targetSquare !== to)) {
         setStatus('incorrect');
         playSound('puzzle-incorrect');
         setStreak(0);
@@ -307,6 +314,11 @@ export function PuzzlePage() {
         <span>{t('puzzle.streak', { count: streak })}</span>
         <span>{t('puzzle.totalSolved', { count: totalSolved })}</span>
         {puzzle && <span>{t('puzzle.puzzleRating', { rating: puzzle.rating })}</span>}
+        {isGenerated && puzzle && (puzzle as unknown as { acceptedMoves?: string }).acceptedMoves && (
+          <span className="puzzle-multi-hint">
+            {t('puzzle.findOneOfN', 'Find 1 of {{n}}', { n: ((puzzle as unknown as { acceptedMoves: string }).acceptedMoves.split(' ').length) })}
+          </span>
+        )}
         {isGenerated && puzzle && (() => {
           const p = puzzle as unknown as { sourceId?: string; sourceMetadata?: { white?: string; black?: string; event?: string; date?: string }; sourceMoveNum?: number };
           if (p.sourceId) {
