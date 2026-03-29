@@ -47,21 +47,26 @@ export class WorkshopService {
     );
 
     if (existing) {
-      // Deduplicate using a normalized key: white+black+date+result+moves-line
+      // Deduplicate using game URL (Link/Site header) or white+black+UTCDate+UTCTime
       const gameKey = (pgn: string) => {
+        // chess.com: [Link "https://..."], lichess: [Site "https://lichess.org/XXXX"]
+        const link = pgn.match(/\[Link\s+"([^"]*)"\]/)?.[1];
+        if (link) return link;
+        const site = pgn.match(/\[Site\s+"(https:\/\/lichess\.org\/[^"]*)"\]/)?.[1];
+        if (site) return site;
+        // Fallback: white+black+date+time+result
         const white = pgn.match(/\[White\s+"([^"]*)"\]/)?.[1] ?? '';
         const black = pgn.match(/\[Black\s+"([^"]*)"\]/)?.[1] ?? '';
-        const date = pgn.match(/\[Date\s+"([^"]*)"\]/)?.[1] ?? '';
+        const utcDate = pgn.match(/\[UTCDate\s+"([^"]*)"\]/)?.[1]
+          ?? pgn.match(/\[Date\s+"([^"]*)"\]/)?.[1] ?? '';
+        const utcTime = pgn.match(/\[UTCTime\s+"([^"]*)"\]/)?.[1] ?? '';
         const result = pgn.match(/\[Result\s+"([^"]*)"\]/)?.[1] ?? '';
-        // Extract moves line (everything after empty line, without result at end)
-        const movesMatch = pgn.match(/\n\n([\s\S]+)/);
-        const moves = movesMatch ? movesMatch[1].replace(/\s+/g, ' ').trim() : '';
-        return `${white}|${black}|${date}|${result}|${moves}`;
+        return `${white}|${black}|${utcDate}|${utcTime}|${result}`;
       };
       const existingKeys = new Set(existing.games.map((g) => gameKey(g.pgn)));
       const newGames = games.filter((g) => !existingKeys.has(gameKey(g.pgn)));
 
-      this.logger.log(`importPgn: dedup result — ${newGames.length} new games out of ${games.length}`);
+      this.logger.log(`importPgn: dedup — ${newGames.length} new out of ${games.length} (existing: ${existingKeys.size})`);
 
       if (newGames.length === 0) {
         const total = await this.prisma.pgnImportGame.count({ where: { importId: existing.id } });
@@ -163,7 +168,7 @@ export class WorkshopService {
         position: true,
         pgn: true,
       },
-      orderBy: { position: 'desc' },
+      orderBy: [{ date: 'desc' }, { position: 'desc' }],
     });
   }
 
