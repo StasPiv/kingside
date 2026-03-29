@@ -53,24 +53,32 @@ export class AnalysisService {
   }
 
   async findAll(userId: string) {
-    return this.prisma.analysis.findMany({
+    const analyses = await this.prisma.analysis.findMany({
       where: { userId },
       select: {
         id: true,
         title: true,
         opening: true,
         category: true,
+        tags: true,
         createdAt: true,
       },
       orderBy: { createdAt: 'desc' },
     });
+    return analyses.map((a) => ({
+      ...a,
+      tags: a.tags ? a.tags.split(' ').filter(Boolean) : [],
+    }));
   }
 
   async findOne(userId: string, id: string) {
     const analysis = await this.prisma.analysis.findUnique({ where: { id } });
     if (!analysis) throw new NotFoundException('Analysis not found');
     if (analysis.userId !== userId) throw new ForbiddenException();
-    return analysis;
+    return {
+      ...analysis,
+      tags: analysis.tags ? analysis.tags.split(' ').filter(Boolean) : [],
+    };
   }
 
   async update(userId: string, id: string, dto: UpdateAnalysisDto) {
@@ -90,6 +98,7 @@ export class AnalysisService {
         ...(dto.pgn !== undefined && { pgn: dto.pgn }),
         ...(dto.fen !== undefined && { fen: dto.fen }),
         ...(dto.currentPosition !== undefined && { currentPosition: dto.currentPosition }),
+        ...(dto.tags !== undefined && { tags: dto.tags.join(' ') }),
         opening,
       },
     });

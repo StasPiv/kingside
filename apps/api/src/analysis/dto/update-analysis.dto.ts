@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateAnalysisDto {
   @IsOptional()
@@ -17,4 +17,11 @@ export class UpdateAnalysisDto {
   @IsInt()
   @Min(0)
   currentPosition?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @ArrayMaxSize(20)
+  @MaxLength(30, { each: true })
+  tags?: string[];
 }

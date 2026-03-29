@@ -22,6 +22,8 @@ describe('AnalysisService', () => {
     pgn: null,
     fen: null,
     opening: null,
+    category: 'analysis',
+    tags: '',
     currentPosition: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -98,7 +100,7 @@ describe('AnalysisService', () => {
 
       const result = await service.findOne(userId, 'analysis-1');
 
-      expect(result).toEqual(mockAnalysis);
+      expect(result).toEqual({ ...mockAnalysis, tags: [] });
     });
 
     it('should throw NotFoundException when not found', async () => {
