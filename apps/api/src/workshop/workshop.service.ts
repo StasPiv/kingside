@@ -163,7 +163,7 @@ export class WorkshopService {
         position: true,
         pgn: true,
       },
-      orderBy: { position: 'asc' },
+      orderBy: { position: 'desc' },
     });
   }
 
