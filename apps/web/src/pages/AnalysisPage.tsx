@@ -660,6 +660,13 @@ export function AnalysisPage() {
             <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>&#x2190;</button>
             <button onClick={gotoNext} disabled={isAtEnd} title={t('review.forward')}>&#x2192;</button>
             <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>&#x21E5;</button>
+            <button
+              className="analysis-flip-btn"
+              onClick={() => setBoardOrientation((o) => o === 'white' ? 'black' : 'white')}
+              title={t('analysis.flipBoard', 'Flip board')}
+            >
+              ⇅
+            </button>
             <span className="analysis-controls-spacer" />
             {!gameId && (
               <button
