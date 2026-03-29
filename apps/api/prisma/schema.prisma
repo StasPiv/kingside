@@ -32,7 +32,9 @@ model User {
   boardTheme      String   @default("default") @map("board_theme")
   pieceSet        String   @default("standard") @map("piece_set")
   soundEnabled    Boolean  @default(true) @map("sound_enabled")
-  isBot           Boolean  @default(false) @map("is_bot")
+  isBot              Boolean  @default(false) @map("is_bot")
+  chesscomUsername   String?  @map("chesscom_username")
+  lichessUsername    String?  @map("lichess_username")
 
   whiteGames       Game[]             @relation("WhitePlayer")
   blackGames       Game[]             @relation("BlackPlayer")

@@ -26,6 +26,8 @@ export class UserService {
     boardTheme: true,
     pieceSet: true,
     soundEnabled: true,
+    chesscomUsername: true,
+    lichessUsername: true,
   } as const;
 
   async checkUsername(username: string): Promise<{ available: boolean }> {
@@ -156,6 +158,14 @@ export class UserService {
       select: this.SETTINGS_SELECT,
     });
     return user;
+  }
+
+  async updateExternalAccounts(userId: string, data: Record<string, string | null>) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data,
+      select: { chesscomUsername: true, lichessUsername: true },
+    });
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {

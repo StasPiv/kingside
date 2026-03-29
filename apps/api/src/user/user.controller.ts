@@ -20,6 +20,8 @@ import { SearchGamesDto } from './dto/search-games.dto';
 import { SetUsernameDto } from './dto/set-username.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthService } from '../auth/auth.service';
+import { ExternalChessService } from '../workshop/external-chess.service';
+import { BadRequestException } from '@nestjs/common';
 
 @Controller('users')
 export class UserController {
@@ -27,6 +29,7 @@ export class UserController {
     private readonly userService: UserService,
     private readonly authService: AuthService,
     private readonly blockService: BlockService,
+    private readonly externalChess: ExternalChessService,
   ) {}
 
   @Get('check-username')
@@ -61,6 +64,33 @@ export class UserController {
   @Patch('me/password')
   changePassword(@Request() req: AuthenticatedRequest, @Body() dto: ChangePasswordDto) {
     return this.userService.changePassword(req.user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('me/external-accounts')
+  async updateExternalAccounts(
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { chesscomUsername?: string | null; lichessUsername?: string | null },
+  ) {
+    const data: Record<string, string | null> = {};
+
+    if (body.chesscomUsername !== undefined) {
+      if (body.chesscomUsername) {
+        const valid = await this.externalChess.verifyChesscomUser(body.chesscomUsername);
+        if (!valid) throw new BadRequestException('chess.com user not found');
+      }
+      data.chesscomUsername = body.chesscomUsername;
+    }
+
+    if (body.lichessUsername !== undefined) {
+      if (body.lichessUsername) {
+        const valid = await this.externalChess.verifyLichessUser(body.lichessUsername);
+        if (!valid) throw new BadRequestException('lichess user not found');
+      }
+      data.lichessUsername = body.lichessUsername;
+    }
+
+    return this.userService.updateExternalAccounts(req.user.id, data);
   }
 
   @UseGuards(JwtAuthGuard)
