@@ -502,8 +502,9 @@ model GeneratedPuzzle {
   sourceMoveNum Int?     @map("source_move_num")
   gap           Int      @default(0)           // cp gap between best and second-best
   depth         Int      @default(18)
-  createdBy     String?  @map("created_by") @db.Uuid
-  popularity    Int      @default(0)
+  createdBy      String?  @map("created_by") @db.Uuid
+  isPublic       Boolean  @default(false) @map("is_public")
+  popularity     Int      @default(0)
   nbPlays        Int      @default(0) @map("nb_plays")
   sourceMetadata String?  @map("source_metadata") @db.Text
   createdAt      DateTime @default(now()) @map("created_at")
@@ -514,6 +515,7 @@ model GeneratedPuzzle {
   @@index([themes])
   @@index([sourceType, sourceId])
   @@index([createdBy])
+  @@index([isPublic])
   @@map("generated_puzzles")
 }
 

@@ -2,7 +2,10 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
+  NotFoundException,
+  Patch,
   Post,
   Param,
   Query,
@@ -11,11 +14,11 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { PuzzleGeneratorService } from './puzzle-generator.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { GlickoRatingService } from './glicko-rating.service';
-import { NotFoundException } from '@nestjs/common';
 
 @Controller('puzzles/generated')
 export class PuzzleGeneratorController {
@@ -80,18 +83,23 @@ export class PuzzleGeneratorController {
 
   /**
    * GET /api/puzzles/generated — list generated puzzles with filters.
+   * mine=true → only own puzzles. Otherwise own + public. Guest → public only.
    */
+  @UseGuards(OptionalJwtGuard)
   @Get()
   async list(
+    @Request() req: AuthenticatedRequest,
     @Query('themes') themes?: string,
     @Query('ratingMin') ratingMinStr?: string,
     @Query('ratingMax') ratingMaxStr?: string,
-    @Query('source') source?: string, // my_games, all
+    @Query('source') source?: string,
+    @Query('mine') mine?: string,
     @Query('limit') limitStr?: string,
     @Query('offset') offsetStr?: string,
     @Query('sort') sort?: string,
     @Query('order') order?: string,
   ) {
+    const userId = req.user?.id;
     const limit = Math.min(50, parseInt(limitStr ?? '20', 10) || 20);
     const offset = parseInt(offsetStr ?? '0', 10) || 0;
 
@@ -103,9 +111,22 @@ export class PuzzleGeneratorController {
 
     const where: Record<string, unknown> = {};
 
+    // Visibility filter
+    if (mine === 'true' && userId) {
+      where.createdBy = userId;
+    } else if (userId) {
+      where.OR = [{ createdBy: userId }, { isPublic: true }];
+    } else {
+      where.isPublic = true;
+    }
+
     if (themes) {
       const themeList = themes.split(',');
-      where.AND = themeList.map((t) => ({ themes: { contains: t.trim() } }));
+      if (where.AND) {
+        (where.AND as unknown[]).push(...themeList.map((t) => ({ themes: { contains: t.trim() } })));
+      } else {
+        where.AND = themeList.map((t) => ({ themes: { contains: t.trim() } }));
+      }
     }
 
     if (ratingMinStr || ratingMaxStr) {
@@ -142,6 +163,8 @@ export class PuzzleGeneratorController {
         sourceId: p.sourceId,
         sourceMoveNum: p.sourceMoveNum,
         sourceMetadata: p.sourceMetadata ? JSON.parse(p.sourceMetadata) : null,
+        isPublic: p.isPublic,
+        createdBy: p.createdBy,
         createdAt: p.createdAt.toISOString(),
       })),
       total,
@@ -150,14 +173,28 @@ export class PuzzleGeneratorController {
 
   /**
    * GET /api/puzzles/generated/next — random generated puzzle with filters.
+   * mine=true → only own. Otherwise own + public. Guest → public only.
    */
+  @UseGuards(OptionalJwtGuard)
   @Get('next')
   async next(
+    @Request() req: AuthenticatedRequest,
     @Query('themes') themes?: string,
     @Query('ratingMin') ratingMinStr?: string,
     @Query('ratingMax') ratingMaxStr?: string,
+    @Query('mine') mine?: string,
   ) {
+    const userId = req.user?.id;
     const where: Record<string, unknown> = {};
+
+    // Visibility filter
+    if (mine === 'true' && userId) {
+      where.createdBy = userId;
+    } else if (userId) {
+      where.OR = [{ createdBy: userId }, { isPublic: true }];
+    } else {
+      where.isPublic = true;
+    }
 
     if (themes) {
       const themeList = themes.split(',');
@@ -188,6 +225,46 @@ export class PuzzleGeneratorController {
       sourceType: puzzle.sourceType,
       sourceId: puzzle.sourceId,
       sourceMetadata: puzzle.sourceMetadata ? JSON.parse(puzzle.sourceMetadata) : null,
+      isPublic: puzzle.isPublic,
+    };
+  }
+
+  /**
+   * PATCH /api/puzzles/generated/publish-all — publish all own puzzles.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('publish-all')
+  async publishAll(@Request() req: AuthenticatedRequest) {
+    const result = await this.prisma.generatedPuzzle.updateMany({
+      where: { createdBy: req.user.id },
+      data: { isPublic: true },
+    });
+    return { updated: result.count };
+  }
+
+  /**
+   * PATCH /api/puzzles/generated/:id — update puzzle (isPublic).
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  async updateOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { isPublic?: boolean },
+  ) {
+    const puzzle = await this.prisma.generatedPuzzle.findUnique({ where: { id } });
+    if (!puzzle) throw new NotFoundException('Puzzle not found');
+    if (puzzle.createdBy !== req.user.id) throw new ForbiddenException();
+
+    const updated = await this.prisma.generatedPuzzle.update({
+      where: { id },
+      data: { isPublic: body.isPublic ?? puzzle.isPublic },
+    });
+
+    return {
+      id: updated.id,
+      isPublic: updated.isPublic,
+      rating: updated.rating,
     };
   }
 
