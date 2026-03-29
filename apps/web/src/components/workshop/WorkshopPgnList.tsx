@@ -34,13 +34,15 @@ interface WorkshopPgnListProps {
 }
 
 export function WorkshopPgnList({ selectedFile, onSelectFile }: WorkshopPgnListProps) {
+  const [refreshKey, setRefreshKey] = useState(0);
+
   if (selectedFile) {
-    return <PgnFileGames file={selectedFile} />;
+    return <PgnFileGames file={selectedFile} refreshKey={refreshKey} />;
   }
-  return <PgnFilesList onSelectFile={onSelectFile} />;
+  return <PgnFilesList onSelectFile={onSelectFile} onRefresh={() => setRefreshKey((k) => k + 1)} />;
 }
 
-function PgnFilesList({ onSelectFile }: { onSelectFile: (file: PgnFile) => void }) {
+function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFile) => void; onRefresh?: () => void }) {
   const { t } = useTranslation();
   const [files, setFiles] = useState<PgnFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -207,14 +209,14 @@ function PgnFilesList({ onSelectFile }: { onSelectFile: (file: PgnFile) => void 
         <ImportExternalModal
           source={importSource}
           onClose={() => setImportSource(null)}
-          onImported={() => { loadFiles(); }}
+          onImported={() => { loadFiles(); onRefresh?.(); }}
         />
       )}
     </section>
   );
 }
 
-function PgnFileGames({ file }: { file: PgnFile }) {
+function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [games, setGames] = useState<PgnFileGame[]>([]);
@@ -235,7 +237,7 @@ function PgnFileGames({ file }: { file: PgnFile }) {
       .finally(() => { if (!cancelled) setLoading(false); });
 
     return () => { cancelled = true; };
-  }, [file.id]);
+  }, [file.id, refreshKey]);
 
   const handleOpenGame = (game: PgnFileGame) => {
     navigate('/analysis', {
