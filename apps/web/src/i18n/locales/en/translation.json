@@ -532,6 +532,14 @@
   },
   "puzzleBrowser": {
     "title": "Puzzles",
+    "allPuzzles": "All puzzles",
+    "myPuzzles": "My puzzles",
+    "deleteMine": "Delete my puzzles ({{count}})",
+    "confirmDeleteMine": "Delete all your {{count}} puzzles?",
+    "publishAll": "Publish all",
+    "publish": "Publish",
+    "unpublish": "Make private",
+    "totalCount": "{{count}} puzzles",
     "yourRating": "Puzzle rating: {{rating}}",
     "difficulty": "Difficulty",
     "theme": "Theme",
@@ -771,6 +779,8 @@
     "saved": "Saved!",
     "goToTraining": "Go to Training",
     "generateMore": "Generate More",
+    "solveNow": "Solve now",
+    "myPuzzles": "My puzzles",
     "fromPgn": "Generate from PGN",
     "pastePgn": "Paste PGN here...",
     "orUpload": "or upload .pgn file"

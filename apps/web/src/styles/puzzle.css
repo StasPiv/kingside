@@ -1603,6 +1603,58 @@ body:has(.puzzle-rush-board) {
 }
 
 /* Puzzle toolbar */
+.puzzle-browser-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #333;
+}
+
+.puzzle-browser-tab {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #888;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.puzzle-browser-tab.active {
+  color: #7c83ff;
+  border-bottom-color: #7c83ff;
+}
+
+.puzzle-share-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  opacity: 0.6;
+}
+
+.puzzle-share-btn:hover {
+  opacity: 1;
+}
+
+.puzzle-share-btn.shared {
+  opacity: 1;
+}
+
+.puzzle-publish-all-btn {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+  border: none;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .puzzle-toolbar {
   display: flex;
   justify-content: space-between;

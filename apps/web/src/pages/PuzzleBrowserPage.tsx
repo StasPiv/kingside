@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -16,6 +16,8 @@ type GeneratedPuzzle = {
   sourceId: string | null;
   sourceMoveNum: number | null;
   sourceMetadata: { white?: string; black?: string; event?: string } | null;
+  isPublic?: boolean;
+  userId?: string;
   createdAt: string;
 };
 
@@ -26,6 +28,9 @@ export function PuzzleBrowserPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mineParam = searchParams.get('mine') === 'true';
+
   const [puzzles, setPuzzles] = useState<GeneratedPuzzle[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -33,13 +38,15 @@ export function PuzzleBrowserPage() {
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
   const [loading, setLoading] = useState(true);
   const [showGenerator, setShowGenerator] = useState(false);
+  const [mine, setMine] = useState(mineParam);
 
   const fetchPuzzles = useCallback(async () => {
     setLoading(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
+      const mineQuery = mine ? '&mine=true' : '';
       const data = await api.get<{ data: GeneratedPuzzle[]; total: number }>(
-        `/api/puzzles/generated?limit=${PAGE_SIZE}&offset=${offset}&sort=${sort}&order=${order}`
+        `/api/puzzles/generated?limit=${PAGE_SIZE}&offset=${offset}&sort=${sort}&order=${order}${mineQuery}`
       );
       setPuzzles(data.data ?? []);
       setTotal(data.total ?? 0);
@@ -48,7 +55,13 @@ export function PuzzleBrowserPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, sort, order]);
+  }, [page, sort, order, mine]);
+
+  const toggleMine = (val: boolean) => {
+    setMine(val);
+    setPage(1);
+    setSearchParams(val ? { mine: 'true' } : {});
+  };
 
   useEffect(() => {
     fetchPuzzles();
@@ -70,17 +83,27 @@ export function PuzzleBrowserPage() {
     <div className="puzzle-browser-page">
       <h1>{t('puzzleBrowser.title')}<HelpButton section="puzzles" /></h1>
 
+      {/* Tabs */}
+      <div className="puzzle-browser-tabs">
+        <button className={`puzzle-browser-tab${!mine ? ' active' : ''}`} onClick={() => toggleMine(false)}>
+          {t('puzzleBrowser.allPuzzles', 'All puzzles')}
+        </button>
+        <button className={`puzzle-browser-tab${mine ? ' active' : ''}`} onClick={() => toggleMine(true)}>
+          {t('puzzleBrowser.myPuzzles', 'My puzzles')}
+        </button>
+      </div>
+
       {/* Toolbar */}
       <div className="puzzle-toolbar">
         <div className="puzzle-toolbar__left">
           <button className="generate-puzzles-btn" onClick={() => setShowGenerator(true)}>
             {t('puzzleGenerator.fromPgn', 'Generate from PGN')}
           </button>
-          {total > 0 && (
+          {mine && total > 0 && (
             <button
               className="puzzle-delete-all-btn"
               onClick={async () => {
-                if (!confirm(t('puzzleBrowser.confirmDeleteAll', 'Delete all generated puzzles?'))) return;
+                if (!confirm(t('puzzleBrowser.confirmDeleteMine', 'Delete all your {{count}} puzzles?', { count: total }))) return;
                 try {
                   await api.delete('/api/puzzles/generated/all');
                   setPuzzles([]);
@@ -89,12 +112,25 @@ export function PuzzleBrowserPage() {
                 } catch { /* ignore */ }
               }}
             >
-              {t('puzzleBrowser.deleteAll', 'Delete All')}
+              {t('puzzleBrowser.deleteMine', 'Delete my puzzles ({{count}})', { count: total })}
+            </button>
+          )}
+          {mine && total > 0 && (
+            <button
+              className="puzzle-publish-all-btn"
+              onClick={async () => {
+                try {
+                  await api.patch('/api/puzzles/generated/publish-all', {});
+                  fetchPuzzles();
+                } catch { /* ignore */ }
+              }}
+            >
+              {t('puzzleBrowser.publishAll', 'Publish all')}
             </button>
           )}
         </div>
         <div className="puzzle-toolbar__right">
-          <span className="puzzle-toolbar__total">{total} puzzles</span>
+          <span className="puzzle-toolbar__total">{t('puzzleBrowser.totalCount', '{{count}} puzzles', { count: total })}</span>
           <button
             className={`puzzle-sort-btn${sort === 'createdAt' ? ' active' : ''}`}
             onClick={() => toggleSort('createdAt')}
@@ -147,20 +183,37 @@ export function PuzzleBrowserPage() {
                 >
                   {t('puzzleBrowser.solve')}
                 </button>
-                <button
-                  className="puzzle-delete-btn"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    try {
-                      await api.delete(`/api/puzzles/generated/${puzzle.id}`);
-                      setPuzzles((prev) => prev.filter((p) => p.id !== puzzle.id));
-                      setTotal((n) => n - 1);
-                    } catch { /* ignore */ }
-                  }}
-                  title={t('common.delete', 'Delete')}
-                >
-                  ×
-                </button>
+                {puzzle.userId === user?.id && (
+                  <button
+                    className={`puzzle-share-btn${puzzle.isPublic ? ' shared' : ''}`}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await api.patch(`/api/puzzles/generated/${puzzle.id}`, { isPublic: !puzzle.isPublic });
+                        setPuzzles((prev) => prev.map((p) => p.id === puzzle.id ? { ...p, isPublic: !p.isPublic } : p));
+                      } catch { /* ignore */ }
+                    }}
+                    title={puzzle.isPublic ? t('puzzleBrowser.unpublish', 'Make private') : t('puzzleBrowser.publish', 'Publish')}
+                  >
+                    {puzzle.isPublic ? '🌐' : '🔒'}
+                  </button>
+                )}
+                {puzzle.userId === user?.id && (
+                  <button
+                    className="puzzle-delete-btn"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      try {
+                        await api.delete(`/api/puzzles/generated/${puzzle.id}`);
+                        setPuzzles((prev) => prev.filter((p) => p.id !== puzzle.id));
+                        setTotal((n) => n - 1);
+                      } catch { /* ignore */ }
+                    }}
+                    title={t('common.delete', 'Delete')}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             </div>
           ))}

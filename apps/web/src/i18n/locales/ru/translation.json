@@ -532,6 +532,14 @@
   },
   "puzzleBrowser": {
     "title": "Задачи",
+    "allPuzzles": "Все задачи",
+    "myPuzzles": "Мои задачи",
+    "deleteMine": "Удалить мои задачи ({{count}})",
+    "confirmDeleteMine": "Удалить все ваши {{count}} задачи?",
+    "publishAll": "Опубликовать все",
+    "publish": "Опубликовать",
+    "unpublish": "Сделать приватным",
+    "totalCount": "{{count}} задач",
     "yourRating": "Рейтинг задач: {{rating}}",
     "difficulty": "Сложность",
     "theme": "Тема",
@@ -771,6 +779,8 @@
     "saved": "Сохранено!",
     "goToTraining": "К тренировке",
     "generateMore": "Сгенерировать ещё",
+    "solveNow": "Решить сейчас",
+    "myPuzzles": "Мои задачи",
     "fromPgn": "Генерация из PGN",
     "pastePgn": "Вставьте PGN сюда...",
     "orUpload": "или загрузите .pgn файл"

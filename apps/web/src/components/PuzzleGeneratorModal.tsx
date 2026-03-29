@@ -248,7 +248,10 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
                 ) : (
                   <div className="puzzle-generator-saved">
                     <span>{t('puzzleGenerator.saved', 'Saved!')}</span>
-                    <button onClick={() => { onClose(); navigate('/puzzles'); }}>{t('puzzleGenerator.goToTraining', 'Go to Training')}</button>
+                    <div className="puzzle-generator-saved__actions">
+                      <button onClick={() => { onClose(); navigate('/puzzles?mine=true&solve=first'); }}>{t('puzzleGenerator.solveNow', 'Solve now')}</button>
+                      <button onClick={() => { onClose(); navigate('/puzzles?mine=true'); }}>{t('puzzleGenerator.myPuzzles', 'My puzzles')}</button>
+                    </div>
                   </div>
                 )}
               </>
