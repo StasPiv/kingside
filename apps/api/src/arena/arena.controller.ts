@@ -1,11 +1,15 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Query, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { ArenaService } from './arena.service';
+import { RoundManagerService } from './round-manager.service';
 
 @Controller('arena')
 export class ArenaController {
-  constructor(private readonly arena: ArenaService) {}
+  constructor(
+    private readonly arena: ArenaService,
+    private readonly roundManager: RoundManagerService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Post()
@@ -41,6 +45,22 @@ export class ArenaController {
   @Post(':id/join')
   join(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.arena.join(id, req.user.id);
+  }
+
+  @Get(':id/rounds')
+  getRounds(@Param('id', ParseUUIDPipe) id: string) {
+    return this.roundManager.getRounds(id);
+  }
+
+  @Get(':id/rounds/:n')
+  getRound(@Param('id', ParseUUIDPipe) id: string, @Param('n', ParseIntPipe) n: number) {
+    return this.roundManager.getRound(id, n);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/start-round')
+  startRound(@Param('id', ParseUUIDPipe) id: string) {
+    return this.roundManager.startNextRound(id);
   }
 
   @UseGuards(JwtAuthGuard)

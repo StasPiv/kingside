@@ -551,17 +551,23 @@ model ArenaTournament {
   id              String    @id @default(uuid()) @db.Uuid
   name            String
   createdBy       String    @map("created_by") @db.Uuid
+  type            String    @default("arena") // arena, swiss, round_robin
   status          String    @default("upcoming") // upcoming, active, finished
   timeControlType String    @map("time_control_type") // bullet, blitz, rapid
   timeInitialSec  Int       @map("time_initial_sec")
   timeIncrementSec Int      @map("time_increment_sec")
-  durationMin     Int       @map("duration_min")      // 30-180
+  durationMin     Int       @map("duration_min")      // arena: 30-180
+  totalRounds     Int?      @map("total_rounds")       // swiss/rr
+  roundPauseMin   Int?      @map("round_pause_min")    // minutes between rounds
+  maxPlayers      Int?      @map("max_players")
+  currentRound    Int       @default(0) @map("current_round")
   startsAt        DateTime  @map("starts_at")
   finishesAt      DateTime  @map("finishes_at")
   createdAt       DateTime  @default(now()) @map("created_at")
 
-  entries ArenaTournamentEntry[]
-  games   Game[]
+  entries  ArenaTournamentEntry[]
+  games    Game[]
+  rounds   TournamentRound[]
 
   @@index([status])
   @@index([startsAt])
@@ -585,4 +591,34 @@ model ArenaTournamentEntry {
   @@unique([tournamentId, userId])
   @@index([tournamentId, score])
   @@map("arena_tournament_entries")
+}
+
+model TournamentRound {
+  id           String   @id @default(uuid()) @db.Uuid
+  tournamentId String   @map("tournament_id") @db.Uuid
+  roundNumber  Int      @map("round_number")
+  status       String   @default("pending") // pending, active, finished
+  startedAt    DateTime? @map("started_at")
+  finishedAt   DateTime? @map("finished_at")
+
+  tournament ArenaTournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  pairings   TournamentPairing[]
+
+  @@unique([tournamentId, roundNumber])
+  @@map("tournament_rounds")
+}
+
+model TournamentPairing {
+  id       String  @id @default(uuid()) @db.Uuid
+  roundId  String  @map("round_id") @db.Uuid
+  whiteId  String  @map("white_id") @db.Uuid
+  blackId  String? @map("black_id") @db.Uuid  // null = bye
+  gameId   String? @map("game_id") @db.Uuid
+  result   String? // 1-0, 0-1, 1/2-1/2, bye
+  board    Int     @default(1)
+
+  round TournamentRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@index([roundId])
+  @@map("tournament_pairings")
 }

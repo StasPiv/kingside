@@ -6,12 +6,15 @@ import { ArenaController } from './arena.controller';
 import { ArenaService } from './arena.service';
 import { ArenaGateway } from './arena.gateway';
 import { ArenaSchedulerService } from './arena-scheduler.service';
+import { RoundManagerService } from './round-manager.service';
+import { SwissPairingService } from './swiss-pairing.service';
+import { RoundRobinPairingService } from './round-robin-pairing.service';
 
 @Module({
   imports: [AuthModule, GameModule],
   controllers: [ArenaController],
-  providers: [ArenaService, ArenaGateway, ArenaSchedulerService],
-  exports: [ArenaService, ArenaGateway],
+  providers: [ArenaService, ArenaGateway, ArenaSchedulerService, RoundManagerService, SwissPairingService, RoundRobinPairingService],
+  exports: [ArenaService, ArenaGateway, RoundManagerService],
 })
 export class ArenaModule implements OnModuleInit {
   constructor(
