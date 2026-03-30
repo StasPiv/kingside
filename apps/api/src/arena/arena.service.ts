@@ -352,7 +352,7 @@ export class ArenaService {
         where: { id: t.id },
         data: { status: 'active' },
       });
-      this.logger.log(`Tournament ${t.id} "${t.name}" started`);
+      this.logger.log(`Tournament ${t.id} "${t.name}" (type=${t.type}) started — transitioning upcoming→active`);
     }
     return upcoming.map((t) => t.id);
   }

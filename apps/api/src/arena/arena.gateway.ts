@@ -142,10 +142,13 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!blackId) return; // bye — no game
     const allSockets = await this.server.fetchSockets();
     const payload = { gameId, tournamentId };
+    let notified = 0;
     for (const s of allSockets) {
       if (s.data.user?.id === whiteId || s.data.user?.id === blackId) {
         s.emit(TOURNAMENT_EVENTS.PAIRED, payload);
+        notified++;
       }
     }
+    this.logger.log(`emitPaired: game ${gameId}, white=${whiteId}, black=${blackId}, sockets=${allSockets.length}, notified=${notified}`);
   }
 }

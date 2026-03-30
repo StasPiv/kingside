@@ -23,11 +23,22 @@ export class RoundManagerService {
       where: { id: tournamentId },
       include: { entries: true },
     });
-    if (!t || t.status !== 'active') return null;
-    if (t.type === 'arena') return null;
+    if (!t || t.status !== 'active') {
+      this.logger.warn(`startNextRound: tournament ${tournamentId} not found or not active (status=${t?.status})`);
+      return null;
+    }
+    if (t.type === 'arena') {
+      this.logger.log(`startNextRound: skipping arena tournament ${tournamentId}`);
+      return null;
+    }
 
     const nextRound = t.currentRound + 1;
-    if (t.totalRounds && nextRound > t.totalRounds) return null;
+    if (t.totalRounds && nextRound > t.totalRounds) {
+      this.logger.log(`startNextRound: all ${t.totalRounds} rounds played for ${tournamentId}`);
+      return null;
+    }
+
+    this.logger.log(`startNextRound: ${t.type} tournament ${tournamentId}, round ${nextRound}, ${t.entries.length} entries`);
 
     let pairings: { whiteId: string; blackId: string | null; board: number }[];
 
@@ -41,7 +52,12 @@ export class RoundManagerService {
       pairings = this.swissPairing.pair(players, nextRound);
     }
 
-    if (pairings.length === 0) return null;
+    if (pairings.length === 0) {
+      this.logger.warn(`startNextRound: 0 pairings generated for round ${nextRound} of ${tournamentId}`);
+      return null;
+    }
+
+    this.logger.log(`startNextRound: ${pairings.length} pairings generated for round ${nextRound}`);
 
     // Create round
     const round = await this.prisma.tournamentRound.create({
@@ -71,6 +87,9 @@ export class RoundManagerService {
         });
         await this.gameService.initGame(game.id);
         gameId = game.id;
+        this.logger.log(`startNextRound: created game ${game.id} — ${p.whiteId} vs ${p.blackId} (board ${p.board})`);
+      } else {
+        this.logger.log(`startNextRound: bye for ${p.whiteId} (board ${p.board})`);
       }
 
       await this.prisma.tournamentPairing.create({
