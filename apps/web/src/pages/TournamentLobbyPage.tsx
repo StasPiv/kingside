@@ -84,7 +84,7 @@ export function TournamentLobbyPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
   // Tab state from URL
-  const activeTab = (searchParams.get('tab') as TabId) || 'round';
+  const activeTab = (searchParams.get('tab') as TabId) || 'table';
   const setActiveTab = (tab: TabId) => {
     setSearchParams({ tab }, { replace: true });
   };
@@ -188,6 +188,10 @@ export function TournamentLobbyPage() {
       fetchStandings();
     };
 
+    const onPlayerLeft = () => {
+      fetchStandings();
+    };
+
     const onGameEnd = (data: { gameId: string; result: string; pairingId: string }) => {
       setRounds((prev) => prev.map((r) => ({
         ...r,
@@ -220,6 +224,7 @@ export function TournamentLobbyPage() {
     tournamentSocket.on('tournament:standings', onStandings);
     tournamentSocket.on('tournament:finished', onFinished);
     tournamentSocket.on('tournament:player_joined', onPlayerJoined);
+    tournamentSocket.on('tournament:player_left', onPlayerLeft);
     tournamentSocket.on('tournament:started', onRoundStarted);
     tournamentSocket.on('tournament:game_end', onGameEnd);
     tournamentSocket.on('tournament:round_end', onRoundEnd);
@@ -230,6 +235,7 @@ export function TournamentLobbyPage() {
       tournamentSocket.off('tournament:standings', onStandings);
       tournamentSocket.off('tournament:finished', onFinished);
       tournamentSocket.off('tournament:player_joined', onPlayerJoined);
+      tournamentSocket.off('tournament:player_left', onPlayerLeft);
       tournamentSocket.off('tournament:started', onRoundStarted);
       tournamentSocket.off('tournament:game_end', onGameEnd);
       tournamentSocket.off('tournament:round_end', onRoundEnd);
@@ -263,6 +269,9 @@ export function TournamentLobbyPage() {
     if (!id) return;
     try {
       await api.post(`/api/arena/${id}/leave`, {});
+      if (tournamentSocket.connected) {
+        tournamentSocket.emit('tournament:leave', { tournamentId: id });
+      }
       navigate('/tournaments');
     } catch { /* ignore */ }
   };
@@ -272,6 +281,9 @@ export function TournamentLobbyPage() {
     if (!window.confirm(t('tournaments.withdrawConfirm', 'Are you sure? Remaining rounds will be scored as 0.'))) return;
     try {
       await api.post(`/api/arena/${id}/leave`, {});
+      if (tournamentSocket.connected) {
+        tournamentSocket.emit('tournament:leave', { tournamentId: id });
+      }
       navigate('/tournaments');
     } catch { /* ignore */ }
   };
@@ -329,8 +341,8 @@ export function TournamentLobbyPage() {
   };
 
   const tabs: { id: TabId; label: string }[] = [
-    { id: 'round', label: t('tournaments.tabRound', 'Current Round') },
     { id: 'table', label: t('tournaments.tabTable', 'Table') },
+    { id: 'round', label: t('tournaments.tabRound', 'Current Round') },
     ...(tournament.type === 'round_robin' ? [{ id: 'schedule' as TabId, label: t('tournaments.tabSchedule', 'Schedule') }] : []),
     { id: 'players', label: t('tournaments.tabPlayers', 'Players') },
   ];

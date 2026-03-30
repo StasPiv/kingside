@@ -119,6 +119,11 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
 
     await this.arenaService.leaveSeeking(data.tournamentId, userId);
+
+    // Notify room before leaving
+    this.emitPlayerLeft(data.tournamentId, userId);
+    await this.emitStandings(data.tournamentId);
+
     await client.leave(`tournament:${data.tournamentId}`);
     client.data.tournamentId = null;
   }
