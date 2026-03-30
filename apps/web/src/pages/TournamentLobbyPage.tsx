@@ -141,6 +141,12 @@ export function TournamentLobbyPage() {
 
     const onFinished = () => {
       fetchTournament();
+      fetchRounds();
+    };
+
+    const onRoundStarted = () => {
+      fetchRounds();
+      fetchStandings();
     };
 
     const onPlayerJoined = () => {
@@ -151,12 +157,14 @@ export function TournamentLobbyPage() {
     tournamentSocket.on('tournament:standings', onStandings);
     tournamentSocket.on('tournament:finished', onFinished);
     tournamentSocket.on('tournament:player_joined', onPlayerJoined);
+    tournamentSocket.on('tournament:started', onRoundStarted);
 
     return () => {
       tournamentSocket.off('tournament:paired', onPaired);
       tournamentSocket.off('tournament:standings', onStandings);
       tournamentSocket.off('tournament:finished', onFinished);
       tournamentSocket.off('tournament:player_joined', onPlayerJoined);
+      tournamentSocket.off('tournament:started', onRoundStarted);
       tournamentSocket.emit('tournament:leave', { tournamentId: id });
       tournamentSocket.disconnect();
     };
@@ -190,6 +198,7 @@ export function TournamentLobbyPage() {
   const isActive = tournament.status === 'active';
   const isUpcoming = tournament.status === 'upcoming';
   const isFinished = tournament.status === 'finished';
+  const isArena = tournament.type === 'arena';
   const isPlayer = standings.some((s) => s.userId === user?.id);
   const formatTc = (init: number, inc: number) => inc > 0 ? `${Math.floor(init / 60)}+${inc}` : `${Math.floor(init / 60)} min`;
 
@@ -215,17 +224,75 @@ export function TournamentLobbyPage() {
         {isUpcoming && user && !isPlayer && (
           <button className="tournament-join-btn" onClick={handleJoin}>{t('tournaments.join', 'Join')}</button>
         )}
-        {isActive && user && isPlayer && !seeking && (
+
+        {/* Arena: seek button */}
+        {isArena && isActive && user && isPlayer && !seeking && (
           <button className="tournament-seek-btn" onClick={handleSeek}>{t('tournaments.seek', 'Find opponent')}</button>
         )}
-        {isActive && user && !isPlayer && !joined && (
+        {isArena && isActive && user && !isPlayer && !joined && (
           <button className="tournament-join-btn" onClick={handleJoin}>{t('tournaments.joinAndPlay', 'Join & Play')}</button>
         )}
-        {seeking && (
+        {isArena && seeking && (
           <div className="tournament-seeking">
             <span className="tournament-seeking__dot" />
             {t('tournaments.seeking', 'Looking for opponent...')}
           </div>
+        )}
+
+        {/* Swiss/RR: round status info */}
+        {!isArena && isActive && (() => {
+          const currentRd = rounds.find((r) => r.status === 'active');
+          const lastFinished = [...rounds].reverse().find((r) => r.status === 'finished');
+          const nextPending = rounds.find((r) => r.status === 'pending');
+
+          if (currentRd) {
+            // Find my pairing
+            const myPairing = currentRd.pairings.find(
+              (p) => p.whiteId === user?.id || p.blackId === user?.id,
+            );
+            return (
+              <div className="tournament-round-info">
+                <span className="tournament-round-info__status">
+                  {t('tournaments.roundInProgress', 'Round {{n}} in progress', { n: currentRd.roundNumber })}
+                </span>
+                {myPairing && (
+                  <span className="tournament-round-info__pair">
+                    {myPairing.gameId
+                      ? t('tournaments.yourGame', 'Your game is active')
+                      : t('tournaments.waitingForPairing', 'Waiting for game to start...')}
+                  </span>
+                )}
+              </div>
+            );
+          }
+
+          if (nextPending) {
+            return (
+              <div className="tournament-round-info">
+                <span className="tournament-round-info__status">
+                  {lastFinished
+                    ? t('tournaments.roundComplete', 'Round {{n}} complete', { n: lastFinished.roundNumber })
+                    : t('tournaments.waitingForStart', 'Waiting for first round')}
+                </span>
+              </div>
+            );
+          }
+
+          if (lastFinished && !nextPending) {
+            return (
+              <div className="tournament-round-info">
+                <span className="tournament-round-info__status">
+                  {t('tournaments.allRoundsComplete', 'All rounds complete')}
+                </span>
+              </div>
+            );
+          }
+
+          return null;
+        })()}
+
+        {!isArena && isActive && user && !isPlayer && !joined && (
+          <button className="tournament-join-btn" onClick={handleJoin}>{t('tournaments.join', 'Join')}</button>
         )}
       </div>
 

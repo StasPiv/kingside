@@ -836,7 +836,13 @@
     "roundFinished": "Finished",
     "roundPending": "Pending",
     "bye": "BYE",
-    "live": "LIVE"
+    "live": "LIVE",
+    "roundInProgress": "Round {{n}} in progress",
+    "yourGame": "Your game is active",
+    "waitingForPairing": "Waiting for game to start...",
+    "roundComplete": "Round {{n}} complete",
+    "waitingForStart": "Waiting for first round",
+    "allRoundsComplete": "All rounds complete"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",

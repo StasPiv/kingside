@@ -836,7 +836,13 @@
     "roundFinished": "Завершён",
     "roundPending": "Ожидание",
     "bye": "BYE",
-    "live": "LIVE"
+    "live": "LIVE",
+    "roundInProgress": "Тур {{n}} идёт",
+    "yourGame": "Ваша партия активна",
+    "waitingForPairing": "Ожидание старта партии...",
+    "roundComplete": "Тур {{n}} завершён",
+    "waitingForStart": "Ожидание первого тура",
+    "allRoundsComplete": "Все туры завершены"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",
