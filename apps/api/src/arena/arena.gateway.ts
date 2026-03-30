@@ -55,6 +55,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(client: Socket) {
     const userId = client.data.user?.id;
     const tid = client.data.tournamentId;
+    this.logger.log(`Tournament client disconnected: ${client.data.user?.username ?? '?'} (${client.id}), tournamentId=${tid ?? 'none'}`);
     if (userId && tid) {
       await this.arenaService.leaveSeeking(tid, userId);
     }
@@ -68,17 +69,26 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.user?.id;
     if (!userId) return;
 
-    await client.join(`tournament:${data.tournamentId}`);
+    const roomName = `tournament:${data.tournamentId}`;
+    await client.join(roomName);
     client.data.tournamentId = data.tournamentId;
 
-    // Auto-join entry
-    await this.arenaService.join(data.tournamentId, userId);
+    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    this.logger.log(`handleJoin: ${client.data.user.username} (${client.id}) joined room ${roomName}, room size=${roomSize}`);
+
+    // Auto-join entry (may fail for finished tournaments — don't break WS flow)
+    try {
+      await this.arenaService.join(data.tournamentId, userId);
+    } catch (e: unknown) {
+      this.logger.warn(`handleJoin: join entry failed for ${userId}: ${(e as Error).message}`);
+    }
 
     // Notify room
-    this.server.to(`tournament:${data.tournamentId}`).emit(TOURNAMENT_EVENTS.PLAYER_JOINED, {
+    this.server.to(roomName).emit(TOURNAMENT_EVENTS.PLAYER_JOINED, {
       userId,
       username: client.data.user.username,
     });
+    this.logger.log(`handleJoin: emitted player_joined to room ${roomName} (size=${roomSize})`);
 
     // Update standings so all players see the new entry
     await this.emitStandings(data.tournamentId);
@@ -118,13 +128,17 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.user?.id;
     if (!userId) return;
 
+    const roomName = `tournament:${data.tournamentId}`;
+    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    this.logger.log(`handleLeave: ${client.data.user?.username} (${client.id}) leaving room ${roomName}, room size=${roomSize}`);
+
     await this.arenaService.leaveSeeking(data.tournamentId, userId);
 
     // Notify room before leaving
     this.emitPlayerLeft(data.tournamentId, userId);
     await this.emitStandings(data.tournamentId);
 
-    await client.leave(`tournament:${data.tournamentId}`);
+    await client.leave(roomName);
     client.data.tournamentId = null;
   }
 
@@ -138,8 +152,11 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   async emitStandings(tournamentId: string) {
+    const roomName = `tournament:${tournamentId}`;
+    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
     const standings = await this.arenaService.getStandings(tournamentId);
-    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.STANDINGS, { standings });
+    this.server.to(roomName).emit(TOURNAMENT_EVENTS.STANDINGS, { standings });
+    this.logger.log(`emitStandings: room ${roomName}, size=${roomSize}, entries=${standings.length}`);
   }
 
   emitRoundStart(tournamentId: string, roundNumber: number, pairings?: { whiteId: string; blackId: string | null; gameId: string | null; board: number }[]) {
@@ -169,6 +186,9 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   emitPlayerLeft(tournamentId: string, userId: string) {
-    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.PLAYER_LEFT, { tournamentId, userId });
+    const roomName = `tournament:${tournamentId}`;
+    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    this.server.to(roomName).emit(TOURNAMENT_EVENTS.PLAYER_LEFT, { tournamentId, userId });
+    this.logger.log(`emitPlayerLeft: userId=${userId}, room=${roomName}, size=${roomSize}`);
   }
 }
