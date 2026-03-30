@@ -84,7 +84,7 @@ export function BroadcastsPage() {
       .catch(() => {})
       .finally(() => setTournamentsLoading(false));
 
-    api.get<{ data: LichessBroadcast[] }>('/api/broadcasts')
+    api.get<{ data: LichessBroadcast[] }>('/api/broadcasts?take=100')
       .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, []);
@@ -133,17 +133,15 @@ export function BroadcastsPage() {
       {featuredBroadcasts.length > 0 && (
         <div className="broadcasts-featured-section">
           {featuredBroadcasts.map((b) => (
-            <a
+            <Link
               key={b.id}
-              href={b.url}
-              target="_blank"
-              rel="noopener noreferrer"
+              to={`/broadcasts/${b.id}`}
               className="broadcast-featured-card"
             >
               <div className="broadcast-featured-badge">LIVE</div>
               <h3 className="broadcast-featured-title">{b.title}</h3>
               <span className="broadcast-featured-source">lichess.org</span>
-            </a>
+            </Link>
           ))}
         </div>
       )}
