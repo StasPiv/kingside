@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "arena_tournaments" ADD COLUMN "points_win" DOUBLE PRECISION NOT NULL DEFAULT 1;
+ALTER TABLE "arena_tournaments" ADD COLUMN "points_draw" DOUBLE PRECISION NOT NULL DEFAULT 0.5;
+ALTER TABLE "arena_tournaments" ADD COLUMN "points_loss" DOUBLE PRECISION NOT NULL DEFAULT 0;

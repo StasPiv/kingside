@@ -24,6 +24,9 @@ export class ArenaService {
     durationMin: number;
     totalRounds?: number;
     roundPauseMin?: number;
+    pointsWin?: number;
+    pointsDraw?: number;
+    pointsLoss?: number;
     startsAt: string;
   }) {
     if (data.durationMin < 30 || data.durationMin > 180) {
@@ -58,6 +61,9 @@ export class ArenaService {
         durationMin: data.durationMin,
         ...(data.totalRounds ? { totalRounds: data.totalRounds } : {}),
         ...(data.roundPauseMin ? { roundPauseMin: data.roundPauseMin } : {}),
+        ...(data.pointsWin != null ? { pointsWin: data.pointsWin } : {}),
+        ...(data.pointsDraw != null ? { pointsDraw: data.pointsDraw } : {}),
+        ...(data.pointsLoss != null ? { pointsLoss: data.pointsLoss } : {}),
         startsAt,
         finishesAt,
       },
@@ -418,16 +424,23 @@ export class ArenaService {
     if (!game?.tournamentId || !game.result) return;
 
     const { tournamentId, whiteId, blackId, result } = game;
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) return;
+
+    const isArena = t.type === 'arena';
 
     // Determine winner/loser
     if (result === 'draw') {
-      await this.addScore(tournamentId, whiteId, 1, 'draw');
-      await this.addScore(tournamentId, blackId, 1, 'draw');
+      const drawPts = isArena ? 1 : t.pointsDraw;
+      await this.addScore(tournamentId, whiteId, drawPts, 'draw', isArena);
+      await this.addScore(tournamentId, blackId, drawPts, 'draw', isArena);
     } else {
       const winnerId = result === 'white' ? whiteId : blackId;
       const loserId = result === 'white' ? blackId : whiteId;
-      await this.addScore(tournamentId, winnerId, 2, 'win');
-      await this.addScore(tournamentId, loserId, 0, 'loss');
+      const winPts = isArena ? 2 : t.pointsWin;
+      const lossPts = isArena ? 0 : t.pointsLoss;
+      await this.addScore(tournamentId, winnerId, winPts, 'win', isArena);
+      await this.addScore(tournamentId, loserId, lossPts, 'loss', isArena);
     }
   }
 
@@ -436,6 +449,7 @@ export class ArenaService {
     userId: string,
     basePoints: number,
     outcome: 'win' | 'draw' | 'loss',
+    useStreakBonus: boolean,
   ) {
     const entry = await this.prisma.arenaTournamentEntry.findUnique({
       where: { tournamentId_userId: { tournamentId, userId } },
@@ -443,9 +457,9 @@ export class ArenaService {
     if (!entry) return;
 
     let newStreak = outcome === 'win' ? entry.streak + 1 : 0;
-    // Streak bonus: 2+ consecutive wins = 4 points instead of 2
+    // Arena streak bonus: 2+ consecutive wins = 4 points instead of 2
     let points = basePoints;
-    if (outcome === 'win' && newStreak >= 2) {
+    if (useStreakBonus && outcome === 'win' && newStreak >= 2) {
       points = 4;
     }
 
@@ -459,6 +473,59 @@ export class ArenaService {
         losses: outcome === 'loss' ? { increment: 1 } : undefined,
       },
     });
+  }
+
+  // --- Crosstable ---
+
+  async getCrosstable(tournamentId: string) {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) throw new NotFoundException('Tournament not found');
+
+    const entries = await this.prisma.arenaTournamentEntry.findMany({
+      where: { tournamentId },
+      orderBy: { score: 'desc' },
+      include: { user: { select: { username: true, ratingBlitz: true } } },
+    });
+
+    const pairings = await this.prisma.tournamentPairing.findMany({
+      where: { round: { tournamentId } },
+      select: { id: true, whiteId: true, blackId: true, result: true, gameId: true },
+    });
+
+    // Build results map: "whiteId:blackId" → { result, gameId, color }
+    const results: Record<string, { result: string | null; gameId: string | null; color: 'white' | 'black' }> = {};
+    for (const p of pairings) {
+      if (!p.blackId) continue; // skip byes
+      // From white's perspective
+      results[`${p.whiteId}:${p.blackId}`] = {
+        result: p.result,
+        gameId: p.gameId,
+        color: 'white',
+      };
+      // From black's perspective
+      results[`${p.blackId}:${p.whiteId}`] = {
+        result: p.result ? this.invertResult(p.result) : null,
+        gameId: p.gameId,
+        color: 'black',
+      };
+    }
+
+    const players = entries.map((e, i) => ({
+      userId: e.userId,
+      username: e.user?.username ?? '?',
+      rating: e.user?.ratingBlitz ?? 1500,
+      score: e.score,
+      rank: i + 1,
+      withdrawn: e.withdrawn,
+    }));
+
+    return { players, results };
+  }
+
+  private invertResult(result: string): string {
+    if (result === '1-0') return '0-1';
+    if (result === '0-1') return '1-0';
+    return result; // '1/2-1/2', 'bye'
   }
 
   // --- Scheduler ---

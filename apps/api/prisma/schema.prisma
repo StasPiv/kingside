@@ -560,6 +560,9 @@ model ArenaTournament {
   totalRounds     Int?      @map("total_rounds")       // swiss/rr
   roundPauseMin   Int?      @map("round_pause_min")    // minutes between rounds
   maxPlayers      Int?      @map("max_players")
+  pointsWin       Float     @default(1) @map("points_win")
+  pointsDraw      Float     @default(0.5) @map("points_draw")
+  pointsLoss      Float     @default(0) @map("points_loss")
   currentRound    Int       @default(0) @map("current_round")
   startsAt        DateTime  @map("starts_at")
   finishesAt      DateTime  @map("finishes_at")

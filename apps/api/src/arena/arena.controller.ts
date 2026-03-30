@@ -25,6 +25,9 @@ export class ArenaController {
       durationMin: number;
       totalRounds?: number;
       roundPauseMin?: number;
+      pointsWin?: number;
+      pointsDraw?: number;
+      pointsLoss?: number;
       startsAt: string;
     },
   ) {
@@ -60,6 +63,11 @@ export class ArenaController {
   @Get(':id/rounds/:n')
   getRound(@Param('id', ParseUUIDPipe) id: string, @Param('n', ParseIntPipe) n: number) {
     return this.roundManager.getRound(id, n);
+  }
+
+  @Get(':id/crosstable')
+  getCrosstable(@Param('id', ParseUUIDPipe) id: string) {
+    return this.arena.getCrosstable(id);
   }
 
   @UseGuards(JwtAuthGuard)
