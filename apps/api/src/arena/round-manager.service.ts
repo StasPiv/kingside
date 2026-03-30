@@ -44,8 +44,25 @@ export class RoundManagerService {
 
     if (t.type === 'round_robin') {
       const playerIds = t.entries.map((e) => e.userId);
+      const withdrawnIds = new Set(t.entries.filter((e) => e.withdrawn).map((e) => e.userId));
       const allRounds = this.rrPairing.generateAllRounds(playerIds);
-      pairings = allRounds[nextRound - 1] ?? [];
+      const rawPairings = allRounds[nextRound - 1] ?? [];
+      // Filter out pairings where both players withdrew; convert to bye if one withdrew
+      pairings = rawPairings.reduce<typeof rawPairings>((acc, p) => {
+        const wWhite = withdrawnIds.has(p.whiteId);
+        const wBlack = p.blackId ? withdrawnIds.has(p.blackId) : true;
+        if (wWhite && wBlack) return acc; // both withdrawn or bye+withdrawn — skip
+        if (wWhite) {
+          // White withdrew — black gets bye
+          acc.push({ whiteId: p.blackId!, blackId: null, board: p.board });
+        } else if (wBlack) {
+          // Black withdrew or bye — white gets bye
+          acc.push({ whiteId: p.whiteId, blackId: null, board: p.board });
+        } else {
+          acc.push(p);
+        }
+        return acc;
+      }, []);
     } else {
       // Swiss
       const players = await this.getSwissPlayers(tournamentId);
@@ -215,7 +232,7 @@ export class RoundManagerService {
 
   private async getSwissPlayers(tournamentId: string) {
     const entries = await this.prisma.arenaTournamentEntry.findMany({
-      where: { tournamentId },
+      where: { tournamentId, withdrawn: false },
       include: { user: { select: { ratingBlitz: true } } },
     });
 

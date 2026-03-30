@@ -22,6 +22,7 @@ const TOURNAMENT_EVENTS = {
   STARTED: 'tournament:started',
   FINISHED: 'tournament:finished',
   PLAYER_JOINED: 'tournament:player_joined',
+  PLAYER_LEFT: 'tournament:player_left',
 };
 
 @WebSocketGateway({ namespace: '/tournament', cors: { origin: '*' } })
@@ -150,5 +151,9 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     }
     this.logger.log(`emitPaired: game ${gameId}, white=${whiteId}, black=${blackId}, sockets=${allSockets.length}, notified=${notified}`);
+  }
+
+  emitPlayerLeft(tournamentId: string, userId: string) {
+    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.PLAYER_LEFT, { tournamentId, userId });
   }
 }

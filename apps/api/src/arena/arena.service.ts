@@ -96,6 +96,63 @@ export class ArenaService {
     });
   }
 
+  async leave(tournamentId: string, userId: string) {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) throw new NotFoundException('Tournament not found');
+    if (t.status === 'finished') throw new BadRequestException('Tournament already finished');
+
+    const entry = await this.prisma.arenaTournamentEntry.findUnique({
+      where: { tournamentId_userId: { tournamentId, userId } },
+    });
+    if (!entry) throw new BadRequestException('Not in tournament');
+
+    if (t.status === 'upcoming') {
+      // Before start: remove entry entirely
+      await this.prisma.arenaTournamentEntry.delete({
+        where: { id: entry.id },
+      });
+      // Remove from seeking queue if any
+      await this.leaveSeeking(tournamentId, userId);
+      this.logger.log(`User ${userId} left upcoming tournament ${tournamentId}`);
+      return { action: 'removed' };
+    }
+
+    // During active tournament: mark as withdrawn
+    await this.prisma.arenaTournamentEntry.update({
+      where: { id: entry.id },
+      data: { withdrawn: true },
+    });
+
+    // Remove from seeking queue
+    await this.leaveSeeking(tournamentId, userId);
+
+    // If the player has an active game in current round, forfeit it
+    if (t.type !== 'arena') {
+      await this.forfeitCurrentGame(tournamentId, userId);
+    }
+
+    this.logger.log(`User ${userId} withdrew from active tournament ${tournamentId}`);
+    return { action: 'withdrawn' };
+  }
+
+  private async forfeitCurrentGame(tournamentId: string, userId: string) {
+    // Find active game for this user in the tournament
+    const activeGame = await this.prisma.game.findFirst({
+      where: {
+        tournamentId,
+        OR: [{ whiteId: userId }, { blackId: userId }],
+        status: { in: ['waiting', 'active'] },
+      },
+    });
+
+    if (activeGame) {
+      // Determine result: the opponent wins
+      const result = activeGame.whiteId === userId ? 'black' : 'white';
+      await this.gameService.endGame(activeGame.id, result, 'resignation');
+      this.logger.log(`Forfeited game ${activeGame.id} for withdrawn user ${userId}`);
+    }
+  }
+
   async delete(tournamentId: string, userId: string) {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) throw new NotFoundException('Tournament not found');
@@ -118,6 +175,7 @@ export class ArenaService {
           draws: true,
           losses: true,
           streak: true,
+          withdrawn: true,
           user: { select: { username: true } },
         },
       }),
@@ -186,6 +244,7 @@ export class ArenaService {
       draws: e.draws,
       losses: e.losses,
       streak: e.streak,
+      withdrawn: e.withdrawn,
       games: playerGames.get(e.userId) ?? [],
     }));
   }
@@ -203,6 +262,12 @@ export class ArenaService {
   async seekOpponent(tournamentId: string, userId: string): Promise<{ gameId: string; opponentId: string } | null> {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t || t.status !== 'active') return null;
+
+    // Don't allow withdrawn players to seek
+    const entry = await this.prisma.arenaTournamentEntry.findUnique({
+      where: { tournamentId_userId: { tournamentId, userId } },
+    });
+    if (!entry || entry.withdrawn) return null;
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
