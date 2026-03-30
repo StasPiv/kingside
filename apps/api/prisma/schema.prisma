@@ -52,6 +52,7 @@ model User {
   blockedUsers        BlockedUser[]    @relation("Blocker")
   blockedByUsers      BlockedUser[]    @relation("Blocked")
   ratingHistory       RatingHistory[]
+  arenaEntries        ArenaTournamentEntry[]
   notifications       Notification[]
 
   @@unique([oauthProvider, oauthProviderId])
@@ -579,6 +580,7 @@ model ArenaTournamentEntry {
   joinedAt     DateTime @default(now()) @map("joined_at")
 
   tournament ArenaTournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User            @relation(fields: [userId], references: [id])
 
   @@unique([tournamentId, userId])
   @@index([tournamentId, score])

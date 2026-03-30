@@ -99,7 +99,7 @@ export class ArenaService {
   }
 
   async getStandings(tournamentId: string) {
-    return this.prisma.arenaTournamentEntry.findMany({
+    const entries = await this.prisma.arenaTournamentEntry.findMany({
       where: { tournamentId },
       orderBy: { score: 'desc' },
       select: {
@@ -109,8 +109,18 @@ export class ArenaService {
         draws: true,
         losses: true,
         streak: true,
+        user: { select: { username: true } },
       },
     });
+    return entries.map((e) => ({
+      userId: e.userId,
+      username: e.user?.username ?? '?',
+      score: e.score,
+      wins: e.wins,
+      draws: e.draws,
+      losses: e.losses,
+      streak: e.streak,
+    }));
   }
 
   // --- Arena matchmaking ---
