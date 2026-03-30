@@ -2,12 +2,14 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Post
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { ArenaService } from './arena.service';
+import { ArenaGateway } from './arena.gateway';
 import { RoundManagerService } from './round-manager.service';
 
 @Controller('arena')
 export class ArenaController {
   constructor(
     private readonly arena: ArenaService,
+    private readonly gateway: ArenaGateway,
     private readonly roundManager: RoundManagerService,
   ) {}
 
@@ -58,6 +60,14 @@ export class ArenaController {
   @Get(':id/rounds/:n')
   getRound(@Param('id', ParseUUIDPipe) id: string, @Param('n', ParseIntPipe) n: number) {
     return this.roundManager.getRound(id, n);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/leave')
+  async leave(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
+    const result = await this.arena.leave(id, req.user.id);
+    this.gateway.emitPlayerLeft(id, req.user.id);
+    return result;
   }
 
   @UseGuards(JwtAuthGuard)
