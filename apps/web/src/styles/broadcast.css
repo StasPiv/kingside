@@ -1000,6 +1000,8 @@
 .broadcast-st-diag { background: rgba(255,255,255,0.03); color: #555; }
 
 .broadcast-st-score { margin: 0 1px; }
+.broadcast-st-score--clickable { cursor: pointer; padding: 1px 3px; border-radius: 3px; }
+.broadcast-st-score--clickable:hover { background: rgba(124,131,255,0.2); text-decoration: underline; }
 .broadcast-st-win { color: #4caf50; }
 .broadcast-st-loss { color: #f44336; }
 .broadcast-st-draw { color: #9e9e9e; }

@@ -50,7 +50,7 @@ type StandingsPlayer = {
   points: number;
   gamesPlayed: number;
   sb: number;
-  scores: Record<string, number[]>;
+  scores: Record<string, Array<{ score: number; gameId: string }>>;
 };
 
 type TabId = 'live' | 'standings' | 'rounds' | 'info';
@@ -106,7 +106,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
       .catch(() => {});
   }, [ongoingRound, tournamentId]);
 
-  const handleGameClick = (game: BroadcastGame, roundId: string) => {
+  const handleGameClick = (game: BroadcastGame) => {
     if (!game.pgn) return;
     navigate('/analysis', {
       state: {
@@ -116,6 +116,28 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
         breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
       },
     });
+  };
+
+  const handleScoreClick = async (gameId: string, playerName: string, oppName: string) => {
+    // Find the game across all rounds to get PGN
+    for (const round of rounds) {
+      try {
+        const res = await api.get<{ data: BroadcastGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${round.id}/games`);
+        const games = Array.isArray(res?.data) ? res.data : [];
+        const game = games.find((g) => g.id === gameId);
+        if (game?.pgn) {
+          navigate('/analysis', {
+            state: {
+              pgn: game.pgn,
+              title: `${playerName} vs ${oppName}`,
+              breadcrumbRootTitle: broadcast.title,
+              breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
+            },
+          });
+          return;
+        }
+      } catch { /* continue */ }
+    }
   };
 
   const tabs: { id: TabId; label: string }[] = [
@@ -184,7 +206,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
                       <div
                         key={game.id}
                         className="dgt-board-card dgt-board-card--clickable"
-                        onClick={() => handleGameClick(game, ongoingRound.id)}
+                        onClick={() => handleGameClick(game)}
                         role="button"
                         tabIndex={0}
                       >
@@ -239,13 +261,20 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
                         <td className="broadcast-st-num">{p.sb}</td>
                         {allPlayers.map((opp, ci) => {
                           if (ri === ci) return <td key={ci} className="broadcast-st-cell broadcast-st-diag">✕</td>;
-                          const scores = p.scores[opp.name] ?? [];
-                          if (scores.length === 0) return <td key={ci} className="broadcast-st-cell" />;
+                          const entries = p.scores[opp.name] ?? [];
+                          if (entries.length === 0) return <td key={ci} className="broadcast-st-cell" />;
                           return (
                             <td key={ci} className="broadcast-st-cell">
-                              {scores.map((s, i) => (
-                                <span key={i} className={`broadcast-st-score${s === 1 ? ' broadcast-st-win' : s === 0 ? ' broadcast-st-loss' : ' broadcast-st-draw'}`}>
-                                  {s === 0.5 ? '½' : s}
+                              {entries.map((entry, i) => (
+                                <span
+                                  key={i}
+                                  className={`broadcast-st-score broadcast-st-score--clickable${entry.score === 1 ? ' broadcast-st-win' : entry.score === 0 ? ' broadcast-st-loss' : ' broadcast-st-draw'}`}
+                                  onClick={() => handleScoreClick(entry.gameId, p.name, opp.name)}
+                                  role="button"
+                                  tabIndex={0}
+                                  title={`${p.name} vs ${opp.name}`}
+                                >
+                                  {entry.score === 0.5 ? '½' : entry.score}
                                 </span>
                               ))}
                             </td>

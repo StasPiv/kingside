@@ -118,7 +118,7 @@ export class BroadcastController {
 
     // Collect all players and their results
     const playerSet = new Set<string>();
-    const results: Array<{ round: string; white: string; black: string; result: string }> = [];
+    const results: Array<{ round: string; white: string; black: string; result: string; gameId: string }> = [];
 
     for (const round of broadcast.rounds) {
       for (const game of round.games) {
@@ -127,7 +127,7 @@ export class BroadcastController {
         playerSet.add(white);
         playerSet.add(black);
         if (game.result && game.result !== '*') {
-          results.push({ round: round.name, white, black, result: game.result });
+          results.push({ round: round.name, white, black, result: game.result, gameId: game.id });
         }
       }
     }
@@ -137,8 +137,8 @@ export class BroadcastController {
     // Calculate points and crosstable scores
     const points = new Map<string, number>();
     const gamesPlayed = new Map<string, number>();
-    // scores: "player1:player2" → array of points from player1's perspective
-    const scores = new Map<string, number[]>();
+    // scores: "player1:player2" → array of { score, gameId }
+    const scores = new Map<string, Array<{ score: number; gameId: string }>>();
 
     for (const name of playerNames) {
       points.set(name, 0);
@@ -162,8 +162,8 @@ export class BroadcastController {
       const bKey = `${r.black}:${r.white}`;
       if (!scores.has(wKey)) scores.set(wKey, []);
       if (!scores.has(bKey)) scores.set(bKey, []);
-      scores.get(wKey)!.push(wp);
-      scores.get(bKey)!.push(bp);
+      scores.get(wKey)!.push({ score: wp, gameId: r.gameId });
+      scores.get(bKey)!.push({ score: bp, gameId: r.gameId });
     }
 
     // Calculate Sonneborn-Berger (SB)
@@ -175,8 +175,8 @@ export class BroadcastController {
         const key = `${name}:${opp}`;
         const ptsFromOpp = scores.get(key) ?? [];
         const oppTotalPts = points.get(opp) ?? 0;
-        for (const p of ptsFromOpp) {
-          sbScore += p * oppTotalPts;
+        for (const entry of ptsFromOpp) {
+          sbScore += entry.score * oppTotalPts;
         }
       }
       sb.set(name, Math.round(sbScore * 100) / 100);
