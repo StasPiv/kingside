@@ -62,18 +62,48 @@ export function DashboardPage() {
               ))}
             </div>
 
-            <div className="dashboard-play-links">
-              <Link to="/lobby" className="dashboard-link">{t('dashboard.customGame', 'Custom Game')}</Link>
-              <Link to="/games/live" className="dashboard-link">{t('dashboard.liveGames', 'Live Games')}</Link>
+            <div className="dashboard-action-cards">
+              <Link to="/lobby" className="dash-action-card">
+                <span className="dash-action-icon">&#9881;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('dashboard.customGame', 'Custom Game')}</span>
+                  <span className="dash-action-desc">{t('dashboard.customGameDesc', 'Set your own time control')}</span>
+                </div>
+              </Link>
+              <Link to="/games/live" className="dash-action-card">
+                <span className="dash-action-icon">&#9654;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('dashboard.liveGames', 'Live Games')}</span>
+                  <span className="dash-action-desc">{t('dashboard.liveGamesDesc', 'Watch games in progress')}</span>
+                </div>
+              </Link>
             </div>
           </div>
 
           <div className="dashboard-card">
             <h2>{t('dashboard.puzzles', 'Puzzles')}</h2>
-            <div className="dashboard-puzzle-links">
-              <Link to="/daily" className="dashboard-link">{t('nav.dailyPuzzle', 'Daily Puzzle')}</Link>
-              <Link to="/puzzle-rush" className="dashboard-link">{t('nav.puzzleRush', 'Puzzle Rush')}</Link>
-              <Link to="/puzzles" className="dashboard-link">{t('nav.myPuzzles', 'My Puzzles')}</Link>
+            <div className="dashboard-action-cards">
+              <Link to="/daily" className="dash-action-card">
+                <span className="dash-action-icon">&#9733;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('nav.dailyPuzzle', 'Daily Puzzle')}</span>
+                  <span className="dash-action-desc">{t('dashboard.dailyDesc', 'New puzzle every day')}</span>
+                </div>
+              </Link>
+              <Link to="/puzzle-rush" className="dash-action-card">
+                <span className="dash-action-icon">&#9889;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('nav.puzzleRush', 'Puzzle Rush')}</span>
+                  <span className="dash-action-desc">{t('dashboard.rushDesc', 'Solve as many as you can')}</span>
+                </div>
+              </Link>
+              <Link to="/puzzles" className="dash-action-card">
+                <span className="dash-action-icon">&#9819;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('nav.myPuzzles', 'My Puzzles')}</span>
+                  <span className="dash-action-desc">{t('dashboard.myPuzzlesDesc', 'Browse your collection')}</span>
+                </div>
+              </Link>
             </div>
           </div>
         </div>
@@ -96,8 +126,9 @@ export function DashboardPage() {
                 ))}
               </div>
             )}
-            <Link to="/tournaments" className="dashboard-link dashboard-link--all">
-              {t('dashboard.allTournaments', 'All Tournaments')} &rarr;
+            <Link to="/tournaments" className="dash-action-card dash-action-card--compact">
+              <span className="dash-action-icon">&#9813;</span>
+              <span className="dash-action-title">{t('dashboard.allTournaments', 'All Tournaments')}</span>
             </Link>
           </div>
 
@@ -122,10 +153,28 @@ export function DashboardPage() {
 
           <div className="dashboard-card">
             <h2>{t('dashboard.workshop', 'Workshop')}</h2>
-            <div className="dashboard-workshop-links">
-              <Link to="/workshop" className="dashboard-link">{t('nav.analyses', 'Analyses')}</Link>
-              <Link to="/analysis" className="dashboard-link">{t('nav.newAnalysis', 'New Analysis')}</Link>
-              <Link to="/workshop/pgn-files" className="dashboard-link">{t('nav.pgnFiles', 'PGN Files')}</Link>
+            <div className="dashboard-action-cards">
+              <Link to="/workshop" className="dash-action-card">
+                <span className="dash-action-icon">&#128269;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('nav.analyses', 'Analyses')}</span>
+                  <span className="dash-action-desc">{t('dashboard.analysesDesc', 'Review your games')}</span>
+                </div>
+              </Link>
+              <Link to="/analysis" className="dash-action-card">
+                <span className="dash-action-icon">&#10010;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('nav.newAnalysis', 'New Analysis')}</span>
+                  <span className="dash-action-desc">{t('dashboard.newAnalysisDesc', 'Analyze a position')}</span>
+                </div>
+              </Link>
+              <Link to="/workshop/pgn-files" className="dash-action-card">
+                <span className="dash-action-icon">&#128196;</span>
+                <div className="dash-action-text">
+                  <span className="dash-action-title">{t('nav.pgnFiles', 'PGN Files')}</span>
+                  <span className="dash-action-desc">{t('dashboard.pgnDesc', 'Upload and browse PGN')}</span>
+                </div>
+              </Link>
             </div>
           </div>
         </div>
