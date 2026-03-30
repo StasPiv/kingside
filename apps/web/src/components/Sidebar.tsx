@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 const NAV_ITEMS = [
   { path: '/lobby', icon: '♟', i18nKey: 'nav.play', match: ['/lobby'] },
   { path: '/tournaments', icon: '🏆', i18nKey: 'nav.tournaments', match: ['/tournaments'] },
-  { path: '/puzzles', icon: '🧩', i18nKey: 'nav.puzzles', match: ['/puzzles', '/puzzle', '/daily', '/puzzle-rush'] },
+  { path: '/puzzles', icon: '🧩', i18nKey: 'nav.puzzles', match: ['/puzzles', '/puzzle', '/daily'] },
+  { path: '/puzzle-rush', icon: '⚡', i18nKey: 'nav.puzzleRush', match: ['/puzzle-rush'] },
   { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
   { path: '/broadcasts', icon: '📺', i18nKey: 'nav.tv', match: ['/broadcasts'] },
   { path: '', icon: '', i18nKey: '', match: [] }, // divider
