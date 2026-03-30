@@ -11,20 +11,38 @@ type CrossTablePlayer = {
   withdrawn: boolean;
 };
 
-type CrossTableResult = {
-  result: string | null; // "1-0", "0-1", "1/2-1/2", null (not played / active)
+type CrossTableResultItem = {
+  result: string | null;
   gameId: string | null;
   color: 'white' | 'black';
+  round?: number;
 };
 
 type CrossTableData = {
   players: CrossTablePlayer[];
-  results: Record<string, CrossTableResult>;
+  results: Record<string, CrossTableResultItem[]>;
 };
 
 interface CrossTableProps {
   tournamentId: string;
   refreshKey?: number;
+}
+
+function singleDisplay(item: CrossTableResultItem): string {
+  if (!item.result) return '•';
+  if (item.result === '1-0') return item.color === 'white' ? '1' : '0';
+  if (item.result === '0-1') return item.color === 'black' ? '1' : '0';
+  if (item.result === '1/2-1/2') return '½';
+  if (item.result === 'bye') return '1';
+  return '';
+}
+
+function isWin(item: CrossTableResultItem): boolean {
+  return (item.result === '1-0' && item.color === 'white') || (item.result === '0-1' && item.color === 'black');
+}
+
+function isLoss(item: CrossTableResultItem): boolean {
+  return (item.result === '1-0' && item.color === 'black') || (item.result === '0-1' && item.color === 'white');
 }
 
 export function CrossTable({ tournamentId, refreshKey }: CrossTableProps) {
@@ -45,34 +63,34 @@ export function CrossTable({ tournamentId, refreshKey }: CrossTableProps) {
 
   const { players, results } = data;
 
-  const getCell = (rowId: string, colId: string): CrossTableResult | null => {
-    return results[`${rowId}:${colId}`] ?? null;
+  const getCell = (rowId: string, colId: string): CrossTableResultItem[] => {
+    return results[`${rowId}:${colId}`] ?? [];
   };
 
-  const cellDisplay = (cell: CrossTableResult | null): string => {
-    if (!cell) return '';
-    if (!cell.result) return '•'; // active game
-    if (cell.result === '1-0') return cell.color === 'white' ? '1' : '0';
-    if (cell.result === '0-1') return cell.color === 'black' ? '1' : '0';
-    if (cell.result === '1/2-1/2') return '½';
-    if (cell.result === 'bye') return '1';
-    return '';
+  const cellDisplay = (items: CrossTableResultItem[]): string => {
+    if (items.length === 0) return '';
+    return items.map(singleDisplay).join(' ');
   };
 
-  const cellClass = (cell: CrossTableResult | null): string => {
-    if (!cell) return '';
-    if (!cell.result) return 'ct-cell--active';
-    const won = (cell.result === '1-0' && cell.color === 'white') || (cell.result === '0-1' && cell.color === 'black');
-    const lost = (cell.result === '1-0' && cell.color === 'black') || (cell.result === '0-1' && cell.color === 'white');
-    if (won) return 'ct-cell--win';
-    if (lost) return 'ct-cell--loss';
+  const cellClass = (items: CrossTableResultItem[]): string => {
+    if (items.length === 0) return '';
+    const hasActive = items.some((i) => !i.result);
+    if (hasActive) return 'ct-cell--active';
+    const wins = items.filter(isWin).length;
+    const losses = items.filter(isLoss).length;
+    if (wins > losses) return 'ct-cell--win';
+    if (losses > wins) return 'ct-cell--loss';
+    if (wins === 0 && losses === 0) return 'ct-cell--draw';
     return 'ct-cell--draw';
   };
 
-  const handleCellClick = (cell: CrossTableResult | null) => {
-    if (!cell?.gameId) return;
-    if (!cell.result) navigate(`/games/${cell.gameId}/watch`);
-    else navigate(`/game/${cell.gameId}/review`);
+  const handleCellClick = (items: CrossTableResultItem[]) => {
+    if (items.length === 0) return;
+    // Navigate to last game with a gameId
+    const last = [...items].reverse().find((i) => i.gameId);
+    if (!last?.gameId) return;
+    if (!last.result) navigate(`/games/${last.gameId}/watch`);
+    else navigate(`/game/${last.gameId}/review`);
   };
 
   return (
@@ -99,15 +117,16 @@ export function CrossTable({ tournamentId, refreshKey }: CrossTableProps) {
                   if (ri === ci) {
                     return <td key={ci} className="ct-cell ct-cell--diag">✕</td>;
                   }
-                  const cell = getCell(row.userId, col.userId);
+                  const items = getCell(row.userId, col.userId);
+                  const hasGame = items.some((i) => i.gameId);
                   return (
                     <td
                       key={ci}
-                      className={`ct-cell ${cellClass(cell)}${cell?.gameId ? ' ct-cell--clickable' : ''}`}
-                      onClick={() => handleCellClick(cell)}
-                      title={cell ? `${t('tournaments.vs', 'vs')} ${col.username}` : ''}
+                      className={`ct-cell ${cellClass(items)}${hasGame ? ' ct-cell--clickable' : ''}`}
+                      onClick={() => handleCellClick(items)}
+                      title={items.length > 0 ? `${t('tournaments.vs', 'vs')} ${col.username}` : ''}
                     >
-                      {cellDisplay(cell)}
+                      {cellDisplay(items)}
                     </td>
                   );
                 })}
