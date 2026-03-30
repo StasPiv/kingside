@@ -50,7 +50,7 @@ type StandingsPlayer = {
   points: number;
   gamesPlayed: number;
   sb: number;
-  scores: Record<string, Array<{ score: number; gameId: string }>>;
+  scores: Record<string, Array<{ score: number; gameId: string } | number>>;
 };
 
 type TabId = 'live' | 'standings' | 'rounds' | 'info';
@@ -267,17 +267,21 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
                         <td className="broadcast-st-num">{p.sb}</td>
                         {allPlayers.map((opp, ci) => {
                           if (ri === ci) return <td key={ci} className="broadcast-st-cell broadcast-st-diag">✕</td>;
-                          const entries = p.scores[opp.name] ?? [];
-                          if (entries.length === 0) return <td key={ci} className="broadcast-st-cell" />;
+                          const rawEntries = p.scores[opp.name] ?? [];
+                          if (rawEntries.length === 0) return <td key={ci} className="broadcast-st-cell" />;
+                          // Support both formats: number[] (legacy) and {score,gameId}[] (new)
+                          const entries = rawEntries.map((e: unknown) =>
+                            typeof e === 'number' ? { score: e, gameId: null as string | null } : e as { score: number; gameId: string | null },
+                          );
                           return (
                             <td key={ci} className="broadcast-st-cell">
                               {entries.map((entry, i) => (
                                 <span
                                   key={i}
-                                  className={`broadcast-st-score broadcast-st-score--clickable${entry.score === 1 ? ' broadcast-st-win' : entry.score === 0 ? ' broadcast-st-loss' : ' broadcast-st-draw'}`}
-                                  onClick={() => handleScoreClick(entry.gameId, p.name, opp.name)}
-                                  role="button"
-                                  tabIndex={0}
+                                  className={`broadcast-st-score${entry.gameId ? ' broadcast-st-score--clickable' : ''}${entry.score === 1 ? ' broadcast-st-win' : entry.score === 0 ? ' broadcast-st-loss' : ' broadcast-st-draw'}`}
+                                  onClick={entry.gameId ? () => handleScoreClick(entry.gameId!, p.name, opp.name) : undefined}
+                                  role={entry.gameId ? 'button' : undefined}
+                                  tabIndex={entry.gameId ? 0 : undefined}
                                   title={`${p.name} vs ${opp.name}`}
                                 >
                                   {entry.score === 0.5 ? '½' : entry.score}
