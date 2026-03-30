@@ -193,6 +193,23 @@ export function TournamentLobbyPage() {
     tournamentSocket.emit('tournament:seek', { tournamentId: id });
   };
 
+  const handleLeave = async () => {
+    if (!id) return;
+    try {
+      await api.post(`/api/arena/${id}/leave`, {});
+      navigate('/tournaments');
+    } catch { /* ignore */ }
+  };
+
+  const handleWithdraw = async () => {
+    if (!id) return;
+    if (!window.confirm(t('tournaments.withdrawConfirm', 'Are you sure? Remaining rounds will be scored as 0.'))) return;
+    try {
+      await api.post(`/api/arena/${id}/leave`, {});
+      navigate('/tournaments');
+    } catch { /* ignore */ }
+  };
+
   const formatRemaining = (ms: number) => {
     const totalSec = Math.floor(ms / 1000);
     const m = Math.floor(totalSec / 60);
@@ -301,6 +318,18 @@ export function TournamentLobbyPage() {
 
         {!isArena && isActive && user && !isPlayer && !joined && (
           <button className="tournament-join-btn" onClick={handleJoin}>{t('tournaments.join', 'Join')}</button>
+        )}
+
+        {/* Leave / Withdraw */}
+        {isUpcoming && user && isPlayer && (
+          <button className="tournament-leave-btn" onClick={handleLeave}>
+            {t('tournaments.leave', 'Leave tournament')}
+          </button>
+        )}
+        {isActive && user && isPlayer && (
+          <button className="tournament-withdraw-btn" onClick={handleWithdraw}>
+            {t('tournaments.withdraw', 'Withdraw')}
+          </button>
         )}
       </div>
 

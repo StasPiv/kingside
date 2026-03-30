@@ -446,6 +446,9 @@
 .tournament-seeking { display: flex; align-items: center; gap: 8px; color: #4caf50; font-size: 14px; }
 .tournament-seeking__dot { width: 8px; height: 8px; border-radius: 50%; background: #4caf50; animation: active-game-pulse 1.5s infinite; }
 
+.tournament-leave-btn, .tournament-withdraw-btn { background: rgba(239,68,68,0.15); color: #ef5350; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 8px 16px; font-size: 13px; cursor: pointer; }
+.tournament-leave-btn:hover, .tournament-withdraw-btn:hover { background: rgba(239,68,68,0.25); }
+
 .tournament-round-info { display: flex; flex-direction: column; gap: 4px; padding: 10px 16px; background: rgba(124,131,255,0.08); border-radius: 8px; border: 1px solid rgba(124,131,255,0.2); }
 .tournament-round-info__status { font-size: 14px; font-weight: 600; color: #e0e0e0; }
 .tournament-round-info__pair { font-size: 13px; color: #4caf50; }

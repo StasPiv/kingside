@@ -842,7 +842,10 @@
     "waitingForPairing": "Ожидание старта партии...",
     "roundComplete": "Тур {{n}} завершён",
     "waitingForStart": "Ожидание первого тура",
-    "allRoundsComplete": "Все туры завершены"
+    "allRoundsComplete": "Все туры завершены",
+    "leave": "Покинуть турнир",
+    "withdraw": "Сняться",
+    "withdrawConfirm": "Вы уверены? За оставшиеся туры будут проставлены 0."
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",

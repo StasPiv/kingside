@@ -842,7 +842,10 @@
     "waitingForPairing": "Waiting for game to start...",
     "roundComplete": "Round {{n}} complete",
     "waitingForStart": "Waiting for first round",
-    "allRoundsComplete": "All rounds complete"
+    "allRoundsComplete": "All rounds complete",
+    "leave": "Leave tournament",
+    "withdraw": "Withdraw",
+    "withdrawConfirm": "Are you sure? Remaining rounds will be scored as 0."
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",
