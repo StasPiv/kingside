@@ -20,6 +20,9 @@ type Tournament = {
   currentRound: number;
   startsAt: string;
   endsAt: string | null;
+  pointsWin: number;
+  pointsDraw: number;
+  pointsLoss: number;
 };
 
 type RoundData = {
@@ -438,7 +441,7 @@ export function TournamentLobbyPage() {
       {/* Standings */}
       {/* CrossTable for RR */}
       {tournament.type === 'round_robin' && id && (
-        <CrossTable tournamentId={id} refreshKey={standings.length} />
+        <CrossTable tournamentId={id} refreshKey={standings.length} pointsWin={tournament.pointsWin} pointsDraw={tournament.pointsDraw} pointsLoss={tournament.pointsLoss} />
       )}
 
       <div className="tournament-standings">

@@ -26,14 +26,17 @@ type CrossTableData = {
 interface CrossTableProps {
   tournamentId: string;
   refreshKey?: number;
+  pointsWin?: number;
+  pointsDraw?: number;
+  pointsLoss?: number;
 }
 
-function singleDisplay(item: CrossTableResultItem): string {
+function singleDisplay(item: CrossTableResultItem, ptsWin = 1, ptsDraw = 0.5, ptsLoss = 0): string {
   if (!item.result) return '•';
-  if (item.result === '1-0') return item.color === 'white' ? '1' : '0';
-  if (item.result === '0-1') return item.color === 'black' ? '1' : '0';
-  if (item.result === '1/2-1/2') return '½';
-  if (item.result === 'bye') return '1';
+  if (item.result === '1-0') return item.color === 'white' ? String(ptsWin) : String(ptsLoss);
+  if (item.result === '0-1') return item.color === 'black' ? String(ptsWin) : String(ptsLoss);
+  if (item.result === '1/2-1/2') return String(ptsDraw);
+  if (item.result === 'bye') return String(ptsWin);
   return '';
 }
 
@@ -45,7 +48,7 @@ function isLoss(item: CrossTableResultItem): boolean {
   return (item.result === '1-0' && item.color === 'black') || (item.result === '0-1' && item.color === 'white');
 }
 
-export function CrossTable({ tournamentId, refreshKey }: CrossTableProps) {
+export function CrossTable({ tournamentId, refreshKey, pointsWin = 1, pointsDraw = 0.5, pointsLoss = 0 }: CrossTableProps) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [data, setData] = useState<CrossTableData | null>(null);
@@ -69,7 +72,7 @@ export function CrossTable({ tournamentId, refreshKey }: CrossTableProps) {
 
   const cellDisplay = (items: CrossTableResultItem[]): string => {
     if (items.length === 0) return '';
-    return items.map(singleDisplay).join(' ');
+    return items.map((i) => singleDisplay(i, pointsWin, pointsDraw, pointsLoss)).join(' ');
   };
 
   const cellClass = (items: CrossTableResultItem[]): string => {
