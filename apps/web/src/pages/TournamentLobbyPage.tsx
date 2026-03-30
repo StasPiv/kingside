@@ -233,11 +233,18 @@ export function TournamentLobbyPage() {
 
   const handleJoin = async () => {
     if (!id) return;
-    try {
-      await api.post(`/api/arena/${id}/join`, {});
+    // Use WS join (emits player_joined + standings to all) instead of REST
+    if (tournamentSocket.connected) {
+      tournamentSocket.emit('tournament:join', { tournamentId: id });
       setJoined(true);
-      fetchStandings();
-    } catch { /* ignore */ }
+    } else {
+      // Fallback to REST if WS not connected
+      try {
+        await api.post(`/api/arena/${id}/join`, {});
+        setJoined(true);
+        fetchStandings();
+      } catch { /* ignore */ }
+    }
   };
 
   const handleSeek = () => {
@@ -368,11 +375,20 @@ export function TournamentLobbyPage() {
           }
 
           if (lastFinished && !nextPending) {
+            // Check if there are more rounds to play
+            const hasMoreRounds = tournament.totalRounds && lastFinished.roundNumber < tournament.totalRounds;
             return (
               <div className="tournament-round-info">
                 <span className="tournament-round-info__status">
-                  {t('tournaments.allRoundsComplete', 'All rounds complete')}
+                  {hasMoreRounds
+                    ? t('tournaments.roundComplete', 'Round {{n}} complete', { n: lastFinished.roundNumber })
+                    : t('tournaments.allRoundsComplete', 'All rounds complete')}
                 </span>
+                {hasMoreRounds && remainingMs != null && remainingMs > 0 && (
+                  <span className="tournament-round-info__timer">
+                    {t('tournaments.nextRoundIn', 'Round {{n}} starts in {{time}}', { n: lastFinished.roundNumber + 1, time: formatRemaining(remainingMs) })}
+                  </span>
+                )}
               </div>
             );
           }
