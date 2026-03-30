@@ -75,30 +75,18 @@ function formatDate(d: string | null): string {
 function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: BroadcastMeta; tournamentId: string }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [rounds, setRounds] = useState<BroadcastRound[]>([]);
   const [standings, setStandings] = useState<{ players: StandingsPlayer[] } | null>(null);
   const [liveGames, setLiveGames] = useState<BroadcastGame[]>([]);
+  const [activeTab, setActiveTab] = useState<TabId>('standings');
 
-  const hashTab = location.hash.replace('#', '') as TabId;
   const ongoingRound = useMemo(() => rounds.find((r) => r.status === 'active'), [rounds]);
-  const defaultTab = ongoingRound ? 'live' : 'standings';
-  const activeTab: TabId = ['live', 'standings', 'rounds', 'info'].includes(hashTab) ? hashTab : defaultTab;
 
-  const setTab = (tab: TabId) => {
-    window.history.replaceState(null, '', `#${tab}`);
-    // Force re-render
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  };
-
-  // Force re-render on hash change
-  const [, setHash] = useState(location.hash);
+  // Set default tab after rounds load
   useEffect(() => {
-    const onHash = () => setHash(window.location.hash);
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
-  }, []);
+    if (ongoingRound) setActiveTab('live');
+  }, [ongoingRound]);
 
   useEffect(() => {
     api.get<{ data: BroadcastRound[] }>(`/api/broadcasts/${tournamentId}/rounds`)
@@ -175,7 +163,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
           <button
             key={tab.id}
             className={`broadcast-tab${activeTab === tab.id ? ' broadcast-tab--active' : ''}`}
-            onClick={() => setTab(tab.id)}
+            onClick={() => setActiveTab(tab.id)}
           >
             {tab.label}
           </button>
