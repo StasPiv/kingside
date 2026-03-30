@@ -13,7 +13,7 @@ if ! curl -sf http://localhost:3001/api/health > /dev/null 2>&1; then
     fi
     echo "[$TS] API down — restarting nest dev..." >> "$LOG"
     cd "$REPO_DIR"
-    npm run dev --workspace=@kingside/api >> "$LOG" 2>&1 &
+    CHOKIDAR_USEPOLLING=1 npm run dev --workspace=@kingside/api >> "$LOG" 2>&1 &
     echo "[$TS] nest started PID=$!" >> "$LOG"
 fi
 
