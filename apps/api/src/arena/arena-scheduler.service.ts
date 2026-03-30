@@ -168,6 +168,61 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`checkStuckRounds: started next round for ${t.id}`);
       }
     }
+
+    // Case 2: round already finished but next round not started (lost setTimeout)
+    await this.checkMissingNextRound();
+  }
+
+  private async checkMissingNextRound() {
+    const active = await this.prisma.arenaTournament.findMany({
+      where: { status: 'active', type: { in: ['swiss', 'round_robin'] }, currentRound: { gt: 0 } },
+    });
+
+    for (const t of active) {
+      if (t.totalRounds && t.currentRound >= t.totalRounds) continue;
+
+      const currentRound = await this.prisma.tournamentRound.findUnique({
+        where: { tournamentId_roundNumber: { tournamentId: t.id, roundNumber: t.currentRound } },
+      });
+      if (!currentRound || currentRound.status !== 'finished') continue;
+
+      // Check if next round exists
+      const nextRound = await this.prisma.tournamentRound.findUnique({
+        where: { tournamentId_roundNumber: { tournamentId: t.id, roundNumber: t.currentRound + 1 } },
+      });
+      if (nextRound) continue; // next round exists (pending or active)
+
+      // Respect roundPauseMin
+      if (currentRound.finishedAt && t.roundPauseMin) {
+        const pauseEnd = new Date(currentRound.finishedAt).getTime() + t.roundPauseMin * 60_000;
+        if (Date.now() < pauseEnd) continue;
+      }
+
+      this.logger.log(`checkMissingNextRound: round ${t.currentRound} finished but no next round for ${t.type} tournament ${t.id}, starting...`);
+
+      const roundId = await this.roundManager.startNextRound(t.id);
+      if (roundId) {
+        const refreshed = await this.prisma.arenaTournament.findUnique({ where: { id: t.id } });
+        if (refreshed) {
+          const round = await this.roundManager.getRound(t.id, refreshed.currentRound);
+          if (round) {
+            const pairingsPayload = round.pairings.map((p: { whiteId: string; blackId: string | null; gameId: string | null; board: number }) => ({
+              whiteId: p.whiteId,
+              blackId: p.blackId,
+              gameId: p.gameId,
+              board: p.board,
+            }));
+            this.gateway.emitRoundStart(t.id, refreshed.currentRound, pairingsPayload);
+            for (const p of round.pairings) {
+              if (p.gameId) {
+                this.gateway.emitPaired(t.id, p.gameId, p.whiteId, p.blackId);
+              }
+            }
+          }
+        }
+        this.logger.log(`checkMissingNextRound: started round ${t.currentRound + 1} for ${t.id}`);
+      }
+    }
   }
 
   private async generateRRSchedule(tournamentId: string, t: { totalRounds: number | null; type: string }) {
