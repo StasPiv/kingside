@@ -351,13 +351,23 @@ model GameReport {
 }
 
 model Broadcast {
-  id          String   @id @default(uuid()) @db.Uuid
-  lichessId   String   @unique @map("lichess_id")
-  title       String
-  description String?
-  url         String?
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  lichessId     String   @unique @map("lichess_id")
+  title         String
+  description   String?
+  url           String?
+  isActive      Boolean  @default(true) @map("is_active")
+  format        String?
+  timeControl   String?  @map("time_control")
+  location      String?
+  players       String?
+  website       String?
+  standingsUrl  String?  @map("standings_url")
+  imageUrl      String?  @map("image_url")
+  startDate     DateTime? @map("start_date")
+  endDate       DateTime? @map("end_date")
+  streams       Json?
+  createdAt     DateTime @default(now()) @map("created_at")
 
   rounds BroadcastRound[]
 

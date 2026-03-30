@@ -20,6 +20,16 @@ interface LichessBroadcast {
     name: string;
     description?: string;
     url?: string;
+    image?: string;
+    dates?: [number, number];
+    info?: {
+      format?: string;
+      tc?: string;
+      location?: string;
+      players?: string;
+      website?: string;
+      standings?: string;
+    };
   };
   rounds: LichessRound[];
 }
@@ -236,21 +246,28 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async upsertBroadcast(bc: LichessBroadcast): Promise<void> {
+    const info = bc.tour.info;
+    const dates = bc.tour.dates;
+    const fields = {
+      title: bc.tour.name,
+      description: bc.tour.description ?? null,
+      url: bc.tour.url ?? null,
+      isActive: true,
+      format: info?.format ?? null,
+      timeControl: info?.tc ?? null,
+      location: info?.location ?? null,
+      players: info?.players ?? null,
+      website: info?.website ?? null,
+      standingsUrl: info?.standings ?? null,
+      imageUrl: bc.tour.image ?? null,
+      startDate: dates?.[0] ? new Date(dates[0]) : null,
+      endDate: dates?.[1] ? new Date(dates[1]) : null,
+    };
+
     await this.prisma.broadcast.upsert({
       where: { lichessId: bc.tour.id },
-      update: {
-        title: bc.tour.name,
-        description: bc.tour.description ?? null,
-        url: bc.tour.url ?? null,
-        isActive: true,
-      },
-      create: {
-        lichessId: bc.tour.id,
-        title: bc.tour.name,
-        description: bc.tour.description ?? null,
-        url: bc.tour.url ?? null,
-        isActive: true,
-      },
+      update: fields,
+      create: { lichessId: bc.tour.id, ...fields },
     });
   }
 

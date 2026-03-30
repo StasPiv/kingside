@@ -74,7 +74,7 @@ export class BroadcastController {
 
   /** GET /api/broadcasts/:id — метаданные трансляции */
   @Get(':id')
-  async getBroadcast(@Param('id') id: string): Promise<BroadcastItem> {
+  async getBroadcast(@Param('id') id: string) {
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { id },
     });
@@ -88,8 +88,118 @@ export class BroadcastController {
       description: broadcast.description,
       url: broadcast.url,
       isActive: broadcast.isActive,
+      format: broadcast.format,
+      timeControl: broadcast.timeControl,
+      location: broadcast.location,
+      players: broadcast.players,
+      website: broadcast.website,
+      standingsUrl: broadcast.standingsUrl,
+      imageUrl: broadcast.imageUrl,
+      startDate: broadcast.startDate?.toISOString() ?? null,
+      endDate: broadcast.endDate?.toISOString() ?? null,
+      streams: broadcast.streams,
       createdAt: broadcast.createdAt.toISOString(),
     };
+  }
+
+  /** GET /api/broadcasts/:id/standings — crosstable standings */
+  @Get(':id/standings')
+  async getStandings(@Param('id') id: string) {
+    const broadcast = await this.prisma.broadcast.findUnique({
+      where: { id },
+      include: {
+        rounds: {
+          orderBy: { startsAt: 'asc' },
+          include: { games: true },
+        },
+      },
+    });
+    if (!broadcast) throw new NotFoundException(`Broadcast ${id} not found`);
+
+    // Collect all players and their results
+    const playerSet = new Set<string>();
+    const results: Array<{ round: string; white: string; black: string; result: string }> = [];
+
+    for (const round of broadcast.rounds) {
+      for (const game of round.games) {
+        const white = game.whitePlayer ?? 'Unknown';
+        const black = game.blackPlayer ?? 'Unknown';
+        playerSet.add(white);
+        playerSet.add(black);
+        if (game.result && game.result !== '*') {
+          results.push({ round: round.name, white, black, result: game.result });
+        }
+      }
+    }
+
+    const playerNames = [...playerSet].sort();
+
+    // Calculate points and crosstable scores
+    const points = new Map<string, number>();
+    const gamesPlayed = new Map<string, number>();
+    // scores: "player1:player2" → array of points from player1's perspective
+    const scores = new Map<string, number[]>();
+
+    for (const name of playerNames) {
+      points.set(name, 0);
+      gamesPlayed.set(name, 0);
+    }
+
+    for (const r of results) {
+      gamesPlayed.set(r.white, (gamesPlayed.get(r.white) ?? 0) + 1);
+      gamesPlayed.set(r.black, (gamesPlayed.get(r.black) ?? 0) + 1);
+
+      let wp = 0;
+      let bp = 0;
+      if (r.result === '1-0') { wp = 1; bp = 0; }
+      else if (r.result === '0-1') { wp = 0; bp = 1; }
+      else if (r.result === '1/2-1/2') { wp = 0.5; bp = 0.5; }
+
+      points.set(r.white, (points.get(r.white) ?? 0) + wp);
+      points.set(r.black, (points.get(r.black) ?? 0) + bp);
+
+      const wKey = `${r.white}:${r.black}`;
+      const bKey = `${r.black}:${r.white}`;
+      if (!scores.has(wKey)) scores.set(wKey, []);
+      if (!scores.has(bKey)) scores.set(bKey, []);
+      scores.get(wKey)!.push(wp);
+      scores.get(bKey)!.push(bp);
+    }
+
+    // Calculate Sonneborn-Berger (SB)
+    const sb = new Map<string, number>();
+    for (const name of playerNames) {
+      let sbScore = 0;
+      for (const opp of playerNames) {
+        if (opp === name) continue;
+        const key = `${name}:${opp}`;
+        const ptsFromOpp = scores.get(key) ?? [];
+        const oppTotalPts = points.get(opp) ?? 0;
+        for (const p of ptsFromOpp) {
+          sbScore += p * oppTotalPts;
+        }
+      }
+      sb.set(name, Math.round(sbScore * 100) / 100);
+    }
+
+    // Sort: points DESC, SB DESC, name ASC
+    const sorted = playerNames.sort((a, b) =>
+      (points.get(b) ?? 0) - (points.get(a) ?? 0)
+      || (sb.get(b) ?? 0) - (sb.get(a) ?? 0)
+      || a.localeCompare(b));
+
+    const players = sorted.map((name, i) => ({
+      rank: i + 1,
+      name,
+      points: points.get(name) ?? 0,
+      gamesPlayed: gamesPlayed.get(name) ?? 0,
+      sb: sb.get(name) ?? 0,
+      scores: Object.fromEntries(
+        sorted.filter((opp) => opp !== name).map((opp) => [opp, scores.get(`${name}:${opp}`) ?? []]),
+      ),
+    }));
+
+    return { players };
   }
 
   /** GET /api/broadcasts/:id/rounds — туры трансляции */
