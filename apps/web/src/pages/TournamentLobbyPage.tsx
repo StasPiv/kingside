@@ -106,13 +106,21 @@ export function TournamentLobbyPage() {
     fetchRounds();
   }, [fetchTournament, fetchStandings, fetchRounds]);
 
-  // Timer
+  // Timer: upcoming → countdown to startsAt; active → countdown to end
   useEffect(() => {
     if (!tournament) return;
     const updateTimer = () => {
-      const end = tournament.endsAt ? new Date(tournament.endsAt).getTime() : new Date(tournament.startsAt).getTime() + tournament.durationMin * 60_000;
       const now = Date.now();
-      setRemainingMs(Math.max(0, end - now));
+      if (tournament.status === 'upcoming') {
+        setRemainingMs(Math.max(0, new Date(tournament.startsAt).getTime() - now));
+      } else if (tournament.status === 'active') {
+        const end = tournament.endsAt
+          ? new Date(tournament.endsAt).getTime()
+          : new Date(tournament.startsAt).getTime() + tournament.durationMin * 60_000;
+        setRemainingMs(Math.max(0, end - now));
+      } else {
+        setRemainingMs(0);
+      }
     };
     updateTimer();
     timerRef.current = setInterval(updateTimer, 1000);
