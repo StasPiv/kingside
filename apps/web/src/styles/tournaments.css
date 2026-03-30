@@ -848,6 +848,83 @@
   padding: 32px 0;
 }
 
+/* Mobile tabs: compact (KS-1090) */
+@media (max-width: 600px) {
+  .tournament-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tournament-tab {
+    padding: 8px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .tournament-lobby-header h1 {
+    font-size: 18px;
+  }
+
+  .tournament-lobby-meta {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tournament-lobby-actions {
+    flex-wrap: wrap;
+  }
+
+  /* Pairings: vertical cards */
+  .tournament-pairing {
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px;
+  }
+
+  .tournament-pairing__board {
+    width: auto;
+    text-align: left;
+  }
+}
+
+/* Sticky crosstable Player column (KS-1090) */
+.crosstable .ct-rank,
+.crosstable .ct-name,
+.crosstable th:nth-child(1),
+.crosstable th:nth-child(2) {
+  position: sticky;
+  z-index: 1;
+  background: inherit;
+}
+
+.crosstable th:nth-child(1),
+.crosstable .ct-rank {
+  left: 0;
+  background: #111827;
+}
+
+.crosstable th:nth-child(2),
+.crosstable .ct-name {
+  left: 30px;
+  background: #0f172a;
+}
+
+.crosstable tr:nth-child(even) .ct-rank,
+.crosstable tr:nth-child(even) .ct-name {
+  background: #0f172a;
+}
+
+.crosstable tr:nth-child(odd) .ct-rank,
+.crosstable tr:nth-child(odd) .ct-name {
+  background: #111827;
+}
+
+.crosstable tr.ct-self .ct-rank,
+.crosstable tr.ct-self .ct-name {
+  background: #161632;
+}
+
 /* Players table (KS-1089) */
 .tournament-players-table {
   width: 100%;
