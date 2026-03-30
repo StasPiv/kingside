@@ -31,7 +31,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   private async check() {
     try {
-      const started = await this.arena.checkAndStartTournaments();
+      const { started, cancelled } = await this.arena.checkAndStartTournaments();
       if (started.length > 0) {
         this.logger.log(`Tournaments just started: ${started.join(', ')}`);
       }
@@ -39,6 +39,9 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         this.gateway.emitTournamentStarted(id);
         // Auto-start first round for Swiss/RR tournaments
         await this.autoStartFirstRound(id);
+      }
+      for (const id of cancelled) {
+        this.gateway.emitTournamentFinished(id);
       }
 
       // Round completion is now handled by onGameEnd hook in arena.module.ts

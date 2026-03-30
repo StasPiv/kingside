@@ -644,19 +644,37 @@ export class ArenaService {
 
   // --- Scheduler ---
 
-  async checkAndStartTournaments() {
+  async checkAndStartTournaments(): Promise<{ started: string[]; cancelled: string[] }> {
     const now = new Date();
     const upcoming = await this.prisma.arenaTournament.findMany({
       where: { status: 'upcoming', startsAt: { lte: now } },
+      include: { _count: { select: { entries: true } } },
     });
+
+    const started: string[] = [];
+    const cancelled: string[] = [];
+
     for (const t of upcoming) {
-      await this.prisma.arenaTournament.update({
-        where: { id: t.id },
-        data: { status: 'active' },
-      });
-      this.logger.log(`Tournament ${t.id} "${t.name}" (type=${t.type}) started — transitioning upcoming→active`);
+      const minPlayers = 2;
+      if (t._count.entries < minPlayers) {
+        // Not enough players — cancel
+        await this.prisma.arenaTournament.update({
+          where: { id: t.id },
+          data: { status: 'finished' },
+        });
+        this.logger.log(`Tournament ${t.id} "${t.name}" cancelled — only ${t._count.entries} player(s), need ${minPlayers}`);
+        cancelled.push(t.id);
+      } else {
+        await this.prisma.arenaTournament.update({
+          where: { id: t.id },
+          data: { status: 'active' },
+        });
+        this.logger.log(`Tournament ${t.id} "${t.name}" (type=${t.type}) started — transitioning upcoming→active`);
+        started.push(t.id);
+      }
     }
-    return upcoming.map((t) => t.id);
+
+    return { started, cancelled };
   }
 
   async checkAndFinishTournaments() {
