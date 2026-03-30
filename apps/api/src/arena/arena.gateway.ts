@@ -129,4 +129,23 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const standings = await this.arenaService.getStandings(tournamentId);
     this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.STANDINGS, { standings });
   }
+
+  emitRoundStart(tournamentId: string, roundNumber: number) {
+    this.server.to(`tournament:${tournamentId}`).emit('tournament:round_start', { tournamentId, roundNumber });
+  }
+
+  emitRoundEnd(tournamentId: string, roundNumber: number) {
+    this.server.to(`tournament:${tournamentId}`).emit('tournament:round_end', { tournamentId, roundNumber });
+  }
+
+  async emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {
+    if (!blackId) return; // bye — no game
+    const allSockets = await this.server.fetchSockets();
+    const payload = { gameId, tournamentId };
+    for (const s of allSockets) {
+      if (s.data.user?.id === whiteId || s.data.user?.id === blackId) {
+        s.emit(TOURNAMENT_EVENTS.PAIRED, payload);
+      }
+    }
+  }
 }
