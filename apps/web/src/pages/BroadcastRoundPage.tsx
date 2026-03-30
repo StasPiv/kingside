@@ -8,7 +8,7 @@ import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types'
 import { formatPlayerName, formatResult } from '../dgt.types';
 
 
-function computeFen(pgn: string, moves: string[]): string {
+function computeFen(pgn: string, moves?: string[]): string {
   if (pgn) {
     try {
       const chess = new Chess();
@@ -18,7 +18,7 @@ function computeFen(pgn: string, moves: string[]): string {
       // fall through
     }
   }
-  if (moves.length > 0) {
+  if (moves && moves.length > 0) {
     try {
       const chess = new Chess();
       for (const move of moves) {
@@ -32,22 +32,159 @@ function computeFen(pgn: string, moves: string[]): string {
   return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 }
 
+// Lichess types
+type LichessGame = {
+  id: string;
+  lichessGameId: string;
+  whitePlayer: string;
+  blackPlayer: string;
+  result: string | null;
+  pgn: string | null;
+};
+
+type LichessRoundInfo = {
+  id: string;
+  lichessRoundId: string;
+  name: string;
+  startsAt: string | null;
+  status: string;
+};
+
+type LichessBroadcastMeta = {
+  id: string;
+  title: string;
+};
+
+// Lichess round view
+function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournamentId }: {
+  broadcast: LichessBroadcastMeta;
+  rounds: LichessRoundInfo[];
+  currentRoundId: string;
+  games: LichessGame[];
+  tournamentId: string;
+}) {
+  const { t } = useTranslation();
+  const currentRound = rounds.find((r) => r.id === currentRoundId);
+
+  return (
+    <div className="broadcast-round-page">
+      <nav className="broadcast-breadcrumbs">
+        <Link to="/broadcasts">{t('broadcasts.title')}</Link>
+        <span className="broadcast-breadcrumb-sep">/</span>
+        <Link to={`/broadcasts/${tournamentId}`} state={{ fromRound: true }}>
+          {broadcast.title}
+        </Link>
+        <span className="broadcast-breadcrumb-sep">/</span>
+        <span>{currentRound?.name ?? t('broadcasts.dgt.round')}</span>
+      </nav>
+
+      {/* Round tabs */}
+      <div className="dgt-rounds-row">
+        {rounds.map((r) => (
+          <Link
+            key={r.id}
+            to={`/broadcasts/${tournamentId}/${r.id}`}
+            className={`dgt-round-btn${r.id === currentRoundId ? ' dgt-round-btn--active' : ''}`}
+          >
+            {r.name}
+          </Link>
+        ))}
+      </div>
+
+      {games.length === 0 ? (
+        <div className="broadcasts-empty">{t('broadcasts.dgt.noGames', 'No games yet')}</div>
+      ) : (
+        <div className="dgt-games">
+          <div className="dgt-boards-grid">
+            {games.map((game, idx) => {
+              const fen = computeFen(game.pgn ?? '');
+              return (
+                <div key={game.id} className="dgt-board-card" aria-label={`${game.whitePlayer} vs ${game.blackPlayer}`}>
+                  <div className="dgt-board-players">
+                    <span className="dgt-player dgt-player--black">&#9823; {game.blackPlayer}</span>
+                  </div>
+                  <div className="dgt-board-wrap">
+                    <Chessboard
+                      options={{
+                        position: fen,
+                        allowDragging: false,
+                        showNotation: false,
+                        animationDurationInMs: 0,
+                      }}
+                    />
+                  </div>
+                  <div className="dgt-board-players">
+                    <span className="dgt-player dgt-player--white">&#9817; {game.whitePlayer}</span>
+                  </div>
+                  <div className="dgt-board-footer">
+                    <span className="dgt-game-board-num">#{idx + 1}</span>
+                    <span className="dgt-game-result">{game.result ?? '*'}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BroadcastRoundPage() {
   const { tournamentId, roundId } = useParams<{ tournamentId: string; roundId: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
 
+  // Source detection
+  const [isLichess, setIsLichess] = useState<boolean | null>(null);
+
+  // Lichess state
+  const [lichessBroadcast, setLichessBroadcast] = useState<LichessBroadcastMeta | null>(null);
+  const [lichessRounds, setLichessRounds] = useState<LichessRoundInfo[]>([]);
+  const [lichessGames, setLichessGames] = useState<LichessGame[]>([]);
+
+  // DGT state
   const [tournament, setTournament] = useState<DgtTournamentResult | null>(null);
   const [round, setRound] = useState<DgtRoundResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Step 1: detect source
   useEffect(() => {
     if (!tournamentId || !roundId) return;
     let cancelled = false;
 
-    setLoading(true);
-    setRound(null);
+    api.get<LichessBroadcastMeta>(`/api/broadcasts/${tournamentId}`)
+      .then((broadcast) => {
+        if (cancelled) return;
+        setLichessBroadcast(broadcast);
+        setIsLichess(true);
+
+        // Load rounds + games
+        Promise.all([
+          api.get<{ data: LichessRoundInfo[] }>(`/api/broadcasts/${tournamentId}/rounds`),
+          api.get<{ data: LichessGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${roundId}/games`),
+        ]).then(([roundsRes, gamesRes]) => {
+          if (!cancelled) {
+            setLichessRounds(Array.isArray(roundsRes?.data) ? roundsRes.data : []);
+            setLichessGames(Array.isArray(gamesRes?.data) ? gamesRes.data : []);
+            setLoading(false);
+          }
+        }).catch(() => {
+          if (!cancelled) setLoading(false);
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setIsLichess(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [tournamentId, roundId]);
+
+  // Step 2: DGT fallback
+  useEffect(() => {
+    if (isLichess !== false || !tournamentId || !roundId) return;
+    let cancelled = false;
 
     Promise.all([
       api.get<DgtTournamentResult>(`/api/dgt/tournament/${tournamentId}`),
@@ -62,38 +199,46 @@ export function BroadcastRoundPage() {
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : t('broadcasts.dgt.errorRound'));
+          setError(err instanceof Error ? err.message : 'Error loading round');
           setLoading(false);
         }
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [tournamentId, roundId, t]);
+    return () => { cancelled = true; };
+  }, [isLichess, tournamentId, roundId]);
 
+  // DGT polling
   useEffect(() => {
-    if (!tournamentId || !roundId) return;
+    if (isLichess !== false || !tournamentId || !roundId) return;
     let cancelled = false;
 
     const poll = () => {
-      api
-        .get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
-        .then((r) => {
-          if (!cancelled) setRound(r);
-        })
-        .catch(() => {
-          // ignore polling errors silently
-        });
+      api.get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
+        .then((r) => { if (!cancelled) setRound(r); })
+        .catch(() => {});
     };
 
     const intervalId = setInterval(poll, 5000);
+    return () => { cancelled = true; clearInterval(intervalId); };
+  }, [isLichess, tournamentId, roundId]);
 
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [tournamentId, roundId]);
+  // Reload lichess games on round change
+  useEffect(() => {
+    if (!isLichess || !tournamentId || !roundId) return;
+    let cancelled = false;
+
+    setLoading(true);
+    api.get<{ data: LichessGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${roundId}/games`)
+      .then((res) => {
+        if (!cancelled) {
+          setLichessGames(Array.isArray(res?.data) ? res.data : []);
+          setLoading(false);
+        }
+      })
+      .catch(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [isLichess, tournamentId, roundId]);
 
   const handleBoardClick = useCallback(
     (game: DgtGame) => {
@@ -102,6 +247,24 @@ export function BroadcastRoundPage() {
     },
     [tournamentId, roundId, navigate],
   );
+
+  if (loading) return <div className="loading">{t('common.loading')}</div>;
+
+  // Lichess view
+  if (isLichess && lichessBroadcast && roundId) {
+    return (
+      <LichessRoundView
+        broadcast={lichessBroadcast}
+        rounds={lichessRounds}
+        currentRoundId={roundId}
+        games={lichessGames}
+        tournamentId={tournamentId!}
+      />
+    );
+  }
+
+  // DGT view
+  if (error) return <div className="error">{error}</div>;
 
   return (
     <div className="broadcast-round-page">
@@ -114,8 +277,6 @@ export function BroadcastRoundPage() {
         <span className="broadcast-breadcrumb-sep">/</span>
         <span>{t('broadcasts.dgt.round')} {roundId}</span>
       </nav>
-
-      {error && <div className="error">{error}</div>}
 
       {tournament && tournament.totalRounds > 0 && (
         <div className="dgt-rounds-row">
@@ -131,13 +292,9 @@ export function BroadcastRoundPage() {
         </div>
       )}
 
-      {loading && <div className="loading">{t('common.loading')}</div>}
-
-      {!loading && round && round.games.length === 0 && (
+      {!round || round.games.length === 0 ? (
         <div className="broadcasts-empty">{t('broadcasts.dgt.noGames')}</div>
-      )}
-
-      {!loading && round && round.games.length > 0 && (
+      ) : (
         <div className="dgt-games">
           <div className="dgt-boards-grid">
             {round.games.map((game) => {
@@ -157,7 +314,7 @@ export function BroadcastRoundPage() {
                   aria-label={`${white} vs ${black}`}
                 >
                   <div className="dgt-board-players">
-                    <span className="dgt-player dgt-player--black">♟ {black}</span>
+                    <span className="dgt-player dgt-player--black">&#9823; {black}</span>
                   </div>
                   <div className="dgt-board-wrap">
                     <Chessboard
@@ -170,7 +327,7 @@ export function BroadcastRoundPage() {
                     />
                   </div>
                   <div className="dgt-board-players">
-                    <span className="dgt-player dgt-player--white">♙ {white}</span>
+                    <span className="dgt-player dgt-player--white">&#9817; {white}</span>
                   </div>
                   <div className="dgt-board-footer">
                     <span className="dgt-game-board-num">#{game.gameIndex}</span>
