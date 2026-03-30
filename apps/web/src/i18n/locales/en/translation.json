@@ -845,7 +845,10 @@
     "allRoundsComplete": "All rounds complete",
     "leave": "Leave tournament",
     "withdraw": "Withdraw",
-    "withdrawConfirm": "Are you sure? Remaining rounds will be scored as 0."
+    "withdrawConfirm": "Are you sure? Remaining rounds will be scored as 0.",
+    "roundOf": "Round {{current}}/{{total}}",
+    "roundGamesStatus": "Round {{n}}: {{completed}}/{{total}} games completed",
+    "nextRoundIn": "Round {{n}} starts in {{time}}"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",

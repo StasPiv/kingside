@@ -15,6 +15,7 @@ type Tournament = {
   timeIncrementSec: number;
   durationMin: number;
   totalRounds: number | null;
+  roundPauseMin: number | null;
   currentRound: number;
   startsAt: string;
   endsAt: string | null;
@@ -106,18 +107,33 @@ export function TournamentLobbyPage() {
     fetchRounds();
   }, [fetchTournament, fetchStandings, fetchRounds]);
 
-  // Timer: upcoming → countdown to startsAt; active → countdown to end
+  // Timer logic
   useEffect(() => {
     if (!tournament) return;
+    const isSwissRR = tournament.type !== 'arena';
+
     const updateTimer = () => {
       const now = Date.now();
       if (tournament.status === 'upcoming') {
         setRemainingMs(Math.max(0, new Date(tournament.startsAt).getTime() - now));
       } else if (tournament.status === 'active') {
-        const end = tournament.endsAt
-          ? new Date(tournament.endsAt).getTime()
-          : new Date(tournament.startsAt).getTime() + tournament.durationMin * 60_000;
-        setRemainingMs(Math.max(0, end - now));
+        if (isSwissRR) {
+          // For Swiss/RR: countdown to next round if all games finished
+          const lastFinished = [...rounds].reverse().find((r) => r.status === 'finished');
+          const activeRound = rounds.find((r) => r.status === 'active');
+          if (!activeRound && lastFinished?.finishedAt && tournament.roundPauseMin) {
+            const nextStart = new Date(lastFinished.finishedAt).getTime() + tournament.roundPauseMin * 60_000;
+            setRemainingMs(Math.max(0, nextStart - now));
+          } else {
+            setRemainingMs(null);
+          }
+        } else {
+          // Arena: countdown to end
+          const end = tournament.endsAt
+            ? new Date(tournament.endsAt).getTime()
+            : new Date(tournament.startsAt).getTime() + tournament.durationMin * 60_000;
+          setRemainingMs(Math.max(0, end - now));
+        }
       } else {
         setRemainingMs(0);
       }
@@ -125,7 +141,7 @@ export function TournamentLobbyPage() {
     updateTimer();
     timerRef.current = setInterval(updateTimer, 1000);
     return () => clearInterval(timerRef.current);
-  }, [tournament]);
+  }, [tournament, rounds]);
 
   // WebSocket
   useEffect(() => {
@@ -235,6 +251,11 @@ export function TournamentLobbyPage() {
         <h1>{tournament.name}</h1>
         <div className="tournament-lobby-meta">
           <span className="tournament-lobby-tc">{formatTc(tournament.timeInitialSec, tournament.timeIncrementSec)}</span>
+          {!isArena && tournament.totalRounds && (
+            <span className="tournament-lobby-round-progress">
+              {t('tournaments.roundOf', 'Round {{current}}/{{total}}', { current: tournament.currentRound, total: tournament.totalRounds })}
+            </span>
+          )}
           <span className={`tournament-lobby-status tournament-lobby-status--${tournament.status}`}>
             {isActive ? t('tournaments.statusActive', 'Active') : isUpcoming ? t('tournaments.statusUpcoming', 'Upcoming') : t('tournaments.statusFinished', 'Finished')}
           </span>
@@ -271,14 +292,15 @@ export function TournamentLobbyPage() {
           const nextPending = rounds.find((r) => r.status === 'pending');
 
           if (currentRd) {
-            // Find my pairing
+            const totalGames = currentRd.pairings.filter((p) => p.blackId != null).length;
+            const completedGames = currentRd.pairings.filter((p) => p.result != null).length;
             const myPairing = currentRd.pairings.find(
               (p) => p.whiteId === user?.id || p.blackId === user?.id,
             );
             return (
               <div className="tournament-round-info">
                 <span className="tournament-round-info__status">
-                  {t('tournaments.roundInProgress', 'Round {{n}} in progress', { n: currentRd.roundNumber })}
+                  {t('tournaments.roundGamesStatus', 'Round {{n}}: {{completed}}/{{total}} games completed', { n: currentRd.roundNumber, completed: completedGames, total: totalGames })}
                 </span>
                 {myPairing && (
                   <span className="tournament-round-info__pair">
@@ -299,6 +321,11 @@ export function TournamentLobbyPage() {
                     ? t('tournaments.roundComplete', 'Round {{n}} complete', { n: lastFinished.roundNumber })
                     : t('tournaments.waitingForStart', 'Waiting for first round')}
                 </span>
+                {remainingMs != null && remainingMs > 0 && nextPending && (
+                  <span className="tournament-round-info__timer">
+                    {t('tournaments.nextRoundIn', 'Round {{n}} starts in {{time}}', { n: nextPending.roundNumber, time: formatRemaining(remainingMs) })}
+                  </span>
+                )}
               </div>
             );
           }

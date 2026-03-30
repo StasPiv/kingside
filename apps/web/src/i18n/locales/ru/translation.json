@@ -845,7 +845,10 @@
     "allRoundsComplete": "Все туры завершены",
     "leave": "Покинуть турнир",
     "withdraw": "Сняться",
-    "withdrawConfirm": "Вы уверены? За оставшиеся туры будут проставлены 0."
+    "withdrawConfirm": "Вы уверены? За оставшиеся туры будут проставлены 0.",
+    "roundOf": "Тур {{current}}/{{total}}",
+    "roundGamesStatus": "Тур {{n}}: {{completed}}/{{total}} партий завершено",
+    "nextRoundIn": "Тур {{n}} начнётся через {{time}}"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",

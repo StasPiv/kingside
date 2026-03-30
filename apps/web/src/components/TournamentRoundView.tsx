@@ -51,7 +51,12 @@ export function TournamentRoundView({ round, playerNames, currentUserId }: Tourn
       </div>
 
       <div className="tournament-pairings">
-        {round.pairings.map((p) => {
+        {[...round.pairings].sort((a, b) => {
+          // Active (no result) first, then finished
+          const aActive = !a.result && a.gameId ? 0 : 1;
+          const bActive = !b.result && b.gameId ? 0 : 1;
+          return aActive - bActive || a.board - b.board;
+        }).map((p) => {
           const isMy = p.whiteId === currentUserId || p.blackId === currentUserId;
           const isActive = round.status === 'active' && p.gameId && !p.result;
           const isFinished = !!p.result && p.gameId;

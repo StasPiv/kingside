@@ -452,6 +452,8 @@
 .tournament-round-info { display: flex; flex-direction: column; gap: 4px; padding: 10px 16px; background: rgba(124,131,255,0.08); border-radius: 8px; border: 1px solid rgba(124,131,255,0.2); }
 .tournament-round-info__status { font-size: 14px; font-weight: 600; color: #e0e0e0; }
 .tournament-round-info__pair { font-size: 13px; color: #4caf50; }
+.tournament-round-info__timer { font-size: 14px; color: #ffc107; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tournament-lobby-round-progress { font-size: 13px; color: #aaa; font-weight: 600; }
 
 .tournament-standings { margin-top: 16px; }
 .tournament-standings h2 { font-size: 16px; margin-bottom: 8px; }
