@@ -46,7 +46,10 @@ export class RoundManagerService {
       const playerIds = t.entries.map((e) => e.userId);
       const withdrawnIds = new Set(t.entries.filter((e) => e.withdrawn).map((e) => e.userId));
       const allRounds = this.rrPairing.generateAllRounds(playerIds);
-      const rawPairings = allRounds[nextRound - 1] ?? [];
+      // Cycle through Berger table if totalRounds > unique rounds (n-1)
+      const roundIndex = allRounds.length > 0 ? (nextRound - 1) % allRounds.length : -1;
+      const rawPairings = roundIndex >= 0 ? allRounds[roundIndex] : [];
+      this.logger.log(`startNextRound RR: round ${nextRound}, berger rounds=${allRounds.length}, using index=${roundIndex}, rawPairings=${rawPairings.length}`);
       // Filter out pairings where both players withdrew; convert to bye if one withdrew
       pairings = rawPairings.reduce<typeof rawPairings>((acc, p) => {
         const wWhite = withdrawnIds.has(p.whiteId);
