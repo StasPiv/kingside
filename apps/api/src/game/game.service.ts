@@ -461,7 +461,7 @@ export class GameService {
     });
   }
 
-  async getActiveGameForUser(userId: string): Promise<{ gameId: string; opponent: string; timeControlType: string } | null> {
+  async getActiveGameForUser(userId: string): Promise<{ gameId: string; opponent: string; timeControlType: string; tournamentId: string | null } | null> {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const game = await this.prisma.game.findFirst({
       where: {
@@ -493,6 +493,7 @@ export class GameService {
       gameId: game.id,
       opponent: isWhite ? (game.black.username ?? '?') : (game.white.username ?? '?'),
       timeControlType: game.timeControlType ?? '',
+      tournamentId: game.tournamentId ?? null,
     };
   }
 

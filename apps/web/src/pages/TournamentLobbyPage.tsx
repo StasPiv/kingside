@@ -160,6 +160,29 @@ export function TournamentLobbyPage() {
     return () => clearInterval(timerRef.current);
   }, [tournament, rounds, nextRoundStartsAt]);
 
+  // Polling fallback: check for active game in this tournament every 7s
+  useEffect(() => {
+    if (!tournament || !id || !user || tournament.status !== 'active') return;
+
+    const pollActiveGame = async () => {
+      try {
+        const data = await api.get<{ gameId: string; tournamentId: string | null } | null>('/api/games/active');
+        if (data && data.tournamentId === id) {
+          navigate(`/game/${data.gameId}?tournamentId=${id}`);
+        }
+      } catch { /* ignore */ }
+    };
+
+    const pollInterval = setInterval(pollActiveGame, 7000);
+    // Initial check after short delay (let WS handle first)
+    const initialTimeout = setTimeout(pollActiveGame, 3000);
+
+    return () => {
+      clearInterval(pollInterval);
+      clearTimeout(initialTimeout);
+    };
+  }, [tournament?.status, id, user, navigate]);
+
   // WebSocket
   useEffect(() => {
     if (!id || !user) return;
