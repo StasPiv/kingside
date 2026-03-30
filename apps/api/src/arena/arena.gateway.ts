@@ -79,6 +79,9 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userId,
       username: client.data.user.username,
     });
+
+    // Update standings so all players see the new entry
+    await this.emitStandings(data.tournamentId);
   }
 
   @SubscribeMessage(TOURNAMENT_EVENTS.SEEK)

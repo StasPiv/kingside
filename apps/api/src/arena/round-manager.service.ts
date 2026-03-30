@@ -153,6 +153,7 @@ export class RoundManagerService {
     if (!round || round.status === 'finished') return false;
 
     const pendingGames = round.pairings.filter((p) => p.gameId && !p.result);
+    this.logger.log(`checkRoundComplete: tournament ${tournamentId}, round ${t.currentRound}/${t.totalRounds ?? '∞'}, pending=${pendingGames.length}, total pairings=${round.pairings.length}`);
     return pendingGames.length === 0;
   }
 
@@ -195,12 +196,15 @@ export class RoundManagerService {
     });
 
     // Check if tournament is complete
+    this.logger.log(`finalizeRound: tournament ${tournamentId}, currentRound=${t.currentRound}, totalRounds=${t.totalRounds}`);
     if (t.totalRounds && t.currentRound >= t.totalRounds) {
       await this.prisma.arenaTournament.update({
         where: { id: tournamentId },
         data: { status: 'finished' },
       });
-      this.logger.log(`Tournament ${tournamentId} finished (all rounds complete)`);
+      this.logger.log(`Tournament ${tournamentId} finished (all ${t.totalRounds} rounds complete)`);
+    } else {
+      this.logger.log(`finalizeRound: round ${t.currentRound} finalized, tournament continues (${t.currentRound}/${t.totalRounds ?? '∞'})`);
     }
   }
 

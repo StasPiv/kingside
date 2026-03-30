@@ -41,12 +41,28 @@ export class SwissPairingService {
       }
     } else {
       // Group by score, pair within groups
+      // Pass 1: prefer non-repeat opponents
       for (let i = 0; i < sorted.length; i++) {
         if (paired.has(sorted[i].userId)) continue;
 
         for (let j = i + 1; j < sorted.length; j++) {
           if (paired.has(sorted[j].userId)) continue;
           if (sorted[i].opponents.includes(sorted[j].userId)) continue;
+
+          const [white, black] = this.assignColors(sorted[i], sorted[j]);
+          pairings.push({ whiteId: white, blackId: black, board: board++ });
+          paired.add(sorted[i].userId);
+          paired.add(sorted[j].userId);
+          break;
+        }
+      }
+
+      // Pass 2: allow repeat opponents for unpaired players (fallback)
+      for (let i = 0; i < sorted.length; i++) {
+        if (paired.has(sorted[i].userId)) continue;
+
+        for (let j = i + 1; j < sorted.length; j++) {
+          if (paired.has(sorted[j].userId)) continue;
 
           const [white, black] = this.assignColors(sorted[i], sorted[j]);
           pairings.push({ whiteId: white, blackId: black, board: board++ });
