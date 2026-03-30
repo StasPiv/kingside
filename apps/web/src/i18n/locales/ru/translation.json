@@ -18,7 +18,25 @@
     "play": "Играть",
     "workshop": "Мастерская",
     "watch": "Смотреть",
-    "backToGame": "Вернуться в партию"
+    "backToGame": "Вернуться в партию",
+    "tournaments": "Турниры",
+    "tv": "ТВ",
+    "myPuzzles": "Мои задачи",
+    "analyses": "Анализы",
+    "pgnFiles": "Файлы PGN",
+    "newAnalysis": "Новый анализ",
+    "more": "Ещё",
+    "features": "Возможности"
+  },
+  "dashboard": {
+    "play": "Играть",
+    "customGame": "Своя партия",
+    "liveGames": "Живые партии",
+    "puzzles": "Задачи",
+    "tournaments": "Турниры",
+    "allTournaments": "Все турниры",
+    "ratings": "Мои рейтинги",
+    "workshop": "Мастерская"
   },
   "notifications": {
     "title": "Уведомления",

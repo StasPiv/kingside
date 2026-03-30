@@ -18,7 +18,25 @@
     "play": "Play",
     "workshop": "Workshop",
     "watch": "Watch",
-    "backToGame": "Back to game"
+    "backToGame": "Back to game",
+    "tournaments": "Tournaments",
+    "tv": "TV",
+    "myPuzzles": "My Puzzles",
+    "analyses": "Analyses",
+    "pgnFiles": "PGN Files",
+    "newAnalysis": "New Analysis",
+    "more": "More",
+    "features": "Features"
+  },
+  "dashboard": {
+    "play": "Play",
+    "customGame": "Custom Game",
+    "liveGames": "Live Games",
+    "puzzles": "Puzzles",
+    "tournaments": "Tournaments",
+    "allTournaments": "All Tournaments",
+    "ratings": "My Ratings",
+    "workshop": "Workshop"
   },
   "notifications": {
     "title": "Notifications",

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Link, Outlet } from 'react-router-dom';
+import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell, FaUserFriends } from 'react-icons/fa';
@@ -12,6 +12,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useActiveGame } from '../hooks/useActiveGame';
 import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 import { NotificationDropdown } from '../components/NotificationDropdown';
+import { MobileBottomBar } from '../components/MobileBottomBar';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -127,9 +128,25 @@ export function MainLayout() {
       .catch(() => {});
   }, []);
 
+  const location = useLocation();
+  const [puzzleDropdown, setPuzzleDropdown] = useState(false);
+  const [workshopDropdown, setWorkshopDropdown] = useState(false);
+  const puzzleRef = useRef<HTMLDivElement>(null);
+  const workshopRef = useRef<HTMLDivElement>(null);
+
+  useClickOutside(puzzleRef, () => setPuzzleDropdown(false));
+  useClickOutside(workshopRef, () => setWorkshopDropdown(false));
+
+  const isNavActive = (paths: string[]) => paths.some((p) => location.pathname.startsWith(p));
+
   const closeAll = () => {
     setUserMenuOpen(false);
+    setPuzzleDropdown(false);
+    setWorkshopDropdown(false);
   };
+
+  // Hide mobile bottom bar on game/analysis pages
+  const hideMobileBar = location.pathname.startsWith('/game/') || location.pathname.startsWith('/analysis');
 
   return (
     <div className="app">
@@ -139,6 +156,49 @@ export function MainLayout() {
           <div className="header-left">
             <Link to="/" className="logo" onClick={closeAll} title={appVersion ? `v.${appVersion}` : undefined}>
               Kingside
+            </Link>
+          </div>
+
+          {/* CENTER: Nav menu (desktop) */}
+          <div className="header-nav-menu">
+            <Link to="/lobby" className={`nav-menu-item${isNavActive(['/lobby']) ? ' nav-menu-item--active' : ''}`} onClick={closeAll}>
+              {t('nav.play', 'Play')}
+            </Link>
+            <Link to="/tournaments" className={`nav-menu-item${isNavActive(['/tournaments']) ? ' nav-menu-item--active' : ''}`} onClick={closeAll}>
+              {t('nav.tournaments', 'Tournaments')}
+            </Link>
+            <div className="nav-menu-dropdown" ref={puzzleRef}>
+              <button
+                className={`nav-menu-item${isNavActive(['/daily', '/puzzles', '/puzzle-rush', '/puzzle']) ? ' nav-menu-item--active' : ''}`}
+                onClick={() => setPuzzleDropdown(!puzzleDropdown)}
+              >
+                {t('nav.puzzles', 'Puzzles')} <span className="dropdown-arrow">&#9662;</span>
+              </button>
+              {puzzleDropdown && (
+                <div className="nav-dropdown-panel">
+                  <Link to="/daily" onClick={closeAll}>{t('nav.dailyPuzzle', 'Daily Puzzle')}</Link>
+                  <Link to="/puzzles" onClick={closeAll}>{t('nav.myPuzzles', 'My Puzzles')}</Link>
+                  <Link to="/puzzle-rush" onClick={closeAll}>{t('nav.puzzleRush', 'Puzzle Rush')}</Link>
+                </div>
+              )}
+            </div>
+            <div className="nav-menu-dropdown" ref={workshopRef}>
+              <button
+                className={`nav-menu-item${isNavActive(['/workshop', '/analysis']) ? ' nav-menu-item--active' : ''}`}
+                onClick={() => setWorkshopDropdown(!workshopDropdown)}
+              >
+                {t('nav.workshop', 'Workshop')} <span className="dropdown-arrow">&#9662;</span>
+              </button>
+              {workshopDropdown && (
+                <div className="nav-dropdown-panel">
+                  <Link to="/workshop" onClick={closeAll}>{t('nav.analyses', 'Analyses')}</Link>
+                  <Link to="/workshop/pgn-files" onClick={closeAll}>{t('nav.pgnFiles', 'PGN Files')}</Link>
+                  <Link to="/analysis" onClick={closeAll}>{t('nav.newAnalysis', 'New Analysis')}</Link>
+                </div>
+              )}
+            </div>
+            <Link to="/broadcasts" className={`nav-menu-item${isNavActive(['/broadcasts']) ? ' nav-menu-item--active' : ''}`} onClick={closeAll}>
+              {t('nav.tv', 'TV')}
             </Link>
           </div>
 
@@ -277,6 +337,7 @@ export function MainLayout() {
           onDecline={declineChallenge}
         />
       )}
+      {user && !hideMobileBar && <MobileBottomBar />}
     </div>
   );
 }

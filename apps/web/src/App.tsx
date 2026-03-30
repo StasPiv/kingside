@@ -58,11 +58,13 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+const DashboardPage = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+
 function HomePage() {
   const { user, loading } = useAuth();
   const { t } = useTranslation();
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  return user ? <LobbyPage /> : <FeaturesPage />;
+  return user ? <Suspense fallback={<LazyFallback />}><DashboardPage /></Suspense> : <FeaturesPage />;
 }
 
 function ProfileRedirect() {
