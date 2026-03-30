@@ -527,7 +527,7 @@ body.has-analysis-page .main {
 
 .sidebar-item {
   width: 40px;
-  height: 40px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -537,6 +537,25 @@ body.has-analysis-page .main {
   font-size: 18px;
   position: relative;
   transition: background 0.15s, color 0.15s;
+}
+
+/* Tooltip on hover */
+.sidebar-item[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  color: #e0e0e0;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 200;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .sidebar-item:hover {

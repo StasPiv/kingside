@@ -1,9 +1,11 @@
 /* Lobby */
+/* KS-1112: full width in sidebar layout, max-width only applies to inner content */
 .lobby-page {
   text-align: center;
-  padding-top: 24px;
-  max-width: 1200px;
-  margin: 0 auto;
+  padding: 24px;
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Teasers grid */
@@ -308,15 +310,17 @@
   color: #ccc;
 }
 
-/* Two-column layout */
+/* Two-column layout (KS-1112: grid for full width) */
 .lobby-columns {
-  display: flex;
-  gap: 32px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+  max-width: 1200px;
+  margin: 0 auto;
 }
 
 .lobby-column {
-  flex: 1;
   min-width: 0;
 }
 
@@ -346,7 +350,7 @@
 /* Mobile: show mode tabs, hide inactive column */
 @media (max-width: 768px) {
   .lobby-columns {
-    flex-direction: column;
+    grid-template-columns: 1fr;
     gap: 0;
   }
 
