@@ -306,17 +306,107 @@ export class ArenaService {
       }
     }
 
-    return entries.map((e) => ({
-      userId: e.userId,
-      username: e.user?.username ?? '?',
-      score: e.score,
-      wins: e.wins,
-      draws: e.draws,
-      losses: e.losses,
-      streak: e.streak,
-      withdrawn: e.withdrawn,
-      games: playerGames.get(e.userId) ?? [],
-    }));
+    // For Swiss: compute buchholz, progressive, rounds[]
+    const isSwiss = tournament.type === 'swiss';
+    let pairings: Array<{ whiteId: string; blackId: string | null; result: string | null; gameId: string | null; round: { roundNumber: number } }> = [];
+    if (isSwiss) {
+      pairings = await this.prisma.tournamentPairing.findMany({
+        where: { round: { tournamentId } },
+        select: { whiteId: true, blackId: true, result: true, gameId: true, round: { select: { roundNumber: true } } },
+      });
+    }
+
+    // Build score map for buchholz
+    const scoreMap = new Map(entries.map((e) => [e.userId, e.score]));
+    // Build rating map
+    const userIds = entries.map((e) => e.userId);
+    let ratingMap = new Map<string, number>();
+    if (isSwiss) {
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, ratingBlitz: true },
+      });
+      ratingMap = new Map(users.map((u) => [u.id, u.ratingBlitz ?? 1500]));
+    }
+
+    const result = entries.map((e) => {
+      const base = {
+        userId: e.userId,
+        username: e.user?.username ?? '?',
+        score: e.score,
+        wins: e.wins,
+        draws: e.draws,
+        losses: e.losses,
+        streak: e.streak,
+        withdrawn: e.withdrawn,
+        games: playerGames.get(e.userId) ?? [],
+      };
+
+      if (!isSwiss) return { ...base, rank: 0, buchholz: 0, progressive: 0, rounds: [] as unknown[], rating: 0 };
+
+      // Compute rounds[] for this player from pairings
+      const playerRounds: Array<{ round: number; opponentId: string | null; color: 'white' | 'black' | null; result: string | null; gameId: string | null; points: number }> = [];
+      const roundPoints: number[] = [];
+
+      for (const p of pairings) {
+        if (p.whiteId !== e.userId && p.blackId !== e.userId) continue;
+        const isWhite = p.whiteId === e.userId;
+        const opponentId = isWhite ? p.blackId : p.whiteId;
+        const color = p.blackId ? (isWhite ? 'white' as const : 'black' as const) : null;
+
+        let pts = 0;
+        let res: string | null = null;
+        if (p.result === 'bye') {
+          res = 'bye';
+          pts = ptsWin;
+        } else if (p.result === '1-0') {
+          res = isWhite ? 'win' : 'loss';
+          pts = isWhite ? ptsWin : ptsLoss;
+        } else if (p.result === '0-1') {
+          res = isWhite ? 'loss' : 'win';
+          pts = isWhite ? ptsLoss : ptsWin;
+        } else if (p.result === '1/2-1/2') {
+          res = 'draw';
+          pts = ptsDraw;
+        }
+
+        playerRounds.push({
+          round: p.round.roundNumber,
+          opponentId,
+          color,
+          result: res,
+          gameId: p.gameId,
+          points: pts,
+        });
+        roundPoints.push(pts);
+      }
+
+      playerRounds.sort((a, b) => a.round - b.round);
+      roundPoints.sort(); // ensure order by round
+
+      // Buchholz: sum of opponents' scores (bye opponent = 0)
+      const buchholz = playerRounds.reduce((sum, r) => {
+        if (!r.opponentId || r.result === 'bye') return sum;
+        return sum + (scoreMap.get(r.opponentId) ?? 0);
+      }, 0);
+
+      // Progressive: cumulative score per round
+      let cumulative = 0;
+      const progressive = playerRounds.reduce((sum, r) => {
+        cumulative += r.points;
+        return sum + cumulative;
+      }, 0);
+
+      return { ...base, buchholz, progressive, rounds: playerRounds, rating: ratingMap.get(e.userId) ?? 1500 };
+    });
+
+    // Sort by score DESC, buchholz DESC, rating DESC and assign rank
+    if (isSwiss) {
+      result.sort((a, b) => b.score - a.score || (b.buchholz ?? 0) - (a.buchholz ?? 0) || (b.rating ?? 0) - (a.rating ?? 0));
+    }
+    result.forEach((e, i) => { (e as any).rank = i + 1; });
+
+    return result;
   }
 
   // --- Arena matchmaking ---

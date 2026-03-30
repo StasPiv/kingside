@@ -118,11 +118,11 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`checkStuckRounds: round ${t.currentRound} stuck-complete for ${t.type} tournament ${t.id}, finalizing...`);
 
       await this.roundManager.finalizeRound(t.id);
-      this.gateway.emitRoundEnd(t.id, t.currentRound);
-      await this.gateway.emitStandings(t.id);
 
       const updated = await this.prisma.arenaTournament.findUnique({ where: { id: t.id } });
       if (!updated || updated.status === 'finished') {
+        this.gateway.emitRoundEnd(t.id, t.currentRound, null);
+        await this.gateway.emitStandings(t.id);
         this.gateway.emitTournamentFinished(t.id);
         continue;
       }
@@ -133,8 +133,16 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
       });
       if (round?.finishedAt && t.roundPauseMin) {
         const pauseEnd = new Date(round.finishedAt).getTime() + t.roundPauseMin * 60_000;
-        if (Date.now() < pauseEnd) continue; // pause not elapsed yet
+        if (Date.now() < pauseEnd) {
+          // Still in pause — emit round_end with nextRoundStartsAt so frontend shows timer
+          this.gateway.emitRoundEnd(t.id, t.currentRound, new Date(pauseEnd).toISOString());
+          await this.gateway.emitStandings(t.id);
+          continue;
+        }
       }
+
+      this.gateway.emitRoundEnd(t.id, t.currentRound, null);
+      await this.gateway.emitStandings(t.id);
 
       // Start next round
       const roundId = await this.roundManager.startNextRound(t.id);
