@@ -44,7 +44,8 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         this.gateway.emitTournamentFinished(id);
       }
 
-      // Round completion is now handled by onGameEnd hook in arena.module.ts
+      // Fallback: check for stuck completed rounds (e.g. after API restart lost setTimeout)
+      await this.checkStuckRounds();
 
       const finished = await this.arena.checkAndFinishTournaments();
       if (finished.length > 0) {
@@ -98,6 +99,66 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         }
       }
       this.logger.log(`autoStartFirstRound: emitted round_start for tournament ${tournamentId}`);
+    }
+  }
+
+  /**
+   * Fallback: detect rounds where all games finished but round not finalized.
+   * This handles cases where onGameEnd's setTimeout was lost (API restart).
+   */
+  private async checkStuckRounds() {
+    const active = await this.prisma.arenaTournament.findMany({
+      where: { status: 'active', type: { in: ['swiss', 'round_robin'] }, currentRound: { gt: 0 } },
+    });
+
+    for (const t of active) {
+      const complete = await this.roundManager.checkRoundComplete(t.id);
+      if (!complete) continue;
+
+      this.logger.log(`checkStuckRounds: round ${t.currentRound} stuck-complete for ${t.type} tournament ${t.id}, finalizing...`);
+
+      await this.roundManager.finalizeRound(t.id);
+      this.gateway.emitRoundEnd(t.id, t.currentRound);
+      await this.gateway.emitStandings(t.id);
+
+      const updated = await this.prisma.arenaTournament.findUnique({ where: { id: t.id } });
+      if (!updated || updated.status === 'finished') {
+        this.gateway.emitTournamentFinished(t.id);
+        continue;
+      }
+
+      // Check if pause has elapsed (if roundPauseMin set)
+      const round = await this.prisma.tournamentRound.findUnique({
+        where: { tournamentId_roundNumber: { tournamentId: t.id, roundNumber: t.currentRound } },
+      });
+      if (round?.finishedAt && t.roundPauseMin) {
+        const pauseEnd = new Date(round.finishedAt).getTime() + t.roundPauseMin * 60_000;
+        if (Date.now() < pauseEnd) continue; // pause not elapsed yet
+      }
+
+      // Start next round
+      const roundId = await this.roundManager.startNextRound(t.id);
+      if (roundId) {
+        const refreshed = await this.prisma.arenaTournament.findUnique({ where: { id: t.id } });
+        if (refreshed) {
+          const round = await this.roundManager.getRound(t.id, refreshed.currentRound);
+          if (round) {
+            const pairingsPayload = round.pairings.map((p) => ({
+              whiteId: p.whiteId,
+              blackId: p.blackId,
+              gameId: p.gameId,
+              board: p.board,
+            }));
+            this.gateway.emitRoundStart(t.id, refreshed.currentRound, pairingsPayload);
+            for (const p of round.pairings) {
+              if (p.gameId) {
+                this.gateway.emitPaired(t.id, p.gameId, p.whiteId, p.blackId);
+              }
+            }
+          }
+        }
+        this.logger.log(`checkStuckRounds: started next round for ${t.id}`);
+      }
     }
   }
 
