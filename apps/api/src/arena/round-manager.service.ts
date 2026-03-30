@@ -43,27 +43,101 @@ export class RoundManagerService {
     let pairings: { whiteId: string; blackId: string | null; board: number }[];
 
     if (t.type === 'round_robin') {
+      // RR: use pre-generated pending round from schedule
+      const pendingRound = await this.prisma.tournamentRound.findUnique({
+        where: { tournamentId_roundNumber: { tournamentId, roundNumber: nextRound } },
+        include: { pairings: { orderBy: { board: 'asc' } } },
+      });
+
+      if (pendingRound && pendingRound.status === 'pending') {
+        // Activate the pending round, create games for each pairing
+        await this.prisma.tournamentRound.update({
+          where: { id: pendingRound.id },
+          data: { status: 'active', startedAt: new Date() },
+        });
+
+        const withdrawnIds = new Set(t.entries.filter((e) => e.withdrawn).map((e) => e.userId));
+
+        for (const p of pendingRound.pairings) {
+          if (p.result === 'bye' || !p.blackId) {
+            // Bye: give points
+            const byePoints = t.pointsWin;
+            if (!withdrawnIds.has(p.whiteId)) {
+              await this.prisma.arenaTournamentEntry.updateMany({
+                where: { tournamentId, userId: p.whiteId },
+                data: { score: { increment: byePoints }, wins: { increment: 1 } },
+              });
+            }
+            continue;
+          }
+
+          // Skip if both players withdrew
+          const wWhite = withdrawnIds.has(p.whiteId);
+          const wBlack = withdrawnIds.has(p.blackId);
+          if (wWhite && wBlack) {
+            await this.prisma.tournamentPairing.update({
+              where: { id: p.id },
+              data: { result: 'bye' },
+            });
+            continue;
+          }
+
+          // If one withdrew, convert to bye for the other
+          if (wWhite || wBlack) {
+            const activePlayer = wWhite ? p.blackId : p.whiteId;
+            await this.prisma.tournamentPairing.update({
+              where: { id: p.id },
+              data: { result: 'bye', whiteId: activePlayer, blackId: null },
+            });
+            const byePoints = t.pointsWin;
+            await this.prisma.arenaTournamentEntry.updateMany({
+              where: { tournamentId, userId: activePlayer },
+              data: { score: { increment: byePoints }, wins: { increment: 1 } },
+            });
+            continue;
+          }
+
+          // Create game
+          const game = await this.prisma.game.create({
+            data: {
+              whiteId: p.whiteId,
+              blackId: p.blackId,
+              status: 'waiting',
+              timeControlType: t.timeControlType as 'bullet' | 'blitz' | 'rapid' | 'classical',
+              timeInitialSec: t.timeInitialSec,
+              timeIncrementSec: t.timeIncrementSec,
+              tournamentId,
+            },
+          });
+          await this.gameService.initGame(game.id);
+          await this.prisma.tournamentPairing.update({
+            where: { id: p.id },
+            data: { gameId: game.id },
+          });
+          this.logger.log(`startNextRound RR: created game ${game.id} — ${p.whiteId} vs ${p.blackId} (board ${p.board})`);
+        }
+
+        await this.prisma.arenaTournament.update({
+          where: { id: tournamentId },
+          data: { currentRound: nextRound },
+        });
+
+        this.logger.log(`Tournament ${tournamentId}: RR round ${nextRound} activated with pre-generated pairings`);
+        return pendingRound.id;
+      }
+
+      // Fallback: no pending round found — generate pairings dynamically (legacy)
       const playerIds = t.entries.map((e) => e.userId);
       const withdrawnIds = new Set(t.entries.filter((e) => e.withdrawn).map((e) => e.userId));
-      const allRounds = this.rrPairing.generateAllRounds(playerIds);
-      // Cycle through Berger table if totalRounds > unique rounds (n-1)
-      const roundIndex = allRounds.length > 0 ? (nextRound - 1) % allRounds.length : -1;
-      const rawPairings = roundIndex >= 0 ? allRounds[roundIndex] : [];
-      this.logger.log(`startNextRound RR: round ${nextRound}, berger rounds=${allRounds.length}, using index=${roundIndex}, rawPairings=${rawPairings.length}`);
-      // Filter out pairings where both players withdrew; convert to bye if one withdrew
+      const allRounds = this.rrPairing.generateFullSchedule(playerIds, t.totalRounds ?? (playerIds.length - 1));
+      const rawPairings = nextRound <= allRounds.length ? allRounds[nextRound - 1] : [];
       pairings = rawPairings.reduce<typeof rawPairings>((acc, p) => {
         const wWhite = withdrawnIds.has(p.whiteId);
         const wBlack = p.blackId ? withdrawnIds.has(p.blackId) : true;
-        if (wWhite && wBlack) return acc; // both withdrawn or bye+withdrawn — skip
-        if (wWhite) {
-          // White withdrew — black gets bye
-          acc.push({ whiteId: p.blackId!, blackId: null, board: p.board });
-        } else if (wBlack) {
-          // Black withdrew or bye — white gets bye
-          acc.push({ whiteId: p.whiteId, blackId: null, board: p.board });
-        } else {
-          acc.push(p);
-        }
+        if (wWhite && wBlack) return acc;
+        if (wWhite) acc.push({ whiteId: p.blackId!, blackId: null, board: p.board });
+        else if (wBlack) acc.push({ whiteId: p.whiteId, blackId: null, board: p.board });
+        else acc.push(p);
         return acc;
       }, []);
     } else {

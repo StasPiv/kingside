@@ -483,6 +483,51 @@ export class ArenaService {
     });
   }
 
+  // --- Schedule ---
+
+  async getSchedule(tournamentId: string) {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) throw new NotFoundException('Tournament not found');
+
+    const rounds = await this.prisma.tournamentRound.findMany({
+      where: { tournamentId },
+      orderBy: { roundNumber: 'asc' },
+      include: {
+        pairings: { orderBy: { board: 'asc' } },
+      },
+    });
+
+    // Collect all user IDs and fetch usernames
+    const userIds = new Set<string>();
+    for (const r of rounds) {
+      for (const p of r.pairings) {
+        userIds.add(p.whiteId);
+        if (p.blackId) userIds.add(p.blackId);
+      }
+    }
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [...userIds] } },
+      select: { id: true, username: true },
+    });
+    const usernameMap = new Map(users.map((u) => [u.id, u.username]));
+
+    return rounds.map((r) => ({
+      roundNumber: r.roundNumber,
+      status: r.status,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      pairings: r.pairings.map((p) => ({
+        whiteId: p.whiteId,
+        whiteUsername: usernameMap.get(p.whiteId) ?? '?',
+        blackId: p.blackId,
+        blackUsername: p.blackId ? usernameMap.get(p.blackId) ?? '?' : null,
+        result: p.result,
+        gameId: p.gameId,
+        board: p.board,
+      })),
+    }));
+  }
+
   // --- Crosstable ---
 
   async getCrosstable(tournamentId: string) {

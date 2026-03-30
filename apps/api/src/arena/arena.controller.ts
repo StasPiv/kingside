@@ -65,6 +65,11 @@ export class ArenaController {
     return this.roundManager.getRound(id, n);
   }
 
+  @Get(':id/schedule')
+  getSchedule(@Param('id', ParseUUIDPipe) id: string) {
+    return this.arena.getSchedule(id);
+  }
+
   @Get(':id/crosstable')
   getCrosstable(@Param('id', ParseUUIDPipe) id: string) {
     return this.arena.getCrosstable(id);

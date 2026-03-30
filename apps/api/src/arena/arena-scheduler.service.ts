@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ArenaService } from './arena.service';
 import { ArenaGateway } from './arena.gateway';
 import { RoundManagerService } from './round-manager.service';
+import { RoundRobinPairingService } from './round-robin-pairing.service';
 
 const CHECK_INTERVAL_MS = 10_000; // 10 seconds
 
@@ -15,6 +16,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly arena: ArenaService,
     private readonly gateway: ArenaGateway,
     private readonly roundManager: RoundManagerService,
+    private readonly rrPairing: RoundRobinPairingService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -64,6 +66,11 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // For RR: generate full schedule (all rounds + pairings as pending) before starting
+    if (t.type === 'round_robin') {
+      await this.generateRRSchedule(tournamentId, t);
+    }
+
     this.logger.log(`autoStartFirstRound: starting first round for ${t.type} tournament ${tournamentId}`);
     const roundId = await this.roundManager.startNextRound(tournamentId);
     this.logger.log(`autoStartFirstRound: startNextRound returned ${roundId ? roundId : 'null (no round created)'}`);
@@ -89,6 +96,43 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
       }
       this.logger.log(`autoStartFirstRound: emitted round_start for tournament ${tournamentId}`);
     }
+  }
+
+  private async generateRRSchedule(tournamentId: string, t: { totalRounds: number | null; type: string }) {
+    const entries = await this.prisma.arenaTournamentEntry.findMany({
+      where: { tournamentId },
+      select: { userId: true },
+    });
+    const playerIds = entries.map((e) => e.userId);
+    const n = playerIds.length + (playerIds.length % 2); // pad for BYE
+    const totalRounds = t.totalRounds ?? (n - 1);
+    const schedule = this.rrPairing.generateFullSchedule(playerIds, totalRounds);
+
+    for (let i = 0; i < schedule.length; i++) {
+      const roundNumber = i + 1;
+      const round = await this.prisma.tournamentRound.create({
+        data: {
+          tournamentId,
+          roundNumber,
+          status: 'pending',
+        },
+      });
+
+      for (const p of schedule[i]) {
+        await this.prisma.tournamentPairing.create({
+          data: {
+            roundId: round.id,
+            whiteId: p.whiteId,
+            blackId: p.blackId,
+            gameId: null,
+            board: p.board,
+            result: p.blackId ? null : 'bye',
+          },
+        });
+      }
+    }
+
+    this.logger.log(`generateRRSchedule: created ${schedule.length} rounds for tournament ${tournamentId}`);
   }
 
 }
