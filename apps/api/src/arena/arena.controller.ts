@@ -71,6 +71,12 @@ export class ArenaController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/recalculate')
+  recalculate(@Param('id', ParseUUIDPipe) id: string) {
+    return this.arena.recalculateScores(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(':id/leave')
   async leave(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
     const result = await this.arena.leave(id, req.user.id);

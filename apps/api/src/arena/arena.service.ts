@@ -537,6 +537,58 @@ export class ArenaService {
     return { players, results };
   }
 
+  async recalculateScores(tournamentId: string) {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) throw new NotFoundException('Tournament not found');
+
+    const isArena = t.type === 'arena';
+
+    // Reset all entry scores
+    await this.prisma.arenaTournamentEntry.updateMany({
+      where: { tournamentId },
+      data: { score: 0, wins: 0, draws: 0, losses: 0, streak: 0 },
+    });
+
+    // Get all finished games for this tournament, ordered by creation
+    const games = await this.prisma.game.findMany({
+      where: { tournamentId, status: 'finished', result: { not: null } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, whiteId: true, blackId: true, result: true },
+    });
+
+    for (const game of games) {
+      if (!game.result) continue;
+      if (game.result === 'draw') {
+        const drawPts = isArena ? 1 : t.pointsDraw;
+        await this.addScore(tournamentId, game.whiteId, drawPts, 'draw', isArena);
+        await this.addScore(tournamentId, game.blackId, drawPts, 'draw', isArena);
+      } else {
+        const winnerId = game.result === 'white' ? game.whiteId : game.blackId;
+        const loserId = game.result === 'white' ? game.blackId : game.whiteId;
+        const winPts = isArena ? 2 : t.pointsWin;
+        const lossPts = isArena ? 0 : t.pointsLoss;
+        await this.addScore(tournamentId, winnerId, winPts, 'win', isArena);
+        await this.addScore(tournamentId, loserId, lossPts, 'loss', isArena);
+      }
+    }
+
+    // Add bye points from pairings
+    const byePairings = await this.prisma.tournamentPairing.findMany({
+      where: { round: { tournamentId }, result: 'bye' },
+      select: { whiteId: true },
+    });
+    const byePoints = isArena ? 1 : t.pointsWin;
+    for (const p of byePairings) {
+      await this.prisma.arenaTournamentEntry.updateMany({
+        where: { tournamentId, userId: p.whiteId },
+        data: { score: { increment: byePoints }, wins: { increment: 1 } },
+      });
+    }
+
+    this.logger.log(`Recalculated scores for tournament ${tournamentId}: ${games.length} games, ${byePairings.length} byes`);
+    return { recalculated: true, games: games.length, byes: byePairings.length };
+  }
+
   // --- Scheduler ---
 
   async checkAndStartTournaments() {

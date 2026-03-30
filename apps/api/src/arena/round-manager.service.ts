@@ -123,11 +123,12 @@ export class RoundManagerService {
         },
       });
 
-      // Bye: give 1 point
+      // Bye: give points (use tournament's pointsWin for Swiss/RR, 1 for arena)
       if (!p.blackId) {
+        const byePoints = t.type === 'arena' ? 1 : t.pointsWin;
         await this.prisma.arenaTournamentEntry.updateMany({
           where: { tournamentId, userId: p.whiteId },
-          data: { score: { increment: 1 }, wins: { increment: 1 } },
+          data: { score: { increment: byePoints }, wins: { increment: 1 } },
         });
       }
     }
