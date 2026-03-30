@@ -7,6 +7,7 @@ import { tournamentSocket } from '../socket';
 import { TournamentRoundView } from '../components/TournamentRoundView';
 import { CrossTable } from '../components/CrossTable';
 import { TournamentSchedule } from '../components/TournamentSchedule';
+import { SwissStandingsTable } from '../components/SwissStandingsTable';
 
 type Tournament = {
   id: string;
@@ -80,6 +81,7 @@ export function TournamentLobbyPage() {
   const [seeking, setSeeking] = useState(false);
   const [joined, setJoined] = useState(false);
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
+  const [nextRoundStartsAt, setNextRoundStartsAt] = useState<string | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
@@ -131,13 +133,17 @@ export function TournamentLobbyPage() {
         setRemainingMs(Math.max(0, new Date(tournament.startsAt).getTime() - now));
       } else if (tournament.status === 'active') {
         if (isSwissRR) {
-          const lastFinished = [...rounds].reverse().find((r) => r.status === 'finished');
-          const activeRound = rounds.find((r) => r.status === 'active');
-          if (!activeRound && lastFinished?.finishedAt && tournament.roundPauseMin) {
-            const nextStart = new Date(lastFinished.finishedAt).getTime() + tournament.roundPauseMin * 60_000;
-            setRemainingMs(Math.max(0, nextStart - now));
+          if (nextRoundStartsAt) {
+            setRemainingMs(Math.max(0, new Date(nextRoundStartsAt).getTime() - now));
           } else {
-            setRemainingMs(null);
+            const lastFinished = [...rounds].reverse().find((r) => r.status === 'finished');
+            const activeRound = rounds.find((r) => r.status === 'active');
+            if (!activeRound && lastFinished?.finishedAt && tournament.roundPauseMin) {
+              const nextStart = new Date(lastFinished.finishedAt).getTime() + tournament.roundPauseMin * 60_000;
+              setRemainingMs(Math.max(0, nextStart - now));
+            } else {
+              setRemainingMs(null);
+            }
           }
         } else {
           const end = tournament.endsAt
@@ -152,7 +158,7 @@ export function TournamentLobbyPage() {
     updateTimer();
     timerRef.current = setInterval(updateTimer, 1000);
     return () => clearInterval(timerRef.current);
-  }, [tournament, rounds]);
+  }, [tournament, rounds, nextRoundStartsAt]);
 
   // WebSocket
   useEffect(() => {
@@ -203,13 +209,15 @@ export function TournamentLobbyPage() {
       fetchStandings();
     };
 
-    const onRoundEnd = () => {
+    const onRoundEnd = (data: { nextRoundStartsAt?: string | null }) => {
+      setNextRoundStartsAt(data.nextRoundStartsAt ?? null);
       fetchRounds();
       fetchStandings();
       fetchTournament();
     };
 
     const onRoundStart = (data: { tournamentId: string; roundNumber: number; pairings?: Array<{ whiteId: string; blackId: string; gameId: string }> }) => {
+      setNextRoundStartsAt(null);
       fetchRounds();
       fetchStandings();
       fetchTournament();
@@ -442,6 +450,14 @@ export function TournamentLobbyPage() {
         {/* Table Tab */}
         {activeTab === 'table' && (
           <div className="tournament-tab-panel">
+            {tournament.type === 'swiss' && (
+              <SwissStandingsTable
+                standings={standings as any}
+                currentUserId={user?.id}
+                totalRounds={tournament.totalRounds ?? tournament.currentRound}
+              />
+            )}
+
             {tournament.type === 'round_robin' && id && (
               <CrossTable
                 tournamentId={id}
@@ -452,57 +468,59 @@ export function TournamentLobbyPage() {
               />
             )}
 
-            <div className="tournament-standings">
-              <h2>{t('tournaments.standings', 'Standings')}</h2>
-              {standings.length === 0 ? (
-                <p className="tournament-standings-empty">{t('tournaments.noPlayers', 'No players yet')}</p>
-              ) : (
-                <table className="tournament-standings-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>{t('tournaments.player', 'Player')}</th>
-                      <th>{t('tournaments.score', 'Score')}</th>
-                      <th>{t('tournaments.gamesCol', 'Games')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {standings.map((s, i) => (
-                      <tr key={s.userId} className={s.userId === user?.id ? 'tournament-standings-self' : ''}>
-                        <td>{i + 1}</td>
-                        <td><Link to={`/player/${s.username}`}>{s.username}</Link></td>
-                        <td>{s.score}</td>
-                        <td className="tournament-games-cell">
-                          {s.games.map((g) => {
-                            const cls = g.status === 'active'
-                              ? 'arena-game-cell arena-game-cell--active'
-                              : g.result === 'win'
-                                ? 'arena-game-cell arena-game-cell--win'
-                                : g.result === 'loss'
-                                  ? 'arena-game-cell arena-game-cell--loss'
-                                  : 'arena-game-cell arena-game-cell--draw';
-                            return (
-                              <span
-                                key={g.gameId}
-                                className={cls}
-                                title={`${t('tournaments.vs', 'vs')} ${g.opponentUsername}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (g.status === 'active') navigate(`/games/${g.gameId}/watch`);
-                                  else navigate(`/game/${g.gameId}/review`);
-                                }}
-                              >
-                                {g.status === 'active' ? '•' : g.points === 0.5 ? '½' : g.points}
-                              </span>
-                            );
-                          })}
-                        </td>
+            {tournament.type !== 'swiss' && (
+              <div className="tournament-standings">
+                <h2>{t('tournaments.standings', 'Standings')}</h2>
+                {standings.length === 0 ? (
+                  <p className="tournament-standings-empty">{t('tournaments.noPlayers', 'No players yet')}</p>
+                ) : (
+                  <table className="tournament-standings-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>{t('tournaments.player', 'Player')}</th>
+                        <th>{t('tournaments.score', 'Score')}</th>
+                        <th>{t('tournaments.gamesCol', 'Games')}</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                    </thead>
+                    <tbody>
+                      {standings.map((s, i) => (
+                        <tr key={s.userId} className={s.userId === user?.id ? 'tournament-standings-self' : ''}>
+                          <td>{i + 1}</td>
+                          <td><Link to={`/player/${s.username}`}>{s.username}</Link></td>
+                          <td>{s.score}</td>
+                          <td className="tournament-games-cell">
+                            {s.games.map((g) => {
+                              const cls = g.status === 'active'
+                                ? 'arena-game-cell arena-game-cell--active'
+                                : g.result === 'win'
+                                  ? 'arena-game-cell arena-game-cell--win'
+                                  : g.result === 'loss'
+                                    ? 'arena-game-cell arena-game-cell--loss'
+                                    : 'arena-game-cell arena-game-cell--draw';
+                              return (
+                                <span
+                                  key={g.gameId}
+                                  className={cls}
+                                  title={`${t('tournaments.vs', 'vs')} ${g.opponentUsername}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (g.status === 'active') navigate(`/games/${g.gameId}/watch`);
+                                    else navigate(`/game/${g.gameId}/review`);
+                                  }}
+                                >
+                                  {g.status === 'active' ? '•' : g.points === 0.5 ? '½' : g.points}
+                                </span>
+                              );
+                            })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
           </div>
         )}
 
