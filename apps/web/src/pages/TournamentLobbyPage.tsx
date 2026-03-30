@@ -270,11 +270,13 @@ export function TournamentLobbyPage() {
     if (!id) return;
     try {
       await api.post(`/api/arena/${id}/leave`, {});
-      if (tournamentSocket.connected) {
-        tournamentSocket.emit('tournament:leave', { tournamentId: id });
-      }
-      navigate('/tournaments');
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error('Leave failed:', e);
+    }
+    if (tournamentSocket.connected) {
+      tournamentSocket.emit('tournament:leave', { tournamentId: id });
+    }
+    navigate('/tournaments');
   };
 
   const handleWithdraw = async () => {
@@ -282,11 +284,13 @@ export function TournamentLobbyPage() {
     if (!window.confirm(t('tournaments.withdrawConfirm', 'Are you sure? Remaining rounds will be scored as 0.'))) return;
     try {
       await api.post(`/api/arena/${id}/leave`, {});
-      if (tournamentSocket.connected) {
-        tournamentSocket.emit('tournament:leave', { tournamentId: id });
-      }
-      navigate('/tournaments');
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error('Withdraw failed:', e);
+    }
+    if (tournamentSocket.connected) {
+      tournamentSocket.emit('tournament:leave', { tournamentId: id });
+    }
+    navigate('/tournaments');
   };
 
   const formatRemaining = (ms: number) => {
