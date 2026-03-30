@@ -67,6 +67,9 @@ export class ArenaController {
   async leave(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
     const result = await this.arena.leave(id, req.user.id);
     this.gateway.emitPlayerLeft(id, req.user.id);
+    if (result.tournamentFinished) {
+      this.gateway.emitTournamentFinished(id);
+    }
     return result;
   }
 

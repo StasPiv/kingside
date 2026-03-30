@@ -111,10 +111,21 @@ export class ArenaService {
       await this.prisma.arenaTournamentEntry.delete({
         where: { id: entry.id },
       });
-      // Remove from seeking queue if any
       await this.leaveSeeking(tournamentId, userId);
+
+      // Check if no players left — cancel the tournament
+      const remaining = await this.prisma.arenaTournamentEntry.count({ where: { tournamentId } });
+      if (remaining === 0) {
+        await this.prisma.arenaTournament.update({
+          where: { id: tournamentId },
+          data: { status: 'finished' },
+        });
+        this.logger.log(`Tournament ${tournamentId} cancelled — no players left`);
+        return { action: 'removed', tournamentFinished: true };
+      }
+
       this.logger.log(`User ${userId} left upcoming tournament ${tournamentId}`);
-      return { action: 'removed' };
+      return { action: 'removed', tournamentFinished: false };
     }
 
     // During active tournament: mark as withdrawn
@@ -123,7 +134,6 @@ export class ArenaService {
       data: { withdrawn: true },
     });
 
-    // Remove from seeking queue
     await this.leaveSeeking(tournamentId, userId);
 
     // If the player has an active game in current round, forfeit it
@@ -131,8 +141,54 @@ export class ArenaService {
       await this.forfeitCurrentGame(tournamentId, userId);
     }
 
+    // Check remaining active players
+    const activeCount = await this.prisma.arenaTournamentEntry.count({
+      where: { tournamentId, withdrawn: false },
+    });
+
+    if (activeCount <= 1 && t.type !== 'arena') {
+      // Swiss/RR: can't continue with 0 or 1 player
+      await this.finishTournamentEarly(tournamentId);
+      this.logger.log(`Tournament ${tournamentId} auto-finished — ${activeCount} active player(s) left`);
+      return { action: 'withdrawn', tournamentFinished: true };
+    }
+
+    if (activeCount === 0) {
+      // Arena with 0 players
+      await this.finishTournamentEarly(tournamentId);
+      this.logger.log(`Tournament ${tournamentId} auto-finished — no active players`);
+      return { action: 'withdrawn', tournamentFinished: true };
+    }
+
     this.logger.log(`User ${userId} withdrew from active tournament ${tournamentId}`);
-    return { action: 'withdrawn' };
+    return { action: 'withdrawn', tournamentFinished: false };
+  }
+
+  private async finishTournamentEarly(tournamentId: string) {
+    await this.prisma.arenaTournament.update({
+      where: { id: tournamentId },
+      data: { status: 'finished' },
+    });
+
+    // Cancel all active/pending rounds
+    await this.prisma.tournamentRound.updateMany({
+      where: { tournamentId, status: { in: ['active', 'pending'] } },
+      data: { status: 'finished', finishedAt: new Date() },
+    });
+
+    // End all active games in the tournament
+    const activeGames = await this.prisma.game.findMany({
+      where: { tournamentId, status: { in: ['waiting', 'active'] } },
+    });
+    for (const game of activeGames) {
+      try {
+        await this.gameService.endGame(game.id, 'draw', 'draw_agreement');
+      } catch (e: unknown) {
+        this.logger.error(`Failed to end game ${game.id}: ${(e as Error).message}`);
+      }
+    }
+
+    await this.redis.del(this.seekKey(tournamentId));
   }
 
   private async forfeitCurrentGame(tournamentId: string, userId: string) {
