@@ -489,25 +489,40 @@ export class ArenaService {
 
     const pairings = await this.prisma.tournamentPairing.findMany({
       where: { round: { tournamentId } },
-      select: { id: true, whiteId: true, blackId: true, result: true, gameId: true },
+      include: { round: { select: { roundNumber: true } } },
     });
 
-    // Build results map: "whiteId:blackId" → { result, gameId, color }
-    const results: Record<string, { result: string | null; gameId: string | null; color: 'white' | 'black' }> = {};
+    // Build results map: "id1:id2" → array of results (for multi-round)
+    const results: Record<string, Array<{ result: string | null; gameId: string | null; color: 'white' | 'black'; round: number }>> = {};
+
     for (const p of pairings) {
       if (!p.blackId) continue; // skip byes
+      const roundNum = p.round.roundNumber;
+
       // From white's perspective
-      results[`${p.whiteId}:${p.blackId}`] = {
+      const whiteKey = `${p.whiteId}:${p.blackId}`;
+      if (!results[whiteKey]) results[whiteKey] = [];
+      results[whiteKey].push({
         result: p.result,
         gameId: p.gameId,
         color: 'white',
-      };
+        round: roundNum,
+      });
+
       // From black's perspective
-      results[`${p.blackId}:${p.whiteId}`] = {
+      const blackKey = `${p.blackId}:${p.whiteId}`;
+      if (!results[blackKey]) results[blackKey] = [];
+      results[blackKey].push({
         result: p.result ? this.invertResult(p.result) : null,
         gameId: p.gameId,
         color: 'black',
-      };
+        round: roundNum,
+      });
+    }
+
+    // Sort each array by round number
+    for (const key of Object.keys(results)) {
+      results[key].sort((a, b) => a.round - b.round);
     }
 
     const players = entries.map((e, i) => ({
