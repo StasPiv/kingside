@@ -51,8 +51,11 @@ export class ArenaController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/join')
-  join(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
-    return this.arena.join(id, req.user.id);
+  async join(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
+    const result = await this.arena.join(id, req.user.id);
+    // Notify WS room about new player
+    await this.gateway.emitStandings(id);
+    return result;
   }
 
   @Get(':id/rounds')
@@ -86,6 +89,7 @@ export class ArenaController {
   async leave(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
     const result = await this.arena.leave(id, req.user.id);
     this.gateway.emitPlayerLeft(id, req.user.id);
+    await this.gateway.emitStandings(id);
     if (result.tournamentFinished) {
       this.gateway.emitTournamentFinished(id);
     }
