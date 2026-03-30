@@ -74,7 +74,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.join(roomName);
     client.data.tournamentId = data.tournamentId;
 
-    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
     this.logger.log(`handleSubscribe: ${client.data.user.username} (${client.id}) subscribed to ${roomName}, room size=${roomSize}`);
   }
 
@@ -146,7 +146,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
 
     const roomName = `tournament:${data.tournamentId}`;
-    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
     this.logger.log(`handleLeave: ${client.data.user?.username} (${client.id}) leaving room ${roomName}, room size=${roomSize}`);
 
     await this.arenaService.leaveSeeking(data.tournamentId, userId);
@@ -170,7 +170,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async emitStandings(tournamentId: string) {
     const roomName = `tournament:${tournamentId}`;
-    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
     const standings = await this.arenaService.getStandings(tournamentId);
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.STANDINGS, { standings });
     this.logger.log(`emitStandings: room ${roomName}, size=${roomSize}, entries=${standings.length}`);
@@ -204,7 +204,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitPlayerLeft(tournamentId: string, userId: string) {
     const roomName = `tournament:${tournamentId}`;
-    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.PLAYER_LEFT, { tournamentId, userId });
     this.logger.log(`emitPlayerLeft: userId=${userId}, room=${roomName}, size=${roomSize}`);
   }
