@@ -513,11 +513,19 @@ body.has-analysis-page .main {
   background: none;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: color 0.15s;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
 }
 
-.nav-menu-item:hover { color: #e0e0e0; }
-.nav-menu-item--active { color: #7c83ff; border-bottom-color: #7c83ff; }
+.nav-menu-item:hover {
+  color: #e0e0e0;
+  border-bottom-color: rgba(124, 131, 255, 0.3);
+}
+
+.nav-menu-item--active {
+  color: #7c83ff;
+  border-bottom-color: #7c83ff;
+}
 
 .nav-menu-dropdown { position: relative; }
 
@@ -531,7 +539,13 @@ body.has-analysis-page .main {
   padding: 4px 0;
   min-width: 160px;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  animation: dropdown-fade 0.15s ease;
+}
+
+@keyframes dropdown-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .nav-dropdown-panel a {
@@ -559,6 +573,7 @@ body.has-analysis-page .main {
   bottom: 0;
   left: 0;
   right: 0;
+  height: 56px;
   background: #0f0f1e;
   border-top: 1px solid #2a2a4e;
   z-index: 90;
@@ -644,6 +659,11 @@ body.has-analysis-page .main {
   border: 1px solid #2a2a4e;
   border-radius: 8px;
   padding: 16px;
+  transition: border-color 0.15s;
+}
+
+.dashboard-card:hover {
+  border-color: #3a3a6e;
 }
 
 .dashboard-card h2 {
