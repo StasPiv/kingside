@@ -386,31 +386,16 @@
 .tcm-preset:hover { border-color: #555; }
 .tcm-preset.active { background: #7c83ff; border-color: #7c83ff; color: #fff; }
 
-/* Custom sliders */
-.tcm-custom { display: flex; flex-direction: column; gap: 8px; }
+/* Custom sliders (KS-1058) */
+.tcm-custom { display: flex; flex-direction: column; gap: 10px; }
 .tcm-slider-row { display: flex; align-items: center; gap: 10px; }
-.tcm-slider-row input[type="range"] { flex: 1; accent-color: #7c83ff; }
-.tcm-slider-val { min-width: 60px; font-size: 13px; color: #7c83ff; font-weight: 600; text-align: right; }
+.tcm-slider-row input[type="range"] { flex: 1; }
+.tcm-slider-val { min-width: 48px; font-size: 13px; color: #7c83ff; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
 
-/* ks-select */
-.ks-select {
+/* ks-select in tournament modal: full width override */
+.tcm-field .ks-select {
   width: 100%;
-  padding: 8px 12px;
-  background: #16213e;
-  color: #e0e0e0;
-  border: 1px solid #333;
-  border-radius: 6px;
-  font-size: 13px;
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  padding-right: 28px;
 }
-.ks-select:hover { border-color: #555; }
-.ks-select:focus { border-color: #7c83ff; outline: none; }
 
 /* Mobile: single column, type cards as horizontal tabs */
 @media (max-width: 600px) {
