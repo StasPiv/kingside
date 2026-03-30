@@ -6,6 +6,7 @@ import { BroadcastGateway } from './broadcast.gateway';
 
 const LICHESS_API = 'https://lichess.org/api';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const PINNED_POLL_INTERVAL_MS = 10_000; // 10 seconds for pinned broadcasts
 const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
 const FETCH_TIMEOUT_MS = 30_000; // 30 seconds
@@ -46,13 +47,21 @@ interface ParsedGame {
 export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BroadcastSyncService.name);
   private syncTimer: NodeJS.Timeout | null = null;
+  private pinnedPollTimer: NodeJS.Timeout | null = null;
   private readonly activeStreams = new Map<string, AbortController>();
   private gateway: BroadcastGateway | null = null;
+  private readonly pinnedBroadcastIds: string[];
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
-  ) {}
+  ) {
+    const ids = process.env.LICHESS_BROADCAST_IDS ?? '';
+    this.pinnedBroadcastIds = ids.split(',').map((s) => s.trim()).filter(Boolean);
+    if (this.pinnedBroadcastIds.length > 0) {
+      this.logger.log(`Pinned broadcast IDs: ${this.pinnedBroadcastIds.join(', ')}`);
+    }
+  }
 
   setGateway(gateway: BroadcastGateway): void {
     this.gateway = gateway;
@@ -65,12 +74,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`Sync error: ${e.message}`),
       );
     }, SYNC_INTERVAL_MS);
+
+    // Frequent polling for pinned broadcasts (Candidates etc.)
+    if (this.pinnedBroadcastIds.length > 0) {
+      await this.syncPinnedBroadcasts();
+      this.pinnedPollTimer = setInterval(() => {
+        this.syncPinnedBroadcasts().catch((e) =>
+          this.logger.error(`Pinned sync error: ${e.message}`),
+        );
+      }, PINNED_POLL_INTERVAL_MS);
+    }
   }
 
   onModuleDestroy(): void {
-    if (this.syncTimer) {
-      clearInterval(this.syncTimer);
-    }
+    if (this.syncTimer) clearInterval(this.syncTimer);
+    if (this.pinnedPollTimer) clearInterval(this.pinnedPollTimer);
     for (const [roundId, ctrl] of this.activeStreams) {
       ctrl.abort();
       this.logger.log(`Stream aborted for round ${roundId}`);
@@ -118,6 +136,80 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (e: any) {
       this.logger.error(`Failed to sync broadcasts: ${e.message}`);
+    }
+  }
+
+  async syncPinnedBroadcasts(): Promise<void> {
+    for (const tourId of this.pinnedBroadcastIds) {
+      try {
+        const bc = await this.fetchBroadcastById(tourId);
+        if (!bc) continue;
+
+        await this.upsertBroadcast(bc);
+
+        // Find ongoing round and fetch PGN
+        const ongoingRound = bc.rounds.find((r) => r.ongoing);
+        for (const round of bc.rounds) {
+          const isActive = round.ongoing === true;
+          await this.upsertRound(bc.tour.id, round, isActive);
+        }
+
+        if (ongoingRound) {
+          await this.fetchAndProcessRoundPgn(ongoingRound.id);
+        }
+      } catch (e: unknown) {
+        this.logger.error(`Pinned broadcast ${tourId} sync error: ${(e as Error).message}`);
+      }
+    }
+  }
+
+  private async fetchBroadcastById(tourId: string): Promise<LichessBroadcast | null> {
+    const url = `${LICHESS_API}/broadcast/${tourId}`;
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      this.logger.warn(`Failed to fetch broadcast ${tourId}: HTTP ${res.status}`);
+      return null;
+    }
+    return res.json() as Promise<LichessBroadcast>;
+  }
+
+  private async fetchAndProcessRoundPgn(lichessRoundId: string): Promise<void> {
+    const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Kingside/1.0 (https://kingside.app)',
+        Accept: 'application/x-chess-pgn',
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!res.ok) return;
+    const pgn = await res.text();
+    if (pgn.trim()) {
+      await this.processPgnUpdate(lichessRoundId, pgn);
+
+      // Emit full sync to subscribed clients
+      if (this.gateway) {
+        const round = await this.prisma.broadcastRound.findUnique({
+          where: { lichessRoundId },
+          include: { games: true },
+        });
+        if (round) {
+          this.gateway.emitSync(round.id, {
+            roundId: round.id,
+            games: round.games.map((g, idx) => ({
+              gameIndex: idx,
+              fen: g.currentFen ?? STARTING_FEN,
+              whitePlayer: g.whitePlayer ?? 'Unknown',
+              blackPlayer: g.blackPlayer ?? 'Unknown',
+              result: g.result ?? null,
+              pgn: g.pgn ?? null,
+            })),
+          });
+        }
+      }
     }
   }
 

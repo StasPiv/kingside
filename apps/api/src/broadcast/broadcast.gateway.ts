@@ -90,4 +90,8 @@ export class BroadcastGateway implements OnGatewayConnection, OnGatewayDisconnec
   emitMove(roundId: string, payload: WsBroadcastMovePayload): void {
     this.server.to(`broadcast:${roundId}`).emit(BroadcastEvents.MOVE, payload);
   }
+
+  emitSync(roundId: string, payload: { roundId: string; games: Array<{ gameIndex: number; fen: string; whitePlayer: string; blackPlayer: string; result: string | null; pgn: string | null }> }): void {
+    this.server.to(`broadcast:${roundId}`).emit(BroadcastEvents.SYNC, payload);
+  }
 }
