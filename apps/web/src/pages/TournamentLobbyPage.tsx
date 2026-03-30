@@ -163,7 +163,8 @@ export function TournamentLobbyPage() {
     }
     tournamentSocket.connect();
 
-    tournamentSocket.emit('tournament:join', { tournamentId: id });
+    // Subscribe to room only (don't auto-join tournament entry)
+    tournamentSocket.emit('tournament:subscribe', { tournamentId: id });
 
     const onPaired = (data: { gameId: string }) => {
       setSeeking(false);

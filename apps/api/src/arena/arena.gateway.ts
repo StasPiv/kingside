@@ -14,6 +14,7 @@ import { JwtPayload } from '../auth/jwt.strategy';
 import { ArenaService } from './arena.service';
 
 const TOURNAMENT_EVENTS = {
+  SUBSCRIBE: 'tournament:subscribe',
   JOIN: 'tournament:join',
   SEEK: 'tournament:seek',
   LEAVE: 'tournament:leave',
@@ -61,6 +62,22 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  @SubscribeMessage(TOURNAMENT_EVENTS.SUBSCRIBE)
+  async handleSubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { tournamentId: string },
+  ) {
+    const userId = client.data.user?.id;
+    if (!userId) return;
+
+    const roomName = `tournament:${data.tournamentId}`;
+    await client.join(roomName);
+    client.data.tournamentId = data.tournamentId;
+
+    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
+    this.logger.log(`handleSubscribe: ${client.data.user.username} (${client.id}) subscribed to ${roomName}, room size=${roomSize}`);
+  }
+
   @SubscribeMessage(TOURNAMENT_EVENTS.JOIN)
   async handleJoin(
     @ConnectedSocket() client: Socket,
@@ -73,22 +90,22 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.join(roomName);
     client.data.tournamentId = data.tournamentId;
 
-    const roomSize = this.server.sockets.adapter.rooms?.get(roomName)?.size ?? 0;
-    this.logger.log(`handleJoin: ${client.data.user.username} (${client.id}) joined room ${roomName}, room size=${roomSize}`);
-
-    // Auto-join entry (may fail for finished tournaments — don't break WS flow)
+    // Join tournament entry
     try {
       await this.arenaService.join(data.tournamentId, userId);
     } catch (e: unknown) {
       this.logger.warn(`handleJoin: join entry failed for ${userId}: ${(e as Error).message}`);
+      return;
     }
+
+    this.logger.log(`handleJoin: ${client.data.user.username} joined tournament ${data.tournamentId}`);
 
     // Notify room
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.PLAYER_JOINED, {
       userId,
       username: client.data.user.username,
     });
-    this.logger.log(`handleJoin: emitted player_joined to room ${roomName} (size=${roomSize})`);
+    this.logger.log(`handleJoin: emitted player_joined to room ${roomName}`);
 
     // Update standings so all players see the new entry
     await this.emitStandings(data.tournamentId);
