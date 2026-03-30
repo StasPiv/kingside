@@ -99,19 +99,77 @@ export class ArenaService {
   }
 
   async getStandings(tournamentId: string) {
-    const entries = await this.prisma.arenaTournamentEntry.findMany({
-      where: { tournamentId },
-      orderBy: { score: 'desc' },
-      select: {
-        userId: true,
-        score: true,
-        wins: true,
-        draws: true,
-        losses: true,
-        streak: true,
-        user: { select: { username: true } },
-      },
-    });
+    const [entries, games] = await Promise.all([
+      this.prisma.arenaTournamentEntry.findMany({
+        where: { tournamentId },
+        orderBy: { score: 'desc' },
+        select: {
+          userId: true,
+          score: true,
+          wins: true,
+          draws: true,
+          losses: true,
+          streak: true,
+          user: { select: { username: true } },
+        },
+      }),
+      this.prisma.game.findMany({
+        where: { tournamentId },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          whiteId: true,
+          blackId: true,
+          result: true,
+          status: true,
+          white: { select: { username: true } },
+          black: { select: { username: true } },
+        },
+      }),
+    ]);
+
+    // Build games[] per player
+    const playerGames = new Map<string, Array<{
+      gameId: string;
+      opponentId: string;
+      opponentUsername: string;
+      result: string | null;
+      color: 'white' | 'black';
+      points: number;
+      status: string;
+    }>>();
+
+    for (const g of games) {
+      for (const playerId of [g.whiteId, g.blackId]) {
+        const isWhite = playerId === g.whiteId;
+        const opponentId = isWhite ? g.blackId : g.whiteId;
+        const opponentUsername = (isWhite ? g.black?.username : g.white?.username) ?? '?';
+        const color = isWhite ? 'white' as const : 'black' as const;
+
+        let points = 0;
+        let result: string | null = null;
+        if (g.result === 'draw') {
+          result = 'draw';
+          points = 1;
+        } else if (g.result) {
+          const won = g.result === color;
+          result = won ? 'win' : 'loss';
+          points = won ? 2 : 0; // streak bonus handled in entry.score
+        }
+
+        if (!playerGames.has(playerId)) playerGames.set(playerId, []);
+        playerGames.get(playerId)!.push({
+          gameId: g.id,
+          opponentId,
+          opponentUsername,
+          result: g.status === 'finished' ? result : null,
+          color,
+          points: g.status === 'finished' ? points : 0,
+          status: g.status,
+        });
+      }
+    }
+
     return entries.map((e) => ({
       userId: e.userId,
       username: e.user?.username ?? '?',
@@ -120,6 +178,7 @@ export class ArenaService {
       draws: e.draws,
       losses: e.losses,
       streak: e.streak,
+      games: playerGames.get(e.userId) ?? [],
     }));
   }
 
