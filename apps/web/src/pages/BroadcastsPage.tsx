@@ -50,6 +50,23 @@ function TournamentCard({ tnr, t }: { tnr: LiveTournamentItem; t: (key: string) 
   );
 }
 
+type LichessBroadcast = {
+  id: string;
+  lichessId: string;
+  title: string;
+  url: string;
+  isActive: boolean;
+  createdAt: string;
+};
+
+// Keywords that mark a broadcast as featured (shown at top with LIVE)
+const FEATURED_KEYWORDS = ['candidates', 'world championship', 'olympiad'];
+
+function isFeatured(title: string): boolean {
+  const lower = title.toLowerCase();
+  return FEATURED_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
 export function BroadcastsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -59,13 +76,28 @@ export function BroadcastsPage() {
 
   const [allTournaments, setAllTournaments] = useState<LiveTournamentItem[]>([]);
   const [tournamentsLoading, setTournamentsLoading] = useState(true);
+  const [lichessBroadcasts, setLichessBroadcasts] = useState<LichessBroadcast[]>([]);
 
   useEffect(() => {
     api.get<LiveTournamentsResponse>('/api/tournaments/live')
       .then((res) => setAllTournaments(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {})
       .finally(() => setTournamentsLoading(false));
+
+    api.get<{ data: LichessBroadcast[] }>('/api/broadcasts')
+      .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
+      .catch(() => {});
   }, []);
+
+  const featuredBroadcasts = useMemo(
+    () => lichessBroadcasts.filter((b) => isFeatured(b.title) && b.isActive),
+    [lichessBroadcasts],
+  );
+
+  const otherBroadcasts = useMemo(
+    () => lichessBroadcasts.filter((b) => !isFeatured(b.title) || !b.isActive),
+    [lichessBroadcasts],
+  );
 
   const liveTournaments = useMemo(
     () => allTournaments.filter((t) => t.status === 'live'),
@@ -96,6 +128,48 @@ export function BroadcastsPage() {
   return (
     <div className="broadcasts-page">
       <h1>{t('broadcasts.title')}<HelpButton section="broadcasts" /></h1>
+
+      {/* Featured Lichess Broadcasts (Candidates, WC, etc.) */}
+      {featuredBroadcasts.length > 0 && (
+        <div className="broadcasts-featured-section">
+          {featuredBroadcasts.map((b) => (
+            <a
+              key={b.id}
+              href={b.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="broadcast-featured-card"
+            >
+              <div className="broadcast-featured-badge">LIVE</div>
+              <h3 className="broadcast-featured-title">{b.title}</h3>
+              <span className="broadcast-featured-source">lichess.org</span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {/* Other Lichess Broadcasts */}
+      {otherBroadcasts.length > 0 && (
+        <div className="broadcasts-lichess-section">
+          <h2>{t('broadcasts.lichessTitle', 'Lichess Broadcasts')}</h2>
+          <div className="broadcasts-lichess-grid">
+            {otherBroadcasts.slice(0, 12).map((b) => (
+              <a
+                key={b.id}
+                href={b.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="broadcast-lichess-card"
+              >
+                <h4 className="broadcast-lichess-title">{b.title}</h4>
+                <span className={`broadcast-lichess-status${b.isActive ? ' broadcast-lichess-status--active' : ''}`}>
+                  {b.isActive ? 'LIVE' : t('liveTournaments.archived', 'Archived')}
+                </span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {tournamentsLoading ? (
         <div className="players-loading">{t('common.loading')}</div>
