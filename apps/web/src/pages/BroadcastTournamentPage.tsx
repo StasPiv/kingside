@@ -94,8 +94,14 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
       .catch(() => {});
 
     api.get<{ players: StandingsPlayer[] }>(`/api/broadcasts/${tournamentId}/standings`)
-      .then((res) => setStandings(res))
-      .catch(() => {});
+      .then((res) => {
+        if (res?.players) {
+          setStandings(res);
+        } else {
+          console.error('Standings: unexpected response format', res);
+        }
+      })
+      .catch((e) => console.error('Failed to load standings:', e));
   }, [tournamentId]);
 
   // Load live games from ongoing round
