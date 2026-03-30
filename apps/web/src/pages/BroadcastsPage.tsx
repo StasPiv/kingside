@@ -151,19 +151,17 @@ export function BroadcastsPage() {
         <div className="broadcasts-lichess-section">
           <h2>{t('broadcasts.lichessTitle', 'Lichess Broadcasts')}</h2>
           <div className="broadcasts-lichess-grid">
-            {otherBroadcasts.slice(0, 12).map((b) => (
-              <a
+            {otherBroadcasts.slice(0, 20).map((b) => (
+              <Link
                 key={b.id}
-                href={b.url}
-                target="_blank"
-                rel="noopener noreferrer"
+                to={`/broadcasts/${b.id}`}
                 className="broadcast-lichess-card"
               >
                 <h4 className="broadcast-lichess-title">{b.title}</h4>
                 <span className={`broadcast-lichess-status${b.isActive ? ' broadcast-lichess-status--active' : ''}`}>
                   {b.isActive ? 'LIVE' : t('liveTournaments.archived', 'Archived')}
                 </span>
-              </a>
+              </Link>
             ))}
           </div>
         </div>
