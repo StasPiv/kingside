@@ -409,12 +409,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     try {
       const { state, clocks, players } = await this.gameService.getGameState(data.gameId);
+      // For finished games, fetch result from DB
+      let result: string | undefined;
+      if (state.status === 'finished') {
+        const dbGame = await this.gameService.getGame(data.gameId);
+        result = dbGame.result ?? undefined;
+      }
       const statePayload: WsGameStatePayload = {
         gameId: data.gameId,
         fen: state.fen,
         moves: state.moves.map((m) => m.san),
         clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
         status: state.status as GameStatus,
+        ...(result ? { result: result as GameResult } : {}),
         players,
       };
       client.emit(SpectatorEvents.SPECTATE_STATE, statePayload);
