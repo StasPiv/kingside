@@ -226,6 +226,14 @@ export class ArenaService {
   }
 
   async getStandings(tournamentId: string) {
+    const tournament = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!tournament) throw new NotFoundException('Tournament not found');
+
+    const isArena = tournament.type === 'arena';
+    const ptsWin = isArena ? 2 : tournament.pointsWin;
+    const ptsDraw = isArena ? 1 : tournament.pointsDraw;
+    const ptsLoss = isArena ? 0 : tournament.pointsLoss;
+
     const [entries, games] = await Promise.all([
       this.prisma.arenaTournamentEntry.findMany({
         where: { tournamentId },
@@ -278,11 +286,11 @@ export class ArenaService {
         let result: string | null = null;
         if (g.result === 'draw') {
           result = 'draw';
-          points = 1;
+          points = ptsDraw;
         } else if (g.result) {
           const won = g.result === color;
           result = won ? 'win' : 'loss';
-          points = won ? 2 : 0; // streak bonus handled in entry.score
+          points = won ? ptsWin : ptsLoss;
         }
 
         if (!playerGames.has(playerId)) playerGames.set(playerId, []);
