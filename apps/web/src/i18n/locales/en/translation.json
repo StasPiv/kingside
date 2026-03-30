@@ -828,6 +828,7 @@
     "type_arena": "Arena",
     "type_swiss": "Swiss",
     "type_round_robin": "Round Robin",
+    "custom": "Custom",
     "totalRounds": "Number of rounds",
     "roundPause": "Pause between rounds (min)",
     "roundN": "Round {{n}}",

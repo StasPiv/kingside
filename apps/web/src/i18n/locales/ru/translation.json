@@ -828,6 +828,7 @@
     "type_arena": "Арена",
     "type_swiss": "Швейцарка",
     "type_round_robin": "Круговой",
+    "custom": "Своё",
     "totalRounds": "Количество туров",
     "roundPause": "Пауза между турами (мин)",
     "roundN": "Тур {{n}}",

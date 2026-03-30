@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { PRESETS } from '../hooks/useTimeControl';
 
 interface CreateTournamentModalProps {
   onClose: () => void;
@@ -8,21 +9,44 @@ interface CreateTournamentModalProps {
 }
 
 type TournamentType = 'arena' | 'swiss' | 'round_robin';
+type TcCategory = 'bullet' | 'blitz' | 'rapid' | 'custom';
 
 const TYPE_ICONS: Record<TournamentType, string> = { arena: '⚔️', swiss: '🏆', round_robin: '🔄' };
+const TC_CATEGORIES: TcCategory[] = ['bullet', 'blitz', 'rapid', 'custom'];
+
+// Filter out classical and ultra-bullet for tournaments
+const TOURNAMENT_PRESETS = PRESETS.filter((p) =>
+  ['bullet', 'blitz', 'rapid'].includes(p.category) && p.minutes >= 1,
+);
 
 export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentModalProps) {
   const { t } = useTranslation();
   const [type, setType] = useState<TournamentType>('arena');
   const [name, setName] = useState('');
+  const [tcCategory, setTcCategory] = useState<TcCategory>('blitz');
   const [timeInitial, setTimeInitial] = useState(180);
   const [timeIncrement, setTimeIncrement] = useState(0);
+  const [customMinutes, setCustomMinutes] = useState(7);
+  const [customIncrement, setCustomIncrement] = useState(3);
   const [durationMin, setDurationMin] = useState(30);
   const [totalRounds, setTotalRounds] = useState(5);
   const [roundPauseMin, setRoundPauseMin] = useState(2);
   const [startsIn, setStartsIn] = useState(5);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const effectiveInitial = tcCategory === 'custom' ? customMinutes * 60 : timeInitial;
+  const effectiveIncrement = tcCategory === 'custom' ? customIncrement : timeIncrement;
+
+  const handleSelectPreset = (minutes: number, increment: number) => {
+    setTimeInitial(minutes * 60);
+    setTimeIncrement(increment);
+  };
+
+  const isPresetSelected = (minutes: number, increment: number) =>
+    timeInitial === minutes * 60 && timeIncrement === increment;
+
+  const filteredPresets = TOURNAMENT_PRESETS.filter((p) => p.category === tcCategory);
 
   const handleCreate = async () => {
     if (!name.trim()) return;
@@ -33,8 +57,8 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
       await api.post('/api/arena', {
         name: name.trim(),
         type,
-        timeInitialSec: timeInitial,
-        timeIncrementSec: timeIncrement,
+        timeInitialSec: effectiveInitial,
+        timeIncrementSec: effectiveIncrement,
         durationMin,
         ...(type !== 'arena' ? { totalRounds, roundPauseMin } : {}),
         startsAt,
@@ -78,30 +102,58 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
               <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('tournaments.namePlaceholder', 'Arena Blitz')} />
             </div>
 
+            {/* TC categories */}
             <div className="tcm-field">
               <label>{t('tournaments.timeControl', 'Time control')}</label>
-              <div className="tcm-row">
-                <select value={timeInitial} onChange={(e) => setTimeInitial(Number(e.target.value))}>
-                  <option value={60}>1 min</option>
-                  <option value={120}>2 min</option>
-                  <option value={180}>3 min</option>
-                  <option value={300}>5 min</option>
-                  <option value={600}>10 min</option>
-                </select>
-                <select value={timeIncrement} onChange={(e) => setTimeIncrement(Number(e.target.value))}>
-                  <option value={0}>+0</option>
-                  <option value={1}>+1</option>
-                  <option value={2}>+2</option>
-                  <option value={3}>+3</option>
-                  <option value={5}>+5</option>
-                </select>
+              <div className="tcm-tc-cats">
+                {TC_CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    className={`tcm-tc-cat${tcCategory === cat ? ' active' : ''}`}
+                    onClick={() => setTcCategory(cat)}
+                  >
+                    {cat === 'custom' ? t('tournaments.custom', 'Custom') : t(`lobby.${cat}`, cat)}
+                  </button>
+                ))}
               </div>
+
+              {/* Presets */}
+              {tcCategory !== 'custom' && (
+                <div className="tcm-presets">
+                  {filteredPresets.map((p) => {
+                    const label = p.increment > 0 ? `${p.minutes}+${p.increment}` : `${p.minutes} min`;
+                    return (
+                      <button
+                        key={`${p.minutes}_${p.increment}`}
+                        className={`tcm-preset${isPresetSelected(p.minutes, p.increment) ? ' active' : ''}`}
+                        onClick={() => handleSelectPreset(p.minutes, p.increment)}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Custom sliders */}
+              {tcCategory === 'custom' && (
+                <div className="tcm-custom">
+                  <div className="tcm-slider-row">
+                    <input type="range" min={1} max={60} value={customMinutes} onChange={(e) => setCustomMinutes(Number(e.target.value))} />
+                    <span className="tcm-slider-val">{customMinutes} min</span>
+                  </div>
+                  <div className="tcm-slider-row">
+                    <input type="range" min={0} max={30} value={customIncrement} onChange={(e) => setCustomIncrement(Number(e.target.value))} />
+                    <span className="tcm-slider-val">+{customIncrement} sec</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {type === 'arena' && (
               <div className="tcm-field">
                 <label>{t('tournaments.duration', 'Duration (minutes)')}</label>
-                <select value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))}>
+                <select className="ks-select" value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))}>
                   <option value={15}>15</option>
                   <option value={30}>30</option>
                   <option value={45}>45</option>
@@ -126,7 +178,7 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
 
             <div className="tcm-field">
               <label>{t('tournaments.startsIn', 'Starts in (minutes)')}</label>
-              <select value={startsIn} onChange={(e) => setStartsIn(Number(e.target.value))}>
+              <select className="ks-select" value={startsIn} onChange={(e) => setStartsIn(Number(e.target.value))}>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
                 <option value={5}>5</option>
