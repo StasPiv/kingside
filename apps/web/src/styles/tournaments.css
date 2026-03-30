@@ -966,13 +966,20 @@
 }
 
 /* Swiss Standings Table (KS-1102) */
+/* Swiss Standings (KS-1103) */
 .swiss-standings-wrapper {
   margin: 0;
 }
 
 .swiss-standings-scroll {
   overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #334155 transparent;
 }
+
+.swiss-standings-scroll::-webkit-scrollbar { height: 6px; }
+.swiss-standings-scroll::-webkit-scrollbar-track { background: transparent; }
+.swiss-standings-scroll::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
 
 .swiss-standings-table {
   width: 100%;
@@ -984,38 +991,66 @@
 .swiss-standings-table th {
   padding: 6px 8px;
   text-align: left;
-  color: #9e9e9e;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
-  font-weight: 500;
+  color: #888;
+  border-bottom: 1px solid #1e293b;
+  font-weight: 600;
   font-size: 12px;
+  background: #111827;
 }
 
 .swiss-standings-table td {
   padding: 6px 8px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.swiss-th-rank, .swiss-td-rank { width: 30px; text-align: center; }
+.swiss-th-rank, .swiss-td-rank { width: 30px; text-align: center; color: #666; }
 .swiss-th-player { min-width: 100px; }
+.swiss-td-player { font-weight: 600; }
 .swiss-th-num, .swiss-td-num { width: 40px; text-align: center; }
 .swiss-th-round { width: 50px; text-align: center; }
-.swiss-td-pts { font-weight: 700; }
+.swiss-td-pts { font-weight: 700; color: #7c83ff; }
 
 .swiss-cell {
   text-align: center;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
+  transition: filter 0.1s;
 }
 
 .swiss-cell--clickable { cursor: pointer; }
-.swiss-cell--clickable:hover { text-decoration: underline; }
-.swiss-cell--win { color: #4caf50; }
-.swiss-cell--loss { color: #f44336; }
-.swiss-cell--draw { color: #9e9e9e; }
+.swiss-cell--clickable:hover { filter: brightness(1.4); }
+.swiss-cell--win { color: #4caf50; background: rgba(22, 163, 74, 0.1); }
+.swiss-cell--loss { color: #ef5350; background: rgba(244, 67, 54, 0.1); }
+.swiss-cell--draw { color: #9e9e9e; background: rgba(158, 158, 158, 0.08); }
 .swiss-cell--bye { color: #7c83ff; font-style: italic; }
-.swiss-cell--active { color: #ffc107; animation: active-game-pulse 1.5s infinite; }
+.swiss-cell--active { color: #ffc107; background: rgba(255, 193, 7, 0.1); animation: active-game-pulse 1.5s infinite; }
 
-.swiss-row--self { background: rgba(124,131,255,0.1); }
+.swiss-row--self { background: rgba(124, 131, 255, 0.08); }
 .swiss-row--withdrawn { opacity: 0.5; }
 .swiss-withdrawn-badge { color: #f44336; font-size: 11px; }
+
+/* Mobile: sticky rank + player columns */
+@media (max-width: 600px) {
+  .swiss-standings-table { font-size: 12px; }
+  .swiss-standings-table th, .swiss-standings-table td { padding: 4px 6px; }
+
+  .swiss-th-rank, .swiss-td-rank {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: #111827;
+  }
+
+  .swiss-th-player, .swiss-td-player {
+    position: sticky;
+    left: 30px;
+    z-index: 1;
+    background: #0f172a;
+  }
+
+  .swiss-row--self .swiss-td-rank,
+  .swiss-row--self .swiss-td-player {
+    background: #161632;
+  }
+}
 
