@@ -513,7 +513,7 @@ export class ArenaService {
       const blackKey = `${p.blackId}:${p.whiteId}`;
       if (!results[blackKey]) results[blackKey] = [];
       results[blackKey].push({
-        result: p.result ? this.invertResult(p.result) : null,
+        result: p.result,
         gameId: p.gameId,
         color: 'black',
         round: roundNum,
@@ -535,12 +535,6 @@ export class ArenaService {
     }));
 
     return { players, results };
-  }
-
-  private invertResult(result: string): string {
-    if (result === '1-0') return '0-1';
-    if (result === '0-1') return '1-0';
-    return result; // '1/2-1/2', 'bye'
   }
 
   // --- Scheduler ---
