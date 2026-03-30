@@ -816,7 +816,18 @@
     "noPlayers": "Нет игроков",
     "notFound": "Турнир не найден",
     "vs": "против",
-    "gamesCol": "Партии"
+    "gamesCol": "Партии",
+    "type_arena": "Арена",
+    "type_swiss": "Швейцарка",
+    "type_round_robin": "Круговой",
+    "totalRounds": "Количество туров",
+    "roundPause": "Пауза между турами (мин)",
+    "roundN": "Тур {{n}}",
+    "roundActive": "Играется",
+    "roundFinished": "Завершён",
+    "roundPending": "Ожидание",
+    "bye": "BYE",
+    "live": "LIVE"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",

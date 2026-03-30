@@ -7,12 +7,17 @@ interface CreateTournamentModalProps {
   onCreated: () => void;
 }
 
+type TournamentType = 'arena' | 'swiss' | 'round_robin';
+
 export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentModalProps) {
   const { t } = useTranslation();
+  const [type, setType] = useState<TournamentType>('arena');
   const [name, setName] = useState('');
   const [timeInitial, setTimeInitial] = useState(180);
   const [timeIncrement, setTimeIncrement] = useState(0);
   const [durationMin, setDurationMin] = useState(30);
+  const [totalRounds, setTotalRounds] = useState(5);
+  const [roundPauseMin, setRoundPauseMin] = useState(2);
   const [startsIn, setStartsIn] = useState(5);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,9 +30,11 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
       const startsAt = new Date(Date.now() + startsIn * 60 * 1000).toISOString();
       await api.post('/api/arena', {
         name: name.trim(),
+        type,
         timeInitialSec: timeInitial,
         timeIncrementSec: timeIncrement,
         durationMin,
+        ...(type !== 'arena' ? { totalRounds, roundPauseMin } : {}),
         startsAt,
       });
       onCreated();
@@ -47,13 +54,26 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
         </div>
 
         <div className="tournament-create-form">
+          {/* Type tabs */}
+          <div className="tournament-type-tabs">
+            {(['arena', 'swiss', 'round_robin'] as const).map((tp) => (
+              <button
+                key={tp}
+                className={`tournament-type-tab${type === tp ? ' active' : ''}`}
+                onClick={() => setType(tp)}
+              >
+                {t(`tournaments.type_${tp}`, tp === 'arena' ? 'Arena' : tp === 'swiss' ? 'Swiss' : 'Round Robin')}
+              </button>
+            ))}
+          </div>
+
           <div className="import-field">
             <label>{t('tournaments.name', 'Name')}</label>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('tournaments.namePlaceholder', 'Arena Blitz')} />
           </div>
 
           <div className="import-field">
-            <label>{t('tournaments.timeControl', 'Time control (seconds + increment)')}</label>
+            <label>{t('tournaments.timeControl', 'Time control')}</label>
             <div style={{ display: 'flex', gap: 8 }}>
               <select value={timeInitial} onChange={(e) => setTimeInitial(Number(e.target.value))}>
                 <option value={60}>1 min</option>
@@ -72,16 +92,31 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
             </div>
           </div>
 
-          <div className="import-field">
-            <label>{t('tournaments.duration', 'Duration (minutes)')}</label>
-            <select value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))}>
-              <option value={15}>15</option>
-              <option value={30}>30</option>
-              <option value={45}>45</option>
-              <option value={60}>60</option>
-              <option value={90}>90</option>
-            </select>
-          </div>
+          {type === 'arena' && (
+            <div className="import-field">
+              <label>{t('tournaments.duration', 'Duration (minutes)')}</label>
+              <select value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))}>
+                <option value={15}>15</option>
+                <option value={30}>30</option>
+                <option value={45}>45</option>
+                <option value={60}>60</option>
+                <option value={90}>90</option>
+              </select>
+            </div>
+          )}
+
+          {type !== 'arena' && (
+            <>
+              <div className="import-field">
+                <label>{t('tournaments.totalRounds', 'Number of rounds')}</label>
+                <input type="number" min={2} max={15} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
+              </div>
+              <div className="import-field">
+                <label>{t('tournaments.roundPause', 'Pause between rounds (min)')}</label>
+                <input type="number" min={1} max={30} value={roundPauseMin} onChange={(e) => setRoundPauseMin(Number(e.target.value))} />
+              </div>
+            </>
+          )}
 
           <div className="import-field">
             <label>{t('tournaments.startsIn', 'Starts in (minutes)')}</label>

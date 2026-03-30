@@ -4,16 +4,36 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { tournamentSocket } from '../socket';
+import { TournamentRoundView } from '../components/TournamentRoundView';
 
 type Tournament = {
   id: string;
   name: string;
+  type: string;
   status: string;
   timeInitialSec: number;
   timeIncrementSec: number;
   durationMin: number;
+  totalRounds: number | null;
+  currentRound: number;
   startsAt: string;
   endsAt: string | null;
+};
+
+type RoundData = {
+  id: string;
+  roundNumber: number;
+  status: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  pairings: Array<{
+    id: string;
+    whiteId: string;
+    blackId: string | null;
+    gameId: string | null;
+    result: string | null;
+    board: number;
+  }>;
 };
 
 type StandingGame = {
@@ -45,6 +65,8 @@ export function TournamentLobbyPage() {
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [standings, setStandings] = useState<Standing[]>([]);
+  const [rounds, setRounds] = useState<RoundData[]>([]);
+  const [activeRoundTab, setActiveRoundTab] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [seeking, setSeeking] = useState(false);
   const [joined, setJoined] = useState(false);
@@ -69,10 +91,20 @@ export function TournamentLobbyPage() {
     } catch { /* ignore */ }
   }, [id]);
 
+  const fetchRounds = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await api.get<RoundData[]>(`/api/arena/${id}/rounds`);
+      setRounds(data);
+      if (data.length > 0) setActiveRoundTab(data[data.length - 1].roundNumber);
+    } catch { /* ignore */ }
+  }, [id]);
+
   useEffect(() => {
     fetchTournament();
     fetchStandings();
-  }, [fetchTournament, fetchStandings]);
+    fetchRounds();
+  }, [fetchTournament, fetchStandings, fetchRounds]);
 
   // Timer
   useEffect(() => {
@@ -196,6 +228,27 @@ export function TournamentLobbyPage() {
           </div>
         )}
       </div>
+
+      {/* Rounds (Swiss/RR) */}
+      {tournament.type !== 'arena' && rounds.length > 0 && (
+        <div className="tournament-rounds-section">
+          <div className="tournament-round-tabs">
+            {rounds.map((r) => (
+              <button
+                key={r.roundNumber}
+                className={`tournament-round-tab${activeRoundTab === r.roundNumber ? ' active' : ''}`}
+                onClick={() => setActiveRoundTab(r.roundNumber)}
+              >
+                {t('tournaments.roundN', 'Round {{n}}', { n: r.roundNumber })}
+              </button>
+            ))}
+          </div>
+          {rounds.filter((r) => r.roundNumber === activeRoundTab).map((r) => {
+            const playerNames = new Map(standings.map((s) => [s.userId, s.username]));
+            return <TournamentRoundView key={r.id} round={r} playerNames={playerNames} currentUserId={user?.id} />;
+          })}
+        </div>
+      )}
 
       {/* Standings */}
       <div className="tournament-standings">

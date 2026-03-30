@@ -18,9 +18,12 @@ export class ArenaService {
 
   async create(userId: string, data: {
     name: string;
+    type?: string;
     timeInitialSec: number;
     timeIncrementSec: number;
     durationMin: number;
+    totalRounds?: number;
+    roundPauseMin?: number;
     startsAt: string;
   }) {
     if (data.durationMin < 30 || data.durationMin > 180) {
@@ -42,14 +45,19 @@ export class ArenaService {
     const finishesAt = new Date(startsAt.getTime() + data.durationMin * 60000);
     const timeControlType = classifyTimeControl(data.timeInitialSec, data.timeIncrementSec);
 
+    const tournamentType = data.type ?? 'arena';
+
     return this.prisma.arenaTournament.create({
       data: {
         name: data.name,
+        type: tournamentType,
         createdBy: userId,
         timeControlType,
         timeInitialSec: data.timeInitialSec,
         timeIncrementSec: data.timeIncrementSec,
         durationMin: data.durationMin,
+        ...(data.totalRounds ? { totalRounds: data.totalRounds } : {}),
+        ...(data.roundPauseMin ? { roundPauseMin: data.roundPauseMin } : {}),
         startsAt,
         finishesAt,
       },

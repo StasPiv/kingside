@@ -816,7 +816,18 @@
     "noPlayers": "No players yet",
     "notFound": "Tournament not found",
     "vs": "vs",
-    "gamesCol": "Games"
+    "gamesCol": "Games",
+    "type_arena": "Arena",
+    "type_swiss": "Swiss",
+    "type_round_robin": "Round Robin",
+    "totalRounds": "Number of rounds",
+    "roundPause": "Pause between rounds (min)",
+    "roundN": "Round {{n}}",
+    "roundActive": "Playing",
+    "roundFinished": "Finished",
+    "roundPending": "Pending",
+    "bye": "BYE",
+    "live": "LIVE"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",

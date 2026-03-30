@@ -239,3 +239,34 @@
   .tournament-games-cell { gap: 2px; }
 }
 
+/* Type tabs in create modal */
+.tournament-type-tabs { display: flex; gap: 0; margin-bottom: 12px; border-radius: 6px; overflow: hidden; border: 1px solid #333; }
+.tournament-type-tab { flex: 1; padding: 8px; background: transparent; border: none; color: #888; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 0; }
+.tournament-type-tab.active { background: rgba(124,131,255,0.2); color: #7c83ff; }
+
+/* Round tabs */
+.tournament-rounds-section { margin-bottom: 20px; }
+.tournament-round-tabs { display: flex; gap: 0; margin-bottom: 12px; border-bottom: 1px solid #333; }
+.tournament-round-tab { padding: 6px 14px; background: none; border: none; border-bottom: 2px solid transparent; color: #888; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 0; }
+.tournament-round-tab.active { color: #7c83ff; border-bottom-color: #7c83ff; }
+
+/* Round view */
+.tournament-round-view { }
+.tournament-round-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.tournament-round-header h3 { margin: 0; font-size: 15px; }
+.tournament-round-status { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.tournament-round-status--active { background: rgba(76,175,80,0.2); color: #4caf50; }
+.tournament-round-status--finished { background: rgba(255,255,255,0.1); color: #888; }
+.tournament-round-status--pending { background: rgba(255,193,7,0.15); color: #ffc107; }
+
+/* Pairings */
+.tournament-pairings { display: flex; flex-direction: column; gap: 4px; }
+.tournament-pairing { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #1e1e3e; border-radius: 6px; font-size: 14px; }
+.tournament-pairing--mine { background: rgba(124,131,255,0.1); border: 1px solid rgba(124,131,255,0.3); }
+.tournament-pairing__board { width: 24px; text-align: center; color: #666; font-size: 12px; }
+.tournament-pairing__player { flex: 1; }
+.tournament-pairing__player--winner { font-weight: 700; color: #4caf50; }
+.tournament-pairing__result { width: 60px; text-align: center; font-weight: 600; }
+.tournament-pairing__live { color: #4caf50; text-decoration: none; animation: active-game-pulse 1.5s infinite; }
+.tournament-pairing__review { color: #7c83ff; text-decoration: none; }
+

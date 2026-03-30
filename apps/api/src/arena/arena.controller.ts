@@ -17,9 +17,12 @@ export class ArenaController {
     @Request() req: AuthenticatedRequest,
     @Body() body: {
       name: string;
+      type?: string;
       timeInitialSec: number;
       timeIncrementSec: number;
       durationMin: number;
+      totalRounds?: number;
+      roundPauseMin?: number;
       startsAt: string;
     },
   ) {
