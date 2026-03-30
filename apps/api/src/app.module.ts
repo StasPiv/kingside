@@ -25,6 +25,7 @@ import { MessageModule } from './message/message.module';
 import { FriendModule } from './friend/friend.module';
 import { NotificationModule } from './notification/notification.module';
 import { PuzzleGeneratorModule } from './puzzle-generator/puzzle-generator.module';
+import { ArenaModule } from './arena/arena.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 
@@ -54,6 +55,7 @@ import { HealthController } from './health.controller';
     MatchmakingModule,
     PuzzleRushModule,
     PuzzleGeneratorModule,
+    ArenaModule,
     PuzzleModule,
     TournamentModule,
     AnalysisModule,

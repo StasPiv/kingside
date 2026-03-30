@@ -113,19 +113,22 @@ model Game {
   createdAt         DateTime         @default(now()) @map("created_at")
   startedAt         DateTime?        @map("started_at")
   finishedAt        DateTime?        @map("finished_at")
+  tournamentId      String?          @map("tournament_id") @db.Uuid
 
-  white        User           @relation("WhitePlayer", fields: [whiteId], references: [id])
-  black        User           @relation("BlackPlayer", fields: [blackId], references: [id])
+  white        User                @relation("WhitePlayer", fields: [whiteId], references: [id])
+  black        User                @relation("BlackPlayer", fields: [blackId], references: [id])
   moves        Move[]
   chatMessages ChatMessage[]
   analyses     GameAnalysis[]
   report       GameReport?
+  tournament   ArenaTournament?    @relation(fields: [tournamentId], references: [id])
 
   @@index([whiteId])
   @@index([blackId])
   @@index([status])
   @@index([createdAt])
   @@index([isBot, status])
+  @@index([tournamentId])
   @@map("games")
 }
 
@@ -541,4 +544,43 @@ model GeneratedPuzzleAttempt {
   @@index([puzzleId])
   @@index([userId])
   @@map("generated_puzzle_attempts")
+}
+
+model ArenaTournament {
+  id              String    @id @default(uuid()) @db.Uuid
+  name            String
+  createdBy       String    @map("created_by") @db.Uuid
+  status          String    @default("upcoming") // upcoming, active, finished
+  timeControlType String    @map("time_control_type") // bullet, blitz, rapid
+  timeInitialSec  Int       @map("time_initial_sec")
+  timeIncrementSec Int      @map("time_increment_sec")
+  durationMin     Int       @map("duration_min")      // 30-180
+  startsAt        DateTime  @map("starts_at")
+  finishesAt      DateTime  @map("finishes_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  entries ArenaTournamentEntry[]
+  games   Game[]
+
+  @@index([status])
+  @@index([startsAt])
+  @@map("arena_tournaments")
+}
+
+model ArenaTournamentEntry {
+  id           String   @id @default(uuid()) @db.Uuid
+  tournamentId String   @map("tournament_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  score        Float    @default(0)
+  wins         Int      @default(0)
+  draws        Int      @default(0)
+  losses       Int      @default(0)
+  streak       Int      @default(0)
+  joinedAt     DateTime @default(now()) @map("joined_at")
+
+  tournament ArenaTournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
+  @@index([tournamentId, score])
+  @@map("arena_tournament_entries")
 }

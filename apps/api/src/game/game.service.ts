@@ -50,6 +50,12 @@ interface EndResult {
 @Injectable()
 export class GameService {
   private readonly logger = new Logger(GameService.name);
+  private readonly postGameHooks: Array<(gameId: string) => Promise<void>> = [];
+
+  /** Register a callback to be called after each game ends. */
+  onGameEnd(hook: (gameId: string) => Promise<void>) {
+    this.postGameHooks.push(hook);
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -366,6 +372,14 @@ export class GameService {
       this.logger.error(`Rating update failed for game ${gameId}: ${e.message}`);
     }
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
+
+    // Fire post-game hooks (arena scoring, etc.)
+    for (const hook of this.postGameHooks) {
+      try { await hook(gameId); } catch (e: any) {
+        this.logger.error(`Post-game hook failed for ${gameId}: ${e.message}`);
+      }
+    }
+
     return ratingChange;
   }
 
