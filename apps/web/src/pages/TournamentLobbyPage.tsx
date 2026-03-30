@@ -177,11 +177,45 @@ export function TournamentLobbyPage() {
       fetchStandings();
     };
 
+    // Swiss/RR round events
+    const onGameEnd = (data: { gameId: string; result: string; pairingId: string }) => {
+      // Update pairing result in current round
+      setRounds((prev) => prev.map((r) => ({
+        ...r,
+        pairings: r.pairings.map((p) =>
+          p.id === data.pairingId ? { ...p, result: data.result } : p,
+        ),
+      })));
+      fetchStandings();
+    };
+
+    const onRoundEnd = (data: { tournamentId: string; roundNumber: number }) => {
+      fetchRounds();
+      fetchStandings();
+      fetchTournament();
+    };
+
+    const onRoundStart = (data: { tournamentId: string; roundNumber: number; pairings?: Array<{ whiteId: string; blackId: string; gameId: string }> }) => {
+      fetchRounds();
+      fetchStandings();
+      fetchTournament();
+      // Auto-redirect if my game starts
+      if (data.pairings && user) {
+        const myPairing = data.pairings.find((p) => p.whiteId === user.id || p.blackId === user.id);
+        if (myPairing?.gameId) {
+          navigate(`/game/${myPairing.gameId}?tournamentId=${id}`);
+        }
+      }
+    };
+
     tournamentSocket.on('tournament:paired', onPaired);
     tournamentSocket.on('tournament:standings', onStandings);
     tournamentSocket.on('tournament:finished', onFinished);
     tournamentSocket.on('tournament:player_joined', onPlayerJoined);
     tournamentSocket.on('tournament:started', onRoundStarted);
+    tournamentSocket.on('tournament:game_end', onGameEnd);
+    tournamentSocket.on('tournament:round_end', onRoundEnd);
+    tournamentSocket.on('tournament:round_start', onRoundStart);
 
     return () => {
       tournamentSocket.off('tournament:paired', onPaired);
@@ -189,6 +223,9 @@ export function TournamentLobbyPage() {
       tournamentSocket.off('tournament:finished', onFinished);
       tournamentSocket.off('tournament:player_joined', onPlayerJoined);
       tournamentSocket.off('tournament:started', onRoundStarted);
+      tournamentSocket.off('tournament:game_end', onGameEnd);
+      tournamentSocket.off('tournament:round_end', onRoundEnd);
+      tournamentSocket.off('tournament:round_start', onRoundStart);
       tournamentSocket.emit('tournament:leave', { tournamentId: id });
       tournamentSocket.disconnect();
     };
