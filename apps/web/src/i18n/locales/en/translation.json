@@ -856,7 +856,14 @@
     "schedule": "My Schedule",
     "opponent": "Opponent",
     "color": "Color",
-    "result": "Result"
+    "result": "Result",
+    "tabRound": "Current Round",
+    "tabTable": "Table",
+    "tabSchedule": "Schedule",
+    "tabPlayers": "Players",
+    "noRoundsYet": "No rounds yet",
+    "allRounds": "All Rounds",
+    "playersList": "Players"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",

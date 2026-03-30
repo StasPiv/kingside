@@ -856,7 +856,14 @@
     "schedule": "Моё расписание",
     "opponent": "Соперник",
     "color": "Цвет",
-    "result": "Результат"
+    "result": "Результат",
+    "tabRound": "Текущий тур",
+    "tabTable": "Таблица",
+    "tabSchedule": "Расписание",
+    "tabPlayers": "Игроки",
+    "noRoundsYet": "Туров пока нет",
+    "allRounds": "Все туры",
+    "playersList": "Игроки"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",
