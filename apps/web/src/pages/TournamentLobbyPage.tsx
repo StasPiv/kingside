@@ -433,7 +433,7 @@ export function TournamentLobbyPage() {
           </div>
           {rounds.filter((r) => r.roundNumber === activeRoundTab).map((r) => {
             const playerNames = new Map(standings.map((s) => [s.userId, s.username]));
-            return <TournamentRoundView key={r.id} round={r} playerNames={playerNames} currentUserId={user?.id} />;
+            return <TournamentRoundView key={r.id} round={r} playerNames={playerNames} currentUserId={user?.id} pointsWin={tournament.pointsWin} pointsDraw={tournament.pointsDraw} pointsLoss={tournament.pointsLoss} />;
           })}
         </div>
       )}

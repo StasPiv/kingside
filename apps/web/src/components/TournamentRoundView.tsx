@@ -23,19 +23,26 @@ interface TournamentRoundViewProps {
   round: Round;
   playerNames: Map<string, string>;
   currentUserId?: string;
+  pointsWin?: number;
+  pointsDraw?: number;
+  pointsLoss?: number;
 }
 
-export function TournamentRoundView({ round, playerNames, currentUserId }: TournamentRoundViewProps) {
+export function TournamentRoundView({ round, playerNames, currentUserId, pointsWin = 1, pointsDraw = 0.5, pointsLoss = 0 }: TournamentRoundViewProps) {
   const { t } = useTranslation();
 
   const getName = (id: string | null) => (id ? playerNames.get(id) ?? '?' : t('tournaments.bye', 'BYE'));
 
+  const pw = String(pointsWin);
+  const pd = String(pointsDraw);
+  const pl = String(pointsLoss);
+
   const resultDisplay = (p: Pairing) => {
     if (!p.result) return round.status === 'active' ? '•' : '—';
-    if (p.result === '1-0') return '1 – 0';
-    if (p.result === '0-1') return '0 – 1';
-    if (p.result === '1/2-1/2') return '½ – ½';
-    if (p.result === 'bye') return '1 – 0';
+    if (p.result === '1-0') return `${pw} – ${pl}`;
+    if (p.result === '0-1') return `${pl} – ${pw}`;
+    if (p.result === '1/2-1/2') return `${pd} – ${pd}`;
+    if (p.result === 'bye') return `${pw} – ${pl}`;
     return p.result;
   };
 
