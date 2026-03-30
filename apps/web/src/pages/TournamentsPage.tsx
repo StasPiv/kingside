@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -8,21 +8,38 @@ import { CreateTournamentModal } from '../components/CreateTournamentModal';
 type Tournament = {
   id: string;
   name: string;
+  type: string;
   status: string;
+  timeControlType: string;
   timeInitialSec: number;
   timeIncrementSec: number;
   durationMin: number;
   startsAt: string;
   creatorId: string;
-  _count?: { players: number };
+  creatorUsername?: string;
+  _count?: { entries: number };
 };
 
 export function TournamentsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'active');
+  const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
+  const [tcFilter, setTcFilter] = useState(searchParams.get('tc') || 'all');
+
+  const updateUrl = (status: string, type: string, tc: string) => {
+    const p: Record<string, string> = {};
+    if (status !== 'active') p.status = status;
+    if (type !== 'all') p.type = type;
+    if (tc !== 'all') p.tc = tc;
+    setSearchParams(p, { replace: true });
+  };
 
   const fetchTournaments = useCallback(async () => {
     setLoading(true);
@@ -35,25 +52,24 @@ export function TournamentsPage() {
 
   useEffect(() => { fetchTournaments(); }, [fetchTournaments]);
 
-  const formatTc = (init: number, inc: number) => {
-    const m = Math.floor(init / 60);
-    return inc > 0 ? `${m}+${inc}` : `${m} min`;
-  };
+  const filtered = tournaments.filter((t) => {
+    if (t.status !== statusFilter) return false;
+    if (typeFilter !== 'all' && t.type !== typeFilter) return false;
+    if (tcFilter !== 'all' && t.timeControlType !== tcFilter) return false;
+    return true;
+  });
+
+  const formatTc = (init: number, inc: number) => inc > 0 ? `${Math.floor(init / 60)}+${inc}` : `${Math.floor(init / 60)} min`;
 
   const formatTime = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
-  const active = tournaments.filter((t) => t.status === 'active');
-  const upcoming = tournaments.filter((t) => t.status === 'upcoming');
-  const finished = tournaments.filter((t) => t.status === 'finished');
-
   return (
     <div className="tournaments-page">
-      <h1>{t('tournaments.title', 'Tournaments')}</h1>
-
-      <div className="tournaments-toolbar">
+      <div className="tnr-header">
+        <h1>{t('tournaments.title', 'Tournaments')}</h1>
         {user && (
           <button className="tournaments-create-btn" onClick={() => setShowCreate(true)}>
             + {t('tournaments.create', 'Create Tournament')}
@@ -61,61 +77,73 @@ export function TournamentsPage() {
         )}
       </div>
 
+      {/* Filters */}
+      <div className="tnr-filters">
+        {/* Status tabs */}
+        <div className="tnr-status-tabs">
+          {['active', 'upcoming', 'finished'].map((s) => (
+            <button
+              key={s}
+              className={`tnr-status-tab${statusFilter === s ? ' active' : ''}`}
+              onClick={() => { setStatusFilter(s); updateUrl(s, typeFilter, tcFilter); }}
+            >
+              {t(`tournaments.status_${s}`, s)}
+            </button>
+          ))}
+        </div>
+
+        <div className="tnr-chips-row">
+          {/* Type chips */}
+          {['all', 'arena', 'swiss', 'round_robin'].map((tp) => (
+            <button
+              key={tp}
+              className={`tnr-chip${typeFilter === tp ? ' active' : ''}`}
+              onClick={() => { setTypeFilter(tp); updateUrl(statusFilter, tp, tcFilter); }}
+            >
+              {tp === 'all' ? t('common.all', 'All') : t(`tournaments.type_${tp}`)}
+            </button>
+          ))}
+          <span className="tnr-chips-sep" />
+          {/* TC chips */}
+          {['all', 'bullet', 'blitz', 'rapid'].map((tc) => (
+            <button
+              key={tc}
+              className={`tnr-chip${tcFilter === tc ? ' active' : ''}`}
+              onClick={() => { setTcFilter(tc); updateUrl(statusFilter, typeFilter, tc); }}
+            >
+              {tc === 'all' ? t('common.all', 'All') : t(`lobby.${tc}`, tc)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* List */}
       {loading ? (
         <p>{t('common.loading')}</p>
+      ) : filtered.length === 0 ? (
+        <p className="tournaments-empty">{t('tournaments.empty', 'No tournaments')}</p>
       ) : (
-        <>
-          {active.length > 0 && (
-            <section className="tournaments-section">
-              <h2>{t('tournaments.active', 'Active')}</h2>
-              <div className="tournaments-list">
-                {active.map((tnr) => (
-                  <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tournament-card">
-                    <span className="tournament-card__name">{tnr.name}</span>
-                    <span className="tournament-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
-                    <span className="tournament-card__players">{tnr._count?.players ?? 0} {t('tournaments.players', 'players')}</span>
-                    <span className="tournament-card__status tournament-card__status--active">{t('tournaments.statusActive', 'Active')}</span>
-                  </Link>
-                ))}
+        <div className="tournaments-list">
+          {filtered.map((tnr) => (
+            <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tnr-card">
+              <div className="tnr-card__row1">
+                <span className={`tnr-card__dot tnr-card__dot--${tnr.status}`} />
+                <span className="tnr-card__name">{tnr.name}</span>
+                <span className="tnr-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
               </div>
-            </section>
-          )}
-
-          {upcoming.length > 0 && (
-            <section className="tournaments-section">
-              <h2>{t('tournaments.upcoming', 'Upcoming')}</h2>
-              <div className="tournaments-list">
-                {upcoming.map((tnr) => (
-                  <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tournament-card">
-                    <span className="tournament-card__name">{tnr.name}</span>
-                    <span className="tournament-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
-                    <span className="tournament-card__time">{formatTime(tnr.startsAt)}</span>
-                    <span className="tournament-card__status tournament-card__status--upcoming">{t('tournaments.statusUpcoming', 'Upcoming')}</span>
-                  </Link>
-                ))}
+              <div className="tnr-card__row2">
+                <span>{t(`tournaments.type_${tnr.type}`, tnr.type)}</span>
+                <span>{t(`lobby.${tnr.timeControlType}`, tnr.timeControlType)}</span>
+                <span>{tnr._count?.entries ?? 0} {t('tournaments.players', 'players')}</span>
+                <span>{tnr.durationMin} {t('tournaments.min', 'min')}</span>
               </div>
-            </section>
-          )}
-
-          {active.length === 0 && upcoming.length === 0 && (
-            <p className="tournaments-empty">{t('tournaments.empty', 'No tournaments')}</p>
-          )}
-
-          {finished.length > 0 && (
-            <section className="tournaments-section">
-              <h2>{t('tournaments.finished', 'Finished')}</h2>
-              <div className="tournaments-list">
-                {finished.slice(0, 10).map((tnr) => (
-                  <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tournament-card tournament-card--finished">
-                    <span className="tournament-card__name">{tnr.name}</span>
-                    <span className="tournament-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
-                    <span className="tournament-card__players">{tnr._count?.players ?? 0} {t('tournaments.players', 'players')}</span>
-                  </Link>
-                ))}
+              <div className="tnr-card__row3">
+                {tnr.creatorUsername && <span>{tnr.creatorUsername}</span>}
+                <span>{formatTime(tnr.startsAt)}</span>
               </div>
-            </section>
-          )}
-        </>
+            </Link>
+          ))}
+        </div>
       )}
 
       {showCreate && (

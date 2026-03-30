@@ -259,7 +259,8 @@
     }
   },
   "common": {
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "all": "All"
   },
   "auth": {
     "login": {
@@ -800,6 +801,13 @@
     "upcoming": "Upcoming",
     "finished": "Finished",
     "empty": "No tournaments",
+    "min": "min",
+    "status_active": "Active",
+    "status_upcoming": "Upcoming",
+    "status_finished": "Finished",
+    "typeDesc_arena": "Continuous pairing. Play game after game. Points for wins, streak bonus.",
+    "typeDesc_swiss": "Rounds with score-based pairing. Optimal for 10-100 players.",
+    "typeDesc_round_robin": "Everyone plays everyone. For 4-16 players.",
     "players": "players",
     "statusActive": "Active",
     "statusUpcoming": "Upcoming",

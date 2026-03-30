@@ -9,6 +9,8 @@ interface CreateTournamentModalProps {
 
 type TournamentType = 'arena' | 'swiss' | 'round_robin';
 
+const TYPE_ICONS: Record<TournamentType, string> = { arena: '⚔️', swiss: '🏆', round_robin: '🔄' };
+
 export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentModalProps) {
   const { t } = useTranslation();
   const [type, setType] = useState<TournamentType>('arena');
@@ -47,94 +49,99 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
+      <div className="tcm-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{t('tournaments.createTitle', 'Create Tournament')}</h2>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
 
-        <div className="tournament-create-form">
-          {/* Type tabs */}
-          <div className="tournament-type-tabs">
+        <div className="tcm-body">
+          {/* Left: type cards */}
+          <div className="tcm-types">
             {(['arena', 'swiss', 'round_robin'] as const).map((tp) => (
-              <button
+              <div
                 key={tp}
-                className={`tournament-type-tab${type === tp ? ' active' : ''}`}
+                className={`tcm-type-card${type === tp ? ' tcm-type-card--active' : ''}`}
                 onClick={() => setType(tp)}
               >
-                {t(`tournaments.type_${tp}`, tp === 'arena' ? 'Arena' : tp === 'swiss' ? 'Swiss' : 'Round Robin')}
-              </button>
+                <span className="tcm-type-card__icon">{TYPE_ICONS[tp]}</span>
+                <span className="tcm-type-card__name">{t(`tournaments.type_${tp}`)}</span>
+                <span className="tcm-type-card__desc">{t(`tournaments.typeDesc_${tp}`)}</span>
+              </div>
             ))}
           </div>
 
-          <div className="import-field">
-            <label>{t('tournaments.name', 'Name')}</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('tournaments.namePlaceholder', 'Arena Blitz')} />
-          </div>
-
-          <div className="import-field">
-            <label>{t('tournaments.timeControl', 'Time control')}</label>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <select value={timeInitial} onChange={(e) => setTimeInitial(Number(e.target.value))}>
-                <option value={60}>1 min</option>
-                <option value={120}>2 min</option>
-                <option value={180}>3 min</option>
-                <option value={300}>5 min</option>
-                <option value={600}>10 min</option>
-              </select>
-              <select value={timeIncrement} onChange={(e) => setTimeIncrement(Number(e.target.value))}>
-                <option value={0}>+0</option>
-                <option value={1}>+1</option>
-                <option value={2}>+2</option>
-                <option value={3}>+3</option>
-                <option value={5}>+5</option>
-              </select>
+          {/* Right: settings */}
+          <div className="tcm-settings">
+            <div className="tcm-field">
+              <label>{t('tournaments.name', 'Name')}</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('tournaments.namePlaceholder', 'Arena Blitz')} />
             </div>
-          </div>
 
-          {type === 'arena' && (
-            <div className="import-field">
-              <label>{t('tournaments.duration', 'Duration (minutes)')}</label>
-              <select value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))}>
+            <div className="tcm-field">
+              <label>{t('tournaments.timeControl', 'Time control')}</label>
+              <div className="tcm-row">
+                <select value={timeInitial} onChange={(e) => setTimeInitial(Number(e.target.value))}>
+                  <option value={60}>1 min</option>
+                  <option value={120}>2 min</option>
+                  <option value={180}>3 min</option>
+                  <option value={300}>5 min</option>
+                  <option value={600}>10 min</option>
+                </select>
+                <select value={timeIncrement} onChange={(e) => setTimeIncrement(Number(e.target.value))}>
+                  <option value={0}>+0</option>
+                  <option value={1}>+1</option>
+                  <option value={2}>+2</option>
+                  <option value={3}>+3</option>
+                  <option value={5}>+5</option>
+                </select>
+              </div>
+            </div>
+
+            {type === 'arena' && (
+              <div className="tcm-field">
+                <label>{t('tournaments.duration', 'Duration (minutes)')}</label>
+                <select value={durationMin} onChange={(e) => setDurationMin(Number(e.target.value))}>
+                  <option value={15}>15</option>
+                  <option value={30}>30</option>
+                  <option value={45}>45</option>
+                  <option value={60}>60</option>
+                  <option value={90}>90</option>
+                </select>
+              </div>
+            )}
+
+            {type !== 'arena' && (
+              <>
+                <div className="tcm-field">
+                  <label>{t('tournaments.totalRounds', 'Number of rounds')}</label>
+                  <input type="number" min={2} max={15} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
+                </div>
+                <div className="tcm-field">
+                  <label>{t('tournaments.roundPause', 'Pause between rounds (min)')}</label>
+                  <input type="number" min={1} max={30} value={roundPauseMin} onChange={(e) => setRoundPauseMin(Number(e.target.value))} />
+                </div>
+              </>
+            )}
+
+            <div className="tcm-field">
+              <label>{t('tournaments.startsIn', 'Starts in (minutes)')}</label>
+              <select value={startsIn} onChange={(e) => setStartsIn(Number(e.target.value))}>
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+                <option value={5}>5</option>
+                <option value={10}>10</option>
                 <option value={15}>15</option>
                 <option value={30}>30</option>
-                <option value={45}>45</option>
-                <option value={60}>60</option>
-                <option value={90}>90</option>
               </select>
             </div>
-          )}
 
-          {type !== 'arena' && (
-            <>
-              <div className="import-field">
-                <label>{t('tournaments.totalRounds', 'Number of rounds')}</label>
-                <input type="number" min={2} max={15} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
-              </div>
-              <div className="import-field">
-                <label>{t('tournaments.roundPause', 'Pause between rounds (min)')}</label>
-                <input type="number" min={1} max={30} value={roundPauseMin} onChange={(e) => setRoundPauseMin(Number(e.target.value))} />
-              </div>
-            </>
-          )}
+            {error && <div className="error">{error}</div>}
 
-          <div className="import-field">
-            <label>{t('tournaments.startsIn', 'Starts in (minutes)')}</label>
-            <select value={startsIn} onChange={(e) => setStartsIn(Number(e.target.value))}>
-              <option value={1}>1</option>
-              <option value={2}>2</option>
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-              <option value={15}>15</option>
-              <option value={30}>30</option>
-            </select>
+            <button className="tcm-submit" onClick={handleCreate} disabled={creating || !name.trim()}>
+              {creating ? t('common.loading') : t('tournaments.create', 'Create Tournament')}
+            </button>
           </div>
-
-          {error && <div className="error">{error}</div>}
-
-          <button className="import-btn" onClick={handleCreate} disabled={creating || !name.trim()} style={{ marginTop: 12 }}>
-            {creating ? t('common.loading') : t('tournaments.create', 'Create Tournament')}
-          </button>
         </div>
       </div>
     </div>
