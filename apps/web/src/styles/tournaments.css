@@ -212,3 +212,30 @@
 .tournament-standings-table a { color: #7c83ff; text-decoration: none; }
 .tournament-standings-self { background: rgba(124,131,255,0.1); }
 
+.tournament-games-cell { display: flex; flex-wrap: wrap; gap: 3px; }
+
+.arena-game-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+.arena-game-cell:hover { transform: scale(1.2); }
+
+.arena-game-cell--win { background: rgba(76,175,80,0.25); color: #4caf50; }
+.arena-game-cell--loss { background: rgba(244,67,54,0.25); color: #ef5350; }
+.arena-game-cell--draw { background: rgba(158,158,158,0.25); color: #9e9e9e; }
+.arena-game-cell--active { background: rgba(255,193,7,0.25); color: #ffc107; animation: active-game-pulse 1.5s ease-in-out infinite; }
+
+@media (max-width: 600px) {
+  .arena-game-cell { width: 18px; height: 18px; font-size: 10px; }
+  .tournament-games-cell { gap: 2px; }
+}
+

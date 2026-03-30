@@ -814,7 +814,9 @@
     "score": "Очки",
     "games": "Партии",
     "noPlayers": "Нет игроков",
-    "notFound": "Турнир не найден"
+    "notFound": "Турнир не найден",
+    "vs": "против",
+    "gamesCol": "Партии"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",

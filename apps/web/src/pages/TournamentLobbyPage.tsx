@@ -16,12 +16,25 @@ type Tournament = {
   endsAt: string | null;
 };
 
+type StandingGame = {
+  gameId: string;
+  opponentId: string;
+  opponentUsername: string;
+  result: 'win' | 'loss' | 'draw' | null;
+  color: 'white' | 'black';
+  points: number;
+  status: string;
+};
+
 type Standing = {
   userId: string;
   username: string;
   score: number;
-  games: number;
-  rank: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  streak: number;
+  games: StandingGame[];
 };
 
 export function TournamentLobbyPage() {
@@ -196,7 +209,7 @@ export function TournamentLobbyPage() {
                 <th>#</th>
                 <th>{t('tournaments.player', 'Player')}</th>
                 <th>{t('tournaments.score', 'Score')}</th>
-                <th>{t('tournaments.games', 'Games')}</th>
+                <th>{t('tournaments.gamesCol', 'Games')}</th>
               </tr>
             </thead>
             <tbody>
@@ -207,7 +220,31 @@ export function TournamentLobbyPage() {
                     <Link to={`/player/${s.username}`}>{s.username}</Link>
                   </td>
                   <td>{s.score}</td>
-                  <td>{s.games}</td>
+                  <td className="tournament-games-cell">
+                    {s.games.map((g) => {
+                      const cls = g.status === 'active'
+                        ? 'arena-game-cell arena-game-cell--active'
+                        : g.result === 'win'
+                          ? 'arena-game-cell arena-game-cell--win'
+                          : g.result === 'loss'
+                            ? 'arena-game-cell arena-game-cell--loss'
+                            : 'arena-game-cell arena-game-cell--draw';
+                      return (
+                        <span
+                          key={g.gameId}
+                          className={cls}
+                          title={`${t('tournaments.vs', 'vs')} ${g.opponentUsername}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (g.status === 'active') navigate(`/games/${g.gameId}/watch`);
+                            else navigate(`/game/${g.gameId}/review`);
+                          }}
+                        >
+                          {g.status === 'active' ? '•' : g.points}
+                        </span>
+                      );
+                    })}
+                  </td>
                 </tr>
               ))}
             </tbody>

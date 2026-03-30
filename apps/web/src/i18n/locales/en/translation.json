@@ -814,7 +814,9 @@
     "score": "Score",
     "games": "Games",
     "noPlayers": "No players yet",
-    "notFound": "Tournament not found"
+    "notFound": "Tournament not found",
+    "vs": "vs",
+    "gamesCol": "Games"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",
