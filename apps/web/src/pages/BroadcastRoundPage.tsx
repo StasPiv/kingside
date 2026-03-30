@@ -64,7 +64,22 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
   tournamentId: string;
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const currentRound = rounds.find((r) => r.id === currentRoundId);
+
+  const handleGameClick = (game: LichessGame) => {
+    if (!game.pgn) return;
+    navigate('/analysis', {
+      state: {
+        pgn: game.pgn,
+        title: `${game.whitePlayer} vs ${game.blackPlayer}`,
+        breadcrumbRootTitle: broadcast.title,
+        breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
+        breadcrumbSection: currentRound?.name,
+        breadcrumbBackUrl: `/broadcasts/${tournamentId}/${currentRoundId}`,
+      },
+    });
+  };
 
   return (
     <div className="broadcast-round-page">
@@ -99,7 +114,15 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
             {games.map((game, idx) => {
               const fen = computeFen(game.pgn ?? '');
               return (
-                <div key={game.id} className="dgt-board-card" aria-label={`${game.whitePlayer} vs ${game.blackPlayer}`}>
+                <div
+                  key={game.id}
+                  className={`dgt-board-card${game.pgn ? ' dgt-board-card--clickable' : ''}`}
+                  aria-label={`${game.whitePlayer} vs ${game.blackPlayer}`}
+                  onClick={() => handleGameClick(game)}
+                  role={game.pgn ? 'button' : undefined}
+                  tabIndex={game.pgn ? 0 : undefined}
+                  onKeyDown={game.pgn ? (e) => e.key === 'Enter' && handleGameClick(game) : undefined}
+                >
                   <div className="dgt-board-players">
                     <span className="dgt-player dgt-player--black">&#9823; {game.blackPlayer}</span>
                   </div>

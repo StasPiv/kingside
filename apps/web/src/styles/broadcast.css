@@ -507,6 +507,11 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  transition: border-color 0.15s;
+}
+
+.dgt-board-card--clickable:hover {
+  border-color: #7c83ff;
 }
 
 .dgt-board-players {
