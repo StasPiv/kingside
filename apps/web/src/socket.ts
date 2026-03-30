@@ -17,3 +17,7 @@ export const broadcastSocket = io(`${API_URL}/broadcast`, {
 export const messagesSocket = io(`${API_URL}/messages`, {
   autoConnect: false,
 });
+
+export const tournamentSocket = io(`${API_URL}/tournament`, {
+  autoConnect: false,
+});

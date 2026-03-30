@@ -25,6 +25,8 @@ import { WatchGamePage } from './pages/WatchGamePage';
 import { ExternalEngineHelpPage } from './pages/ExternalEngineHelpPage';
 import { OAuthCallbackPage } from './pages/OAuthCallbackPage';
 import { FriendsPage } from './pages/FriendsPage';
+import { TournamentsPage } from './pages/TournamentsPage';
+import { TournamentLobbyPage } from './pages/TournamentLobbyPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { useAuth } from './context/AuthContext';
 
@@ -118,6 +120,8 @@ export function App() {
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfileRedirect /></ProtectedRoute>} />
+        <Route path="/tournaments" element={<TournamentsPage />} />
+        <Route path="/tournaments/:id" element={<TournamentLobbyPage />} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />

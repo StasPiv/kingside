@@ -372,7 +372,8 @@
     "newGame": "Новая партия",
     "home": "На главную",
     "rematch": "Реванш",
-    "rematchSent": "Отправлено..."
+    "rematchSent": "Отправлено...",
+    "backToTournament": "Вернуться в турнир"
   },
   "review": {
     "loadError": "Не удалось загрузить партию",
@@ -785,6 +786,35 @@
     "faqConfigMac": "macOS",
     "faqSecretKeyNote": "Всегда оборачивайте secret_key в кавычки — hex-строки вроде 5caa... могут быть неправильно интерпретированы YAML без них.",
     "faqWindowsPathNote": "На Windows используйте префикс .\\ для относительных путей к исполняемому файлу движка."
+  },
+  "tournaments": {
+    "title": "Турниры",
+    "create": "Создать турнир",
+    "createTitle": "Создать турнир",
+    "name": "Название",
+    "namePlaceholder": "Блиц-арена",
+    "timeControl": "Контроль времени",
+    "duration": "Длительность (минуты)",
+    "startsIn": "Начало через (минуты)",
+    "active": "Активные",
+    "upcoming": "Предстоящие",
+    "finished": "Завершённые",
+    "empty": "Нет турниров",
+    "players": "игроков",
+    "statusActive": "Активен",
+    "statusUpcoming": "Скоро",
+    "statusFinished": "Завершён",
+    "backToList": "Турниры",
+    "join": "Присоединиться",
+    "joinAndPlay": "Присоединиться и играть",
+    "seek": "Найти соперника",
+    "seeking": "Поиск соперника...",
+    "standings": "Таблица",
+    "player": "Игрок",
+    "score": "Очки",
+    "games": "Партии",
+    "noPlayers": "Нет игроков",
+    "notFound": "Турнир не найден"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",

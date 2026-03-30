@@ -165,3 +165,50 @@
   border-color: #7c83ff;
 }
 
+/* Arena Tournaments */
+.tournaments-page { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
+.tournaments-toolbar { margin-bottom: 16px; }
+.tournaments-create-btn { background: #7c83ff; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.tournaments-section { margin-bottom: 24px; }
+.tournaments-section h2 { font-size: 16px; margin-bottom: 8px; color: #aaa; }
+.tournaments-list { display: flex; flex-direction: column; gap: 8px; }
+.tournaments-empty { color: #666; text-align: center; padding: 32px; }
+
+.tournament-card { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #1e1e3e; border-radius: 8px; text-decoration: none; color: #e0e0e0; transition: background 0.15s; }
+.tournament-card:hover { background: #2a2a4e; text-decoration: none; }
+.tournament-card--finished { opacity: 0.6; }
+.tournament-card__name { font-weight: 600; flex: 1; }
+.tournament-card__tc { color: #7c83ff; font-size: 13px; }
+.tournament-card__players { color: #888; font-size: 13px; }
+.tournament-card__time { color: #888; font-size: 12px; }
+.tournament-card__status { font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.tournament-card__status--active { background: rgba(76,175,80,0.2); color: #4caf50; }
+.tournament-card__status--upcoming { background: rgba(255,193,7,0.2); color: #ffc107; }
+
+/* Tournament Lobby */
+.tournament-lobby-page { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
+.tournament-lobby-header { margin-bottom: 16px; }
+.tournament-lobby-header h1 { margin-bottom: 4px; }
+.tournament-lobby-meta { display: flex; gap: 12px; align-items: center; }
+.tournament-lobby-tc { color: #7c83ff; font-weight: 600; }
+.tournament-lobby-status { font-size: 12px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.tournament-lobby-status--active { background: rgba(76,175,80,0.2); color: #4caf50; }
+.tournament-lobby-status--upcoming { background: rgba(255,193,7,0.2); color: #ffc107; }
+.tournament-lobby-status--finished { background: rgba(255,255,255,0.1); color: #888; }
+.tournament-lobby-timer { font-size: 18px; font-weight: 700; color: #e0e0e0; font-variant-numeric: tabular-nums; }
+
+.tournament-lobby-actions { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; }
+.tournament-join-btn, .tournament-seek-btn { background: #7c83ff; color: #fff; border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.tournament-seek-btn { background: #4caf50; }
+.tournament-seeking { display: flex; align-items: center; gap: 8px; color: #4caf50; font-size: 14px; }
+.tournament-seeking__dot { width: 8px; height: 8px; border-radius: 50%; background: #4caf50; animation: active-game-pulse 1.5s infinite; }
+
+.tournament-standings { margin-top: 16px; }
+.tournament-standings h2 { font-size: 16px; margin-bottom: 8px; }
+.tournament-standings-empty { color: #666; }
+.tournament-standings-table { width: 100%; border-collapse: collapse; }
+.tournament-standings-table th { text-align: left; padding: 6px 10px; color: #888; font-size: 12px; border-bottom: 1px solid #333; }
+.tournament-standings-table td { padding: 8px 10px; border-bottom: 1px solid #222; font-size: 14px; }
+.tournament-standings-table a { color: #7c83ff; text-decoration: none; }
+.tournament-standings-self { background: rgba(124,131,255,0.1); }
+

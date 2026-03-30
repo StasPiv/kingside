@@ -43,6 +43,8 @@ function formatTime(seconds: number): string {
 export function GamePage() {
   const { id: gameId } = useParams<{ id: string }>();
   const location = useLocation();
+  const [urlParams] = useState(() => new URLSearchParams(location.search));
+  const tournamentId = urlParams.get('tournamentId');
   const routeColor = (location.state as { color?: 'white' | 'black' } | null)?.color;
   const { user, refreshUser } = useAuth();
   const { t } = useTranslation();
@@ -668,9 +670,15 @@ export function GamePage() {
                   {challengeState === 'waiting' ? t('gameResult.rematchSent', 'Sent...') : t('gameResult.rematch', 'Rematch')}
                 </button>
               )}
-              <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
-              <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
-              <Link to="/" className="result-btn">{t('gameResult.home')}</Link>
+              {tournamentId ? (
+                <Link to={`/tournaments/${tournamentId}`} className="result-btn result-btn-primary">{t('gameResult.backToTournament', 'Back to Tournament')}</Link>
+              ) : (
+                <>
+                  <Link to="/lobby" className="result-btn">{t('gameResult.newGame')}</Link>
+                  <Link to={`/analysis/${gameId}`} className="result-btn result-btn-primary">{t('game.analyze')}</Link>
+                  <Link to="/" className="result-btn">{t('gameResult.home')}</Link>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -372,7 +372,8 @@
     "newGame": "New Game",
     "home": "Home",
     "rematch": "Rematch",
-    "rematchSent": "Sent..."
+    "rematchSent": "Sent...",
+    "backToTournament": "Back to Tournament"
   },
   "review": {
     "loadError": "Failed to load game",
@@ -785,6 +786,35 @@
     "faqConfigMac": "macOS",
     "faqSecretKeyNote": "Always wrap secret_key in quotes — hex strings like 5caa... may be misinterpreted by YAML without them.",
     "faqWindowsPathNote": "On Windows use .\\  prefix for relative paths to the engine executable."
+  },
+  "tournaments": {
+    "title": "Tournaments",
+    "create": "Create Tournament",
+    "createTitle": "Create Tournament",
+    "name": "Name",
+    "namePlaceholder": "Arena Blitz",
+    "timeControl": "Time control",
+    "duration": "Duration (minutes)",
+    "startsIn": "Starts in (minutes)",
+    "active": "Active",
+    "upcoming": "Upcoming",
+    "finished": "Finished",
+    "empty": "No tournaments",
+    "players": "players",
+    "statusActive": "Active",
+    "statusUpcoming": "Upcoming",
+    "statusFinished": "Finished",
+    "backToList": "Tournaments",
+    "join": "Join",
+    "joinAndPlay": "Join & Play",
+    "seek": "Find opponent",
+    "seeking": "Looking for opponent...",
+    "standings": "Standings",
+    "player": "Player",
+    "score": "Score",
+    "games": "Games",
+    "noPlayers": "No players yet",
+    "notFound": "Tournament not found"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",
