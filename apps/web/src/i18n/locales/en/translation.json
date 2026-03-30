@@ -852,7 +852,11 @@
     "points": "Points: Win / Draw / Loss",
     "chessPoints": "Chess 1/½/0",
     "footballPoints": "Football 3/1/0",
-    "crosstable": "Cross Table"
+    "crosstable": "Cross Table",
+    "schedule": "My Schedule",
+    "opponent": "Opponent",
+    "color": "Color",
+    "result": "Result"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",

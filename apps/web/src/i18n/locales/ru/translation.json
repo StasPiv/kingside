@@ -852,7 +852,11 @@
     "points": "Очки: Победа / Ничья / Поражение",
     "chessPoints": "Шахматные 1/½/0",
     "footballPoints": "Футбольные 3/1/0",
-    "crosstable": "Круговая таблица"
+    "crosstable": "Круговая таблица",
+    "schedule": "Моё расписание",
+    "opponent": "Соперник",
+    "color": "Цвет",
+    "result": "Результат"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",

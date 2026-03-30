@@ -6,6 +6,7 @@ import { api } from '../api';
 import { tournamentSocket } from '../socket';
 import { TournamentRoundView } from '../components/TournamentRoundView';
 import { CrossTable } from '../components/CrossTable';
+import { TournamentSchedule } from '../components/TournamentSchedule';
 
 type Tournament = {
   id: string;
@@ -439,6 +440,11 @@ export function TournamentLobbyPage() {
       )}
 
       {/* Standings */}
+      {/* Schedule for RR */}
+      {tournament.type === 'round_robin' && id && user && (
+        <TournamentSchedule tournamentId={id} userId={user.id} refreshKey={standings.length} pointsWin={tournament.pointsWin} pointsDraw={tournament.pointsDraw} pointsLoss={tournament.pointsLoss} />
+      )}
+
       {/* CrossTable for RR */}
       {tournament.type === 'round_robin' && id && (
         <CrossTable tournamentId={id} refreshKey={standings.length} pointsWin={tournament.pointsWin} pointsDraw={tournament.pointsDraw} pointsLoss={tournament.pointsLoss} />

@@ -661,3 +661,71 @@
 .tournament-pairing__live { color: #4caf50; text-decoration: none; animation: active-game-pulse 1.5s infinite; }
 .tournament-pairing__review { color: #7c83ff; text-decoration: none; }
 
+/* Schedule (KS-1086) */
+.tournament-schedule {
+  margin: 16px 0;
+}
+
+.tournament-schedule h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: #e0e0e0;
+}
+
+.tournament-schedule-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tournament-schedule-table th {
+  text-align: left;
+  padding: 6px 12px;
+  color: #9e9e9e;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  font-weight: 500;
+}
+
+.tournament-schedule-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.schedule-row--clickable {
+  cursor: pointer;
+}
+
+.schedule-row--clickable:hover {
+  background: rgba(124,131,255,0.08);
+}
+
+.schedule-row--active {
+  background: rgba(255,193,7,0.08);
+}
+
+.schedule-round {
+  width: 40px;
+  font-weight: 600;
+  color: #9e9e9e;
+}
+
+.schedule-opponent {
+  color: #e0e0e0;
+}
+
+.schedule-color {
+  width: 50px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.schedule-result {
+  width: 60px;
+  text-align: center;
+  font-weight: 600;
+}
+
+.schedule-result--win { color: #4caf50; }
+.schedule-result--loss { color: #f44336; }
+.schedule-result--draw { color: #9e9e9e; }
+
