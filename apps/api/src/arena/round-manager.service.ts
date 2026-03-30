@@ -230,6 +230,42 @@ export class RoundManagerService {
     });
   }
 
+  /**
+   * Update TournamentPairing result based on finished game.
+   * Returns pairing id + tournament info if found.
+   */
+  async updatePairingResult(gameId: string): Promise<{ pairingId: string; tournamentId: string; currentRound: number } | null> {
+    const pairing = await this.prisma.tournamentPairing.findFirst({
+      where: { gameId },
+      include: { round: true },
+    });
+    if (!pairing || pairing.result) return null;
+
+    const game = await this.prisma.game.findUnique({
+      where: { id: gameId },
+      select: { result: true, status: true, tournamentId: true },
+    });
+    if (!game || game.status !== 'finished' || !game.result) return null;
+
+    let result: string;
+    if (game.result === 'white') result = '1-0';
+    else if (game.result === 'black') result = '0-1';
+    else result = '1/2-1/2';
+
+    await this.prisma.tournamentPairing.update({
+      where: { id: pairing.id },
+      data: { result },
+    });
+
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: pairing.round.tournamentId } });
+
+    return {
+      pairingId: pairing.id,
+      tournamentId: pairing.round.tournamentId,
+      currentRound: t?.currentRound ?? 0,
+    };
+  }
+
   private async getSwissPlayers(tournamentId: string) {
     const entries = await this.prisma.arenaTournamentEntry.findMany({
       where: { tournamentId, withdrawn: false },

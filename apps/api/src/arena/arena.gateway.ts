@@ -23,6 +23,9 @@ const TOURNAMENT_EVENTS = {
   FINISHED: 'tournament:finished',
   PLAYER_JOINED: 'tournament:player_joined',
   PLAYER_LEFT: 'tournament:player_left',
+  GAME_END: 'tournament:game_end',
+  ROUND_START: 'tournament:round_start',
+  ROUND_END: 'tournament:round_end',
 };
 
 @WebSocketGateway({ namespace: '/tournament', cors: { origin: '*' } })
@@ -131,12 +134,16 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.STANDINGS, { standings });
   }
 
-  emitRoundStart(tournamentId: string, roundNumber: number) {
-    this.server.to(`tournament:${tournamentId}`).emit('tournament:round_start', { tournamentId, roundNumber });
+  emitRoundStart(tournamentId: string, roundNumber: number, pairings?: { whiteId: string; blackId: string | null; gameId: string | null; board: number }[]) {
+    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.ROUND_START, { tournamentId, roundNumber, pairings: pairings ?? [] });
   }
 
   emitRoundEnd(tournamentId: string, roundNumber: number) {
-    this.server.to(`tournament:${tournamentId}`).emit('tournament:round_end', { tournamentId, roundNumber });
+    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.ROUND_END, { tournamentId, roundNumber });
+  }
+
+  emitGameEnd(tournamentId: string, gameId: string, result: string, pairingId: string) {
+    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.GAME_END, { gameId, result, pairingId });
   }
 
   async emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {

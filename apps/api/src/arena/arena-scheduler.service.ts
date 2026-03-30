@@ -39,8 +39,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         await this.autoStartFirstRound(id);
       }
 
-      // Check if current round is complete for Swiss/RR → finalize + start next
-      await this.checkSwissRRRounds();
+      // Round completion is now handled by onGameEnd hook in arena.module.ts
 
       const finished = await this.arena.checkAndFinishTournaments();
       if (finished.length > 0) {
@@ -74,6 +73,13 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
       const round = await this.roundManager.getRound(tournamentId, 1);
       if (round) {
         this.logger.log(`autoStartFirstRound: round 1 has ${round.pairings.length} pairings`);
+        const pairingsPayload = round.pairings.map((p) => ({
+          whiteId: p.whiteId,
+          blackId: p.blackId,
+          gameId: p.gameId,
+          board: p.board,
+        }));
+        this.gateway.emitRoundStart(tournamentId, 1, pairingsPayload);
         for (const p of round.pairings) {
           if (p.gameId) {
             this.logger.log(`autoStartFirstRound: emitting paired — game ${p.gameId}, white ${p.whiteId}, black ${p.blackId}`);
@@ -81,51 +87,8 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
           }
         }
       }
-      this.gateway.emitRoundStart(tournamentId, 1);
       this.logger.log(`autoStartFirstRound: emitted round_start for tournament ${tournamentId}`);
     }
   }
 
-  private async checkSwissRRRounds() {
-    const active = await this.prisma.arenaTournament.findMany({
-      where: { status: 'active', type: { in: ['swiss', 'round_robin'] }, currentRound: { gt: 0 } },
-    });
-
-    if (active.length > 0) {
-      this.logger.debug(`checkSwissRRRounds: ${active.length} active Swiss/RR tournaments with rounds`);
-    }
-
-    for (const t of active) {
-      const complete = await this.roundManager.checkRoundComplete(t.id);
-      if (!complete) continue;
-
-      this.logger.log(`checkSwissRRRounds: round ${t.currentRound} complete for tournament ${t.id}, finalizing...`);
-      await this.roundManager.finalizeRound(t.id);
-      this.gateway.emitRoundEnd(t.id, t.currentRound);
-      await this.gateway.emitStandings(t.id);
-
-      // Start next round after pause (or immediately if no pause)
-      const updated = await this.prisma.arenaTournament.findUnique({ where: { id: t.id } });
-      if (updated && updated.status === 'active') {
-        this.logger.log(`checkSwissRRRounds: starting next round for tournament ${t.id}`);
-        const roundId = await this.roundManager.startNextRound(t.id);
-        if (roundId) {
-          const nextRound = t.currentRound + 1;
-          const round = await this.roundManager.getRound(t.id, nextRound);
-          if (round) {
-            this.logger.log(`checkSwissRRRounds: round ${nextRound} has ${round.pairings.length} pairings`);
-            for (const p of round.pairings) {
-              if (p.gameId) {
-                this.logger.log(`checkSwissRRRounds: emitting paired — game ${p.gameId}`);
-                this.gateway.emitPaired(t.id, p.gameId, p.whiteId, p.blackId);
-              }
-            }
-          }
-          this.gateway.emitRoundStart(t.id, nextRound);
-        } else {
-          this.logger.log(`checkSwissRRRounds: no next round for tournament ${t.id} (all rounds played or no pairings)`);
-        }
-      }
-    }
-  }
 }
