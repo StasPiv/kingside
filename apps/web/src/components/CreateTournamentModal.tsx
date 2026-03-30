@@ -112,7 +112,7 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
                     className={`tcm-tc-cat${tcCategory === cat ? ' active' : ''}`}
                     onClick={() => setTcCategory(cat)}
                   >
-                    {cat === 'custom' ? t('tournaments.custom', 'Custom') : t(`lobby.${cat}`, cat)}
+                    {cat === 'custom' ? t('tournaments.custom', 'Custom') : t(`lobby.categories.${cat}`, cat)}
                   </button>
                 ))}
               </div>
