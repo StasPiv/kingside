@@ -146,16 +146,37 @@ export class ArenaService {
     // Check for opponent in queue
     const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);
 
+    // Two-pass: prefer non-repeat opponent, fallback to any
+    const lastOpp = await this.redis.get(this.lastOpponentKey(tournamentId, userId));
+    let matchedData: string | null = null;
+    let matchedCandidate: { userId: string; rating: number } | null = null;
+
+    // Pass 1: non-repeat opponents
     for (const data of candidates) {
       const candidate = JSON.parse(data) as { userId: string; rating: number };
       if (candidate.userId === userId) continue;
-
-      // Avoid same opponent twice in a row
-      const lastOpp = await this.redis.get(this.lastOpponentKey(tournamentId, userId));
       if (lastOpp === candidate.userId) continue;
+      matchedData = data;
+      matchedCandidate = candidate;
+      break;
+    }
 
-      // Match found — remove from queue
-      await this.redis.zrem(key, data);
+    // Pass 2: allow repeat if no alternative
+    if (!matchedCandidate) {
+      for (const data of candidates) {
+        const candidate = JSON.parse(data) as { userId: string; rating: number };
+        if (candidate.userId === userId) continue;
+        matchedData = data;
+        matchedCandidate = candidate;
+        break;
+      }
+    }
+
+    if (matchedData && matchedCandidate) {
+      const candidate = matchedCandidate;
+
+      // Remove from queue
+      await this.redis.zrem(key, matchedData);
 
       // Record last opponents
       await this.redis.set(this.lastOpponentKey(tournamentId, userId), candidate.userId, 'EX', 300);
