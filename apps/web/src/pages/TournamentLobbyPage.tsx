@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { tournamentSocket } from '../socket';
 import { TournamentRoundView } from '../components/TournamentRoundView';
+import { CrossTable } from '../components/CrossTable';
 
 type Tournament = {
   id: string;
@@ -435,6 +436,11 @@ export function TournamentLobbyPage() {
       )}
 
       {/* Standings */}
+      {/* CrossTable for RR */}
+      {tournament.type === 'round_robin' && id && (
+        <CrossTable tournamentId={id} refreshKey={standings.length} />
+      )}
+
       <div className="tournament-standings">
         <h2>{t('tournaments.standings', 'Standings')}</h2>
         {standings.length === 0 ? (

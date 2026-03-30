@@ -486,6 +486,26 @@
 .arena-game-cell--draw { background: rgba(158,158,158,0.25); color: #9e9e9e; }
 .arena-game-cell--active { background: rgba(255,193,7,0.25); color: #ffc107; animation: active-game-pulse 1.5s ease-in-out infinite; }
 
+/* CrossTable */
+.crosstable-wrapper { margin: 16px 0; }
+.crosstable-wrapper h2 { font-size: 16px; margin-bottom: 8px; }
+.crosstable-scroll { overflow-x: auto; }
+.crosstable { border-collapse: collapse; width: 100%; min-width: 300px; }
+.crosstable th, .crosstable td { padding: 6px 8px; text-align: center; font-size: 13px; border: 1px solid #2a2a4e; }
+.crosstable th { background: #1a1a2e; color: #888; font-weight: 600; }
+.ct-rank { width: 30px; color: #666; }
+.ct-name { text-align: left !important; font-weight: 600; white-space: nowrap; }
+.ct-col-header { width: 36px; }
+.ct-total { font-weight: 700; color: #7c83ff; }
+.ct-cell { width: 36px; height: 36px; font-weight: 700; }
+.ct-cell--diag { background: #111; color: #333; }
+.ct-cell--win { background: rgba(76,175,80,0.2); color: #4caf50; }
+.ct-cell--loss { background: rgba(244,67,54,0.2); color: #ef5350; }
+.ct-cell--draw { background: rgba(158,158,158,0.15); color: #9e9e9e; }
+.ct-cell--active { background: rgba(255,193,7,0.2); color: #ffc107; animation: active-game-pulse 1.5s infinite; }
+.ct-cell--clickable { cursor: pointer; }
+.ct-cell--clickable:hover { filter: brightness(1.3); }
+
 @media (max-width: 600px) {
   .arena-game-cell { width: 18px; height: 18px; font-size: 10px; }
   .tournament-games-cell { gap: 2px; }

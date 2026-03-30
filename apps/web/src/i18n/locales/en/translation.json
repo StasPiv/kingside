@@ -848,7 +848,11 @@
     "withdrawConfirm": "Are you sure? Remaining rounds will be scored as 0.",
     "roundOf": "Round {{current}}/{{total}}",
     "roundGamesStatus": "Round {{n}}: {{completed}}/{{total}} games completed",
-    "nextRoundIn": "Round {{n}} starts in {{time}}"
+    "nextRoundIn": "Round {{n}} starts in {{time}}",
+    "points": "Points: Win / Draw / Loss",
+    "chessPoints": "Chess 1/½/0",
+    "footballPoints": "Football 3/1/0",
+    "crosstable": "Cross Table"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",

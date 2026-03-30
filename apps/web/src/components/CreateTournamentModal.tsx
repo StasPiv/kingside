@@ -31,6 +31,9 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
   const [durationMin, setDurationMin] = useState(30);
   const [totalRounds, setTotalRounds] = useState(5);
   const [roundPauseMin, setRoundPauseMin] = useState(2);
+  const [pointsWin, setPointsWin] = useState(1);
+  const [pointsDraw, setPointsDraw] = useState(0.5);
+  const [pointsLoss, setPointsLoss] = useState(0);
   const [startsIn, setStartsIn] = useState(5);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +63,7 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
         timeInitialSec: effectiveInitial,
         timeIncrementSec: effectiveIncrement,
         durationMin,
-        ...(type !== 'arena' ? { totalRounds, roundPauseMin } : {}),
+        ...(type !== 'arena' ? { totalRounds, roundPauseMin, pointsWin, pointsDraw, pointsLoss } : {}),
         startsAt,
       });
       onCreated();
@@ -172,6 +175,22 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
                 <div className="tcm-field">
                   <label>{t('tournaments.roundPause', 'Pause between rounds (min)')}</label>
                   <input type="number" min={1} max={30} value={roundPauseMin} onChange={(e) => setRoundPauseMin(Number(e.target.value))} />
+                </div>
+                <div className="tcm-field">
+                  <label>{t('tournaments.points', 'Points: Win / Draw / Loss')}</label>
+                  <div className="tcm-row">
+                    <input type="number" step={0.5} min={0} max={10} value={pointsWin} onChange={(e) => setPointsWin(Number(e.target.value))} />
+                    <input type="number" step={0.5} min={0} max={10} value={pointsDraw} onChange={(e) => setPointsDraw(Number(e.target.value))} />
+                    <input type="number" step={0.5} min={0} max={10} value={pointsLoss} onChange={(e) => setPointsLoss(Number(e.target.value))} />
+                  </div>
+                  <div className="tcm-presets" style={{ marginTop: 4 }}>
+                    <button type="button" className={`tcm-preset${pointsWin === 1 && pointsDraw === 0.5 && pointsLoss === 0 ? ' active' : ''}`} onClick={() => { setPointsWin(1); setPointsDraw(0.5); setPointsLoss(0); }}>
+                      {t('tournaments.chessPoints', 'Chess 1/½/0')}
+                    </button>
+                    <button type="button" className={`tcm-preset${pointsWin === 3 && pointsDraw === 1 && pointsLoss === 0 ? ' active' : ''}`} onClick={() => { setPointsWin(3); setPointsDraw(1); setPointsLoss(0); }}>
+                      {t('tournaments.footballPoints', 'Football 3/1/0')}
+                    </button>
+                  </div>
                 </div>
               </>
             )}

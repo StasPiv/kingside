@@ -848,7 +848,11 @@
     "withdrawConfirm": "Вы уверены? За оставшиеся туры будут проставлены 0.",
     "roundOf": "Тур {{current}}/{{total}}",
     "roundGamesStatus": "Тур {{n}}: {{completed}}/{{total}} партий завершено",
-    "nextRoundIn": "Тур {{n}} начнётся через {{time}}"
+    "nextRoundIn": "Тур {{n}} начнётся через {{time}}",
+    "points": "Очки: Победа / Ничья / Поражение",
+    "chessPoints": "Шахматные 1/½/0",
+    "footballPoints": "Футбольные 3/1/0",
+    "crosstable": "Круговая таблица"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",
