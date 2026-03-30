@@ -881,3 +881,171 @@
   color: #4caf50;
 }
 
+/* Broadcast Lobby (KS-1122) */
+.broadcast-lobby { max-width: 1100px; margin: 0 auto; }
+
+.broadcast-hero {
+  border-radius: 12px;
+  padding: 32px 28px;
+  background: linear-gradient(135deg, #1a1a3e 0%, #12122a 100%);
+  margin-bottom: 0;
+}
+
+.broadcast-hero__content { max-width: 700px; }
+.broadcast-hero__badge-row { margin-bottom: 8px; }
+
+.broadcast-hero__live-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: #4caf50;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  text-transform: uppercase;
+  animation: active-game-pulse 1.5s infinite;
+}
+
+.broadcast-hero__title {
+  margin: 0 0 10px;
+  font-size: 24px;
+  color: #fff;
+  font-weight: 700;
+}
+
+.broadcast-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: #bbb;
+  margin-bottom: 14px;
+}
+
+.broadcast-hero__links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.broadcast-hero__link {
+  padding: 5px 12px;
+  border: 1px solid #444;
+  border-radius: 5px;
+  color: #aaa;
+  text-decoration: none;
+  font-size: 12px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.broadcast-hero__link:hover { border-color: #7c83ff; color: #e0e0e0; }
+
+/* Broadcast tabs */
+.broadcast-tabs {
+  display: flex;
+  border-bottom: 2px solid rgba(255,255,255,0.1);
+  margin-bottom: 16px;
+}
+
+.broadcast-tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  color: #9e9e9e;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s;
+}
+
+.broadcast-tab:hover { color: #e0e0e0; }
+.broadcast-tab--active { color: #7c83ff; border-bottom-color: #7c83ff; }
+
+.broadcast-tab-content { min-height: 200px; }
+.broadcast-tab-panel { animation: tab-fade-in 0.15s ease; }
+.broadcast-tab-empty { color: #9e9e9e; text-align: center; padding: 32px 0; }
+
+/* Broadcast Standings */
+.broadcast-standings-scroll { overflow-x: auto; }
+
+.broadcast-standings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.broadcast-standings-table th {
+  padding: 6px 8px;
+  text-align: center;
+  color: #9e9e9e;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.broadcast-standings-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  text-align: center;
+}
+
+.broadcast-st-rank { width: 30px; }
+.broadcast-st-name { text-align: left !important; min-width: 140px; font-weight: 500; color: #e0e0e0; position: sticky; left: 0; background: #12122a; z-index: 1; }
+.broadcast-st-pts { font-weight: 700; width: 40px; }
+.broadcast-st-num { width: 35px; color: #9e9e9e; }
+.broadcast-st-cell { width: 40px; }
+.broadcast-st-diag { background: rgba(255,255,255,0.03); color: #555; }
+
+.broadcast-st-score { margin: 0 1px; }
+.broadcast-st-win { color: #4caf50; }
+.broadcast-st-loss { color: #f44336; }
+.broadcast-st-draw { color: #9e9e9e; }
+
+.broadcast-round-status { font-size: 11px; text-transform: uppercase; font-weight: 600; }
+.broadcast-round-status--finished { color: #9e9e9e; }
+.broadcast-round-status--active { color: #4caf50; }
+.broadcast-round-status--pending { color: #ffc107; }
+.broadcast-round-date { color: #9e9e9e; font-size: 12px; margin-left: 6px; }
+
+/* Broadcast Info */
+.broadcast-info-panel { max-width: 700px; }
+.broadcast-info-section { margin-bottom: 20px; }
+.broadcast-info-section h3 { font-size: 15px; margin: 0 0 8px; color: #e0e0e0; }
+.broadcast-info-desc { color: #bbb; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+
+.broadcast-info-players {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.broadcast-info-player {
+  padding: 4px 10px;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #e0e0e0;
+}
+
+.broadcast-info-schedule { display: flex; flex-direction: column; gap: 4px; }
+
+.broadcast-info-schedule-row {
+  display: flex;
+  gap: 12px;
+  padding: 6px 10px;
+  background: #1a1a2e;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.broadcast-info-schedule-name { flex: 1; color: #e0e0e0; }
+.broadcast-info-schedule-date { color: #9e9e9e; }
+.broadcast-info-schedule-status { text-transform: uppercase; font-size: 11px; font-weight: 600; }
+.broadcast-info-schedule-status--finished { color: #9e9e9e; }
+.broadcast-info-schedule-status--active { color: #4caf50; }
+.broadcast-info-schedule-status--pending { color: #ffc107; }
+

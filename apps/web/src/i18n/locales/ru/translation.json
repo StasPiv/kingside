@@ -99,7 +99,20 @@
       "backToRounds": "К турам",
       "noGames": "Нет партий в этом туре",
       "noMoves": "Ходов пока нет"
-    }
+    },
+    "lichessTitle": "Трансляции Lichess"
+  },
+  "broadcast": {
+    "tabLive": "Live",
+    "tabStandings": "Таблица",
+    "tabRounds": "Туры",
+    "tabInfo": "Инфо",
+    "noLiveGames": "Нет текущих партий",
+    "noOngoingRound": "Нет активного тура. Смотрите Туры или Таблицу.",
+    "noStandings": "Таблица пока недоступна",
+    "description": "Описание",
+    "participants": "Участники",
+    "schedule": "Расписание"
   },
   "broadcastTournament": {
     "rounds": "Туры",

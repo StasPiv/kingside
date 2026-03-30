@@ -99,7 +99,20 @@
       "backToRounds": "Rounds",
       "noGames": "No games in this round",
       "noMoves": "No moves yet"
-    }
+    },
+    "lichessTitle": "Lichess Broadcasts"
+  },
+  "broadcast": {
+    "tabLive": "Live",
+    "tabStandings": "Standings",
+    "tabRounds": "Rounds",
+    "tabInfo": "Info",
+    "noLiveGames": "No games in progress",
+    "noOngoingRound": "No round in progress. Check Rounds or Standings.",
+    "noStandings": "Standings not available yet",
+    "description": "Description",
+    "participants": "Participants",
+    "schedule": "Schedule"
   },
   "broadcastTournament": {
     "rounds": "Rounds",
