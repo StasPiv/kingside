@@ -59,16 +59,17 @@ export function TournamentSchedule({ tournamentId, userId, refreshKey, pointsWin
       : myPairing.whiteUsername;
     const isBye = !myPairing.blackId;
 
+    const fmt = (n: number) => n === 0.5 ? '½' : String(n);
     let resultText = '—';
     if (myPairing.result) {
       if (myPairing.result === 'bye') {
-        resultText = String(pointsWin);
+        resultText = fmt(pointsWin);
       } else if (myPairing.result === '1/2-1/2') {
-        resultText = String(pointsDraw);
+        resultText = fmt(pointsDraw);
       } else if (myPairing.result === '1-0') {
-        resultText = isWhite ? String(pointsWin) : String(pointsLoss);
+        resultText = isWhite ? fmt(pointsWin) : fmt(pointsLoss);
       } else if (myPairing.result === '0-1') {
-        resultText = isWhite ? String(pointsLoss) : String(pointsWin);
+        resultText = isWhite ? fmt(pointsLoss) : fmt(pointsWin);
       }
     } else if (round.status === 'active' && myPairing.gameId) {
       resultText = '•';

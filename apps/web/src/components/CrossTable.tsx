@@ -31,12 +31,16 @@ interface CrossTableProps {
   pointsLoss?: number;
 }
 
+function fmtPts(n: number): string {
+  return n === 0.5 ? '½' : String(n);
+}
+
 function singleDisplay(item: CrossTableResultItem, ptsWin = 1, ptsDraw = 0.5, ptsLoss = 0): string {
   if (!item.result) return '•';
-  if (item.result === '1-0') return item.color === 'white' ? String(ptsWin) : String(ptsLoss);
-  if (item.result === '0-1') return item.color === 'black' ? String(ptsWin) : String(ptsLoss);
-  if (item.result === '1/2-1/2') return String(ptsDraw);
-  if (item.result === 'bye') return String(ptsWin);
+  if (item.result === '1-0') return item.color === 'white' ? fmtPts(ptsWin) : fmtPts(ptsLoss);
+  if (item.result === '0-1') return item.color === 'black' ? fmtPts(ptsWin) : fmtPts(ptsLoss);
+  if (item.result === '1/2-1/2') return fmtPts(ptsDraw);
+  if (item.result === 'bye') return fmtPts(ptsWin);
   return '';
 }
 

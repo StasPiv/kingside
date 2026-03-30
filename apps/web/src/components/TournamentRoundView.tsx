@@ -33,9 +33,10 @@ export function TournamentRoundView({ round, playerNames, currentUserId, pointsW
 
   const getName = (id: string | null) => (id ? playerNames.get(id) ?? '?' : t('tournaments.bye', 'BYE'));
 
-  const pw = String(pointsWin);
-  const pd = String(pointsDraw);
-  const pl = String(pointsLoss);
+  const fmt = (n: number) => n === 0.5 ? '½' : String(n);
+  const pw = fmt(pointsWin);
+  const pd = fmt(pointsDraw);
+  const pl = fmt(pointsLoss);
 
   const resultDisplay = (p: Pairing) => {
     if (!p.result) return round.status === 'active' ? '•' : '—';

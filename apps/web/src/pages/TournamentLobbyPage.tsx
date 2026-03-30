@@ -492,7 +492,7 @@ export function TournamentLobbyPage() {
                             else navigate(`/game/${g.gameId}/review`);
                           }}
                         >
-                          {g.status === 'active' ? '•' : g.points}
+                          {g.status === 'active' ? '•' : g.points === 0.5 ? '½' : g.points}
                         </span>
                       );
                     })}
