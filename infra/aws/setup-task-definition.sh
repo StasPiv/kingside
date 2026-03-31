@@ -45,8 +45,8 @@ aws ecs register-task-definition \
     --family kingside-api \
     --network-mode awsvpc \
     --requires-compatibilities FARGATE \
-    --cpu 1024 \
-    --memory 2048 \
+    --cpu 256 \
+    --memory 512 \
     --execution-role-arn "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole" \
     --task-role-arn "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskRole" \
     --container-definitions "[{
