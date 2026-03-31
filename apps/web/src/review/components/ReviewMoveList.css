@@ -299,3 +299,160 @@
   border-color: #ff9800;
   color: #ff9800;
 }
+
+/* ===== NAG symbols ===== */
+.move-nag {
+  font-weight: 600;
+  margin-left: 1px;
+}
+
+.move-nag--good {
+  color: #16a34a;
+}
+
+.move-nag--bad {
+  color: #dc2626;
+}
+
+.move-nag--dubious {
+  color: #f59e0b;
+}
+
+.move-nag--other {
+  color: #6b7280;
+}
+
+/* ===== Move comments ===== */
+.move-comment {
+  display: inline;
+  font-size: 12px;
+  font-style: italic;
+  color: #94a3b8;
+  max-height: 2.6em;
+  overflow: hidden;
+  cursor: pointer;
+  line-height: 1.3;
+  vertical-align: baseline;
+  word-break: break-word;
+}
+
+.move-comment::before {
+  content: '{ ';
+}
+
+.move-comment::after {
+  content: ' }';
+}
+
+.move-comment:not(.move-comment--expanded) {
+  display: -webkit-inline-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.move-comment--expanded {
+  max-height: none;
+  overflow: visible;
+}
+
+.move-comment:hover {
+  color: #cbd5e1;
+}
+
+/* ===== NAG buttons in context menu ===== */
+.review-context-menu__nag-group {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #333;
+}
+
+.nag-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: none;
+  color: #e0e0e0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
+  padding: 0;
+}
+
+.nag-btn:hover {
+  background: #2a2a3e;
+  border-color: #666;
+}
+
+.nag-btn--active.nag-btn--good {
+  background: rgba(22, 163, 74, 0.2);
+  border-color: #16a34a;
+  color: #16a34a;
+}
+
+.nag-btn--active.nag-btn--bad {
+  background: rgba(220, 38, 38, 0.2);
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.nag-btn--active.nag-btn--dubious {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.nag-btn--active.nag-btn--other {
+  background: rgba(107, 114, 128, 0.2);
+  border-color: #6b7280;
+  color: #6b7280;
+}
+
+/* ===== Comment textarea ===== */
+.review-comment-textarea {
+  width: 100%;
+  min-height: 60px;
+  resize: vertical;
+  background: #151525;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.review-comment-textarea:focus {
+  outline: none;
+  border-color: #4a6fa5;
+}
+
+.review-comment-textarea::placeholder {
+  color: #555;
+}
+
+/* ===== Mobile: comments full-width ===== */
+@media (max-width: 768px) {
+  .move-comment {
+    display: block;
+    width: 100%;
+    margin: 2px 0;
+  }
+
+  .move-comment:not(.move-comment--expanded) {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+}

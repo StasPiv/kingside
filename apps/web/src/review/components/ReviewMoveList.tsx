@@ -8,7 +8,17 @@ import {
   isBracketItem,
   ProcessedMove,
 } from '../utils/ChessMoveProcessing';
+import { nagToSymbol } from '../utils/nagUtils';
 import './ReviewMoveList.css';
+
+function getNagColorClass(nag: number): string {
+  switch (nag) {
+    case 1: case 3: return 'move-nag--good';
+    case 2: case 4: return 'move-nag--bad';
+    case 5: case 6: return 'move-nag--dubious';
+    default: return 'move-nag--other';
+  }
+}
 
 export interface GameInfo {
   white: { username: string; rating?: number | null };
@@ -34,6 +44,18 @@ interface ReviewMoveListProps {
   onDeleteVariation: (move: ChessMove) => void;
   onTruncateRemaining: (move: ChessMove) => void;
   gameInfo?: GameInfo;
+}
+
+function MoveComment({ comment }: { comment: string }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <span
+      className={`move-comment ${expanded ? 'move-comment--expanded' : ''}`}
+      onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+    >
+      {comment}
+    </span>
+  );
 }
 
 export function ReviewMoveList({
@@ -151,7 +173,10 @@ export function ReviewMoveList({
 
     return processedItems.flatMap((item, index) => {
       if (isProcessedMove(item)) {
-        return [
+        const move = item.originalMove;
+        const nags = move?.nags;
+        const comment = move?.comment;
+        const elements: (string | React.JSX.Element)[] = [
           <span
             key={`move-${item.globalIndex}-${index}`}
             className={getMoveClasses(item)}
@@ -162,9 +187,23 @@ export function ReviewMoveList({
             onTouchMove={handleTouchMove}
           >
             {item.display}
+            {nags && nags.length > 0 && nags.map((nag) => (
+              <span key={nag} className={`move-nag ${getNagColorClass(nag)}`}>
+                {nagToSymbol(nag)}
+              </span>
+            ))}
           </span>,
           ' ',
         ];
+        if (comment) {
+          elements.push(
+            <MoveComment
+              key={`comment-${item.globalIndex}`}
+              comment={comment}
+            />
+          );
+        }
+        return elements;
       } else if (isBracketItem(item)) {
         return [
           <span
