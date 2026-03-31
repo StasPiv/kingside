@@ -44,7 +44,7 @@ aws application-autoscaling register-scalable-target \
     --service-namespace ecs \
     --resource-id "service/$CLUSTER/$SERVICE" \
     --scalable-dimension ecs:service:DesiredCount \
-    --min-capacity 1 --max-capacity 4 > /dev/null
+    --min-capacity 1 --max-capacity 8 > /dev/null
 echo "  Done."
 
 # 3. CPU target tracking policy
@@ -67,6 +67,6 @@ echo ""
 echo "=== ECS Service ready ==="
 echo "Cluster: $CLUSTER"
 echo "Service: $SERVICE"
-echo "Desired: 1, Min: 1, Max: 4"
+echo "Desired: 1, Min: 1, Max: 8"
 echo "CPU scaling: target 70%"
 echo "Deploy: rolling (minHealthy 100%, max 200%)"
