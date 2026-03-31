@@ -52,9 +52,23 @@ type GameData = {
 
 const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
-function buildPgnWithFen(moves: string, fen: string): string {
-  if (fen === DEFAULT_FEN) return moves;
-  return `[FEN "${fen}"]\n\n${moves}`;
+function buildPgnWithFen(moves: string, fen: string, headers?: Record<string, string>): string {
+  const parts: string[] = [];
+  if (headers) {
+    // Standard PGN header order
+    for (const key of ['Event', 'Site', 'Date', 'Round', 'White', 'Black', 'Result', 'WhiteElo', 'BlackElo', 'WhiteTitle', 'BlackTitle', 'ECO', 'Opening']) {
+      if (headers[key] && headers[key] !== '?' && headers[key] !== '????.??.??') {
+        parts.push(`[${key} "${headers[key]}"]`);
+      }
+    }
+  }
+  if (fen !== DEFAULT_FEN) {
+    parts.push(`[FEN "${fen}"]`);
+  }
+  if (parts.length > 0) {
+    return parts.join('\n') + '\n\n' + moves;
+  }
+  return moves;
 }
 
 type MoveData = {
@@ -376,7 +390,7 @@ export function AnalysisPage() {
 
     localSaveTimerRef.current = setTimeout(async () => {
       const movesOnly = serializeToAnnotatedPgn(history);
-      const pgn = buildPgnWithFen(movesOnly, initialFen);
+      const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
       if (!localIdRef.current) {
         try {
           const category = gameId ? 'game_review' : puzzleFen ? 'puzzle' : 'analysis';
