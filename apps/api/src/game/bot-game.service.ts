@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
-import { StockfishService } from '../engine/stockfish.service';
+import { StockfishService, TimeParams } from '../engine/stockfish.service';
 import { GameService, MoveFlags } from './game.service';
 import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
 
@@ -54,7 +54,7 @@ export class BotGameService implements OnModuleInit {
   ): Promise<{ uci: string; san: string; fen: string; clocks: any; gameOver: boolean; result?: string; termination?: string; moveFlags?: MoveFlags } | null> {
     const game = await this.prisma.game.findUniqueOrThrow({
       where: { id: gameId },
-      select: { whiteId: true, blackId: true, status: true, botLevel: true },
+      select: { whiteId: true, blackId: true, status: true, botLevel: true, timeIncrementSec: true },
     });
 
     if (game.status !== 'active') return null;
@@ -66,8 +66,14 @@ export class BotGameService implements OnModuleInit {
     if (!this.isBotPlayer(nextPlayerId)) return null;
 
     const level = game.botLevel ?? 5;
+    const timeParams: TimeParams = {
+      wtime: Math.max(1, Math.round(state.clocks.whiteMs)),
+      btime: Math.max(1, Math.round(state.clocks.blackMs)),
+      winc: (game.timeIncrementSec ?? 0) * 1000,
+      binc: (game.timeIncrementSec ?? 0) * 1000,
+    };
     try {
-      const { bestMove } = await this.stockfish.getBestMove(state.state.fen, level);
+      const { bestMove } = await this.stockfish.getBestMove(state.state.fen, level, timeParams);
       const result = await this.gameService.makeMove(gameId, nextPlayerId, bestMove);
       return { uci: bestMove, ...result };
     } catch (err) {

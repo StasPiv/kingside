@@ -99,6 +99,7 @@ describe('BotGameService', () => {
         blackId: STOCKFISH_BOT_ID,
         status: 'finished',
         botLevel: 5,
+        timeIncrementSec: 0,
       });
 
       const result = await service.maybeBotReply(gameId);
@@ -112,9 +113,11 @@ describe('BotGameService', () => {
         blackId: STOCKFISH_BOT_ID,
         status: 'active',
         botLevel: 5,
+        timeIncrementSec: 0,
       });
       gameService.getGameState.mockResolvedValue({
         state: { activeColor: 'white', fen: 'startpos' },
+        clocks: { whiteMs: 60000, blackMs: 60000, lastTick: 0, running: true },
       });
 
       const result = await service.maybeBotReply(gameId);
@@ -129,9 +132,11 @@ describe('BotGameService', () => {
         blackId: STOCKFISH_BOT_ID,
         status: 'active',
         botLevel: 10,
+        timeIncrementSec: 2,
       });
       gameService.getGameState.mockResolvedValue({
         state: { activeColor: 'black', fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1' },
+        clocks: { whiteMs: 55000, blackMs: 58000, lastTick: 0, running: true },
       });
       stockfish.getBestMove.mockResolvedValue({ bestMove: 'e7e5' });
       gameService.makeMove.mockResolvedValue({
@@ -146,6 +151,7 @@ describe('BotGameService', () => {
       expect(stockfish.getBestMove).toHaveBeenCalledWith(
         'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
         10,
+        { wtime: 55000, btime: 58000, winc: 2000, binc: 2000 },
       );
       expect(gameService.makeMove).toHaveBeenCalledWith(gameId, STOCKFISH_BOT_ID, 'e7e5');
       expect(result).toMatchObject({ uci: 'e7e5', san: 'e5' });
@@ -157,9 +163,11 @@ describe('BotGameService', () => {
         blackId: humanId,
         status: 'active',
         botLevel: null,
+        timeIncrementSec: 0,
       });
       gameService.getGameState.mockResolvedValue({
         state: { activeColor: 'white', fen: 'startpos' },
+        clocks: { whiteMs: 60000, blackMs: 60000, lastTick: 0, running: true },
       });
       stockfish.getBestMove.mockResolvedValue({ bestMove: 'e2e4' });
       gameService.makeMove.mockResolvedValue({
@@ -171,7 +179,11 @@ describe('BotGameService', () => {
 
       await service.maybeBotReply(gameId);
 
-      expect(stockfish.getBestMove).toHaveBeenCalledWith('startpos', 5);
+      expect(stockfish.getBestMove).toHaveBeenCalledWith(
+        'startpos',
+        5,
+        { wtime: 60000, btime: 60000, winc: 0, binc: 0 },
+      );
     });
 
     it('should return null on stockfish error', async () => {
@@ -180,9 +192,11 @@ describe('BotGameService', () => {
         blackId: humanId,
         status: 'active',
         botLevel: 5,
+        timeIncrementSec: 0,
       });
       gameService.getGameState.mockResolvedValue({
         state: { activeColor: 'white', fen: 'startpos' },
+        clocks: { whiteMs: 60000, blackMs: 60000, lastTick: 0, running: true },
       });
       stockfish.getBestMove.mockRejectedValue(new Error('Engine crash'));
 

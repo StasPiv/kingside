@@ -26,6 +26,13 @@ interface LevelConfig {
   movetime: number;
 }
 
+export interface TimeParams {
+  wtime: number;
+  btime: number;
+  winc: number;
+  binc: number;
+}
+
 const LEVEL_MAP: Record<number, LevelConfig> = {
   1: { skillLevel: 0, depth: 1, movetime: 50 },
   2: { skillLevel: 1, depth: 1, movetime: 75 },
@@ -133,7 +140,7 @@ export class StockfishService implements OnModuleDestroy {
     }
   }
 
-  async getBestMove(fen: string, level: number): Promise<AnalysisResult> {
+  async getBestMove(fen: string, level: number, timeParams?: TimeParams): Promise<AnalysisResult> {
     const lvl = Math.max(1, Math.min(20, level));
     const cfg = LEVEL_MAP[lvl];
     const worker = await this.acquireWorker();
@@ -146,7 +153,7 @@ export class StockfishService implements OnModuleDestroy {
       this.sendCommand(worker, `position fen ${fen}`);
       await this.waitForReady(worker);
 
-      return await this.search(worker, cfg);
+      return await this.search(worker, cfg, timeParams);
     } finally {
       this.releaseWorker(worker);
     }
@@ -170,12 +177,15 @@ export class StockfishService implements OnModuleDestroy {
     }
   }
 
-  private search(worker: EngineWorker, cfg: LevelConfig): Promise<AnalysisResult> {
+  private search(worker: EngineWorker, cfg: LevelConfig, timeParams?: TimeParams): Promise<AnalysisResult> {
     return new Promise((resolve, reject) => {
+      const timeoutMs = timeParams
+        ? Math.max(timeParams.wtime, timeParams.btime) + 15000
+        : cfg.movetime + 15000;
       const timeout = setTimeout(() => {
         worker.process.stdout?.off('data', onData);
         reject(new Error('Stockfish search timeout'));
-      }, cfg.movetime + 15000);
+      }, timeoutMs);
 
       let lastScore: AnalysisResult['score'];
       let lastDepth: number | undefined;
@@ -209,7 +219,12 @@ export class StockfishService implements OnModuleDestroy {
 
       worker.process.stdout?.on('data', onData);
 
-      if (cfg.movetime > 0) {
+      if (timeParams) {
+        this.sendCommand(
+          worker,
+          `go wtime ${timeParams.wtime} btime ${timeParams.btime} winc ${timeParams.winc} binc ${timeParams.binc}`,
+        );
+      } else if (cfg.movetime > 0) {
         this.sendCommand(worker, `go depth ${cfg.depth} movetime ${cfg.movetime}`);
       } else {
         this.sendCommand(worker, `go depth ${cfg.depth}`);
