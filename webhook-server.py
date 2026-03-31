@@ -498,13 +498,13 @@ def launch_agent(key, summary, agent, prompt=None):
             f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
             f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n"
             f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
-            f"Добавь комментарий '{role}: Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
+            f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
             f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
             f"2. Прочитай описание задачи\n"
             f"3. Выполни задачу\n"
             f"4. Коммитни изменения в ветку feature/{key}\n"
             f"5. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
-            f"6. Добавь комментарий с результатом. Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
+            f"6. Добавь комментарий с результатом\n"
             f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
         )
 
@@ -1306,7 +1306,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             comment_text = comment.get("body", "")
 
             # Telegram: только комментарии от coordinator
-            if comment_text.strip().startswith("COORDINATOR:"):
+            if comment.get("author", "").lower() == "coordinator":
                 tg_text = format_telegram_issue(event, payload)
                 if tg_text:
                     send_telegram(tg_text)
@@ -1325,12 +1325,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 return
 
             valid_agents = get_valid_agents()
-            stripped = comment_text.strip()
-            author_agent = None
-            for a in valid_agents:
-                if stripped.startswith(a.upper() + ": "):
-                    author_agent = a
-                    break
+            comment_author = comment.get("author", "").lower()
+            author_agent = comment_author if comment_author in valid_agents else None
 
             mentions = re.findall(r"@(\w+)", comment_text)
             agents = []
@@ -1378,13 +1374,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
                         f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n"
                         f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
-                        f"Добавь комментарий '{role}: Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n"
+                        f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n"
                         f"{context}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
                         f"3. Добавь комментарий с результатом\n"
-                        f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
                         f"4. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
                         f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
                     )
@@ -1395,8 +1390,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"{context}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Прочитай комментарий и выполни то, что в нём написано\n"
-                        f"2. Добавь комментарий с результатом\n"
-                        f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '"
+                        f"2. Добавь комментарий с результатом"
                     )
                 log(f"Комментарий к {key} -> daemon {agent}")
                 launch_agent(key, summary, agent, prompt)
