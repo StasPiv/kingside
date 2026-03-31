@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
   { path: '/broadcasts', icon: '📺', i18nKey: 'nav.tv', match: ['/broadcasts'] },
   { path: '', icon: '', i18nKey: '', match: [] }, // divider
+  { path: '/features', icon: '✨', i18nKey: 'nav.features', match: ['/features'] },
   { path: '/friends', icon: '👥', i18nKey: 'nav.friends', match: ['/friends'] },
   { path: '/settings', icon: '⚙', i18nKey: 'nav.settings', match: ['/settings'] },
 ];
