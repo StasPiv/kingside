@@ -104,10 +104,18 @@ webhook:
     pkill -f "python3.*webhook-server.py" 2>/dev/null || true
     pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
     sleep 1
+    # Tracker
+    pkill -f "python3.*tools/tracker/main.py" 2>/dev/null || true
+    sleep 0.5
+    TRACKER_WEBHOOK_URL=http://localhost:9876/webhook/tracker \
+      nohup python3 tools/tracker/main.py > logs/tracker-stdout.log 2>&1 &
+    echo "Трекер запущен (PID: $!)"
+    # Webhook server
     nohup python3 webhook-server.py > logs/webhook-stdout.log 2>&1 &
     echo "Webhook-сервер запущен (PID: $!)"
     chmod +x tunnel.sh
-    nohup ./tunnel.sh > logs/tunnel.log 2>&1 &
+    setsid ./tunnel.sh > logs/tunnel.log 2>&1 &
+    disown
     echo "SSH-туннель запущен (PID: $!)"
     sleep 2
     if curl -s http://127.0.0.1:9876/health | grep -q ok; then
@@ -120,8 +128,27 @@ webhook:
 logs-puzzle-rush:
     docker compose logs api 2>&1 | grep -i "puzzle"
 
+# Start SSH tunnel only
+tunnel:
+    #!/usr/bin/env bash
+    pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
+    ssh kamatera-chess "fuser -k 9877/tcp" 2>/dev/null || true
+    sleep 1
+    chmod +x tunnel.sh
+    setsid ./tunnel.sh > logs/tunnel.log 2>&1 &
+    disown
+    echo "SSH-туннель запущен (PID: $!)"
+    sleep 3
+    if ps -p $! > /dev/null 2>&1; then
+        echo "Туннель активен"
+    else
+        echo "Туннель упал. Лог:"
+        cat logs/tunnel.log
+    fi
+
 # Stop webhook server + SSH tunnel
 webhook-stop:
     pkill -f "python3.*webhook-server.py" 2>/dev/null || true
+    pkill -f "python3.*tools/tracker/main.py" 2>/dev/null || true
     pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
-    echo "Webhook и туннель остановлены"
+    echo "Webhook, трекер и туннель остановлены"

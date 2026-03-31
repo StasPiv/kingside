@@ -1,0 +1,9 @@
+agents:
+  - coordinator
+  - backend
+  - frontend
+  - layout
+  - qa
+  - devops
+  - architect
+  - architecture

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Webhook-сервер v2.0 для Jira. Агенты работают как daemon-процессы."""
+"""Webhook-сервер v2.0 для локального трекера. Агенты работают как daemon-процессы."""
 
 import json
 import re
@@ -11,7 +11,6 @@ import time
 import threading
 import urllib.request
 import urllib.parse
-import base64
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from datetime import datetime
@@ -25,10 +24,7 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9876
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
-JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "").rstrip("/")
-JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")
-JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")
-JIRA_TARGET_ISSUE = os.environ.get("JIRA_TARGET_ISSUE", "KS-118")
+TRACKER_URL = os.environ.get("TRACKER_URL", "http://localhost:8090")
 
 AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
@@ -137,6 +133,9 @@ class AgentDaemon:
                     self.session_id = sid
                     log(f"Daemon {self.name}: session_id={sid}")
                     _save_session(self.name, sid)
+                    # Обновляем agent_init в логе с реальным session_id
+                    with open(log_file, "a") as lf:
+                        lf.write(json.dumps({"type": "agent_init", "agent": self.name, "session_id": sid}) + "\n")
 
                 # result означает что агент закончил обработку текущего сообщения
                 if data.get("type") == "result":
@@ -297,45 +296,8 @@ def get_daemon(agent: str) -> AgentDaemon:
 
 
 # ---------------------------------------------------------------------------
-# Jira helpers (без изменений из v1)
+# Tracker helpers
 # ---------------------------------------------------------------------------
-
-def extract_text_from_adf(node):
-    """Рекурсивно извлекает текст из ADF (Atlassian Document Format)."""
-    if isinstance(node, str):
-        return node
-    if not isinstance(node, dict):
-        return ""
-
-    node_type = node.get("type", "")
-
-    if node_type == "text":
-        return node.get("text", "")
-    if node_type == "mention":
-        text = node.get("text", "")
-        if not text:
-            attrs = node.get("attrs", {})
-            text = attrs.get("text", "")
-        return text
-    if node_type == "inlineCard":
-        attrs = node.get("attrs", {})
-        return attrs.get("url", "") or attrs.get("title", "")
-    if node_type == "hardBreak":
-        return "\n"
-    if node_type == "emoji":
-        return node.get("attrs", {}).get("shortName", "")
-
-    parts = []
-    for child in node.get("content", []):
-        parts.append(extract_text_from_adf(child))
-
-    separator = "\n" if node_type in ("doc", "paragraph", "bulletList",
-                                       "orderedList", "listItem",
-                                       "blockquote", "codeBlock",
-                                       "table", "tableRow", "tableCell",
-                                       "tableHeader", "heading") else ""
-    return separator.join(parts)
-
 
 def get_valid_agents():
     """Сканирует .claude/agents/ и возвращает set имён агентов."""
@@ -348,64 +310,43 @@ def get_valid_agents():
 
 
 def _get_issue_details(key: str) -> dict:
-    """Возвращает description и последние комментарии задачи."""
-    if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
-        return {}
-    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{key}?fields=description,comment,summary,issuelinks"
-    auth = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
-    req = urllib.request.Request(url)
-    req.add_header("Authorization", f"Basic {auth}")
-    req.add_header("Accept", "application/json")
+    """Возвращает description и последние комментарии задачи из локального трекера."""
+    result = {"description": "", "comments": [], "linked": []}
     try:
+        # Получаем данные задачи
+        req = urllib.request.Request(f"{TRACKER_URL}/api/issues/{key}")
+        req.add_header("Accept", "application/json")
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read().decode())
-        fields = data.get("fields", {})
-
-        description = fields.get("description", "") or ""
-        if isinstance(description, dict):
-            description = extract_text_from_adf(description)
-
-        comments_raw = fields.get("comment", {}).get("comments", [])[-5:]
-        comments = []
-        for c in comments_raw:
-            author = c.get("author", {}).get("displayName", "")
-            body = c.get("body", "")
-            if isinstance(body, dict):
-                body = extract_text_from_adf(body)
-            comments.append(f"{author}: {body}")
-
-        linked = []
-        for link in fields.get("issuelinks", []):
-            link_type = link.get("type", {}).get("outward", "")
-            related = link.get("outwardIssue") or link.get("inwardIssue")
-            if not related:
-                continue
-            if link.get("inwardIssue"):
-                link_type = link.get("type", {}).get("inward", "")
-            rkey = related.get("key", "")
-            rsummary = related.get("fields", {}).get("summary", "")
-            rstatus = related.get("fields", {}).get("status", {}).get("name", "")
-            linked.append(f"{rkey} ({rstatus}): {rsummary} [{link_type}]")
-
-        return {"description": description, "comments": comments, "linked": linked}
+        result["description"] = data.get("description", "") or ""
     except Exception as e:
         log(f"Ошибка получения деталей {key}: {e}")
-        return {}
+        return result
+    try:
+        # Получаем комментарии
+        req = urllib.request.Request(f"{TRACKER_URL}/api/issues/{key}/comments")
+        req.add_header("Accept", "application/json")
+        resp = urllib.request.urlopen(req, timeout=10)
+        comments_raw = json.loads(resp.read().decode())[-5:]
+        for c in comments_raw:
+            author = c.get("author", "")
+            body = c.get("body", "")
+            result["comments"].append(f"{author}: {body}")
+    except Exception as e:
+        log(f"Ошибка получения комментариев {key}: {e}")
+    return result
 
 
 def _get_issue_status_category(key: str) -> str:
-    """Возвращает statusCategory.key задачи через Jira REST API."""
-    if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
-        return ""
-    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{key}?fields=status"
-    auth = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
-    req = urllib.request.Request(url)
-    req.add_header("Authorization", f"Basic {auth}")
-    req.add_header("Accept", "application/json")
+    """Возвращает категорию статуса задачи из локального трекера."""
+    status_map = {"done": "done", "in_progress": "indeterminate", "todo": "new"}
     try:
+        req = urllib.request.Request(f"{TRACKER_URL}/api/issues/{key}")
+        req.add_header("Accept", "application/json")
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read().decode())
-        return data.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
+        status = data.get("status", "")
+        return status_map.get(status, "")
     except Exception as e:
         log(f"Ошибка проверки статуса {key}: {e}")
         return ""
@@ -559,11 +500,11 @@ def launch_agent(key, summary, agent, prompt=None):
             f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
             f"Добавь комментарий '{role}: Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
             f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
-            f"2. Прочитай описание задачи из Jira\n"
+            f"2. Прочитай описание задачи\n"
             f"3. Выполни задачу\n"
             f"4. Коммитни изменения в ветку feature/{key}\n"
             f"5. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
-            f"6. Добавь комментарий в Jira с результатом. Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
+            f"6. Добавь комментарий с результатом. Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
             f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
         )
 
@@ -580,7 +521,7 @@ def launch_agent(key, summary, agent, prompt=None):
 
 
 # ---------------------------------------------------------------------------
-# Telegram / Jira helpers
+# Telegram / Tracker helpers
 # ---------------------------------------------------------------------------
 
 def log(msg):
@@ -628,57 +569,43 @@ def send_telegram(text):
 
 
 def format_telegram_issue(event_type, payload):
-    """Форматирует Jira-событие в текст для Telegram."""
+    """Форматирует событие трекера в текст для Telegram."""
     issue = payload.get("issue", {})
-    key = issue.get("key", "?")
-    fields = issue.get("fields", {})
-    summary = fields.get("summary", "")
-    status = fields.get("status", {}).get("name", "")
-    assignee = fields.get("assignee", {})
-    assignee_name = assignee.get("displayName", "не назначен") if assignee else "не назначен"
-    user = payload.get("user", {}).get("displayName", "")
-    jira_url = f"https://staspivovartsev.atlassian.net/browse/{key}"
+    key = issue.get("key", payload.get("issue_key", "?"))
+    summary = issue.get("summary", "")
+    status = issue.get("status", "")
+    assignee = issue.get("assignee", "не назначен") or "не назначен"
 
-    if event_type == "jira:issue_created":
+    if event_type == "issue_created":
         return (
             f"🆕 <b>Создана задача</b>\n"
-            f"<a href=\"{jira_url}\">{key}</a>: {summary}\n"
+            f"{key}: {summary}\n"
             f"Статус: {status}\n"
-            f"Исполнитель: {assignee_name}\n"
-            f"Создал: {user}"
+            f"Исполнитель: {assignee}"
         )
 
-    if event_type == "jira:issue_updated":
-        changelog = payload.get("changelog", {}).get("items", [])
-        changes = []
-        for item in changelog:
-            field = item.get("field", "")
-            from_val = item.get("fromString", "") or ""
-            to_val = item.get("toString", "") or ""
-            if field == "status":
-                changes.append(f"Статус: {from_val} → {to_val}")
-            elif field == "assignee":
-                changes.append(f"Исполнитель: {from_val or '—'} → {to_val or '—'}")
-            elif field == "priority":
-                changes.append(f"Приоритет: {from_val} → {to_val}")
-            elif field == "labels":
-                changes.append(f"Метки: {from_val or '—'} → {to_val or '—'}")
-        changes_text = "\n".join(changes) if changes else "обновлены поля"
+    if event_type == "issue_updated":
         return (
             f"✏️ <b>Обновлена задача</b>\n"
-            f"<a href=\"{jira_url}\">{key}</a>: {summary}\n"
-            f"{changes_text}\n"
-            f"Изменил: {user}"
+            f"{key}: {summary}\n"
+            f"Статус: {status}\n"
+            f"Исполнитель: {assignee}"
         )
 
-    if event_type == "comment_created":
-        comment_author = payload.get("comment", {}).get("author", {}).get("displayName", "")
-        comment_body = payload.get("comment", {}).get("body", "")
-        if isinstance(comment_body, dict):
-            comment_body = extract_text_from_adf(comment_body)
+    if event_type == "issue_transitioned":
+        return (
+            f"🔄 <b>Смена статуса</b>\n"
+            f"{key}: {summary}\n"
+            f"Статус: {status}"
+        )
+
+    if event_type == "comment_added":
+        comment = payload.get("comment", {})
+        comment_author = comment.get("author", "")
+        comment_body = comment.get("body", "")
         return (
             f"💬 <b>Новый комментарий</b>\n"
-            f"<a href=\"{jira_url}\">{key}</a>: {summary}\n"
+            f"{key}: {summary}\n"
             f"Автор: {comment_author}\n"
             f"{comment_body}"
         )
@@ -686,35 +613,11 @@ def format_telegram_issue(event_type, payload):
     return None
 
 
-def add_jira_comment(issue_key, text):
-    """Добавляет комментарий в Jira-задачу через REST API."""
-    if not JIRA_BASE_URL or not JIRA_EMAIL or not JIRA_API_TOKEN:
-        log("Jira API не настроен: пропуск добавления комментария")
-        return False
-
-    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/comment"
-    auth = base64.b64encode(f"{JIRA_EMAIL}:{JIRA_API_TOKEN}".encode()).decode()
-
-    body = {
-        "body": {
-            "type": "doc",
-            "version": 1,
-            "content": [
-                {
-                    "type": "paragraph",
-                    "content": [
-                        {"type": "text", "text": text},
-                        {"type": "text", "text": " "},
-                        {"type": "text", "text": "@coordinator"},
-                    ],
-                }
-            ],
-        }
-    }
-
-    data = json.dumps(body).encode()
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Authorization", f"Basic {auth}")
+def add_tracker_comment(issue_key, text):
+    """Добавляет комментарий в задачу через API локального трекера."""
+    url = f"{TRACKER_URL}/api/issues/{issue_key}/comments"
+    body = json.dumps({"author": "system", "body": text}).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
 
     try:
@@ -727,7 +630,7 @@ def add_jira_comment(issue_key, text):
 
 
 def telegram_poll_loop():
-    """Поллинг Telegram getUpdates — пересылает сообщения в Jira."""
+    """Поллинг Telegram getUpdates — пересылает сообщения агентам."""
     if not TELEGRAM_BOT_TOKEN:
         log("Telegram polling: TELEGRAM_BOT_TOKEN не задан, поллинг отключён")
         return
@@ -1334,7 +1237,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"error": f"unknown agent: {agent}"}).encode())
                 return
             _log_user_prompt(agent, text, source="web")
-            send_to_agent(agent, f"[Web] {text}\n\nОтветь текстовым сообщением. НЕ отправляй ответ в Telegram и НЕ создавай комментарий в Jira — ответ виден в веб-интерфейсе.")
+            send_to_agent(agent, f"[Web] {text}\n\nОтветь текстовым сообщением. НЕ отправляй ответ в Telegram — ответ виден в веб-интерфейсе.")
             log(f"Web prompt -> {agent}: {text[:80]}")
             self.send_response(200)
             self.end_headers()
@@ -1365,7 +1268,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
             handle_telegram_send(self, payload)
             return
 
-        if path != "/webhook/jira":
+        if path != "/webhook/tracker":
             self.send_response(404)
             self.end_headers()
             return
@@ -1386,28 +1289,28 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        event = payload.get("webhookEvent", "")
+        event = payload.get("event", "")
         log(f"Получен webhook: {event}")
 
-        # Telegram: только комментарии от coordinator
-        if event == "comment_created":
-            comment_body = payload.get("comment", {}).get("body", "")
-            if isinstance(comment_body, dict):
-                comment_text = extract_text_from_adf(comment_body)
-            else:
-                comment_text = comment_body
+        issue = payload.get("issue", {})
+        key = issue.get("key", payload.get("issue_key", ""))
+        summary = issue.get("summary", "")
+        issue_status = issue.get("status", "")
+
+        # Маппинг статусов трекера в категории
+        STATUS_CATEGORY_MAP = {"todo": "new", "in_progress": "indeterminate", "done": "done"}
+        status_category = STATUS_CATEGORY_MAP.get(issue_status, "")
+
+        if event == "comment_added":
+            comment = payload.get("comment", {})
+            comment_text = comment.get("body", "")
+
+            # Telegram: только комментарии от coordinator
             if comment_text.strip().startswith("COORDINATOR:"):
                 tg_text = format_telegram_issue(event, payload)
                 if tg_text:
                     send_telegram(tg_text)
 
-        if event == "comment_created":
-            issue = payload.get("issue", {})
-            key = issue.get("key", "")
-            summary = issue.get("fields", {}).get("summary", "")
-            comment_body = payload.get("comment", {}).get("body", "")
-
-            status_category = issue.get("fields", {}).get("status", {}).get("statusCategory", {}).get("key", "")
             if status_category == "done":
                 log(f"Пропуск {key}: задача в статусе Done")
                 self.send_response(200)
@@ -1415,16 +1318,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(b'{"status":"skipped","reason":"done"}')
                 return
 
-            if not key or not comment_body:
+            if not key or not comment_text:
                 self.send_response(200)
                 self.end_headers()
                 self.wfile.write(b'{"status":"skipped"}')
                 return
-
-            if isinstance(comment_body, dict):
-                comment_text = extract_text_from_adf(comment_body)
-            else:
-                comment_text = comment_body
 
             valid_agents = get_valid_agents()
             stripped = comment_text.strip()
@@ -1434,8 +1332,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     author_agent = a
                     break
 
-            labels = [l.get("name", "").lower() if isinstance(l, dict) else l.lower()
-                      for l in issue.get("fields", {}).get("labels", [])]
             mentions = re.findall(r"@(\w+)", comment_text)
             agents = []
             for m in mentions:
@@ -1487,7 +1383,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
-                        f"3. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
+                        f"3. Добавь комментарий с результатом\n"
                         f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '\n"
                         f"4. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
                         f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
@@ -1499,7 +1395,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"{context}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Прочитай комментарий и выполни то, что в нём написано\n"
-                        f"2. Добавь комментарий в Jira с результатом через MCP jira-personal\n"
+                        f"2. Добавь комментарий с результатом\n"
                         f"   Комментарий ОБЯЗАТЕЛЬНО начинай с '{role}: '"
                     )
                 log(f"Комментарий к {key} -> daemon {agent}")
@@ -1510,54 +1406,40 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "comment_handled", "agents": agents, "key": key}).encode())
             return
 
-        if event not in ("jira:issue_created", "jira:issue_updated"):
-            log(f"Игнорируем событие: {event}")
+        if event == "issue_transitioned":
+            transition_id = payload.get("transition_id")
+            # Переход в Done (transition_id 41) — чистим worktree
+            if issue_status == "done" and key:
+                threading.Thread(target=cleanup_worktree, args=(key,), daemon=True).start()
+
+            # in_review (transition_id 31) — пока не поддерживается в трекере
+            if transition_id == 31 and key:
+                log(f"Задача {key}: transition_id=31 (in_review), пока не обрабатывается")
+
+            tg_text = format_telegram_issue(event, payload)
+            if tg_text:
+                send_telegram(tg_text)
+
+            log(f"Событие {event}: {key} -> {issue_status}")
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'{"status":"ignored"}')
+            self.wfile.write(json.dumps({"status": "transition_handled", "key": key}).encode())
             return
 
-        issue = payload.get("issue", {})
-        key = issue.get("key", "")
-        summary = issue.get("fields", {}).get("summary", "")
-        changelog_items = payload.get("changelog", {}).get("items", [])
-        status_to = None
-        for item in changelog_items:
-            if item.get("field") == "status":
-                status_to = item.get("toString", "")
-                break
-
-        # Переход в Done — чистим worktree
-        DONE_STATUSES = ("Готово", "Done")
-        if status_to in DONE_STATUSES and key:
-            threading.Thread(target=cleanup_worktree, args=(key,), daemon=True).start()
-
-        IN_REVIEW_STATUS = "В процессе проверки"
-        if status_to == IN_REVIEW_STATUS and key:
-            log(f"Задача {key} перешла в '{IN_REVIEW_STATUS}' — запускаем QA")
-            details = _get_issue_details(key)
-            description = details.get("description", "")
-            comments = details.get("comments", [])
-            comments_text = "\n".join(comments) if comments else "(нет комментариев)"
-            prompt = (
-                f"Задача {key}: {summary}\n\n"
-                f"Описание задачи:\n{description}\n\n"
-                f"Последние комментарии:\n{comments_text}\n\n"
-                f"Задача переведена в статус '{IN_REVIEW_STATUS}'. Проверь выполнение:\n"
-                f"1. Если есть скриншоты — проверь их визуально через jira_get_attachments\n"
-                f"2. Если скриншотов нет — сделай код-ревью изменений\n"
-                f"3. Вынеси вердикт: закрой задачу (Done) или верни (To Do) с комментарием @frontend"
-            )
-            launch_agent(key, summary, "qa", prompt)
+        if event in ("issue_created", "issue_updated"):
+            tg_text = format_telegram_issue(event, payload)
+            if tg_text:
+                send_telegram(tg_text)
+            log(f"Событие {event}: {key} — уведомление отправлено")
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "qa_launched", "key": key}).encode())
+            self.wfile.write(b'{"status":"notified"}')
             return
 
-        log(f"Событие {event}: уведомление, запуск агентов не производится")
+        log(f"Игнорируем событие: {event}")
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b'{"status":"notified"}')
+        self.wfile.write(b'{"status":"ignored"}')
 
     def do_GET(self):
         path = self.path.split("?")[0]
