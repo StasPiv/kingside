@@ -17,7 +17,7 @@ cd "$REPO_DIR"
 
 UPSTREAM_CONF="/etc/nginx/conf.d/kingside-upstream.conf"
 HEALTHCHECK_TIMEOUT=40
-HEALTHCHECK_INTERVAL=3
+HEALTHCHECK_INTERVAL=1
 
 switch_upstream() {
     local port="$1"
