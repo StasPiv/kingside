@@ -44,3 +44,4 @@ apps/e2e/test-results/
 apps/e2e/blob-report/
 .claude/worktrees/
 apps/web/public/version.json
+tools/tracker/tracker.db
