@@ -12,11 +12,13 @@ export class PlayerController {
   constructor(private readonly playerService: PlayerService) {}
 
   @Get('top')
+  @RateLimit(300, 60)
   getTopPlayers(@Query() dto: TopPlayersDto) {
     return this.playerService.getTopPlayers(dto.type, dto.limit, dto.offset);
   }
 
   @Get('online')
+  @RateLimit(300, 60)
   getOnlinePlayers(@Query() dto: OnlinePlayersDto) {
     return this.playerService.getOnlinePlayers(dto.limit, dto.offset);
   }
