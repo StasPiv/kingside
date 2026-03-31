@@ -5,7 +5,7 @@ import { RedisService } from '../redis/redis.service';
 import { BroadcastGateway } from './broadcast.gateway';
 
 const LICHESS_API = 'https://lichess.org/api';
-const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const SYNC_INTERVAL_MS = 30 * 1000; // 30 seconds
 const PINNED_POLL_INTERVAL_MS = 10_000; // 10 seconds for pinned broadcasts
 const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
