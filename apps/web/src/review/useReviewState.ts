@@ -36,7 +36,9 @@ type ReviewAction =
   | { type: 'ADD_VARIATION'; payload: ChessMove }
   | { type: 'PROMOTE_VARIATION'; payload: ChessMove }
   | { type: 'DELETE_VARIATION'; payload: ChessMove }
-  | { type: 'DELETE_REMAINING'; payload: ChessMove };
+  | { type: 'DELETE_REMAINING'; payload: ChessMove }
+  | { type: 'SET_NAG'; payload: { globalIndex: number; nags: number[] } }
+  | { type: 'SET_COMMENT'; payload: { globalIndex: number; comment: string } };
 
 function apiMovesToHistory(apiMoves: ApiMove[]): ChessMove[] {
   const history: ChessMove[] = apiMoves.map((m, i) => {
@@ -195,6 +197,25 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         currentMove: found ?? state.currentMove,
       };
     }
+    case 'SET_NAG': {
+      const move = searchInHistory(state.history, action.payload.globalIndex) as ChessMove | null;
+      if (!move) return state;
+      const nags = action.payload.nags.length > 0 ? action.payload.nags : undefined;
+      move.nags = nags;
+      return {
+        ...state,
+        history: [...state.history],
+      };
+    }
+    case 'SET_COMMENT': {
+      const move = searchInHistory(state.history, action.payload.globalIndex) as ChessMove | null;
+      if (!move) return state;
+      move.comment = action.payload.comment || undefined;
+      return {
+        ...state,
+        history: [...state.history],
+      };
+    }
     default:
       return state;
   }
@@ -283,6 +304,14 @@ export function useReviewState() {
     dispatch({ type: 'DELETE_REMAINING', payload: move });
   }, []);
 
+  const setNag = useCallback((globalIndex: number, nags: number[]) => {
+    dispatch({ type: 'SET_NAG', payload: { globalIndex, nags } });
+  }, []);
+
+  const setComment = useCallback((globalIndex: number, comment: string) => {
+    dispatch({ type: 'SET_COMMENT', payload: { globalIndex, comment } });
+  }, []);
+
   const currentFen = state.currentMove?.fen ?? state.initialFen;
   const currentGlobalIndex = state.currentMove?.globalIndex ?? -1;
 
@@ -309,5 +338,7 @@ export function useReviewState() {
     promoteVariation,
     removeVariation,
     truncateRemaining,
+    setNag,
+    setComment,
   };
 }
