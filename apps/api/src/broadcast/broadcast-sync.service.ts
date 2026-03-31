@@ -117,15 +117,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         for (const round of bc.rounds) {
           const isActive = round.ongoing === true;
           await this.upsertRound(bc.tour.id, round, isActive);
-          if (isActive && !this.activeStreams.has(round.id)) {
-            if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
-              this.startStream(round.id);
-            } else {
-              this.logger.warn(
-                `Max concurrent streams reached, skipping round ${round.id}`,
-              );
+          if (isActive) {
+            // Always fetch snapshot PGN for ongoing rounds (fallback for broken streams on AWS)
+            await this.fetchAndProcessRoundPgn(round.id).catch((e: Error) =>
+              this.logger.warn(`Snapshot fetch failed for round ${round.id}: ${e.message}`),
+            );
+            if (!this.activeStreams.has(round.id)) {
+              if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
+                this.startStream(round.id);
+              } else {
+                this.logger.warn(
+                  `Max concurrent streams reached, skipping round ${round.id}`,
+                );
+              }
             }
-          } else if (!isActive && round.finished) {
+          } else if (round.finished) {
             void this.fetchFinishedRoundGamesIfEmpty(round.id);
           }
         }
