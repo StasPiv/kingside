@@ -1,0 +1,70 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ECR",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "ecr:PutImage",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:CreateRepository",
+        "ecr:DescribeRepositories"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ECS",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "ecs:RegisterTaskDefinition",
+        "ecs:DeregisterTaskDefinition",
+        "ecs:DescribeTasks",
+        "ecs:ListTasks"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "IAMPassRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::342946498289:role/ecsTaskExecutionRole",
+        "arn:aws:iam::342946498289:role/ecsTaskRole"
+      ]
+    },
+    {
+      "Sid": "S3",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::kingside-*",
+        "arn:aws:s3:::kingside-*/*"
+      ]
+    },
+    {
+      "Sid": "CloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "arn:aws:logs:*:342946498289:*"
+    }
+  ]
+}
