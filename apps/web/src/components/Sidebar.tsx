@@ -2,7 +2,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 const NAV_ITEMS = [
-  { path: '/lobby', icon: '♟', i18nKey: 'nav.play', match: ['/lobby'] },
+  { path: '/lobby', icon: '🏠', i18nKey: 'nav.home', match: ['/lobby'] },
+  { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play'] },
   { path: '/tournaments', icon: '🏆', i18nKey: 'nav.tournaments', match: ['/tournaments'] },
   { path: '/puzzles', icon: '🧩', i18nKey: 'nav.puzzles', match: ['/puzzles', '/puzzle', '/daily'] },
   { path: '/puzzle-rush', icon: '⚡', i18nKey: 'nav.puzzleRush', match: ['/puzzle-rush'] },

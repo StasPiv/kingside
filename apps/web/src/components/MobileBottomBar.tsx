@@ -11,7 +11,7 @@ export function MobileBottomBar() {
 
   return (
     <div className="mobile-bottom-bar">
-      <Link to="/lobby" className={`mobile-bar-item${isActive(['/lobby']) ? ' mobile-bar-item--active' : ''}`}>
+      <Link to="/play" className={`mobile-bar-item${isActive(['/play']) ? ' mobile-bar-item--active' : ''}`}>
         <span className="mobile-bar-icon">♟</span>
         <span className="mobile-bar-label">{t('nav.play', 'Play')}</span>
       </Link>

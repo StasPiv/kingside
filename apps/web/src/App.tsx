@@ -28,6 +28,7 @@ import { FriendsPage } from './pages/FriendsPage';
 import { TournamentsPage } from './pages/TournamentsPage';
 import { TournamentLobbyPage } from './pages/TournamentLobbyPage';
 import { DevBypassPage } from './pages/DevBypassPage';
+import { PlayPage } from './pages/PlayPage';
 import { useAuth } from './context/AuthContext';
 
 // Lazy-loaded heavy pages
@@ -95,6 +96,7 @@ export function App() {
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route path="/lobby" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
+        <Route path="/play" element={<ProtectedRoute><PlayPage /></ProtectedRoute>} />
         <Route path="/games/live" element={<LiveGamesPage />} />
         <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />

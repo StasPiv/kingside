@@ -26,7 +26,17 @@
     "pgnFiles": "Файлы PGN",
     "newAnalysis": "Новый анализ",
     "more": "Ещё",
-    "features": "Возможности"
+    "features": "Возможности",
+    "home": "Главная"
+  },
+  "play": {
+    "title": "Играть",
+    "quickPlay": "Быстрая игра",
+    "playFriend": "Играть с другом",
+    "playBot": "Играть с ботом",
+    "invite": "Вызвать",
+    "noFriendsOnline": "Нет друзей онлайн",
+    "goToFriends": "Найти друзей →"
   },
   "dashboard": {
     "play": "Играть",

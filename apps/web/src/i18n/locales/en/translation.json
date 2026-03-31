@@ -26,7 +26,17 @@
     "pgnFiles": "PGN Files",
     "newAnalysis": "New Analysis",
     "more": "More",
-    "features": "Features"
+    "features": "Features",
+    "home": "Home"
+  },
+  "play": {
+    "title": "Play",
+    "quickPlay": "Quick Play",
+    "playFriend": "Play a Friend",
+    "playBot": "Play vs Bot",
+    "invite": "Invite",
+    "noFriendsOnline": "No friends online",
+    "goToFriends": "Find friends →"
   },
   "dashboard": {
     "play": "Play",
