@@ -3,21 +3,25 @@
 # Start the entire project
 up: _env _infra _deps _migrate _build-shared _dev
 
-# Deploy to production (auto-detect scope: frontend/api/all)
+# Deploy to AWS (auto-detect scope: frontend/api/all)
 deploy:
-    bash scripts/deploy-local.sh
+    bash scripts/deploy-aws.sh
 
 # Force deploy everything
 deploy-all:
-    bash scripts/deploy-local.sh all
+    bash scripts/deploy-aws.sh all
 
-# Deploy only frontend (vite build + static copy)
+# Deploy only frontend (S3 + CloudFront)
 deploy-frontend:
-    bash scripts/deploy-local.sh frontend
+    bash scripts/deploy-aws.sh frontend
 
-# Deploy only API (Docker build + blue-green)
+# Deploy only API (ECR + ECS)
 deploy-api:
-    bash scripts/deploy-local.sh api
+    bash scripts/deploy-aws.sh api
+
+# Deploy to Kamatera (legacy)
+deploy-kamatera:
+    bash scripts/deploy-local.sh
 
 # Stop infrastructure
 down:
