@@ -264,21 +264,25 @@
 }
 
 .review-nag-btn {
-  min-width: 32px;
-  padding: 4px 8px;
-  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 13px;
   font-weight: 600;
   border: 1px solid #444;
   border-radius: 4px;
-  background: #2a2a3e;
-  color: #ccc;
+  background: none;
+  color: #e0e0e0;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   transition: background-color 0.1s ease, border-color 0.1s ease;
 }
 
 .review-nag-btn:hover {
-  background: #3a3a5e;
-  color: #fff;
+  background: #2a2a3e;
+  border-color: #666;
 }
 
 .review-nag-btn--active {
@@ -287,8 +291,30 @@
   color: #fff;
 }
 
+/* NAG-type colored active states */
+.review-nag-btn--active[data-nag="1"],
+.review-nag-btn--active[data-nag="3"] {
+  background: rgba(22, 163, 74, 0.2);
+  border-color: #16a34a;
+  color: #16a34a;
+}
+
+.review-nag-btn--active[data-nag="2"],
+.review-nag-btn--active[data-nag="4"] {
+  background: rgba(220, 38, 38, 0.2);
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+.review-nag-btn--active[data-nag="5"],
+.review-nag-btn--active[data-nag="6"] {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
 .review-nag-btn--active:hover {
-  background: #1976d2;
+  filter: brightness(1.1);
 }
 
 /* Context menu divider */
@@ -300,38 +326,54 @@
 
 /* NAG symbols inline with moves */
 .review-nag {
-  font-weight: 700;
+  font-weight: 600;
   margin-left: 1px;
 }
 
 .review-nag--good {
-  color: #4caf50;
+  color: #16a34a;
 }
 
 .review-nag--bad {
-  color: #f44336;
+  color: #dc2626;
 }
 
 .review-nag--interesting {
-  color: #ff9800;
+  color: #f59e0b;
 }
 
 /* Comment block between moves */
 .review-comment {
-  display: inline;
-  font-size: 0.85em;
-  font-style: italic;
-  color: #999;
-  cursor: pointer;
-  overflow: hidden;
-  display: -webkit-box;
+  display: -webkit-inline-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  font-style: italic;
+  color: #94a3b8;
+  cursor: pointer;
   word-break: break-word;
+  line-height: 1.3;
+  max-width: 100%;
+}
+
+.review-comment::before {
+  content: '{ ';
+}
+
+.review-comment::after {
+  content: ' }';
+}
+
+.review-comment:hover {
+  color: #cbd5e1;
 }
 
 .review-comment--expanded {
   -webkit-line-clamp: unset;
+  display: inline;
+  overflow: visible;
 }
 
 /* Comment editor inline */
@@ -345,20 +387,26 @@
 
 .review-comment-textarea {
   width: 180px;
-  min-height: 36px;
-  padding: 4px 6px;
+  min-height: 60px;
+  padding: 6px 8px;
   font-size: 13px;
   font-family: inherit;
-  background: #1e1e2e;
+  background: #151525;
   color: #e0e0e0;
-  border: 1px solid #555;
+  border: 1px solid #334155;
   border-radius: 4px;
   resize: vertical;
+  line-height: 1.4;
+  box-sizing: border-box;
 }
 
 .review-comment-textarea:focus {
   outline: none;
-  border-color: #1976d2;
+  border-color: #4a6fa5;
+}
+
+.review-comment-textarea::placeholder {
+  color: #555;
 }
 
 .review-comment-delete-btn {
@@ -428,4 +476,19 @@
 .review-editor-btn.delete-remaining-btn:hover:not(:disabled) {
   border-color: #ff9800;
   color: #ff9800;
+}
+
+/* ===== Mobile: comments full-width ===== */
+@media (max-width: 768px) {
+  .review-comment {
+    display: block;
+    width: 100%;
+    margin: 2px 0;
+  }
+
+  .review-comment:not(.review-comment--expanded) {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
 }

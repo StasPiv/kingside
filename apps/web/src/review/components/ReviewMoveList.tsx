@@ -403,6 +403,7 @@ export function ReviewMoveList({
                     <button
                       key={nag}
                       className={`review-nag-btn${isActive ? ' review-nag-btn--active' : ''}`}
+                      data-nag={nag}
                       onClick={() => handleNagToggle(nag)}
                     >
                       {label}
