@@ -114,6 +114,14 @@ export class PlayerService {
     limit = 50,
     offset = 0,
   ): Promise<OnlinePlayersResponse> {
+    const cacheKey = `cache:players:online:${limit}:${offset}`;
+    return this.cache.getOrSet(cacheKey, 10, () => this.fetchOnlinePlayers(limit, offset));
+  }
+
+  private async fetchOnlinePlayers(
+    limit: number,
+    offset: number,
+  ): Promise<OnlinePlayersResponse> {
     const safeLimit = Math.min(limit, 100);
     const threshold = new Date(Date.now() - ONLINE_THRESHOLD_MS);
 
