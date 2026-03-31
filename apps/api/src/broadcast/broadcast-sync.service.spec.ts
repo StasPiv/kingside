@@ -156,6 +156,23 @@ describe('BroadcastSyncService', () => {
       );
     });
 
+    it('should use move-by-move fallback when loadPgn fails', () => {
+      // Simulate PGN that loadPgn cannot handle but moves are valid SAN
+      // Use a malformed movetext that confuses loadPgn but individual moves are fine
+      const pgn = `[White "Player A"]
+[Black "Player B"]
+[Site "https://lichess.org/fallback1"]
+
+1. d4 INVALID_TOKEN d5 2. c4 e6 *`;
+
+      const games = parse(pgn);
+      expect(games).toHaveLength(1);
+      // Fallback should parse d4 and stop at INVALID_TOKEN
+      expect(games[0].fen).toBe(
+        'rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1',
+      );
+    });
+
     it('should filter out NDJSON lines mixed with PGN', () => {
       const pgn = `{"type":"featured","data":{"id":"abc"}}
 [White "Player A"]

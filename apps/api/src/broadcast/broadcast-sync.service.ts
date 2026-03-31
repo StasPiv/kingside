@@ -532,16 +532,46 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   private computeFenFromPgn(pgnText: string): string | null {
+    // Strip PGN comments in { } (e.g. {[%clk 1:30:00]}, {[%eval 0.5]})
+    // chess.js cannot parse them
+    const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
+
+    // Try loadPgn first (handles headers + moves)
     try {
-      // Strip PGN comments in { } (e.g. {[%clk 1:30:00]}, {[%eval 0.5]})
-      // chess.js cannot parse them
-      const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
       const chess = new Chess();
       chess.loadPgn(cleaned);
-      return chess.fen();
-    } catch (e: unknown) { this.logger.warn(`Broadcast PGN parse error: ${(e as Error).message ?? e}`);
-      return null;
+      if (chess.history().length > 0) return chess.fen();
+    } catch {
+      // fall through to move-by-move fallback
     }
+
+    // Fallback: extract moves section and apply one by one
+    try {
+      const parts = cleaned.split(/\n\n/);
+      const movesSection = parts[parts.length - 1] ?? '';
+      // Remove move numbers (1. 1... 23.) and result markers
+      const tokens = movesSection
+        .replace(/\d+\.+\s*/g, '')
+        .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+
+      if (tokens.length === 0) return null;
+
+      const chess = new Chess();
+      for (const token of tokens) {
+        try {
+          chess.move(token);
+        } catch {
+          break; // stop at first invalid token
+        }
+      }
+      if (chess.history().length > 0) return chess.fen();
+    } catch (e: unknown) {
+      this.logger.warn(`Broadcast PGN parse error: ${(e as Error).message ?? e}`);
+    }
+    return null;
   }
 
   async getGameFens(roundId: string): Promise<Array<{ index: number; fen: string }>> {
