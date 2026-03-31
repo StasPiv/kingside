@@ -487,18 +487,6 @@ body.has-analysis-page .main {
 }
 
 
-.header-features-link {
-  color: #7c83ff;
-  text-decoration: none;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 4px 8px;
-}
-
-.header-features-link:hover {
-  color: #a0a5ff;
-}
-
 /* App body layout (KS-1111) */
 .app-body {
   display: flex;

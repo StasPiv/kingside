@@ -34,6 +34,7 @@ export function MobileBottomBar() {
       {moreOpen && (
         <div className="mobile-more-menu" onClick={() => setMoreOpen(false)}>
           <Link to="/broadcasts">{t('nav.tv', 'TV')}</Link>
+          <Link to="/features">{t('nav.features', 'Features')}</Link>
           <Link to="/friends">{t('nav.friends', 'Friends')}</Link>
           <Link to="/settings">{t('nav.settings', 'Settings')}</Link>
           <Link to="/profile">{t('nav.profile', 'Profile')}</Link>

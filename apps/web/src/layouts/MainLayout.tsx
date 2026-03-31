@@ -156,7 +156,6 @@ export function MainLayout() {
                 {t('nav.backToGame', 'Back to game')}
               </Link>
             )}
-            <Link to="/features" className="header-features-link">{t('nav.features', 'Features')}</Link>
             {/* Bell + Messages: always visible (even mobile) */}
             {user && (
               <div className="nav-notification-wrapper">
