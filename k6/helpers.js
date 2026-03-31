@@ -1,65 +1,77 @@
 // k6/helpers.js — shared helpers for auth, WebSocket, etc.
+//
+// Auth strategy: tokens are obtained ONCE during setup() via dev-bypass
+// and reused across all iterations — no bcrypt on hot path.
 
 import http from 'k6/http';
 import { check } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
-import { BASE_URL, TEST_USER_PASSWORD, TEST_USER_PREFIX } from './config.js';
+import { SharedArray } from 'k6/data';
+import { BASE_URL, TEST_USER_PREFIX } from './config.js';
 
 // Custom metrics
 export const authErrors = new Counter('auth_errors');
 export const wsConnectTime = new Trend('ws_connect_time', true);
 export const gameMoveDuration = new Trend('game_move_duration', true);
 
-/**
- * Register a test user. Ignores 409 (already exists).
- */
-export function registerUser(vuId) {
-  const payload = JSON.stringify({
-    username: `${TEST_USER_PREFIX}${vuId}`,
-    email: `${TEST_USER_PREFIX}${vuId}@loadtest.local`,
-    password: TEST_USER_PASSWORD,
+// Pre-loaded tokens from seed-users.sh output (if available)
+let preloadedTokens = null;
+try {
+  preloadedTokens = new SharedArray('tokens', function () {
+    return JSON.parse(open('./tokens.json'));
   });
-
-  const res = http.post(`${BASE_URL}/auth/register`, payload, {
-    headers: { 'Content-Type': 'application/json' },
-    tags: { name: 'auth_register' },
-  });
-
-  if (res.status !== 201 && res.status !== 409) {
-    authErrors.add(1);
-  }
-
-  return res;
+} catch {
+  // tokens.json not found — will use dev-bypass at setup time
 }
 
 /**
- * Login and return { accessToken, refreshToken }.
+ * Call in setup() to obtain tokens for all VUs.
+ * Returns array of { vuId, accessToken }.
+ *
+ * If tokens.json exists (from seed-users.sh), returns it directly.
+ * Otherwise, calls dev-bypass for each VU on the fly.
  */
-export function login(vuId) {
-  const payload = JSON.stringify({
-    username: `${TEST_USER_PREFIX}${vuId}`,
-    password: TEST_USER_PASSWORD,
-  });
-
-  const res = http.post(`${BASE_URL}/auth/login`, payload, {
-    headers: { 'Content-Type': 'application/json' },
-    tags: { name: 'auth_login' },
-  });
-
-  const ok = check(res, {
-    'login status 200/201': (r) => r.status === 200 || r.status === 201,
-  });
-
-  if (!ok) {
-    authErrors.add(1);
-    return null;
+export function setupTokens(maxVUs) {
+  if (preloadedTokens && preloadedTokens.length >= maxVUs) {
+    return preloadedTokens;
   }
 
-  try {
-    return JSON.parse(res.body);
-  } catch {
-    return null;
+  // Fallback: generate tokens via dev-bypass during setup
+  const secret = __ENV.DEV_BYPASS_SECRET || 'dev-secret';
+  const tokens = [];
+
+  for (let i = 1; i <= maxVUs; i++) {
+    const username = `${TEST_USER_PREFIX}${i}`;
+    const res = http.post(`${BASE_URL}/auth/dev-bypass`,
+      JSON.stringify({ secret, user: username }),
+      { headers: { 'Content-Type': 'application/json' }, tags: { name: 'setup_auth' } },
+    );
+
+    if (res.status === 200 || res.status === 201) {
+      try {
+        const body = JSON.parse(res.body);
+        tokens.push({ vuId: i, username, accessToken: body.accessToken });
+      } catch {
+        authErrors.add(1);
+      }
+    } else {
+      authErrors.add(1);
+    }
   }
+
+  return tokens;
+}
+
+/**
+ * Get token for current VU from setup data.
+ * @param {Array} tokens — array returned by setupTokens()
+ * @returns {{ accessToken: string, username: string } | null}
+ */
+export function getVUToken(tokens) {
+  if (!tokens || tokens.length === 0) return null;
+  // Map VU id to token index (VU ids start at 1)
+  const idx = ((__VU - 1) % tokens.length);
+  return tokens[idx] || null;
 }
 
 /**
@@ -72,12 +84,4 @@ export function authHeaders(accessToken) {
       Authorization: `Bearer ${accessToken}`,
     },
   };
-}
-
-/**
- * Ensure test user exists: register (ignore 409) then login.
- */
-export function ensureUser(vuId) {
-  registerUser(vuId);
-  return login(vuId);
 }

@@ -1,45 +1,67 @@
 #!/bin/bash
-# k6/seed-users.sh — Pre-register test users for load testing
-# Usage: ./k6/seed-users.sh [BASE_URL] [COUNT]
+# k6/seed-users.sh — Create test users and collect JWT tokens
+# Uses dev-bypass endpoint (no bcrypt overhead).
+# Outputs tokens to k6/tokens.json for use by k6 tests.
+#
+# Usage: ./k6/seed-users.sh [BASE_URL] [COUNT] [SECRET]
 #
 # Example:
-#   ./k6/seed-users.sh http://localhost:3001 100
-#   ./k6/seed-users.sh https://kingside.site/api 200
+#   ./k6/seed-users.sh http://localhost:3001 100 dev-secret
+#   DEV_BYPASS_SECRET=mysecret ./k6/seed-users.sh https://staging.kingside.site/api 200
 
 set -euo pipefail
 
 BASE_URL="${1:-http://localhost:3001}"
 COUNT="${2:-100}"
+SECRET="${3:-${DEV_BYPASS_SECRET:-dev-secret}}"
 PREFIX="${USER_PREFIX:-k6user}"
-PASSWORD="${USER_PASSWORD:-LoadTest2026!}"
+OUTPUT="$(dirname "$0")/tokens.json"
 
-echo "Seeding $COUNT test users at $BASE_URL..."
+echo "Seeding $COUNT test users at $BASE_URL via dev-bypass..."
+echo "Output: $OUTPUT"
+
+echo "[" > "$OUTPUT"
 
 success=0
-skipped=0
 failed=0
 
 for i in $(seq 1 "$COUNT"); do
   username="${PREFIX}${i}"
-  email="${username}@loadtest.local"
 
-  status=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST "$BASE_URL/auth/register" \
+  response=$(curl -s -w "\n%{http_code}" \
+    -X POST "$BASE_URL/auth/dev-bypass" \
     -H "Content-Type: application/json" \
-    -d "{\"username\":\"$username\",\"email\":\"$email\",\"password\":\"$PASSWORD\"}")
+    -d "{\"secret\":\"$SECRET\",\"user\":\"$username\"}")
 
-  case $status in
-    201) ((success++)) ;;
-    409) ((skipped++)) ;;
-    *)   ((failed++)); echo "  FAIL: $username (HTTP $status)" ;;
-  esac
+  body=$(echo "$response" | head -n -1)
+  status=$(echo "$response" | tail -n 1)
 
-  # Rate limit: ~20 req/s
-  if (( i % 20 == 0 )); then
-    sleep 1
-    echo "  Progress: $i/$COUNT (ok=$success, skip=$skipped, fail=$failed)"
+  if [ "$status" = "200" ] || [ "$status" = "201" ]; then
+    accessToken=$(echo "$body" | grep -o '"accessToken":"[^"]*"' | cut -d'"' -f4)
+    if [ -n "$accessToken" ]; then
+      ((success++))
+      # Write JSON entry (comma-separated, no trailing comma)
+      if [ "$success" -gt 1 ]; then
+        echo "," >> "$OUTPUT"
+      fi
+      printf '  {"vuId":%d,"username":"%s","accessToken":"%s"}' "$i" "$username" "$accessToken" >> "$OUTPUT"
+    else
+      ((failed++))
+      echo "  FAIL: $username — no accessToken in response"
+    fi
+  else
+    ((failed++))
+    echo "  FAIL: $username (HTTP $status)"
+  fi
+
+  if (( i % 50 == 0 )); then
+    echo "  Progress: $i/$COUNT (ok=$success, fail=$failed)"
   fi
 done
 
+echo "" >> "$OUTPUT"
+echo "]" >> "$OUTPUT"
+
 echo ""
-echo "Done: $success created, $skipped already existed, $failed failed"
+echo "Done: $success tokens saved, $failed failed"
+echo "Tokens written to $OUTPUT"

@@ -3,19 +3,9 @@
 export const BASE_URL = __ENV.BASE_URL || 'http://localhost:3001';
 export const WS_URL = __ENV.WS_URL || 'ws://localhost:3001';
 
-// Test user pool — pre-registered accounts for load testing
-// Format: { username, password }
-// Generate with: k6/scripts/seed-users.sh
+// Test user pool — pre-created via k6/seed-users.sh (dev-bypass)
+// Tokens loaded from k6/tokens.json or generated in setup()
 export const TEST_USER_PREFIX = __ENV.USER_PREFIX || 'k6user';
-export const TEST_USER_PASSWORD = __ENV.USER_PASSWORD || 'LoadTest2026!';
-
-export function getUserCredentials(vuId) {
-  return {
-    username: `${TEST_USER_PREFIX}${vuId}`,
-    email: `${TEST_USER_PREFIX}${vuId}@loadtest.local`,
-    password: TEST_USER_PASSWORD,
-  };
-}
 
 // Profiles: smoke → load → stress
 export const profiles = {

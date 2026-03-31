@@ -1,18 +1,22 @@
 // k6/02-matchmaking-game.js — Matchmaking + Live Game (WebSocket)
 // Pairs of VUs join matchmaking, get matched, play moves, one resigns.
+// Auth: token obtained once in setup() via dev-bypass (no bcrypt per iteration)
 //
 // Usage:
 //   k6 run k6/02-matchmaking-game.js
 //   k6 run -e PROFILE=load k6/02-matchmaking-game.js
-//   k6 run -e PROFILE=stress -e BASE_URL=https://kingside.site/api k6/02-matchmaking-game.js
+//   k6 run -e PROFILE=stress k6/02-matchmaking-game.js
 
-import { check, sleep } from 'k6';
+import { sleep } from 'k6';
 import { Counter, Trend } from 'k6/metrics';
 import ws from 'k6/ws';
-import { BASE_URL, WS_URL, profiles, TIME_CONTROLS, SAMPLE_MOVES } from './config.js';
-import { ensureUser } from './helpers.js';
+import { WS_URL, profiles, TIME_CONTROLS, SAMPLE_MOVES } from './config.js';
+import { setupTokens, getVUToken } from './helpers.js';
 
 const profile = profiles[__ENV.PROFILE || 'smoke'];
+const maxVUs = profile.stages
+  ? Math.max(...profile.stages.map((s) => s.target))
+  : profile.vus;
 
 export const options = {
   scenarios: {
@@ -34,22 +38,22 @@ const gameMoveLatency = new Trend('game_move_latency', true);
 const gamesCompleted = new Counter('games_completed');
 const matchmakingErrors = new Counter('matchmaking_errors');
 
-export default function () {
-  const vuId = __VU;
-  const tokens = ensureUser(vuId);
-  if (!tokens) {
-    sleep(2);
-    return;
-  }
+export function setup() {
+  return setupTokens(maxVUs);
+}
 
-  const mmUrl = `${WS_URL}/matchmaking?token=${tokens.accessToken}`;
+export default function (tokens) {
+  const vu = getVUToken(tokens);
+  if (!vu) { sleep(2); return; }
+
+  const mmUrl = `${WS_URL}/matchmaking?token=${vu.accessToken}`;
 
   const mmStart = Date.now();
   let gameId = null;
   let myColor = null;
 
   // Phase 1: Matchmaking
-  const mmRes = ws.connect(mmUrl, {}, function (socket) {
+  ws.connect(mmUrl, {}, function (socket) {
     socket.on('open', () => {
       const tc = TIME_CONTROLS.blitz;
       socket.send(JSON.stringify({
@@ -61,8 +65,6 @@ export default function () {
     socket.on('message', (msg) => {
       try {
         const parsed = JSON.parse(msg);
-
-        // Socket.IO protocol: handle connect acknowledgment
         if (typeof parsed === 'object' && parsed.sid) return;
 
         const event = parsed.event || parsed[0];
@@ -79,36 +81,24 @@ export default function () {
           matchmakingErrors.add(1);
           socket.close();
         }
-      } catch { /* ignore non-JSON frames (Socket.IO handshake) */ }
+      } catch { /* ignore non-JSON frames */ }
     });
 
-    socket.on('error', () => {
-      matchmakingErrors.add(1);
-    });
-
-    // Timeout: close after 20s if no match
-    socket.setTimeout(() => {
-      socket.close();
-    }, 20000);
+    socket.on('error', () => { matchmakingErrors.add(1); });
+    socket.setTimeout(() => { socket.close(); }, 20000);
   });
 
-  if (!gameId) {
-    sleep(2);
-    return;
-  }
+  if (!gameId) { sleep(2); return; }
 
   // Phase 2: Play the game
-  const gameUrl = `${WS_URL}/game?token=${tokens.accessToken}`;
+  const gameUrl = `${WS_URL}/game?token=${vu.accessToken}`;
 
   ws.connect(gameUrl, {}, function (socket) {
     let moveIndex = myColor === 'white' ? 0 : 1;
     let gameOver = false;
 
     socket.on('open', () => {
-      socket.send(JSON.stringify({
-        event: 'game:join',
-        data: { gameId },
-      }));
+      socket.send(JSON.stringify({ event: 'game:join', data: { gameId } }));
     });
 
     socket.on('message', (msg) => {
@@ -120,26 +110,19 @@ export default function () {
         if (event === 'game:state' || event === 'game:move') {
           if (gameOver) return;
 
-          // Check if it's our turn (simplified: alternate based on move index)
           if (event === 'game:state' && data.color === myColor && data.status === 'active') {
-            // Make first move if white
             if (myColor === 'white' && (!data.moves || data.moves.length === 0)) {
               makeMove(socket, gameId, 0);
             }
           }
 
           if (event === 'game:move') {
-            // Opponent moved, now we move
-            sleep(0.3 + Math.random() * 0.7); // simulate thinking
+            sleep(0.3 + Math.random() * 0.7);
             moveIndex += 2;
             if (moveIndex < SAMPLE_MOVES.length) {
               makeMove(socket, gameId, moveIndex);
             } else {
-              // Out of scripted moves — resign
-              socket.send(JSON.stringify({
-                event: 'game:resign',
-                data: { gameId },
-              }));
+              socket.send(JSON.stringify({ event: 'game:resign', data: { gameId } }));
             }
           }
         }
@@ -151,22 +134,14 @@ export default function () {
         }
 
         if (event === 'error') {
-          // Move error — resign to end game cleanly
-          socket.send(JSON.stringify({
-            event: 'game:resign',
-            data: { gameId },
-          }));
+          socket.send(JSON.stringify({ event: 'game:resign', data: { gameId } }));
         }
       } catch { /* ignore */ }
     });
 
-    // Timeout: resign and close after 60s
     socket.setTimeout(() => {
       if (!gameOver) {
-        socket.send(JSON.stringify({
-          event: 'game:resign',
-          data: { gameId },
-        }));
+        socket.send(JSON.stringify({ event: 'game:resign', data: { gameId } }));
       }
       socket.close();
     }, 60000);
@@ -179,9 +154,6 @@ function makeMove(socket, gameId, moveIdx) {
   const uci = SAMPLE_MOVES[moveIdx];
   if (!uci) return;
   const start = Date.now();
-  socket.send(JSON.stringify({
-    event: 'game:move',
-    data: { gameId, uci },
-  }));
+  socket.send(JSON.stringify({ event: 'game:move', data: { gameId, uci } }));
   gameMoveLatency.add(Date.now() - start);
 }

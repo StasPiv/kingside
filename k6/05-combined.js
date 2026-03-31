@@ -1,5 +1,7 @@
 // k6/05-combined.js — Combined scenario: realistic traffic mix
-// Simulates all user types simultaneously with realistic distribution:
+// Auth: tokens obtained once in setup() via dev-bypass (no bcrypt per iteration)
+//
+// Distribution:
 //   - 10% players (matchmaking + games)
 //   - 20% puzzle solvers
 //   - 30% spectators
@@ -16,9 +18,14 @@ import { check, sleep, group } from 'k6';
 import { Counter } from 'k6/metrics';
 import ws from 'k6/ws';
 import { BASE_URL, WS_URL, profiles, TIME_CONTROLS, SAMPLE_MOVES } from './config.js';
-import { ensureUser, authHeaders } from './helpers.js';
+import { setupTokens, getVUToken, authHeaders } from './helpers.js';
 
 const profile = profiles[__ENV.PROFILE || 'smoke'];
+
+// Calculate max VUs across all scenarios for token provisioning
+const maxVUs = profile.stages
+  ? Math.max(...profile.stages.map((s) => s.target))
+  : profile.vus;
 
 export const options = {
   scenarios: {
@@ -67,13 +74,17 @@ export const options = {
 
 const scenarioErrors = new Counter('scenario_errors');
 
-// ---------- Player: matchmaking + game ----------
-export function playerScenario() {
-  const vuId = 1000 + __VU; // offset to avoid collisions
-  const tokens = ensureUser(vuId);
-  if (!tokens) { sleep(2); return; }
+// Obtain tokens once — shared across all scenarios
+export function setup() {
+  return setupTokens(maxVUs);
+}
 
-  const mmUrl = `${WS_URL}/matchmaking?token=${tokens.accessToken}`;
+// ---------- Player: matchmaking + game ----------
+export function playerScenario(tokens) {
+  const vu = getVUToken(tokens);
+  if (!vu) { sleep(2); return; }
+
+  const mmUrl = `${WS_URL}/matchmaking?token=${vu.accessToken}`;
   let gameId = null;
 
   ws.connect(mmUrl, {}, function (socket) {
@@ -99,8 +110,7 @@ export function playerScenario() {
 
   if (!gameId) { sleep(3); return; }
 
-  // Play a few moves then resign
-  const gameUrl = `${WS_URL}/game?token=${tokens.accessToken}`;
+  const gameUrl = `${WS_URL}/game?token=${vu.accessToken}`;
   ws.connect(gameUrl, {}, function (socket) {
     let moves = 0;
     socket.on('open', () => {
@@ -135,11 +145,10 @@ export function playerScenario() {
 }
 
 // ---------- Puzzle solver ----------
-export function puzzleScenario() {
-  const vuId = 2000 + __VU;
-  const tokens = ensureUser(vuId);
-  if (!tokens) { sleep(2); return; }
-  const opts = authHeaders(tokens.accessToken);
+export function puzzleScenario(tokens) {
+  const vu = getVUToken(tokens);
+  if (!vu) { sleep(2); return; }
+  const opts = authHeaders(vu.accessToken);
 
   group('Puzzle solving', () => {
     const next = http.get(`${BASE_URL}/puzzles/next`, {
@@ -150,7 +159,7 @@ export function puzzleScenario() {
     if (next.status === 200) {
       try {
         const puzzle = JSON.parse(next.body);
-        sleep(3 + Math.random() * 7); // "thinking"
+        sleep(3 + Math.random() * 7);
 
         http.post(`${BASE_URL}/puzzles/${puzzle.id}/attempts`,
           JSON.stringify({ result: Math.random() > 0.3 ? 'solved' : 'unsolved', timeMs: 5000 + Math.random() * 15000 }),
@@ -159,7 +168,6 @@ export function puzzleScenario() {
       } catch { /* */ }
     }
 
-    // Daily puzzle (public)
     http.get(`${BASE_URL}/puzzles/daily`, { tags: { name: 'puzzle_daily' } });
   });
 
