@@ -142,6 +142,34 @@ describe('BroadcastSyncService', () => {
       expect(games[0].black).toBe('Unknown');
     });
 
+    it('should handle PGN with inline comments in curly braces', () => {
+      const pgn = `[White "Carlsen, Magnus"]
+[Black "Nepomniachtchi, Ian"]
+[Site "https://lichess.org/abc123"]
+
+1. e4 {[%clk 1:29:50]} 1... e5 {[%clk 1:29:45]} *`;
+
+      const games = parse(pgn);
+      expect(games).toHaveLength(1);
+      expect(games[0].fen).toBe(
+        'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
+      );
+    });
+
+    it('should filter out NDJSON lines mixed with PGN', () => {
+      const pgn = `{"type":"featured","data":{"id":"abc"}}
+[White "Player A"]
+[Black "Player B"]
+[FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"]
+[Site "https://lichess.org/game001"]
+
+1. e4 *`;
+
+      const games = parse(pgn);
+      expect(games).toHaveLength(1);
+      expect(games[0].white).toBe('Player A');
+    });
+
     it('should return empty uci when LastMove header is absent', () => {
       const pgn = `[White "A"]
 [Black "B"]

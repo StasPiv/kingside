@@ -472,7 +472,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   private parsePgnGames(rawPgn: string): ParsedGame[] {
-    const gameSections = rawPgn.split(/\n\n(?=\[)/);
+    // Filter out JSON lines from NDJSON responses
+    const cleanedPgn = rawPgn
+      .split('\n')
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return true; // keep empty lines (PGN separators)
+        // Skip lines that are pure JSON objects (NDJSON)
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try { JSON.parse(trimmed); return false; } catch { return true; }
+        }
+        return true;
+      })
+      .join('\n');
+
+    const gameSections = cleanedPgn.split(/\n\n(?=\[)/);
     const games: ParsedGame[] = [];
     let index = 0;
 
@@ -519,10 +533,13 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   private computeFenFromPgn(pgnText: string): string | null {
     try {
+      // Strip PGN comments in { } (e.g. {[%clk 1:30:00]}, {[%eval 0.5]})
+      // chess.js cannot parse them
+      const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
       const chess = new Chess();
-      chess.loadPgn(pgnText);
+      chess.loadPgn(cleaned);
       return chess.fen();
-    } catch (e: unknown) { this.logger.warn(`Broadcast stream error: ${(e as Error).message ?? e}`);
+    } catch (e: unknown) { this.logger.warn(`Broadcast PGN parse error: ${(e as Error).message ?? e}`);
       return null;
     }
   }
