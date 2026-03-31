@@ -15,8 +15,8 @@ echo "=== Setting up ECS Service ==="
 
 # Get resources
 VPC_ID=$(aws ec2 describe-vpcs --filters "Name=cidr-block,Values=10.0.0.0/16" --query 'Vpcs[0].VpcId' --output text)
-PRIVATE_SUBNET_A=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.10.0/24" --query 'Subnets[0].SubnetId' --output text)
-PRIVATE_SUBNET_B=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.11.0/24" --query 'Subnets[0].SubnetId' --output text)
+PUBLIC_SUBNET_A=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" --query 'Subnets[0].SubnetId' --output text)
+PUBLIC_SUBNET_B=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.2.0/24" --query 'Subnets[0].SubnetId' --output text)
 ECS_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[0].GroupId' --output text)
 TG_ARN=$(aws elbv2 describe-target-groups --names kingside-api-tg --query 'TargetGroups[0].TargetGroupArn' --output text)
 
@@ -31,7 +31,7 @@ else
     aws ecs create-service \
         --cluster "$CLUSTER" --service-name "$SERVICE" --task-definition "$TASK_FAMILY" \
         --desired-count 1 --launch-type FARGATE \
-        --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_A,$PRIVATE_SUBNET_B],securityGroups=[$ECS_SG],assignPublicIp=DISABLED}" \
+        --network-configuration "awsvpcConfiguration={subnets=[$PUBLIC_SUBNET_A,$PUBLIC_SUBNET_B],securityGroups=[$ECS_SG],assignPublicIp=ENABLED}" \
         --load-balancers "targetGroupArn=$TG_ARN,containerName=kingside-api,containerPort=3001" \
         --deployment-configuration "minimumHealthyPercent=100,maximumPercent=200" \
         --health-check-grace-period-seconds 120 > /dev/null
