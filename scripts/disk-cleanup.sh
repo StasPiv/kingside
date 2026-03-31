@@ -10,14 +10,8 @@ echo "=== Disk usage before cleanup ==="
 df -h /
 
 echo ""
-echo "=== Removing unused Docker objects (images, build cache) ==="
-# NOTE: --volumes намеренно НЕ используется — named volumes (postgres_data, redis_data)
-# не должны удаляться даже если контейнеры временно остановлены
-docker system prune -af 2>/dev/null || docker system prune -f
-
-echo ""
-echo "=== Removing Docker builder cache ==="
-docker builder prune -f 2>/dev/null || true
+echo "=== Removing dangling Docker images ==="
+docker image prune -f 2>/dev/null || true
 
 echo ""
 echo "=== Cleaning up Claude agent worktrees ==="
