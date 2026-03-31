@@ -4,13 +4,14 @@
 #
 # Flow:
 # 1. Build new API image
-# 2. Start api-green on port 3002 (new code)
-# 3. Healthcheck on 3002
-# 4. Switch nginx upstream to 3002
-# 5. Recreate api on 3001 (new code) — safe, traffic on green
-# 6. Healthcheck on 3001
-# 7. Switch nginx upstream back to 3001
-# 8. Stop api-green
+# 2. Run Prisma migrations
+# 3. Start api-green on port 3002 (new code)
+# 4. Healthcheck on 3002
+# 5. Switch nginx upstream to 3002
+# 6. Recreate api on 3001 (new code) — safe, traffic on green
+# 7. Healthcheck on 3001
+# 8. Switch nginx upstream back to 3001
+# 9. Stop api-green
 
 set -euo pipefail
 
@@ -72,11 +73,15 @@ echo "--- Building new API image..."
 docker compose build api
 docker image prune -f
 
-# --- 4. Start api-green on port 3002 ---
+# --- 4. Run Prisma migrations (before starting containers) ---
+echo "--- Running Prisma migrations..."
+docker compose run --rm api sh -c "cd /app/apps/api && npx prisma migrate deploy"
+
+# --- 5. Start api-green on port 3002 ---
 echo "--- Starting api-green on port 3002..."
 docker compose --profile deploy up -d api-green
 
-# --- 5. Healthcheck on green ---
+# --- 6. Healthcheck on green ---
 if ! wait_for_health 3002 "api-green"; then
     echo "ERROR: api-green failed. Cleaning up — production untouched."
     docker compose --profile deploy stop api-green 2>/dev/null || true
@@ -88,26 +93,26 @@ if ! wait_for_health 3002 "api-green"; then
     exit 1
 fi
 
-# --- 6. Switch nginx to green (3002) ---
+# --- 7. Switch nginx to green (3002) ---
 echo "--- Switching traffic to api-green (3002)..."
 switch_upstream 3002
 
-# --- 7. Recreate api (blue) on 3001 --- traffic is safe on green
+# --- 8. Recreate api (blue) on 3001 --- traffic is safe on green
 echo "--- Recreating api on port 3001..."
 docker compose up -d --force-recreate --no-build api
 
-# --- 8. Healthcheck on blue ---
+# --- 9. Healthcheck on blue ---
 if ! wait_for_health 3001 "api"; then
     echo "WARN: api on 3001 not ready. Keeping traffic on api-green (3002)."
     echo "  api-green will keep running. Manual intervention needed."
     exit 0
 fi
 
-# --- 9. Switch nginx back to blue (3001) ---
+# --- 10. Switch nginx back to blue (3001) ---
 echo "--- Switching traffic back to api (3001)..."
 switch_upstream 3001
 
-# --- 10. Stop green ---
+# --- 11. Stop green ---
 echo "--- Stopping api-green..."
 docker compose --profile deploy stop api-green 2>/dev/null || true
 docker compose --profile deploy rm -f api-green 2>/dev/null || true
