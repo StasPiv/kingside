@@ -1,4 +1,5 @@
 import type { ChessMove } from '../types';
+import { serializeCommentWithMacros } from './commentMacros';
 
 function serializeMoves(moves: ChessMove[]): string {
   const parts: string[] = [];
@@ -26,9 +27,10 @@ function serializeMoves(moves: ChessMove[]): string {
       }
     }
 
-    // Serialize comment
-    if (move.comment) {
-      parts.push(`{${move.comment}}`);
+    // Serialize comment (including eval/clock macros)
+    const fullComment = serializeCommentWithMacros(move.comment, move.eval, move.clock);
+    if (fullComment) {
+      parts.push(`{${fullComment}}`);
     }
 
     if (move.variations && move.variations.length > 0) {

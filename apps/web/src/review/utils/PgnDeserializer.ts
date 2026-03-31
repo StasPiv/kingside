@@ -1,6 +1,7 @@
 import { Chess } from 'chess.js';
 import type { ChessMove } from '../types';
 import { linkAllMovesRecursively } from './ChessHistoryUtils';
+import { parseCommentMacros } from './commentMacros';
 
 // Symbolic NAG annotations that can appear directly after a move in PGN
 const SYMBOLIC_NAGS: Record<string, number> = {
@@ -150,12 +151,17 @@ export function parseAnnotatedPgn(pgn: string): ChessMove[] {
         continue;
       }
 
-      // Comment token — attach to last move
+      // Comment token — parse macros and attach to last move
       if (token.type === 'comment') {
         if (lastMove) {
-          lastMove.comment = lastMove.comment
-            ? lastMove.comment + ' ' + token.value
-            : token.value;
+          const parsed = parseCommentMacros(token.value);
+          if (parsed.eval !== undefined) lastMove.eval = parsed.eval;
+          if (parsed.clock !== undefined) lastMove.clock = parsed.clock;
+          if (parsed.comment) {
+            lastMove.comment = lastMove.comment
+              ? lastMove.comment + ' ' + parsed.comment
+              : parsed.comment;
+          }
         }
         pos++;
         continue;

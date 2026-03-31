@@ -342,6 +342,34 @@
   color: #f59e0b;
 }
 
+/* Eval display inline */
+.review-eval {
+  font-size: 0.75em;
+  font-weight: 600;
+  margin-left: 3px;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: #888;
+  background: rgba(255, 255, 255, 0.05);
+  vertical-align: middle;
+}
+
+.review-eval--white {
+  color: #4caf50;
+}
+
+.review-eval--black {
+  color: #f44336;
+}
+
+/* Clock display inline */
+.review-clock {
+  font-size: 0.7em;
+  color: #666;
+  margin-left: 3px;
+  vertical-align: middle;
+}
+
 /* Comment block between moves */
 .review-comment {
   display: -webkit-inline-box;

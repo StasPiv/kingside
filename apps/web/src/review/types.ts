@@ -19,5 +19,7 @@ export interface ChessMove {
   variations?: ChessMove[][];
   nags?: number[];
   comment?: string;
+  eval?: number;
+  clock?: string;
   [key: string]: any;
 }

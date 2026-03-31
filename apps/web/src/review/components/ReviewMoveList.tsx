@@ -243,6 +243,31 @@ export function ReviewMoveList({
     });
   };
 
+  /** Render eval and clock inline after a move */
+  const renderEvalClock = (move: ChessMove) => {
+    const parts: React.ReactNode[] = [];
+    if (move.eval !== undefined) {
+      const val = move.eval;
+      let className = 'review-eval';
+      if (val > 0.3) className += ' review-eval--white';
+      else if (val < -0.3) className += ' review-eval--black';
+      const display = val >= 100 ? '#' : val <= -100 ? '#' : (val > 0 ? '+' : '') + val.toFixed(1);
+      parts.push(
+        <span key={`eval-${move.globalIndex}`} className={className} title={`eval: ${val}`}>
+          {display}
+        </span>,
+      );
+    }
+    if (move.clock) {
+      parts.push(
+        <span key={`clk-${move.globalIndex}`} className="review-clock" title={`clock: ${move.clock}`}>
+          🕐{move.clock}
+        </span>,
+      );
+    }
+    return parts.length > 0 ? parts : null;
+  };
+
   /** Render comment block after a move */
   const renderComment = (move: ChessMove) => {
     if (commentEditIndex === move.globalIndex) {
@@ -311,6 +336,7 @@ export function ReviewMoveList({
           >
             {item.display}
             {move && renderNagSymbols(move)}
+            {move && renderEvalClock(move)}
           </span>,
           ' ',
         ];

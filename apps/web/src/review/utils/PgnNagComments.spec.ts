@@ -81,6 +81,35 @@ describe('PgnSerializer — NAG and comments', () => {
   });
 });
 
+describe('PgnDeserializer — eval/clock macros', () => {
+  it('extracts eval and clock from comments', () => {
+    const moves = parseAnnotatedPgn('1. e4 {[%eval 0.18] [%clk 1:59:27]} c5 {[%eval 0.25] [%clk 1:59:46]}');
+    expect(moves[0].eval).toBe(0.18);
+    expect(moves[0].clock).toBe('1:59:27');
+    expect(moves[0].comment).toBeUndefined();
+    expect(moves[1].eval).toBe(0.25);
+    expect(moves[1].clock).toBe('1:59:46');
+  });
+
+  it('preserves human comment alongside macros', () => {
+    const moves = parseAnnotatedPgn('1. e4 {[%eval 0.5] Хороший ход [%clk 0:45:00]}');
+    expect(moves[0].eval).toBe(0.5);
+    expect(moves[0].clock).toBe('0:45:00');
+    expect(moves[0].comment).toBe('Хороший ход');
+  });
+});
+
+describe('PgnSerializer — eval/clock macros', () => {
+  it('serializes eval and clock into comments', () => {
+    const moves = parseAnnotatedPgn('1. e4 e5');
+    moves[0].eval = 0.18;
+    moves[0].clock = '1:59:27';
+    const pgn = serializeToAnnotatedPgn(moves);
+    expect(pgn).toContain('{[%eval 0.18]');
+    expect(pgn).toContain('[%clk 1:59:27]}');
+  });
+});
+
 describe('Round-trip PGN', () => {
   it('preserves NAGs and comments through parse -> serialize', () => {
     const original = '1. e4 $1 {Отличное начало} e5 $6 2. Nf3 *';
