@@ -135,8 +135,8 @@ export function MainLayout() {
     setUserMenuOpen(false);
   };
 
-  // Hide sidebar and mobile bar on game/analysis pages
-  const hideNav = location.pathname.startsWith('/game/') || location.pathname.startsWith('/analysis');
+  // Hide mobile bottom bar during active game (sidebar always visible)
+  const hideBottomBar = location.pathname.startsWith('/game/');
 
   return (
     <div className="app">
@@ -274,7 +274,7 @@ export function MainLayout() {
         </nav>
       </header>
       <div className="app-body">
-        {user && !hideNav && <Sidebar />}
+        {user && <Sidebar />}
         <main className="main">
           <Outlet />
         </main>
@@ -286,7 +286,7 @@ export function MainLayout() {
           onDecline={declineChallenge}
         />
       )}
-      {user && !hideNav && <MobileBottomBar />}
+      {user && !hideBottomBar && <MobileBottomBar />}
     </div>
   );
 }
