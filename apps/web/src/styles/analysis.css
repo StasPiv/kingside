@@ -1629,3 +1629,31 @@
   }
 }
 
+/* PGN Headers (KS-1126) */
+.analysis-pgn-headers {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  margin-bottom: 4px;
+}
+
+.analysis-pgn-players {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.analysis-pgn-white { color: #e0e0e0; font-weight: 600; }
+.analysis-pgn-black { color: #e0e0e0; font-weight: 600; }
+.analysis-pgn-vs { color: #9e9e9e; font-size: 11px; }
+.analysis-pgn-result { color: #7c83ff; font-weight: 700; margin-left: auto; }
+
+.analysis-pgn-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: #9e9e9e;
+  margin-top: 4px;
+}
+

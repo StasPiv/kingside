@@ -852,6 +852,23 @@ export function AnalysisPage() {
           </div>
           {panelStates.moves && (
             <div className="analysis-panel-body analysis-panel-body--scroll">
+              {/* PGN headers when no gameData (broadcast/imported games) */}
+              {!gameData && gameInfo && (
+                <div className="analysis-pgn-headers">
+                  <div className="analysis-pgn-players">
+                    <span className="analysis-pgn-white">&#9817; {gameInfo.white.username}{gameInfo.white.rating ? ` (${gameInfo.white.rating})` : ''}</span>
+                    <span className="analysis-pgn-vs">vs</span>
+                    <span className="analysis-pgn-black">&#9823; {gameInfo.black.username}{gameInfo.black.rating ? ` (${gameInfo.black.rating})` : ''}</span>
+                    {gameInfo.result && <span className="analysis-pgn-result">{gameInfo.result}</span>}
+                  </div>
+                  {(gameInfo.event || gameInfo.date) && (
+                    <div className="analysis-pgn-meta">
+                      {gameInfo.event && <span>{gameInfo.event}</span>}
+                      {gameInfo.date && <span>{gameInfo.date}</span>}
+                    </div>
+                  )}
+                </div>
+              )}
               <ReviewMoveList
                 history={history}
                 currentGlobalIndex={currentGlobalIndex}
@@ -859,7 +876,6 @@ export function AnalysisPage() {
                 onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
                 onDeleteVariation={(move) => removeVariation(move as ChessMove)}
                 onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
-                gameInfo={gameInfo}
               />
             </div>
           )}
@@ -887,6 +903,16 @@ export function AnalysisPage() {
             <div className="analysis-split-panel__content">
               {tab === 'moves' && (
                 <div className="analysis-panel-body analysis-panel-body--scroll">
+                  {!gameData && gameInfo && (
+                    <div className="analysis-pgn-headers">
+                      <div className="analysis-pgn-players">
+                        <span className="analysis-pgn-white">&#9817; {gameInfo.white.username}</span>
+                        <span className="analysis-pgn-vs">vs</span>
+                        <span className="analysis-pgn-black">&#9823; {gameInfo.black.username}</span>
+                        {gameInfo.result && <span className="analysis-pgn-result">{gameInfo.result}</span>}
+                      </div>
+                    </div>
+                  )}
                   <ReviewMoveList
                     history={history}
                     currentGlobalIndex={currentGlobalIndex}
