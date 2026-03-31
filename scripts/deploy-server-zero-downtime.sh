@@ -69,7 +69,7 @@ fi
 
 # --- 3. Build new API image ---
 echo "--- Building new API image..."
-docker compose build --no-cache api
+docker compose build api
 docker image prune -f
 
 # --- 4. Start api-green on port 3002 ---
