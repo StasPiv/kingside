@@ -210,15 +210,34 @@ describe('BroadcastSyncService', () => {
       global.fetch = fetch;
     });
 
-    it('should skip fetch when games with real FEN already exist', async () => {
+    it('should skip fetch when all games have real FEN', async () => {
       prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
-      // count returns > 0, meaning games with non-starting FEN exist
-      prisma.broadcastGame.count.mockResolvedValue(5);
+      // First count: games with STARTING_FEN = 0, second count: total = 4
+      prisma.broadcastGame.count
+        .mockResolvedValueOnce(0)  // gamesWithStartingFen
+        .mockResolvedValueOnce(4); // totalGames
       redis.get.mockResolvedValue(null);
 
       await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
 
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should re-fetch when some games still have starting FEN', async () => {
+      prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
+      // 2 games still have STARTING_FEN, 4 total
+      prisma.broadcastGame.count
+        .mockResolvedValueOnce(2)  // gamesWithStartingFen
+        .mockResolvedValueOnce(4); // totalGames
+      redis.get.mockResolvedValue(null);
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        text: jest.fn().mockResolvedValue(''),
+      });
+
+      await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');
+
+      expect(global.fetch).toHaveBeenCalled();
     });
 
     it('should skip fetch when round not found', async () => {
@@ -232,7 +251,9 @@ describe('BroadcastSyncService', () => {
 
     it('should skip fetch when cooldown is active', async () => {
       prisma.broadcastRound.findUnique.mockResolvedValue({ id: 'round-db-id' });
-      prisma.broadcastGame.count.mockResolvedValue(0);
+      prisma.broadcastGame.count
+        .mockResolvedValueOnce(2)  // gamesWithStartingFen > 0
+        .mockResolvedValueOnce(4); // totalGames
       redis.get.mockResolvedValue('1');
 
       await (service as any).fetchFinishedRoundGamesIfEmpty('lichess-round-id');

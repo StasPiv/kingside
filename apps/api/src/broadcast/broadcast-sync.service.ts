@@ -314,10 +314,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     });
     if (!round) return;
 
-    const existingWithRealFen = await this.prisma.broadcastGame.count({
-      where: { roundId: round.id, currentFen: { not: STARTING_FEN } },
+    // Re-fetch if any game still has starting FEN (previous parser bugs may have left stale data)
+    const gamesWithStartingFen = await this.prisma.broadcastGame.count({
+      where: { roundId: round.id, currentFen: STARTING_FEN },
     });
-    if (existingWithRealFen > 0) return;
+    const totalGames = await this.prisma.broadcastGame.count({
+      where: { roundId: round.id },
+    });
+    if (totalGames > 0 && gamesWithStartingFen === 0) return;
 
     // Avoid repeated failures: skip if cooldown is active
     const cooldownKey = `broadcast:pgn-fetch-cooldown:${lichessRoundId}`;
