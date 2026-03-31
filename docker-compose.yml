@@ -84,6 +84,49 @@ services:
       - postgres
       - redis
 
+  api-green:
+    image: kingside-api
+    restart: "no"
+    mem_limit: 400m
+    ports:
+      - "3002:3001"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const h=require('http');h.get('http://localhost:3001/api/health',r=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+        tag: "kingside-api-green"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379
+      PORT: 3001
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+      STOCKFISH_PATH: ${STOCKFISH_PATH:-/usr/games/stockfish}
+      STOCKFISH_MAX_INSTANCES: ${STOCKFISH_MAX_INSTANCES:-1}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-http://localhost:3001/api/auth/google/callback}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      FACEBOOK_CALLBACK_URL: ${FACEBOOK_CALLBACK_URL:-http://localhost:3001/api/auth/facebook/callback}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+    depends_on:
+      - postgres
+      - redis
+    profiles:
+      - deploy
+
   loki:
     image: grafana/loki:3.4.2
     restart: unless-stopped
