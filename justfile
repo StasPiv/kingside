@@ -3,9 +3,17 @@
 # Start the entire project
 up: _env _infra _deps _migrate _build-shared _dev
 
-# Deploy to production manually
+# Deploy to production (full: frontend + API)
 deploy:
     bash scripts/deploy-local.sh
+
+# Deploy only frontend (vite build + static copy)
+deploy-frontend:
+    bash scripts/deploy-frontend.sh
+
+# Deploy only API (Docker build + blue-green)
+deploy-api:
+    bash scripts/deploy-api.sh
 
 # Stop infrastructure
 down:
