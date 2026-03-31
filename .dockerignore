@@ -1,7 +1,15 @@
 node_modules
 .git
+.worktrees
+.claude
 *.md
 apps/web
 .env
 apps/api/.env
 apps/api/dist
+docs
+tools
+scripts
+infra
+.turbo
+.github
