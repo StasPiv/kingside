@@ -150,7 +150,7 @@ export function AnalysisPage() {
     history, currentMove, currentGlobalIndex, currentFen, initialFen,
     loadMoves, loadFromPgn, setInitialFen, gotoMove, gotoFirst, gotoLast,
     gotoPrevious, gotoNext, makeVariantMove, removeVariation,
-    truncateRemaining, promoteVariation,
+    truncateRemaining, promoteVariation, setNag, setComment,
   } = useReviewState();
 
   const game = useMemo(() => new Chess(), []);
@@ -890,6 +890,8 @@ export function AnalysisPage() {
                 onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
                 onDeleteVariation={(move) => removeVariation(move as ChessMove)}
                 onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
+                onSetNag={setNag}
+                onSetComment={setComment}
               />
             </div>
           )}

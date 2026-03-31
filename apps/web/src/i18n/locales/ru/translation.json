@@ -423,7 +423,15 @@
     "toEnd": "В конец",
     "backToProfile": "Назад к профилю",
     "backToGame": "Назад к партии",
-    "backToGames": "Мои партии"
+    "backToGames": "Мои партии",
+    "annotate": "Пометки",
+    "addComment": "+ Комментарий",
+    "editComment": "✎ Редактировать",
+    "deleteComment": "Удалить комментарий",
+    "promote": "Повысить",
+    "truncate": "Обрезать",
+    "delete": "Удалить",
+    "moves": "Ходы"
   },
   "analysis": {
     "depth": "Глубина",

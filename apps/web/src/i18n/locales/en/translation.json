@@ -423,7 +423,15 @@
     "toEnd": "Go to end",
     "backToProfile": "Back to profile",
     "backToGame": "Back to Game",
-    "backToGames": "My games"
+    "backToGames": "My games",
+    "annotate": "Annotate",
+    "addComment": "+ Add comment",
+    "editComment": "✎ Edit comment",
+    "deleteComment": "Delete comment",
+    "promote": "Promote",
+    "truncate": "Truncate",
+    "delete": "Delete",
+    "moves": "Moves"
   },
   "analysis": {
     "depth": "Depth",
