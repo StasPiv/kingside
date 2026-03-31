@@ -19,6 +19,18 @@ function serializeMoves(moves: ChessMove[]): string {
 
     parts.push(move.san);
 
+    // Serialize NAGs
+    if (move.nags && move.nags.length > 0) {
+      for (const nag of move.nags) {
+        parts.push(`$${nag}`);
+      }
+    }
+
+    // Serialize comment
+    if (move.comment) {
+      parts.push(`{${move.comment}}`);
+    }
+
     if (move.variations && move.variations.length > 0) {
       for (const variation of move.variations) {
         if (variation.length > 0) {

@@ -17,5 +17,7 @@ export interface ChessMove {
   moveIndex?: number;
   variation?: any[];
   variations?: ChessMove[][];
+  nags?: number[];
+  comment?: string;
   [key: string]: any;
 }

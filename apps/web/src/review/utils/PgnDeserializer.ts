@@ -2,13 +2,27 @@ import { Chess } from 'chess.js';
 import type { ChessMove } from '../types';
 import { linkAllMovesRecursively } from './ChessHistoryUtils';
 
-function tokenize(pgn: string): string[] {
-  // Remove { } comments and ; line comments
-  const cleaned = pgn
-    .replace(/\{[^}]*\}/g, ' ')
-    .replace(/;[^\n]*/g, ' ');
+// Symbolic NAG annotations that can appear directly after a move in PGN
+const SYMBOLIC_NAGS: Record<string, number> = {
+  '!!': 3,
+  '??': 4,
+  '!?': 5,
+  '?!': 6,
+  '!': 1,
+  '?': 2,
+};
 
-  const tokens: string[] = [];
+type Token =
+  | { type: 'text'; value: string }
+  | { type: 'nag'; value: number }
+  | { type: 'comment'; value: string }
+  | { type: 'paren'; value: '(' | ')' };
+
+function tokenize(pgn: string): Token[] {
+  // Remove ; line comments
+  const cleaned = pgn.replace(/;[^\n]*/g, ' ');
+
+  const tokens: Token[] = [];
   let i = 0;
 
   while (i < cleaned.length) {
@@ -17,19 +31,67 @@ function tokenize(pgn: string): string[] {
       continue;
     }
 
+    // Block comment {text}
+    if (cleaned[i] === '{') {
+      const end = cleaned.indexOf('}', i + 1);
+      if (end === -1) break;
+      const commentText = cleaned.slice(i + 1, end).trim();
+      if (commentText) {
+        tokens.push({ type: 'comment', value: commentText });
+      }
+      i = end + 1;
+      continue;
+    }
+
+    // Parentheses for variations
     if (cleaned[i] === '(' || cleaned[i] === ')') {
-      tokens.push(cleaned[i]);
+      tokens.push({ type: 'paren', value: cleaned[i] as '(' | ')' });
       i++;
       continue;
     }
 
-    // Read until whitespace or parenthesis
+    // NAG token $N
+    if (cleaned[i] === '$') {
+      let j = i + 1;
+      while (j < cleaned.length && /\d/.test(cleaned[j])) {
+        j++;
+      }
+      if (j > i + 1) {
+        tokens.push({ type: 'nag', value: parseInt(cleaned.slice(i + 1, j), 10) });
+        i = j;
+        continue;
+      }
+    }
+
+    // Read a word token (until whitespace, parens, braces, or $)
     let j = i;
-    while (j < cleaned.length && !/[\s()]/.test(cleaned[j])) {
+    while (j < cleaned.length && !/[\s(){}$]/.test(cleaned[j])) {
       j++;
     }
     if (j > i) {
-      tokens.push(cleaned.slice(i, j));
+      const word = cleaned.slice(i, j);
+
+      // First check if the entire token is a standalone symbolic NAG (!, !!, ?!, etc.)
+      if (SYMBOLIC_NAGS[word] !== undefined) {
+        tokens.push({ type: 'nag', value: SYMBOLIC_NAGS[word] });
+      } else {
+        // Check if the word ends with symbolic NAG (e.g., "e4!", "Nf3!?")
+        // Try longest match first
+        let nagFound = false;
+        for (const sym of ['!!', '??', '!?', '?!', '!', '?']) {
+          if (word.endsWith(sym) && word.length > sym.length) {
+            const moveText = word.slice(0, -sym.length);
+            tokens.push({ type: 'text', value: moveText });
+            tokens.push({ type: 'nag', value: SYMBOLIC_NAGS[sym] });
+            nagFound = true;
+            break;
+          }
+        }
+
+        if (!nagFound) {
+          tokens.push({ type: 'text', value: word });
+        }
+      }
     }
     i = j;
   }
@@ -63,62 +125,94 @@ export function parseAnnotatedPgn(pgn: string): ChessMove[] {
   function parseMoves(chess: Chess, startPly: number): ChessMove[] {
     const moves: ChessMove[] = [];
     let currentPly = startPly;
+    let lastMove: ChessMove | null = null;
 
     while (pos < tokens.length) {
       const token = tokens[pos];
 
-      if (token === ')' || isResult(token)) break;
+      // Handle end of variation or result
+      if (token.type === 'paren' && token.value === ')') break;
+      if (token.type === 'text' && isResult(token.value)) break;
 
-      if (isMoveNumber(token) || isContinuationDots(token)) {
+      // Skip move numbers and continuation dots
+      if (token.type === 'text' && (isMoveNumber(token.value) || isContinuationDots(token.value))) {
         pos++;
         continue;
       }
 
-      const beforeFen = chess.fen();
-      let chessMove;
-      try {
-        chessMove = chess.move(token);
-      } catch {
-        break;
+      // NAG token — attach to last move
+      if (token.type === 'nag') {
+        if (lastMove) {
+          if (!lastMove.nags) lastMove.nags = [];
+          lastMove.nags.push(token.value);
+        }
+        pos++;
+        continue;
       }
-      if (!chessMove) break;
-      pos++;
 
-      const afterFen = chess.fen();
-      const move: ChessMove = {
-        san: chessMove.san,
-        fen: afterFen,
-        from: chessMove.from,
-        to: chessMove.to,
-        piece: chessMove.piece,
-        captured: chessMove.captured,
-        promotion: chessMove.promotion,
-        flags: chessMove.flags,
-        lan: chessMove.from + chessMove.to + (chessMove.promotion ?? ''),
-        before: beforeFen,
-        after: afterFen,
-        globalIndex: nextGlobalIndex++,
-        ply: currentPly,
-      };
+      // Comment token — attach to last move
+      if (token.type === 'comment') {
+        if (lastMove) {
+          lastMove.comment = lastMove.comment
+            ? lastMove.comment + ' ' + token.value
+            : token.value;
+        }
+        pos++;
+        continue;
+      }
 
-      // Parse variations — alternatives to this move starting from the same position
-      const variations: ChessMove[][] = [];
-      while (pos < tokens.length && tokens[pos] === '(') {
+      // Variation start
+      if (token.type === 'paren' && token.value === '(') {
         pos++; // consume '('
+        const beforeFen = lastMove ? lastMove.before : chess.fen();
         const varChess = new Chess(beforeFen);
-        const variation = parseMoves(varChess, currentPly);
-        variations.push(variation);
-        if (pos < tokens.length && tokens[pos] === ')') {
+        const variation = parseMoves(varChess, currentPly - 1);
+        if (pos < tokens.length && tokens[pos].type === 'paren' && tokens[pos].value === ')') {
           pos++; // consume ')'
         }
+        if (variation.length > 0 && lastMove) {
+          if (!lastMove.variations) lastMove.variations = [];
+          lastMove.variations.push(variation);
+        }
+        continue;
       }
 
-      if (variations.length > 0) {
-        move.variations = variations;
+      // Move token
+      if (token.type === 'text') {
+        const beforeFen = chess.fen();
+        let chessMove;
+        try {
+          chessMove = chess.move(token.value);
+        } catch {
+          break;
+        }
+        if (!chessMove) break;
+        pos++;
+
+        const afterFen = chess.fen();
+        const move: ChessMove = {
+          san: chessMove.san,
+          fen: afterFen,
+          from: chessMove.from,
+          to: chessMove.to,
+          piece: chessMove.piece,
+          captured: chessMove.captured,
+          promotion: chessMove.promotion,
+          flags: chessMove.flags,
+          lan: chessMove.from + chessMove.to + (chessMove.promotion ?? ''),
+          before: beforeFen,
+          after: afterFen,
+          globalIndex: nextGlobalIndex++,
+          ply: currentPly,
+        };
+
+        moves.push(move);
+        lastMove = move;
+        currentPly++;
+        continue;
       }
 
-      moves.push(move);
-      currentPly++;
+      pos++;
     }
 
     return moves;
