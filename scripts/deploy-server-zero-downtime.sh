@@ -8,10 +8,7 @@
 # 3. Start api-green on port 3002 (new code)
 # 4. Healthcheck on 3002
 # 5. Switch nginx upstream to 3002
-# 6. Recreate api on 3001 (new code) — safe, traffic on green
-# 7. Healthcheck on 3001
-# 8. Switch nginx upstream back to 3001
-# 9. Stop api-green
+# 6. Stop old api (blue)
 
 set -euo pipefail
 
@@ -97,24 +94,9 @@ fi
 echo "--- Switching traffic to api-green (3002)..."
 switch_upstream 3002
 
-# --- 8. Recreate api (blue) on 3001 --- traffic is safe on green
-echo "--- Recreating api on port 3001..."
-docker compose up -d --force-recreate --no-build api
+# --- 8. Stop old api (blue) ---
+echo "--- Stopping old api (blue)..."
+docker compose stop api 2>/dev/null || true
+docker compose rm -f api 2>/dev/null || true
 
-# --- 9. Healthcheck on blue ---
-if ! wait_for_health 3001 "api"; then
-    echo "WARN: api on 3001 not ready. Keeping traffic on api-green (3002)."
-    echo "  api-green will keep running. Manual intervention needed."
-    exit 0
-fi
-
-# --- 10. Switch nginx back to blue (3001) ---
-echo "--- Switching traffic back to api (3001)..."
-switch_upstream 3001
-
-# --- 11. Stop green ---
-echo "--- Stopping api-green..."
-docker compose --profile deploy stop api-green 2>/dev/null || true
-docker compose --profile deploy rm -f api-green 2>/dev/null || true
-
-echo "--- Zero-downtime deploy complete."
+echo "--- Zero-downtime deploy complete. Traffic on api-green (3002)."
