@@ -218,7 +218,7 @@ export function PlayPage() {
           </div>
 
           <button
-            className="play-btn play-btn--big"
+            className={`play-btn play-btn--big${searching ? ' searching' : ''}`}
             onClick={() => handleSearch({ timeInitial: selectedMinutes * 60, increment: selectedIncrement, activeTab })}
           >
             {searching ? t('lobby.cancelSearch') : t('lobby.play')}
