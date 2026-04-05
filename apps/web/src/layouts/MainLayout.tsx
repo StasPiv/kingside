@@ -14,14 +14,12 @@ import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 import { NotificationDropdown } from '../components/NotificationDropdown';
 import { MobileBottomBar } from '../components/MobileBottomBar';
 import { Sidebar } from '../components/Sidebar';
+import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
-const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
-// Module-level constant prevents esbuild from optimizing away VITE_APP_ORIGIN (see KS-1179).
-const CONFIGURED_ORIGIN: string | undefined = import.meta.env.VITE_APP_ORIGIN;
 
 function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
   useEffect(() => {
@@ -249,14 +247,7 @@ export function MainLayout() {
                   aria-label="Telegram"
                   onClick={(e) => {
                     e.preventDefault();
-                    const raw = CONFIGURED_ORIGIN || window.location.origin;
-                    const origin = raw.replace(/^(https?:\/\/)www\./i, '$1');
-                    const returnTo = `${origin}/login`;
-                    window.location.href =
-                      `https://oauth.telegram.org/auth` +
-                      `?bot_id=${TELEGRAM_BOT_ID}` +
-                      `&origin=${encodeURIComponent(origin)}` +
-                      `&return_to=${encodeURIComponent(returnTo)}`;
+                    redirectToTelegramOAuth();
                   }}
                 >
                   <FaTelegram size={20} color="#26A5E4" />

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
+import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import type { TelegramAuthResponse } from '@kingside/shared';
 
 interface TelegramUser {
@@ -14,14 +15,6 @@ interface TelegramUser {
   auth_date: number;
   hash: string;
 }
-
-// Numeric bot ID (part before colon in bot token) — safe to expose in frontend
-const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
-
-// Module-level constant prevents esbuild from optimizing away VITE_APP_ORIGIN.
-// When inlined as `import.meta.env.VITE_APP_ORIGIN || window.location.origin`,
-// esbuild replaces undefined env var and folds it into just `window.location.origin`.
-const CONFIGURED_ORIGIN: string | undefined = import.meta.env.VITE_APP_ORIGIN;
 
 export function LoginPage() {
   const { t } = useTranslation();
@@ -91,18 +84,7 @@ export function LoginPage() {
   };
 
   const handleTelegramLogin = () => {
-    // Telegram validates origin against the domain registered in BotFather (without www).
-    // Use module-level CONFIGURED_ORIGIN to avoid esbuild dead-code elimination.
-    // Strip www. prefix as safety net for users arriving via www subdomain.
-    const raw = CONFIGURED_ORIGIN || window.location.origin;
-    const origin = raw.replace(/^(https?:\/\/)www\./i, '$1');
-    const returnTo = `${origin}/login`;
-    // Use redirect (not popup): COOP: same-origin nullifies window.opener in cross-origin popups
-    window.location.href =
-      `https://oauth.telegram.org/auth` +
-      `?bot_id=${TELEGRAM_BOT_ID}` +
-      `&origin=${encodeURIComponent(origin)}` +
-      `&return_to=${encodeURIComponent(returnTo)}`;
+    redirectToTelegramOAuth();
   };
 
   const isLoading = loadingProvider !== null || telegramLoading;
