@@ -18,6 +18,11 @@ interface TelegramUser {
 // Numeric bot ID (part before colon in bot token) — safe to expose in frontend
 const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
 
+// Module-level constant prevents esbuild from optimizing away VITE_APP_ORIGIN.
+// When inlined as `import.meta.env.VITE_APP_ORIGIN || window.location.origin`,
+// esbuild replaces undefined env var and folds it into just `window.location.origin`.
+const CONFIGURED_ORIGIN: string | undefined = import.meta.env.VITE_APP_ORIGIN;
+
 export function LoginPage() {
   const { t } = useTranslation();
   const location = useLocation();
@@ -87,8 +92,9 @@ export function LoginPage() {
 
   const handleTelegramLogin = () => {
     // Telegram validates origin against the domain registered in BotFather (without www).
-    // Strip www. prefix to prevent "Bot domain invalid" errors.
-    const raw = import.meta.env.VITE_APP_ORIGIN || window.location.origin;
+    // Use module-level CONFIGURED_ORIGIN to avoid esbuild dead-code elimination.
+    // Strip www. prefix as safety net for users arriving via www subdomain.
+    const raw = CONFIGURED_ORIGIN || window.location.origin;
     const origin = raw.replace(/^(https?:\/\/)www\./i, '$1');
     const returnTo = `${origin}/login`;
     // Use redirect (not popup): COOP: same-origin nullifies window.opener in cross-origin popups
