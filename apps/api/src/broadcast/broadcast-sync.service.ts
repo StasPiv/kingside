@@ -668,8 +668,17 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
 
     // Extract moves section (after last double-newline, i.e. after headers)
-    const parts = cleaned.split(/\n\n/);
-    const movesSection = parts[parts.length - 1] ?? '';
+    // Find the movetext: it's the part AFTER the last header line
+    // Headers start with [, movetext starts with move number or result
+    const lines = cleaned.split('\n');
+    let moveStartIdx = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim().startsWith('[')) {
+        moveStartIdx = i + 1;
+      }
+    }
+    const movesSection = lines.slice(moveStartIdx).join(' ');
+
     const tokens = movesSection
       .replace(/\d+\.+\s*/g, '')
       .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, '')
