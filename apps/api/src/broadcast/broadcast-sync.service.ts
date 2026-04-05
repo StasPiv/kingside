@@ -664,43 +664,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   private computeFenFromMoves(pgnText: string): string | null {
-    // Strip PGN comments in { } (e.g. {[%clk 1:30:00]}, {[%eval 0.5]})
+    // Strip PGN comments in { } that chess.js cannot handle
+    // e.g. {[%clk 1:30:00]}, {[%eval 0.5]}, { Inaccuracy. Nf3 was best. }
     const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
 
-    // Extract moves section (after last double-newline, i.e. after headers)
-    // Find the movetext: it's the part AFTER the last header line
-    // Headers start with [, movetext starts with move number or result
-    const lines = cleaned.split('\n');
-    let moveStartIdx = 0;
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trim().startsWith('[')) {
-        moveStartIdx = i + 1;
-      }
-    }
-    const movesSection = lines.slice(moveStartIdx).join(' ');
-
-    const tokens = movesSection
-      .replace(/\d+\.+\s*/g, '')
-      .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, '')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-
-    if (tokens.length === 0) return null;
-
-    // Apply moves one by one — cheaper than loadPgn (no header parsing)
     try {
       const chess = new Chess();
-      for (const token of tokens) {
-        try {
-          chess.move(token);
-        } catch {
-          break;
-        }
-      }
+      chess.loadPgn(cleaned);
       if (chess.history().length > 0) return chess.fen();
-    } catch (e: unknown) {
-      this.logger.warn(`Broadcast PGN parse error: ${(e as Error).message ?? e}`);
+    } catch {
+      // loadPgn failed — no valid moves in PGN
     }
     return null;
   }
