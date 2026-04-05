@@ -1627,6 +1627,44 @@
   .stockfish-line {
     flex-wrap: wrap;
   }
+
+  /* KS-1175: Hide breadcrumbs on mobile */
+  .analysis-breadcrumbs {
+    display: none;
+  }
+
+  /* KS-1175: Hide Workshop shortcut and HelpButton on mobile */
+  .analysis-workshop-shortcut {
+    display: none;
+  }
+
+  /* KS-1175: Hide individual player rows on mobile, show combined */
+  .analysis-player-row {
+    display: none;
+  }
+
+  .analysis-players-combined {
+    display: flex;
+  }
+}
+
+/* KS-1175: Combined player row (mobile only) */
+.analysis-players-combined {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 4px;
+  background: #0f172a;
+  border-radius: 4px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.analysis-players-vs {
+  font-size: 11px;
+  color: #666;
+  flex-shrink: 0;
 }
 
 /* PGN Headers (KS-1126) */

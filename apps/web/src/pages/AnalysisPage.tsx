@@ -690,6 +690,17 @@ export function AnalysisPage() {
         )}
         <div className="analysis-board-wrapper">
           {gameData && (
+            <div className="analysis-players-combined">
+              <span className="analysis-player-dot analysis-player-dot--white" />
+              <span className="analysis-player-name">{gameData.white.username}</span>
+              {gameData.whiteRatingBefore != null && <span className="analysis-player-rating">{gameData.whiteRatingBefore}</span>}
+              <span className="analysis-players-vs">vs</span>
+              <span className="analysis-player-dot analysis-player-dot--black" />
+              <span className="analysis-player-name">{gameData.black.username}</span>
+              {gameData.blackRatingBefore != null && <span className="analysis-player-rating">{gameData.blackRatingBefore}</span>}
+            </div>
+          )}
+          {gameData && (
             <div className="analysis-player-row">
               <span className="analysis-player-dot analysis-player-dot--black" />
               <span className="analysis-player-name">{gameData.black.username}</span>
