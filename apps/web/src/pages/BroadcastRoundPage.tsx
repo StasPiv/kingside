@@ -41,6 +41,18 @@ function computeLastMove(pgn: string, moves?: string[]): { from: string; to: str
   }
 }
 
+const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/** Use currentFen from API, but fall back to PGN parsing if currentFen is stale (still initial position with PGN moves present) */
+function resolveFen(currentFen: string | null | undefined, pgn: string, moves?: string[]): string {
+  if (currentFen && currentFen !== INITIAL_FEN) return currentFen;
+  // currentFen is null/initial — try to compute from PGN/moves
+  const computed = computeFen(pgn, moves);
+  // If computed is also initial but currentFen was explicitly set, trust API
+  if (computed === INITIAL_FEN && currentFen) return currentFen;
+  return computed;
+}
+
 function computeFen(pgn: string, moves?: string[]): string {
   if (pgn) {
     try {
@@ -62,7 +74,7 @@ function computeFen(pgn: string, moves?: string[]): string {
       // fall through
     }
   }
-  return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  return INITIAL_FEN;
 }
 
 // Lichess types
@@ -146,7 +158,7 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
         <div className="dgt-games">
           <div className="dgt-boards-grid">
             {games.map((game, idx) => {
-              const fen = game.currentFen || computeFen(game.pgn ?? '');
+              const fen = resolveFen(game.currentFen, game.pgn ?? '');
               const lastMove = computeLastMove(game.pgn ?? '');
               const hlStyles: Record<string, React.CSSProperties> = {};
               if (lastMove) {
@@ -420,7 +432,7 @@ export function BroadcastRoundPage() {
               const white = formatPlayerName(game.white);
               const black = formatPlayerName(game.black);
               const result = formatResult(game.result);
-              const fen = game.currentFen || computeFen(game.pgn, game.moves);
+              const fen = resolveFen(game.currentFen, game.pgn, game.moves);
               const lastMove = computeLastMove(game.pgn, game.moves);
               const highlightStyles: Record<string, React.CSSProperties> = {};
               if (lastMove) {
