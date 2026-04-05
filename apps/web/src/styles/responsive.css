@@ -390,25 +390,26 @@
     height: 24px;
   }
 
-  /* Navigation controls: compact row (KS-924) */
+  /* Navigation controls: large touch targets (KS-924/KS-1185) */
   .analysis-board-controls {
     flex: none;
-    height: 32px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0;
-    padding: 0 2px;
-    overflow-x: auto;
+    gap: 6px;
+    padding: 0 4px;
+    overflow-x: visible;
     flex-wrap: nowrap;
   }
 
   .analysis-board-controls button {
-    min-width: 32px;
-    min-height: 28px;
-    font-size: 13px;
-    padding: 2px 6px;
-    flex-shrink: 0;
+    min-width: 48px;
+    min-height: 40px;
+    font-size: 18px;
+    padding: 8px 0;
+    flex: 1;
+    max-width: 64px;
   }
 
   /* FEN/PGN export buttons: compact (KS-924) */
