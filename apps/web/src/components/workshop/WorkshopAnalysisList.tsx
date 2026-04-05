@@ -11,19 +11,13 @@ const LS_SAVED_FILTERS_KEY = 'workshopSavedFilters';
 type CategoryFilter = 'all' | 'game_review' | 'puzzle' | 'analysis';
 
 type SavedFilter = {
+  id: string;
   name: string;
-  category: CategoryFilter;
-  tags: string[];
-  search: string;
+  category: string | null;
+  tags: string | null;
+  search: string | null;
+  sortOrder: string | null;
 };
-
-function loadSavedFilters(): SavedFilter[] {
-  try { return JSON.parse(localStorage.getItem(LS_SAVED_FILTERS_KEY) || '[]'); } catch { return []; }
-}
-
-function saveSavedFilters(filters: SavedFilter[]) {
-  localStorage.setItem(LS_SAVED_FILTERS_KEY, JSON.stringify(filters));
-}
 
 function AnalysisItemTitle({ analysis, categoryIcon }: { analysis: AnalysisListItem; categoryIcon: string }) {
   return (
@@ -63,7 +57,9 @@ export function WorkshopAnalysisList() {
   const [selectedTags, setSelectedTagsState] = useState<string[]>(urlTags);
   const [addingTagId, setAddingTagId] = useState<string | null>(null);
   const [tagInput, setTagInput] = useState('');
-  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(loadSavedFilters);
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [savingFilter, setSavingFilter] = useState(false);
+  const [filterNameInput, setFilterNameInput] = useState('');
 
   // Sync state → URL
   const updateUrl = useCallback((cat: CategoryFilter, tags: string[], search: string) => {
@@ -94,28 +90,36 @@ export function WorkshopAnalysisList() {
     });
   };
 
-  const handleSaveFilter = () => {
-    const name = prompt(t('workshop.myAnalyses.saveFilterPrompt', 'Filter name:'));
-    if (!name?.trim()) return;
-    const filter: SavedFilter = { name: name.trim(), category: categoryFilter, tags: [...selectedTags], search: searchQuery };
-    const updated = [...savedFilters, filter];
-    setSavedFilters(updated);
-    saveSavedFilters(updated);
-  };
+  const handleSaveFilter = useCallback(async () => {
+    const name = filterNameInput.trim();
+    if (!name) return;
+    setSavingFilter(false);
+    setFilterNameInput('');
+    try {
+      const created = await api.post<SavedFilter>('/api/analyses/filters', {
+        name,
+        category: categoryFilter === 'all' ? '' : categoryFilter,
+        tags: selectedTags.join(','),
+        search: searchQuery,
+      });
+      setSavedFilters((prev) => [created, ...prev]);
+    } catch { /* ignore */ }
+  }, [filterNameInput, categoryFilter, selectedTags, searchQuery]);
 
-  const handleApplyFilter = (filter: SavedFilter) => {
-    setCategoryFilterState(filter.category);
-    setSelectedTagsState(filter.tags);
-    setSearchQueryState(filter.search);
+  const handleApplyFilter = useCallback((filter: SavedFilter) => {
+    const cat = (filter.category || 'all') as CategoryFilter;
+    const tags = filter.tags ? filter.tags.split(',').filter(Boolean) : [];
+    setCategoryFilterState(cat);
+    setSelectedTagsState(tags);
+    setSearchQueryState(filter.search || '');
     setVisibleCount(PAGE_SIZE);
-    updateUrl(filter.category, filter.tags, filter.search);
-  };
+    updateUrl(cat, tags, filter.search || '');
+  }, [updateUrl]);
 
-  const handleDeleteFilter = (idx: number) => {
-    const updated = savedFilters.filter((_, i) => i !== idx);
-    setSavedFilters(updated);
-    saveSavedFilters(updated);
-  };
+  const handleDeleteFilter = useCallback(async (id: string) => {
+    setSavedFilters((prev) => prev.filter((f) => f.id !== id));
+    try { await api.delete(`/api/analyses/filters/${id}`); } catch { /* ignore */ }
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -125,6 +129,35 @@ export function WorkshopAnalysisList() {
       .then((data) => setAllAnalyses(data))
       .catch(() => setError(t('common.loadError', 'Failed to load analyses')))
       .finally(() => setLoading(false));
+
+    // Load saved filters from API + migrate localStorage
+    api.get<SavedFilter[]>('/api/analyses/filters')
+      .then(async (filters) => {
+        setSavedFilters(filters);
+        // Migrate from localStorage if any
+        try {
+          const raw = localStorage.getItem(LS_SAVED_FILTERS_KEY);
+          if (raw) {
+            const local: { name: string; category: string; tags: string[]; search: string }[] = JSON.parse(raw);
+            if (local.length > 0) {
+              const created = await Promise.all(
+                local.map((f) =>
+                  api.post<SavedFilter>('/api/analyses/filters', {
+                    name: f.name,
+                    category: f.category === 'all' ? '' : f.category,
+                    tags: Array.isArray(f.tags) ? f.tags.join(',') : (f.tags || ''),
+                    search: f.search || '',
+                  }).catch(() => null),
+                ),
+              );
+              const migrated = created.filter(Boolean) as SavedFilter[];
+              if (migrated.length > 0) setSavedFilters((prev) => [...migrated, ...prev]);
+              localStorage.removeItem(LS_SAVED_FILTERS_KEY);
+            }
+          }
+        } catch { /* ignore migration errors */ }
+      })
+      .catch(() => {});
   }, [user, t]);
 
   // Debounced API search when query >= 2 chars
@@ -316,9 +349,32 @@ export function WorkshopAnalysisList() {
           <button className="workshop-tag-clear" onClick={() => setSelectedTags([])}>
             {t('workshop.myAnalyses.clearTags', 'Clear')}
           </button>
-          <button className="workshop-tag-clear" onClick={handleSaveFilter}>
-            {t('workshop.myAnalyses.saveFilter', 'Save filter')}
-          </button>
+          {savingFilter ? (
+            <span className="workshop-save-filter-inline">
+              <input
+                type="text"
+                className="workshop-save-filter-input"
+                value={filterNameInput}
+                onChange={(e) => setFilterNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleSaveFilter();
+                  if (e.key === 'Escape') { setSavingFilter(false); setFilterNameInput(''); }
+                }}
+                placeholder={t('workshop.myAnalyses.filterName', 'Filter name')}
+                autoFocus
+              />
+              <button className="workshop-tag-clear" onClick={handleSaveFilter}>
+                {t('common.save', 'Save')}
+              </button>
+              <button className="workshop-tag-clear" onClick={() => { setSavingFilter(false); setFilterNameInput(''); }}>
+                {t('common.cancel', 'Cancel')}
+              </button>
+            </span>
+          ) : (
+            <button className="workshop-tag-clear" onClick={() => setSavingFilter(true)}>
+              {t('workshop.myAnalyses.saveFilter', 'Save filter')}
+            </button>
+          )}
         </div>
       )}
 
@@ -326,10 +382,10 @@ export function WorkshopAnalysisList() {
       {savedFilters.length > 0 && (
         <div className="workshop-saved-filters">
           <span className="workshop-saved-filters__label">{t('workshop.myAnalyses.savedFilters', 'Saved:')}</span>
-          {savedFilters.map((f, i) => (
-            <span key={i} className="workshop-saved-filter-chip" onClick={() => handleApplyFilter(f)}>
+          {savedFilters.map((f) => (
+            <span key={f.id} className="workshop-saved-filter-chip" onClick={() => handleApplyFilter(f)}>
               {f.name}
-              <button onClick={(e) => { e.stopPropagation(); handleDeleteFilter(i); }}>×</button>
+              <button onClick={(e) => { e.stopPropagation(); handleDeleteFilter(f.id); }}>×</button>
             </span>
           ))}
         </div>

@@ -732,6 +732,27 @@
   border-radius: 0;
 }
 
+.workshop-save-filter-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workshop-save-filter-input {
+  background: #2a2a4e;
+  border: 1px solid #4a4a7e;
+  border-radius: 4px;
+  color: #e0e0e0;
+  padding: 2px 6px;
+  font-size: 12px;
+  width: 120px;
+  outline: none;
+}
+
+.workshop-save-filter-input:focus {
+  border-color: #7c83ff;
+}
+
 .workshop-saved-filters {
   display: flex;
   flex-wrap: wrap;
