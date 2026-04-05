@@ -35,6 +35,7 @@ export interface DgtGame {
   result: string;
   pgn: string;
   moves: string[];
+  currentFen?: string;
 }
 
 export interface DgtRoundResult {

@@ -420,7 +420,7 @@ export function BroadcastRoundPage() {
               const white = formatPlayerName(game.white);
               const black = formatPlayerName(game.black);
               const result = formatResult(game.result);
-              const fen = computeFen(game.pgn, game.moves);
+              const fen = game.currentFen || computeFen(game.pgn, game.moves);
               const lastMove = computeLastMove(game.pgn, game.moves);
               const highlightStyles: Record<string, React.CSSProperties> = {};
               if (lastMove) {
