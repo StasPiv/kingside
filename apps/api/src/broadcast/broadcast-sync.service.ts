@@ -11,6 +11,10 @@ const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
 const FETCH_TIMEOUT_MS = 30_000; // 30 seconds
 const FETCH_COOLDOWN_TTL = 60 * 60; // 1 hour
+const SYNC_LOCK_KEY = 'broadcast:sync:lock';
+const SYNC_LOCK_TTL = 25; // seconds — shorter than SYNC_INTERVAL_MS to auto-release
+const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
+const PINNED_LOCK_TTL = 8; // seconds — shorter than PINNED_POLL_INTERVAL_MS
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -106,7 +110,24 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     this.activeStreams.clear();
   }
 
+  /**
+   * Acquire a distributed lock via Redis SET NX.
+   * Returns true if lock was acquired, false if another instance holds it.
+   */
+  private async acquireLock(key: string, ttlSec: number): Promise<boolean> {
+    try {
+      const result = await this.redis.set(key, process.pid.toString(), 'EX', ttlSec, 'NX');
+      return result === 'OK';
+    } catch {
+      return false; // Redis error — skip sync to be safe
+    }
+  }
+
   async syncBroadcasts(): Promise<void> {
+    if (!await this.acquireLock(SYNC_LOCK_KEY, SYNC_LOCK_TTL)) {
+      this.logger.debug('Sync lock held by another instance, skipping');
+      return;
+    }
     this.logger.log('Syncing broadcasts from Lichess...');
 
     try {
@@ -156,6 +177,9 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   async syncPinnedBroadcasts(): Promise<void> {
+    if (!await this.acquireLock(PINNED_LOCK_KEY, PINNED_LOCK_TTL)) {
+      return; // another instance is handling pinned sync
+    }
     for (const tourId of this.pinnedBroadcastIds) {
       try {
         const bc = await this.fetchBroadcastById(tourId);
