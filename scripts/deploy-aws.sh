@@ -179,6 +179,24 @@ if $DEPLOY_API; then
     docker tag kingside-api:latest "${ECR_URI}:latest"
     docker push "${ECR_URI}:latest" 2>&1 | tail -3
 
+    echo "[api] Running Prisma migrations..."
+    VPC_ID=$(aws ec2 describe-vpcs --filters "Name=cidr-block,Values=10.0.0.0/16" --query 'Vpcs[0].VpcId' --output text)
+    MIGRATE_SUBNET=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" --query 'Subnets[0].SubnetId' --output text)
+    MIGRATE_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[0].GroupId' --output text)
+    MIGRATE_TASK=$(aws ecs run-task \
+        --cluster "$ECS_CLUSTER" --task-definition kingside-api --launch-type FARGATE \
+        --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
+        --overrides '{"containerOverrides":[{"name":"kingside-api","command":["sh","-c","cd /app/apps/api && npx prisma migrate deploy"]}]}' \
+        --query 'tasks[0].taskArn' --output text)
+    aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
+    MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
+        --query 'tasks[0].containers[0].exitCode' --output text)
+    if [ "$MIGRATE_EXIT" != "0" ]; then
+        echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+        exit 1
+    fi
+    echo "  Migrations applied."
+
     echo "[api] Updating ECS service..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
