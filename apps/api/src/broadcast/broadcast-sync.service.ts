@@ -18,8 +18,7 @@ const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
 const PINNED_LOCK_TTL = 25; // seconds — shorter than PINNED_POLL_INTERVAL_MS
 const PGN_HASH_TTL = 300; // 5 min — how long we remember PGN hash to skip re-parse
 const RATE_LIMIT_DELAY_MS = 1500; // delay between sequential Lichess API calls
-const RATE_LIMIT_429_BACKOFF_KEY = 'broadcast:lichess-429-backoff';
-const RATE_LIMIT_429_BACKOFF_TTL = 60; // 1 min backoff on 429
+const RATE_LIMIT_429_BACKOFF_TTL = 60; // seconds — in-memory backoff on 429
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -70,6 +69,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private readonly activeStreams = new Map<string, AbortController>();
   private gateway: BroadcastGateway | null = null;
   private readonly pinnedBroadcastIds: string[];
+  /** In-memory 429 backoff — resets on restart, no Redis persistence issues */
+  private rateLimitBackoffUntil = 0;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -115,27 +116,22 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Rate-limited fetch wrapper for Lichess API.
-   * - Delays between sequential requests (RATE_LIMIT_DELAY_MS)
-   * - On 429: sets backoff in Redis, subsequent calls skip for BACKOFF_TTL
+   * - On 429: in-memory backoff for BACKOFF_TTL (resets on process restart)
+   * - Logs warnings for non-ok responses
    */
   private async lichessFetch(url: string, init?: RequestInit): Promise<Response> {
-    // Check if we're in 429 backoff
-    try {
-      const backoff = await this.redis.get(RATE_LIMIT_429_BACKOFF_KEY);
-      if (backoff) {
-        throw new Error('Lichess 429 backoff active — skipping request');
-      }
-    } catch (e: any) {
-      if (e.message?.includes('backoff active')) throw e;
-      // Redis error — proceed
+    // Check in-memory 429 backoff
+    if (Date.now() < this.rateLimitBackoffUntil) {
+      const secsLeft = Math.ceil((this.rateLimitBackoffUntil - Date.now()) / 1000);
+      throw new Error(`Lichess 429 backoff active (${secsLeft}s left) — skipping`);
     }
 
     const res = await fetch(url, init);
 
     if (res.status === 429) {
-      this.logger.warn(`Lichess 429 rate limited on ${url}. Backing off for ${RATE_LIMIT_429_BACKOFF_TTL}s`);
-      await this.redis.set(RATE_LIMIT_429_BACKOFF_KEY, '1', 'EX', RATE_LIMIT_429_BACKOFF_TTL).catch(() => {});
-      throw new Error(`Lichess 429 Too Many Requests`);
+      this.rateLimitBackoffUntil = Date.now() + RATE_LIMIT_429_BACKOFF_TTL * 1000;
+      this.logger.warn(`Lichess 429 on ${url}. Backing off for ${RATE_LIMIT_429_BACKOFF_TTL}s`);
+      throw new Error('Lichess 429 Too Many Requests');
     }
 
     return res;
