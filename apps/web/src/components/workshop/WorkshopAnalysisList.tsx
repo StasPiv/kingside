@@ -279,7 +279,7 @@ export function WorkshopAnalysisList() {
       <div className="workshop-search">
         <input
           type="text"
-          placeholder={t('workshop.myAnalyses.searchPlaceholder', 'Search by title...')}
+          placeholder={t('workshop.myAnalyses.searchPlaceholder', 'Search by player, event, opening...')}
           value={searchQuery}
           onChange={(e) => { setSearchQuery(e.target.value); setVisibleCount(PAGE_SIZE); }}
         />

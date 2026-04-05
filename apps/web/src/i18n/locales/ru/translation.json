@@ -567,7 +567,7 @@
       "title": "Мои анализы",
       "delete": "Удалить",
       "empty": "Нет сохранённых анализов",
-      "searchPlaceholder": "Поиск по названию...",
+      "searchPlaceholder": "Поиск по игроку, турниру, дебюту...",
       "tagPlaceholder": "метка...",
       "clearTags": "Очистить",
       "saveFilter": "Сохранить фильтр",

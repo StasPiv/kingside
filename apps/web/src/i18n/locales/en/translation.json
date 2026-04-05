@@ -567,7 +567,7 @@
       "title": "My Analyses",
       "delete": "Delete",
       "empty": "No saved analyses yet",
-      "searchPlaceholder": "Search by title...",
+      "searchPlaceholder": "Search by player, event, opening...",
       "tagPlaceholder": "tag...",
       "clearTags": "Clear",
       "saveFilter": "Save filter",
