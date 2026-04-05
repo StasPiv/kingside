@@ -43,7 +43,19 @@ export class AnalysisService implements OnModuleInit {
       const headline = this.buildHeadline(row.pgn ?? undefined);
       await this.prisma.analysis.update({
         where: { id: row.id },
-        data: { ...meta, headline },
+        data: {
+          headline,
+          opening: meta.opening ?? null,
+          event: meta.event ?? null,
+          site: meta.site ?? null,
+          pgnDate: meta.pgnDate ?? null,
+          round: meta.round ?? null,
+          white: meta.white ?? null,
+          black: meta.black ?? null,
+          whiteElo: meta.whiteElo ?? null,
+          blackElo: meta.blackElo ?? null,
+          result: meta.result ?? null,
+        },
       });
     }
 
@@ -142,7 +154,16 @@ export class AnalysisService implements OnModuleInit {
         headline,
         pgn: dto.pgn ?? null,
         fen: dto.fen ?? null,
-        ...meta,
+        opening: meta.opening ?? null,
+        event: meta.event ?? null,
+        site: meta.site ?? null,
+        pgnDate: meta.pgnDate ?? null,
+        round: meta.round ?? null,
+        white: meta.white ?? null,
+        black: meta.black ?? null,
+        whiteElo: meta.whiteElo ?? null,
+        blackElo: meta.blackElo ?? null,
+        result: meta.result ?? null,
         category: dto.category ?? 'analysis',
       },
     });
@@ -220,9 +241,7 @@ export class AnalysisService implements OnModuleInit {
     if (!analysis) throw new NotFoundException('Analysis not found');
     if (analysis.userId !== userId) throw new ForbiddenException();
 
-    const metaUpdate = dto.pgn !== undefined
-      ? { headline: this.buildHeadline(dto.pgn), ...this.extractMetadata(dto.pgn) }
-      : {};
+    const meta = dto.pgn !== undefined ? this.extractMetadata(dto.pgn) : null;
 
     return this.prisma.analysis.update({
       where: { id },
@@ -232,7 +251,19 @@ export class AnalysisService implements OnModuleInit {
         ...(dto.fen !== undefined && { fen: dto.fen }),
         ...(dto.currentPosition !== undefined && { currentPosition: dto.currentPosition }),
         ...(dto.tags !== undefined && { tags: dto.tags.join(' ') }),
-        ...metaUpdate,
+        ...(meta && {
+          headline: this.buildHeadline(dto.pgn),
+          opening: meta.opening ?? null,
+          event: meta.event ?? null,
+          site: meta.site ?? null,
+          pgnDate: meta.pgnDate ?? null,
+          round: meta.round ?? null,
+          white: meta.white ?? null,
+          black: meta.black ?? null,
+          whiteElo: meta.whiteElo ?? null,
+          blackElo: meta.blackElo ?? null,
+          result: meta.result ?? null,
+        }),
       },
     });
   }
