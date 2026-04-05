@@ -146,6 +146,7 @@ export class AnalysisService implements OnModuleInit {
     const title = dto.title ?? this.defaultTitle(now);
     const headline = this.buildHeadline(dto.pgn);
     const meta = this.extractMetadata(dto.pgn);
+    this.logger.log(`Create analysis: pgn=${dto.pgn?.substring(0, 50)}, meta=${JSON.stringify(meta)}, headline=${headline}`);
 
     return this.prisma.analysis.create({
       data: {
