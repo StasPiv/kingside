@@ -2,42 +2,30 @@
  * Polyglot opening book reader.
  * Format: http://hgm.nubati.net/book_format.html
  * Each entry: 16 bytes (8 hash + 2 move + 2 weight + 4 learn)
+ *
+ * Zobrist keys from https://github.com/ddugovic/polyglot/random.c
  */
 
-// Zobrist random numbers for Polyglot hashing
-// Ported from polyglot source: Random64.h
-const RANDOM64: bigint[] = [];
+import { readFileSync } from 'fs';
+import { join } from 'path';
 
-// Seed-generated Zobrist keys (standard Polyglot keys)
-// Use pre-computed table loaded from polyglot source
-function initRandom64(): void {
-  // Standard Polyglot uses a specific PRNG seeded with a specific value
-  // We implement the same PRNG for compatibility
-  let s = 1n;
-  for (let i = 0; i < 781; i++) {
-    let r = 0n;
-    for (let j = 0; j < 64; j++) {
-      s = (s * 2862933555777941757n + 7046029254386353087n) & 0xFFFFFFFFFFFFFFFFn;
-      if ((s >> 56n) & 1n) {
-        r |= 1n << BigInt(j);
-      }
-    }
-    RANDOM64.push(r);
-  }
-}
+// Load pre-computed Zobrist random numbers (781 values)
+// Generated from cm-polyglot KeyGenerator.js (standard Polyglot keys)
+const RANDOM64_HEX: string[] = JSON.parse(
+  readFileSync(join(__dirname, 'polyglot-keys.json'), 'utf-8'),
+);
+const RANDOM64: bigint[] = RANDOM64_HEX.map((h) => BigInt(h));
 
-initRandom64();
-
-// Piece mapping: polyglot piece index = kind * 2 + color
+// Piece mapping: polyglot uses kind*2+color indexing
 // kind: 0=pawn, 1=knight, 2=bishop, 3=rook, 4=queen, 5=king
 // color: 0=black, 1=white
 const PIECE_TO_POLY: Record<string, number> = {
-  P: 1, p: 0,   // pawn: white=1, black=0
-  N: 3, n: 2,   // knight
-  B: 5, b: 4,   // bishop
-  R: 7, r: 6,   // rook
-  Q: 9, q: 8,   // queen
-  K: 11, k: 10, // king
+  P: 1, p: 0,
+  N: 3, n: 2,
+  B: 5, b: 4,
+  R: 7, r: 6,
+  Q: 9, q: 8,
+  K: 11, k: 10,
 };
 
 export function polyglotHash(fen: string): bigint {
@@ -49,7 +37,7 @@ export function polyglotHash(fen: string): bigint {
 
   let hash = 0n;
 
-  // Pieces
+  // Pieces: index = 64 * polyPiece + square
   const rows = board.split('/');
   for (let rank = 0; rank < 8; rank++) {
     let file = 0;
@@ -59,29 +47,27 @@ export function polyglotHash(fen: string): bigint {
       } else {
         const polyPiece = PIECE_TO_POLY[ch];
         if (polyPiece !== undefined) {
-          const sq = (7 - rank) * 8 + file; // polyglot square: a1=0, h8=63
-          const idx = 64 * polyPiece + sq;
-          hash ^= RANDOM64[idx];
+          const sq = (7 - rank) * 8 + file;
+          hash ^= RANDOM64[64 * polyPiece + sq];
         }
         file++;
       }
     }
   }
 
-  // Castling
-  const castleOffset = 768;
-  if (castling.includes('K')) hash ^= RANDOM64[castleOffset + 0];
-  if (castling.includes('Q')) hash ^= RANDOM64[castleOffset + 1];
-  if (castling.includes('k')) hash ^= RANDOM64[castleOffset + 2];
-  if (castling.includes('q')) hash ^= RANDOM64[castleOffset + 3];
+  // Castling: indices 768-771
+  if (castling.includes('K')) hash ^= RANDOM64[768];
+  if (castling.includes('Q')) hash ^= RANDOM64[769];
+  if (castling.includes('k')) hash ^= RANDOM64[770];
+  if (castling.includes('q')) hash ^= RANDOM64[771];
 
-  // En passant
+  // En passant: indices 772-779
   if (enPassant !== '-') {
     const epFile = enPassant.charCodeAt(0) - 'a'.charCodeAt(0);
     hash ^= RANDOM64[772 + epFile];
   }
 
-  // Turn
+  // Turn: index 780
   if (turn === 'w') {
     hash ^= RANDOM64[780];
   }
