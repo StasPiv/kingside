@@ -273,6 +273,7 @@ model Analysis {
   pgn             String?  @db.Text
   fen             String?
   opening         String?
+  event           String?
   category        String   @default("analysis")
   tags            String   @default("")
   currentPosition Int?     @map("current_position")

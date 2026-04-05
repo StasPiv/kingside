@@ -76,6 +76,7 @@ export class AnalysisService {
     const title = dto.title ?? this.defaultTitle(now);
     const opening = this.extractOpening(dto.pgn);
     const headline = this.buildHeadline(dto.pgn);
+    const event = dto.pgn ? this.extractHeader(dto.pgn, 'Event') : null;
 
     return this.prisma.analysis.create({
       data: {
@@ -85,6 +86,7 @@ export class AnalysisService {
         pgn: dto.pgn ?? null,
         fen: dto.fen ?? null,
         opening,
+        event,
         category: dto.category ?? 'analysis',
       },
     });
@@ -98,6 +100,7 @@ export class AnalysisService {
         title: true,
         headline: true,
         opening: true,
+        event: true,
         category: true,
         tags: true,
         createdAt: true,
@@ -119,6 +122,7 @@ export class AnalysisService {
           { headline: { contains: query, mode: 'insensitive' } },
           { title: { contains: query, mode: 'insensitive' } },
           { opening: { contains: query, mode: 'insensitive' } },
+          { event: { contains: query, mode: 'insensitive' } },
         ],
       },
       select: {
@@ -164,6 +168,11 @@ export class AnalysisService {
         ? this.buildHeadline(dto.pgn)
         : analysis.headline;
 
+    const event =
+      dto.pgn !== undefined
+        ? this.extractHeader(dto.pgn, 'Event')
+        : analysis.event;
+
     return this.prisma.analysis.update({
       where: { id },
       data: {
@@ -174,6 +183,7 @@ export class AnalysisService {
         ...(dto.tags !== undefined && { tags: dto.tags.join(' ') }),
         opening,
         headline,
+        event,
       },
     });
   }
