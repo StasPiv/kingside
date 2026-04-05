@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { AnalysisListItem } from '@kingside/shared';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../api';
-import { parsePgnHeaders } from '../../hooks/useSavedAnalyses';
 
 const PAGE_SIZE = 20;
 const LS_SAVED_FILTERS_KEY = 'workshopSavedFilters';
@@ -27,33 +26,10 @@ function saveSavedFilters(filters: SavedFilter[]) {
 }
 
 function AnalysisItemTitle({ analysis, categoryIcon }: { analysis: AnalysisListItem; categoryIcon: string }) {
-  const headers = useMemo(() => analysis.pgn ? parsePgnHeaders(analysis.pgn) : null, [analysis.pgn]);
-  const hasPlayers = headers && headers['White'] && headers['Black'];
-
-  if (hasPlayers) {
-    return (
-      <span className="workshop-analysis-item__title">
-        <span className="workshop-analysis-item__cat-icon">{categoryIcon}</span>
-        <span className="workshop-analysis-item__player-white">{headers['White']}</span>
-        {headers['WhiteElo'] && <span className="workshop-analysis-item__elo">({headers['WhiteElo']})</span>}
-        {headers['Result'] && headers['Result'] !== '*' ? (
-          <span className="workshop-analysis-item__result">{headers['Result']}</span>
-        ) : (
-          <span className="workshop-analysis-item__vs">vs</span>
-        )}
-        <span className="workshop-analysis-item__player-black">{headers['Black']}</span>
-        {headers['BlackElo'] && <span className="workshop-analysis-item__elo">({headers['BlackElo']})</span>}
-        {headers['Date'] && headers['Date'] !== '????.??.??' && (
-          <span className="workshop-analysis-item__pgn-date">{headers['Date']}</span>
-        )}
-      </span>
-    );
-  }
-
   return (
     <span className="workshop-analysis-item__title">
       <span className="workshop-analysis-item__cat-icon">{categoryIcon}</span>
-      {analysis.title}
+      {analysis.headline || analysis.title}
     </span>
   );
 }
@@ -157,8 +133,7 @@ export function WorkshopAnalysisList() {
     if (categoryFilter !== 'all' && cat !== categoryFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const h = a.pgn ? parsePgnHeaders(a.pgn) : null;
-      const searchable = [a.title, a.opening, h?.White, h?.Black, h?.Event].filter(Boolean).join(' ').toLowerCase();
+      const searchable = [a.title, a.headline, a.opening].filter(Boolean).join(' ').toLowerCase();
       if (!searchable.includes(q)) return false;
     }
     // Tag filter (AND)

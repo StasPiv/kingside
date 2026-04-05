@@ -613,7 +613,7 @@ export type AnalysisResponse = {
 export type AnalysisListItem = {
   id: string;
   title: string;
-  pgn: string | null;
+  headline: string | null;
   opening: string | null;
   category: string | null;
   tags: string[];
