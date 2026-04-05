@@ -7,7 +7,8 @@ import { BroadcastGateway } from './broadcast.gateway';
 
 const LICHESS_API = 'https://lichess.org/api';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes — metadata discovery only
-const PINNED_POLL_INTERVAL_MS = 30_000; // 30 seconds for PGN polling (was 10s — caused 429)
+const PINNED_POLL_INTERVAL_MS = 60_000; // 60 seconds for PGN polling
+const MAX_PGN_POLLS_PER_CYCLE = 5; // max rounds to poll per cycle (avoid 429)
 const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
 const FETCH_TIMEOUT_MS = 30_000; // 30 seconds
@@ -15,7 +16,7 @@ const FETCH_COOLDOWN_TTL = 60 * 60; // 1 hour
 const SYNC_LOCK_KEY = 'broadcast:sync:lock';
 const SYNC_LOCK_TTL = 4 * 60; // 4 min — shorter than SYNC_INTERVAL_MS to auto-release
 const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
-const PINNED_LOCK_TTL = 25; // seconds — shorter than PINNED_POLL_INTERVAL_MS
+const PINNED_LOCK_TTL = 50; // seconds — shorter than PINNED_POLL_INTERVAL_MS (60s)
 const PGN_HASH_TTL = 300; // 5 min — how long we remember PGN hash to skip re-parse
 const RATE_LIMIT_DELAY_MS = 1500; // delay between sequential Lichess API calls
 const RATE_LIMIT_429_BACKOFF_TTL = 60; // seconds — in-memory backoff on 429
@@ -211,23 +212,33 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Poll ongoing rounds for PGN updates.
-   * Uses DB to find ongoing rounds — covers both pinned and auto-discovered broadcasts.
+   * Prioritizes pinned broadcasts, then other ongoing rounds.
+   * Limited to MAX_PGN_POLLS_PER_CYCLE to avoid Lichess 429.
    */
   async syncPinnedBroadcasts(): Promise<void> {
     if (!await this.acquireLock(PINNED_LOCK_KEY, PINNED_LOCK_TTL)) {
       return;
     }
 
-    // Fetch PGN for all ongoing rounds (not just pinned)
+    // Get ongoing rounds, prioritize pinned broadcasts
     const ongoingRounds = await this.prisma.broadcastRound.findMany({
       where: { status: 'ongoing' },
-      select: { lichessRoundId: true },
+      select: { lichessRoundId: true, broadcast: { select: { lichessId: true } } },
     });
 
-    for (let i = 0; i < ongoingRounds.length; i++) {
+    const pinnedSet = new Set(this.pinnedBroadcastIds);
+    const pinned = ongoingRounds.filter((r) => pinnedSet.has(r.broadcast.lichessId));
+    const others = ongoingRounds.filter((r) => !pinnedSet.has(r.broadcast.lichessId));
+
+    // Pinned first, then others, capped at limit
+    const toFetch = [...pinned, ...others].slice(0, MAX_PGN_POLLS_PER_CYCLE);
+
+    this.logger.log(`PGN poll: ${toFetch.length}/${ongoingRounds.length} ongoing rounds (${pinned.length} pinned)`);
+
+    for (let i = 0; i < toFetch.length; i++) {
       if (i > 0) await this.rateLimitDelay();
-      await this.fetchAndProcessRoundPgn(ongoingRounds[i].lichessRoundId).catch((e: Error) =>
-        this.logger.warn(`PGN poll failed for ${ongoingRounds[i].lichessRoundId}: ${e.message}`),
+      await this.fetchAndProcessRoundPgn(toFetch[i].lichessRoundId).catch((e: Error) =>
+        this.logger.warn(`PGN poll failed for ${toFetch[i].lichessRoundId}: ${e.message}`),
       );
     }
   }
@@ -273,6 +284,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
             where: { roundId: round.id, currentFen: STARTING_FEN },
           });
           if (stale === 0) return; // all games have real FEN — safe to skip
+          this.logger.log(`Re-parsing round ${lichessRoundId}: ${stale} games with stale STARTING_FEN`);
         }
       }
       await this.redis.set(hashKey, newHash, 'EX', PGN_HASH_TTL);
