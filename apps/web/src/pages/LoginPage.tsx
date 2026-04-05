@@ -86,10 +86,10 @@ export function LoginPage() {
   };
 
   const handleTelegramLogin = () => {
-    // Use canonical origin matching the domain registered in BotFather.
-    // window.location.origin may differ (e.g. www.kingside.site vs kingside.site)
-    // which causes "Bot domain invalid" on some devices.
-    const origin = import.meta.env.VITE_APP_ORIGIN || window.location.origin;
+    // Telegram validates origin against the domain registered in BotFather (without www).
+    // Strip www. prefix to prevent "Bot domain invalid" errors.
+    const raw = import.meta.env.VITE_APP_ORIGIN || window.location.origin;
+    const origin = raw.replace(/^(https?:\/\/)www\./i, '$1');
     const returnTo = `${origin}/login`;
     // Use redirect (not popup): COOP: same-origin nullifies window.opener in cross-origin popups
     window.location.href =
