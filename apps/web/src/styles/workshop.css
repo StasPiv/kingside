@@ -732,6 +732,10 @@
   border-radius: 0;
 }
 
+.workshop-save-filter-row {
+  margin-bottom: 6px;
+}
+
 .workshop-save-filter-inline {
   display: inline-flex;
   align-items: center;

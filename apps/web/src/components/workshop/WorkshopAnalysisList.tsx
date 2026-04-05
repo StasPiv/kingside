@@ -349,6 +349,12 @@ export function WorkshopAnalysisList() {
           <button className="workshop-tag-clear" onClick={() => setSelectedTags([])}>
             {t('workshop.myAnalyses.clearTags', 'Clear')}
           </button>
+        </div>
+      )}
+
+      {/* Save filter — visible when any filter is active */}
+      {(selectedTags.length > 0 || searchQuery || categoryFilter !== 'all') && (
+        <div className="workshop-save-filter-row">
           {savingFilter ? (
             <span className="workshop-save-filter-inline">
               <input
