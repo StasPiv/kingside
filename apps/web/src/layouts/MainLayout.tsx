@@ -20,6 +20,8 @@ const isLocalhost = window.location.hostname === 'localhost';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 const TELEGRAM_BOT_ID = import.meta.env.VITE_TELEGRAM_BOT_ID ?? '8447702776';
+// Module-level constant prevents esbuild from optimizing away VITE_APP_ORIGIN (see KS-1179).
+const CONFIGURED_ORIGIN: string | undefined = import.meta.env.VITE_APP_ORIGIN;
 
 function useClickOutside(ref: React.RefObject<HTMLElement | null>, handler: () => void) {
   useEffect(() => {
@@ -247,7 +249,8 @@ export function MainLayout() {
                   aria-label="Telegram"
                   onClick={(e) => {
                     e.preventDefault();
-                    const origin = window.location.origin;
+                    const raw = CONFIGURED_ORIGIN || window.location.origin;
+                    const origin = raw.replace(/^(https?:\/\/)www\./i, '$1');
                     const returnTo = `${origin}/login`;
                     window.location.href =
                       `https://oauth.telegram.org/auth` +
