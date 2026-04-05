@@ -69,6 +69,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private pinnedPollTimer: NodeJS.Timeout | null = null;
   private readonly activeStreams = new Map<string, AbortController>();
   private gateway: BroadcastGateway | null = null;
+  /** Round-robin offset for non-pinned ongoing rounds */
+  private pollOffset = 0;
   private readonly pinnedBroadcastIds: string[];
   /** In-memory 429 backoff — resets on restart, no Redis persistence issues */
   private rateLimitBackoffUntil = 0;
@@ -230,10 +232,20 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     const pinned = ongoingRounds.filter((r) => pinnedSet.has(r.broadcast.lichessId));
     const others = ongoingRounds.filter((r) => !pinnedSet.has(r.broadcast.lichessId));
 
-    // Pinned first, then others, capped at limit
-    const toFetch = [...pinned, ...others].slice(0, MAX_PGN_POLLS_PER_CYCLE);
+    // Pinned always included; remaining slots filled round-robin from others
+    const remainingSlots = Math.max(0, MAX_PGN_POLLS_PER_CYCLE - pinned.length);
+    let rotated: typeof others = [];
+    if (others.length > 0 && remainingSlots > 0) {
+      this.pollOffset = this.pollOffset % others.length;
+      // Take `remainingSlots` starting from pollOffset, wrapping around
+      for (let i = 0; i < Math.min(remainingSlots, others.length); i++) {
+        rotated.push(others[(this.pollOffset + i) % others.length]);
+      }
+      this.pollOffset = (this.pollOffset + remainingSlots) % others.length;
+    }
+    const toFetch = [...pinned, ...rotated];
 
-    this.logger.log(`PGN poll: ${toFetch.length}/${ongoingRounds.length} ongoing rounds (${pinned.length} pinned)`);
+    this.logger.log(`PGN poll: ${toFetch.length}/${ongoingRounds.length} ongoing (${pinned.length} pinned, offset=${this.pollOffset})`);
 
     for (let i = 0; i < toFetch.length; i++) {
       if (i > 0) await this.rateLimitDelay();
