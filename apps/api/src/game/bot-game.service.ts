@@ -72,9 +72,11 @@ export class BotGameService implements OnModuleInit {
     if (bookMove) {
       try {
         const result = await this.gameService.makeMove(gameId, nextPlayerId, bookMove);
+        this.logger.log(`Book move for game ${gameId}: ${bookMove}`);
         return { uci: bookMove, ...result };
-      } catch {
-        // Book move invalid for this position — fall through to Stockfish
+      } catch (e) {
+        this.logger.warn(`Book move ${bookMove} invalid for game ${gameId}: ${e}`);
+        // Fall through to Stockfish
       }
     }
 

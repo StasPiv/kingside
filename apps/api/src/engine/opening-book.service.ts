@@ -47,19 +47,29 @@ export class OpeningBookService implements OnModuleInit {
    * Returns UCI move string or null if position not in book.
    */
   getBookMove(fen: string): string | null {
-    if (this.book.size === 0) return null;
+    if (this.book.size === 0) {
+      this.logger.debug('Book empty — no book loaded');
+      return null;
+    }
 
     const hash = polyglotHash(fen);
     const entries = this.book.get(hash);
-    if (!entries || entries.length === 0) return null;
+    if (!entries || entries.length === 0) {
+      this.logger.debug(`Book MISS: ${fen.split(' ').slice(0, 2).join(' ')}`);
+      return null;
+    }
 
     // Weighted random selection
     const totalWeight = entries.reduce((sum, e) => sum + e.weight, 0);
     let roll = Math.random() * totalWeight;
     for (const entry of entries) {
       roll -= entry.weight;
-      if (roll <= 0) return entry.uci;
+      if (roll <= 0) {
+        this.logger.log(`Book HIT: ${entry.uci} (${entries.length} choices, fen=${fen.split(' ').slice(0, 2).join(' ')})`);
+        return entry.uci;
+      }
     }
+    this.logger.log(`Book HIT: ${entries[0].uci} (fallback)`);
     return entries[0].uci;
   }
 }
