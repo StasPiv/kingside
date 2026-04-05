@@ -258,12 +258,23 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     const pgn = await res.text();
     if (!pgn.trim()) return;
 
-    // Skip expensive PGN parsing if content hasn't changed since last fetch
+    // Skip PGN parsing if content unchanged AND all games have real FEN
     const hashKey = `broadcast:pgn-hash:${lichessRoundId}`;
     const newHash = createHash('md5').update(pgn).digest('hex');
     try {
       const prevHash = await this.redis.get(hashKey);
-      if (prevHash === newHash) return; // PGN unchanged — skip
+      if (prevHash === newHash) {
+        // PGN unchanged — but still re-parse if any game has stale STARTING_FEN
+        const round = await this.prisma.broadcastRound.findUnique({
+          where: { lichessRoundId },
+        });
+        if (round) {
+          const stale = await this.prisma.broadcastGame.count({
+            where: { roundId: round.id, currentFen: STARTING_FEN },
+          });
+          if (stale === 0) return; // all games have real FEN — safe to skip
+        }
+      }
       await this.redis.set(hashKey, newHash, 'EX', PGN_HASH_TTL);
     } catch { /* Redis error — proceed with parse */ }
 
