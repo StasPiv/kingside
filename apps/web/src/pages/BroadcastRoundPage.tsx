@@ -9,6 +9,18 @@ import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types'
 import { formatPlayerName, formatResult } from '../dgt.types';
 
 
+/** Extract last move SAN from PGN for sound */
+function computeLastMoveSan(pgn: string): string | null {
+  try {
+    const chess = new Chess();
+    chess.loadPgn(pgn);
+    const hist = chess.history();
+    return hist.length > 0 ? hist[hist.length - 1] : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Compute last move squares (from, to) for highlight */
 function computeLastMove(pgn: string, moves?: string[]): { from: string; to: string } | null {
   try {
@@ -281,8 +293,8 @@ export function BroadcastRoundPage() {
               const prevPgn = prevGame?.pgn ?? '';
               if (game.moves.length !== prevLen || game.pgn !== prevPgn) {
                 hasChanges = true;
-                // Play sound for new move (not on initial load)
-                if (prevLen > 0 && game.moves.length > prevLen) {
+                // Play sound for new move
+                if (game.moves.length > prevLen) {
                   const lastSan = game.moves[game.moves.length - 1];
                   if (lastSan) playSound(soundEventFromSan(lastSan));
                 }
@@ -301,7 +313,7 @@ export function BroadcastRoundPage() {
   }, [isLichess, tournamentId, roundId, playSound]);
 
   // Reload lichess games on round change + poll every 15s
-  const prevLichessGamesRef = useRef<string>('');
+  const prevLichessGamesRef = useRef<LichessGame[]>([]);
   useEffect(() => {
     if (!isLichess || !tournamentId || !roundId) return;
     let cancelled = false;
@@ -312,12 +324,28 @@ export function BroadcastRoundPage() {
         .then((res) => {
           if (cancelled) return;
           const games = Array.isArray(res?.data) ? res.data : [];
-          // Only update state if data changed (compare PGN fingerprints)
+          const prev = prevLichessGamesRef.current;
+          // Detect new moves and play sound
+          if (!isFirstFetch && prev.length > 0) {
+            for (const game of games) {
+              const prevGame = prev.find((g) => g.id === game.id);
+              const prevPgnLen = prevGame?.pgn?.length ?? 0;
+              const curPgnLen = game.pgn?.length ?? 0;
+              if (curPgnLen > prevPgnLen && game.pgn) {
+                // Extract last SAN from PGN
+                const lastMove = computeLastMoveSan(game.pgn);
+                if (lastMove) playSound(soundEventFromSan(lastMove));
+                break; // one sound per poll
+              }
+            }
+          }
+          // Only update state if data changed
           const fingerprint = games.map((g) => `${g.id}:${g.pgn?.length ?? 0}`).join('|');
-          if (isFirstFetch || fingerprint !== prevLichessGamesRef.current) {
-            prevLichessGamesRef.current = fingerprint;
+          const prevFingerprint = prev.map((g) => `${g.id}:${g.pgn?.length ?? 0}`).join('|');
+          if (isFirstFetch || fingerprint !== prevFingerprint) {
             setLichessGames(games);
           }
+          prevLichessGamesRef.current = games;
           isFirstFetch = false;
           setLoading(false);
         })
@@ -329,7 +357,7 @@ export function BroadcastRoundPage() {
     const intervalId = setInterval(fetchGames, 15_000);
 
     return () => { cancelled = true; clearInterval(intervalId); };
-  }, [isLichess, tournamentId, roundId]);
+  }, [isLichess, tournamentId, roundId, playSound]);
 
   const handleBoardClick = useCallback(
     (game: DgtGame) => {
