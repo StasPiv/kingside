@@ -193,20 +193,33 @@ export class AnalysisService implements OnModuleInit {
     }));
   }
 
+  private buildWordFilter(word: string) {
+    return {
+      OR: [
+        { headline: { contains: word, mode: 'insensitive' as const } },
+        { title: { contains: word, mode: 'insensitive' as const } },
+        { opening: { contains: word, mode: 'insensitive' as const } },
+        { event: { contains: word, mode: 'insensitive' as const } },
+        { white: { contains: word, mode: 'insensitive' as const } },
+        { black: { contains: word, mode: 'insensitive' as const } },
+        { site: { contains: word, mode: 'insensitive' as const } },
+      ],
+    };
+  }
+
   async search(userId: string, query: string, limit = 20) {
     const safeLimit = Math.min(limit, 50);
+    const words = query.trim().split(/\s+/).filter(Boolean);
+
+    // Each word must match at least one field (AND between words, OR between fields)
+    const wordFilters = words.length > 0
+      ? words.map((w) => this.buildWordFilter(w))
+      : [];
+
     const analyses = await this.prisma.analysis.findMany({
       where: {
         userId,
-        OR: [
-          { headline: { contains: query, mode: 'insensitive' } },
-          { title: { contains: query, mode: 'insensitive' } },
-          { opening: { contains: query, mode: 'insensitive' } },
-          { event: { contains: query, mode: 'insensitive' } },
-          { white: { contains: query, mode: 'insensitive' } },
-          { black: { contains: query, mode: 'insensitive' } },
-          { site: { contains: query, mode: 'insensitive' } },
-        ],
+        ...(wordFilters.length > 0 && { AND: wordFilters }),
       },
       select: {
         id: true,
