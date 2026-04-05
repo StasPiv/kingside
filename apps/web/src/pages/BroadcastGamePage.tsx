@@ -18,6 +18,7 @@ import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
 import { formatEval, formatPv } from '../utils/chessFormat';
 import { EvalBar } from '../components/EvalBar';
+import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types';
 import { formatPlayerName } from '../dgt.types';
 
@@ -81,6 +82,7 @@ export function BroadcastGamePage() {
   } = useReviewState();
 
   const chessGame = useMemo(() => new Chess(), []);
+  const { playSound } = useSounds();
 
   const [panelStates, setPanelStates] = useState({
     engine: true,
@@ -261,6 +263,11 @@ export function BroadcastGamePage() {
           const prevMoves = prevGame?.moves.length ?? 0;
           const prevPgn = prevGame?.pgn ?? '';
           if (found.moves.length > prevMoves || (found.pgn && found.pgn !== prevPgn)) {
+            // Play sound for new move (only if not initial load)
+            if (prevMoves > 0 && found.moves.length > prevMoves) {
+              const lastSan = found.moves[found.moves.length - 1];
+              if (lastSan) playSound(soundEventFromSan(lastSan));
+            }
             setGame(found);
             if (isAtEndRef.current || (prevMoves === 0 && prevPgn === '')) {
               loadGameIntoReview(found, loadFromPgn);
@@ -277,7 +284,7 @@ export function BroadcastGamePage() {
       cancelled = true;
       clearInterval(intervalId);
     };
-  }, [tournamentId, roundId, gameIndex, loadFromPgn]);
+  }, [tournamentId, roundId, gameIndex, loadFromPgn, playSound]);
 
   useEffect(() => {
     chessGame.load(currentFen);
