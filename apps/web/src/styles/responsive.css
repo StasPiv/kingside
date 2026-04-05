@@ -333,21 +333,13 @@
     padding-right: 0;
   }
 
-  /* Board: 44vh square, centered (KS-924/KS-929/KS-1012/KS-1211) */
-  /* calc(100vw - 16px) avoids overflow on mobile browsers */
+  /* Board: full width square (KS-1213) */
   .analysis-page .board-container {
-    width: min(calc(100vw - 16px), 44vh) !important;
+    width: calc(100vw - 16px) !important;
     max-width: calc(100vw - 16px) !important;
     height: auto !important;
     aspect-ratio: 1 / 1;
     margin: 0 auto;
-  }
-
-  /* dvh override for modern browsers */
-  @supports (height: 1dvh) {
-    .analysis-page .board-container {
-      width: min(calc(100vw - 16px), 44dvh) !important;
-    }
   }
 
   /* Hide eval bar on mobile — board takes full width */
