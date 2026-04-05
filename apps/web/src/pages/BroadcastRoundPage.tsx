@@ -1,12 +1,33 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types';
 import { formatPlayerName, formatResult } from '../dgt.types';
 
+
+/** Compute last move squares (from, to) for highlight */
+function computeLastMove(pgn: string, moves?: string[]): { from: string; to: string } | null {
+  try {
+    const chess = new Chess();
+    if (pgn) {
+      chess.loadPgn(pgn);
+    } else if (moves && moves.length > 0) {
+      for (const m of moves) chess.move(m);
+    } else {
+      return null;
+    }
+    const hist = chess.history({ verbose: true });
+    if (hist.length === 0) return null;
+    const last = hist[hist.length - 1];
+    return { from: last.from, to: last.to };
+  } catch {
+    return null;
+  }
+}
 
 function computeFen(pgn: string, moves?: string[]): string {
   if (pgn) {
@@ -113,6 +134,13 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
           <div className="dgt-boards-grid">
             {games.map((game, idx) => {
               const fen = computeFen(game.pgn ?? '');
+              const lastMove = computeLastMove(game.pgn ?? '');
+              const hlStyles: Record<string, React.CSSProperties> = {};
+              if (lastMove) {
+                const hl = { backgroundColor: 'rgba(255, 255, 0, 0.4)' };
+                hlStyles[lastMove.from] = hl;
+                hlStyles[lastMove.to] = hl;
+              }
               return (
                 <div
                   key={game.id}
@@ -133,6 +161,7 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
                         allowDragging: false,
                         showNotation: false,
                         animationDurationInMs: 0,
+                        squareStyles: hlStyles,
                       }}
                     />
                   </div>
@@ -157,6 +186,8 @@ export function BroadcastRoundPage() {
   const { tournamentId, roundId } = useParams<{ tournamentId: string; roundId: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { playSound } = useSounds();
+  const prevRoundRef = useRef<DgtRoundResult | null>(null);
 
   // Source detection
   const [isLichess, setIsLichess] = useState<boolean | null>(null);
@@ -237,13 +268,30 @@ export function BroadcastRoundPage() {
 
     const poll = () => {
       api.get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
-        .then((r) => { if (!cancelled) setRound(r); })
+        .then((r) => {
+          if (cancelled) return;
+          // Play sound if any game got a new move
+          const prev = prevRoundRef.current;
+          if (prev) {
+            for (const game of r.games) {
+              const prevGame = prev.games.find((g) => g.gameIndex === game.gameIndex);
+              const prevLen = prevGame?.moves.length ?? 0;
+              if (prevLen > 0 && game.moves.length > prevLen) {
+                const lastSan = game.moves[game.moves.length - 1];
+                if (lastSan) playSound(soundEventFromSan(lastSan));
+                break; // one sound per poll cycle
+              }
+            }
+          }
+          prevRoundRef.current = r;
+          setRound(r);
+        })
         .catch(() => {});
     };
 
     const intervalId = setInterval(poll, 5000);
     return () => { cancelled = true; clearInterval(intervalId); };
-  }, [isLichess, tournamentId, roundId]);
+  }, [isLichess, tournamentId, roundId, playSound]);
 
   // Reload lichess games on round change
   useEffect(() => {
@@ -325,6 +373,13 @@ export function BroadcastRoundPage() {
               const black = formatPlayerName(game.black);
               const result = formatResult(game.result);
               const fen = computeFen(game.pgn, game.moves);
+              const lastMove = computeLastMove(game.pgn, game.moves);
+              const highlightStyles: Record<string, React.CSSProperties> = {};
+              if (lastMove) {
+                const hl = { backgroundColor: 'rgba(255, 255, 0, 0.4)' };
+                highlightStyles[lastMove.from] = hl;
+                highlightStyles[lastMove.to] = hl;
+              }
 
               return (
                 <div
@@ -346,6 +401,7 @@ export function BroadcastRoundPage() {
                         allowDragging: false,
                         showNotation: false,
                         animationDurationInMs: 0,
+                        squareStyles: highlightStyles,
                       }}
                     />
                   </div>
