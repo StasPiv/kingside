@@ -1522,6 +1522,155 @@
   vertical-align: middle;
 }
 
+/* PGN Headers Modal */
+.pgn-headers-modal {
+  background: #1e1e3e;
+  border: 1px solid #4a4a7e;
+  border-radius: 10px;
+  width: 420px;
+  max-width: 92vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.pgn-headers-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid #333;
+}
+
+.pgn-headers-modal__header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #e0e0e0;
+}
+
+.pgn-headers-modal__close {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 22px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.pgn-headers-modal__close:hover {
+  color: #fff;
+}
+
+.pgn-headers-modal__body {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pgn-headers-modal__row {
+  display: flex;
+  gap: 10px;
+}
+
+.pgn-headers-modal__row label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+
+.pgn-headers-modal__row label span {
+  font-size: 12px;
+  color: #999;
+  font-weight: 600;
+}
+
+.pgn-headers-modal__row input,
+.pgn-headers-modal__row select {
+  background: #2a2a4e;
+  border: 1px solid #4a4a7e;
+  border-radius: 4px;
+  color: #e0e0e0;
+  padding: 6px 8px;
+  font-size: 14px;
+  outline: none;
+}
+
+.pgn-headers-modal__row input:focus,
+.pgn-headers-modal__row select:focus {
+  border-color: #7c83ff;
+}
+
+.pgn-headers-modal__row--players {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.pgn-headers-modal__elo {
+  width: 70px;
+}
+
+.pgn-headers-modal__row--half {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.pgn-headers-modal__extra {
+  margin-top: 4px;
+}
+
+.pgn-headers-modal__extra summary {
+  cursor: pointer;
+  color: #7c83ff;
+  font-size: 13px;
+  user-select: none;
+  margin-bottom: 8px;
+}
+
+.pgn-headers-modal__extra summary:hover {
+  color: #a0a4ff;
+}
+
+.pgn-headers-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 18px 14px;
+  border-top: 1px solid #333;
+}
+
+.pgn-headers-modal__cancel {
+  background: transparent;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: #aaa;
+  padding: 6px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pgn-headers-modal__cancel:hover {
+  background: #2a2a4e;
+}
+
+.pgn-headers-modal__apply {
+  background: #7c83ff;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pgn-headers-modal__apply:hover {
+  background: #6b72ee;
+}
+
 /* Mobile split panels - hidden on desktop */
 .analysis-split-panel {
   display: none;

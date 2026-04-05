@@ -8,6 +8,7 @@ import { GameInfoPanel } from '../components/GameInfoPanel';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
 import { EvalBar } from '../components/EvalBar';
 import { SetPositionModal } from '../components/SetPositionModal';
+import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
 import type { EvalLine } from '../hooks/useStockfish';
 import { useEngine } from '../hooks/useEngine';
@@ -254,6 +255,7 @@ export function AnalysisPage() {
   // Engine config (extracted hook)
   const ec = useEngineConfig();
   const [showSetPosition, setShowSetPosition] = useState(false);
+  const [showPgnHeaders, setShowPgnHeaders] = useState(false);
   const [bridgePromoDismissed, setBridgePromoDismissed] = useState(() => {
     try { return localStorage.getItem('bridgePromoDismissed') === '1'; } catch { return false; }
   });
@@ -507,14 +509,16 @@ export function AnalysisPage() {
     try {
       if (history.length === 0) return;
       const headers: string[] = [];
-      headers.push(`[Event "${analysisTitle || 'Analysis'}"]`);
-      headers.push(`[Site "Kingside"]`);
-      headers.push(`[Date "${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}"]`);
-      if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
+      headers.push(`[Event "${pgnHeaders['Event'] || analysisTitle || 'Analysis'}"]`);
+      headers.push(`[Site "${pgnHeaders['Site'] || 'Kingside'}"]`);
+      headers.push(`[Date "${pgnHeaders['Date'] || new Date().toISOString().slice(0, 10).replace(/-/g, '.')}"]`);
+      if (pgnHeaders['Round']) headers.push(`[Round "${pgnHeaders['Round']}"]`);
       if (pgnHeaders['White']) headers.push(`[White "${pgnHeaders['White']}"]`);
       if (pgnHeaders['Black']) headers.push(`[Black "${pgnHeaders['Black']}"]`);
-      if (pgnHeaders['Result']) headers.push(`[Result "${pgnHeaders['Result']}"]`);
-      else headers.push('[Result "*"]');
+      headers.push(`[Result "${pgnHeaders['Result'] || '*'}"]`);
+      if (pgnHeaders['WhiteElo']) headers.push(`[WhiteElo "${pgnHeaders['WhiteElo']}"]`);
+      if (pgnHeaders['BlackElo']) headers.push(`[BlackElo "${pgnHeaders['BlackElo']}"]`);
+      if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
       const moves = serializeToAnnotatedPgn(history);
       const pgn = headers.join('\n') + '\n\n' + moves + '\n';
       const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
@@ -811,16 +815,25 @@ export function AnalysisPage() {
               </span>
             )}
             <span className="analysis-controls-spacer" />
-            {/* Desktop: FEN and PGN buttons */}
+            {/* Desktop: FEN, Game Info, PGN buttons */}
             <span className="analysis-desktop-only">
               {!gameId && (
-                <button
-                  className="analysis-export-btn"
-                  onClick={() => setShowSetPosition(true)}
-                  title={t('position.title', 'Set Position')}
-                >
-                  FEN
-                </button>
+                <>
+                  <button
+                    className="analysis-export-btn"
+                    onClick={() => setShowSetPosition(true)}
+                    title={t('position.title', 'Set Position')}
+                  >
+                    FEN
+                  </button>
+                  <button
+                    className="analysis-export-btn"
+                    onClick={() => setShowPgnHeaders(true)}
+                    title={t('analysis.gameInfo', 'Game Info')}
+                  >
+                    Info
+                  </button>
+                </>
               )}
               <button
                 className="analysis-export-btn"
@@ -843,9 +856,14 @@ export function AnalysisPage() {
               {showOverflowMenu && (
                 <div className="analysis-overflow-menu">
                   {!gameId && (
-                    <button onClick={() => { setShowSetPosition(true); setShowOverflowMenu(false); }}>
-                      {t('position.title', 'Set Position')} (FEN)
-                    </button>
+                    <>
+                      <button onClick={() => { setShowSetPosition(true); setShowOverflowMenu(false); }}>
+                        {t('position.title', 'Set Position')} (FEN)
+                      </button>
+                      <button onClick={() => { setShowPgnHeaders(true); setShowOverflowMenu(false); }}>
+                        {t('analysis.gameInfo', 'Game Info')}
+                      </button>
+                    </>
                   )}
                   <button
                     onClick={() => { handleExportPgn(); setShowOverflowMenu(false); }}
@@ -1165,6 +1183,14 @@ export function AnalysisPage() {
             setShowSetPosition(false);
           }}
           onClose={() => setShowSetPosition(false)}
+        />
+      )}
+
+      {showPgnHeaders && (
+        <PgnHeadersModal
+          headers={pgnHeaders}
+          onApply={(h) => setPgnHeaders(h)}
+          onClose={() => setShowPgnHeaders(false)}
         />
       )}
     </div>
