@@ -185,8 +185,10 @@
 
 /* Eval bar + board row: fills remaining height inside board-wrapper.
    KS-970: explicit width: 100% so children can resolve percentages. */
+/* KS-1193: flex:1 + min-height:0 lets board shrink for controls */
 .analysis-eval-board-row {
   display: flex;
+  flex: 1 1 0%;
   gap: 0;
   align-items: stretch;
   min-height: 0;
@@ -202,9 +204,10 @@
    max-width caps board size based on viewport height so it stays square.
    On wide screens: board fills space up to max-width.
    On narrow screens: board shrinks with available space. */
+/* KS-1193: 240px reserves space for header+metabar+controls+padding */
 .analysis-page .board-container {
   flex: 1 1 0%;
-  max-width: calc(100vh - 190px);
+  max-width: calc(100vh - 240px);
   min-width: 0;
   align-self: flex-start;
 }
