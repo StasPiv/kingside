@@ -10,6 +10,14 @@ import './styles.css';
 
 initClientLogger();
 
+// Hide mobile browser address bar by triggering a minimal scroll.
+// Only on touch devices, after first load.
+if ('ontouchstart' in window && !window.matchMedia('(display-mode: standalone)').matches) {
+  window.addEventListener('load', () => {
+    setTimeout(() => window.scrollTo(0, 1), 100);
+  }, { once: true });
+}
+
 // In development mode, unregister any existing Service Workers
 // to ensure fresh assets are always served
 if (import.meta.env.DEV && 'serviceWorker' in navigator) {

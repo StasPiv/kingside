@@ -678,6 +678,7 @@
   display: grid;
   grid-template-columns: 300px 1fr;
   height: calc(100vh - 56px);
+  height: calc(100dvh - 56px);
   max-width: 1200px;
   margin: 0 auto;
 }
