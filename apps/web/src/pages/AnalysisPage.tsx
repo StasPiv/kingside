@@ -133,6 +133,7 @@ export function AnalysisPage() {
   });
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(analysisTitle);
+  const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
 
   useEffect(() => {
     if (!gameId && localIdRef.current && !analysisId) {
@@ -418,6 +419,24 @@ export function AnalysisPage() {
 
   useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
+  // --- Promotion detection ---
+  const isPromotionMove = useCallback((from: string, to: string): boolean => {
+    const piece = game.get(from as Square);
+    if (!piece || piece.type !== 'p') return false;
+    const targetRank = to[1];
+    return (piece.color === 'w' && targetRank === '8') || (piece.color === 'b' && targetRank === '1');
+  }, [game]);
+
+  const handlePromotionChoice = useCallback((piece: 'q' | 'r' | 'b' | 'n') => {
+    if (!pendingPromotion) return;
+    makeVariantMove(pendingPromotion.from, pendingPromotion.to, piece);
+    setPendingPromotion(null);
+  }, [pendingPromotion, makeVariantMove]);
+
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+  }, []);
+
   // --- Engine control ---
   const toggleAnalysis = useCallback(() => {
     setAnalysisEnabled((prev) => {
@@ -478,8 +497,18 @@ export function AnalysisPage() {
   );
 
   const onClickMove = useCallback(
-    (from: Square, to: Square): boolean => makeVariantMove(from, to),
-    [makeVariantMove],
+    (from: Square, to: Square): boolean => {
+      if (isPromotionMove(from, to)) {
+        // Validate the move is legal before showing dialog
+        const testGame = new Chess(currentFen);
+        const testMove = testGame.move({ from, to, promotion: 'q' });
+        if (!testMove) return false;
+        setPendingPromotion({ from, to });
+        return true;
+      }
+      return makeVariantMove(from, to);
+    },
+    [makeVariantMove, isPromotionMove, currentFen],
   );
 
   const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
@@ -506,17 +535,31 @@ export function AnalysisPage() {
   const handlePieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { piece: unknown; sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        const testGame = new Chess(currentFen);
+        const testMove = testGame.move({ from: sourceSquare as Square, to: targetSquare as Square, promotion: 'q' });
+        if (!testMove) return false;
+        setPendingPromotion({ from: sourceSquare, to: targetSquare });
+        return true;
+      }
       return makeVariantMove(sourceSquare, targetSquare);
     },
-    [makeVariantMove],
+    [makeVariantMove, isPromotionMove, currentFen],
   );
 
   const handleFastDragDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
       if (!targetSquare) return false;
+      if (isPromotionMove(sourceSquare, targetSquare)) {
+        const testGame = new Chess(currentFen);
+        const testMove = testGame.move({ from: sourceSquare as Square, to: targetSquare as Square, promotion: 'q' });
+        if (!testMove) return false;
+        setPendingPromotion({ from: sourceSquare, to: targetSquare });
+        return true;
+      }
       return makeVariantMove(sourceSquare, targetSquare);
     },
-    [makeVariantMove],
+    [makeVariantMove, isPromotionMove, currentFen],
   );
 
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
@@ -658,6 +701,30 @@ export function AnalysisPage() {
             <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />
             <div className="board-container" ref={boardContainerRef}>
               <MemoChessboard options={boardOptions} />
+              {pendingPromotion && (
+                <div className="promotion-overlay" onClick={handlePromotionCancel}>
+                  <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>
+                    {(['q', 'r', 'b', 'n'] as const).map((piece) => {
+                      const color = pendingPromotion.to[1] === '8' ? 'w' : 'b';
+                      const isWhite = color === 'w';
+                      const pieceNames: Record<string, string> = { q: 'Q', r: 'R', b: 'B', n: 'N' };
+                      return (
+                        <button
+                          key={piece}
+                          className="promotion-piece"
+                          onClick={() => handlePromotionChoice(piece)}
+                          data-piece={`${color}${pieceNames[piece]}`}
+                        >
+                          {piece === 'q' ? (isWhite ? '\u2655' : '\u265B') : null}
+                          {piece === 'r' ? (isWhite ? '\u2656' : '\u265C') : null}
+                          {piece === 'b' ? (isWhite ? '\u2657' : '\u265D') : null}
+                          {piece === 'n' ? (isWhite ? '\u2658' : '\u265E') : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
