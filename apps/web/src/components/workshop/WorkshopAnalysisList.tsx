@@ -46,11 +46,14 @@ export function WorkshopAnalysisList() {
   const urlSearch = searchParams.get('search') || '';
 
   const [allAnalyses, setAllAnalyses] = useState<AnalysisListItem[]>([]);
+  const [searchResults, setSearchResults] = useState<AnalysisListItem[] | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState('');
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
@@ -124,18 +127,34 @@ export function WorkshopAnalysisList() {
       .finally(() => setLoading(false));
   }, [user, t]);
 
+  // Debounced API search when query >= 2 chars
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!searchQuery || searchQuery.length < 2) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    searchTimerRef.current = setTimeout(() => {
+      api.get<AnalysisListItem[]>(`/api/analyses/search?q=${encodeURIComponent(searchQuery)}`)
+        .then((data) => setSearchResults(data))
+        .catch(() => setSearchResults(null))
+        .finally(() => setSearching(false));
+    }, 300);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [searchQuery]);
+
   // All unique tags for autocomplete
   const allTags = Array.from(new Set(allAnalyses.flatMap((a) => a.tags ?? [])));
 
-  const filteredAnalyses = allAnalyses.filter((a) => {
+  // Use API results when searching, otherwise local filter
+  const baseAnalyses = searchResults !== null ? searchResults : allAnalyses;
+
+  const filteredAnalyses = baseAnalyses.filter((a) => {
     const cat = a.category ?? 'analysis';
     if (categoryFilter === 'all' && cat === 'puzzle') return false;
     if (categoryFilter !== 'all' && cat !== categoryFilter) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const searchable = [a.title, a.headline, a.opening].filter(Boolean).join(' ').toLowerCase();
-      if (!searchable.includes(q)) return false;
-    }
     // Tag filter (AND)
     if (selectedTags.length > 0) {
       const aTags = a.tags ?? [];
