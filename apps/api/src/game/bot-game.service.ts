@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
 import { StockfishService, TimeParams } from '../engine/stockfish.service';
+import { OpeningBookService } from '../engine/opening-book.service';
 import { GameService, MoveFlags } from './game.service';
 import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
 
@@ -13,6 +14,7 @@ export class BotGameService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly gameService: GameService,
     private readonly stockfish: StockfishService,
+    private readonly openingBook: OpeningBookService,
   ) {}
 
   async onModuleInit() {
@@ -64,6 +66,17 @@ export class BotGameService implements OnModuleInit {
       state.state.activeColor === 'white' ? game.whiteId : game.blackId;
 
     if (!this.isBotPlayer(nextPlayerId)) return null;
+
+    // Try opening book first — instant response, no Stockfish overhead
+    const bookMove = this.openingBook.getBookMove(state.state.fen);
+    if (bookMove) {
+      try {
+        const result = await this.gameService.makeMove(gameId, nextPlayerId, bookMove);
+        return { uci: bookMove, ...result };
+      } catch {
+        // Book move invalid for this position — fall through to Stockfish
+      }
+    }
 
     const level = game.botLevel ?? 5;
     const timeParams: TimeParams = {
