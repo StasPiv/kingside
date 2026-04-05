@@ -271,21 +271,27 @@ export function BroadcastRoundPage() {
       api.get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
         .then((r) => {
           if (cancelled) return;
-          // Play sound if any game got a new move
+          // Check if any game actually changed
           const prev = prevRoundRef.current;
+          let hasChanges = !prev;
           if (prev) {
             for (const game of r.games) {
               const prevGame = prev.games.find((g) => g.gameIndex === game.gameIndex);
               const prevLen = prevGame?.moves.length ?? 0;
-              if (prevLen > 0 && game.moves.length > prevLen) {
-                const lastSan = game.moves[game.moves.length - 1];
-                if (lastSan) playSound(soundEventFromSan(lastSan));
-                break; // one sound per poll cycle
+              const prevPgn = prevGame?.pgn ?? '';
+              if (game.moves.length !== prevLen || game.pgn !== prevPgn) {
+                hasChanges = true;
+                // Play sound for new move (not on initial load)
+                if (prevLen > 0 && game.moves.length > prevLen) {
+                  const lastSan = game.moves[game.moves.length - 1];
+                  if (lastSan) playSound(soundEventFromSan(lastSan));
+                }
+                break;
               }
             }
           }
           prevRoundRef.current = r;
-          setRound(r);
+          if (hasChanges) setRound(r);
         })
         .catch(() => {});
     };
@@ -295,17 +301,25 @@ export function BroadcastRoundPage() {
   }, [isLichess, tournamentId, roundId, playSound]);
 
   // Reload lichess games on round change + poll every 15s
+  const prevLichessGamesRef = useRef<string>('');
   useEffect(() => {
     if (!isLichess || !tournamentId || !roundId) return;
     let cancelled = false;
+    let isFirstFetch = true;
 
     const fetchGames = () => {
       api.get<{ data: LichessGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${roundId}/games`)
         .then((res) => {
-          if (!cancelled) {
-            setLichessGames(Array.isArray(res?.data) ? res.data : []);
-            setLoading(false);
+          if (cancelled) return;
+          const games = Array.isArray(res?.data) ? res.data : [];
+          // Only update state if data changed (compare PGN fingerprints)
+          const fingerprint = games.map((g) => `${g.id}:${g.pgn?.length ?? 0}`).join('|');
+          if (isFirstFetch || fingerprint !== prevLichessGamesRef.current) {
+            prevLichessGamesRef.current = fingerprint;
+            setLichessGames(games);
           }
+          isFirstFetch = false;
+          setLoading(false);
         })
         .catch(() => { if (!cancelled) setLoading(false); });
     };
