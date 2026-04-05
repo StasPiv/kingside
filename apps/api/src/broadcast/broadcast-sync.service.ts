@@ -514,14 +514,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     if (!round) return;
 
     for (const game of games) {
-      const fenKey = `broadcast:fen:${roundId}:${game.index}`;
-      await this.redis.set(fenKey, game.fen, 'EX', REDIS_FEN_TTL).catch(() => {});
+      // Only cache FEN in Redis if it's a real position (not fallback STARTING_FEN)
+      if (game.fen !== STARTING_FEN) {
+        const fenKey = `broadcast:fen:${roundId}:${game.index}`;
+        await this.redis.set(fenKey, game.fen, 'EX', REDIS_FEN_TTL).catch(() => {});
+      }
 
       if (game.lichessGameId) {
         const existing = await this.prisma.broadcastGame.findFirst({
           where: { roundId: round.id, lichessGameId: game.lichessGameId },
         });
         if (existing) {
+          // Never overwrite a real FEN with STARTING_FEN (parser may fail on some PGN formats)
+          const newFen = game.fen === STARTING_FEN && existing.currentFen && existing.currentFen !== STARTING_FEN
+            ? existing.currentFen
+            : game.fen;
           await this.prisma.broadcastGame.update({
             where: { id: existing.id },
             data: {
@@ -529,7 +536,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
               blackPlayer: game.black,
               result: game.result || null,
               pgn: game.pgn,
-              currentFen: game.fen,
+              currentFen: newFen,
             },
           });
         } else {
