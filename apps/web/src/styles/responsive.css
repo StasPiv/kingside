@@ -312,14 +312,19 @@
     padding: 0;
   }
 
-  /* Board area: full width on mobile, override desktop max-width (KS-1012) */
+  /* Board area: full width on mobile, override desktop max-width (KS-1012/KS-1184) */
   .analysis-board-area {
     flex: none;
     width: 100%;
     max-width: 100% !important;
-    overflow: hidden;
+    overflow: visible;
     min-height: 0;
     padding: 0;
+  }
+
+  /* KS-1184: board-wrapper must not clip the board */
+  .analysis-board-wrapper {
+    overflow: visible;
   }
 
   /* Board: 38vh square, centered (KS-924/KS-929/KS-1012/KS-1177) */

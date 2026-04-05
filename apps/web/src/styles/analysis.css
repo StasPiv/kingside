@@ -1735,9 +1735,17 @@
   }
 
   .analysis-mobile-section.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
   }
 
+  /* KS-1184: Engine block does not grow — fixed size */
+  .analysis-mobile-section--engine {
+    flex-shrink: 0;
+    flex-grow: 0;
+  }
+
+  /* KS-1184: Moves block fills remaining space and scrolls */
   .analysis-mobile-section--moves {
     flex: 1;
     min-height: 0;
