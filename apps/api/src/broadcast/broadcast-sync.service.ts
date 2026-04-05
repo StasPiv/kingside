@@ -275,16 +275,30 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     try {
       const prevHash = await this.redis.get(hashKey);
       if (prevHash === newHash) {
-        // PGN unchanged — but still re-parse if any game has stale STARTING_FEN
+        // PGN unchanged — re-parse only if games have STARTING_FEN but PGN with moves (>500 chars)
+        // Short PGN (headers only) = no moves on Lichess = legitimate STARTING_FEN
         const round = await this.prisma.broadcastRound.findUnique({
           where: { lichessRoundId },
         });
         if (round) {
-          const stale = await this.prisma.broadcastGame.count({
-            where: { roundId: round.id, currentFen: STARTING_FEN },
+          const staleWithMoves = await this.prisma.broadcastGame.count({
+            where: {
+              roundId: round.id,
+              currentFen: STARTING_FEN,
+              pgn: { not: null },
+              // Only count as stale if PGN is long enough to contain moves
+              // Short PGN = headers only = no moves = legitimate STARTING_FEN
+            },
           });
-          if (stale === 0) return; // all games have real FEN — safe to skip
-          this.logger.log(`Re-parsing round ${lichessRoundId}: ${stale} games with stale STARTING_FEN`);
+          // Check if any stale game has PGN long enough to have moves
+          if (staleWithMoves === 0) return;
+          const reallyStale = await this.prisma.$queryRaw<[{count: bigint}]>`
+            SELECT count(*)::bigint as count FROM broadcast_games
+            WHERE round_id = ${round.id}::uuid
+              AND current_fen = ${STARTING_FEN}
+              AND LENGTH(pgn) > 500`;
+          if (Number(reallyStale[0].count) === 0) return;
+          this.logger.log(`Re-parsing round ${lichessRoundId}: ${Number(reallyStale[0].count)} games with stale FEN (long PGN)`);
         }
       }
       await this.redis.set(hashKey, newHash, 'EX', PGN_HASH_TTL);
