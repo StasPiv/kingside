@@ -1920,6 +1920,11 @@
   .analysis-players-combined {
     display: flex;
   }
+
+  /* KS-1188: Hide duplicate player names from ReviewMoveList on mobile */
+  .review-game-info-players {
+    display: none;
+  }
 }
 
 /* KS-1175: Combined player row (mobile only) */
