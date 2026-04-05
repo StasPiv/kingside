@@ -312,20 +312,30 @@
     padding: 0;
   }
 
-  /* Board area: full width on mobile, override desktop max-width (KS-1012) */
+  /* Board area: full width on mobile, override desktop max-width (KS-1012/KS-1184) */
   .analysis-board-area {
-    flex: none;
+    flex: 0 1 auto;
     width: 100%;
     max-width: 100% !important;
-    overflow: hidden;
+    overflow: visible;
     min-height: 0;
     padding: 0;
   }
 
-  /* Board: 38vh square, centered (KS-924/KS-929/KS-1012/KS-1177) */
+  /* KS-1184: board-wrapper must not clip the board */
+  .analysis-board-wrapper {
+    overflow: visible;
+  }
+
+  /* KS-1184: remove desktop padding-right on mobile (no eval bar) */
+  .analysis-eval-board-row {
+    padding-right: 0;
+  }
+
+  /* Board: 36vh square, centered (KS-924/KS-929/KS-1012/KS-1177/KS-1184) */
   /* calc(100vw - 16px) avoids overflow on mobile browsers */
   .analysis-page .board-container {
-    width: min(calc(100vw - 16px), 38vh) !important;
+    width: min(calc(100vw - 16px), 36vh) !important;
     max-width: calc(100vw - 16px) !important;
     height: auto !important;
     aspect-ratio: 1 / 1;
@@ -335,7 +345,7 @@
   /* dvh override for modern browsers */
   @supports (height: 1dvh) {
     .analysis-page .board-container {
-      width: min(calc(100vw - 16px), 38dvh) !important;
+      width: min(calc(100vw - 16px), 36dvh) !important;
     }
   }
 
