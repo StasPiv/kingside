@@ -104,7 +104,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }, PINNED_POLL_INTERVAL_MS);
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (this.syncTimer) clearInterval(this.syncTimer);
     if (this.pinnedPollTimer) clearInterval(this.pinnedPollTimer);
     for (const [roundId, ctrl] of this.activeStreams) {
@@ -112,6 +112,10 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`Stream aborted for round ${roundId}`);
     }
     this.activeStreams.clear();
+
+    // Release distributed locks so new instances don't wait for TTL expiry
+    await this.redis.del(SYNC_LOCK_KEY, PINNED_LOCK_KEY).catch(() => {});
+    this.logger.log('Broadcast sync locks released');
   }
 
   /**
