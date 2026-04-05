@@ -203,6 +203,18 @@ export type GameReportResponse = {
   status: 'pending' | 'analyzing' | 'complete' | 'error';
 } | null;
 
+// ─── Saved Filters (Workshop) ────────────────────────────────────────
+
+export type SavedFilterItem = {
+  id: string;
+  name: string;
+  category: string | null;
+  tags: string | null;
+  search: string | null;
+  sortOrder: string | null;
+  createdAt: string;
+};
+
 // ─── Puzzle (REST) ───────────────────────────────────────────────────
 
 export type FindPuzzlesQuery = {

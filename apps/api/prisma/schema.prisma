@@ -44,6 +44,7 @@ model User {
   puzzleRushScores PuzzleRushScore[]
   gameAnalyses     GameAnalysis[]
   analyses         Analysis[]
+  savedFilters     SavedFilter[]
   pgnImports       PgnImport[]
   sentMessages        DirectMessage[]  @relation("SentMessages")
   receivedMessages    DirectMessage[]  @relation("ReceivedMessages")
@@ -294,6 +295,23 @@ model Analysis {
   @@index([userId])
   @@index([userId, createdAt])
   @@map("analyses")
+}
+
+model SavedFilter {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  name      String
+  category  String?
+  tags      String?
+  search    String?
+  sortOrder String?  @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("saved_filters")
 }
 
 model PgnImport {
