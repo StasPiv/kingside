@@ -17,11 +17,11 @@ export class OpeningBookService implements OnModuleInit {
   }
 
   private loadBook(): void {
-    // Try multiple paths: data/ dir (production), or relative to source
     const paths = [
-      join(process.cwd(), 'data', 'opening-book.bin'),
-      join(__dirname, '..', '..', 'data', 'opening-book.bin'),
-      join(__dirname, 'opening-book.bin'),
+      join(process.cwd(), 'data', 'opening-book.bin'),           // Docker: /app/apps/api/data/
+      join(__dirname, '..', '..', 'data', 'opening-book.bin'),   // dev: dist/engine/../../data/
+      join(__dirname, '..', 'data', 'opening-book.bin'),         // alt: dist/engine/../data/
+      join(process.cwd(), 'apps', 'api', 'data', 'opening-book.bin'), // monorepo root cwd
     ];
 
     for (const filePath of paths) {
@@ -32,14 +32,14 @@ export class OpeningBookService implements OnModuleInit {
           continue;
         }
         this.book = readPolyglotBook(buffer);
-        this.logger.log(`Polyglot opening book loaded: ${this.book.size} positions from ${filePath}`);
+        this.logger.log(`Opening book loaded: ${this.book.size} positions from ${filePath}`);
         return;
       } catch {
         // try next path
       }
     }
 
-    this.logger.warn('No opening book found — bot will use Stockfish for all moves');
+    this.logger.warn(`Opening book not found. Tried: ${paths.join(', ')}`);
   }
 
   /**
