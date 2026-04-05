@@ -78,6 +78,7 @@ playwright screenshot <url> <file.png>
 - Ветка: `feature/KS-XX`
 - Коммит: `KS-XX: описание` (макс. 72 символа)
 - Мердж: `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
+- После merge в main: `bash /home/pivovartsev/work/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - `packages/shared`: `dist/` в gitignore — не коммить
 
 ## Ограничения

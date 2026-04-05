@@ -73,6 +73,7 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
+- После merge в main: `bash /home/pivovartsev/work/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - НЕ пушить изменения на remote (git push запрещён)
 - При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода — коммит не нужен

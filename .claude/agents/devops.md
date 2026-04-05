@@ -45,6 +45,7 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX`
 - **НИКОГДА** не выполняй git-операции и не меняй файлы в `/home/pivovartsev/work/kingside` напрямую
 - Мержить в main: `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
+- После merge в main: `bash /home/pivovartsev/work/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
 
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`
@@ -75,6 +76,13 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - ЗАПРЕЩЕНО изменять файлы в .claude/agents/
 - ЗАПРЕЩЕНО изменять файлы вне своей рабочей директории
 - 🔴 ЗАПРЕЩЕНО править application-код (backend: apps/api/src/, frontend: apps/web/src/). Если проблема деплоя вызвана ошибкой в коде приложения — сообщи координатору с описанием ошибки и укажи какой агент (backend/frontend) должен исправить. Devops правит ТОЛЬКО: Dockerfile, docker-compose, justfile, scripts/, .github/, конфиги (nginx, CI/CD), git hooks
+
+## Деплой на продакшен
+Единственная команда для деплоя:
+```bash
+just deploy
+```
+Выполняется из корня проекта (`/home/pivovartsev/work/kingside`). Всё остальное (сборка, доставка, перезапуск) происходит автоматически.
 
 ## Публикация релизов engine-bridge
 Код бриджа в `tools/engine-bridge/` (Go). Сборка и публикация — ответственность devops.
