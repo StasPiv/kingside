@@ -22,6 +22,42 @@ export class AnalysisService {
   }
 
   /**
+   * Extract a PGN header value by key.
+   */
+  private extractHeader(pgn: string, key: string): string | null {
+    const re = new RegExp(`\\[${key}\\s+"([^"]*)"\\]`);
+    const m = pgn.match(re);
+    return m ? m[1] : null;
+  }
+
+  /**
+   * Build headline from PGN headers.
+   * e.g. "Fischer (2785) 1-0 Spassky (2660)"
+   * Falls back to null if no player info found.
+   */
+  private buildHeadline(pgn?: string): string | null {
+    if (!pgn) return null;
+
+    const white = this.extractHeader(pgn, 'White');
+    const black = this.extractHeader(pgn, 'Black');
+    if (!white && !black) return null;
+
+    const whiteElo = this.extractHeader(pgn, 'WhiteElo');
+    const blackElo = this.extractHeader(pgn, 'BlackElo');
+    const result = this.extractHeader(pgn, 'Result');
+
+    const wPart = white
+      ? whiteElo && whiteElo !== '?' ? `${white} (${whiteElo})` : white
+      : '?';
+    const bPart = black
+      ? blackElo && blackElo !== '?' ? `${black} (${blackElo})` : black
+      : '?';
+    const rPart = result && result !== '*' ? result : 'vs';
+
+    return `${wPart} ${rPart} ${bPart}`;
+  }
+
+  /**
    * Generate default title: "New analysis YYYY-MM-DD HH:mm:ss"
    */
   private defaultTitle(date: Date): string {
@@ -39,11 +75,13 @@ export class AnalysisService {
     const now = new Date();
     const title = dto.title ?? this.defaultTitle(now);
     const opening = this.extractOpening(dto.pgn);
+    const headline = this.buildHeadline(dto.pgn);
 
     return this.prisma.analysis.create({
       data: {
         userId,
         title,
+        headline,
         pgn: dto.pgn ?? null,
         fen: dto.fen ?? null,
         opening,
@@ -58,7 +96,7 @@ export class AnalysisService {
       select: {
         id: true,
         title: true,
-        pgn: true,
+        headline: true,
         opening: true,
         category: true,
         tags: true,
@@ -92,6 +130,11 @@ export class AnalysisService {
         ? this.extractOpening(dto.pgn)
         : analysis.opening;
 
+    const headline =
+      dto.pgn !== undefined
+        ? this.buildHeadline(dto.pgn)
+        : analysis.headline;
+
     return this.prisma.analysis.update({
       where: { id },
       data: {
@@ -101,6 +144,7 @@ export class AnalysisService {
         ...(dto.currentPosition !== undefined && { currentPosition: dto.currentPosition }),
         ...(dto.tags !== undefined && { tags: dto.tags.join(' ') }),
         opening,
+        headline,
       },
     });
   }
