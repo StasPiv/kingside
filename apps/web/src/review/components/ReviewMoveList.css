@@ -513,6 +513,30 @@
     display: none !important;
   }
 
+  /* KS-1207: Compact notation to free space for larger board */
+  .review-moves-container {
+    padding: 4px 6px 40px;
+  }
+
+  .review-moves-list {
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .review-game-info {
+    padding: 4px 8px 3px;
+  }
+
+  .review-game-info-opening {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .review-game-info-result {
+    margin-top: 2px;
+    font-size: 12px;
+  }
+
   .review-comment {
     display: block;
     width: 100%;
