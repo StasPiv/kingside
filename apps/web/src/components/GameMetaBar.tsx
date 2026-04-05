@@ -51,30 +51,30 @@ export function GameMetaBar({ info }: Props) {
         )}
       </div>
 
-      {/* Desktop: multi-line in sidebar */}
+      {/* Desktop: compact single-line in sidebar */}
       <div className="game-meta-bar__desktop">
         <div className="game-meta-bar__players">
-          <div className="game-meta-bar__player">
+          <span className="game-meta-bar__player">
             <span className="game-meta-bar__dot game-meta-bar__dot--white" />
             <span className="game-meta-bar__name">{info.white.username}</span>
             {info.white.rating != null && (
-              <span className="game-meta-bar__rating">{info.white.rating}</span>
+              <span className="game-meta-bar__rating">({info.white.rating})</span>
             )}
             {info.ratingChange && (
               <RatingDiff before={info.ratingChange.whiteRatingBefore} after={info.ratingChange.whiteRatingAfter} />
             )}
-          </div>
+          </span>
           {info.result && <span className="game-meta-bar__result-badge">{info.result}</span>}
-          <div className="game-meta-bar__player">
+          <span className="game-meta-bar__player">
             <span className="game-meta-bar__dot game-meta-bar__dot--black" />
             <span className="game-meta-bar__name">{info.black.username}</span>
             {info.black.rating != null && (
-              <span className="game-meta-bar__rating">{info.black.rating}</span>
+              <span className="game-meta-bar__rating">({info.black.rating})</span>
             )}
             {info.ratingChange && (
               <RatingDiff before={info.ratingChange.blackRatingBefore} after={info.ratingChange.blackRatingAfter} />
             )}
-          </div>
+          </span>
         </div>
         {info.opening && (
           <div className="game-meta-bar__opening">{info.opening}</div>
