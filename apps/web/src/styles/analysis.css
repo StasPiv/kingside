@@ -227,10 +227,15 @@
   color: #7c83ff;
 }
 
+/* KS-1193: flex-shrink:0 ensures controls are never pushed under the board */
 .analysis-board-controls {
   display: flex;
   gap: 8px;
   justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  padding: 4px 0;
 }
 
 .analysis-board-controls button {
