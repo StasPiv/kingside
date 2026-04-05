@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Request,
   Res,
   UseGuards,
@@ -33,6 +34,19 @@ export class AnalysisController {
   @Get()
   findAll(@Request() req: AuthenticatedRequest) {
     return this.analysisService.findAll(req.user.id);
+  }
+
+  @Get('search')
+  search(
+    @Request() req: AuthenticatedRequest,
+    @Query('q') q: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.analysisService.search(
+      req.user.id,
+      q || '',
+      limit ? parseInt(limit, 10) : 20,
+    );
   }
 
   @Post('export')

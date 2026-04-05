@@ -110,6 +110,35 @@ export class AnalysisService {
     }));
   }
 
+  async search(userId: string, query: string, limit = 20) {
+    const safeLimit = Math.min(limit, 50);
+    const analyses = await this.prisma.analysis.findMany({
+      where: {
+        userId,
+        OR: [
+          { headline: { contains: query, mode: 'insensitive' } },
+          { title: { contains: query, mode: 'insensitive' } },
+          { opening: { contains: query, mode: 'insensitive' } },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        headline: true,
+        opening: true,
+        category: true,
+        tags: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: safeLimit,
+    });
+    return analyses.map((a) => ({
+      ...a,
+      tags: a.tags ? a.tags.split(' ').filter(Boolean) : [],
+    }));
+  }
+
   async findOne(userId: string, id: string) {
     const analysis = await this.prisma.analysis.findUnique({ where: { id } });
     if (!analysis) throw new NotFoundException('Analysis not found');
