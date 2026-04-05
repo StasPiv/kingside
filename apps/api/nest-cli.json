@@ -5,8 +5,7 @@
   "compilerOptions": {
     "deleteOutDir": false,
     "assets": [
-      { "include": "i18n/**/*.json", "watchAssets": true },
-      { "include": "engine/opening-book.json", "watchAssets": false }
+      { "include": "i18n/**/*.json", "watchAssets": true }
     ]
   }
 }
