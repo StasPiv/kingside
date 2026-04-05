@@ -513,6 +513,13 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     });
     if (!round) return;
 
+    const startingCount = games.filter((g) => g.fen === STARTING_FEN).length;
+    if (startingCount > 0) {
+      this.logger.log(
+        `processPgnUpdate ${roundId}: ${games.length} games parsed, ${startingCount} with STARTING_FEN, PGN size ${pgn.length}`,
+      );
+    }
+
     for (const game of games) {
       // Only cache FEN in Redis if it's a real position (not fallback STARTING_FEN)
       if (game.fen !== STARTING_FEN) {
@@ -615,7 +622,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const lichessGameId = site.split('/').pop() ?? null;
 
       // FEN header is authoritative — skip expensive chess.js parsing
-      const fen = fenValue || this.computeFenFromMoves(section) || STARTING_FEN;
+      const computedFen = fenValue || this.computeFenFromMoves(section);
+      const fen = computedFen || STARTING_FEN;
+      if (!computedFen && section.length > 200) {
+        // PGN has content but parser couldn't extract FEN — log for debugging
+        const movePart = section.replace(/\{[^}]*\}/g, '').split(/\n\n/).pop() ?? '';
+        this.logger.warn(
+          `FEN parse failed for ${white} vs ${black}: section=${section.length}b, ` +
+          `moves="${movePart.substring(0, 80)}"`,
+        );
+      }
 
       games.push({
         index,
