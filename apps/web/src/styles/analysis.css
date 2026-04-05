@@ -79,6 +79,7 @@
     display: none;
   }
 
+  /* KS-1192: fixed height prevents layout shift when opening appears */
   .game-meta-bar__mobile {
     display: flex;
     align-items: center;
@@ -88,7 +89,7 @@
     overflow: hidden;
     white-space: nowrap;
     flex-shrink: 0;
-    min-height: 0;
+    height: 20px;
   }
 
   .game-meta-bar__mobile .game-meta-bar__dot {

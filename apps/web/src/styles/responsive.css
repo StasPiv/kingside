@@ -390,7 +390,7 @@
     height: 24px;
   }
 
-  /* Navigation controls: large touch targets (KS-924/KS-1185) */
+  /* Navigation controls: large touch targets (KS-924/KS-1185/KS-1192) */
   .analysis-board-controls {
     flex: none;
     height: 44px;
@@ -399,6 +399,7 @@
     justify-content: center;
     gap: 6px;
     padding: 0 4px;
+    margin-top: 4px;
     overflow-x: visible;
     flex-wrap: nowrap;
   }

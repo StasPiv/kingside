@@ -738,7 +738,7 @@ export function AnalysisPage() {
           </>
         )}
         <div className="analysis-board-wrapper">
-          {gameInfo && <GameMetaBar info={gameInfo} />}
+          {gameInfo ? <GameMetaBar info={gameInfo} /> : <div className="game-meta-bar"><div className="game-meta-bar__mobile" /><div className="game-meta-bar__desktop" /></div>}
 
           <div className="analysis-eval-board-row">
             <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />
