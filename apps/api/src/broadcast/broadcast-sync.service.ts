@@ -6,8 +6,8 @@ import { RedisService } from '../redis/redis.service';
 import { BroadcastGateway } from './broadcast.gateway';
 
 const LICHESS_API = 'https://lichess.org/api';
-const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes — metadata discovery only, PGN via streams/pinned
-const PINNED_POLL_INTERVAL_MS = 10_000; // 10 seconds for pinned broadcasts
+const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes — metadata discovery only
+const PINNED_POLL_INTERVAL_MS = 30_000; // 30 seconds for PGN polling (was 10s — caused 429)
 const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
 const FETCH_TIMEOUT_MS = 30_000; // 30 seconds
@@ -15,8 +15,11 @@ const FETCH_COOLDOWN_TTL = 60 * 60; // 1 hour
 const SYNC_LOCK_KEY = 'broadcast:sync:lock';
 const SYNC_LOCK_TTL = 4 * 60; // 4 min — shorter than SYNC_INTERVAL_MS to auto-release
 const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
-const PINNED_LOCK_TTL = 8; // seconds — shorter than PINNED_POLL_INTERVAL_MS
+const PINNED_LOCK_TTL = 25; // seconds — shorter than PINNED_POLL_INTERVAL_MS
 const PGN_HASH_TTL = 300; // 5 min — how long we remember PGN hash to skip re-parse
+const RATE_LIMIT_DELAY_MS = 1500; // delay between sequential Lichess API calls
+const RATE_LIMIT_429_BACKOFF_KEY = 'broadcast:lichess-429-backoff';
+const RATE_LIMIT_429_BACKOFF_TTL = 60; // 1 min backoff on 429
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -111,6 +114,39 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Rate-limited fetch wrapper for Lichess API.
+   * - Delays between sequential requests (RATE_LIMIT_DELAY_MS)
+   * - On 429: sets backoff in Redis, subsequent calls skip for BACKOFF_TTL
+   */
+  private async lichessFetch(url: string, init?: RequestInit): Promise<Response> {
+    // Check if we're in 429 backoff
+    try {
+      const backoff = await this.redis.get(RATE_LIMIT_429_BACKOFF_KEY);
+      if (backoff) {
+        throw new Error('Lichess 429 backoff active — skipping request');
+      }
+    } catch (e: any) {
+      if (e.message?.includes('backoff active')) throw e;
+      // Redis error — proceed
+    }
+
+    const res = await fetch(url, init);
+
+    if (res.status === 429) {
+      this.logger.warn(`Lichess 429 rate limited on ${url}. Backing off for ${RATE_LIMIT_429_BACKOFF_TTL}s`);
+      await this.redis.set(RATE_LIMIT_429_BACKOFF_KEY, '1', 'EX', RATE_LIMIT_429_BACKOFF_TTL).catch(() => {});
+      throw new Error(`Lichess 429 Too Many Requests`);
+    }
+
+    return res;
+  }
+
+  /** Delay between sequential Lichess API calls to avoid rate limiting */
+  private rateLimitDelay(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+  }
+
+  /**
    * Acquire a distributed lock via Redis SET NX.
    * Returns true if lock was acquired, false if another instance holds it.
    */
@@ -188,16 +224,17 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       select: { lichessRoundId: true },
     });
 
-    for (const round of ongoingRounds) {
-      await this.fetchAndProcessRoundPgn(round.lichessRoundId).catch((e: Error) =>
-        this.logger.warn(`PGN poll failed for ${round.lichessRoundId}: ${e.message}`),
+    for (let i = 0; i < ongoingRounds.length; i++) {
+      if (i > 0) await this.rateLimitDelay();
+      await this.fetchAndProcessRoundPgn(ongoingRounds[i].lichessRoundId).catch((e: Error) =>
+        this.logger.warn(`PGN poll failed for ${ongoingRounds[i].lichessRoundId}: ${e.message}`),
       );
     }
   }
 
   private async fetchBroadcastById(tourId: string): Promise<LichessBroadcast | null> {
     const url = `${LICHESS_API}/broadcast/${tourId}`;
-    const res = await fetch(url, {
+    const res = await this.lichessFetch(url, {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -210,7 +247,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   private async fetchAndProcessRoundPgn(lichessRoundId: string): Promise<void> {
     const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
-    const res = await fetch(url, {
+    const res = await this.lichessFetch(url, {
       headers: {
         'User-Agent': 'Kingside/1.0 (https://kingside.app)',
         Accept: 'application/x-chess-pgn',
@@ -256,7 +293,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
   private async fetchActiveBroadcasts(): Promise<LichessBroadcast[]> {
     const url = `${LICHESS_API}/broadcast?nb=20`;
-    const res = await fetch(url, {
+    const res = await this.lichessFetch(url, {
       headers: { Accept: 'application/x-ndjson' },
     });
     if (!res.ok) {
@@ -355,7 +392,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
 
     try {
       const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
-      const res = await fetch(url, {
+      const res = await this.lichessFetch(url, {
         headers: {
           'User-Agent': 'Kingside/1.0 (https://kingside.app)',
           Accept: 'application/x-chess-pgn',
