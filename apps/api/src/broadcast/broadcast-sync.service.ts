@@ -6,14 +6,14 @@ import { RedisService } from '../redis/redis.service';
 import { BroadcastGateway } from './broadcast.gateway';
 
 const LICHESS_API = 'https://lichess.org/api';
-const SYNC_INTERVAL_MS = 30 * 1000; // 30 seconds
+const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes — metadata discovery only, PGN via streams/pinned
 const PINNED_POLL_INTERVAL_MS = 10_000; // 10 seconds for pinned broadcasts
 const REDIS_FEN_TTL = 60 * 60 * 12; // 12 hours
 const MAX_CONCURRENT_STREAMS = 50;
 const FETCH_TIMEOUT_MS = 30_000; // 30 seconds
 const FETCH_COOLDOWN_TTL = 60 * 60; // 1 hour
 const SYNC_LOCK_KEY = 'broadcast:sync:lock';
-const SYNC_LOCK_TTL = 25; // seconds — shorter than SYNC_INTERVAL_MS to auto-release
+const SYNC_LOCK_TTL = 4 * 60; // 4 min — shorter than SYNC_INTERVAL_MS to auto-release
 const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
 const PINNED_LOCK_TTL = 8; // seconds — shorter than PINNED_POLL_INTERVAL_MS
 const PGN_HASH_TTL = 300; // 5 min — how long we remember PGN hash to skip re-parse
@@ -91,15 +91,13 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       );
     }, SYNC_INTERVAL_MS);
 
-    // Frequent polling for pinned broadcasts (Candidates etc.)
-    if (this.pinnedBroadcastIds.length > 0) {
-      await this.syncPinnedBroadcasts();
-      this.pinnedPollTimer = setInterval(() => {
-        this.syncPinnedBroadcasts().catch((e) =>
-          this.logger.error(`Pinned sync error: ${e.message}`),
-        );
-      }, PINNED_POLL_INTERVAL_MS);
-    }
+    // Frequent PGN polling for all ongoing rounds (10s interval)
+    await this.syncPinnedBroadcasts();
+    this.pinnedPollTimer = setInterval(() => {
+      this.syncPinnedBroadcasts().catch((e) =>
+        this.logger.error(`PGN poll error: ${e.message}`),
+      );
+    }, PINNED_POLL_INTERVAL_MS);
   }
 
   onModuleDestroy(): void {
@@ -141,10 +139,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           const isActive = round.ongoing === true;
           await this.upsertRound(bc.tour.id, round, isActive);
           if (isActive) {
-            // Always fetch snapshot PGN for ongoing rounds (fallback for broken streams on AWS)
-            await this.fetchAndProcessRoundPgn(round.id).catch((e: Error) =>
-              this.logger.warn(`Snapshot fetch failed for round ${round.id}: ${e.message}`),
-            );
+            // Start stream for live updates; snapshot PGN only via pinned polls
             if (!this.activeStreams.has(round.id)) {
               if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
                 this.startStream(round.id);
@@ -178,30 +173,25 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Poll ongoing rounds for PGN updates.
+   * Uses DB to find ongoing rounds — covers both pinned and auto-discovered broadcasts.
+   */
   async syncPinnedBroadcasts(): Promise<void> {
     if (!await this.acquireLock(PINNED_LOCK_KEY, PINNED_LOCK_TTL)) {
-      return; // another instance is handling pinned sync
+      return;
     }
-    for (const tourId of this.pinnedBroadcastIds) {
-      try {
-        const bc = await this.fetchBroadcastById(tourId);
-        if (!bc) continue;
 
-        await this.upsertBroadcast(bc);
+    // Fetch PGN for all ongoing rounds (not just pinned)
+    const ongoingRounds = await this.prisma.broadcastRound.findMany({
+      where: { status: 'ongoing' },
+      select: { lichessRoundId: true },
+    });
 
-        // Find ongoing round and fetch PGN
-        const ongoingRound = bc.rounds.find((r) => r.ongoing);
-        for (const round of bc.rounds) {
-          const isActive = round.ongoing === true;
-          await this.upsertRound(bc.tour.id, round, isActive);
-        }
-
-        if (ongoingRound) {
-          await this.fetchAndProcessRoundPgn(ongoingRound.id);
-        }
-      } catch (e: unknown) {
-        this.logger.error(`Pinned broadcast ${tourId} sync error: ${(e as Error).message}`);
-      }
+    for (const round of ongoingRounds) {
+      await this.fetchAndProcessRoundPgn(round.lichessRoundId).catch((e: Error) =>
+        this.logger.warn(`PGN poll failed for ${round.lichessRoundId}: ${e.message}`),
+      );
     }
   }
 
