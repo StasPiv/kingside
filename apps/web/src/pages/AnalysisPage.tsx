@@ -386,9 +386,10 @@ export function AnalysisPage() {
 
   // Auto-save standalone analysis to API
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasPgnHeaders = Object.keys(pgnHeaders).length > 0;
   useEffect(() => {
     if (gameId) return;
-    if (history.length === 0) return;
+    if (history.length === 0 && !hasPgnHeaders) return;
     if (positionSaveRef.current) { clearTimeout(positionSaveRef.current); positionSaveRef.current = null; }
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
 
@@ -418,7 +419,7 @@ export function AnalysisPage() {
       }
     }, 2000);
     return () => { if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current); };
-  }, [gameId, history, analysisTitle, initialFen, createAnalysis, updateAnalysis]);
+  }, [gameId, history, analysisTitle, initialFen, pgnHeaders, hasPgnHeaders, createAnalysis, updateAnalysis]);
 
   useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
