@@ -1,15 +1,54 @@
 import {
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAnalysisDto } from './dto/create-analysis.dto';
 import { UpdateAnalysisDto } from './dto/update-analysis.dto';
 
 @Injectable()
-export class AnalysisService {
+export class AnalysisService implements OnModuleInit {
+  private readonly logger = new Logger(AnalysisService.name);
+
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.backfillMetadata();
+  }
+
+  /**
+   * Backfill metadata fields for existing analyses that have PGN but no metadata.
+   * Runs once at startup.
+   */
+  private async backfillMetadata(): Promise<void> {
+    const stale = await this.prisma.analysis.findMany({
+      where: {
+        pgn: { not: null },
+        white: null,
+        event: null,
+        headline: null,
+      },
+      select: { id: true, pgn: true },
+    });
+
+    if (stale.length === 0) return;
+
+    this.logger.log(`Backfilling metadata for ${stale.length} analyses...`);
+
+    for (const row of stale) {
+      const meta = this.extractMetadata(row.pgn ?? undefined);
+      const headline = this.buildHeadline(row.pgn ?? undefined);
+      await this.prisma.analysis.update({
+        where: { id: row.id },
+        data: { ...meta, headline },
+      });
+    }
+
+    this.logger.log(`Backfill complete: ${stale.length} analyses updated`);
+  }
 
   /**
    * Extract opening name from PGN headers.
