@@ -10,10 +10,24 @@ import { formatPlayerName, formatResult } from '../dgt.types';
 
 
 /** Extract last move SAN from PGN for sound */
+function loadPgnSafe(chess: InstanceType<typeof Chess>, pgn: string): boolean {
+  try {
+    chess.loadPgn(pgn);
+    return true;
+  } catch {
+    try {
+      chess.loadPgn(stripPgnComments(pgn));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 function computeLastMoveSan(pgn: string): string | null {
   try {
     const chess = new Chess();
-    chess.loadPgn(pgn);
+    if (!loadPgnSafe(chess, pgn)) return null;
     const hist = chess.history();
     return hist.length > 0 ? hist[hist.length - 1] : null;
   } catch {
@@ -26,7 +40,7 @@ function computeLastMove(pgn: string, moves?: string[]): { from: string; to: str
   try {
     const chess = new Chess();
     if (pgn) {
-      chess.loadPgn(pgn);
+      if (!loadPgnSafe(chess, pgn)) return null;
     } else if (moves && moves.length > 0) {
       for (const m of moves) chess.move(m);
     } else {
@@ -53,6 +67,11 @@ function resolveFen(currentFen: string | null | undefined, pgn: string, moves?: 
   return computed;
 }
 
+/** Strip clock/eval comments that may cause chess.js loadPgn to fail */
+function stripPgnComments(pgn: string): string {
+  return pgn.replace(/\{[^}]*\}/g, '');
+}
+
 function computeFen(pgn: string, moves?: string[]): string {
   if (pgn) {
     try {
@@ -60,7 +79,14 @@ function computeFen(pgn: string, moves?: string[]): string {
       chess.loadPgn(pgn);
       return chess.fen();
     } catch {
-      // fall through
+      // Retry without comments (clock annotations can break chess.js parser)
+      try {
+        const chess = new Chess();
+        chess.loadPgn(stripPgnComments(pgn));
+        return chess.fen();
+      } catch {
+        // fall through
+      }
     }
   }
   if (moves && moves.length > 0) {
