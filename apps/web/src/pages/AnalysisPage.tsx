@@ -190,24 +190,7 @@ export function AnalysisPage() {
   const { report: gameReport, analyzing: reportAnalyzing, error: reportError, fetchReport, analyze: analyzeGame } = useGameReport(gameId);
   useEffect(() => { if (gameId) fetchReport(); }, [gameId, fetchReport]);
 
-  // Puzzle generation from game
-  const [generating, setGenerating] = useState(false);
-  const [genResult, setGenResult] = useState<{ count: number } | null>(null);
-  const [genError, setGenError] = useState<string | null>(null);
-  const handleGeneratePuzzles = useCallback(async () => {
-    if (!gameId || generating) return;
-    setGenerating(true);
-    setGenError(null);
-    setGenResult(null);
-    try {
-      const res = await api.post<{ puzzles: unknown[]; count: number }>(`/api/puzzles/generated/generate?sourceType=game&sourceId=${gameId}`, {});
-      setGenResult({ count: res.count ?? (res.puzzles?.length ?? 0) });
-    } catch (err) {
-      setGenError(err instanceof Error ? err.message : 'Generation failed');
-    } finally {
-      setGenerating(false);
-    }
-  }, [gameId, generating]);
+
 
   // Panel collapse state
   const [panelStates, setPanelStates] = useState(() => {
@@ -885,13 +868,6 @@ export function AnalysisPage() {
               whiteName={typeof gameData?.white === 'object' ? gameData.white.username : (gameData?.white ?? 'White')}
               blackName={typeof gameData?.black === 'object' ? gameData.black.username : (gameData?.black ?? 'Black')}
             />
-            <div className="generate-puzzles-section">
-              <button className="generate-puzzles-btn" onClick={handleGeneratePuzzles} disabled={generating}>
-                {generating ? t('common.loading') : t('analysis.generatePuzzles', 'Generate Puzzles')}
-              </button>
-              {genResult && <span className="generate-puzzles-result">{t('analysis.puzzlesGenerated', { count: genResult.count })}</span>}
-              {genError && <span className="generate-puzzles-error">{genError}</span>}
-            </div>
           </div>
         )}
 
@@ -1078,13 +1054,6 @@ export function AnalysisPage() {
                   whiteName={typeof gameData?.white === 'object' ? gameData.white.username : (gameData?.white ?? 'White')}
                   blackName={typeof gameData?.black === 'object' ? gameData.black.username : (gameData?.black ?? 'Black')}
                 />
-                <div className="generate-puzzles-section">
-                  <button className="generate-puzzles-btn" onClick={handleGeneratePuzzles} disabled={generating}>
-                    {generating ? t('common.loading') : t('analysis.generatePuzzles', 'Generate Puzzles')}
-                  </button>
-                  {genResult && <span className="generate-puzzles-result">{t('analysis.puzzlesGenerated', { count: genResult.count })}</span>}
-                  {genError && <span className="generate-puzzles-error">{genError}</span>}
-                </div>
               </div>
             )}
           </div>
