@@ -1725,7 +1725,26 @@
     box-sizing: border-box;
   }
 
-  /* Stockfish lines: remove min-height, wrap long PV lines on mobile */
+  /* KS-1182: Hide tabs, show both engine + moves simultaneously */
+  .analysis-mobile-panel__tabs {
+    display: none !important;
+  }
+
+  .analysis-mobile-section {
+    display: none;
+  }
+
+  .analysis-mobile-section.active {
+    display: block;
+  }
+
+  .analysis-mobile-section--moves {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+  }
+
+  /* KS-1182: Stockfish lines single-line on mobile (like desktop) */
   .stockfish-lines {
     min-height: 0;
     overflow-y: auto;
@@ -1733,14 +1752,13 @@
   }
 
   .stockfish-pv {
-    white-space: normal;
-    word-break: break-word;
-    overflow-x: visible;
-    height: auto;
+    white-space: nowrap;
+    overflow-x: hidden;
+    text-overflow: ellipsis;
   }
 
   .stockfish-line {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 
   /* KS-1175: Hide breadcrumbs on mobile */

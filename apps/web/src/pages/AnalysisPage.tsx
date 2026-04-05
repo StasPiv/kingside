@@ -1040,7 +1040,39 @@ export function AnalysisPage() {
             )}
           </div>
           <div className="analysis-mobile-panel__content">
-            {mobileTab === 'moves' && (
+            <div className={`analysis-mobile-section analysis-mobile-section--engine${mobileTab !== 'report' ? ' active' : ''}`}>
+              <div className="analysis-mobile-engine-controls">
+                <span className="engine-multipv-controls">
+                  <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
+                  <span className="engine-multipv-value">{ec.multiPv}</span>
+                  <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10}>+</button>
+                </span>
+                <button className="engine-settings-btn" onClick={() => ec.setShowEngineModal(true)}>⚙</button>
+                {wasmSupported && !(isTouchDevice && engineFailed) && (
+                  <button
+                    className="analysis-toggle-btn"
+                    onClick={toggleAnalysis}
+                    style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8 }}
+                  >
+                    {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+                  </button>
+                )}
+              </div>
+              <div className="analysis-panel-body">
+                <div className="stockfish-lines">
+                  {(analysisEnabled || displayedLines.length > 0) &&
+                    displayedLines.map((line) => (
+                      <div key={line.multipv} className="stockfish-line">
+                        <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
+                          {formatEval(line, evalIsBlackTurn)}
+                        </span>
+                        <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+            <div className={`analysis-mobile-section analysis-mobile-section--moves${mobileTab !== 'report' ? ' active' : ''}`}>
               <div className="analysis-panel-body analysis-panel-body--scroll">
                 {!gameData && gameInfo && (
                   <div className="analysis-pgn-headers">
@@ -1062,43 +1094,9 @@ export function AnalysisPage() {
                   gameInfo={gameInfo}
                 />
               </div>
-            )}
-            {mobileTab === 'engine' && (
-              <>
-                <div className="analysis-mobile-engine-controls">
-                  <span className="engine-multipv-controls">
-                    <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
-                    <span className="engine-multipv-value">{ec.multiPv}</span>
-                    <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.min(10, v + 1))} disabled={ec.multiPv >= 10}>+</button>
-                  </span>
-                  <button className="engine-settings-btn" onClick={() => ec.setShowEngineModal(true)}>⚙</button>
-                  {wasmSupported && !(isTouchDevice && engineFailed) && (
-                    <button
-                      className="analysis-toggle-btn"
-                      onClick={toggleAnalysis}
-                      style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8 }}
-                    >
-                      {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
-                    </button>
-                  )}
-                </div>
-                <div className="analysis-panel-body">
-                  <div className="stockfish-lines">
-                    {(analysisEnabled || displayedLines.length > 0) &&
-                      displayedLines.map((line) => (
-                        <div key={line.multipv} className="stockfish-line">
-                          <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
-                            {formatEval(line, evalIsBlackTurn)}
-                          </span>
-                          <span className="stockfish-pv">{formatPv(line.pv, currentFen)}</span>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              </>
-            )}
+            </div>
             {mobileTab === 'report' && gameId && (
-              <>
+              <div className="analysis-mobile-section analysis-mobile-section--report active">
                 {gameReport && gameReport.status === 'complete' && (
                   <EvalGraph
                     moves={gameReport.moves}
@@ -1124,7 +1122,7 @@ export function AnalysisPage() {
                   {genResult && <span className="generate-puzzles-result">{t('analysis.puzzlesGenerated', { count: genResult.count })}</span>}
                   {genError && <span className="generate-puzzles-error">{genError}</span>}
                 </div>
-              </>
+              </div>
             )}
           </div>
         </div>
