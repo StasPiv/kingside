@@ -301,7 +301,7 @@
     width: 100%;
   }
 
-  /* Page fills remaining height below header */
+  /* Page fills remaining height below header (KS-1184: account for MobileBottomBar) */
   .analysis-page {
     flex: 1;
     min-height: 0;
@@ -310,6 +310,7 @@
     flex-direction: column;
     align-items: stretch;
     padding: 0;
+    padding-bottom: 56px;
   }
 
   /* Board area: full width on mobile, override desktop max-width (KS-1012/KS-1184) */
@@ -332,10 +333,10 @@
     padding-right: 0;
   }
 
-  /* Board: 36vh square, centered (KS-924/KS-929/KS-1012/KS-1177/KS-1184) */
+  /* Board: 34vh square, centered (KS-924/KS-929/KS-1012/KS-1177/KS-1184) */
   /* calc(100vw - 16px) avoids overflow on mobile browsers */
   .analysis-page .board-container {
-    width: min(calc(100vw - 16px), 36vh) !important;
+    width: min(calc(100vw - 16px), 34vh) !important;
     max-width: calc(100vw - 16px) !important;
     height: auto !important;
     aspect-ratio: 1 / 1;
@@ -345,7 +346,7 @@
   /* dvh override for modern browsers */
   @supports (height: 1dvh) {
     .analysis-page .board-container {
-      width: min(calc(100vw - 16px), 36dvh) !important;
+      width: min(calc(100vw - 16px), 34dvh) !important;
     }
   }
 
