@@ -61,6 +61,7 @@ type LichessGame = {
   blackPlayer: string;
   result: string | null;
   pgn: string | null;
+  currentFen: string | null;
 };
 
 type LichessRoundInfo = {
@@ -133,7 +134,7 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
         <div className="dgt-games">
           <div className="dgt-boards-grid">
             {games.map((game, idx) => {
-              const fen = computeFen(game.pgn ?? '');
+              const fen = game.currentFen || computeFen(game.pgn ?? '');
               const lastMove = computeLastMove(game.pgn ?? '');
               const hlStyles: Record<string, React.CSSProperties> = {};
               if (lastMove) {
@@ -293,22 +294,27 @@ export function BroadcastRoundPage() {
     return () => { cancelled = true; clearInterval(intervalId); };
   }, [isLichess, tournamentId, roundId, playSound]);
 
-  // Reload lichess games on round change
+  // Reload lichess games on round change + poll every 15s
   useEffect(() => {
     if (!isLichess || !tournamentId || !roundId) return;
     let cancelled = false;
 
-    setLoading(true);
-    api.get<{ data: LichessGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${roundId}/games`)
-      .then((res) => {
-        if (!cancelled) {
-          setLichessGames(Array.isArray(res?.data) ? res.data : []);
-          setLoading(false);
-        }
-      })
-      .catch(() => { if (!cancelled) setLoading(false); });
+    const fetchGames = () => {
+      api.get<{ data: LichessGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${roundId}/games`)
+        .then((res) => {
+          if (!cancelled) {
+            setLichessGames(Array.isArray(res?.data) ? res.data : []);
+            setLoading(false);
+          }
+        })
+        .catch(() => { if (!cancelled) setLoading(false); });
+    };
 
-    return () => { cancelled = true; };
+    setLoading(true);
+    fetchGames();
+    const intervalId = setInterval(fetchGames, 15_000);
+
+    return () => { cancelled = true; clearInterval(intervalId); };
   }, [isLichess, tournamentId, roundId]);
 
   const handleBoardClick = useCallback(
