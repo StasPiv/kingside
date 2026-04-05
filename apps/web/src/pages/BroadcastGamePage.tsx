@@ -357,14 +357,6 @@ export function BroadcastGamePage() {
   const whiteName = game ? formatPlayerName(game.white) : '';
   const blackName = game ? formatPlayerName(game.black) : '';
 
-  const gameInfo = game
-    ? {
-        white: { username: whiteName },
-        black: { username: blackName },
-        opening: openingName || undefined,
-      }
-    : undefined;
-
   const engineStatusSuffix = !wasmSupported
     ? ` · ${t('analysis.notSupported', 'Not supported')}`
     : isTouchDevice && engineFailed
@@ -555,7 +547,6 @@ export function BroadcastGamePage() {
                 onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
                 onDeleteVariation={(move) => removeVariation(move as ChessMove)}
                 onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
-                gameInfo={gameInfo}
               />
             </div>
           )}
