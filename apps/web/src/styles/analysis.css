@@ -1612,16 +1612,16 @@
 
   .analysis-overflow-menu {
     position: absolute;
-    bottom: 100%;
+    top: 100%;
     right: 0;
     background: #1e1e3e;
     border: 1px solid #4a4a7e;
     border-radius: 6px;
     padding: 4px 0;
-    z-index: 100;
+    z-index: 200;
     min-width: 160px;
-    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
-    margin-bottom: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    margin-top: 4px;
   }
 
   .analysis-overflow-menu button {
