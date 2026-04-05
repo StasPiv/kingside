@@ -425,14 +425,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     });
     if (!round) return;
 
-    // Re-fetch if any game still has starting FEN (previous parser bugs may have left stale data)
-    const gamesWithStartingFen = await this.prisma.broadcastGame.count({
-      where: { roundId: round.id, currentFen: STARTING_FEN },
+    // Re-fetch if any game has stale data: STARTING_FEN or unresolved result (*)
+    const staleGames = await this.prisma.broadcastGame.count({
+      where: {
+        roundId: round.id,
+        OR: [
+          { currentFen: STARTING_FEN },
+          { result: null },
+          { result: '*' },
+        ],
+      },
     });
     const totalGames = await this.prisma.broadcastGame.count({
       where: { roundId: round.id },
     });
-    if (totalGames > 0 && gamesWithStartingFen === 0) return;
+    if (totalGames > 0 && staleGames === 0) return;
 
     // Avoid repeated failures: skip if cooldown is active
     const cooldownKey = `broadcast:pgn-fetch-cooldown:${lichessRoundId}`;
