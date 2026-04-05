@@ -563,6 +563,14 @@ export class GameService {
 
     const endedGameIds: string[] = [];
     for (const game of activeGames) {
+      // Don't end games with no moves — player may reconnect to another ECS task
+      const raw = await this.redis.hgetall(this.stateKey(game.id));
+      const moves = raw.moves ? JSON.parse(raw.moves) : [];
+      if (moves.length === 0) {
+        this.logger.log(`Bot game ${game.id} has no moves, skipping disconnect end`);
+        continue;
+      }
+
       const result = userId === game.whiteId ? 'black' : 'white';
       await this.endGame(game.id, result as 'white' | 'black', 'abandon');
       endedGameIds.push(game.id);
