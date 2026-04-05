@@ -161,6 +161,16 @@
   white-space: nowrap;
 }
 
+/* Inline eval - hidden on desktop */
+.analysis-inline-eval {
+  display: none;
+}
+
+/* Overflow menu - hidden on desktop */
+.analysis-overflow-wrapper {
+  display: none;
+}
+
 /* Gap between board area and sidebar */
 .analysis-page {
   gap: 8px;
@@ -1530,6 +1540,110 @@
   /* Hide desktop-only elements */
   .analysis-desktop-only {
     display: none !important;
+  }
+
+  /* Compact navigation - 32px height */
+  .analysis-board-controls {
+    height: 32px;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .analysis-board-controls button {
+    padding: 4px 8px;
+    font-size: 13px;
+    min-width: 28px;
+    height: 28px;
+  }
+
+  .analysis-flip-btn {
+    font-size: 14px !important;
+    padding: 4px 6px !important;
+  }
+
+  .analysis-controls-spacer {
+    flex: 1;
+    width: auto;
+  }
+
+  /* Inline eval indicator */
+  .analysis-inline-eval {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-family: monospace;
+    color: #aaa;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+
+  .analysis-inline-eval__score {
+    color: #e0e0e0;
+    font-weight: 600;
+  }
+
+  .analysis-inline-eval__score.mate {
+    color: #ff6b6b;
+  }
+
+  .analysis-inline-eval__depth {
+    color: #777;
+    font-size: 11px;
+  }
+
+  /* Overflow menu */
+  .analysis-overflow-wrapper {
+    display: inline-block;
+    position: relative;
+  }
+
+  .analysis-overflow-btn {
+    background: #2a2a4e;
+    color: #a0a0ff;
+    border: 1px solid #4a4a7e;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 16px;
+    cursor: pointer;
+    height: 28px;
+    line-height: 18px;
+  }
+
+  .analysis-overflow-menu {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    background: #1e1e3e;
+    border: 1px solid #4a4a7e;
+    border-radius: 6px;
+    padding: 4px 0;
+    z-index: 100;
+    min-width: 160px;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.4);
+    margin-bottom: 4px;
+  }
+
+  .analysis-overflow-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 14px;
+    background: transparent;
+    border: none;
+    color: #ccc;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .analysis-overflow-menu button:hover {
+    background: #2a2a5e;
+  }
+
+  .analysis-overflow-menu button:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
 
   /* Show single mobile panel with tabs */
