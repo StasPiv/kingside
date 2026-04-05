@@ -2002,21 +2002,26 @@
     overflow-y: auto;
   }
 
-  /* KS-1182: Stockfish lines single-line on mobile (like desktop) */
+  /* KS-1182/KS-1212: Compact engine lines on mobile */
   .stockfish-lines {
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
+    gap: 2px;
+    margin-top: 2px;
   }
 
   .stockfish-pv {
     white-space: nowrap;
     overflow-x: hidden;
     text-overflow: ellipsis;
+    font-size: 12px;
   }
 
   .stockfish-line {
     flex-wrap: nowrap;
+    gap: 4px;
+    font-size: 12px;
   }
 
   /* KS-1175: Hide breadcrumbs on mobile */
