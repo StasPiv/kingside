@@ -172,6 +172,7 @@
   white-space: nowrap;
 }
 
+/* KS-1193: overflow:visible so controls below board are not clipped */
 .analysis-board-wrapper {
   display: flex;
   flex-direction: column;
@@ -180,7 +181,7 @@
   flex: 1;
   min-height: 0;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Eval bar + board row: fills remaining height inside board-wrapper.
