@@ -204,6 +204,9 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
                 >
                   <div className="dgt-board-players">
                     <span className="dgt-player dgt-player--black">&#9823; {game.blackPlayer}</span>
+                    {game.result && game.result !== '*' && (
+                      <span className="dgt-player-result">{game.result === '0-1' ? '1' : game.result === '1-0' ? '0' : '½'}</span>
+                    )}
                   </div>
                   <div className="dgt-board-wrap">
                     <Chessboard
@@ -218,10 +221,9 @@ function LichessRoundView({ broadcast, rounds, currentRoundId, games, tournament
                   </div>
                   <div className="dgt-board-players">
                     <span className="dgt-player dgt-player--white">&#9817; {game.whitePlayer}</span>
-                  </div>
-                  <div className="dgt-board-footer">
-                    <span className="dgt-game-board-num">#{idx + 1}</span>
-                    <span className="dgt-game-result">{game.result ?? '*'}</span>
+                    {game.result && game.result !== '*' && (
+                      <span className="dgt-player-result">{game.result === '1-0' ? '1' : game.result === '0-1' ? '0' : '½'}</span>
+                    )}
                   </div>
                 </div>
               );
@@ -479,6 +481,9 @@ export function BroadcastRoundPage() {
                 >
                   <div className="dgt-board-players">
                     <span className="dgt-player dgt-player--black">&#9823; {black}</span>
+                    {result !== '*' && (
+                      <span className="dgt-player-result">{game.result === '0-1' ? '1' : game.result === '1-0' ? '0' : '½'}</span>
+                    )}
                   </div>
                   <div className="dgt-board-wrap">
                     <Chessboard
@@ -493,10 +498,9 @@ export function BroadcastRoundPage() {
                   </div>
                   <div className="dgt-board-players">
                     <span className="dgt-player dgt-player--white">&#9817; {white}</span>
-                  </div>
-                  <div className="dgt-board-footer">
-                    <span className="dgt-game-board-num">#{game.gameIndex}</span>
-                    <span className="dgt-game-result">{result}</span>
+                    {result !== '*' && (
+                      <span className="dgt-player-result">{game.result === '1-0' ? '1' : game.result === '0-1' ? '0' : '½'}</span>
+                    )}
                   </div>
                 </div>
               );
