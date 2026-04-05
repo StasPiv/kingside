@@ -506,8 +506,13 @@
   color: #ff9800;
 }
 
-/* ===== Mobile: comments full-width ===== */
+/* ===== Mobile ===== */
 @media (max-width: 768px) {
+  /* KS-1188: Hide player names — shown via analysis-players-combined above board */
+  .review-game-info-players {
+    display: none !important;
+  }
+
   .review-comment {
     display: block;
     width: 100%;
