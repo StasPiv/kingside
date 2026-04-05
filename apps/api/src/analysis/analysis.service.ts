@@ -58,6 +58,25 @@ export class AnalysisService {
   }
 
   /**
+   * Extract all standard PGN metadata fields.
+   */
+  private extractMetadata(pgn?: string) {
+    if (!pgn) return {};
+    return {
+      white: this.extractHeader(pgn, 'White'),
+      black: this.extractHeader(pgn, 'Black'),
+      whiteElo: this.extractHeader(pgn, 'WhiteElo'),
+      blackElo: this.extractHeader(pgn, 'BlackElo'),
+      result: this.extractHeader(pgn, 'Result'),
+      event: this.extractHeader(pgn, 'Event'),
+      site: this.extractHeader(pgn, 'Site'),
+      pgnDate: this.extractHeader(pgn, 'Date'),
+      round: this.extractHeader(pgn, 'Round'),
+      opening: this.extractOpening(pgn),
+    };
+  }
+
+  /**
    * Generate default title: "New analysis YYYY-MM-DD HH:mm:ss"
    */
   private defaultTitle(date: Date): string {
@@ -74,9 +93,8 @@ export class AnalysisService {
   async create(userId: string, dto: CreateAnalysisDto) {
     const now = new Date();
     const title = dto.title ?? this.defaultTitle(now);
-    const opening = this.extractOpening(dto.pgn);
     const headline = this.buildHeadline(dto.pgn);
-    const event = dto.pgn ? this.extractHeader(dto.pgn, 'Event') : null;
+    const meta = this.extractMetadata(dto.pgn);
 
     return this.prisma.analysis.create({
       data: {
@@ -85,8 +103,7 @@ export class AnalysisService {
         headline,
         pgn: dto.pgn ?? null,
         fen: dto.fen ?? null,
-        opening,
-        event,
+        ...meta,
         category: dto.category ?? 'analysis',
       },
     });
@@ -101,6 +118,9 @@ export class AnalysisService {
         headline: true,
         opening: true,
         event: true,
+        white: true,
+        black: true,
+        result: true,
         category: true,
         tags: true,
         createdAt: true,
@@ -123,6 +143,9 @@ export class AnalysisService {
           { title: { contains: query, mode: 'insensitive' } },
           { opening: { contains: query, mode: 'insensitive' } },
           { event: { contains: query, mode: 'insensitive' } },
+          { white: { contains: query, mode: 'insensitive' } },
+          { black: { contains: query, mode: 'insensitive' } },
+          { site: { contains: query, mode: 'insensitive' } },
         ],
       },
       select: {
@@ -158,20 +181,9 @@ export class AnalysisService {
     if (!analysis) throw new NotFoundException('Analysis not found');
     if (analysis.userId !== userId) throw new ForbiddenException();
 
-    const opening =
-      dto.pgn !== undefined
-        ? this.extractOpening(dto.pgn)
-        : analysis.opening;
-
-    const headline =
-      dto.pgn !== undefined
-        ? this.buildHeadline(dto.pgn)
-        : analysis.headline;
-
-    const event =
-      dto.pgn !== undefined
-        ? this.extractHeader(dto.pgn, 'Event')
-        : analysis.event;
+    const metaUpdate = dto.pgn !== undefined
+      ? { headline: this.buildHeadline(dto.pgn), ...this.extractMetadata(dto.pgn) }
+      : {};
 
     return this.prisma.analysis.update({
       where: { id },
@@ -181,9 +193,7 @@ export class AnalysisService {
         ...(dto.fen !== undefined && { fen: dto.fen }),
         ...(dto.currentPosition !== undefined && { currentPosition: dto.currentPosition }),
         ...(dto.tags !== undefined && { tags: dto.tags.join(' ') }),
-        opening,
-        headline,
-        event,
+        ...metaUpdate,
       },
     });
   }

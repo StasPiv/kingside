@@ -274,6 +274,14 @@ model Analysis {
   fen             String?
   opening         String?
   event           String?
+  site            String?
+  pgnDate         String?  @map("pgn_date")
+  round           String?
+  white           String?
+  black           String?
+  whiteElo        String?  @map("white_elo")
+  blackElo        String?  @map("black_elo")
+  result          String?
   category        String   @default("analysis")
   tags            String   @default("")
   currentPosition Int?     @map("current_position")
