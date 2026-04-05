@@ -526,9 +526,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         });
         if (existing) {
           // Never overwrite a real FEN with STARTING_FEN (parser may fail on some PGN formats)
-          const newFen = game.fen === STARTING_FEN && existing.currentFen && existing.currentFen !== STARTING_FEN
-            ? existing.currentFen
-            : game.fen;
+          const wouldRegress = game.fen === STARTING_FEN && existing.currentFen && existing.currentFen !== STARTING_FEN;
+          if (wouldRegress) {
+            this.logger.warn(
+              `Prevented FEN regression for ${game.white} vs ${game.black} (${game.lichessGameId}): ` +
+              `parser returned STARTING_FEN, keeping existing ${existing.currentFen?.substring(0, 40)}`,
+            );
+          }
+          const newFen = wouldRegress ? existing.currentFen! : game.fen;
           await this.prisma.broadcastGame.update({
             where: { id: existing.id },
             data: {
