@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -15,6 +16,7 @@ const SYNC_LOCK_KEY = 'broadcast:sync:lock';
 const SYNC_LOCK_TTL = 25; // seconds — shorter than SYNC_INTERVAL_MS to auto-release
 const PINNED_LOCK_KEY = 'broadcast:pinned:lock';
 const PINNED_LOCK_TTL = 8; // seconds — shorter than PINNED_POLL_INTERVAL_MS
+const PGN_HASH_TTL = 300; // 5 min — how long we remember PGN hash to skip re-parse
 const STARTING_FEN =
   'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -227,28 +229,37 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     });
     if (!res.ok) return;
     const pgn = await res.text();
-    if (pgn.trim()) {
-      await this.processPgnUpdate(lichessRoundId, pgn);
+    if (!pgn.trim()) return;
 
-      // Emit full sync to subscribed clients
-      if (this.gateway) {
-        const round = await this.prisma.broadcastRound.findUnique({
-          where: { lichessRoundId },
-          include: { games: true },
+    // Skip expensive PGN parsing if content hasn't changed since last fetch
+    const hashKey = `broadcast:pgn-hash:${lichessRoundId}`;
+    const newHash = createHash('md5').update(pgn).digest('hex');
+    try {
+      const prevHash = await this.redis.get(hashKey);
+      if (prevHash === newHash) return; // PGN unchanged — skip
+      await this.redis.set(hashKey, newHash, 'EX', PGN_HASH_TTL);
+    } catch { /* Redis error — proceed with parse */ }
+
+    await this.processPgnUpdate(lichessRoundId, pgn);
+
+    // Emit full sync to subscribed clients
+    if (this.gateway) {
+      const round = await this.prisma.broadcastRound.findUnique({
+        where: { lichessRoundId },
+        include: { games: true },
+      });
+      if (round) {
+        this.gateway.emitSync(round.id, {
+          roundId: round.id,
+          games: round.games.map((g, idx) => ({
+            gameIndex: idx,
+            fen: g.currentFen ?? STARTING_FEN,
+            whitePlayer: g.whitePlayer ?? 'Unknown',
+            blackPlayer: g.blackPlayer ?? 'Unknown',
+            result: g.result ?? null,
+            pgn: g.pgn ?? null,
+          })),
         });
-        if (round) {
-          this.gateway.emitSync(round.id, {
-            roundId: round.id,
-            games: round.games.map((g, idx) => ({
-              gameIndex: idx,
-              fen: g.currentFen ?? STARTING_FEN,
-              whitePlayer: g.whitePlayer ?? 'Unknown',
-              blackPlayer: g.blackPlayer ?? 'Unknown',
-              result: g.result ?? null,
-              pgn: g.pgn ?? null,
-            })),
-          });
-        }
       }
     }
   }
@@ -541,7 +552,8 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       const site = headerMap['Site'] ?? '';
       const lichessGameId = site.split('/').pop() ?? null;
 
-      const fen = fenValue || this.computeFenFromPgn(section) || STARTING_FEN;
+      // FEN header is authoritative — skip expensive chess.js parsing
+      const fen = fenValue || this.computeFenFromMoves(section) || STARTING_FEN;
 
       games.push({
         index,
@@ -559,40 +571,30 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     return games;
   }
 
-  private computeFenFromPgn(pgnText: string): string | null {
+  private computeFenFromMoves(pgnText: string): string | null {
     // Strip PGN comments in { } (e.g. {[%clk 1:30:00]}, {[%eval 0.5]})
-    // chess.js cannot parse them
     const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
 
-    // Try loadPgn first (handles headers + moves)
+    // Extract moves section (after last double-newline, i.e. after headers)
+    const parts = cleaned.split(/\n\n/);
+    const movesSection = parts[parts.length - 1] ?? '';
+    const tokens = movesSection
+      .replace(/\d+\.+\s*/g, '')
+      .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+
+    if (tokens.length === 0) return null;
+
+    // Apply moves one by one — cheaper than loadPgn (no header parsing)
     try {
-      const chess = new Chess();
-      chess.loadPgn(cleaned);
-      if (chess.history().length > 0) return chess.fen();
-    } catch {
-      // fall through to move-by-move fallback
-    }
-
-    // Fallback: extract moves section and apply one by one
-    try {
-      const parts = cleaned.split(/\n\n/);
-      const movesSection = parts[parts.length - 1] ?? '';
-      // Remove move numbers (1. 1... 23.) and result markers
-      const tokens = movesSection
-        .replace(/\d+\.+\s*/g, '')
-        .replace(/(1-0|0-1|1\/2-1\/2|\*)/g, '')
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean);
-
-      if (tokens.length === 0) return null;
-
       const chess = new Chess();
       for (const token of tokens) {
         try {
           chess.move(token);
         } catch {
-          break; // stop at first invalid token
+          break;
         }
       }
       if (chess.history().length > 0) return chess.fen();
