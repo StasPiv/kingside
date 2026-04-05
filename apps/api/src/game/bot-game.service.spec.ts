@@ -41,7 +41,11 @@ describe('BotGameService', () => {
       getBestMove: jest.fn(),
     };
 
-    service = new BotGameService(prisma, gameService, stockfish);
+    const openingBook = {
+      getBookMove: jest.fn().mockReturnValue(null),
+    };
+
+    service = new BotGameService(prisma, gameService, stockfish, openingBook as any);
   });
 
   describe('isBotPlayer', () => {
