@@ -71,8 +71,9 @@ export default defineConfig({
         // in filenames and are handled via NetworkFirst to avoid stale chunks.
         globPatterns: ['**/*.{svg,png,woff2}'],
         globIgnores: ['**/stockfish/**'],
-        navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        // navigateFallback removed: index.html is not in precache (globPatterns),
+        // so referencing it as fallback causes PWA to hang on splash screen.
+        // Navigation is handled by runtimeCaching NetworkFirst below.
         runtimeCaching: [
           {
             // JS and CSS: network first, fall back to cache
