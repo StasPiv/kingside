@@ -58,6 +58,7 @@ export class AnalysisService {
       select: {
         id: true,
         title: true,
+        pgn: true,
         opening: true,
         category: true,
         tags: true,

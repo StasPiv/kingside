@@ -563,13 +563,45 @@
 }
 
 .workshop-analysis-item__title {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
   font-size: 14px;
   font-weight: 600;
   color: #e0e0f0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.workshop-analysis-item__player-white,
+.workshop-analysis-item__player-black {
+  font-weight: 600;
+}
+
+.workshop-analysis-item__elo {
+  font-size: 12px;
+  font-weight: 400;
+  color: #999;
+}
+
+.workshop-analysis-item__result {
+  font-weight: 700;
+  color: #7c83ff;
+  margin: 0 2px;
+}
+
+.workshop-analysis-item__vs {
+  font-weight: 400;
+  color: #777;
+  font-size: 12px;
+}
+
+.workshop-analysis-item__pgn-date {
+  font-size: 11px;
+  font-weight: 400;
+  color: #666;
+  margin-left: 4px;
 }
 
 .workshop-analysis-item__meta {
