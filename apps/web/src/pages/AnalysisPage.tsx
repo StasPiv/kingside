@@ -103,6 +103,8 @@ export function AnalysisPage() {
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   type MobileTabId = 'moves' | 'engine' | 'report';
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
+  const [showOverflowMenu, setShowOverflowMenu] = useState(false);
+  const overflowMenuRef = useRef<HTMLDivElement>(null);
   const pendingPositionRef = useRef<number | null>(null);
 
   // Standalone analysis state
@@ -488,6 +490,47 @@ export function AnalysisPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [gotoPrevious, gotoNext, gotoFirst, gotoLast]);
 
+  // Close overflow menu on click outside
+  useEffect(() => {
+    if (!showOverflowMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (overflowMenuRef.current && !overflowMenuRef.current.contains(e.target as Node)) {
+        setShowOverflowMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [showOverflowMenu]);
+
+  // Export PGN handler
+  const handleExportPgn = useCallback(() => {
+    try {
+      if (history.length === 0) return;
+      const headers: string[] = [];
+      headers.push(`[Event "${analysisTitle || 'Analysis'}"]`);
+      headers.push(`[Site "Kingside"]`);
+      headers.push(`[Date "${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}"]`);
+      if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
+      if (pgnHeaders['White']) headers.push(`[White "${pgnHeaders['White']}"]`);
+      if (pgnHeaders['Black']) headers.push(`[Black "${pgnHeaders['Black']}"]`);
+      if (pgnHeaders['Result']) headers.push(`[Result "${pgnHeaders['Result']}"]`);
+      else headers.push('[Result "*"]');
+      const moves = serializeToAnnotatedPgn(history);
+      const pgn = headers.join('\n') + '\n\n' + moves + '\n';
+      const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(analysisTitle || 'analysis').replace(/[^a-zA-Z0-9_-]/g, '_')}.pgn`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    } catch (err) {
+      console.error('[Export PGN] Failed:', err);
+    }
+  }, [history, analysisTitle, initialFen, pgnHeaders]);
+
   // --- Board setup ---
   const stablePosition = useStablePosition(currentFen);
   const boardStyle = useMemo(
@@ -758,54 +801,61 @@ export function AnalysisPage() {
             >
               ⇅
             </button>
+            {/* Inline eval indicator - mobile only */}
+            {topLine && analysisEnabled && sfState === 'analyzing' && (
+              <span className="analysis-inline-eval">
+                <span className={`analysis-inline-eval__score${topLine.score.type === 'mate' ? ' mate' : ''}`}>
+                  {formatEval(topLine, evalIsBlackTurn)}
+                </span>
+                <span className="analysis-inline-eval__depth">d{topLine.depth}</span>
+              </span>
+            )}
             <span className="analysis-controls-spacer" />
-            {!gameId && (
+            {/* Desktop: FEN and PGN buttons */}
+            <span className="analysis-desktop-only">
+              {!gameId && (
+                <button
+                  className="analysis-export-btn"
+                  onClick={() => setShowSetPosition(true)}
+                  title={t('position.title', 'Set Position')}
+                >
+                  FEN
+                </button>
+              )}
               <button
                 className="analysis-export-btn"
-                onClick={() => setShowSetPosition(true)}
-                title={t('position.title', 'Set Position')}
+                onClick={handleExportPgn}
+                disabled={history.length === 0}
+                title={t('review.exportPgn', 'Export PGN')}
               >
-                FEN
+                &#x2B07; PGN
               </button>
-            )}
-            <button
-              className="analysis-export-btn"
-              onClick={() => {
-                try {
-                  console.log('[Export PGN] clicked, history.length =', history.length);
-                  if (history.length === 0) return;
-                  const headers: string[] = [];
-                  headers.push(`[Event "${analysisTitle || 'Analysis'}"]`);
-                  headers.push(`[Site "Kingside"]`);
-                  headers.push(`[Date "${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}"]`);
-                  if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
-                  if (pgnHeaders['White']) headers.push(`[White "${pgnHeaders['White']}"]`);
-                  if (pgnHeaders['Black']) headers.push(`[Black "${pgnHeaders['Black']}"]`);
-                  if (pgnHeaders['Result']) headers.push(`[Result "${pgnHeaders['Result']}"]`);
-                  else headers.push('[Result "*"]');
-                  const moves = serializeToAnnotatedPgn(history);
-                  const pgn = headers.join('\n') + '\n\n' + moves + '\n';
-                  const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `${(analysisTitle || 'analysis').replace(/[^a-zA-Z0-9_-]/g, '_')}.pgn`;
-                  a.style.display = 'none';
-                  document.body.appendChild(a);
-                  a.click();
-                  setTimeout(() => {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                  }, 100);
-                } catch (err) {
-                  console.error('[Export PGN] Failed:', err);
-                }
-              }}
-              disabled={history.length === 0}
-              title={t('review.exportPgn', 'Export PGN')}
-            >
-              &#x2B07; PGN
-            </button>
+            </span>
+            {/* Mobile: overflow menu */}
+            <div className="analysis-overflow-wrapper" ref={overflowMenuRef}>
+              <button
+                className="analysis-overflow-btn"
+                onClick={() => setShowOverflowMenu((v) => !v)}
+                title={t('common.more', 'More')}
+              >
+                &#x22EF;
+              </button>
+              {showOverflowMenu && (
+                <div className="analysis-overflow-menu">
+                  {!gameId && (
+                    <button onClick={() => { setShowSetPosition(true); setShowOverflowMenu(false); }}>
+                      {t('position.title', 'Set Position')} (FEN)
+                    </button>
+                  )}
+                  <button
+                    onClick={() => { handleExportPgn(); setShowOverflowMenu(false); }}
+                    disabled={history.length === 0}
+                  >
+                    {t('review.exportPgn', 'Export PGN')}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
