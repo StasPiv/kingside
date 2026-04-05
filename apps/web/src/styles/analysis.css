@@ -1517,6 +1517,11 @@
   display: none;
 }
 
+/* Mobile single panel - hidden on desktop */
+.analysis-mobile-panel {
+  display: none;
+}
+
 .analysis-mobile-engine-controls {
   display: none;
 }
@@ -1527,8 +1532,8 @@
     display: none !important;
   }
 
-  /* Show split panels */
-  .analysis-split-panel {
+  /* Show single mobile panel with tabs */
+  .analysis-mobile-panel {
     display: flex;
     flex-direction: column;
     flex: 1;
@@ -1539,38 +1544,34 @@
     box-sizing: border-box;
   }
 
-  .analysis-split-panel + .analysis-split-panel {
-    border-top: 1px solid #333;
-  }
-
-  .analysis-split-panel__tabs {
+  .analysis-mobile-panel__tabs {
     display: flex;
     flex-shrink: 0;
-    height: 28px;
+    height: 32px;
     border-bottom: 1px solid #333;
   }
 
-  .analysis-split-tab {
+  .analysis-mobile-tab {
     flex: 1;
-    padding: 0 4px;
+    padding: 0 8px;
     background: transparent;
     border: none;
     color: #777;
-    font-size: 11px;
+    font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
     text-align: center;
-    line-height: 26px;
+    line-height: 30px;
   }
 
-  .analysis-split-tab.active {
+  .analysis-mobile-tab.active {
     color: #7c83ff;
     border-bottom-color: #7c83ff;
   }
 
-  .analysis-split-panel__content {
+  .analysis-mobile-panel__content {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
@@ -1581,7 +1582,7 @@
     max-width: 100%;
   }
 
-  .analysis-split-panel__content .analysis-panel-body {
+  .analysis-mobile-panel__content .analysis-panel-body {
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
@@ -1592,7 +1593,7 @@
     padding: 6px 8px;
   }
 
-  .analysis-split-panel__content .analysis-panel-body--scroll {
+  .analysis-mobile-panel__content .analysis-panel-body--scroll {
     overflow-y: auto;
     width: 100%;
     box-sizing: border-box;
