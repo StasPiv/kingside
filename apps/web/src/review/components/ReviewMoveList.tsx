@@ -47,7 +47,6 @@ interface ReviewMoveListProps {
   onTruncateRemaining: (move: ChessMove) => void;
   onSetNag?: (globalIndex: number, nags: number[]) => void;
   onSetComment?: (globalIndex: number, comment: string) => void;
-  gameInfo?: GameInfo;
 }
 
 export function ReviewMoveList({
@@ -59,7 +58,6 @@ export function ReviewMoveList({
   onTruncateRemaining,
   onSetNag,
   onSetComment,
-  gameInfo,
 }: ReviewMoveListProps) {
   const { t } = useTranslation();
   const movesContainerRef = useRef<HTMLDivElement>(null);
@@ -367,40 +365,6 @@ export function ReviewMoveList({
 
   return (
     <div className="review-move-list-wrapper">
-      {gameInfo && (
-        <div className="review-game-info">
-          {gameInfo.opening && (
-            <div className="review-game-info-opening">{gameInfo.opening}</div>
-          )}
-          <div className="review-game-info-players">
-            <span className="review-game-info-player">
-              <span className="review-game-info-color review-game-info-color--white" />
-              {gameInfo.white.username}
-              {gameInfo.white.rating != null && (
-                <span className="review-game-info-rating">({gameInfo.white.rating})</span>
-              )}
-            </span>
-            <span className="review-game-info-vs">vs</span>
-            <span className="review-game-info-player">
-              <span className="review-game-info-color review-game-info-color--black" />
-              {gameInfo.black.username}
-              {gameInfo.black.rating != null && (
-                <span className="review-game-info-rating">({gameInfo.black.rating})</span>
-              )}
-            </span>
-          </div>
-          {gameInfo.result && (
-            <div className="review-game-info-result">{gameInfo.result}</div>
-          )}
-          {(gameInfo.event || gameInfo.date) && (
-            <div className="review-game-info-meta">
-              {gameInfo.event && <span>{gameInfo.event}</span>}
-              {gameInfo.event && gameInfo.date && <span> — </span>}
-              {gameInfo.date && <span>{gameInfo.date}</span>}
-            </div>
-          )}
-        </div>
-      )}
       <div ref={movesContainerRef} className="review-moves-container">
         {!history || history.length === 0 ? (
           <div className="review-no-moves">No moves</div>

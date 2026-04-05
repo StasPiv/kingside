@@ -1,3 +1,109 @@
+/* GameMetaBar — unified game metadata display */
+.game-meta-bar__mobile {
+  display: none;
+}
+
+.game-meta-bar__desktop {
+  padding: 10px 14px;
+  border-bottom: 1px solid #333;
+}
+
+.game-meta-bar__players {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.game-meta-bar__player {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.game-meta-bar__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.game-meta-bar__dot--white {
+  background: #f0f0f0;
+  border: 1px solid #999;
+}
+
+.game-meta-bar__dot--black {
+  background: #333;
+  border: 1px solid #666;
+}
+
+.game-meta-bar__name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #e0e0e0;
+}
+
+.game-meta-bar__rating {
+  font-size: 12px;
+  color: #999;
+}
+
+.game-meta-bar__result-badge {
+  font-size: 13px;
+  font-weight: 700;
+  color: #7c83ff;
+  margin: 2px 0 2px 16px;
+}
+
+.game-meta-bar__opening {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.game-meta-bar__meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #777;
+}
+
+.game-meta-bar__result {
+  font-size: 12px;
+  font-weight: 700;
+  color: #7c83ff;
+  margin: 0 4px;
+}
+
+@media (max-width: 768px) {
+  .game-meta-bar__desktop {
+    display: none;
+  }
+
+  .game-meta-bar__mobile {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+    overflow: hidden;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .game-meta-bar__mobile .game-meta-bar__dot {
+    width: 8px;
+    height: 8px;
+  }
+
+  .game-meta-bar__mobile .game-meta-bar__name {
+    font-size: 13px;
+  }
+
+  .game-meta-bar__mobile .game-meta-bar__rating {
+    font-size: 11px;
+  }
+}
+
 /* Analysis page */
 .analysis-page {
   display: flex;

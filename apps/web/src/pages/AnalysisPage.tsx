@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 import { MemoChessboard } from '../components/MemoChessboard';
-import { GameInfoPanel } from '../components/GameInfoPanel';
+import { GameMetaBar } from '../components/GameMetaBar';
+import type { GameMetaInfo } from '../components/GameMetaBar';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
 import { EvalBar } from '../components/EvalBar';
 import { SetPositionModal } from '../components/SetPositionModal';
@@ -648,17 +649,18 @@ export function AnalysisPage() {
 
   const openingName = classifyOpening(history.map((m) => m.san));
 
-  const gameInfo = gameData
+  const gameInfo: GameMetaInfo | undefined = gameData
     ? {
         white: { username: gameData.white.username, rating: gameData.whiteRatingBefore ?? null },
         black: { username: gameData.black.username, rating: gameData.blackRatingBefore ?? null },
         opening: openingName || undefined,
         result: resultPgn,
+        ratingChange: gameData.ratingChange || undefined,
       }
     : pgnHeaders['White'] && pgnHeaders['Black']
       ? {
-          white: { username: pgnHeaders['White'] },
-          black: { username: pgnHeaders['Black'] },
+          white: { username: pgnHeaders['White'], rating: pgnHeaders['WhiteElo'] ? Number(pgnHeaders['WhiteElo']) : undefined },
+          black: { username: pgnHeaders['Black'], rating: pgnHeaders['BlackElo'] ? Number(pgnHeaders['BlackElo']) : undefined },
           opening: openingName || pgnHeaders['Opening'] || undefined,
           result: pgnHeaders['Result'] && pgnHeaders['Result'] !== '*' ? pgnHeaders['Result'] : undefined,
           event: pgnHeaders['Event'] && pgnHeaders['Event'] !== '?' ? pgnHeaders['Event'] : undefined,
@@ -736,24 +738,7 @@ export function AnalysisPage() {
           </>
         )}
         <div className="analysis-board-wrapper">
-          {gameInfo && (
-            <div className="analysis-players-combined">
-              <span className="analysis-player-dot analysis-player-dot--white" />
-              <span className="analysis-player-name">{gameInfo.white.username}</span>
-              {gameInfo.white.rating != null && <span className="analysis-player-rating">{gameInfo.white.rating}</span>}
-              <span className="analysis-players-vs">vs</span>
-              <span className="analysis-player-dot analysis-player-dot--black" />
-              <span className="analysis-player-name">{gameInfo.black.username}</span>
-              {gameInfo.black.rating != null && <span className="analysis-player-rating">{gameInfo.black.rating}</span>}
-            </div>
-          )}
-          {gameData && (
-            <div className="analysis-player-row">
-              <span className="analysis-player-dot analysis-player-dot--black" />
-              <span className="analysis-player-name">{gameData.black.username}</span>
-              {gameData.blackRatingBefore != null && <span className="analysis-player-rating">{gameData.blackRatingBefore}</span>}
-            </div>
-          )}
+          {gameInfo && <GameMetaBar info={gameInfo} />}
 
           <div className="analysis-eval-board-row">
             <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />
@@ -785,14 +770,6 @@ export function AnalysisPage() {
               )}
             </div>
           </div>
-
-          {gameData && (
-            <div className="analysis-player-row">
-              <span className="analysis-player-dot analysis-player-dot--white" />
-              <span className="analysis-player-name">{gameData.white.username}</span>
-              {gameData.whiteRatingBefore != null && <span className="analysis-player-rating">{gameData.whiteRatingBefore}</span>}
-            </div>
-          )}
 
           <div className="analysis-board-controls">
             <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>&#x21E4;</button>
@@ -880,15 +857,10 @@ export function AnalysisPage() {
       </div>
 
       <div className="analysis-sidebar">
-        {/* Desktop-only: GameInfoPanel */}
-        {gameData && (
+        {/* Desktop-only: GameMetaBar */}
+        {gameInfo && (
           <div className="analysis-desktop-only">
-            <GameInfoPanel
-              gameData={gameData}
-              resultPgn={resultPgn}
-              collapsed={!panelStates.gameInfo}
-              onToggle={() => togglePanel('gameInfo')}
-            />
+            <GameMetaBar info={gameInfo} />
           </div>
         )}
 
@@ -1012,23 +984,6 @@ export function AnalysisPage() {
           </div>
           {panelStates.moves && (
             <div className="analysis-panel-body analysis-panel-body--scroll">
-              {/* PGN headers when no gameData (broadcast/imported games) */}
-              {!gameData && gameInfo && (
-                <div className="analysis-pgn-headers">
-                  <div className="analysis-pgn-players">
-                    <span className="analysis-pgn-white">&#9817; {gameInfo.white.username}{gameInfo.white.rating ? ` (${gameInfo.white.rating})` : ''}</span>
-                    <span className="analysis-pgn-vs">vs</span>
-                    <span className="analysis-pgn-black">&#9823; {gameInfo.black.username}{gameInfo.black.rating ? ` (${gameInfo.black.rating})` : ''}</span>
-                    {gameInfo.result && <span className="analysis-pgn-result">{gameInfo.result}</span>}
-                  </div>
-                  {(gameInfo.event || gameInfo.date) && (
-                    <div className="analysis-pgn-meta">
-                      {gameInfo.event && <span>{gameInfo.event}</span>}
-                      {gameInfo.date && <span>{gameInfo.date}</span>}
-                    </div>
-                  )}
-                </div>
-              )}
               <ReviewMoveList
                 history={history}
                 currentGlobalIndex={currentGlobalIndex}
@@ -1093,16 +1048,6 @@ export function AnalysisPage() {
             </div>
             <div className={`analysis-mobile-section analysis-mobile-section--moves${mobileTab !== 'report' ? ' active' : ''}`}>
               <div className="analysis-panel-body analysis-panel-body--scroll">
-                {!gameData && gameInfo && (
-                  <div className="analysis-pgn-headers">
-                    <div className="analysis-pgn-players">
-                      <span className="analysis-pgn-white">&#9817; {gameInfo.white.username}</span>
-                      <span className="analysis-pgn-vs">vs</span>
-                      <span className="analysis-pgn-black">&#9823; {gameInfo.black.username}</span>
-                      {gameInfo.result && <span className="analysis-pgn-result">{gameInfo.result}</span>}
-                    </div>
-                  </div>
-                )}
                 <ReviewMoveList
                   history={history}
                   currentGlobalIndex={currentGlobalIndex}
@@ -1110,7 +1055,6 @@ export function AnalysisPage() {
                   onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
                   onDeleteVariation={(move) => removeVariation(move as ChessMove)}
                   onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
-                  gameInfo={gameInfo}
                 />
               </div>
             </div>
