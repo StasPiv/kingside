@@ -74,5 +74,9 @@ if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "packages/shared/src/"
     echo "[post-hook] touch shared/src/index.ts + web/src/main.tsx — Vite увидит новые экспорты"
 fi
 
+# Всегда touch dev-серверы при коммите/merge в main — перезапуск watch mode
+[ -f "$REPO_DIR/apps/api/src/main.ts" ] && touch "$REPO_DIR/apps/api/src/main.ts"
+[ -f "$REPO_DIR/apps/web/src/main.tsx" ] && touch "$REPO_DIR/apps/web/src/main.tsx"
+
 echo "[post-hook] Коммит в main. Деплой НЕ запускается автоматически."
 echo "[post-hook] Для деплоя используйте: just deploy"
