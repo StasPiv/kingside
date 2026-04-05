@@ -28,6 +28,31 @@ const PIECE_TO_POLY: Record<string, number> = {
   K: 11, k: 10,
 };
 
+/**
+ * Check if an enemy pawn can actually capture en passant.
+ * Polyglot only includes ep square in hash when capture is possible.
+ */
+function canTakeEnPassant(rows: string[], epFile: number, epRank: number, turn: string): boolean {
+  // The capturing pawn must be on the rank adjacent to the ep square
+  // If turn=b (black to move), black pawns on rank 3 (index 4 from top) can capture ep on rank 2 (index 5)
+  // If turn=w (white to move), white pawns on rank 4 (index 3 from top) can capture ep on rank 5 (index 2)
+  const captureRank = turn === 'b' ? 4 : 3; // row index from top (0=rank8, 7=rank1)
+  const capturePiece = turn === 'b' ? 'p' : 'P';
+
+  const row = rows[captureRank];
+  // Expand row to 8 chars
+  let expanded = '';
+  for (const ch of row) {
+    if (ch >= '1' && ch <= '8') expanded += '.'.repeat(parseInt(ch));
+    else expanded += ch;
+  }
+
+  // Check adjacent files
+  if (epFile > 0 && expanded[epFile - 1] === capturePiece) return true;
+  if (epFile < 7 && expanded[epFile + 1] === capturePiece) return true;
+  return false;
+}
+
 export function polyglotHash(fen: string): bigint {
   const parts = fen.split(' ');
   const board = parts[0];
@@ -62,9 +87,13 @@ export function polyglotHash(fen: string): bigint {
   if (castling.includes('q')) hash ^= RANDOM64[771];
 
   // En passant: indices 772-779
+  // Polyglot only includes ep in hash if an adjacent enemy pawn can actually capture
   if (enPassant !== '-') {
     const epFile = enPassant.charCodeAt(0) - 'a'.charCodeAt(0);
-    hash ^= RANDOM64[772 + epFile];
+    const epRank = parseInt(enPassant[1]) - 1; // 0-based
+    if (canTakeEnPassant(rows, epFile, epRank, turn)) {
+      hash ^= RANDOM64[772 + epFile];
+    }
   }
 
   // Turn: index 780
