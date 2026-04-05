@@ -1921,8 +1921,9 @@
     display: flex;
   }
 
-  /* KS-1188: Hide duplicate player names from ReviewMoveList on mobile */
-  .review-game-info-players {
+  /* KS-1188: Hide duplicate player names — only combined row above board */
+  .review-game-info-players,
+  .analysis-pgn-players {
     display: none;
   }
 }
