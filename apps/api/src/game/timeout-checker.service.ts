@@ -58,13 +58,14 @@ export class TimeoutCheckerService implements OnModuleInit, OnModuleDestroy {
 
     if (!timedOut) return;
 
+    this.logger.log(`Game ${gameId}: ${activeColor} timed out, ending...`);
     const result: GameResult = activeColor === 'white' ? 'black' : 'white';
     try {
       const ratingChange = await this.gameService.endGame(gameId, result, 'timeout');
       this.gateway.emitGameEnd(gameId, result, 'timeout', ratingChange || undefined);
       this.logger.log(`Game ${gameId} ended by timeout: ${activeColor} ran out of time`);
-    } catch {
-      // Game may have already ended via another path
+    } catch (e: unknown) {
+      this.logger.warn(`Game ${gameId} timeout endGame failed: ${(e as Error).message}`);
     }
   }
 }
