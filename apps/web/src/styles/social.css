@@ -1117,14 +1117,80 @@
 }
 
 @media (max-width: 700px) {
-  .watch-game-layout {
-    grid-template-columns: 1fr;
-  }
-  .watch-game-sidebar {
-    max-height: 200px;
-  }
   .live-games-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* KS-1280: Mobile watch layout */
+@media (max-width: 768px) {
+  .watch-game-page {
+    padding: 4px 0;
+    max-width: 100%;
+  }
+
+  .watch-game-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .watch-game-board-area {
+    align-items: stretch;
+  }
+
+  /* Board full width */
+  .watch-game-page .board-container {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    height: auto !important;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
+  }
+
+  /* Compact player info */
+  .watch-game-player-info {
+    max-width: 100%;
+    padding: 4px 8px;
+    gap: 6px;
+  }
+
+  .watch-game-name {
+    font-size: 13px;
+  }
+
+  .watch-game-clock {
+    font-size: 14px;
+    padding: 2px 6px;
+  }
+
+  /* Compact sidebar */
+  .watch-game-sidebar {
+    max-height: none;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    border-radius: 0;
+    padding: 8px;
+  }
+
+  /* Compact controls */
+  .watch-game-page .analysis-board-controls {
+    margin-top: 4px;
+  }
+
+  .watch-game-result {
+    margin-top: 4px;
+    font-size: 14px;
+  }
+
+  .watch-game-delay-notice {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .watch-game-status {
+    margin-top: 4px;
+    font-size: 13px;
   }
 }
 
