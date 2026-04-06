@@ -8,3 +8,4 @@ export { runMatchmakingScenario, playMatchmakingGame } from './scenarios/matchma
 export { runPuzzleScenario, runPuzzleRushScenario } from './scenarios/puzzle.js';
 export { runSpectatorScenario } from './scenarios/spectator.js';
 export { runBroadcastScenario } from './scenarios/broadcast.js';
+export { runArenaScenario } from './scenarios/arena.js';

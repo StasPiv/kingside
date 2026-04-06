@@ -12,7 +12,8 @@
     "puzzles-all": "node --enable-source-maps dist/run-puzzles.js both",
     "spectator": "node --enable-source-maps dist/run-spectator.js",
     "broadcast": "node --enable-source-maps dist/run-spectator.js broadcast",
-    "fanout-all": "node --enable-source-maps dist/run-spectator.js both"
+    "fanout-all": "node --enable-source-maps dist/run-spectator.js both",
+    "arena": "node --enable-source-maps dist/run-arena.js"
   },
   "dependencies": {
     "chess.js": "^1.0.0-beta.8",
