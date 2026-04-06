@@ -444,7 +444,29 @@ export class ArenaService {
     const rating = (user[ratingField] as number) || 1500;
 
     const key = this.seekKey(tournamentId);
+    const lockKey = `arena:${tournamentId}:seek_lock`;
 
+    // Acquire distributed lock to prevent race conditions in matchmaking
+    const lockAcquired = await this.redis.set(lockKey, userId, 'EX', 5, 'NX');
+    if (lockAcquired !== 'OK') {
+      // Another seek is in progress — caller should retry
+      return null;
+    }
+
+    try {
+      return await this.matchOrEnqueue(tournamentId, userId, rating, key, t);
+    } finally {
+      await this.redis.del(lockKey);
+    }
+  }
+
+  private async matchOrEnqueue(
+    tournamentId: string,
+    userId: string,
+    rating: number,
+    key: string,
+    t: { timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
+  ): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
     // Check for opponent in queue
     const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);
 
