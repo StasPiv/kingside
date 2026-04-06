@@ -478,6 +478,14 @@ export class GameService {
     });
   }
 
+  async setBerserk(gameId: string, color: 'white' | 'black'): Promise<void> {
+    const field = color === 'white' ? 'whiteBerserk' : 'blackBerserk';
+    await this.prisma.game.update({
+      where: { id: gameId },
+      data: { [field]: true },
+    });
+  }
+
   async getActiveGameForUser(userId: string): Promise<{ gameId: string; opponent: string; timeControlType: string; tournamentId: string | null } | null> {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
     const game = await this.prisma.game.findFirst({

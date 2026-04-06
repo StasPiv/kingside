@@ -295,6 +295,60 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await this.gameService.handleDrawDecline(data.gameId, userId);
   }
 
+  @SubscribeMessage('game:berserk')
+  async handleBerserk(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { gameId: string },
+  ) {
+    const userId = client.data.user?.id;
+    if (!userId) return;
+
+    try {
+      const dbGame = await this.gameService.getGame(data.gameId);
+
+      // Must be a tournament game
+      if (!dbGame.tournamentId) {
+        client.emit(GameEvents.ERROR, { code: 'BERSERK_ERROR', message: 'Berserk only in tournament games' });
+        return;
+      }
+
+      // Must be active
+      if (dbGame.status !== 'active') return;
+
+      // Must be before first move
+      const { state } = await this.gameService.getGameState(data.gameId);
+      if (state.moves.length > 0) {
+        client.emit(GameEvents.ERROR, { code: 'BERSERK_ERROR', message: 'Berserk only before first move' });
+        return;
+      }
+
+      // Determine color and check not already berserked
+      const isWhite = userId === dbGame.whiteId;
+      const isBlack = userId === dbGame.blackId;
+      if (!isWhite && !isBlack) return;
+
+      const alreadyBerserk = isWhite ? dbGame.whiteBerserk : dbGame.blackBerserk;
+      if (alreadyBerserk) return;
+
+      // Save berserk flag
+      const color = isWhite ? 'white' : 'black';
+      await this.gameService.setBerserk(data.gameId, color);
+
+      // Halve clock
+      const clocks = await this.clockService.halveClock(data.gameId, color);
+
+      // Emit to both players + spectators
+      const berserkPayload = { gameId: data.gameId, color, clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs } };
+      this.server.to(`game:${data.gameId}`).emit('game:berserk', berserkPayload);
+      this.emitToSpectatorsDelayed(data.gameId, 'spectate:berserk', berserkPayload);
+
+      this.logger.log(`Berserk: game=${data.gameId.slice(0, 8)} ${color} by ${client.data.user?.username}`);
+    } catch (e: unknown) {
+      this.logger.error(`Berserk error: ${(e as Error).message}`);
+      client.emit(GameEvents.ERROR, { code: 'BERSERK_ERROR', message: (e as Error).message });
+    }
+  }
+
   @SubscribeMessage('game:claim-timeout')
   async handleClaimTimeout(
     @ConnectedSocket() client: Socket,

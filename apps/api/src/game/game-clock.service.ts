@@ -115,6 +115,21 @@ export class GameClockService {
     return { timedOut: remaining <= 0, clocks };
   }
 
+  async halveClock(gameId: string, color: 'white' | 'black'): Promise<ClockState> {
+    const raw = await this.redis.hgetall(this.clockKey(gameId));
+    const field = color === 'white' ? 'white_ms' : 'black_ms';
+    const current = Number(raw[field]);
+    const halved = Math.floor(current / 2);
+    await this.redis.hset(this.clockKey(gameId), { [field]: String(halved) });
+
+    return {
+      whiteMs: color === 'white' ? halved : Number(raw.white_ms),
+      blackMs: color === 'black' ? halved : Number(raw.black_ms),
+      lastTick: Number(raw.last_tick),
+      running: raw.running === '1',
+    };
+  }
+
   async stopClock(gameId: string): Promise<ClockState> {
     const raw = await this.redis.hgetall(this.clockKey(gameId));
     await this.redis.hset(this.clockKey(gameId), { running: '0' });
