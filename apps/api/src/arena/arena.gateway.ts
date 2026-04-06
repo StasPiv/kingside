@@ -76,6 +76,14 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
     this.logger.log(`handleSubscribe: ${client.data.user.username} (${client.id}) subscribed to ${roomName}, room size=${roomSize}`);
+
+    // If tournament already active, send started event (handles API restart / late join)
+    try {
+      const tournament = await this.arenaService.findOne(data.tournamentId);
+      if (tournament.status === 'active') {
+        client.emit(TOURNAMENT_EVENTS.STARTED, { tournamentId: data.tournamentId });
+      }
+    } catch { /* tournament not found — ignore */ }
   }
 
   @SubscribeMessage(TOURNAMENT_EVENTS.JOIN)
