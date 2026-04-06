@@ -345,6 +345,9 @@ export class GameService {
     result: GameResult,
     termination: Termination,
   ): Promise<RatingChange | null> {
+    const stack = new Error().stack?.split('\n').slice(1, 4).map(s => s.trim()).join(' <- ');
+    this.logger.log(`endGame(${gameId}, ${result}, ${termination}) called from: ${stack}`);
+
     await this.redis.hset(this.stateKey(gameId), { status: 'finished' });
     await this.clockService.stopClock(gameId);
 

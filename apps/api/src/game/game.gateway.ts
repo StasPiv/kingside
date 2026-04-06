@@ -218,6 +218,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const userId = client.data.user?.id;
     if (!userId) return;
 
+    this.logger.log(`handleResign: game=${data.gameId} user=${userId} (${client.data.user?.username})`);
     try {
       const result = await this.gameService.resign(data.gameId, userId);
       const endPayload: WsGameEndPayload = {
