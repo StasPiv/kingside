@@ -582,11 +582,24 @@ export function TournamentLobbyPage() {
                                   : g.result === 'loss'
                                     ? 'arena-game-cell arena-game-cell--loss'
                                     : 'arena-game-cell arena-game-cell--draw';
+                              // Build tooltip with point breakdown
+                              let tooltip = `vs ${g.opponentUsername}`;
+                              if (g.status === 'finished' && g.result && isArena) {
+                                const base = g.result === 'win' ? 2 : g.result === 'draw' ? 1 : 0;
+                                const bonus = g.points - base;
+                                tooltip += ` · ${g.points} pts`;
+                                if (bonus > 0) {
+                                  const parts = [`${base} base`];
+                                  if (bonus >= 2) parts.push('+2 streak×2');
+                                  else if (bonus === 1) parts.push('+1 bonus');
+                                  tooltip += ` (${parts.join(' ')})`;
+                                }
+                              }
                               return (
                                 <span
                                   key={g.gameId}
                                   className={cls}
-                                  title={`${t('tournaments.vs', 'vs')} ${g.opponentUsername}`}
+                                  title={tooltip}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     if (g.status === 'active') navigate(`/games/${g.gameId}/watch`);
