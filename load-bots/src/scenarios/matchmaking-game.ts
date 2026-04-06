@@ -32,15 +32,26 @@ export async function playMatchmakingGame(
     return;
   }
 
+  if (matchA.gameId !== matchB.gameId) {
+    console.log(`[${botA.username}/${botB.username}] Paired with wrong opponent: A=${matchA.gameId} B=${matchB.gameId}`);
+    // Play both games anyway (each bot with their actual opponent)
+    metrics.recordGameStarted();
+    metrics.recordGameStarted();
+    await Promise.all([
+      playGame(botA, matchA.gameId, matchA.color, config, metrics),
+      playGame(botB, matchB.gameId, matchB.color, config, metrics),
+    ]);
+    metrics.recordGameCompleted();
+    metrics.recordGameCompleted();
+    return;
+  }
+
   metrics.recordGameStarted();
 
-  // Both should be in the same game
-  const gameId = matchA.gameId;
-
-  // Play the game
+  // Play the game — both in same game
   await Promise.all([
-    playGame(botA, gameId, matchA.color, config, metrics),
-    playGame(botB, gameId, matchB.color, config, metrics),
+    playGame(botA, matchA.gameId, matchA.color, config, metrics),
+    playGame(botB, matchB.gameId, matchB.color, config, metrics),
   ]);
 
   metrics.recordGameCompleted();
@@ -208,16 +219,20 @@ export async function runMatchmakingScenario(config: Config, metrics: Metrics): 
 
   while (Date.now() < endTime) {
     round++;
-    const batchSize = pairs; // all pairs run in parallel
     const promises: Promise<void>[] = [];
 
-    for (let i = 0; i < batchSize; i++) {
-      const idx = (round - 1) * batchSize + i;
+    for (let i = 0; i < pairs; i++) {
+      const idx = (round - 1) * pairs + i;
       const botA = new BotUser(config.baseUrl, config.wsUrl, `${config.userPrefix}A${idx}`, metrics);
       const botB = new BotUser(config.baseUrl, config.wsUrl, `${config.userPrefix}B${idx}`, metrics);
 
+      // Stagger pair launches by 200ms to ensure correct pairing
+      // (prevents A0 matching with A1 instead of B0)
+      const delay = i * 200;
+
       promises.push(
         (async () => {
+          if (delay > 0) await sleep(delay);
           try {
             await botA.login(config.devBypassSecret);
             await botB.login(config.devBypassSecret);
@@ -236,7 +251,10 @@ export async function runMatchmakingScenario(config: Config, metrics: Metrics): 
     await Promise.all(promises);
 
     if (Date.now() >= endTime) break;
-    // Brief pause between rounds
-    await new Promise((r) => setTimeout(r, 1000));
+    await sleep(1000);
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
