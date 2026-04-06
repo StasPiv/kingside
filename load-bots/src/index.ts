@@ -6,3 +6,5 @@ export { loadConfig } from './config.js';
 export type { Config } from './config.js';
 export { runMatchmakingScenario, playMatchmakingGame } from './scenarios/matchmaking-game.js';
 export { runPuzzleScenario, runPuzzleRushScenario } from './scenarios/puzzle.js';
+export { runSpectatorScenario } from './scenarios/spectator.js';
+export { runBroadcastScenario } from './scenarios/broadcast.js';
