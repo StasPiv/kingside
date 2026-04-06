@@ -429,6 +429,17 @@ export class ArenaService {
     });
     if (!entry || entry.withdrawn) return null;
 
+    // Don't allow players with an active game in this tournament
+    const activeGame = await this.prisma.game.findFirst({
+      where: {
+        tournamentId,
+        status: { in: ['waiting', 'active'] },
+        OR: [{ whiteId: userId }, { blackId: userId }],
+      },
+      select: { id: true },
+    });
+    if (activeGame) return null;
+
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
     const rating = (user[ratingField] as number) || 1500;
@@ -466,6 +477,21 @@ export class ArenaService {
 
     if (matchedData && matchedCandidate) {
       const candidate = matchedCandidate;
+
+      // Verify opponent doesn't already have an active game
+      const oppActiveGame = await this.prisma.game.findFirst({
+        where: {
+          tournamentId,
+          status: { in: ['waiting', 'active'] },
+          OR: [{ whiteId: candidate.userId }, { blackId: candidate.userId }],
+        },
+        select: { id: true },
+      });
+      if (oppActiveGame) {
+        // Remove stale candidate from queue, don't create game
+        await this.redis.zrem(key, matchedData);
+        return null;
+      }
 
       // Remove from queue
       await this.redis.zrem(key, matchedData);
