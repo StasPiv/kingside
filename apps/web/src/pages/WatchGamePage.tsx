@@ -51,10 +51,15 @@ export function WatchGamePage() {
     }
 
     const onState = (state: WsGameStatePayload) => {
+      // Replay all moves on a fresh Chess instance to keep history in sync
       const game = gameRef.current;
-      game.load(state.fen);
-      setFen(state.fen);
-      setMoves(state.moves ?? []);
+      game.reset();
+      const stateMoves = state.moves ?? [];
+      for (const san of stateMoves) {
+        try { game.move(san); } catch { break; }
+      }
+      setFen(game.fen());
+      setMoves(game.history());
       setStatus(state.status === 'finished' ? 'finished' : 'active');
       if (state.result) setResult(state.result);
       if (state.players) {
@@ -65,9 +70,10 @@ export function WatchGamePage() {
 
     const onMove = (data: WsGameMoveServerPayload) => {
       const game = gameRef.current;
-      game.load(data.fen);
-      setFen(data.fen);
-      setMoves((prev) => [...prev, data.san]);
+      // Apply the move on the existing game instance
+      try { game.move(data.san); } catch { game.load(data.fen); }
+      setFen(game.fen());
+      setMoves(game.history());
     };
 
     const onEnd = (data: WsGameEndPayload) => {
