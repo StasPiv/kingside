@@ -15,6 +15,26 @@ body {
   overflow-x: hidden;
 }
 
+.guest-banner {
+  background: #2a2a4e;
+  border: 1px solid #4a4a7e;
+  border-radius: 6px;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.guest-banner a {
+  color: #7c83ff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.guest-banner a:hover {
+  text-decoration: underline;
+}
+
 body:has(.game-page) {
   overflow: hidden;
 }

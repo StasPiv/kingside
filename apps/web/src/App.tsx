@@ -95,22 +95,22 @@ export function App() {
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
-        <Route path="/lobby" element={<ProtectedRoute><LobbyPage /></ProtectedRoute>} />
+        <Route path="/lobby" element={<LobbyPage />} />
         <Route path="/play" element={<ProtectedRoute><PlayPage /></ProtectedRoute>} />
         <Route path="/games/live" element={<LiveGamesPage />} />
         <Route path="/games/:id/watch" element={<WatchGamePage />} />
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
-        <Route path="/game/:gameId/review" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense></ProtectedRoute>} />
+        <Route path="/game/:gameId/review" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-        <Route path="/daily" element={<ProtectedRoute><DailyPuzzlePage /></ProtectedRoute>} />
+        <Route path="/daily" element={<DailyPuzzlePage />} />
         <Route path="/puzzle-rush" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><PuzzleRushPage /></Suspense></ProtectedRoute>} />
         <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />
         <Route path="/puzzle-rush/review/:scoreId" element={<ProtectedRoute><PuzzleRushReviewPage /></ProtectedRoute>} />
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
-        <Route path="/puzzles" element={<ProtectedRoute><PuzzleBrowserPage /></ProtectedRoute>} />
-        <Route path="/puzzle" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
-        <Route path="/puzzle/:id" element={<ProtectedRoute><PuzzlePage /></ProtectedRoute>} />
-        <Route path="/analysis" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense></ProtectedRoute>} />
+        <Route path="/puzzles" element={<PuzzleBrowserPage />} />
+        <Route path="/puzzle" element={<PuzzlePage />} />
+        <Route path="/puzzle/:id" element={<PuzzlePage />} />
+        <Route path="/analysis" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
         <Route path="/analysis/:id" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense></ProtectedRoute>} />
         <Route path="/workshop" element={<WorkshopPage />} />

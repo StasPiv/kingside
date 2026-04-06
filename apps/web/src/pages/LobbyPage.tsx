@@ -576,10 +576,14 @@ export function LobbyPage() {
   return (
     <div className="lobby-page">
       <h1>{t('lobby.title')}<HelpButton section="play" /></h1>
-      {user && (
+      {user ? (
         <p className="user-info">
           {user.username} &middot; {t('lobby.rating', { rating: user[`rating${activeTab !== 'custom' ? activeTab.charAt(0).toUpperCase() + activeTab.slice(1) : 'Blitz'}` as keyof typeof user] })}
         </p>
+      ) : (
+        <div className="guest-banner">
+          <Link to="/login">{t('auth.loginToPlay', 'Sign in to play games')}</Link>
+        </div>
       )}
 
       <div className="lobby-teasers">

@@ -7,6 +7,7 @@ import { api } from '../api';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { HelpButton } from '../components/HelpButton';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
+import { useAuth } from '../context/AuthContext';
 import type { PuzzleDto } from '@kingside/shared';
 
 type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
@@ -15,6 +16,7 @@ export function PuzzlePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { playSound } = useSounds();
+  const { user } = useAuth();
   const { id: puzzleId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const isGenerated = searchParams.get('source') === 'generated';
@@ -126,6 +128,8 @@ export function PuzzlePage() {
   const submitAttemptResult = useCallback(async (solved: boolean): Promise<PuzzleDto | null> => {
     if (!puzzle || attemptSubmittedRef.current) return null;
     attemptSubmittedRef.current = true;
+    // Skip saving for guests
+    if (!user) return null;
     const timeMs = Date.now() - startTimeRef.current;
     try {
       if (isGenerated) {
@@ -142,7 +146,7 @@ export function PuzzlePage() {
     } catch {
       return null;
     }
-  }, [puzzle, isGenerated]);
+  }, [puzzle, isGenerated, user]);
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
@@ -309,6 +313,12 @@ export function PuzzlePage() {
     <div className="puzzle-page">
       <Link to="/puzzles" className="back-nav-link">&larr; {t('puzzle.backToPuzzles')}</Link>
       <h1>{t('puzzle.title')}<HelpButton section="puzzles" /></h1>
+
+      {!user && (
+        <div className="guest-banner">
+          <Link to="/login">{t('auth.loginToSaveProgress', 'Sign in to save your progress')}</Link>
+        </div>
+      )}
 
       <div className="puzzle-stats">
         <span>{t('puzzle.streak', { count: streak })}</span>

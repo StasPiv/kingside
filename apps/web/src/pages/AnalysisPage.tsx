@@ -20,6 +20,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { api } from '../api';
+import { useAuth } from '../context/AuthContext';
 import { useReviewState } from '../review/useReviewState';
 import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
@@ -99,6 +100,7 @@ export function AnalysisPage() {
   const analysisId = isAnalysisRoute && rawGameId !== 'new' ? rawGameId : undefined;
   const location = useLocation();
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -372,6 +374,7 @@ export function AnalysisPage() {
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPgnHeaders = Object.keys(pgnHeaders).length > 0;
   useEffect(() => {
+    if (!user) return;
     if (gameId) return;
     if (history.length === 0 && !hasPgnHeaders) return;
     if (positionSaveRef.current) { clearTimeout(positionSaveRef.current); positionSaveRef.current = null; }
