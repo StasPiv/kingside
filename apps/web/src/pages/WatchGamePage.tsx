@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -7,6 +7,7 @@ import { useStablePosition } from '../hooks/useStablePosition';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 import { socket } from '../socket';
+import { api } from '../api';
 import {
   SpectatorEvents,
   type WsGameStatePayload,
@@ -35,6 +36,8 @@ export function WatchGamePage() {
   const [clocks, setClocks] = useState({ white: 0, black: 0 });
   const [activeColor, setActiveColor] = useState<'white' | 'black'>('white');
   const [boardOrientation] = useState<'white' | 'black'>('white');
+  const [tournamentId, setTournamentId] = useState<string | null>(null);
+  const [tournamentName, setTournamentName] = useState<string | null>(null);
 
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
@@ -42,6 +45,21 @@ export function WatchGamePage() {
   const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
 
   const gameRef = useRef(new Chess());
+
+  // Load tournament context from game info
+  useEffect(() => {
+    if (!gameId) return;
+    api.get<{ tournamentId?: string | null }>(`/api/games/${gameId}`)
+      .then((game) => {
+        if (game.tournamentId) {
+          setTournamentId(game.tournamentId);
+          api.get<{ name: string }>(`/api/arena/${game.tournamentId}`)
+            .then((t) => setTournamentName(t.name))
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [gameId]);
 
   // Auto-scroll moves
   useEffect(() => {
@@ -181,9 +199,37 @@ export function WatchGamePage() {
 
   return (
     <div className="watch-game-page">
-      <Link to="/games/live" className="player-profile-back">
-        {t('liveGames.backToLive')}
-      </Link>
+      <nav className="analysis-breadcrumbs">
+        {tournamentId ? (
+          <>
+            <Link to="/tournaments" className="analysis-breadcrumbs__link">
+              {t('tournaments.title', 'Tournaments')}
+            </Link>
+            <span className="analysis-breadcrumbs__sep"> / </span>
+            <Link to={`/tournaments/${tournamentId}`} className="analysis-breadcrumbs__link">
+              {tournamentName ?? '...'}
+            </Link>
+            <span className="analysis-breadcrumbs__sep"> / </span>
+            <span className="analysis-breadcrumbs__current">
+              <span className="analysis-breadcrumbs__current-text">
+                {white.username} vs {black.username}
+              </span>
+            </span>
+          </>
+        ) : (
+          <>
+            <Link to="/games/live" className="analysis-breadcrumbs__link">
+              {t('liveGames.title', 'Live Games')}
+            </Link>
+            <span className="analysis-breadcrumbs__sep"> / </span>
+            <span className="analysis-breadcrumbs__current">
+              <span className="analysis-breadcrumbs__current-text">
+                {white.username} vs {black.username}
+              </span>
+            </span>
+          </>
+        )}
+      </nav>
 
       <div className="watch-game-layout">
         <div className="watch-game-board-area">
