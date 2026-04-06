@@ -454,7 +454,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`game:${gameId}`).emit(GameEvents.STATE, payload);
   }
 
-  emitGameEnd(gameId: string, result: GameResult, termination: string, ratingChange?: unknown) {
+  emitGameEnd(gameId: string, result: GameResult, termination: string, ratingChange?: WsGameEndPayload['ratingChange']) {
     const endPayload: WsGameEndPayload = {
       result,
       termination,
