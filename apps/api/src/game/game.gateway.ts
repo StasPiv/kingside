@@ -129,7 +129,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const userId = client.data.user?.id;
     if (!userId) {
-      this.logger.warn(`handleJoinGame: no userId for client ${client.id}, skipping`);
+      this.logger.warn(`handleJoinGame: no userId for client ${client.id}, auth missing`);
+      client.emit(GameEvents.ERROR, { code: 'AUTH_REQUIRED', message: 'Authentication required. Reconnect with valid token.' });
       return;
     }
 

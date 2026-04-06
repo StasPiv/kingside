@@ -132,6 +132,32 @@ async function runBotInArena(
       cleanup();
     });
 
+    socket.on('disconnect', async () => {
+      if (finished) return;
+      console.log(`[${bot.username}] /tournament disconnected, reconnecting...`);
+      try {
+        const newSocket = await bot.reconnectWs('/tournament');
+        // Re-subscribe — connect handler on new socket
+        newSocket.on('connect', () => {
+          newSocket.emit('tournament:subscribe', { tournamentId });
+        });
+        newSocket.on('tournament:started', () => startSeekLoop());
+        newSocket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
+          currentGameId = data.gameId;
+          stopSeekLoop();
+          metrics.recordGameStarted();
+          playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
+            metrics.recordGameCompleted();
+            currentGameId = null;
+            if (!finished) setTimeout(() => startSeekLoop(), 2000);
+          });
+        });
+        newSocket.on('tournament:finished', () => { clearTimeout(timeout); cleanup(); });
+      } catch {
+        metrics.recordError();
+      }
+    });
+
     socket.on('connect_error', () => {
       metrics.recordError();
       clearTimeout(timeout);
@@ -227,6 +253,13 @@ function playArenaGame(
     });
 
     socket.on('game:end', () => { clearTimeout(timeout); finish(); });
+    socket.on('error', (err: { code?: string }) => {
+      if (err.code === 'AUTH_REQUIRED') {
+        console.log(`[${bot.username}/${myColor}] AUTH_REQUIRED, finishing game to re-auth`);
+        clearTimeout(timeout);
+        finish();
+      }
+    });
     socket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
   });
 }

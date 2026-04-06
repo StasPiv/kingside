@@ -4,6 +4,7 @@ import { Metrics } from './metrics.js';
 export class BotUser {
   readonly username: string;
   private accessToken: string | null = null;
+  private devSecret: string | null = null;
   private sockets = new Map<string, Socket>();
 
   constructor(
@@ -31,6 +32,7 @@ export class BotUser {
 
     const data = (await res.json()) as { accessToken: string };
     this.accessToken = data.accessToken;
+    this.devSecret = secret;
     this.metrics.recordLatency(Date.now() - start);
     return this.accessToken;
   }
@@ -77,6 +79,20 @@ export class BotUser {
 
     this.sockets.set(namespace, socket);
     return socket;
+  }
+
+  /** Re-login and reconnect to a namespace. Returns new socket. */
+  async reconnectWs(namespace: string): Promise<Socket> {
+    // Disconnect old socket
+    const old = this.sockets.get(namespace);
+    if (old) { old.disconnect(); this.sockets.delete(namespace); }
+
+    // Re-auth
+    if (this.devSecret) {
+      await this.login(this.devSecret);
+    }
+
+    return this.connectWs(namespace);
   }
 
   /** Get an existing socket by namespace. */
