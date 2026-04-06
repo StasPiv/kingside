@@ -8,6 +8,8 @@ import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useBoardSettings } from '../hooks/useBoardSettings';
 import { socket } from '../socket';
 import { api } from '../api';
+import { classifyOpening } from '../utils/ecoClassify';
+import '../review/components/ReviewMoveList.css';
 import {
   SpectatorEvents,
   type WsGameStatePayload,
@@ -181,6 +183,8 @@ export function WatchGamePage() {
     return () => clearInterval(interval);
   }, [status, activeColor]);
 
+  const openingName = useMemo(() => classifyOpening(moves), [moves]);
+
   const stablePosition = useStablePosition(fen);
 
   const boardStyle = useMemo(
@@ -298,21 +302,48 @@ export function WatchGamePage() {
         </div>
 
         <div className="watch-game-sidebar">
-          <h3>{t('game.moves')}</h3>
-          <div className="moves game-moves-inline" ref={movesRef}>
-            {moves.map((move, i) => {
-              const isWhite = i % 2 === 0;
-              const moveNumber = Math.floor(i / 2) + 1;
-              const isLast = i === moves.length - 1;
-              return (
-                <span key={i} className={`game-move-item${isLast ? ' current' : ''}`}>
-                  {isWhite ? `${moveNumber}.\u00A0` : ''}{move}{' '}
+          <div className="review-move-list-wrapper">
+            {/* Opening name */}
+            <div className="review-game-info">
+              {openingName && (
+                <div className="review-game-info-opening">{openingName}</div>
+              )}
+              <div className="review-game-info-players">
+                <span className="review-game-info-player">
+                  <span className="review-game-info-color review-game-info-color--white" />
+                  {white.username}
                 </span>
-              );
-            })}
-            {moves.length === 0 && (
-              <span className="watch-game-no-moves">{t('liveGames.waitingMoves')}</span>
-            )}
+                <span className="review-game-info-vs">vs</span>
+                <span className="review-game-info-player">
+                  <span className="review-game-info-color review-game-info-color--black" />
+                  {black.username}
+                </span>
+              </div>
+            </div>
+
+            {/* Move list */}
+            <div className="review-moves-container" ref={movesRef}>
+              <div className="review-moves-list">
+                {moves.length === 0 ? (
+                  <div className="review-no-moves">{t('liveGames.waitingMoves')}</div>
+                ) : (
+                  moves.map((move, i) => {
+                    const isWhite = i % 2 === 0;
+                    const moveNumber = Math.floor(i / 2) + 1;
+                    const isLast = i === moves.length - 1;
+                    const display = isWhite ? `${moveNumber}.${move}` : move;
+                    return (
+                      <span
+                        key={i}
+                        className={`move-item${isLast ? ' current' : ''}`}
+                      >
+                        {display}{' '}
+                      </span>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
