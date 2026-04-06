@@ -143,8 +143,11 @@ function playGame(
       }
     };
 
-    socket.on('game:state', (state: { fen: string; moves: string[]; status: string }) => {
+    socket.on('game:state', (state: { fen: string; moves: string[]; status: string; clocks?: { whiteMs: number; blackMs: number } }) => {
       if (gameOver) return;
+      if (state.clocks) {
+        console.log(`[${bot.username}/${myColor}] state: status=${state.status} moves=${state.moves?.length} wMs=${state.clocks.whiteMs} bMs=${state.clocks.blackMs}`);
+      }
       if (state.status !== 'active') {
         clearTimeout(timeout);
         cleanup();
@@ -160,9 +163,9 @@ function playGame(
       tryMove();
     });
 
-    socket.on('game:end', (data: { result?: string; termination?: string }) => {
+    socket.on('game:end', (data: unknown) => {
       clearTimeout(timeout);
-      console.log(`[${bot.username}/${myColor}] Game ended: ${data?.result} by ${data?.termination} after ${moveCount} moves`);
+      console.log(`[${bot.username}/${myColor}] Game ended after ${moveCount} moves: ${JSON.stringify(data)}`);
       cleanup();
     });
 
