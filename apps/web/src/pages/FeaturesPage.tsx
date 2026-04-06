@@ -31,6 +31,36 @@ export function FeaturesPage() {
         </div>
       </section>
 
+      {/* Quick links for guests */}
+      <section className="features-quick-links">
+        <div className="features-quick-links__grid">
+          <Link to="/lobby" className="features-quick-link">
+            <span className="features-quick-link__icon">♟</span>
+            <span className="features-quick-link__label">{t('features.play.title', 'Play')}</span>
+          </Link>
+          <Link to="/puzzles" className="features-quick-link">
+            <span className="features-quick-link__icon">🧩</span>
+            <span className="features-quick-link__label">{t('features.puzzles.title', 'Puzzles')}</span>
+          </Link>
+          <Link to="/daily" className="features-quick-link">
+            <span className="features-quick-link__icon">📅</span>
+            <span className="features-quick-link__label">{t('lobby.dailyPuzzle', 'Daily Puzzle')}</span>
+          </Link>
+          <Link to="/analysis/new" className="features-quick-link">
+            <span className="features-quick-link__icon">🔍</span>
+            <span className="features-quick-link__label">{t('features.analyze.title', 'Analysis')}</span>
+          </Link>
+          <Link to="/broadcasts" className="features-quick-link">
+            <span className="features-quick-link__icon">📡</span>
+            <span className="features-quick-link__label">{t('features.broadcasts.title', 'Broadcasts')}</span>
+          </Link>
+          <Link to="/games/live" className="features-quick-link">
+            <span className="features-quick-link__icon">👁</span>
+            <span className="features-quick-link__label">{t('lobby.watchLive', 'Live Games')}</span>
+          </Link>
+        </div>
+      </section>
+
       {/* Guide sections */}
       {SECTIONS.map((key) => (
         <section key={key} id={key} className={`features-section features-section--${key}`}>
