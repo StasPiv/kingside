@@ -213,7 +213,7 @@ export async function runMatchmakingScenario(config: Config, metrics: Metrics): 
 
   while (Date.now() < endTime) {
     round++;
-    const batchSize = Math.min(pairs, 5); // max 5 pairs per batch
+    const batchSize = pairs; // all pairs run in parallel
     const promises: Promise<void>[] = [];
 
     for (let i = 0; i < batchSize; i++) {
