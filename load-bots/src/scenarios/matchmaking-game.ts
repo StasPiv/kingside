@@ -105,6 +105,7 @@ function playGame(
     const socket = bot.connectWs('/game');
     let moveCount = 0;
     let gameOver = false;
+    let lastServerFen = '';
 
     const cleanup = () => {
       gameOver = true;
@@ -114,7 +115,6 @@ function playGame(
 
     const timeout = setTimeout(() => {
       if (!gameOver) {
-        // Resign on timeout
         socket.emit('game:resign', { gameId });
         setTimeout(cleanup, 500);
       }
@@ -125,40 +125,34 @@ function playGame(
     });
 
     const tryMove = () => {
-      if (gameOver) return;
-      try {
-        const fen = brain.fen();
-        const turn = fen.split(' ')[1];
-        const isMyTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
-        if (!isMyTurn) return;
+      if (gameOver || !lastServerFen) return;
+      const turn = lastServerFen.split(' ')[1];
+      const isMyTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+      if (!isMyTurn) return;
 
-        scheduleMove(socket, brain, gameId, myColor, config, metrics, moveCount, () => {
-          moveCount++;
-          if (moveCount >= MAX_MOVES) {
-            socket.emit('game:resign', { gameId });
-          }
-        });
-      } catch (e) {
-        console.error(`[${myColor}] Move error:`, (e as Error).message);
-      }
+      scheduleMove(socket, brain, gameId, myColor, config, metrics, moveCount, () => {
+        moveCount++;
+        if (moveCount >= MAX_MOVES) {
+          socket.emit('game:resign', { gameId });
+        }
+      });
     };
 
     socket.on('game:state', (state: { fen: string; moves: string[]; status: string; clocks?: { whiteMs: number; blackMs: number } }) => {
       if (gameOver) return;
-      if (state.clocks) {
-        console.log(`[${bot.username}/${myColor}] state: status=${state.status} moves=${state.moves?.length} wMs=${state.clocks.whiteMs} bMs=${state.clocks.blackMs}`);
-      }
       if (state.status !== 'active') {
         clearTimeout(timeout);
         cleanup();
         return;
       }
+      lastServerFen = state.fen;
       try { brain.loadFen(state.fen); } catch { /* ignore */ }
       tryMove();
     });
 
     socket.on('game:move', (data: { uci: string; fen: string }) => {
       if (gameOver) return;
+      lastServerFen = data.fen;
       try { brain.loadFen(data.fen); } catch { /* ignore */ }
       tryMove();
     });
