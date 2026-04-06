@@ -113,46 +113,40 @@ function playGame(
       socket.emit('game:join', { gameId });
     });
 
+    const tryMove = () => {
+      if (gameOver) return;
+      try {
+        const fen = brain.fen();
+        const turn = fen.split(' ')[1];
+        const isMyTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+        if (!isMyTurn) return;
+
+        scheduleMove(socket, brain, gameId, myColor, config, metrics, moveCount, () => {
+          moveCount++;
+          if (moveCount >= MAX_MOVES) {
+            socket.emit('game:resign', { gameId });
+          }
+        });
+      } catch (e) {
+        console.error(`[${myColor}] Move error:`, (e as Error).message);
+      }
+    };
+
     socket.on('game:state', (state: { fen: string; moves: string[]; status: string }) => {
       if (gameOver) return;
-      brain.loadFen(state.fen);
-
       if (state.status !== 'active') {
         clearTimeout(timeout);
         cleanup();
         return;
       }
-
-      // Check if it's our turn
-      const isWhiteTurn = state.fen.split(' ')[1] === 'w';
-      const isMyTurn = (myColor === 'white' && isWhiteTurn) || (myColor === 'black' && !isWhiteTurn);
-
-      if (isMyTurn) {
-        scheduleMove(socket, brain, gameId, myColor, config, metrics, moveCount, () => {
-          moveCount++;
-          if (moveCount >= MAX_MOVES) {
-            socket.emit('game:resign', { gameId });
-          }
-        });
-      }
+      try { brain.loadFen(state.fen); } catch { /* ignore */ }
+      tryMove();
     });
 
     socket.on('game:move', (data: { uci: string; fen: string }) => {
       if (gameOver) return;
-      brain.loadFen(data.fen);
-
-      // Check if it's our turn now
-      const isWhiteTurn = data.fen.split(' ')[1] === 'w';
-      const isMyTurn = (myColor === 'white' && isWhiteTurn) || (myColor === 'black' && !isWhiteTurn);
-
-      if (isMyTurn) {
-        scheduleMove(socket, brain, gameId, myColor, config, metrics, moveCount, () => {
-          moveCount++;
-          if (moveCount >= MAX_MOVES) {
-            socket.emit('game:resign', { gameId });
-          }
-        });
-      }
+      try { brain.loadFen(data.fen); } catch { /* ignore */ }
+      tryMove();
     });
 
     socket.on('game:end', () => {
@@ -186,17 +180,18 @@ function scheduleMove(
   const delay = minMs + Math.random() * (maxMs - minMs);
 
   setTimeout(() => {
-    const uci = brain.pickMove();
-    if (!uci) {
-      // No legal moves — game should end
-      return;
-    }
+    try {
+      const uci = brain.pickMove();
+      if (!uci) return; // no legal moves
 
-    const start = Date.now();
-    socket.emit('game:move', { gameId, uci });
-    metrics.recordLatency(Date.now() - start);
-    metrics.recordMove();
-    onDone();
+      socket.emit('game:move', { gameId, uci });
+      metrics.recordLatency(delay);
+      metrics.recordMove();
+      onDone();
+    } catch (e) {
+      console.error(`[scheduleMove] Error:`, (e as Error).message);
+      metrics.recordError();
+    }
   }, delay);
 }
 

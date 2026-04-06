@@ -15,7 +15,12 @@ export class ChessBrain {
   }
 
   loadFen(fen: string): void {
-    this.chess.load(fen);
+    try {
+      this.chess.load(fen);
+    } catch {
+      // Reset to starting position on invalid FEN
+      this.chess = new Chess();
+    }
   }
 
   applyUci(uci: string): void {
