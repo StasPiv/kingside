@@ -350,16 +350,30 @@ export class GameService {
 
     const raw = await this.redis.hgetall(this.stateKey(gameId));
 
-    await this.prisma.game.update({
-      where: { id: gameId },
-      data: {
-        status: 'finished',
-        result,
-        termination,
-        finalFen: raw.fen,
-        finishedAt: new Date(),
-      },
-    });
+    try {
+      await this.prisma.game.update({
+        where: { id: gameId },
+        data: {
+          status: 'finished',
+          result,
+          termination,
+          finalFen: raw.fen,
+          finishedAt: new Date(),
+        },
+      });
+    } catch (e: any) {
+      this.logger.error(`Failed to update game ${gameId} to finished: ${e.message}`);
+      // Retry once — race condition may have already finished it
+      try {
+        const game = await this.prisma.game.findUnique({ where: { id: gameId }, select: { status: true } });
+        if (game && game.status === 'active') {
+          await this.prisma.game.update({
+            where: { id: gameId },
+            data: { status: 'finished', result, termination, finishedAt: new Date() },
+          });
+        }
+      } catch { /* give up */ }
+    }
 
     await this.redis.del(this.stateKey(gameId));
     await this.clockService.deleteClock(gameId);
@@ -506,8 +520,8 @@ export class GameService {
 
   /** Stale bot game threshold: 30 minutes */
   private static readonly STALE_BOT_GAME_MS = 30 * 60 * 1000;
-  /** Stale game threshold (any): 60 minutes without Redis state */
-  private static readonly STALE_GAME_MS = 60 * 60 * 1000;
+  /** Stale game threshold (any): 15 minutes without Redis state */
+  private static readonly STALE_GAME_MS = 15 * 60 * 1000;
 
   async cleanupStaleBotGames(userId?: string): Promise<number> {
     const threshold = new Date(Date.now() - GameService.STALE_BOT_GAME_MS);
