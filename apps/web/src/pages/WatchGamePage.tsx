@@ -165,17 +165,15 @@ export function WatchGamePage() {
         <div className="watch-game-sidebar">
           <h3>{t('game.moves')}</h3>
           <div className="moves game-moves-inline" ref={movesRef}>
-            {moves.flatMap((move, i) => {
+            {moves.map((move, i) => {
               const isWhite = i % 2 === 0;
               const moveNumber = Math.floor(i / 2) + 1;
-              const display = isWhite ? `${moveNumber}.${move}` : move;
               const isLast = i === moves.length - 1;
-              return [
+              return (
                 <span key={i} className={`game-move-item${isLast ? ' current' : ''}`}>
-                  {display}
-                </span>,
-                ' ',
-              ];
+                  {isWhite ? `${moveNumber}.\u00A0` : ''}{move}{' '}
+                </span>
+              );
             })}
             {moves.length === 0 && (
               <span className="watch-game-no-moves">{t('liveGames.waitingMoves')}</span>
