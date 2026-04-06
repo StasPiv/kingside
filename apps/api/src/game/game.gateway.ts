@@ -454,14 +454,27 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`game:${gameId}`).emit(GameEvents.STATE, payload);
   }
 
-  emitGameEnd(gameId: string, result: GameResult, termination: string, ratingChange?: WsGameEndPayload['ratingChange']) {
+  async emitGameEnd(gameId: string, result: GameResult, termination: string, ratingChange?: WsGameEndPayload['ratingChange']) {
     const endPayload: WsGameEndPayload = {
       result,
       termination,
       ...(ratingChange ? { ratingChange } : {}),
     };
+    // Emit to room (for clients that joined via game:join)
     this.server.to(`game:${gameId}`).emit(GameEvents.END, endPayload);
     this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_END, endPayload);
+
+    // Also emit directly to player sockets by userId (fallback for missed room join)
+    try {
+      const game = await this.gameService.getGame(gameId);
+      const playerIds = [game.whiteId, game.blackId].filter(Boolean);
+      const allSockets = await this.server.fetchSockets();
+      for (const s of allSockets) {
+        if (s.data.user?.id && playerIds.includes(s.data.user.id)) {
+          s.emit(GameEvents.END, endPayload);
+        }
+      }
+    } catch { /* game may already be cleaned up */ }
   }
 
   private async triggerBotReply(gameId: string): Promise<void> {
