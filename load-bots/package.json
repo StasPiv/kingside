@@ -13,7 +13,14 @@
     "spectator": "node --enable-source-maps dist/run-spectator.js",
     "broadcast": "node --enable-source-maps dist/run-spectator.js broadcast",
     "fanout-all": "node --enable-source-maps dist/run-spectator.js both",
-    "arena": "node --enable-source-maps dist/run-arena.js"
+    "arena": "node --enable-source-maps dist/run-arena.js",
+    "smoke": "node --enable-source-maps dist/run.js smoke",
+    "load": "node --enable-source-maps dist/run.js load",
+    "stress": "node --enable-source-maps dist/run.js stress",
+    "soak": "node --enable-source-maps dist/run.js soak",
+    "fan-out": "node --enable-source-maps dist/run.js fan-out",
+    "tournament": "node --enable-source-maps dist/run.js tournament",
+    "all": "node --enable-source-maps dist/run.js all"
   },
   "dependencies": {
     "chess.js": "^1.0.0-beta.8",
