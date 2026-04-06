@@ -115,11 +115,11 @@ function playGame(
 
     const timeout = setTimeout(() => {
       if (!gameOver) {
-        console.log(`[${bot.username}/${myColor}] RESIGN: 90s timeout, moves=${moveCount}`);
+        console.log(`[${bot.username}/${myColor}] RESIGN: 600s timeout, moves=${moveCount}`);
         socket.emit('game:resign', { gameId });
         setTimeout(cleanup, 500);
       }
-    }, 90_000);
+    }, 600_000);
 
     socket.on('connect', () => {
       socket.emit('game:join', { gameId });
