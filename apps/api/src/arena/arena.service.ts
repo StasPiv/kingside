@@ -258,22 +258,29 @@ export class ArenaService {
           blackId: true,
           result: true,
           status: true,
+          whiteBerserk: true,
+          blackBerserk: true,
           white: { select: { username: true } },
           black: { select: { username: true } },
         },
       }),
     ]);
 
-    // Build games[] per player
-    const playerGames = new Map<string, Array<{
+    // Build games[] per player with accurate points (including streak/berserk for arena)
+    type PlayerGame = {
       gameId: string;
       opponentId: string;
       opponentUsername: string;
       result: string | null;
       color: 'white' | 'black';
       points: number;
+      berserk: boolean;
       status: string;
-    }>>();
+    };
+    const playerGames = new Map<string, PlayerGame[]>();
+
+    // For arena: track streak per player to compute accurate per-game points
+    const streaks = new Map<string, number>();
 
     for (const g of games) {
       for (const playerId of [g.whiteId, g.blackId]) {
@@ -281,16 +288,35 @@ export class ArenaService {
         const opponentId = isWhite ? g.blackId : g.whiteId;
         const opponentUsername = (isWhite ? g.black?.username : g.white?.username) ?? '?';
         const color = isWhite ? 'white' as const : 'black' as const;
+        const berserk = isWhite ? g.whiteBerserk : g.blackBerserk;
 
         let points = 0;
         let result: string | null = null;
-        if (g.result === 'draw') {
-          result = 'draw';
-          points = ptsDraw;
-        } else if (g.result) {
-          const won = g.result === color;
-          result = won ? 'win' : 'loss';
-          points = won ? ptsWin : ptsLoss;
+
+        if (g.status === 'finished' && g.result) {
+          if (g.result === 'draw') {
+            result = 'draw';
+            points = ptsDraw;
+            if (isArena) streaks.set(playerId, 0);
+          } else {
+            const won = g.result === color;
+            result = won ? 'win' : 'loss';
+            if (isArena) {
+              if (won) {
+                const prevStreak = streaks.get(playerId) ?? 0;
+                const newStreak = prevStreak + 1;
+                streaks.set(playerId, newStreak);
+                points = 2;
+                if (newStreak >= 2) points *= 2; // streak double
+                if (berserk) points += 1;         // berserk +1
+              } else {
+                streaks.set(playerId, 0);
+                points = 0;
+              }
+            } else {
+              points = won ? ptsWin : ptsLoss;
+            }
+          }
         }
 
         if (!playerGames.has(playerId)) playerGames.set(playerId, []);
@@ -301,6 +327,7 @@ export class ArenaService {
           result: g.status === 'finished' ? result : null,
           color,
           points: g.status === 'finished' ? points : 0,
+          berserk,
           status: g.status,
         });
       }
