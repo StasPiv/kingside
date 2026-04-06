@@ -455,7 +455,65 @@ export function TournamentLobbyPage() {
         {/* Current Round Tab */}
         {activeTab === 'round' && (
           <div className="tournament-tab-panel">
-            {currentRound ? (
+            {isArena ? (
+              (() => {
+                // Arena: extract active/recent games from standings
+                const allGames: Array<StandingGame & { playerId: string; playerName: string }> = [];
+                const seenGameIds = new Set<string>();
+                for (const s of standings) {
+                  for (const g of s.games) {
+                    if (!seenGameIds.has(g.gameId)) {
+                      seenGameIds.add(g.gameId);
+                      allGames.push({ ...g, playerId: s.userId, playerName: s.username });
+                    }
+                  }
+                }
+                const activeGames = allGames.filter((g) => g.status === 'active');
+                const recentGames = allGames.filter((g) => g.status !== 'active').slice(0, 10);
+                const gamesToShow = activeGames.length > 0 ? activeGames : recentGames;
+                const playerNames = new Map(standings.map((s) => [s.userId, s.username]));
+
+                return gamesToShow.length > 0 ? (
+                  <div className="tournament-pairings">
+                    {activeGames.length > 0 && (
+                      <h3 className="tournament-round-header">
+                        <span>{t('tournaments.liveGames', 'Live Games')}</span>
+                        <span className="tournament-round-status tournament-round-status--active">
+                          {activeGames.length} {t('tournaments.games', 'games')}
+                        </span>
+                      </h3>
+                    )}
+                    {gamesToShow.map((g) => {
+                      const whiteName = g.color === 'white' ? g.playerName : (playerNames.get(g.opponentId) ?? g.opponentUsername);
+                      const blackName = g.color === 'black' ? g.playerName : (playerNames.get(g.opponentId) ?? g.opponentUsername);
+                      const isActive = g.status === 'active';
+                      return (
+                        <div key={g.gameId} className="tournament-pairing">
+                          <span className="tournament-pairing__player">{whiteName}</span>
+                          <span className="tournament-pairing__result">
+                            {isActive ? (
+                              <Link to={`/games/${g.gameId}/watch`} className="tournament-pairing__live">
+                                {t('tournaments.live', 'LIVE')}
+                              </Link>
+                            ) : (
+                              g.result === 'win' && g.color === 'white' ? '1 – 0'
+                              : g.result === 'win' && g.color === 'black' ? '0 – 1'
+                              : g.result === 'draw' ? '½ – ½'
+                              : g.result === 'loss' && g.color === 'white' ? '0 – 1'
+                              : g.result === 'loss' && g.color === 'black' ? '1 – 0'
+                              : '—'
+                            )}
+                          </span>
+                          <span className="tournament-pairing__player">{blackName}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="tournament-tab-empty">{t('tournaments.noGamesYet', 'No games yet')}</p>
+                );
+              })()
+            ) : currentRound ? (
               <TournamentRoundView
                 round={currentRound}
                 playerNames={new Map(standings.map((s) => [s.userId, s.username]))}
