@@ -18,25 +18,32 @@ export class PuzzleService {
    * Excludes puzzles the user has already solved.
    */
   async getNextPuzzle(
-    userId: string,
+    userId: string | null,
     excludeId?: string,
     filters?: { themes?: string[]; ratingMin?: number; ratingMax?: number },
   ) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { ratingPuzzle: true },
-    });
-
+    const DEFAULT_RATING = 1500;
     const range = 200;
-    const minRating = filters?.ratingMin ?? user.ratingPuzzle - range;
-    const maxRating = filters?.ratingMax ?? user.ratingPuzzle + range;
+    let userRating = DEFAULT_RATING;
+    const excludeIds: string[] = [];
 
-    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId },
-      select: { puzzleId: true },
-      distinct: ['puzzleId'],
-    });
-    const excludeIds = attemptedIds.map((a) => a.puzzleId);
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { ratingPuzzle: true },
+      });
+      if (user) userRating = user.ratingPuzzle;
+
+      const attemptedIds = await this.prisma.puzzleAttempt.findMany({
+        where: { userId },
+        select: { puzzleId: true },
+        distinct: ['puzzleId'],
+      });
+      excludeIds.push(...attemptedIds.map((a) => a.puzzleId));
+    }
+
+    const minRating = filters?.ratingMin ?? userRating - range;
+    const maxRating = filters?.ratingMax ?? userRating + range;
     if (excludeId && !excludeIds.includes(excludeId)) {
       excludeIds.push(excludeId);
     }
@@ -137,22 +144,29 @@ export class PuzzleService {
    * Get next puzzle for user filtered by a specific theme.
    * Matches user rating ±200 and excludes already attempted puzzles.
    */
-  async getNextPuzzleByTheme(userId: string, theme: string, excludeId?: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { ratingPuzzle: true },
-    });
-
+  async getNextPuzzleByTheme(userId: string | null, theme: string, excludeId?: string) {
+    const DEFAULT_RATING = 1500;
     const range = 200;
-    const minRating = user.ratingPuzzle - range;
-    const maxRating = user.ratingPuzzle + range;
+    let userRating = DEFAULT_RATING;
+    const excludeIds: string[] = [];
 
-    const attemptedIds = await this.prisma.puzzleAttempt.findMany({
-      where: { userId },
-      select: { puzzleId: true },
-      distinct: ['puzzleId'],
-    });
-    const excludeIds = attemptedIds.map((a) => a.puzzleId);
+    if (userId) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { ratingPuzzle: true },
+      });
+      if (user) userRating = user.ratingPuzzle;
+
+      const attemptedIds = await this.prisma.puzzleAttempt.findMany({
+        where: { userId },
+        select: { puzzleId: true },
+        distinct: ['puzzleId'],
+      });
+      excludeIds.push(...attemptedIds.map((a) => a.puzzleId));
+    }
+
+    const minRating = userRating - range;
+    const maxRating = userRating + range;
     if (excludeId && !excludeIds.includes(excludeId)) {
       excludeIds.push(excludeId);
     }

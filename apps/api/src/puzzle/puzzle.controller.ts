@@ -12,6 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { PuzzleService } from './puzzle.service';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { FindPuzzlesDto } from './dto/find-puzzles.dto';
@@ -42,14 +43,14 @@ export class PuzzleController {
     return this.puzzleService.getThemes();
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(OptionalJwtGuard)
   @Get('next')
   getNextPuzzle(
     @Request() req: AuthenticatedRequest,
     @Query('excludeId') excludeId?: string,
     @Query() dto?: FindPuzzlesDto,
   ) {
-    return this.puzzleService.getNextPuzzle(req.user.id, excludeId, {
+    return this.puzzleService.getNextPuzzle(req.user?.id ?? null, excludeId, {
       themes: dto?.themes,
       ratingMin: dto?.ratingMin,
       ratingMax: dto?.ratingMax,
@@ -59,14 +60,14 @@ export class PuzzleController {
   /**
    * GET /puzzles/next/:theme — get next puzzle by theme for the user.
    */
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(OptionalJwtGuard)
   @Get('next/:theme')
   getNextPuzzleByTheme(
     @Request() req: AuthenticatedRequest,
     @Param('theme') theme: string,
     @Query('excludeId') excludeId?: string,
   ) {
-    return this.puzzleService.getNextPuzzleByTheme(req.user.id, theme, excludeId);
+    return this.puzzleService.getNextPuzzleByTheme(req.user?.id ?? null, theme, excludeId);
   }
 
   @UseGuards(JwtAuthGuard)
