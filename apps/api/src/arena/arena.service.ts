@@ -420,13 +420,19 @@ export class ArenaService {
 
   async seekOpponent(tournamentId: string, userId: string): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
-    if (!t || t.status !== 'active') return null;
+    if (!t || t.status !== 'active') {
+      this.logger.log(`seekOpponent: tournament not active (status=${t?.status})`);
+      return null;
+    }
 
     // Don't allow withdrawn players to seek
     const entry = await this.prisma.arenaTournamentEntry.findUnique({
       where: { tournamentId_userId: { tournamentId, userId } },
     });
-    if (!entry || entry.withdrawn) return null;
+    if (!entry || entry.withdrawn) {
+      this.logger.log(`seekOpponent: user ${userId} not in tournament or withdrawn`);
+      return null;
+    }
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
@@ -465,7 +471,10 @@ export class ArenaService {
       },
       select: { id: true },
     });
-    if (activeGame) return null;
+    if (activeGame) {
+      this.logger.log(`seekOpponent: user has active game ${activeGame.id.slice(0, 8)}, skip`);
+      return null;
+    }
 
     // Check for opponent in queue
     const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);

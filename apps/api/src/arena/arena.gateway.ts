@@ -120,6 +120,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
 
     const result = await this.arenaService.seekOpponent(data.tournamentId, userId);
+    this.logger.log(`handleSeek: user=${client.data.user?.username} tournament=${data.tournamentId.slice(0, 8)} result=${result ? 'paired(game=' + result.gameId.slice(0, 8) + ')' : 'null'}`);
 
     if (result) {
       // Notify both players with their color
