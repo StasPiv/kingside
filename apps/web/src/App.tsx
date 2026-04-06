@@ -112,7 +112,7 @@ export function App() {
         <Route path="/puzzle/:id" element={<PuzzlePage />} />
         <Route path="/analysis" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
-        <Route path="/analysis/:id" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense></ProtectedRoute>} />
+        <Route path="/analysis/:id" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/workshop" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files" element={<WorkshopPage />} />
         <Route path="/workshop/pgn-files/:fileId" element={<WorkshopPage />} />
