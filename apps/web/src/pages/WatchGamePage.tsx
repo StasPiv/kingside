@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -6,6 +6,10 @@ import { MemoChessboard } from '../components/MemoChessboard';
 import { useStablePosition } from '../hooks/useStablePosition';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useBoardSettings } from '../hooks/useBoardSettings';
+import { useStockfish } from '../hooks/useStockfish';
+import type { EvalLine } from '../hooks/useStockfish';
+import { EvalBar } from '../components/EvalBar';
+import { formatEval, formatPv } from '../utils/chessFormat';
 import { socket } from '../socket';
 import { api } from '../api';
 import { classifyOpening } from '../utils/ecoClassify';
@@ -41,12 +45,51 @@ export function WatchGamePage() {
   const [tournamentId, setTournamentId] = useState<string | null>(null);
   const [tournamentName, setTournamentName] = useState<string | null>(null);
 
+  const [analysisEnabled, setAnalysisEnabled] = useState(false);
+
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const movesRef = useRef<HTMLDivElement>(null);
   const boardWidth = useResponsiveBoardSize();
   const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
 
   const gameRef = useRef(new Chess());
+
+  // Engine
+  const MULTI_PV = 3;
+  const {
+    lines,
+    evaluate,
+    isReady,
+    state: sfState,
+  } = useStockfish({ depth: 18, multiPv: MULTI_PV, autoStart: analysisEnabled });
+
+  const lastLinesRef = useRef<EvalLine[]>([]);
+  if (lines.length === MULTI_PV) {
+    lastLinesRef.current = lines;
+  }
+  const displayedLines = lines.length === MULTI_PV ? lines : lastLinesRef.current;
+  const evalIsBlackTurn = fen.split(' ')[1] === 'b';
+
+  // Evaluate when FEN changes
+  useEffect(() => {
+    if (!analysisEnabled || !isReady || !fen) return;
+    const timer = setTimeout(() => evaluate(fen), 150);
+    return () => clearTimeout(timer);
+  }, [fen, isReady, evaluate, analysisEnabled]);
+
+  // Handle engine error
+  useEffect(() => {
+    if (sfState === 'error' && analysisEnabled) {
+      setAnalysisEnabled(false);
+    }
+  }, [sfState, analysisEnabled]);
+
+  const toggleAnalysis = useCallback(() => {
+    setAnalysisEnabled((prev) => {
+      if (prev) lastLinesRef.current = [];
+      return !prev;
+    });
+  }, []);
 
   // Load tournament context from game info
   useEffect(() => {
@@ -257,8 +300,11 @@ export function WatchGamePage() {
             </span>
           </div>
 
-          <div className="board-container" ref={boardContainerRef}>
-            <MemoChessboard options={boardOptions} />
+          <div className="analysis-eval-board-row">
+            {analysisEnabled && <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />}
+            <div className="board-container" ref={boardContainerRef}>
+              <MemoChessboard options={boardOptions} />
+            </div>
           </div>
 
           {/* White player (bottom) */}
@@ -304,6 +350,51 @@ export function WatchGamePage() {
         </div>
 
         <div className="watch-game-sidebar">
+          {/* Engine panel */}
+          <div className="analysis-panel">
+            <div className="analysis-panel-header">
+              <span className="analysis-panel-header-left">
+                <span className="analysis-panel-icon">&#9881;</span>
+                <span className="analysis-panel-title">Stockfish 18</span>
+              </span>
+              <span className="analysis-panel-header-right">
+                {typeof WebAssembly !== 'undefined' && (
+                  <button
+                    className="analysis-toggle-btn"
+                    onClick={toggleAnalysis}
+                    style={{
+                      padding: '2px 10px',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                      borderRadius: 4,
+                      border: '1px solid #555',
+                      background: analysisEnabled ? '#dc2626' : '#16a34a',
+                      color: '#fff',
+                      marginLeft: 8,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
+                  </button>
+                )}
+              </span>
+            </div>
+            {analysisEnabled && displayedLines.length > 0 && (
+              <div className="analysis-panel-body">
+                <div className="stockfish-lines">
+                  {displayedLines.map((line) => (
+                    <div key={line.multipv} className="stockfish-line">
+                      <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
+                        {formatEval(line, evalIsBlackTurn)}
+                      </span>
+                      <span className="stockfish-pv">{formatPv(line.pv, fen)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="review-move-list-wrapper">
             {/* Opening name */}
             <div className="review-game-info">
