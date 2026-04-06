@@ -128,7 +128,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: WsGameJoinPayload,
   ) {
     const userId = client.data.user?.id;
-    if (!userId) return;
+    if (!userId) {
+      this.logger.warn(`handleJoinGame: no userId for client ${client.id}, skipping`);
+      return;
+    }
 
     // Cancel pending bot game end timer on reconnect
     const pendingTimer = this.botDisconnectTimers.get(userId);
@@ -140,23 +143,29 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.join(`game:${data.gameId}`);
 
-    const { state, clocks, whiteId, blackId, players, isBot, botLevel } = await this.gameService.getGameState(data.gameId);
-    const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
-    const statePayload: WsGameStatePayload = {
-      gameId: data.gameId,
-      fen: state.fen,
-      moves: state.moves.map((m) => m.san),
-      clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
-      status: state.status as GameStatus,
-      color,
-      players,
-      isBot,
-      botLevel,
-    };
-    client.emit(GameEvents.STATE, statePayload);
+    try {
+      const { state, clocks, whiteId, blackId, players, isBot, botLevel } = await this.gameService.getGameState(data.gameId);
+      const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
+      const statePayload: WsGameStatePayload = {
+        gameId: data.gameId,
+        fen: state.fen,
+        moves: state.moves.map((m) => m.san),
+        clocks: { whiteMs: clocks.whiteMs, blackMs: clocks.blackMs },
+        status: state.status as GameStatus,
+        color,
+        players,
+        isBot,
+        botLevel,
+      };
+      client.emit(GameEvents.STATE, statePayload);
+      this.logger.log(`handleJoinGame: game=${data.gameId.slice(0, 8)} user=${client.data.user?.username} status=${state.status} fen=${state.fen.slice(0, 20)}`);
 
-    if (isBot && state.moves.length === 0 && state.status === 'active') {
-      this.triggerBotReply(data.gameId);
+      if (isBot && state.moves.length === 0 && state.status === 'active') {
+        this.triggerBotReply(data.gameId);
+      }
+    } catch (e: unknown) {
+      this.logger.error(`handleJoinGame: game=${data.gameId.slice(0, 8)} error: ${(e as Error).message}`);
+      client.emit(GameEvents.ERROR, { code: 'JOIN_ERROR', message: (e as Error).message });
     }
   }
 
