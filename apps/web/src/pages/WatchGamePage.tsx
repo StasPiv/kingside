@@ -91,23 +91,27 @@ export function WatchGamePage() {
       const game = gameRef.current;
       // If game FEN already matches the incoming FEN, this move was already applied via onState — skip
       if (game.fen() === data.fen) return;
-      // Apply the move on the existing game instance
+
+      // Check if this is a stale delayed move (move number in data.fen <= current position)
+      // FEN format: "... fullmoveNumber", compare to detect old moves
+      const currentMoveCount = game.history().length;
+      const dataFenParts = data.fen.split(' ');
+      const dataFullmove = parseInt(dataFenParts[5] ?? '1', 10);
+      const dataTurn = dataFenParts[1]; // 'w' or 'b'
+      // Total half-moves implied by data.fen
+      const dataHalfMoves = (dataFullmove - 1) * 2 + (dataTurn === 'b' ? 1 : 0);
+      if (dataHalfMoves <= currentMoveCount) {
+        // This move's resulting position is behind or at our current position — stale delayed move
+        return;
+      }
+
+      // Try to apply the move
       try {
         game.move(data.san);
       } catch {
-        // Move failed — resync: replay all previous moves + new one from scratch
-        const prevMoves = game.history();
-        game.reset();
-        for (const m of [...prevMoves, data.san]) {
-          try { game.move(m); } catch { break; }
-        }
-        // If still out of sync, just load FEN and keep moves list
-        if (game.fen() !== data.fen) {
-          game.load(data.fen);
-          setFen(data.fen);
-          setMoves((prev) => [...prev, data.san]);
-          return;
-        }
+        // Move is invalid for current position — we missed a move, re-join to resync
+        socket.emit(SpectatorEvents.SPECTATE_JOIN, { gameId });
+        return;
       }
       const currentFen = game.fen();
       setFen(currentFen);
