@@ -160,12 +160,14 @@ function playGame(
       tryMove();
     });
 
-    socket.on('game:end', () => {
+    socket.on('game:end', (data: { result?: string; termination?: string }) => {
       clearTimeout(timeout);
+      console.log(`[${bot.username}/${myColor}] Game ended: ${data?.result} by ${data?.termination} after ${moveCount} moves`);
       cleanup();
     });
 
-    socket.on('error', () => {
+    socket.on('error', (err: { message?: string; code?: string }) => {
+      console.error(`[${bot.username}/${myColor}] WS error: ${err?.message || err?.code || JSON.stringify(err)}`);
       metrics.recordError();
     });
 
@@ -193,7 +195,10 @@ function scheduleMove(
   setTimeout(() => {
     try {
       const uci = brain.pickMove();
-      if (!uci) return; // no legal moves
+      if (!uci) {
+        console.log(`[scheduleMove] No legal moves, game should end`);
+        return;
+      }
 
       socket.emit('game:move', { gameId, uci });
       metrics.recordLatency(delay);

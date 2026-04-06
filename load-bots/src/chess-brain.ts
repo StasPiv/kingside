@@ -42,16 +42,16 @@ export class ChessBrain {
     if (this.strategy === 'random') {
       chosen = moves[Math.floor(Math.random() * moves.length)];
     } else {
-      // Smart: prioritize captures > checks > center pawns > random
+      // Smart: mild preference for captures/checks, mostly random for realistic games
       const captures = moves.filter((m) => m.captured);
       const checks = moves.filter((m) => m.san.includes('+'));
       const centerPawns = moves.filter(
         (m) => m.piece === 'p' && ['d4', 'd5', 'e4', 'e5'].includes(m.to),
       );
 
-      if (captures.length > 0 && Math.random() < 0.7) {
+      if (captures.length > 0 && Math.random() < 0.3) {
         chosen = captures[Math.floor(Math.random() * captures.length)];
-      } else if (checks.length > 0 && Math.random() < 0.5) {
+      } else if (checks.length > 0 && Math.random() < 0.2) {
         chosen = checks[Math.floor(Math.random() * checks.length)];
       } else if (centerPawns.length > 0 && Math.random() < 0.3) {
         chosen = centerPawns[Math.floor(Math.random() * centerPawns.length)];
