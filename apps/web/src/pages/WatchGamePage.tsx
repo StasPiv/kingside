@@ -49,8 +49,14 @@ export function WatchGamePage() {
   // Load tournament context from game info
   useEffect(() => {
     if (!gameId) return;
-    api.get<{ tournamentId?: string | null }>(`/api/games/${gameId}`)
+    api.get<{
+      tournamentId?: string | null;
+      white?: { username: string } | null;
+      black?: { username: string } | null;
+    }>(`/api/games/${gameId}`)
       .then((game) => {
+        if (game.white?.username) setWhite((prev) => prev.username === '?' ? { ...prev, username: game.white!.username } : prev);
+        if (game.black?.username) setBlack((prev) => prev.username === '?' ? { ...prev, username: game.black!.username } : prev);
         if (game.tournamentId) {
           setTournamentId(game.tournamentId);
           api.get<{ name: string }>(`/api/arena/${game.tournamentId}`)
