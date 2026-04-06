@@ -41,6 +41,10 @@ export class TimeoutCheckerService implements OnModuleInit, OnModuleDestroy {
         select: { id: true },
       });
 
+      if (activeGames.length > 0) {
+        this.logger.log(`Checking ${activeGames.length} active games: ${activeGames.map(g => g.id.slice(0, 8)).join(', ')}`);
+      }
+
       for (const game of activeGames) {
         await this.checkGame(game.id);
       }
@@ -51,7 +55,10 @@ export class TimeoutCheckerService implements OnModuleInit, OnModuleDestroy {
 
   private async checkGame(gameId: string): Promise<void> {
     const raw = await this.redis.hgetall(`game:${gameId}:state`);
-    if (!raw.fen || raw.status !== 'active') return;
+    if (!raw.fen || raw.status !== 'active') {
+      this.logger.log(`Game ${gameId.slice(0, 8)}: skip (fen=${!!raw.fen}, status=${raw.status})`);
+      return;
+    }
 
     const activeColor = raw.active_color === 'black' ? 'black' as const : 'white' as const;
     const { timedOut } = await this.clockService.checkTimeout(gameId, activeColor);
