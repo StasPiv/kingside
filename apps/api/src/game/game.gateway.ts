@@ -316,17 +316,18 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Must be active
       if (dbGame.status !== 'active') return;
 
-      // Must be before first move
-      const { state } = await this.gameService.getGameState(data.gameId);
-      if (state.moves.length > 0) {
-        client.emit(GameEvents.ERROR, { code: 'BERSERK_ERROR', message: 'Berserk only before first move' });
-        return;
-      }
-
-      // Determine color and check not already berserked
+      // Determine color
       const isWhite = userId === dbGame.whiteId;
       const isBlack = userId === dbGame.blackId;
       if (!isWhite && !isBlack) return;
+
+      // Must be before player's first move: white moves===0, black moves<=1
+      const { state } = await this.gameService.getGameState(data.gameId);
+      const maxMoves = isWhite ? 0 : 1;
+      if (state.moves.length > maxMoves) {
+        client.emit(GameEvents.ERROR, { code: 'BERSERK_ERROR', message: 'Berserk only before first move' });
+        return;
+      }
 
       const alreadyBerserk = isWhite ? dbGame.whiteBerserk : dbGame.blackBerserk;
       if (alreadyBerserk) return;
