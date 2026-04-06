@@ -24,6 +24,7 @@ export function WatchGamePage() {
   const [black, setBlack] = useState<{ username: string; rating?: number | null }>({ username: '?' });
   const [status, setStatus] = useState<'connecting' | 'active' | 'finished'>('connecting');
   const [result, setResult] = useState<string | null>(null);
+  const [termination, setTermination] = useState<string | null>(null);
   const [boardOrientation] = useState<'white' | 'black'>('white');
 
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -97,6 +98,7 @@ export function WatchGamePage() {
     const onEnd = (data: WsGameEndPayload) => {
       setStatus('finished');
       setResult(data.result);
+      setTermination(data.termination ?? null);
     };
 
     socket.on(SpectatorEvents.SPECTATE_STATE, onState);
@@ -172,6 +174,21 @@ export function WatchGamePage() {
           {status === 'finished' && result && (
             <div className="watch-game-result">
               {result === 'draw' ? t('game.draw') : result === 'white' ? t('game.whiteWins') : t('game.blackWins')}
+              {termination && (
+                <span className="watch-game-termination">
+                  {' · '}
+                  {termination === 'checkmate' ? t('game.byCheckmate', 'by checkmate')
+                    : termination === 'resignation' ? t('game.byResignation', 'by resignation')
+                    : termination === 'timeout' ? t('game.byTimeout', 'by timeout')
+                    : termination === 'stalemate' ? t('game.byStalemate', 'by stalemate')
+                    : termination === 'insufficient' ? t('game.byInsufficientMaterial', 'by insufficient material')
+                    : termination === 'repetition' ? t('game.byRepetition', 'by repetition')
+                    : termination === 'fiftyMoves' ? t('game.byFiftyMoves', 'by 50-move rule')
+                    : termination === 'agreement' ? t('game.byAgreement', 'by agreement')
+                    : termination === 'abandonment' ? t('game.byAbandonment', 'by abandonment')
+                    : termination}
+                </span>
+              )}
             </div>
           )}
 

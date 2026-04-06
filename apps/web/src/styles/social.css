@@ -1065,6 +1065,12 @@
   color: #7c83ff;
 }
 
+.watch-game-termination {
+  font-weight: 400;
+  font-size: 13px;
+  color: #999;
+}
+
 .watch-game-delay-notice {
   margin-top: 8px;
   color: #808098;
