@@ -9,7 +9,9 @@ import { Config } from '../config.js';
  */
 export async function runArenaScenario(config: Config, metrics: Metrics): Promise<void> {
   const botCount = Math.min(config.concurrency, 32);
-  console.log(`[Arena] ${botCount} bots, duration ${config.durationSec}s`);
+  const durationMin = parseInt(process.env.ARENA_DURATION_MIN || '30', 10);
+  const timeInitialSec = parseInt(process.env.TIME_INITIAL_SEC || '180', 10);
+  console.log(`[Arena] ${botCount} bots, tournament ${durationMin}min, time ${timeInitialSec}s`);
 
   // Create bots and login
   const bots: BotUser[] = [];
@@ -26,9 +28,9 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
     tournament = await bots[0].post<{ id: string }>('/api/arena', {
       name: `LoadBot Arena ${Date.now()}`,
       type: 'arena',
-      timeInitialSec: 180,
+      timeInitialSec,
       timeIncrementSec: 0,
-      durationMin: Math.max(30, Math.ceil(config.durationSec / 60)),
+      durationMin,
       startsAt,
     });
   } catch (e: unknown) {
@@ -49,8 +51,7 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
     }
   }
 
-  // All bots subscribe via WS and play until tournament finishes
-  const durationMin = Math.max(30, Math.ceil(config.durationSec / 60));
+  // All bots play until tournament:finished (no DURATION_SEC dependency)
   const botPromises = bots.map((bot) => runBotInArena(bot, tournamentId, config, metrics, durationMin));
   await Promise.all(botPromises);
 
