@@ -25,12 +25,17 @@ export class BotCleanupService implements OnModuleInit, OnModuleDestroy {
 
   private async run(): Promise<void> {
     try {
-      const cleaned = await this.gameService.cleanupStaleBotGames();
-      if (cleaned > 0) {
-        this.logger.log(`Cleaned up ${cleaned} stale bot game(s)`);
+      const botCleaned = await this.gameService.cleanupStaleBotGames();
+      if (botCleaned > 0) {
+        this.logger.log(`Cleaned up ${botCleaned} stale bot game(s)`);
+      }
+
+      const allCleaned = await this.gameService.cleanupStaleGames();
+      if (allCleaned > 0) {
+        this.logger.log(`Cleaned up ${allCleaned} stale game(s) (all types)`);
       }
     } catch (e: any) {
-      this.logger.error(`Bot cleanup failed: ${e.message}`);
+      this.logger.error(`Game cleanup failed: ${e.message}`);
     }
   }
 }

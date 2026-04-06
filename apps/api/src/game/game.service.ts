@@ -506,6 +506,8 @@ export class GameService {
 
   /** Stale bot game threshold: 30 minutes */
   private static readonly STALE_BOT_GAME_MS = 30 * 60 * 1000;
+  /** Stale game threshold (any): 60 minutes without Redis state */
+  private static readonly STALE_GAME_MS = 60 * 60 * 1000;
 
   async cleanupStaleBotGames(userId?: string): Promise<number> {
     const threshold = new Date(Date.now() - GameService.STALE_BOT_GAME_MS);
@@ -545,6 +547,42 @@ export class GameService {
         }
         cleaned++;
         this.logger.log(`Cleaned up stale bot game ${game.id} (noState=${!hasState}, staleByTime=${isStaleByTime})`);
+      }
+    }
+
+    return cleaned;
+  }
+
+  /**
+   * Cleanup ALL stale active games (bot and human).
+   * A game is stale if:
+   *  - No Redis state exists (server restarted, state lost), OR
+   *  - Created/started more than STALE_GAME_MS ago
+   */
+  async cleanupStaleGames(): Promise<number> {
+    const threshold = new Date(Date.now() - GameService.STALE_GAME_MS);
+
+    const staleGames = await this.prisma.game.findMany({
+      where: {
+        status: 'active',
+        OR: [
+          { startedAt: { lt: threshold } },
+          { startedAt: null, createdAt: { lt: threshold } },
+        ],
+      },
+      select: { id: true, isBot: true },
+    });
+
+    let cleaned = 0;
+    for (const game of staleGames) {
+      const hasState = await this.redis.exists(this.stateKey(game.id));
+      if (!hasState) {
+        await this.prisma.game.update({
+          where: { id: game.id },
+          data: { status: 'finished', termination: 'abandon', finishedAt: new Date() },
+        });
+        cleaned++;
+        this.logger.log(`Cleaned up stale game ${game.id} (bot=${game.isBot}, no Redis state)`);
       }
     }
 
