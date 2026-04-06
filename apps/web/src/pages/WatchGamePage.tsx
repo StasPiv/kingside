@@ -55,10 +55,12 @@ export function WatchGamePage() {
       tournamentId?: string | null;
       white?: { username: string } | null;
       black?: { username: string } | null;
+      whiteRatingBefore?: number | null;
+      blackRatingBefore?: number | null;
     }>(`/api/games/${gameId}`)
       .then((game) => {
-        if (game.white?.username) setWhite((prev) => prev.username === '?' ? { ...prev, username: game.white!.username } : prev);
-        if (game.black?.username) setBlack((prev) => prev.username === '?' ? { ...prev, username: game.black!.username } : prev);
+        if (game.white?.username) setWhite((prev) => prev.username === '?' ? { ...prev, username: game.white!.username, rating: game.whiteRatingBefore ?? prev.rating } : prev);
+        if (game.black?.username) setBlack((prev) => prev.username === '?' ? { ...prev, username: game.black!.username, rating: game.blackRatingBefore ?? prev.rating } : prev);
         if (game.tournamentId) {
           setTournamentId(game.tournamentId);
           api.get<{ name: string }>(`/api/arena/${game.tournamentId}`)
@@ -312,11 +314,13 @@ export function WatchGamePage() {
                 <span className="review-game-info-player">
                   <span className="review-game-info-color review-game-info-color--white" />
                   {white.username}
+                  {white.rating != null && <span className="review-game-info-rating">({white.rating})</span>}
                 </span>
                 <span className="review-game-info-vs">vs</span>
                 <span className="review-game-info-player">
                   <span className="review-game-info-color review-game-info-color--black" />
                   {black.username}
+                  {black.rating != null && <span className="review-game-info-rating">({black.rating})</span>}
                 </span>
               </div>
             </div>
