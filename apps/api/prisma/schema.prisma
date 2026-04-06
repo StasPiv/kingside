@@ -110,6 +110,8 @@ model Game {
   blackRatingBefore Int?             @map("black_rating_before")
   whiteRatingAfter  Int?             @map("white_rating_after")
   blackRatingAfter  Int?             @map("black_rating_after")
+  whiteBerserk      Boolean          @default(false) @map("white_berserk")
+  blackBerserk      Boolean          @default(false) @map("black_berserk")
   isBot             Boolean          @default(false) @map("is_bot")
   botLevel          Int?             @map("bot_level")
   createdAt         DateTime         @default(now()) @map("created_at")

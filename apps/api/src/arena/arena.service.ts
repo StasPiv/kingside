@@ -229,9 +229,10 @@ export class ArenaService {
     const tournament = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!tournament) throw new NotFoundException('Tournament not found');
 
-    const ptsWin = tournament.pointsWin;
-    const ptsDraw = tournament.pointsDraw;
-    const ptsLoss = tournament.pointsLoss;
+    const isArena = tournament.type === 'arena';
+    const ptsWin = isArena ? 2 : tournament.pointsWin;
+    const ptsDraw = isArena ? 1 : tournament.pointsDraw;
+    const ptsLoss = isArena ? 0 : tournament.pointsLoss;
 
     const [entries, games] = await Promise.all([
       this.prisma.arenaTournamentEntry.findMany({
@@ -573,7 +574,7 @@ export class ArenaService {
   async onGameFinished(gameId: string) {
     const game = await this.prisma.game.findUnique({
       where: { id: gameId },
-      select: { tournamentId: true, whiteId: true, blackId: true, result: true },
+      select: { tournamentId: true, whiteId: true, blackId: true, result: true, whiteBerserk: true, blackBerserk: true },
     });
     if (!game?.tournamentId || !game.result) return;
 
@@ -581,44 +582,85 @@ export class ArenaService {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) return;
 
-    const useStreakBonus = t.type === 'arena';
+    const isArena = t.type === 'arena';
 
-    // Determine winner/loser
-    if (result === 'draw') {
-      await this.addScore(tournamentId, whiteId, t.pointsDraw, 'draw', useStreakBonus);
-      await this.addScore(tournamentId, blackId, t.pointsDraw, 'draw', useStreakBonus);
+    if (isArena) {
+      // Lichess arena scoring: Win=2, Draw=1, Loss=0, streak +1, berserk +1
+      if (result === 'draw') {
+        await this.addArenaScore(tournamentId, whiteId, 'draw', false);
+        await this.addArenaScore(tournamentId, blackId, 'draw', false);
+      } else {
+        const winnerId = result === 'white' ? whiteId : blackId;
+        const loserId = result === 'white' ? blackId : whiteId;
+        const winnerBerserk = result === 'white' ? game.whiteBerserk : game.blackBerserk;
+        await this.addArenaScore(tournamentId, winnerId, 'win', winnerBerserk);
+        await this.addArenaScore(tournamentId, loserId, 'loss', false);
+      }
     } else {
-      const winnerId = result === 'white' ? whiteId : blackId;
-      const loserId = result === 'white' ? blackId : whiteId;
-      await this.addScore(tournamentId, winnerId, t.pointsWin, 'win', useStreakBonus);
-      await this.addScore(tournamentId, loserId, t.pointsLoss, 'loss', useStreakBonus);
+      // Swiss/RR: use tournament pointsWin/Draw/Loss
+      if (result === 'draw') {
+        await this.addFixedScore(tournamentId, whiteId, t.pointsDraw, 'draw');
+        await this.addFixedScore(tournamentId, blackId, t.pointsDraw, 'draw');
+      } else {
+        const winnerId = result === 'white' ? whiteId : blackId;
+        const loserId = result === 'white' ? blackId : whiteId;
+        await this.addFixedScore(tournamentId, winnerId, t.pointsWin, 'win');
+        await this.addFixedScore(tournamentId, loserId, t.pointsLoss, 'loss');
+      }
     }
   }
 
-  private async addScore(
+  /**
+   * Lichess arena scoring:
+   * - Win = 2pts, Draw = 1pt, Loss = 0pts
+   * - Streak bonus: +1 if 2+ consecutive wins
+   * - Berserk bonus: +1 if winner used berserk
+   */
+  private async addArenaScore(
     tournamentId: string,
     userId: string,
-    basePoints: number,
     outcome: 'win' | 'draw' | 'loss',
-    useStreakBonus: boolean,
+    berserk: boolean,
   ) {
     const entry = await this.prisma.arenaTournamentEntry.findUnique({
       where: { tournamentId_userId: { tournamentId, userId } },
     });
     if (!entry) return;
 
-    let newStreak = outcome === 'win' ? entry.streak + 1 : 0;
-    // Arena streak bonus: 2+ consecutive wins = double points
-    let points = basePoints;
-    if (useStreakBonus && outcome === 'win' && newStreak >= 2) {
-      points = basePoints * 2;
-    }
+    const newStreak = outcome === 'win' ? entry.streak + 1 : 0;
+
+    let points = outcome === 'win' ? 2 : outcome === 'draw' ? 1 : 0;
+    if (outcome === 'win' && newStreak >= 2) points += 1; // streak bonus
+    if (outcome === 'win' && berserk) points += 1;        // berserk bonus
 
     await this.prisma.arenaTournamentEntry.update({
       where: { id: entry.id },
       data: {
         score: { increment: points },
         streak: newStreak,
+        wins: outcome === 'win' ? { increment: 1 } : undefined,
+        draws: outcome === 'draw' ? { increment: 1 } : undefined,
+        losses: outcome === 'loss' ? { increment: 1 } : undefined,
+      },
+    });
+  }
+
+  /** Fixed-point scoring for Swiss/RR tournaments */
+  private async addFixedScore(
+    tournamentId: string,
+    userId: string,
+    points: number,
+    outcome: 'win' | 'draw' | 'loss',
+  ) {
+    const entry = await this.prisma.arenaTournamentEntry.findUnique({
+      where: { tournamentId_userId: { tournamentId, userId } },
+    });
+    if (!entry) return;
+
+    await this.prisma.arenaTournamentEntry.update({
+      where: { id: entry.id },
+      data: {
+        score: { increment: points },
         wins: outcome === 'win' ? { increment: 1 } : undefined,
         draws: outcome === 'draw' ? { increment: 1 } : undefined,
         losses: outcome === 'loss' ? { increment: 1 } : undefined,
@@ -737,7 +779,7 @@ export class ArenaService {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) throw new NotFoundException('Tournament not found');
 
-    const useStreakBonus = t.type === 'arena';
+    const isArena = t.type === 'arena';
 
     // Reset all entry scores
     await this.prisma.arenaTournamentEntry.updateMany({
@@ -749,31 +791,45 @@ export class ArenaService {
     const games = await this.prisma.game.findMany({
       where: { tournamentId, status: 'finished', result: { not: null } },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, whiteId: true, blackId: true, result: true },
+      select: { id: true, whiteId: true, blackId: true, result: true, whiteBerserk: true, blackBerserk: true },
     });
 
     for (const game of games) {
       if (!game.result) continue;
-      if (game.result === 'draw') {
-        await this.addScore(tournamentId, game.whiteId, t.pointsDraw, 'draw', useStreakBonus);
-        await this.addScore(tournamentId, game.blackId, t.pointsDraw, 'draw', useStreakBonus);
+      if (isArena) {
+        if (game.result === 'draw') {
+          await this.addArenaScore(tournamentId, game.whiteId, 'draw', false);
+          await this.addArenaScore(tournamentId, game.blackId, 'draw', false);
+        } else {
+          const winnerId = game.result === 'white' ? game.whiteId : game.blackId;
+          const loserId = game.result === 'white' ? game.blackId : game.whiteId;
+          const winnerBerserk = game.result === 'white' ? game.whiteBerserk : game.blackBerserk;
+          await this.addArenaScore(tournamentId, winnerId, 'win', winnerBerserk);
+          await this.addArenaScore(tournamentId, loserId, 'loss', false);
+        }
       } else {
-        const winnerId = game.result === 'white' ? game.whiteId : game.blackId;
-        const loserId = game.result === 'white' ? game.blackId : game.whiteId;
-        await this.addScore(tournamentId, winnerId, t.pointsWin, 'win', useStreakBonus);
-        await this.addScore(tournamentId, loserId, t.pointsLoss, 'loss', useStreakBonus);
+        if (game.result === 'draw') {
+          await this.addFixedScore(tournamentId, game.whiteId, t.pointsDraw, 'draw');
+          await this.addFixedScore(tournamentId, game.blackId, t.pointsDraw, 'draw');
+        } else {
+          const winnerId = game.result === 'white' ? game.whiteId : game.blackId;
+          const loserId = game.result === 'white' ? game.blackId : game.whiteId;
+          await this.addFixedScore(tournamentId, winnerId, t.pointsWin, 'win');
+          await this.addFixedScore(tournamentId, loserId, t.pointsLoss, 'loss');
+        }
       }
     }
 
-    // Add bye points from pairings
+    // Add bye points from pairings (Swiss/RR only)
     const byePairings = await this.prisma.tournamentPairing.findMany({
       where: { round: { tournamentId }, result: 'bye' },
       select: { whiteId: true },
     });
+    const byePoints = isArena ? 2 : t.pointsWin;
     for (const p of byePairings) {
       await this.prisma.arenaTournamentEntry.updateMany({
         where: { tournamentId, userId: p.whiteId },
-        data: { score: { increment: t.pointsWin }, wins: { increment: 1 } },
+        data: { score: { increment: byePoints }, wins: { increment: 1 } },
       });
     }
 
