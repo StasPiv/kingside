@@ -4,3 +4,4 @@ export type { Strategy } from './chess-brain.js';
 export { Metrics } from './metrics.js';
 export { loadConfig } from './config.js';
 export type { Config } from './config.js';
+export { runMatchmakingScenario, playMatchmakingGame } from './scenarios/matchmaking-game.js';
