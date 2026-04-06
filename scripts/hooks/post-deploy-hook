@@ -2,6 +2,10 @@
 # Git hook: пост-коммит/мердж хук
 # Автодеплой отключён. Деплой запускается вручную: just deploy
 # Устанавливается через: bash scripts/install-hooks.sh
+#
+# ВАЖНО: НЕ использовать npx/npm run build — они пересоздают workspace symlinks
+# и ломают node_modules при параллельной работе с dev watch mode.
+# Вместо этого вызываем бинарники напрямую через node.
 
 REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null)"
 if [ -z "$REPO_DIR" ]; then
@@ -20,36 +24,38 @@ if [[ "$COMMIT_MSG" == internal:* ]]; then
     exit 0
 fi
 
+# Прямые пути к бинарникам (без npx/npm — они ломают workspace symlinks)
+NEST_CLI="$REPO_DIR/node_modules/@nestjs/cli/bin/nest.js"
+PRISMA_CLI="$REPO_DIR/node_modules/.prisma-bin/prisma"
+TSC_CLI="$REPO_DIR/node_modules/typescript/bin/tsc"
+
 # Prisma generate + migrate при изменениях в schema/миграциях
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/prisma/"; then
     echo "[post-hook] Обнаружены изменения в prisma/ — generate + migrate..."
     cd "$REPO_DIR/apps/api"
-    npx prisma generate 2>/dev/null && \
+    node "$REPO_DIR/node_modules/prisma/build/index.js" generate 2>/dev/null && \
         echo "[post-hook] prisma generate OK" || \
         echo "[post-hook] WARN: prisma generate failed"
-    npx prisma migrate deploy 2>/dev/null && \
+    node "$REPO_DIR/node_modules/prisma/build/index.js" migrate deploy 2>/dev/null && \
         echo "[post-hook] prisma migrate deploy OK" || \
         echo "[post-hook] WARN: prisma migrate deploy failed"
     cd "$REPO_DIR"
-    # Перезапуск nest после prisma обновления
-    pkill -f "nest start --watch" 2>/dev/null && \
-        echo "[post-hook] nest restarted after prisma update" || true
     [ -f "$REPO_DIR/apps/api/src/main.ts" ] && touch "$REPO_DIR/apps/api/src/main.ts"
 fi
 
-# Пересборка и перезапуск nest при изменениях в apps/api/src/
+# Пересборка nest при изменениях в apps/api/src/
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/api/src/"; then
     echo "[post-hook] API: изменения в apps/api/src/ — пересборка..."
     rm -f "$REPO_DIR/apps/api/tsconfig.tsbuildinfo" 2>/dev/null
-    # nest build для обновления dist/
+    cd "$REPO_DIR/apps/api"
+    if [ -f "$NEST_CLI" ]; then
+        node "$NEST_CLI" build --path tsconfig.json 2>/dev/null && \
+            echo "[post-hook] API: nest build done" || \
+            echo "[post-hook] WARN: nest build failed"
+    else
+        echo "[post-hook] WARN: nest CLI not found, skipping build"
+    fi
     cd "$REPO_DIR"
-    npx --prefix "$REPO_DIR" nest build --path "$REPO_DIR/apps/api/tsconfig.json" 2>/dev/null || \
-        npm run build --workspace=@kingside/api 2>/dev/null || \
-        echo "[post-hook] WARN: nest build failed"
-    echo "[post-hook] API: nest build done"
-    # Перезапуск nest --watch
-    pkill -f "nest start --watch" 2>/dev/null && \
-        echo "[post-hook] nest --watch killed — перезапустится" || true
     [ -f "$REPO_DIR/apps/api/src/main.ts" ] && touch "$REPO_DIR/apps/api/src/main.ts"
 fi
 
@@ -61,14 +67,15 @@ if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "apps/web/src/"; then
     fi
 fi
 
-# Пересборка shared dist и инвалидация кэша Vite при изменениях в packages/shared/src/
+# Пересборка shared при изменениях в packages/shared/src/
 if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "packages/shared/src/"; then
     echo "[post-hook] Обнаружены изменения в packages/shared/src/ — пересборка..."
     rm -f "$REPO_DIR/packages/shared/tsconfig.tsbuildinfo"
-    npx tsc -p "$REPO_DIR/packages/shared/tsconfig.json" 2>/dev/null && \
-        echo "[post-hook] packages/shared пересобран" || \
-        echo "[post-hook] WARN: ошибка пересборки shared"
-    # Инвалидация кэша Vite для @kingside/shared
+    if [ -f "$TSC_CLI" ]; then
+        node "$TSC_CLI" -p "$REPO_DIR/packages/shared/tsconfig.json" 2>/dev/null && \
+            echo "[post-hook] packages/shared пересобран" || \
+            echo "[post-hook] WARN: ошибка пересборки shared"
+    fi
     [ -f "$REPO_DIR/packages/shared/src/index.ts" ] && touch "$REPO_DIR/packages/shared/src/index.ts"
     [ -f "$REPO_DIR/apps/web/src/main.tsx" ] && touch "$REPO_DIR/apps/web/src/main.tsx"
     echo "[post-hook] touch shared/src/index.ts + web/src/main.tsx — Vite увидит новые экспорты"
