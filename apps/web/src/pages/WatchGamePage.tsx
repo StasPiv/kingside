@@ -71,9 +71,22 @@ export function WatchGamePage() {
     const onMove = (data: WsGameMoveServerPayload) => {
       const game = gameRef.current;
       // Apply the move on the existing game instance
-      try { game.move(data.san); } catch { game.load(data.fen); }
-      setFen(game.fen());
-      setMoves(game.history());
+      try {
+        game.move(data.san);
+      } catch {
+        // Move failed — likely duplicate or out-of-sync.
+        // Load FEN but preserve the move list by appending the new SAN.
+        game.load(data.fen);
+      }
+      setFen(data.fen);
+      // Always use game.history() but if empty (after load), keep prev moves + new one
+      const history = game.history();
+      if (history.length > 0) {
+        setMoves(history);
+      } else {
+        // game.load() cleared history — append san to existing moves
+        setMoves((prev) => [...prev, data.san]);
+      }
     };
 
     const onEnd = (data: WsGameEndPayload) => {
