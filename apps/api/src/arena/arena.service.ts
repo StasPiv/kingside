@@ -229,10 +229,9 @@ export class ArenaService {
     const tournament = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!tournament) throw new NotFoundException('Tournament not found');
 
-    const isArena = tournament.type === 'arena';
-    const ptsWin = isArena ? 2 : tournament.pointsWin;
-    const ptsDraw = isArena ? 1 : tournament.pointsDraw;
-    const ptsLoss = isArena ? 0 : tournament.pointsLoss;
+    const ptsWin = tournament.pointsWin;
+    const ptsDraw = tournament.pointsDraw;
+    const ptsLoss = tournament.pointsLoss;
 
     const [entries, games] = await Promise.all([
       this.prisma.arenaTournamentEntry.findMany({
@@ -551,20 +550,17 @@ export class ArenaService {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) return;
 
-    const isArena = t.type === 'arena';
+    const useStreakBonus = t.type === 'arena';
 
     // Determine winner/loser
     if (result === 'draw') {
-      const drawPts = isArena ? 1 : t.pointsDraw;
-      await this.addScore(tournamentId, whiteId, drawPts, 'draw', isArena);
-      await this.addScore(tournamentId, blackId, drawPts, 'draw', isArena);
+      await this.addScore(tournamentId, whiteId, t.pointsDraw, 'draw', useStreakBonus);
+      await this.addScore(tournamentId, blackId, t.pointsDraw, 'draw', useStreakBonus);
     } else {
       const winnerId = result === 'white' ? whiteId : blackId;
       const loserId = result === 'white' ? blackId : whiteId;
-      const winPts = isArena ? 2 : t.pointsWin;
-      const lossPts = isArena ? 0 : t.pointsLoss;
-      await this.addScore(tournamentId, winnerId, winPts, 'win', isArena);
-      await this.addScore(tournamentId, loserId, lossPts, 'loss', isArena);
+      await this.addScore(tournamentId, winnerId, t.pointsWin, 'win', useStreakBonus);
+      await this.addScore(tournamentId, loserId, t.pointsLoss, 'loss', useStreakBonus);
     }
   }
 
@@ -581,10 +577,10 @@ export class ArenaService {
     if (!entry) return;
 
     let newStreak = outcome === 'win' ? entry.streak + 1 : 0;
-    // Arena streak bonus: 2+ consecutive wins = 4 points instead of 2
+    // Arena streak bonus: 2+ consecutive wins = double points
     let points = basePoints;
     if (useStreakBonus && outcome === 'win' && newStreak >= 2) {
-      points = 4;
+      points = basePoints * 2;
     }
 
     await this.prisma.arenaTournamentEntry.update({
@@ -710,7 +706,7 @@ export class ArenaService {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) throw new NotFoundException('Tournament not found');
 
-    const isArena = t.type === 'arena';
+    const useStreakBonus = t.type === 'arena';
 
     // Reset all entry scores
     await this.prisma.arenaTournamentEntry.updateMany({
@@ -728,16 +724,13 @@ export class ArenaService {
     for (const game of games) {
       if (!game.result) continue;
       if (game.result === 'draw') {
-        const drawPts = isArena ? 1 : t.pointsDraw;
-        await this.addScore(tournamentId, game.whiteId, drawPts, 'draw', isArena);
-        await this.addScore(tournamentId, game.blackId, drawPts, 'draw', isArena);
+        await this.addScore(tournamentId, game.whiteId, t.pointsDraw, 'draw', useStreakBonus);
+        await this.addScore(tournamentId, game.blackId, t.pointsDraw, 'draw', useStreakBonus);
       } else {
         const winnerId = game.result === 'white' ? game.whiteId : game.blackId;
         const loserId = game.result === 'white' ? game.blackId : game.whiteId;
-        const winPts = isArena ? 2 : t.pointsWin;
-        const lossPts = isArena ? 0 : t.pointsLoss;
-        await this.addScore(tournamentId, winnerId, winPts, 'win', isArena);
-        await this.addScore(tournamentId, loserId, lossPts, 'loss', isArena);
+        await this.addScore(tournamentId, winnerId, t.pointsWin, 'win', useStreakBonus);
+        await this.addScore(tournamentId, loserId, t.pointsLoss, 'loss', useStreakBonus);
       }
     }
 
@@ -746,11 +739,10 @@ export class ArenaService {
       where: { round: { tournamentId }, result: 'bye' },
       select: { whiteId: true },
     });
-    const byePoints = isArena ? 1 : t.pointsWin;
     for (const p of byePairings) {
       await this.prisma.arenaTournamentEntry.updateMany({
         where: { tournamentId, userId: p.whiteId },
-        data: { score: { increment: byePoints }, wins: { increment: 1 } },
+        data: { score: { increment: t.pointsWin }, wins: { increment: 1 } },
       });
     }
 
