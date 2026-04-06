@@ -454,6 +454,16 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`game:${gameId}`).emit(GameEvents.STATE, payload);
   }
 
+  emitGameEnd(gameId: string, result: GameResult, termination: string, ratingChange?: unknown) {
+    const endPayload: WsGameEndPayload = {
+      result,
+      termination,
+      ...(ratingChange ? { ratingChange } : {}),
+    };
+    this.server.to(`game:${gameId}`).emit(GameEvents.END, endPayload);
+    this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_END, endPayload);
+  }
+
   private async triggerBotReply(gameId: string): Promise<void> {
     try {
       const botResult = await this.botGameService.maybeBotReply(gameId);
