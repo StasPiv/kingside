@@ -1047,6 +1047,24 @@
   max-width: 560px;
 }
 
+.watch-game-clock {
+  margin-left: auto;
+  font-family: 'Roboto Mono', monospace;
+  font-size: 16px;
+  font-weight: 600;
+  color: #888;
+  background: #1a1a2e;
+  padding: 2px 8px;
+  border-radius: 4px;
+  min-width: 50px;
+  text-align: center;
+}
+
+.watch-game-clock--active {
+  color: #e0e0e0;
+  background: #2a2a4e;
+}
+
 .watch-game-name {
   font-weight: 600;
   font-size: 16px;

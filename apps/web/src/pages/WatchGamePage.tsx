@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
@@ -14,6 +14,13 @@ import {
   type WsGameEndPayload,
 } from '@kingside/shared';
 
+function formatTime(seconds: number): string {
+  if (seconds < 0) seconds = 0;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 export function WatchGamePage() {
   const { t } = useTranslation();
   const { id: gameId } = useParams<{ id: string }>();
@@ -25,6 +32,8 @@ export function WatchGamePage() {
   const [status, setStatus] = useState<'connecting' | 'active' | 'finished'>('connecting');
   const [result, setResult] = useState<string | null>(null);
   const [termination, setTermination] = useState<string | null>(null);
+  const [clocks, setClocks] = useState({ white: 0, black: 0 });
+  const [activeColor, setActiveColor] = useState<'white' | 'black'>('white');
   const [boardOrientation] = useState<'white' | 'black'>('white');
 
   const boardContainerRef = useRef<HTMLDivElement>(null);
@@ -59,8 +68,17 @@ export function WatchGamePage() {
       for (const san of stateMoves) {
         try { game.move(san); } catch { break; }
       }
-      setFen(game.fen());
+      const currentFen = game.fen();
+      setFen(currentFen);
       setMoves(game.history());
+      if (state.clocks) {
+        setClocks({
+          white: Math.floor((state.clocks.whiteMs ?? 0) / 1000),
+          black: Math.floor((state.clocks.blackMs ?? 0) / 1000),
+        });
+      }
+      // Active color from FEN (turn indicator)
+      setActiveColor(currentFen.split(' ')[1] === 'b' ? 'black' : 'white');
       setStatus(state.status === 'finished' ? 'finished' : 'active');
       if (state.result) setResult(state.result);
       if (state.players) {
@@ -91,8 +109,16 @@ export function WatchGamePage() {
           return;
         }
       }
-      setFen(game.fen());
+      const currentFen = game.fen();
+      setFen(currentFen);
       setMoves(game.history());
+      if (data.clocks) {
+        setClocks({
+          white: Math.floor((data.clocks.whiteMs ?? 0) / 1000),
+          black: Math.floor((data.clocks.blackMs ?? 0) / 1000),
+        });
+      }
+      setActiveColor(currentFen.split(' ')[1] === 'b' ? 'black' : 'white');
     };
 
     const onEnd = (data: WsGameEndPayload) => {
@@ -114,6 +140,18 @@ export function WatchGamePage() {
       socket.off(SpectatorEvents.SPECTATE_END, onEnd);
     };
   }, [gameId]);
+
+  // Client-side clock ticking
+  useEffect(() => {
+    if (status !== 'active') return;
+    const interval = setInterval(() => {
+      setClocks((prev) => ({
+        ...prev,
+        [activeColor]: Math.max(0, prev[activeColor] - 1),
+      }));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status, activeColor]);
 
   const stablePosition = useStablePosition(fen);
 
@@ -152,6 +190,9 @@ export function WatchGamePage() {
             {black.rating != null && (
               <span className="live-game-rating">({black.rating})</span>
             )}
+            <span className={`watch-game-clock${activeColor === 'black' && status === 'active' ? ' watch-game-clock--active' : ''}`}>
+              {formatTime(clocks.black)}
+            </span>
           </div>
 
           <div className="board-container" ref={boardContainerRef}>
@@ -165,6 +206,9 @@ export function WatchGamePage() {
             {white.rating != null && (
               <span className="live-game-rating">({white.rating})</span>
             )}
+            <span className={`watch-game-clock${activeColor === 'white' && status === 'active' ? ' watch-game-clock--active' : ''}`}>
+              {formatTime(clocks.white)}
+            </span>
           </div>
 
           {status === 'connecting' && (
