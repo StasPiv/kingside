@@ -158,6 +158,33 @@ async function runBotInArena(
       }
     });
 
+    socket.on('error', async (err: { code?: string }) => {
+      if (err.code === 'AUTH_REQUIRED' && !finished) {
+        console.log(`[${bot.username}] Tournament AUTH_REQUIRED, re-login → reconnect`);
+        try {
+          const newSocket = await bot.reconnectWs('/tournament');
+          newSocket.on('connect', () => {
+            newSocket.emit('tournament:subscribe', { tournamentId });
+          });
+          newSocket.on('tournament:started', () => startSeekLoop());
+          newSocket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
+            currentGameId = data.gameId;
+            stopSeekLoop();
+            metrics.recordGameStarted();
+            playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
+              metrics.recordGameCompleted();
+              currentGameId = null;
+              if (!finished) setTimeout(() => startSeekLoop(), 2000);
+            });
+          });
+          newSocket.on('tournament:finished', () => { clearTimeout(timeout); cleanup(); });
+        } catch {
+          console.error(`[${bot.username}] Tournament re-login failed`);
+          metrics.recordError();
+        }
+      }
+    });
+
     socket.on('connect_error', () => {
       metrics.recordError();
       clearTimeout(timeout);
@@ -174,6 +201,7 @@ function playArenaGame(
   metrics: Metrics,
 ): Promise<void> {
   return new Promise((resolve) => {
+    let authRetried = false;
     const brain = new ChessBrain('smart');
     const socket = bot.connectWs('/game');
     let gameOver = false;
@@ -253,11 +281,39 @@ function playArenaGame(
     });
 
     socket.on('game:end', () => { clearTimeout(timeout); finish(); });
-    socket.on('error', (err: { code?: string }) => {
-      if (err.code === 'AUTH_REQUIRED') {
-        console.log(`[${bot.username}/${myColor}] AUTH_REQUIRED, finishing game to re-auth`);
-        clearTimeout(timeout);
-        finish();
+    socket.on('error', async (err: { code?: string }) => {
+      if (err.code === 'AUTH_REQUIRED' && !authRetried) {
+        authRetried = true;
+        console.log(`[${bot.username}/${myColor}] AUTH_REQUIRED, re-login → retry join`);
+        try {
+          await bot.login(config.devBypassSecret);
+          const newSocket = bot.connectWs('/game');
+          newSocket.on('connect', () => {
+            console.log(`[${bot.username}/${myColor}] Re-auth OK, re-joining game ${gameId}`);
+            newSocket.emit('game:join', { gameId });
+          });
+          newSocket.on('game:state', (state: { fen: string; status: string }) => {
+            if (gameOver) return;
+            if (state.status !== 'active') { clearTimeout(timeout); finish(); return; }
+            lastServerFen = state.fen;
+            try { brain.loadFen(state.fen); } catch { /* ignore */ }
+            tryMove();
+          });
+          newSocket.on('game:move', (data2: { fen: string }) => {
+            if (gameOver) return;
+            lastServerFen = data2.fen;
+            try { brain.loadFen(data2.fen); } catch { /* ignore */ }
+            tryMove();
+          });
+          newSocket.on('game:end', () => { clearTimeout(timeout); finish(); });
+          newSocket.on('error', () => { clearTimeout(timeout); finish(); });
+          newSocket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
+        } catch {
+          console.error(`[${bot.username}/${myColor}] Re-login failed, finishing`);
+          metrics.recordError();
+          clearTimeout(timeout);
+          finish();
+        }
       }
     });
     socket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
