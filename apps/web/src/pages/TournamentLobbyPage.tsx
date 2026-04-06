@@ -568,7 +568,10 @@ export function TournamentLobbyPage() {
                       {standings.map((s, i) => (
                         <tr key={s.userId} className={s.userId === user?.id ? 'tournament-standings-self' : ''}>
                           <td>{i + 1}</td>
-                          <td><Link to={`/player/${s.username}`}>{s.username}</Link></td>
+                          <td>
+                            <Link to={`/player/${s.username}`}>{s.username}</Link>
+                            {s.streak >= 2 && <span title={`${s.streak} win streak`} style={{ marginLeft: 4 }}>🔥</span>}
+                          </td>
                           <td>{s.score}</td>
                           <td className="tournament-games-cell">
                             {s.games.map((g) => {
@@ -664,6 +667,7 @@ export function TournamentLobbyPage() {
                       <td>
                         <Link to={`/player/${s.username}`}>{s.username}</Link>
                         {s.withdrawn && <span className="tournament-player__withdrawn-badge"> ✕</span>}
+                        {s.streak >= 2 && <span title={`${s.streak} win streak`} style={{ marginLeft: 4 }}>🔥</span>}
                       </td>
                       <td>{s.score}</td>
                       <td>{s.wins}</td>

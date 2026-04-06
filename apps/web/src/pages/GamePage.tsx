@@ -68,6 +68,8 @@ export function GamePage() {
   const pendingPremoveRef = useRef<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
   pendingPremoveRef.current = pendingPremove;
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
+  const [whiteBerserk, setWhiteBerserk] = useState(false);
+  const [blackBerserk, setBlackBerserk] = useState(false);
   const [showResultModal, setShowResultModal] = useState(false);
   const [gameMeta, setGameMeta] = useState<{ opponentId: string; timeInitial: number; increment: number } | null>(null);
   const { sendChallenge, state: challengeState } = useChallenge();
@@ -231,6 +233,11 @@ export function GamePage() {
     const onError = (data: WsErrorPayload) => {
       console.error('[WS] Game error:', data.message);
     };
+    const onBerserk = (data: { color: string; clocks: ClockPayload }) => {
+      if (data.color === 'white') setWhiteBerserk(true);
+      if (data.color === 'black') setBlackBerserk(true);
+      setClocks(msToSeconds(data.clocks));
+    };
 
     socket.on(GameEvents.STATE, onGameState);
     socket.on(GameEvents.MOVE_SERVER, onGameMove);
@@ -238,6 +245,7 @@ export function GamePage() {
     socket.on(GameEvents.DRAW_OFFERED, onDrawOffered);
     socket.on(GameEvents.CHAT_MESSAGE, onChatMessage);
     socket.on(GameEvents.ERROR, onError);
+    socket.on('game:berserk', onBerserk);
 
     socket.emit(GameEvents.JOIN, { gameId });
 
@@ -248,6 +256,7 @@ export function GamePage() {
       socket.off(GameEvents.DRAW_OFFERED, onDrawOffered);
       socket.off(GameEvents.CHAT_MESSAGE, onChatMessage);
       socket.off(GameEvents.ERROR, onError);
+      socket.off('game:berserk', onBerserk);
     };
   }, [gameId, game, updateFromState, refreshUser, playSound, setLastMove]);
 
@@ -482,6 +491,7 @@ export function GamePage() {
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
           <span className="player-name">
+            {(opponentColor === 'white' ? whiteBerserk : blackBerserk) && <span title="Berserk">⚡</span>}
             {players[opponentColor] || opponentColor}
             {isBot && botLevel != null && (
               <span className="bot-level"> (Lv. {botLevel})</span>
@@ -517,7 +527,10 @@ export function GamePage() {
         </div>
         <div className="player-info player-info-self">
           <span className={`color-indicator ${playerColor}`} />
-          <span className="player-name">{players[playerColor] || playerColor}</span>
+          <span className="player-name">
+            {(playerColor === 'white' ? whiteBerserk : blackBerserk) && <span title="Berserk">⚡</span>}
+            {players[playerColor] || playerColor}
+          </span>
           <span className="clock">{formatTime(clocks[playerColor])}</span>
         </div>
       </div>
@@ -558,6 +571,15 @@ export function GamePage() {
 
         {status === 'active' && (
           <div className="game-actions">
+            {tournamentId && moves.length === 0 && !(playerColor === 'white' ? whiteBerserk : blackBerserk) && (
+              <button
+                onClick={() => socket.emit('game:berserk', { gameId })}
+                style={{ background: '#f59e0b', color: '#000', fontWeight: 'bold', borderRadius: 4 }}
+                title={t('game.berserkHint', 'Halve your clock for a bonus point if you win')}
+              >
+                ⚡ Berserk
+              </button>
+            )}
             {!isBot && drawOffered ? (
               <div className="draw-offer">
                 <p>{t('game.drawOffered')}</p>
