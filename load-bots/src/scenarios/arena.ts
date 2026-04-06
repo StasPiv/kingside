@@ -1,4 +1,3 @@
-import { Socket } from 'socket.io-client';
 import { BotUser } from '../bot-user.js';
 import { ChessBrain } from '../chess-brain.js';
 import { Metrics } from '../metrics.js';
@@ -70,12 +69,10 @@ async function runBotInArena(
 
   return new Promise((resolve) => {
     let currentGameId: string | null = null;
-    let gameSocket: Socket | null = null;
     let tournamentStarted = false;
 
     const cleanup = () => {
       socket.disconnect();
-      if (gameSocket) gameSocket.disconnect();
       resolve();
     };
 
@@ -140,6 +137,8 @@ function playArenaGame(
     const brain = new ChessBrain('smart');
     const socket = bot.connectWs('/game');
     let gameOver = false;
+    let moveCount = 0;
+    let lastServerFen = '';
 
     const finish = () => {
       if (gameOver) return;
@@ -150,25 +149,52 @@ function playArenaGame(
 
     const timeout = setTimeout(() => {
       if (!gameOver) {
+        console.log(`[${bot.username}/${myColor}] RESIGN: 600s arena timeout, moves=${moveCount}`);
         socket.emit('game:resign', { gameId });
         setTimeout(finish, 500);
       }
-    }, 60_000);
+    }, 600_000);
+
+    const tryMove = () => {
+      if (gameOver || !lastServerFen) return;
+      const turn = lastServerFen.split(' ')[1];
+      const isMyTurnNow = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+      if (!isMyTurnNow) return;
+
+      const [minMs, maxMs] = config.thinkTimeMs;
+      const delay = minMs + Math.random() * (maxMs - minMs) * 0.5; // faster in arena
+      setTimeout(() => {
+        if (gameOver) return;
+        try {
+          const uci = brain.pickMove();
+          if (!uci) return;
+          socket.emit('game:move', { gameId, uci });
+          metrics.recordMove();
+          moveCount++;
+        } catch (e) {
+          console.error(`[${bot.username}/${myColor}] Move error:`, (e as Error).message);
+          metrics.recordError();
+        }
+      }, delay);
+    };
 
     socket.on('connect', () => {
       socket.emit('game:join', { gameId });
     });
 
     socket.on('game:state', (state: { fen: string; status: string }) => {
-      if (gameOver || state.status !== 'active') { clearTimeout(timeout); finish(); return; }
-      brain.loadFen(state.fen);
-      if (isMyTurn(state.fen, myColor)) makeMove(socket, brain, gameId, config, metrics);
+      if (gameOver) return;
+      if (state.status !== 'active') { clearTimeout(timeout); finish(); return; }
+      lastServerFen = state.fen;
+      try { brain.loadFen(state.fen); } catch { /* ignore */ }
+      tryMove();
     });
 
     socket.on('game:move', (data: { fen: string }) => {
       if (gameOver) return;
-      brain.loadFen(data.fen);
-      if (isMyTurn(data.fen, myColor)) makeMove(socket, brain, gameId, config, metrics);
+      lastServerFen = data.fen;
+      try { brain.loadFen(data.fen); } catch { /* ignore */ }
+      tryMove();
     });
 
     socket.on('game:end', () => { clearTimeout(timeout); finish(); });
@@ -176,19 +202,3 @@ function playArenaGame(
   });
 }
 
-function isMyTurn(fen: string, color: 'white' | 'black'): boolean {
-  const turn = fen.split(' ')[1];
-  return (color === 'white' && turn === 'w') || (color === 'black' && turn === 'b');
-}
-
-function makeMove(socket: Socket, brain: ChessBrain, gameId: string, config: Config, metrics: Metrics): void {
-  const [minMs, maxMs] = config.thinkTimeMs;
-  const delay = minMs + Math.random() * (maxMs - minMs) * 0.5; // faster in arena
-  setTimeout(() => {
-    const uci = brain.pickMove();
-    if (uci) {
-      socket.emit('game:move', { gameId, uci });
-      metrics.recordMove();
-    }
-  }, delay);
-}
