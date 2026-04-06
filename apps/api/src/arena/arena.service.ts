@@ -613,8 +613,8 @@ export class ArenaService {
   /**
    * Lichess arena scoring:
    * - Win = 2pts, Draw = 1pt, Loss = 0pts
-   * - Streak bonus: +1 if 2+ consecutive wins
-   * - Berserk bonus: +1 if winner used berserk
+   * - Streak (2+ wins): double win points (2 → 4)
+   * - Berserk win: +1
    */
   private async addArenaScore(
     tournamentId: string,
@@ -630,8 +630,8 @@ export class ArenaService {
     const newStreak = outcome === 'win' ? entry.streak + 1 : 0;
 
     let points = outcome === 'win' ? 2 : outcome === 'draw' ? 1 : 0;
-    if (outcome === 'win' && newStreak >= 2) points += 1; // streak bonus
-    if (outcome === 'win' && berserk) points += 1;        // berserk bonus
+    if (outcome === 'win' && newStreak >= 2) points *= 2;  // streak: double (2 → 4)
+    if (outcome === 'win' && berserk) points += 1;         // berserk: +1
 
     await this.prisma.arenaTournamentEntry.update({
       where: { id: entry.id },
