@@ -41,9 +41,15 @@ export function WatchGamePage() {
   const [termination, setTermination] = useState<string | null>(null);
   const [clocks, setClocks] = useState({ white: 0, black: 0 });
   const [activeColor, setActiveColor] = useState<'white' | 'black'>('white');
-  const [boardOrientation] = useState<'white' | 'black'>('white');
+  const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
   const [tournamentId, setTournamentId] = useState<string | null>(null);
   const [tournamentName, setTournamentName] = useState<string | null>(null);
+
+  // Navigation: viewIndex = which half-move is displayed (-1 = start pos)
+  // null = follow mode (always show latest)
+  const [viewIndex, setViewIndex] = useState<number | null>(null);
+  const isFollowing = viewIndex === null;
+  const currentViewIndex = isFollowing ? moves.length - 1 : viewIndex;
 
   const [analysisEnabled, setAnalysisEnabled] = useState(false);
 
@@ -53,6 +59,17 @@ export function WatchGamePage() {
   const { showNotation, customPieces, darkSquareStyle, lightSquareStyle } = useBoardSettings();
 
   const gameRef = useRef(new Chess());
+
+  // Compute displayed FEN based on viewIndex (must be before engine)
+  const displayFen = useMemo(() => {
+    if (isFollowing) return fen;
+    if (currentViewIndex < 0) return 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const tmp = new Chess();
+    for (let i = 0; i <= currentViewIndex && i < moves.length; i++) {
+      try { tmp.move(moves[i]); } catch { break; }
+    }
+    return tmp.fen();
+  }, [isFollowing, currentViewIndex, moves, fen]);
 
   // Engine
   const MULTI_PV = 3;
@@ -68,14 +85,14 @@ export function WatchGamePage() {
     lastLinesRef.current = lines;
   }
   const displayedLines = lines.length === MULTI_PV ? lines : lastLinesRef.current;
-  const evalIsBlackTurn = fen.split(' ')[1] === 'b';
+  const evalIsBlackTurn = displayFen.split(' ')[1] === 'b';
 
-  // Evaluate when FEN changes
+  // Evaluate when displayed FEN changes
   useEffect(() => {
-    if (!analysisEnabled || !isReady || !fen) return;
-    const timer = setTimeout(() => evaluate(fen), 150);
+    if (!analysisEnabled || !isReady || !displayFen) return;
+    const timer = setTimeout(() => evaluate(displayFen), 150);
     return () => clearTimeout(timer);
-  }, [fen, isReady, evaluate, analysisEnabled]);
+  }, [displayFen, isReady, evaluate, analysisEnabled]);
 
   // Handle engine error
   useEffect(() => {
@@ -114,12 +131,27 @@ export function WatchGamePage() {
       .catch(() => {});
   }, [gameId]);
 
-  // Auto-scroll moves
+  // Auto-scroll moves (only in follow mode)
   useEffect(() => {
+    if (!isFollowing) return;
     if (movesRef.current) {
       movesRef.current.scrollTop = movesRef.current.scrollHeight;
     }
-  }, [moves]);
+  }, [moves, isFollowing]);
+
+  // Scroll current move into view when navigating
+  useEffect(() => {
+    if (isFollowing) return;
+    const container = movesRef.current;
+    if (!container) return;
+    const active = container.querySelector('.move-item.current') as HTMLElement | null;
+    if (!active) return;
+    const containerRect = container.getBoundingClientRect();
+    const activeRect = active.getBoundingClientRect();
+    if (activeRect.top < containerRect.top || activeRect.bottom > containerRect.bottom) {
+      active.scrollIntoView({ block: 'nearest' });
+    }
+  }, [currentViewIndex, isFollowing]);
 
   // WebSocket: join/leave spectator room
   useEffect(() => {
@@ -230,7 +262,44 @@ export function WatchGamePage() {
 
   const openingName = useMemo(() => classifyOpening(moves), [moves]);
 
-  const stablePosition = useStablePosition(fen);
+  // Navigation callbacks
+  const gotoMove = useCallback((index: number) => {
+    setViewIndex(index);
+  }, []);
+
+  const gotoFirst = useCallback(() => setViewIndex(-1), []);
+  const gotoPrevious = useCallback(() => {
+    setViewIndex((prev) => {
+      const cur = prev === null ? moves.length - 1 : prev;
+      return Math.max(-1, cur - 1);
+    });
+  }, [moves.length]);
+  const gotoNext = useCallback(() => {
+    setViewIndex((prev) => {
+      if (prev === null) return null;
+      const next = prev + 1;
+      if (next >= moves.length - 1) return null; // back to follow mode
+      return next;
+    });
+  }, [moves.length]);
+  const gotoLast = useCallback(() => setViewIndex(null), []);
+  const flipBoard = useCallback(() => setBoardOrientation((o) => o === 'white' ? 'black' : 'white'), []);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); gotoPrevious(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); gotoNext(); }
+      else if (e.key === 'Home') { e.preventDefault(); gotoFirst(); }
+      else if (e.key === 'End') { e.preventDefault(); gotoLast(); }
+      else if (e.key === 'f' || e.key === 'F') { flipBoard(); }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [gotoFirst, gotoPrevious, gotoNext, gotoLast, flipBoard]);
+
+  const stablePosition = useStablePosition(displayFen);
 
   const boardStyle = useMemo(
     () => (boardWidth > 0 ? { width: boardWidth, height: boardWidth } : undefined),
@@ -288,17 +357,22 @@ export function WatchGamePage() {
 
       <div className="watch-game-layout">
         <div className="watch-game-board-area">
-          {/* Black player (top) */}
-          <div className="watch-game-player-info">
-            <span className="live-game-color">♚</span>
-            <span className="watch-game-name">{black.username}</span>
-            {black.rating != null && (
-              <span className="live-game-rating">({black.rating})</span>
-            )}
-            <span className={`watch-game-clock${activeColor === 'black' && status === 'active' ? ' watch-game-clock--active' : ''}`}>
-              {formatTime(clocks.black)}
-            </span>
-          </div>
+          {/* Top player (opponent of board orientation) */}
+          {(() => {
+            const topPlayer = boardOrientation === 'white' ? black : white;
+            const topColor = boardOrientation === 'white' ? 'black' : 'white';
+            const topIcon = topColor === 'black' ? '♚' : '♔';
+            return (
+              <div className="watch-game-player-info">
+                <span className="live-game-color">{topIcon}</span>
+                <span className="watch-game-name">{topPlayer.username}</span>
+                {topPlayer.rating != null && <span className="live-game-rating">({topPlayer.rating})</span>}
+                <span className={`watch-game-clock${activeColor === topColor && status === 'active' ? ' watch-game-clock--active' : ''}`}>
+                  {formatTime(clocks[topColor])}
+                </span>
+              </div>
+            );
+          })()}
 
           <div className="analysis-eval-board-row">
             {analysisEnabled && <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />}
@@ -307,17 +381,22 @@ export function WatchGamePage() {
             </div>
           </div>
 
-          {/* White player (bottom) */}
-          <div className="watch-game-player-info">
-            <span className="live-game-color">♔</span>
-            <span className="watch-game-name">{white.username}</span>
-            {white.rating != null && (
-              <span className="live-game-rating">({white.rating})</span>
-            )}
-            <span className={`watch-game-clock${activeColor === 'white' && status === 'active' ? ' watch-game-clock--active' : ''}`}>
-              {formatTime(clocks.white)}
-            </span>
-          </div>
+          {/* Bottom player (same as board orientation) */}
+          {(() => {
+            const bottomPlayer = boardOrientation === 'white' ? white : black;
+            const bottomColor = boardOrientation;
+            const bottomIcon = bottomColor === 'white' ? '♔' : '♚';
+            return (
+              <div className="watch-game-player-info">
+                <span className="live-game-color">{bottomIcon}</span>
+                <span className="watch-game-name">{bottomPlayer.username}</span>
+                {bottomPlayer.rating != null && <span className="live-game-rating">({bottomPlayer.rating})</span>}
+                <span className={`watch-game-clock${activeColor === bottomColor && status === 'active' ? ' watch-game-clock--active' : ''}`}>
+                  {formatTime(clocks[bottomColor])}
+                </span>
+              </div>
+            );
+          })()}
 
           {status === 'connecting' && (
             <div className="watch-game-status">{t('liveGames.connecting')}</div>
@@ -343,6 +422,23 @@ export function WatchGamePage() {
               )}
             </div>
           )}
+
+          {/* Navigation controls */}
+          <div className="analysis-board-controls">
+            <button onClick={gotoFirst} disabled={currentViewIndex <= -1} title={t('review.toStart', 'Start')}>⇤</button>
+            <button onClick={gotoPrevious} disabled={currentViewIndex <= -1} title={t('review.back', 'Back')}>←</button>
+            <button onClick={gotoNext} disabled={isFollowing} title={t('review.forward', 'Forward')}>→</button>
+            <button onClick={gotoLast} disabled={isFollowing} title={t('review.toEnd', 'End')}>⇥</button>
+            <button onClick={flipBoard} title={t('game.flipBoard', 'Flip board')}>⟳</button>
+            {status === 'active' && !isFollowing && (
+              <button
+                onClick={gotoLast}
+                style={{ background: '#dc2626', color: '#fff', fontWeight: 'bold', borderRadius: 4, padding: '2px 10px', border: 'none', cursor: 'pointer', marginLeft: 8 }}
+              >
+                ● LIVE
+              </button>
+            )}
+          </div>
 
           <div className="watch-game-delay-notice">
             {t('liveGames.delayNotice')}
@@ -387,7 +483,7 @@ export function WatchGamePage() {
                       <span className={`stockfish-eval${line.score.type === 'mate' ? ' mate' : line.multipv === 1 ? ' best' : ''}`}>
                         {formatEval(line, evalIsBlackTurn)}
                       </span>
-                      <span className="stockfish-pv">{formatPv(line.pv, fen)}</span>
+                      <span className="stockfish-pv">{formatPv(line.pv, displayFen)}</span>
                     </div>
                   ))}
                 </div>
@@ -425,12 +521,14 @@ export function WatchGamePage() {
                   moves.map((move, i) => {
                     const isWhite = i % 2 === 0;
                     const moveNumber = Math.floor(i / 2) + 1;
-                    const isLast = i === moves.length - 1;
+                    const isCurrent = i === currentViewIndex;
                     const display = isWhite ? `${moveNumber}.${move}` : move;
                     return (
                       <span
                         key={i}
-                        className={`move-item${isLast ? ' current' : ''}`}
+                        className={`move-item${isCurrent ? ' current' : ''}`}
+                        onClick={() => gotoMove(i)}
+                        style={{ cursor: 'pointer' }}
                       >
                         {display}{' '}
                       </span>
