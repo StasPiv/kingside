@@ -71,10 +71,12 @@ async function runBotInArena(
   return new Promise((resolve) => {
     let currentGameId: string | null = null;
     let finished = false;
+    let seekInterval: ReturnType<typeof setInterval> | null = null;
 
     const cleanup = () => {
       if (finished) return;
       finished = true;
+      if (seekInterval) clearInterval(seekInterval);
       socket.disconnect();
       resolve();
     };
@@ -89,16 +91,28 @@ async function runBotInArena(
       }
     };
 
+    // Re-seek every 5s to handle race conditions in matchmaking queue
+    const startSeekLoop = () => {
+      if (seekInterval) clearInterval(seekInterval);
+      seekInterval = setInterval(trySeeking, 5_000);
+      trySeeking();
+    };
+
+    const stopSeekLoop = () => {
+      if (seekInterval) { clearInterval(seekInterval); seekInterval = null; }
+    };
+
     socket.on('connect', () => {
       socket.emit('tournament:subscribe', { tournamentId });
     });
 
     socket.on('tournament:started', () => {
-      trySeeking();
+      startSeekLoop();
     });
 
     socket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
       currentGameId = data.gameId;
+      stopSeekLoop();
       metrics.recordGameStarted();
 
       playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
@@ -107,7 +121,7 @@ async function runBotInArena(
 
         // Seek next game — play until tournament:finished
         if (!finished) {
-          setTimeout(trySeeking, 2000);
+          setTimeout(() => startSeekLoop(), 2000);
         }
       });
     });
