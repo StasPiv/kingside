@@ -63,17 +63,19 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   async handleConnection(client: Socket) {
+    const token = client.handshake.auth?.token || client.handshake.query?.token;
+    if (!token) {
+      // Anonymous connection — allowed for spectating
+      this.logger.log(`Anonymous client connected: ${client.id}`);
+      return;
+    }
     try {
-      const token = client.handshake.auth?.token || client.handshake.query?.token;
-      if (!token) {
-        client.disconnect();
-        return;
-      }
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
       this.logger.log(`Client connected: ${payload.username} (${client.id})`);
     } catch {
-      client.disconnect();
+      // Invalid token — allow connection for spectating (no user set)
+      this.logger.log(`Client connected with invalid token: ${client.id}`);
     }
   }
 
