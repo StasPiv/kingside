@@ -115,6 +115,7 @@ function playGame(
 
     const timeout = setTimeout(() => {
       if (!gameOver) {
+        console.log(`[${bot.username}/${myColor}] RESIGN: 90s timeout, moves=${moveCount}`);
         socket.emit('game:resign', { gameId });
         setTimeout(cleanup, 500);
       }
@@ -133,6 +134,7 @@ function playGame(
       scheduleMove(socket, brain, gameId, myColor, config, metrics, moveCount, () => {
         moveCount++;
         if (moveCount >= MAX_MOVES) {
+          console.log(`[${bot.username}/${myColor}] RESIGN: MAX_MOVES=${MAX_MOVES}`);
           socket.emit('game:resign', { gameId });
         }
       });
