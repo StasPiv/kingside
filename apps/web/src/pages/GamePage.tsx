@@ -571,7 +571,7 @@ export function GamePage() {
 
         {status === 'active' && (
           <div className="game-actions">
-            {tournamentId && moves.length === 0 && !(playerColor === 'white' ? whiteBerserk : blackBerserk) && (
+            {tournamentId && (playerColor === 'white' ? moves.length === 0 : moves.length <= 1) && !(playerColor === 'white' ? whiteBerserk : blackBerserk) && (
               <button
                 onClick={() => socket.emit('game:berserk', { gameId })}
                 style={{ background: '#f59e0b', color: '#000', fontWeight: 'bold', borderRadius: 4 }}
