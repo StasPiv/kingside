@@ -122,16 +122,18 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const result = await this.arenaService.seekOpponent(data.tournamentId, userId);
 
     if (result) {
-      // Notify both players
-      const payload = { gameId: result.gameId, tournamentId: data.tournamentId };
+      // Notify both players with their color
+      const seekerColor = userId === result.whiteId ? 'white' : 'black';
+      const opponentColor = seekerColor === 'white' ? 'black' : 'white';
+      const base = { gameId: result.gameId, tournamentId: data.tournamentId };
 
-      client.emit(TOURNAMENT_EVENTS.PAIRED, payload);
+      client.emit(TOURNAMENT_EVENTS.PAIRED, { ...base, color: seekerColor });
 
       // Find opponent's socket
       const allSockets = await this.server.fetchSockets();
       for (const s of allSockets) {
         if (s.data.user?.id === result.opponentId) {
-          s.emit(TOURNAMENT_EVENTS.PAIRED, payload);
+          s.emit(TOURNAMENT_EVENTS.PAIRED, { ...base, color: opponentColor });
         }
       }
     }
@@ -191,11 +193,13 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {
     if (!blackId) return; // bye — no game
     const allSockets = await this.server.fetchSockets();
-    const payload = { gameId, tournamentId };
     let notified = 0;
     for (const s of allSockets) {
-      if (s.data.user?.id === whiteId || s.data.user?.id === blackId) {
-        s.emit(TOURNAMENT_EVENTS.PAIRED, payload);
+      if (s.data.user?.id === whiteId) {
+        s.emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'white' });
+        notified++;
+      } else if (s.data.user?.id === blackId) {
+        s.emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'black' });
         notified++;
       }
     }

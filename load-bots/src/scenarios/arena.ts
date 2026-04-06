@@ -29,7 +29,7 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
       type: 'arena',
       timeInitialSec: 180,
       timeIncrementSec: 0,
-      durationMin: Math.ceil(config.durationSec / 60),
+      durationMin: Math.max(30, Math.ceil(config.durationSec / 60)),
       startsAt,
     });
   } catch (e: unknown) {
@@ -66,11 +66,12 @@ async function runBotInArena(
   metrics: Metrics,
 ): Promise<void> {
   const endTime = Date.now() + config.durationSec * 1000;
-  const socket = bot.connectWs('/arena');
+  const socket = bot.connectWs('/tournament');
 
   return new Promise((resolve) => {
     let currentGameId: string | null = null;
     let gameSocket: Socket | null = null;
+    let tournamentStarted = false;
 
     const cleanup = () => {
       socket.disconnect();
@@ -80,10 +81,20 @@ async function runBotInArena(
 
     const timeout = setTimeout(cleanup, config.durationSec * 1000 + 5000);
 
+    const trySeeking = () => {
+      if (Date.now() < endTime && !currentGameId) {
+        socket.emit('tournament:seek', { tournamentId });
+      }
+    };
+
     socket.on('connect', () => {
       socket.emit('tournament:subscribe', { tournamentId });
-      // Seek a game
-      socket.emit('tournament:seek', { tournamentId });
+      // Don't seek immediately — wait for tournament:started
+    });
+
+    socket.on('tournament:started', () => {
+      tournamentStarted = true;
+      trySeeking();
     });
 
     socket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
@@ -97,7 +108,7 @@ async function runBotInArena(
 
         // Seek next game if time remains
         if (Date.now() < endTime) {
-          setTimeout(() => socket.emit('tournament:seek', { tournamentId }), 2000);
+          setTimeout(trySeeking, 2000);
         } else {
           clearTimeout(timeout);
           cleanup();

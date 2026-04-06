@@ -419,7 +419,7 @@ export class ArenaService {
     return `arena:${tournamentId}:last:${userId}`;
   }
 
-  async seekOpponent(tournamentId: string, userId: string): Promise<{ gameId: string; opponentId: string } | null> {
+  async seekOpponent(tournamentId: string, userId: string): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t || t.status !== 'active') return null;
 
@@ -492,7 +492,7 @@ export class ArenaService {
 
       await this.gameService.initGame(game.id);
 
-      return { gameId: game.id, opponentId: candidate.userId };
+      return { gameId: game.id, opponentId: candidate.userId, whiteId, blackId };
     }
 
     // No match — add to queue
