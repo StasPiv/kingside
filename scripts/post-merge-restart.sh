@@ -13,6 +13,8 @@
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NEST_CLI="$REPO_DIR/node_modules/@nestjs/cli/bin/nest.js"
 PRISMA_CLI="$REPO_DIR/node_modules/prisma/build/index.js"
+LOAD_BOTS_DIR="$REPO_DIR/load-bots"
+LOAD_BOTS_TSC="$LOAD_BOTS_DIR/node_modules/typescript/bin/tsc"
 
 # Полный nest build — watch mode не подхватывает новые/удалённые файлы
 if [ -f "$NEST_CLI" ]; then
@@ -36,6 +38,16 @@ fi
 if [ -f "$REPO_DIR/apps/web/src/main.tsx" ]; then
     touch "$REPO_DIR/apps/web/src/main.tsx"
     echo "[post-merge] touch apps/web/src/main.tsx — Vite HMR перезагрузит"
+fi
+
+# Пересборка load-bots
+if [ -f "$LOAD_BOTS_TSC" ] && [ -d "$LOAD_BOTS_DIR/src" ]; then
+    echo "[post-merge] load-bots tsc..."
+    cd "$LOAD_BOTS_DIR"
+    node "$LOAD_BOTS_TSC" 2>/dev/null && \
+        echo "[post-merge] load-bots build OK" || \
+        echo "[post-merge] WARN: load-bots build failed"
+    cd "$REPO_DIR"
 fi
 
 # Prisma generate если схема изменилась
