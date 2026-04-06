@@ -428,17 +428,6 @@ export class ArenaService {
     });
     if (!entry || entry.withdrawn) return null;
 
-    // Don't allow players with an active game in this tournament
-    const activeGame = await this.prisma.game.findFirst({
-      where: {
-        tournamentId,
-        status: { in: ['waiting', 'active'] },
-        OR: [{ whiteId: userId }, { blackId: userId }],
-      },
-      select: { id: true },
-    });
-    if (activeGame) return null;
-
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
     const rating = (user[ratingField] as number) || 1500;
@@ -467,6 +456,17 @@ export class ArenaService {
     key: string,
     t: { timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
   ): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
+    // Check inside lock: don't allow players with an active game
+    const activeGame = await this.prisma.game.findFirst({
+      where: {
+        tournamentId,
+        status: { in: ['waiting', 'active'] },
+        OR: [{ whiteId: userId }, { blackId: userId }],
+      },
+      select: { id: true },
+    });
+    if (activeGame) return null;
+
     // Check for opponent in queue
     const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);
 
