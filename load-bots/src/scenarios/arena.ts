@@ -49,8 +49,9 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
     }
   }
 
-  // All bots subscribe via WS and seek games
-  const botPromises = bots.map((bot) => runBotInArena(bot, tournamentId, config, metrics));
+  // All bots subscribe via WS and play until tournament finishes
+  const durationMin = Math.max(30, Math.ceil(config.durationSec / 60));
+  const botPromises = bots.map((bot) => runBotInArena(bot, tournamentId, config, metrics, durationMin));
   await Promise.all(botPromises);
 
   // Cleanup
@@ -63,34 +64,36 @@ async function runBotInArena(
   tournamentId: string,
   config: Config,
   metrics: Metrics,
+  tournamentDurationMin: number,
 ): Promise<void> {
-  const endTime = Date.now() + config.durationSec * 1000;
   const socket = bot.connectWs('/tournament');
 
   return new Promise((resolve) => {
     let currentGameId: string | null = null;
-    let tournamentStarted = false;
+    let finished = false;
 
     const cleanup = () => {
+      if (finished) return;
+      finished = true;
       socket.disconnect();
       resolve();
     };
 
-    const timeout = setTimeout(cleanup, config.durationSec * 1000 + 5000);
+    // Safety timeout: tournament duration + 5 min buffer (for startsAt delay + last game)
+    const safetyMs = (tournamentDurationMin + 5) * 60_000;
+    const timeout = setTimeout(cleanup, safetyMs);
 
     const trySeeking = () => {
-      if (Date.now() < endTime && !currentGameId) {
+      if (!finished && !currentGameId) {
         socket.emit('tournament:seek', { tournamentId });
       }
     };
 
     socket.on('connect', () => {
       socket.emit('tournament:subscribe', { tournamentId });
-      // Don't seek immediately — wait for tournament:started
     });
 
     socket.on('tournament:started', () => {
-      tournamentStarted = true;
       trySeeking();
     });
 
@@ -98,17 +101,13 @@ async function runBotInArena(
       currentGameId = data.gameId;
       metrics.recordGameStarted();
 
-      // Play the game via /game namespace
       playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
         metrics.recordGameCompleted();
         currentGameId = null;
 
-        // Seek next game if time remains
-        if (Date.now() < endTime) {
+        // Seek next game — play until tournament:finished
+        if (!finished) {
           setTimeout(trySeeking, 2000);
-        } else {
-          clearTimeout(timeout);
-          cleanup();
         }
       });
     });
