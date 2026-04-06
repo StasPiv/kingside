@@ -70,23 +70,28 @@ export function WatchGamePage() {
 
     const onMove = (data: WsGameMoveServerPayload) => {
       const game = gameRef.current;
+      // If game FEN already matches the incoming FEN, this move was already applied via onState — skip
+      if (game.fen() === data.fen) return;
       // Apply the move on the existing game instance
       try {
         game.move(data.san);
       } catch {
-        // Move failed — likely duplicate or out-of-sync.
-        // Load FEN but preserve the move list by appending the new SAN.
-        game.load(data.fen);
+        // Move failed — resync: replay all previous moves + new one from scratch
+        const prevMoves = game.history();
+        game.reset();
+        for (const m of [...prevMoves, data.san]) {
+          try { game.move(m); } catch { break; }
+        }
+        // If still out of sync, just load FEN and keep moves list
+        if (game.fen() !== data.fen) {
+          game.load(data.fen);
+          setFen(data.fen);
+          setMoves((prev) => [...prev, data.san]);
+          return;
+        }
       }
-      setFen(data.fen);
-      // Always use game.history() but if empty (after load), keep prev moves + new one
-      const history = game.history();
-      if (history.length > 0) {
-        setMoves(history);
-      } else {
-        // game.load() cleared history — append san to existing moves
-        setMoves((prev) => [...prev, data.san]);
-      }
+      setFen(game.fen());
+      setMoves(game.history());
     };
 
     const onEnd = (data: WsGameEndPayload) => {
