@@ -388,7 +388,7 @@ export class ArenaService {
         let res: string | null = null;
         if (p.result === 'bye') {
           res = 'bye';
-          pts = ptsWin;
+          pts = isRR ? 0 : ptsWin;
         } else if (p.result === '1-0') {
           res = isWhite ? 'win' : 'loss';
           pts = isWhite ? ptsWin : ptsLoss;
@@ -850,17 +850,19 @@ export class ArenaService {
       }
     }
 
-    // Add bye points from pairings (Swiss/RR only)
-    const byePairings = await this.prisma.tournamentPairing.findMany({
-      where: { round: { tournamentId }, result: 'bye' },
-      select: { whiteId: true },
-    });
-    const byePoints = isArena ? 2 : t.pointsWin;
-    for (const p of byePairings) {
-      await this.prisma.arenaTournamentEntry.updateMany({
-        where: { tournamentId, userId: p.whiteId },
-        data: { score: { increment: byePoints }, wins: { increment: 1 } },
+    // Add bye points from pairings (Swiss only; RR bye = 0 pts)
+    if (t.type !== 'round-robin') {
+      const byePairings = await this.prisma.tournamentPairing.findMany({
+        where: { round: { tournamentId }, result: 'bye' },
+        select: { whiteId: true },
       });
+      const byePoints = isArena ? 2 : t.pointsWin;
+      for (const p of byePairings) {
+        await this.prisma.arenaTournamentEntry.updateMany({
+          where: { tournamentId, userId: p.whiteId },
+          data: { score: { increment: byePoints }, wins: { increment: 1 } },
+        });
+      }
     }
 
     this.logger.log(`Recalculated scores for tournament ${tournamentId}: ${games.length} games, ${byePairings.length} byes`);

@@ -67,14 +67,18 @@ export class RoundManagerService {
 
         for (const p of pendingRound.pairings) {
           if (p.result === 'bye' || !p.blackId) {
-            // Bye: give points
-            const byePoints = t.pointsWin;
-            if (!withdrawnIds.has(p.whiteId)) {
-              await this.prisma.arenaTournamentEntry.updateMany({
-                where: { tournamentId, userId: p.whiteId },
-                data: { score: { increment: byePoints }, wins: { increment: 1 } },
-              });
-              this.logger.log(`Bye: ${p.whiteId.slice(0, 8)} gets ${byePoints} pts (round ${nextRound})`);
+            // Bye: round-robin = 0 pts (skip), swiss = pointsWin
+            if (t.type !== 'round-robin') {
+              const byePoints = t.pointsWin;
+              if (!withdrawnIds.has(p.whiteId)) {
+                await this.prisma.arenaTournamentEntry.updateMany({
+                  where: { tournamentId, userId: p.whiteId },
+                  data: { score: { increment: byePoints }, wins: { increment: 1 } },
+                });
+                this.logger.log(`Bye: ${p.whiteId.slice(0, 8)} gets ${byePoints} pts (round ${nextRound})`);
+              }
+            } else {
+              this.logger.log(`Bye: ${p.whiteId.slice(0, 8)} skips round ${nextRound} (RR, 0 pts)`);
             }
             continue;
           }
@@ -97,11 +101,13 @@ export class RoundManagerService {
               where: { id: p.id },
               data: { result: 'bye', whiteId: activePlayer, blackId: null },
             });
-            const byePoints = t.pointsWin;
-            await this.prisma.arenaTournamentEntry.updateMany({
-              where: { tournamentId, userId: activePlayer },
-              data: { score: { increment: byePoints }, wins: { increment: 1 } },
-            });
+            if (t.type !== 'round-robin') {
+              const byePoints = t.pointsWin;
+              await this.prisma.arenaTournamentEntry.updateMany({
+                where: { tournamentId, userId: activePlayer },
+                data: { score: { increment: byePoints }, wins: { increment: 1 } },
+              });
+            }
             continue;
           }
 
@@ -205,8 +211,8 @@ export class RoundManagerService {
         },
       });
 
-      // Bye: give points (use tournament's pointsWin for Swiss/RR, 1 for arena)
-      if (!p.blackId) {
+      // Bye: round-robin = 0 pts, swiss = pointsWin, arena = 1
+      if (!p.blackId && t.type !== 'round-robin') {
         const byePoints = t.type === 'arena' ? 1 : t.pointsWin;
         await this.prisma.arenaTournamentEntry.updateMany({
           where: { tournamentId, userId: p.whiteId },
