@@ -185,6 +185,16 @@ export function TournamentLobbyPage() {
     };
   }, [tournament?.status, id, user, navigate]);
 
+  // Polling fallback: refresh standings & crosstable for active tournaments (works without auth)
+  useEffect(() => {
+    if (!id || !tournament || tournament.status !== 'active') return;
+    const interval = setInterval(() => {
+      fetchStandings();
+      setCrossTableRefresh((n) => n + 1);
+    }, 10000); // every 10 seconds
+    return () => clearInterval(interval);
+  }, [id, tournament?.status, fetchStandings]);
+
   // WebSocket
   useEffect(() => {
     if (!id || !user) return;
