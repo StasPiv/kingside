@@ -74,6 +74,7 @@ export class RoundManagerService {
                 where: { tournamentId, userId: p.whiteId },
                 data: { score: { increment: byePoints }, wins: { increment: 1 } },
               });
+              this.logger.log(`Bye: ${p.whiteId.slice(0, 8)} gets ${byePoints} pts (round ${nextRound})`);
             }
             continue;
           }
