@@ -410,7 +410,7 @@ export function TournamentLobbyPage() {
   const tabs: { id: TabId; label: string }[] = [
     { id: 'table', label: t('tournaments.tabTable', 'Table') },
     { id: 'round', label: t('tournaments.tabRound', 'Current Round') },
-    ...(tournament.type === 'round_robin' ? [{ id: 'schedule' as TabId, label: t('tournaments.tabSchedule', 'Schedule') }] : []),
+    ...(tournament.type === 'round-robin' ? [{ id: 'schedule' as TabId, label: t('tournaments.tabSchedule', 'Schedule') }] : []),
     { id: 'players', label: t('tournaments.tabPlayers', 'Players') },
   ];
 
@@ -570,7 +570,7 @@ export function TournamentLobbyPage() {
               />
             )}
 
-            {tournament.type === 'round_robin' && id && (
+            {tournament.type === 'round-robin' && id && (
               <CrossTable
                 tournamentId={id}
                 refreshKey={crossTableRefresh}
@@ -656,7 +656,7 @@ export function TournamentLobbyPage() {
         )}
 
         {/* Schedule Tab (RR only) */}
-        {activeTab === 'schedule' && tournament.type === 'round_robin' && id && (
+        {activeTab === 'schedule' && tournament.type === 'round-robin' && id && (
           <div className="tournament-tab-panel">
             {user && (
               <TournamentSchedule
