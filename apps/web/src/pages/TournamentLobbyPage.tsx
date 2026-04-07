@@ -232,6 +232,12 @@ export function TournamentLobbyPage() {
       fetchStandings();
     };
 
+    const onGameFinished = (data: { standings?: Standing[] }) => {
+      if (data.standings) {
+        setStandings(data.standings);
+      }
+    };
+
     const onRoundEnd = (data: { nextRoundStartsAt?: string | null }) => {
       setNextRoundStartsAt(data.nextRoundStartsAt ?? null);
       fetchRounds();
@@ -259,6 +265,7 @@ export function TournamentLobbyPage() {
     tournamentSocket.on('tournament:player_left', onPlayerLeft);
     tournamentSocket.on('tournament:started', onRoundStarted);
     tournamentSocket.on('tournament:game_end', onGameEnd);
+    tournamentSocket.on('tournament:gameFinished', onGameFinished);
     tournamentSocket.on('tournament:round_end', onRoundEnd);
     tournamentSocket.on('tournament:round_start', onRoundStart);
 
@@ -270,6 +277,7 @@ export function TournamentLobbyPage() {
       tournamentSocket.off('tournament:player_left', onPlayerLeft);
       tournamentSocket.off('tournament:started', onRoundStarted);
       tournamentSocket.off('tournament:game_end', onGameEnd);
+      tournamentSocket.off('tournament:gameFinished', onGameFinished);
       tournamentSocket.off('tournament:round_end', onRoundEnd);
       tournamentSocket.off('tournament:round_start', onRoundStart);
       tournamentSocket.emit('tournament:leave', { tournamentId: id });
