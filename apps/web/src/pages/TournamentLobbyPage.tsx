@@ -599,9 +599,6 @@ export function TournamentLobbyPage() {
                           <td>
                             <Link to={`/player/${s.username}`}>{s.username}</Link>
                             {s.streak >= 2 && <span title={`${s.streak} win streak`} style={{ marginLeft: 4 }}>🔥</span>}
-                            {activePlayers.has(s.userId) && !s.games.some((g) => g.status === 'active') && (
-                              <span className="arena-game-cell arena-game-cell--active" style={{ marginLeft: 4, fontSize: 10, padding: '1px 4px' }} title={t('tournaments.playing', 'Playing')}>•</span>
-                            )}
                           </td>
                           <td>{s.score}</td>
                           <td className="tournament-games-cell">
@@ -641,6 +638,9 @@ export function TournamentLobbyPage() {
                                 </span>
                               );
                             })}
+                            {activePlayers.has(s.userId) && !s.games.some((g) => g.status === 'active') && (
+                              <span className="arena-game-cell arena-game-cell--active" title={t('tournaments.playing', 'Playing')}>•</span>
+                            )}
                           </td>
                         </tr>
                       ))}
