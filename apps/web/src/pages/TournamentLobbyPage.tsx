@@ -90,12 +90,9 @@ export function TournamentLobbyPage() {
   // Refs for WS handlers — avoids unstable deps in the WS effect
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
-  const fetchTournamentRef = useRef(fetchTournament);
-  fetchTournamentRef.current = fetchTournament;
-  const fetchStandingsRef = useRef(fetchStandings);
-  fetchStandingsRef.current = fetchStandings;
-  const fetchRoundsRef = useRef(fetchRounds);
-  fetchRoundsRef.current = fetchRounds;
+  const fetchTournamentRef = useRef<() => void>(() => {});
+  const fetchStandingsRef = useRef<() => void>(() => {});
+  const fetchRoundsRef = useRef<() => void>(() => {});
 
   // Tab state from URL
   const activeTab = (searchParams.get('tab') as TabId) || 'table';
@@ -127,6 +124,10 @@ export function TournamentLobbyPage() {
       setRounds(data);
     } catch { /* ignore */ }
   }, [id]);
+
+  fetchTournamentRef.current = fetchTournament;
+  fetchStandingsRef.current = fetchStandings;
+  fetchRoundsRef.current = fetchRounds;
 
   useEffect(() => {
     fetchTournament();
