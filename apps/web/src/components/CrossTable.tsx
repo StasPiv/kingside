@@ -40,7 +40,7 @@ function singleDisplay(item: CrossTableResultItem, ptsWin = 1, ptsDraw = 0.5, pt
   if (item.result === '1-0') return item.color === 'white' ? fmtPts(ptsWin) : fmtPts(ptsLoss);
   if (item.result === '0-1') return item.color === 'black' ? fmtPts(ptsWin) : fmtPts(ptsLoss);
   if (item.result === '1/2-1/2') return fmtPts(ptsDraw);
-  if (item.result === 'bye') return fmtPts(ptsWin);
+  if (item.result === 'bye') return fmtPts(0);
   return '';
 }
 

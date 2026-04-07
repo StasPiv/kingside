@@ -94,7 +94,7 @@ export function TournamentsPage() {
 
         <div className="tnr-chips-row">
           {/* Type chips */}
-          {['all', 'arena', 'swiss', 'round_robin'].map((tp) => (
+          {['all', 'arena', 'swiss', 'round-robin'].map((tp) => (
             <button
               key={tp}
               className={`tnr-chip${typeFilter === tp ? ' active' : ''}`}

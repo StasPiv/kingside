@@ -8,10 +8,10 @@ interface CreateTournamentModalProps {
   onCreated: () => void;
 }
 
-type TournamentType = 'arena' | 'swiss' | 'round_robin';
+type TournamentType = 'arena' | 'swiss' | 'round-robin';
 type TcCategory = 'bullet' | 'blitz' | 'rapid' | 'custom';
 
-const TYPE_ICONS: Record<TournamentType, string> = { arena: '⚔️', swiss: '🏆', round_robin: '🔄' };
+const TYPE_ICONS: Record<TournamentType, string> = { arena: '⚔️', swiss: '🏆', round-robin: '🔄' };
 const TC_CATEGORIES: TcCategory[] = ['bullet', 'blitz', 'rapid', 'custom'];
 
 // Filter out classical and ultra-bullet for tournaments
@@ -85,7 +85,7 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
         <div className="tcm-body">
           {/* Left: type cards */}
           <div className="tcm-types">
-            {(['arena', 'swiss', 'round_robin'] as const).map((tp) => (
+            {(['arena', 'swiss', 'round-robin'] as const).map((tp) => (
               <div
                 key={tp}
                 className={`tcm-type-card${type === tp ? ' tcm-type-card--active' : ''}`}

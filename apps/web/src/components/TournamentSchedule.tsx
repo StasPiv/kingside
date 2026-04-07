@@ -63,7 +63,7 @@ export function TournamentSchedule({ tournamentId, userId, refreshKey, pointsWin
     let resultText = '—';
     if (myPairing.result) {
       if (myPairing.result === 'bye') {
-        resultText = fmt(pointsWin);
+        resultText = fmt(0);
       } else if (myPairing.result === '1/2-1/2') {
         resultText = fmt(pointsDraw);
       } else if (myPairing.result === '1-0') {
@@ -109,7 +109,7 @@ export function TournamentSchedule({ tournamentId, userId, refreshKey, pointsWin
 
   const getResultClass = (row: typeof mySchedule[0]): string => {
     if (!row.result) return '';
-    if (row.isBye) return 'schedule-result--win';
+    if (row.isBye) return 'schedule-result--draw';
     const isWin = (row.result === '1-0' && row.isWhite) || (row.result === '0-1' && !row.isWhite);
     const isLoss = (row.result === '1-0' && !row.isWhite) || (row.result === '0-1' && row.isWhite);
     if (isWin) return 'schedule-result--win';

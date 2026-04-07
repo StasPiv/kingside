@@ -43,7 +43,7 @@ export function TournamentRoundView({ round, playerNames, currentUserId, pointsW
     if (p.result === '1-0') return `${pw} – ${pl}`;
     if (p.result === '0-1') return `${pl} – ${pw}`;
     if (p.result === '1/2-1/2') return `${pd} – ${pd}`;
-    if (p.result === 'bye') return `${pw} – ${pl}`;
+    if (p.result === 'bye') return `0 – ${pl}`;
     return p.result;
   };
 
