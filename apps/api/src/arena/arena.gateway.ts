@@ -210,8 +210,10 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       pairingId: string | null;
     },
   ) {
+    const roomName = `tournament:${tournamentId}`;
+    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
     const standings = await this.arenaService.getStandings(tournamentId);
-    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.GAME_FINISHED, {
+    this.server.to(roomName).emit(TOURNAMENT_EVENTS.GAME_FINISHED, {
       gameId: data.gameId,
       result: data.result,
       white: data.white,
@@ -219,7 +221,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       pairingId: data.pairingId,
       standings,
     });
-    this.logger.log(`emitGameFinished: tournament=${tournamentId} game=${data.gameId.slice(0, 8)} result=${data.result}`);
+    this.logger.log(`emitGameFinished: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} result=${data.result} standings=${standings.length}`);
   }
 
   async emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {

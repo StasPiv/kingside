@@ -29,7 +29,9 @@ export class ArenaModule implements OnModuleInit {
   ) {}
 
   onModuleInit() {
+    this.logger.log('ArenaModule.onModuleInit: registering onGameEnd hook');
     this.gameService.onGameEnd(async (gameId: string) => {
+      this.logger.log(`onGameEnd hook fired: gameId=${gameId.slice(0, 8)}`);
       // 1. Arena scoring (works for all tournament types)
       await this.arenaService.onGameFinished(gameId);
 
@@ -45,9 +47,13 @@ export class ArenaModule implements OnModuleInit {
           black: { select: { username: true } },
         },
       });
-      if (!game?.tournamentId) return;
+      if (!game?.tournamentId) {
+        this.logger.log(`onGameEnd: game ${gameId.slice(0, 8)} has no tournamentId, skipping`);
+        return;
+      }
 
       const tournamentId = game.tournamentId;
+      this.logger.log(`onGameEnd: tournament game ${gameId.slice(0, 8)} tournament=${tournamentId.slice(0, 8)} result=${game.result}`);
 
       // 3. Update TournamentPairing.result
       const pairingInfo = await this.roundManager.updatePairingResult(gameId);
