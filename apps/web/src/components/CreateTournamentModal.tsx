@@ -30,6 +30,7 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
   const [customIncrement, setCustomIncrement] = useState(3);
   const [durationMin, setDurationMin] = useState(30);
   const [totalRounds, setTotalRounds] = useState(5);
+  const [cycles, setCycles] = useState(1);
   const [roundPauseMin, setRoundPauseMin] = useState(2);
   const [pointsWin, setPointsWin] = useState(1);
   const [pointsDraw, setPointsDraw] = useState(0.5);
@@ -63,7 +64,8 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
         timeInitialSec: effectiveInitial,
         timeIncrementSec: effectiveIncrement,
         durationMin,
-        ...(type !== 'arena' ? { totalRounds, roundPauseMin, pointsWin, pointsDraw, pointsLoss } : {}),
+        ...(type === 'swiss' ? { totalRounds, roundPauseMin, pointsWin, pointsDraw, pointsLoss } : {}),
+        ...(type === 'round-robin' ? { cycles, roundPauseMin, pointsWin, pointsDraw, pointsLoss } : {}),
         startsAt,
       });
       onCreated();
@@ -168,10 +170,21 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
 
             {type !== 'arena' && (
               <>
-                <div className="tcm-field">
-                  <label>{t('tournaments.totalRounds', 'Number of rounds')}</label>
-                  <input type="number" min={2} max={15} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
-                </div>
+                {type === 'round-robin' ? (
+                  <div className="tcm-field">
+                    <label>{t('tournaments.cycles', 'Number of cycles')}</label>
+                    <select className="ks-select" value={cycles} onChange={(e) => setCycles(Number(e.target.value))}>
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div className="tcm-field">
+                    <label>{t('tournaments.totalRounds', 'Number of rounds')}</label>
+                    <input type="number" min={2} max={15} value={totalRounds} onChange={(e) => setTotalRounds(Number(e.target.value))} />
+                  </div>
+                )}
                 <div className="tcm-field">
                   <label>{t('tournaments.roundPause', 'Pause between rounds (min)')}</label>
                   <input type="number" min={1} max={30} value={roundPauseMin} onChange={(e) => setRoundPauseMin(Number(e.target.value))} />
