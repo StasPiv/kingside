@@ -124,6 +124,7 @@ export function App() {
         <Route path="/profile" element={<ProtectedRoute><ProfileRedirect /></ProtectedRoute>} />
         <Route path="/tournaments" element={<TournamentsPage />} />
         <Route path="/tournaments/:id" element={<TournamentLobbyPage />} />
+        <Route path="/arena/:id" element={<TournamentLobbyPage />} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />

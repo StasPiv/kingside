@@ -87,6 +87,16 @@ export function TournamentLobbyPage() {
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
+  // Refs for WS handlers — avoids unstable deps in the WS effect
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const fetchTournamentRef = useRef(fetchTournament);
+  fetchTournamentRef.current = fetchTournament;
+  const fetchStandingsRef = useRef(fetchStandings);
+  fetchStandingsRef.current = fetchStandings;
+  const fetchRoundsRef = useRef(fetchRounds);
+  fetchRoundsRef.current = fetchRounds;
+
   // Tab state from URL
   const activeTab = (searchParams.get('tab') as TabId) || 'table';
   const setActiveTab = (tab: TabId) => {
@@ -199,21 +209,27 @@ export function TournamentLobbyPage() {
     return () => clearInterval(interval);
   }, [id, tournament?.status, fetchStandings, fetchRounds, fetchTournament]);
 
-  // WebSocket
+  // WebSocket — deps limited to id + userId to avoid spurious disconnect/reconnect
+  const userId = user?.id;
   useEffect(() => {
-    if (!id || !user) return;
+    if (!id || !userId) return;
     const token = localStorage.getItem('token');
     if (token) {
       (tournamentSocket as unknown as { auth: Record<string, string> }).auth = { token };
     }
-    tournamentSocket.connect();
 
-    // Subscribe to room only (don't auto-join tournament entry)
-    tournamentSocket.emit('tournament:subscribe', { tournamentId: id });
+    // Subscribe after connection is established (not before)
+    const onConnect = () => {
+      tournamentSocket.emit('tournament:subscribe', { tournamentId: id });
+    };
+
+    const onConnectError = (err: Error) => {
+      console.error('[TournamentLobby] WS connect_error:', err.message);
+    };
 
     const onPaired = (data: { gameId: string }) => {
       setSeeking(false);
-      navigate(`/game/${data.gameId}?tournamentId=${id}`);
+      navigateRef.current(`/game/${data.gameId}?tournamentId=${id}`);
     };
 
     const onStandings = (data: { standings: Standing[] }) => {
@@ -221,21 +237,21 @@ export function TournamentLobbyPage() {
     };
 
     const onFinished = () => {
-      fetchTournament();
-      fetchRounds();
+      fetchTournamentRef.current();
+      fetchRoundsRef.current();
     };
 
     const onRoundStarted = () => {
-      fetchRounds();
-      fetchStandings();
+      fetchRoundsRef.current();
+      fetchStandingsRef.current();
     };
 
     const onPlayerJoined = () => {
-      fetchStandings();
+      fetchStandingsRef.current();
     };
 
     const onPlayerLeft = () => {
-      fetchStandings();
+      fetchStandingsRef.current();
     };
 
     const onGameEnd = (data: { gameId: string; result: string; pairingId: string }) => {
@@ -245,7 +261,7 @@ export function TournamentLobbyPage() {
           p.id === data.pairingId ? { ...p, result: data.result } : p,
         ),
       })));
-      fetchStandings();
+      fetchStandingsRef.current();
     };
 
     const onGameStarted = (data: { gameId: string; white: { id: string }; black: { id: string } }) => {
@@ -270,30 +286,32 @@ export function TournamentLobbyPage() {
       if (data.standings) {
         setStandings(data.standings);
       }
-      fetchRounds();
+      fetchRoundsRef.current();
       setCrossTableRefresh((n) => n + 1);
     };
 
     const onRoundEnd = (data: { nextRoundStartsAt?: string | null }) => {
       setNextRoundStartsAt(data.nextRoundStartsAt ?? null);
-      fetchRounds();
-      fetchStandings();
-      fetchTournament();
+      fetchRoundsRef.current();
+      fetchStandingsRef.current();
+      fetchTournamentRef.current();
     };
 
     const onRoundStart = (data: { tournamentId: string; roundNumber: number; pairings?: Array<{ whiteId: string; blackId: string; gameId: string }> }) => {
       setNextRoundStartsAt(null);
-      fetchRounds();
-      fetchStandings();
-      fetchTournament();
-      if (data.pairings && user) {
-        const myPairing = data.pairings.find((p) => p.whiteId === user.id || p.blackId === user.id);
+      fetchRoundsRef.current();
+      fetchStandingsRef.current();
+      fetchTournamentRef.current();
+      if (data.pairings) {
+        const myPairing = data.pairings.find((p) => p.whiteId === userId || p.blackId === userId);
         if (myPairing?.gameId) {
-          navigate(`/game/${myPairing.gameId}?tournamentId=${id}`);
+          navigateRef.current(`/game/${myPairing.gameId}?tournamentId=${id}`);
         }
       }
     };
 
+    tournamentSocket.on('connect', onConnect);
+    tournamentSocket.on('connect_error', onConnectError);
     tournamentSocket.on('tournament:paired', onPaired);
     tournamentSocket.on('tournament:standings', onStandings);
     tournamentSocket.on('tournament:finished', onFinished);
@@ -306,7 +324,11 @@ export function TournamentLobbyPage() {
     tournamentSocket.on('tournament:round_end', onRoundEnd);
     tournamentSocket.on('tournament:round_start', onRoundStart);
 
+    tournamentSocket.connect();
+
     return () => {
+      tournamentSocket.off('connect', onConnect);
+      tournamentSocket.off('connect_error', onConnectError);
       tournamentSocket.off('tournament:paired', onPaired);
       tournamentSocket.off('tournament:standings', onStandings);
       tournamentSocket.off('tournament:finished', onFinished);
@@ -321,7 +343,7 @@ export function TournamentLobbyPage() {
       tournamentSocket.emit('tournament:leave', { tournamentId: id });
       tournamentSocket.disconnect();
     };
-  }, [id, user, navigate, fetchTournament, fetchStandings, fetchRounds]);
+  }, [id, userId]);
 
   const handleJoin = async () => {
     if (!id) return;
