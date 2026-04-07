@@ -71,7 +71,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
     }
 
     // For RR: generate full schedule (all rounds + pairings as pending) before starting
-    if (t.type === 'round_robin') {
+    if (t.type === 'round-robin') {
       await this.generateRRSchedule(tournamentId, t);
     }
 
@@ -108,7 +108,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
    */
   private async checkStuckRounds() {
     const active = await this.prisma.arenaTournament.findMany({
-      where: { status: 'active', type: { in: ['swiss', 'round_robin'] }, currentRound: { gt: 0 } },
+      where: { status: 'active', type: { in: ['swiss', 'round-robin'] }, currentRound: { gt: 0 } },
     });
 
     for (const t of active) {
@@ -175,7 +175,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
 
   private async checkMissingNextRound() {
     const active = await this.prisma.arenaTournament.findMany({
-      where: { status: 'active', type: { in: ['swiss', 'round_robin'] }, currentRound: { gt: 0 } },
+      where: { status: 'active', type: { in: ['swiss', 'round-robin'] }, currentRound: { gt: 0 } },
     });
 
     for (const t of active) {

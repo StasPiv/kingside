@@ -33,8 +33,15 @@ export class RoundManagerService {
     }
 
     const nextRound = t.currentRound + 1;
-    if (t.totalRounds && nextRound > t.totalRounds) {
-      this.logger.log(`startNextRound: all ${t.totalRounds} rounds played for ${tournamentId}`);
+    // Compute max rounds: use totalRounds if set, otherwise derive from cycles
+    let maxRounds = t.totalRounds;
+    if (!maxRounds && t.type === 'round-robin' && t.cycles) {
+      const playerCount = t.entries.filter((e) => !e.withdrawn).length;
+      const paddedCount = playerCount + (playerCount % 2);
+      maxRounds = t.cycles * (paddedCount - 1);
+    }
+    if (maxRounds && nextRound > maxRounds) {
+      this.logger.log(`startNextRound: all ${maxRounds} rounds played for ${tournamentId}`);
       return null;
     }
 
@@ -42,7 +49,7 @@ export class RoundManagerService {
 
     let pairings: { whiteId: string; blackId: string | null; board: number }[];
 
-    if (t.type === 'round_robin') {
+    if (t.type === 'round-robin') {
       // RR: use pre-generated pending round from schedule
       const pendingRound = await this.prisma.tournamentRound.findUnique({
         where: { tournamentId_roundNumber: { tournamentId, roundNumber: nextRound } },
@@ -274,15 +281,23 @@ export class RoundManagerService {
     });
 
     // Check if tournament is complete
-    this.logger.log(`finalizeRound: tournament ${tournamentId}, currentRound=${t.currentRound}, totalRounds=${t.totalRounds}`);
-    if (t.totalRounds && t.currentRound >= t.totalRounds) {
+    let maxRoundsF = t.totalRounds;
+    if (!maxRoundsF && t.type === 'round-robin' && t.cycles) {
+      const entryCount = await this.prisma.arenaTournamentEntry.count({
+        where: { tournamentId, withdrawn: false },
+      });
+      const paddedCount = entryCount + (entryCount % 2);
+      maxRoundsF = t.cycles * (paddedCount - 1);
+    }
+    this.logger.log(`finalizeRound: tournament ${tournamentId}, currentRound=${t.currentRound}, maxRounds=${maxRoundsF ?? '∞'}`);
+    if (maxRoundsF && t.currentRound >= maxRoundsF) {
       await this.prisma.arenaTournament.update({
         where: { id: tournamentId },
-        data: { status: 'finished' },
+        data: { status: 'finished', totalRounds: maxRoundsF },
       });
-      this.logger.log(`Tournament ${tournamentId} finished (all ${t.totalRounds} rounds complete)`);
+      this.logger.log(`Tournament ${tournamentId} finished (all ${maxRoundsF} rounds complete)`);
     } else {
-      this.logger.log(`finalizeRound: round ${t.currentRound} finalized, tournament continues (${t.currentRound}/${t.totalRounds ?? '∞'})`);
+      this.logger.log(`finalizeRound: round ${t.currentRound} finalized, tournament continues (${t.currentRound}/${maxRoundsF ?? '∞'})`);
     }
   }
 
