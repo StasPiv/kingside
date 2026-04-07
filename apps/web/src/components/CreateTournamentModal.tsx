@@ -11,7 +11,7 @@ interface CreateTournamentModalProps {
 type TournamentType = 'arena' | 'swiss' | 'round-robin';
 type TcCategory = 'bullet' | 'blitz' | 'rapid' | 'custom';
 
-const TYPE_ICONS: Record<TournamentType, string> = { arena: '⚔️', swiss: '🏆', round-robin: '🔄' };
+const TYPE_ICONS: Record<TournamentType, string> = { arena: '⚔️', swiss: '🏆', 'round-robin': '🔄' };
 const TC_CATEGORIES: TcCategory[] = ['bullet', 'blitz', 'rapid', 'custom'];
 
 // Filter out classical and ultra-bullet for tournaments
