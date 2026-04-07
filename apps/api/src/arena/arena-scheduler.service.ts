@@ -44,6 +44,9 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         this.gateway.emitTournamentFinished(id);
       }
 
+      // Fallback: retry autoStartFirstRound for active tournaments stuck at round 0
+      await this.checkStuckStart();
+
       // Fallback: check for stuck completed rounds (e.g. after API restart lost setTimeout)
       await this.checkStuckRounds();
 
@@ -221,6 +224,25 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
           }
         }
         this.logger.log(`checkMissingNextRound: started round ${t.currentRound + 1} for ${t.id}`);
+      }
+    }
+  }
+
+  /**
+   * Retry autoStartFirstRound for tournaments stuck at active + currentRound=0.
+   * This handles cases where autoStartFirstRound threw an error on first attempt.
+   */
+  private async checkStuckStart() {
+    const stuck = await this.prisma.arenaTournament.findMany({
+      where: { status: 'active', type: { in: ['swiss', 'round-robin'] }, currentRound: 0 },
+    });
+
+    for (const t of stuck) {
+      this.logger.warn(`checkStuckStart: tournament ${t.id} (${t.type}) stuck at round 0, retrying autoStartFirstRound`);
+      try {
+        await this.autoStartFirstRound(t.id);
+      } catch (e: unknown) {
+        this.logger.error(`checkStuckStart: failed for ${t.id}: ${(e as Error).message}`);
       }
     }
   }
