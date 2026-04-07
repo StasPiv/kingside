@@ -185,15 +185,17 @@ export function TournamentLobbyPage() {
     };
   }, [tournament?.status, id, user, navigate]);
 
-  // Polling fallback: refresh standings, rounds, tournament & crosstable for active tournaments
+  // Polling fallback: refresh standings, rounds, tournament & crosstable
+  // Active tournaments: every 10s. Finished: stop polling.
   useEffect(() => {
-    if (!id || !tournament || tournament.status !== 'active') return;
+    if (!id || !tournament) return;
+    if (tournament.status === 'finished') return;
     const interval = setInterval(() => {
       fetchStandings();
       fetchRounds();
       fetchTournament();
       setCrossTableRefresh((n) => n + 1);
-    }, 10000); // every 10 seconds
+    }, 10000);
     return () => clearInterval(interval);
   }, [id, tournament?.status, fetchStandings, fetchRounds, fetchTournament]);
 
@@ -201,7 +203,7 @@ export function TournamentLobbyPage() {
   useEffect(() => {
     if (!id || !user) return;
     const token = localStorage.getItem('token');
-    if (token && !tournamentSocket.auth) {
+    if (token) {
       (tournamentSocket as unknown as { auth: Record<string, string> }).auth = { token };
     }
     tournamentSocket.connect();
