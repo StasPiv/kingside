@@ -83,6 +83,7 @@ export function TournamentLobbyPage() {
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
   const [nextRoundStartsAt, setNextRoundStartsAt] = useState<string | null>(null);
   const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
+  const [crossTableRefresh, setCrossTableRefresh] = useState(0);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
@@ -240,6 +241,7 @@ export function TournamentLobbyPage() {
         next.add(data.black.id);
         return next;
       });
+      setCrossTableRefresh((n) => n + 1);
     };
 
     const onGameFinished = (data: { standings?: Standing[]; white?: { id: string }; black?: { id: string } }) => {
@@ -254,6 +256,7 @@ export function TournamentLobbyPage() {
       if (data.standings) {
         setStandings(data.standings);
       }
+      setCrossTableRefresh((n) => n + 1);
     };
 
     const onRoundEnd = (data: { nextRoundStartsAt?: string | null }) => {
@@ -570,7 +573,7 @@ export function TournamentLobbyPage() {
             {tournament.type === 'round_robin' && id && (
               <CrossTable
                 tournamentId={id}
-                refreshKey={standings.length}
+                refreshKey={crossTableRefresh}
                 pointsWin={tournament.pointsWin}
                 pointsDraw={tournament.pointsDraw}
                 pointsLoss={tournament.pointsLoss}
