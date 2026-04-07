@@ -75,7 +75,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.join(roomName);
     client.data.tournamentId = data.tournamentId;
 
-    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.adapter?.rooms?.get(roomName)?.size ?? 0;
     this.logger.log(`handleSubscribe: ${client.data.user.username} (${client.id}) subscribed to ${roomName}, room size=${roomSize}`);
 
     // If tournament already active, send started event (handles API restart / late join)
@@ -158,7 +158,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!userId) return;
 
     const roomName = `tournament:${data.tournamentId}`;
-    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.adapter?.rooms?.get(roomName)?.size ?? 0;
     this.logger.log(`handleLeave: ${client.data.user?.username} (${client.id}) leaving room ${roomName}, room size=${roomSize}`);
 
     await this.arenaService.leaveSeeking(data.tournamentId, userId);
@@ -182,7 +182,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   async emitStandings(tournamentId: string) {
     const roomName = `tournament:${tournamentId}`;
-    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.adapter?.rooms?.get(roomName)?.size ?? 0;
     const standings = await this.arenaService.getStandings(tournamentId);
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.STANDINGS, { standings });
     this.logger.log(`emitStandings: room ${roomName}, size=${roomSize}, entries=${standings.length}`);
@@ -211,17 +211,34 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
     },
   ) {
     const roomName = `tournament:${tournamentId}`;
-    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.adapter?.rooms?.get(roomName)?.size ?? 0;
     const standings = await this.arenaService.getStandings(tournamentId);
-    this.server.to(roomName).emit(TOURNAMENT_EVENTS.GAME_FINISHED, {
+    const payload = {
       gameId: data.gameId,
       result: data.result,
       white: data.white,
       black: data.black,
       pairingId: data.pairingId,
       standings,
-    });
-    this.logger.log(`emitGameFinished: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} result=${data.result} standings=${standings.length}`);
+    };
+
+    // Primary: emit to room
+    this.server.to(roomName).emit(TOURNAMENT_EVENTS.GAME_FINISHED, payload);
+
+    // Fallback: if room appears empty, emit directly to sockets with matching tournamentId
+    if (roomSize === 0) {
+      const allSockets = await this.server.fetchSockets();
+      let fallbackCount = 0;
+      for (const s of allSockets) {
+        if (s.data.tournamentId === tournamentId) {
+          s.emit(TOURNAMENT_EVENTS.GAME_FINISHED, payload);
+          fallbackCount++;
+        }
+      }
+      this.logger.log(`emitGameFinished FALLBACK: room=${roomName} roomSize=0 fallback=${fallbackCount} game=${data.gameId.slice(0, 8)}`);
+    } else {
+      this.logger.log(`emitGameFinished: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} result=${data.result} standings=${standings.length}`);
+    }
   }
 
   async emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {
@@ -242,7 +259,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitPlayerLeft(tournamentId: string, userId: string) {
     const roomName = `tournament:${tournamentId}`;
-    const roomSize = this.server?.sockets?.adapter?.rooms?.get(roomName)?.size ?? 0;
+    const roomSize = this.server?.adapter?.rooms?.get(roomName)?.size ?? 0;
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.PLAYER_LEFT, { tournamentId, userId });
     this.logger.log(`emitPlayerLeft: userId=${userId}, room=${roomName}, size=${roomSize}`);
   }
