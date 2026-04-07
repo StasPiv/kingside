@@ -851,11 +851,13 @@ export class ArenaService {
     }
 
     // Add bye points from pairings (Swiss only; RR bye = 0 pts)
+    let byeCount = 0;
     if (t.type !== 'round-robin') {
       const byePairings = await this.prisma.tournamentPairing.findMany({
         where: { round: { tournamentId }, result: 'bye' },
         select: { whiteId: true },
       });
+      byeCount = byePairings.length;
       const byePoints = isArena ? 2 : t.pointsWin;
       for (const p of byePairings) {
         await this.prisma.arenaTournamentEntry.updateMany({
@@ -865,8 +867,8 @@ export class ArenaService {
       }
     }
 
-    this.logger.log(`Recalculated scores for tournament ${tournamentId}: ${games.length} games, ${byePairings.length} byes`);
-    return { recalculated: true, games: games.length, byes: byePairings.length };
+    this.logger.log(`Recalculated scores for tournament ${tournamentId}: ${games.length} games, ${byeCount} byes`);
+    return { recalculated: true, games: games.length, byes: byeCount };
   }
 
   // --- Scheduler ---
