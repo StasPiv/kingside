@@ -36,7 +36,14 @@ export class ArenaModule implements OnModuleInit {
       // 2. Get game to check if tournament game
       const game = await this.prisma.game.findUnique({
         where: { id: gameId },
-        select: { tournamentId: true, result: true },
+        select: {
+          tournamentId: true,
+          result: true,
+          whiteId: true,
+          blackId: true,
+          white: { select: { username: true } },
+          black: { select: { username: true } },
+        },
       });
       if (!game?.tournamentId) return;
 
@@ -44,13 +51,15 @@ export class ArenaModule implements OnModuleInit {
 
       // 3. Update TournamentPairing.result
       const pairingInfo = await this.roundManager.updatePairingResult(gameId);
-      if (pairingInfo) {
-        // 4. Emit tournament:game_end
-        this.gateway.emitGameEnd(tournamentId, gameId, game.result ?? '', pairingInfo.pairingId);
-      }
 
-      // 5. Emit updated standings
-      await this.gateway.emitStandings(tournamentId);
+      // 4. Emit tournament:gameFinished with standings
+      await this.gateway.emitGameFinished(tournamentId, {
+        gameId,
+        result: game.result ?? '',
+        white: { id: game.whiteId, username: game.white?.username ?? '' },
+        black: { id: game.blackId, username: game.black?.username ?? '' },
+        pairingId: pairingInfo?.pairingId ?? null,
+      });
 
       // 6. For Swiss/RR: check round completion and auto-start next
       const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });

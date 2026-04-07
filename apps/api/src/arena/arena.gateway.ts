@@ -25,6 +25,7 @@ const TOURNAMENT_EVENTS = {
   PLAYER_JOINED: 'tournament:player_joined',
   PLAYER_LEFT: 'tournament:player_left',
   GAME_END: 'tournament:game_end',
+  GAME_FINISHED: 'tournament:gameFinished',
   ROUND_START: 'tournament:round_start',
   ROUND_END: 'tournament:round_end',
 };
@@ -197,6 +198,28 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitGameEnd(tournamentId: string, gameId: string, result: string, pairingId: string) {
     this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.GAME_END, { gameId, result, pairingId });
+  }
+
+  async emitGameFinished(
+    tournamentId: string,
+    data: {
+      gameId: string;
+      result: string;
+      white: { id: string; username: string };
+      black: { id: string; username: string };
+      pairingId: string | null;
+    },
+  ) {
+    const standings = await this.arenaService.getStandings(tournamentId);
+    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.GAME_FINISHED, {
+      gameId: data.gameId,
+      result: data.result,
+      white: data.white,
+      black: data.black,
+      pairingId: data.pairingId,
+      standings,
+    });
+    this.logger.log(`emitGameFinished: tournament=${tournamentId} game=${data.gameId.slice(0, 8)} result=${data.result}`);
   }
 
   async emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {
