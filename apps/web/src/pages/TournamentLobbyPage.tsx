@@ -392,8 +392,9 @@ export function TournamentLobbyPage() {
     const nextPending = rounds.find((r) => r.status === 'pending');
 
     if (currentRd) {
-      const totalGames = currentRd.pairings.filter((p) => p.blackId != null).length;
-      const completedGames = currentRd.pairings.filter((p) => p.result != null).length;
+      const realPairings = currentRd.pairings.filter((p) => p.blackId != null);
+      const totalGames = realPairings.length;
+      const completedGames = realPairings.filter((p) => p.result != null).length;
       return (
         <span className="tournament-header__round-status">
           {t('tournaments.roundGamesStatus', 'Round {{n}}: {{completed}}/{{total}} games completed', { n: currentRd.roundNumber, completed: completedGames, total: totalGames })}
