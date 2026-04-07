@@ -8,7 +8,7 @@ import { Config } from '../config.js';
  * Flow: create → join → subscribe WS → seek → get paired → play game → repeat.
  */
 export async function runArenaScenario(config: Config, metrics: Metrics): Promise<void> {
-  const botCount = Math.min(config.concurrency, 32);
+  const botCount = config.concurrency;
   const durationMin = parseInt(process.env.ARENA_DURATION_MIN || '30', 10);
   const timeInitialSec = parseInt(process.env.TIME_INITIAL_SEC || '180', 10);
   console.log(`[Arena] ${botCount} bots, tournament ${durationMin}min, time ${timeInitialSec}s`);
@@ -286,12 +286,14 @@ function playArenaGame(
     };
 
     socket.on('connect', () => {
+      console.log(`[${bot.username}/${myColor}] /game WS connected, joining game ${gameId}`);
       socket.emit('game:join', { gameId });
       // Fallback: if game:state not received within 3s, fetch via REST
       stateCheckTimeout = setTimeout(() => fetchStateViaRest(), 3_000);
     });
 
     socket.on('game:state', (state: { fen: string; status: string }) => {
+      console.log(`[${bot.username}/${myColor}] game:state status=${state.status} fen=${state.fen?.substring(0, 30)}`);
       if (gameOver) return;
       gotGameState = true;
       if (stateCheckTimeout) { clearTimeout(stateCheckTimeout); stateCheckTimeout = null; }
@@ -302,13 +304,14 @@ function playArenaGame(
     });
 
     socket.on('game:move', (data: { fen: string }) => {
+      console.log(`[${bot.username}/${myColor}] game:move fen=${data.fen?.substring(0, 30)}`);
       if (gameOver) return;
       lastServerFen = data.fen;
       try { brain.loadFen(data.fen); } catch { /* ignore */ }
       tryMove();
     });
 
-    socket.on('game:end', () => { clearTimeout(timeout); finish(); });
+    socket.on('game:end', (data: unknown) => { console.log(`[${bot.username}/${myColor}] game:end`, JSON.stringify(data)); clearTimeout(timeout); finish(); });
     socket.on('error', async (err: { code?: string }) => {
       if (err.code === 'AUTH_REQUIRED' && !authRetried) {
         authRetried = true;
@@ -344,7 +347,7 @@ function playArenaGame(
         }
       }
     });
-    socket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
+    socket.on('connect_error', (err: Error) => { console.log(`[${bot.username}/${myColor}] /game connect_error: ${err.message}`); metrics.recordError(); clearTimeout(timeout); finish(); });
   });
 }
 

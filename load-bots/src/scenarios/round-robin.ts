@@ -9,7 +9,7 @@ import { Config } from '../config.js';
  * Key difference from arena: bots do NOT seek, server sends pairings per round.
  */
 export async function runRoundRobinScenario(config: Config, metrics: Metrics): Promise<void> {
-  const botCount = Math.min(config.concurrency, 32);
+  const botCount = config.concurrency;
   const timeInitialSec = parseInt(process.env.TIME_INITIAL_SEC || '180', 10);
   const cycles = parseInt(process.env.ROUND_ROBIN_ROUNDS || '1', 10);
   const paddedCount = botCount + (botCount % 2); // pad for BYE

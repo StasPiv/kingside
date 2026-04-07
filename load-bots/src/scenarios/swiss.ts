@@ -9,7 +9,7 @@ import { Config } from '../config.js';
  * Same as RR but type=swiss, totalRounds instead of cycles.
  */
 export async function runSwissScenario(config: Config, metrics: Metrics): Promise<void> {
-  const botCount = Math.min(config.concurrency, 32);
+  const botCount = config.concurrency;
   const timeInitialSec = parseInt(process.env.TIME_INITIAL_SEC || '180', 10);
   const totalRounds = parseInt(process.env.SWISS_ROUNDS || '5', 10);
   console.log(`[Swiss] ${botCount} bots, ${totalRounds} rounds, time ${timeInitialSec}s`);
