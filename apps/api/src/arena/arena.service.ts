@@ -335,10 +335,11 @@ export class ArenaService {
       }
     }
 
-    // For Swiss: compute buchholz, progressive, rounds[]
+    // For Swiss/RR: compute rounds[] (includes bye)
     const isSwiss = tournament.type === 'swiss';
+    const isRR = tournament.type === 'round-robin';
     let pairings: Array<{ whiteId: string; blackId: string | null; result: string | null; gameId: string | null; round: { roundNumber: number } }> = [];
-    if (isSwiss) {
+    if (isSwiss || isRR) {
       pairings = await this.prisma.tournamentPairing.findMany({
         where: { round: { tournamentId } },
         select: { whiteId: true, blackId: true, result: true, gameId: true, round: { select: { roundNumber: true } } },
@@ -350,7 +351,7 @@ export class ArenaService {
     // Build rating map
     const userIds = entries.map((e) => e.userId);
     let ratingMap = new Map<string, number>();
-    if (isSwiss) {
+    if (isSwiss || isRR) {
       const users = await this.prisma.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, ratingBlitz: true },
@@ -371,7 +372,7 @@ export class ArenaService {
         games: playerGames.get(e.userId) ?? [],
       };
 
-      if (!isSwiss) return { ...base, rank: 0, buchholz: 0, progressive: 0, rounds: [] as unknown[], rating: 0 };
+      if (!isSwiss && !isRR) return { ...base, rank: 0, buchholz: 0, progressive: 0, rounds: [] as unknown[], rating: 0 };
 
       // Compute rounds[] for this player from pairings
       const playerRounds: Array<{ round: number; opponentId: string | null; color: 'white' | 'black' | null; result: string | null; gameId: string | null; points: number }> = [];
