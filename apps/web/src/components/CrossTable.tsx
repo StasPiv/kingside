@@ -74,21 +74,39 @@ export function CrossTable({ tournamentId, refreshKey, pointsWin = 1, pointsDraw
     return results[`${rowId}:${colId}`] ?? [];
   };
 
-  const cellDisplay = (items: CrossTableResultItem[]): string => {
-    if (items.length === 0) return '';
-    return items.map((i) => singleDisplay(i, pointsWin, pointsDraw, pointsLoss)).join(' ');
+  const itemClass = (item: CrossTableResultItem): string => {
+    if (!item.result) return 'ct-item--active';
+    if (isWin(item)) return 'ct-item--win';
+    if (isLoss(item)) return 'ct-item--loss';
+    return 'ct-item--draw';
   };
 
   const cellClass = (items: CrossTableResultItem[]): string => {
     if (items.length === 0) return '';
+    // For single-result cells, color the whole cell
+    if (items.length === 1) {
+      if (!items[0].result) return 'ct-cell--active';
+      if (isWin(items[0])) return 'ct-cell--win';
+      if (isLoss(items[0])) return 'ct-cell--loss';
+      return 'ct-cell--draw';
+    }
+    // For multi-result cells, use neutral background (individual spans get color)
     const hasActive = items.some((i) => !i.result);
     if (hasActive) return 'ct-cell--active';
-    const wins = items.filter(isWin).length;
-    const losses = items.filter(isLoss).length;
-    if (wins > losses) return 'ct-cell--win';
-    if (losses > wins) return 'ct-cell--loss';
-    if (wins === 0 && losses === 0) return 'ct-cell--draw';
-    return 'ct-cell--draw';
+    return '';
+  };
+
+  const renderCellContent = (items: CrossTableResultItem[]) => {
+    if (items.length === 0) return null;
+    if (items.length === 1) {
+      return singleDisplay(items[0], pointsWin, pointsDraw, pointsLoss);
+    }
+    // Multiple results — render each with individual color
+    return items.map((item, idx) => (
+      <span key={idx} className={itemClass(item)}>
+        {singleDisplay(item, pointsWin, pointsDraw, pointsLoss)}
+      </span>
+    ));
   };
 
   const handleCellClick = (items: CrossTableResultItem[]) => {
@@ -133,7 +151,7 @@ export function CrossTable({ tournamentId, refreshKey, pointsWin = 1, pointsDraw
                       onClick={() => handleCellClick(items)}
                       title={items.length > 0 ? `${t('tournaments.vs', 'vs')} ${col.username}` : ''}
                     >
-                      {cellDisplay(items)}
+                      {renderCellContent(items)}
                     </td>
                   );
                 })}
