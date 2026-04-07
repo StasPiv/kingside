@@ -185,15 +185,17 @@ export function TournamentLobbyPage() {
     };
   }, [tournament?.status, id, user, navigate]);
 
-  // Polling fallback: refresh standings & crosstable for active tournaments (works without auth)
+  // Polling fallback: refresh standings, rounds, tournament & crosstable for active tournaments
   useEffect(() => {
     if (!id || !tournament || tournament.status !== 'active') return;
     const interval = setInterval(() => {
       fetchStandings();
+      fetchRounds();
+      fetchTournament();
       setCrossTableRefresh((n) => n + 1);
     }, 10000); // every 10 seconds
     return () => clearInterval(interval);
-  }, [id, tournament?.status, fetchStandings]);
+  }, [id, tournament?.status, fetchStandings, fetchRounds, fetchTournament]);
 
   // WebSocket
   useEffect(() => {
@@ -266,6 +268,7 @@ export function TournamentLobbyPage() {
       if (data.standings) {
         setStandings(data.standings);
       }
+      fetchRounds();
       setCrossTableRefresh((n) => n + 1);
     };
 
@@ -316,7 +319,7 @@ export function TournamentLobbyPage() {
       tournamentSocket.emit('tournament:leave', { tournamentId: id });
       tournamentSocket.disconnect();
     };
-  }, [id, user, navigate, fetchTournament, fetchStandings]);
+  }, [id, user, navigate, fetchTournament, fetchStandings, fetchRounds]);
 
   const handleJoin = async () => {
     if (!id) return;
