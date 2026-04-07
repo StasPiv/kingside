@@ -10,3 +10,4 @@ export { runSpectatorScenario } from './scenarios/spectator.js';
 export { runBroadcastScenario } from './scenarios/broadcast.js';
 export { runArenaScenario } from './scenarios/arena.js';
 export { runRoundRobinScenario } from './scenarios/round-robin.js';
+export { runSwissScenario } from './scenarios/swiss.js';
