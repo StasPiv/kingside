@@ -60,45 +60,50 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async autoStartFirstRound(tournamentId: string) {
-    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
-    if (!t) {
-      this.logger.warn(`autoStartFirstRound: tournament ${tournamentId} not found`);
-      return;
-    }
-    if (t.type === 'arena') {
-      this.logger.log(`autoStartFirstRound: skipping arena tournament ${tournamentId} (uses seek-based matchmaking)`);
-      return;
-    }
+    try {
+      const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+      if (!t) {
+        this.logger.warn(`autoStartFirstRound: tournament ${tournamentId} not found`);
+        return;
+      }
+      if (t.type === 'arena') {
+        this.logger.log(`autoStartFirstRound: skipping arena tournament ${tournamentId} (uses seek-based matchmaking)`);
+        return;
+      }
 
-    // For RR: generate full schedule (all rounds + pairings as pending) before starting
-    if (t.type === 'round-robin') {
-      await this.generateRRSchedule(tournamentId, t);
-    }
+      // For RR: generate full schedule (all rounds + pairings as pending) before starting
+      if (t.type === 'round-robin') {
+        await this.generateRRSchedule(tournamentId, t);
+      }
 
-    this.logger.log(`autoStartFirstRound: starting first round for ${t.type} tournament ${tournamentId}`);
-    const roundId = await this.roundManager.startNextRound(tournamentId);
-    this.logger.log(`autoStartFirstRound: startNextRound returned ${roundId ? roundId : 'null (no round created)'}`);
+      this.logger.log(`autoStartFirstRound: starting first round for ${t.type} tournament ${tournamentId}`);
+      const roundId = await this.roundManager.startNextRound(tournamentId);
+      this.logger.log(`autoStartFirstRound: startNextRound returned ${roundId ? roundId : 'null (no round created)'}`);
 
-    if (roundId) {
-      // Emit paired events via WS for each pairing with a gameId
-      const round = await this.roundManager.getRound(tournamentId, 1);
-      if (round) {
-        this.logger.log(`autoStartFirstRound: round 1 has ${round.pairings.length} pairings`);
-        const pairingsPayload = round.pairings.map((p) => ({
-          whiteId: p.whiteId,
-          blackId: p.blackId,
-          gameId: p.gameId,
-          board: p.board,
-        }));
-        this.gateway.emitRoundStart(tournamentId, 1, pairingsPayload);
-        for (const p of round.pairings) {
-          if (p.gameId) {
-            this.logger.log(`autoStartFirstRound: emitting paired — game ${p.gameId}, white ${p.whiteId}, black ${p.blackId}`);
-            this.gateway.emitPaired(tournamentId, p.gameId, p.whiteId, p.blackId);
+      if (roundId) {
+        // Emit paired events via WS for each pairing with a gameId
+        const round = await this.roundManager.getRound(tournamentId, 1);
+        if (round) {
+          this.logger.log(`autoStartFirstRound: round 1 has ${round.pairings.length} pairings`);
+          const pairingsPayload = round.pairings.map((p) => ({
+            whiteId: p.whiteId,
+            blackId: p.blackId,
+            gameId: p.gameId,
+            board: p.board,
+          }));
+          this.gateway.emitRoundStart(tournamentId, 1, pairingsPayload);
+          for (const p of round.pairings) {
+            if (p.gameId) {
+              this.logger.log(`autoStartFirstRound: emitting paired — game ${p.gameId}, white ${p.whiteId}, black ${p.blackId}`);
+              this.gateway.emitPaired(tournamentId, p.gameId, p.whiteId, p.blackId);
+            }
           }
         }
+        this.logger.log(`autoStartFirstRound: emitted round_start for tournament ${tournamentId}`);
       }
-      this.logger.log(`autoStartFirstRound: emitted round_start for tournament ${tournamentId}`);
+    } catch (e: unknown) {
+      const err = e instanceof Error ? e : new Error(String(e));
+      this.logger.error(`autoStartFirstRound FAILED for ${tournamentId}: ${err.message}`, err.stack);
     }
   }
 
