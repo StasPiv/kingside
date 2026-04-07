@@ -598,6 +598,7 @@ model ArenaTournament {
   timeIncrementSec Int      @map("time_increment_sec")
   durationMin     Int       @map("duration_min")      // arena: 30-180
   totalRounds     Int?      @map("total_rounds")       // swiss/rr
+  cycles          Int       @default(1)                // round-robin: number of circles
   roundPauseMin   Int?      @map("round_pause_min")    // minutes between rounds
   maxPlayers      Int?      @map("max_players")
   pointsWin       Float     @default(1) @map("points_win")

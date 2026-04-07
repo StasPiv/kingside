@@ -68,11 +68,17 @@ export class RoundRobinPairingService {
    * Generate full schedule for multi-round RR.
    * In even cycles (2nd, 4th...) colors are inverted.
    */
-  generateFullSchedule(playerIds: string[], totalRounds: number): Pairing[][] {
+  /**
+   * Generate full schedule for multi-cycle RR.
+   * cycles: number of circles (each circle = baseRounds.length rounds)
+   * In even cycles (2nd, 4th...) colors are inverted.
+   */
+  generateFullSchedule(playerIds: string[], cycles: number): Pairing[][] {
     const baseRounds = this.generateAllRounds(playerIds);
     if (baseRounds.length === 0) return [];
 
     const cycleLength = baseRounds.length;
+    const totalRounds = cycles * cycleLength;
     const schedule: Pairing[][] = [];
 
     for (let r = 0; r < totalRounds; r++) {

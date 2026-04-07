@@ -225,15 +225,14 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async generateRRSchedule(tournamentId: string, t: { totalRounds: number | null; type: string }) {
+  private async generateRRSchedule(tournamentId: string, t: { totalRounds: number | null; cycles: number; type: string }) {
     const entries = await this.prisma.arenaTournamentEntry.findMany({
       where: { tournamentId },
       select: { userId: true },
     });
     const playerIds = entries.map((e) => e.userId);
-    const n = playerIds.length + (playerIds.length % 2); // pad for BYE
-    const totalRounds = t.totalRounds ?? (n - 1);
-    const schedule = this.rrPairing.generateFullSchedule(playerIds, totalRounds);
+    const cycles = t.cycles ?? 1;
+    const schedule = this.rrPairing.generateFullSchedule(playerIds, cycles);
 
     for (let i = 0; i < schedule.length; i++) {
       const roundNumber = i + 1;
@@ -259,7 +258,13 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    this.logger.log(`generateRRSchedule: created ${schedule.length} rounds for tournament ${tournamentId}`);
+    // Update totalRounds in DB (computed from cycles × cycleLength)
+    await this.prisma.arenaTournament.update({
+      where: { id: tournamentId },
+      data: { totalRounds: schedule.length },
+    });
+
+    this.logger.log(`generateRRSchedule: created ${schedule.length} rounds (${cycles} cycles) for tournament ${tournamentId}`);
   }
 
 }

@@ -11,9 +11,10 @@ import { Config } from '../config.js';
 export async function runRoundRobinScenario(config: Config, metrics: Metrics): Promise<void> {
   const botCount = Math.min(config.concurrency, 32);
   const timeInitialSec = parseInt(process.env.TIME_INITIAL_SEC || '180', 10);
-  const rrRounds = parseInt(process.env.ROUND_ROBIN_ROUNDS || '1', 10);
-  const totalRounds = (botCount - 1) * rrRounds;
-  console.log(`[RoundRobin] ${botCount} bots, ${rrRounds} circle(s) = ${totalRounds} rounds, time ${timeInitialSec}s`);
+  const cycles = parseInt(process.env.ROUND_ROBIN_ROUNDS || '1', 10);
+  const paddedCount = botCount + (botCount % 2); // pad for BYE
+  const estimatedRounds = cycles * (paddedCount - 1);
+  console.log(`[RoundRobin] ${botCount} bots, ${cycles} cycle(s) = ~${estimatedRounds} rounds, time ${timeInitialSec}s`);
 
   // Create bots and login
   const bots: BotUser[] = [];
@@ -33,7 +34,7 @@ export async function runRoundRobinScenario(config: Config, metrics: Metrics): P
       timeInitialSec,
       timeIncrementSec: 0,
       durationMin: 30,
-      totalRounds,
+      cycles,
       roundPauseMin: 0,
       startsAt,
     });
@@ -56,7 +57,7 @@ export async function runRoundRobinScenario(config: Config, metrics: Metrics): P
   }
 
   // All bots wait for pairings until tournament:finished
-  const safetyMin = totalRounds * 5 + 10; // 5 min per round + 10 min buffer
+  const safetyMin = estimatedRounds * 5 + 10; // 5 min per round + 10 min buffer
   const botPromises = bots.map((bot) => runBotInRoundRobin(bot, tournamentId, config, metrics, safetyMin));
   await Promise.all(botPromises);
 

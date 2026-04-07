@@ -129,7 +129,7 @@ export class RoundManagerService {
       // Fallback: no pending round found — generate pairings dynamically (legacy)
       const playerIds = t.entries.map((e) => e.userId);
       const withdrawnIds = new Set(t.entries.filter((e) => e.withdrawn).map((e) => e.userId));
-      const allRounds = this.rrPairing.generateFullSchedule(playerIds, t.totalRounds ?? (playerIds.length - 1));
+      const allRounds = this.rrPairing.generateFullSchedule(playerIds, t.cycles ?? 1);
       const rawPairings = nextRound <= allRounds.length ? allRounds[nextRound - 1] : [];
       pairings = rawPairings.reduce<typeof rawPairings>((acc, p) => {
         const wWhite = withdrawnIds.has(p.whiteId);

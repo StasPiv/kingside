@@ -24,6 +24,7 @@ export class ArenaController {
       timeIncrementSec: number;
       durationMin: number;
       totalRounds?: number;
+      cycles?: number;
       roundPauseMin?: number;
       pointsWin?: number;
       pointsDraw?: number;

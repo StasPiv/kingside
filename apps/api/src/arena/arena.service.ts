@@ -23,6 +23,7 @@ export class ArenaService {
     timeIncrementSec: number;
     durationMin: number;
     totalRounds?: number;
+    cycles?: number;
     roundPauseMin?: number;
     pointsWin?: number;
     pointsDraw?: number;
@@ -60,6 +61,7 @@ export class ArenaService {
         timeIncrementSec: data.timeIncrementSec,
         durationMin: data.durationMin,
         ...(data.totalRounds ? { totalRounds: data.totalRounds } : {}),
+        ...(data.cycles ? { cycles: data.cycles } : {}),
         ...(data.roundPauseMin ? { roundPauseMin: data.roundPauseMin } : {}),
         ...(data.pointsWin != null ? { pointsWin: data.pointsWin } : {}),
         ...(data.pointsDraw != null ? { pointsDraw: data.pointsDraw } : {}),
