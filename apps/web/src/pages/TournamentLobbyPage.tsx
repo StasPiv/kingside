@@ -82,6 +82,7 @@ export function TournamentLobbyPage() {
   const [joined, setJoined] = useState(false);
   const [remainingMs, setRemainingMs] = useState<number | null>(null);
   const [nextRoundStartsAt, setNextRoundStartsAt] = useState<string | null>(null);
+  const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
@@ -232,7 +233,24 @@ export function TournamentLobbyPage() {
       fetchStandings();
     };
 
-    const onGameFinished = (data: { standings?: Standing[] }) => {
+    const onGameStarted = (data: { gameId: string; white: { id: string }; black: { id: string } }) => {
+      setActivePlayers((prev) => {
+        const next = new Set(prev);
+        next.add(data.white.id);
+        next.add(data.black.id);
+        return next;
+      });
+    };
+
+    const onGameFinished = (data: { standings?: Standing[]; white?: { id: string }; black?: { id: string } }) => {
+      if (data.white && data.black) {
+        setActivePlayers((prev) => {
+          const next = new Set(prev);
+          next.delete(data.white!.id);
+          next.delete(data.black!.id);
+          return next;
+        });
+      }
       if (data.standings) {
         setStandings(data.standings);
       }
@@ -265,6 +283,7 @@ export function TournamentLobbyPage() {
     tournamentSocket.on('tournament:player_left', onPlayerLeft);
     tournamentSocket.on('tournament:started', onRoundStarted);
     tournamentSocket.on('tournament:game_end', onGameEnd);
+    tournamentSocket.on('tournament:gameStarted', onGameStarted);
     tournamentSocket.on('tournament:gameFinished', onGameFinished);
     tournamentSocket.on('tournament:round_end', onRoundEnd);
     tournamentSocket.on('tournament:round_start', onRoundStart);
@@ -277,6 +296,7 @@ export function TournamentLobbyPage() {
       tournamentSocket.off('tournament:player_left', onPlayerLeft);
       tournamentSocket.off('tournament:started', onRoundStarted);
       tournamentSocket.off('tournament:game_end', onGameEnd);
+      tournamentSocket.off('tournament:gameStarted', onGameStarted);
       tournamentSocket.off('tournament:gameFinished', onGameFinished);
       tournamentSocket.off('tournament:round_end', onRoundEnd);
       tournamentSocket.off('tournament:round_start', onRoundStart);
@@ -579,6 +599,9 @@ export function TournamentLobbyPage() {
                           <td>
                             <Link to={`/player/${s.username}`}>{s.username}</Link>
                             {s.streak >= 2 && <span title={`${s.streak} win streak`} style={{ marginLeft: 4 }}>🔥</span>}
+                            {activePlayers.has(s.userId) && !s.games.some((g) => g.status === 'active') && (
+                              <span className="arena-game-cell arena-game-cell--active" style={{ marginLeft: 4, fontSize: 10, padding: '1px 4px' }} title={t('tournaments.playing', 'Playing')}>•</span>
+                            )}
                           </td>
                           <td>{s.score}</td>
                           <td className="tournament-games-cell">
