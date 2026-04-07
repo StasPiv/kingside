@@ -26,6 +26,7 @@ const TOURNAMENT_EVENTS = {
   PLAYER_LEFT: 'tournament:player_left',
   GAME_END: 'tournament:game_end',
   GAME_FINISHED: 'tournament:gameFinished',
+  GAME_STARTED: 'tournament:gameStarted',
   ROUND_START: 'tournament:round_start',
   ROUND_END: 'tournament:round_end',
 };
@@ -139,13 +140,25 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       client.emit(TOURNAMENT_EVENTS.PAIRED, { ...base, color: seekerColor });
 
-      // Find opponent's socket
+      // Find opponent's socket and collect usernames
       const allSockets = await this.server.fetchSockets();
+      let opponentUsername = '';
       for (const s of allSockets) {
         if (s.data.user?.id === result.opponentId) {
           s.emit(TOURNAMENT_EVENTS.PAIRED, { ...base, color: opponentColor });
+          opponentUsername = s.data.user?.username ?? '';
         }
       }
+
+      // Emit tournament:gameStarted to all subscribers
+      const seekerUsername = client.data.user?.username ?? '';
+      const whiteUsername = userId === result.whiteId ? seekerUsername : opponentUsername;
+      const blackUsername = userId === result.blackId ? seekerUsername : opponentUsername;
+      await this.emitGameStarted(data.tournamentId, {
+        gameId: result.gameId,
+        white: { id: result.whiteId, username: whiteUsername },
+        black: { id: result.blackId, username: blackUsername },
+      });
     }
   }
 
@@ -238,6 +251,41 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       this.logger.log(`emitGameFinished FALLBACK: room=${roomName} roomSize=0 fallback=${fallbackCount} game=${data.gameId.slice(0, 8)}`);
     } else {
       this.logger.log(`emitGameFinished: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} result=${data.result} standings=${standings.length}`);
+    }
+  }
+
+  async emitGameStarted(
+    tournamentId: string,
+    data: {
+      gameId: string;
+      white: { id: string; username: string };
+      black: { id: string; username: string };
+    },
+  ) {
+    const roomName = `tournament:${tournamentId}`;
+    const roomSize = (this.server?.adapter as any)?.rooms?.get(roomName)?.size ?? 0;
+    const payload = {
+      gameId: data.gameId,
+      white: data.white,
+      black: data.black,
+    };
+
+    // Primary: emit to room
+    this.server.to(roomName).emit(TOURNAMENT_EVENTS.GAME_STARTED, payload);
+
+    // Fallback: if room appears empty, emit directly to sockets with matching tournamentId
+    if (roomSize === 0) {
+      const allSockets = await this.server.fetchSockets();
+      let fallbackCount = 0;
+      for (const s of allSockets) {
+        if (s.data.tournamentId === tournamentId) {
+          s.emit(TOURNAMENT_EVENTS.GAME_STARTED, payload);
+          fallbackCount++;
+        }
+      }
+      this.logger.log(`emitGameStarted FALLBACK: room=${roomName} roomSize=0 fallback=${fallbackCount} game=${data.gameId.slice(0, 8)}`);
+    } else {
+      this.logger.log(`emitGameStarted: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} white=${data.white.username} black=${data.black.username}`);
     }
   }
 
