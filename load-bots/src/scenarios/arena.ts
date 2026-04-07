@@ -207,14 +207,38 @@ function playArenaGame(
     let gameOver = false;
     let moveCount = 0;
     let lastServerFen = '';
+    let gotGameState = false;
     let statusPollInterval: ReturnType<typeof setInterval> | null = null;
+    let stateCheckTimeout: ReturnType<typeof setTimeout> | null = null;
 
     const finish = () => {
       if (gameOver) return;
       gameOver = true;
       if (statusPollInterval) clearInterval(statusPollInterval);
+      if (stateCheckTimeout) clearTimeout(stateCheckTimeout);
       socket.disconnect();
       resolve();
+    };
+
+    // REST fallback: fetch game state if WS game:state not received within 3s
+    const fetchStateViaRest = async () => {
+      if (gameOver || gotGameState) return;
+      try {
+        const game = await bot.get<{ status: string; fen: string }>(`/api/games/${gameId}`);
+        if (gameOver || gotGameState) return;
+        console.log(`[${bot.username}/${myColor}] REST fallback: game:state fen=${game.fen?.substring(0, 30)} status=${game.status}`);
+        if (game.status === 'finished' || game.status === 'aborted') {
+          clearTimeout(timeout);
+          finish();
+          return;
+        }
+        gotGameState = true;
+        lastServerFen = game.fen;
+        try { brain.loadFen(game.fen); } catch { /* ignore */ }
+        tryMove();
+      } catch (e) {
+        console.error(`[${bot.username}/${myColor}] REST fallback failed:`, (e as Error).message);
+      }
     };
 
     const timeout = setTimeout(() => {
@@ -263,10 +287,14 @@ function playArenaGame(
 
     socket.on('connect', () => {
       socket.emit('game:join', { gameId });
+      // Fallback: if game:state not received within 3s, fetch via REST
+      stateCheckTimeout = setTimeout(() => fetchStateViaRest(), 3_000);
     });
 
     socket.on('game:state', (state: { fen: string; status: string }) => {
       if (gameOver) return;
+      gotGameState = true;
+      if (stateCheckTimeout) { clearTimeout(stateCheckTimeout); stateCheckTimeout = null; }
       if (state.status !== 'active') { clearTimeout(timeout); finish(); return; }
       lastServerFen = state.fen;
       try { brain.loadFen(state.fen); } catch { /* ignore */ }
