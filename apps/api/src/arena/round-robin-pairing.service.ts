@@ -18,21 +18,29 @@ export class RoundRobinPairingService {
     const totalRounds = n - 1;
     const allRounds: Pairing[][] = [];
 
-    // Berger table rotation: fix last player, rotate others
+    // Standard circle method: fix player[n-1], rotate positions 0..n-2
+    // Round r: position[i] = players[(r + i) % (n-1)] for i=0..n-2, position[n-1] = players[n-1]
     for (let round = 0; round < totalRounds; round++) {
       const pairings: Pairing[] = [];
       let board = 1;
 
-      for (let i = 0; i < n / 2; i++) {
-        const home = i === 0 ? players[0] : players[((round + i - 1) % (n - 1)) + 1];
-        const away = players[((round + (n / 2) - 1 + i - 1) % (n - 1)) + 1] ?? players[0];
+      // Build the rotated list for this round
+      const rotated: string[] = [];
+      for (let i = 0; i < n - 1; i++) {
+        rotated.push(players[(round + i) % (n - 1)]);
+      }
+      rotated.push(players[n - 1]); // fixed player at end
 
-        // Proper Berger: first pairing alternates home/away by round
+      // Pair: first with last, second with second-to-last, etc.
+      for (let i = 0; i < n / 2; i++) {
+        const home = rotated[i];
+        const away = rotated[n - 1 - i];
+
         let whiteId: string;
         let blackId: string | null;
 
         if (i === 0) {
-          // First board: alternate by round parity
+          // First board: alternate colors by round parity for balanced colors
           whiteId = round % 2 === 0 ? home : away;
           blackId = round % 2 === 0 ? away : home;
         } else {
