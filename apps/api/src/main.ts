@@ -24,10 +24,8 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Socket.IO Redis adapter for horizontal scaling
-  const redisHost = process.env.REDIS_HOST || 'localhost';
-  const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
   try {
-    const redisAdapter = new RedisIoAdapter(app, redisHost, redisPort);
+    const redisAdapter = new RedisIoAdapter(app);
     await redisAdapter.connectToRedis();
     app.useWebSocketAdapter(redisAdapter);
     logger.log('Socket.IO Redis adapter enabled');
