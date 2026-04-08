@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
 import { useLazySocket } from './useLazySocket';
+import { useServerBusy } from './useServerBusy';
 import { MatchmakingEvents } from '@kingside/shared';
 import type { TimeControlCategory } from './useTimeControl';
 
@@ -16,6 +17,7 @@ type SearchPayload = {
 
 export function useMatchmaking() {
   useLazySocket(matchmakingSocket);
+  const serverBusy = useServerBusy(matchmakingSocket);
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searching, setSearching] = useState(false);
@@ -66,6 +68,7 @@ export function useMatchmaking() {
   };
 
   return {
+    serverBusy,
     searching,
     ratingFilterMode,
     setRatingFilterMode,

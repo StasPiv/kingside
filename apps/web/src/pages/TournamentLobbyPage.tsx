@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { tournamentSocket } from '../socket';
+import { useServerBusy } from '../hooks/useServerBusy';
+import { ServerBusyBanner } from '../components/ServerBusyBanner';
 import { TournamentRoundView } from '../components/TournamentRoundView';
 import { CrossTable } from '../components/CrossTable';
 import { TournamentSchedule } from '../components/TournamentSchedule';
@@ -84,6 +86,7 @@ export function TournamentLobbyPage() {
   const [nextRoundStartsAt, setNextRoundStartsAt] = useState<string | null>(null);
   const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
   const [crossTableRefresh, setCrossTableRefresh] = useState(0);
+  const serverBusy = useServerBusy(tournamentSocket);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
@@ -455,6 +458,7 @@ export function TournamentLobbyPage() {
 
   return (
     <div className="tournament-lobby-page">
+      {serverBusy && <ServerBusyBanner />}
       {/* ===== HEADER ===== */}
       <div className="tournament-header">
         <Link to="/tournaments" className="back-nav-link">&larr; {t('tournaments.backToList', 'Tournaments')}</Link>

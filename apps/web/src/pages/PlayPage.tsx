@@ -10,6 +10,7 @@ import { useChallenge } from '../hooks/useChallenge';
 import { useLazySocket } from '../hooks/useLazySocket';
 import { messagesSocket } from '../socket';
 import { ChallengeModal } from '../components/ChallengeModal';
+import { ServerBusyBanner } from '../components/ServerBusyBanner';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
 import { TC_LABEL_KEYS } from '../hooks/useTimeControl';
 import '../styles/play.css';
@@ -227,6 +228,7 @@ export function PlayPage() {
             {searching ? t('lobby.cancelSearch') : t('lobby.play')}
           </button>
           {searching && <p className="searching">{t('lobby.searching')}</p>}
+          {searching && matchmaking.serverBusy && <ServerBusyBanner />}
         </div>
 
         {/* Right column */}
