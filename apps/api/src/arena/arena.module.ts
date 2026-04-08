@@ -2,6 +2,7 @@ import { Module, Logger, OnModuleInit } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { GameModule } from '../game/game.module';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
 import { ArenaController } from './arena.controller';
 import { ArenaService } from './arena.service';
@@ -26,6 +27,7 @@ export class ArenaModule implements OnModuleInit {
     private readonly gateway: ArenaGateway,
     private readonly roundManager: RoundManagerService,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
   ) {}
 
   onModuleInit() {
@@ -54,6 +56,9 @@ export class ArenaModule implements OnModuleInit {
 
       const tournamentId = game.tournamentId;
       this.logger.log(`onGameEnd: tournament game ${gameId.slice(0, 8)} tournament=${tournamentId.slice(0, 8)} result=${game.result}`);
+
+      // Remove players from active_players set so matchmaker can pair them again
+      await this.redis.srem(`arena:${tournamentId}:active_players`, game.whiteId, game.blackId).catch(() => {});
 
       // 3. Update TournamentPairing.result
       const pairingInfo = await this.roundManager.updatePairingResult(gameId);

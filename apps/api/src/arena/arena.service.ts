@@ -451,32 +451,16 @@ export class ArenaService {
    */
   async addToSeekQueue(tournamentId: string, userId: string): Promise<void> {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
-    if (!t || t.status !== 'active') {
-      this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: reject (tournament ${t?.status ?? 'not found'})`);
-      return;
-    }
+    if (!t || t.status !== 'active') return;
 
     const entry = await this.prisma.arenaTournamentEntry.findUnique({
       where: { tournamentId_userId: { tournamentId, userId } },
     });
-    if (!entry || entry.withdrawn) {
-      this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: reject (no entry or withdrawn)`);
-      return;
-    }
+    if (!entry || entry.withdrawn) return;
 
-    // Don't add players with an active game
-    const activeGame = await this.prisma.game.findFirst({
-      where: {
-        tournamentId,
-        status: { in: ['waiting', 'active'] },
-        OR: [{ whiteId: userId }, { blackId: userId }],
-      },
-      select: { id: true },
-    });
-    if (activeGame) {
-      this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: reject (active game ${activeGame.id.slice(0, 8)})`);
-      return;
-    }
+    // Fast Redis check: player already in an active game (set by matchmaker worker)
+    const isActive = await this.redis.sismember(`arena:${tournamentId}:active_players`, userId);
+    if (isActive) return;
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;

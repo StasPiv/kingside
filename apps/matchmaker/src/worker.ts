@@ -12,8 +12,8 @@ export const MATCHMAKER_FOUND_CHANNEL = 'matchmaker:found';
 /** Arena seek queue key pattern */
 const arenaSeekKey = (tournamentId: string) => `arena:${tournamentId}:seeking`;
 const lastOpponentKey = (tournamentId: string, a: string) => `arena:${tournamentId}:last:${a}`;
-/** Redis set of players currently being paired (prevents double-pairing during game creation) */
-const inFlightKey = (tournamentId: string) => `arena:${tournamentId}:inflight`;
+/** Redis set of players with active games in a tournament (fast O(1) check) */
+const activePlayers = (tournamentId: string) => `arena:${tournamentId}:active_players`;
 
 /** Regular matchmaking queue keys */
 const REGULAR_QUEUE_CATEGORIES = ['bullet', 'blitz', 'rapid', 'classical'] as const;
@@ -82,29 +82,16 @@ export class MatchmakerWorker {
     id: string; timeControlType: string; timeInitialSec: number; timeIncrementSec: number;
   }): Promise<void> {
     const key = arenaSeekKey(t.id);
-    const ifKey = inFlightKey(t.id);
+    const apKey = activePlayers(t.id);
     const members = await this.redis.zrange(key, 0, -1);
     if (members.length < 2) return;
 
-    // Filter out players with active games OR currently being paired (in-flight)
+    // Filter: only players NOT in the active_players set
     const available: string[] = [];
     for (const userId of members) {
-      // Check in-flight set first (fast Redis check, no Prisma)
-      const isInFlight = await this.redis.sismember(ifKey, userId);
-      if (isInFlight) {
-        await this.redis.zrem(key, userId);
-        continue;
-      }
-
-      const activeGame = await this.prisma.game.findFirst({
-        where: {
-          tournamentId: t.id,
-          status: { in: ['waiting', 'active'] },
-          OR: [{ whiteId: userId }, { blackId: userId }],
-        },
-        select: { id: true },
-      });
-      if (activeGame) {
+      const isActive = await this.redis.sismember(apKey, userId);
+      if (isActive) {
+        // Player has active game — remove from seek queue
         await this.redis.zrem(key, userId);
       } else {
         available.push(userId);
@@ -121,7 +108,6 @@ export class MatchmakerWorker {
       if (paired.has(available[i])) continue;
       const userId = available[i];
 
-      // Prefer non-repeat opponent
       const lastOpp = await this.redis.get(lastOpponentKey(t.id, userId)).catch(() => null);
 
       let bestMatch: string | null = null;
@@ -146,22 +132,16 @@ export class MatchmakerWorker {
       pairs.push([userId, match]);
     }
 
-    // Mark all paired players as in-flight BEFORE creating games
-    // This prevents re-pairing during the async game creation window
-    for (const [a, b] of pairs) {
-      await this.redis.sadd(ifKey, a, b);
-      // Auto-expire in-flight entries after 30s (safety net)
-      await this.redis.expire(ifKey, 30);
-    }
-
     // Create games for all pairs
     for (const [a, b] of pairs) {
       try {
+        // Mark BOTH players as active BEFORE creating game (prevents re-pairing)
+        await this.redis.sadd(apKey, a, b);
         await this.createArenaGame(t, key, a, b);
       } catch (e: any) {
         console.error(`[matchmaker] Arena game creation failed: ${e.message}`);
-        // Remove from in-flight on failure so they can re-seek
-        await this.redis.srem(ifKey, a, b);
+        // Rollback active_players on failure
+        await this.redis.srem(apKey, a, b);
       }
     }
 
@@ -217,8 +197,7 @@ export class MatchmakerWorker {
       data: { status: 'active', startedAt: new Date() },
     });
 
-    // Game is now in Prisma with status=active — remove from in-flight
-    await this.redis.srem(inFlightKey(t.id), userId, candidateId);
+    // Players stay in active_players set — removed when game ends (see below)
 
     // Publish paired event
     this.pubRedis.publish(MATCHMAKER_PAIRED_CHANNEL, JSON.stringify({
