@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -9,7 +9,9 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { SubscribeRoundDto, UnsubscribeRoundDto } from './dto/broadcast.dto';
 
 const BroadcastEvents = {
@@ -19,6 +21,10 @@ const BroadcastEvents = {
   SYNC: 'broadcast:sync',
   ERROR: 'error',
 } as const;
+
+/** Redis pub/sub channels (must match broadcast-worker) */
+const BROADCAST_MOVE_CHANNEL = 'broadcast:move';
+const BROADCAST_SYNC_CHANNEL = 'broadcast:sync';
 
 type WsBroadcastMovePayload = {
   roundId: string;
@@ -30,13 +36,51 @@ type WsBroadcastMovePayload = {
 };
 
 @WebSocketGateway({ namespace: '/broadcast', cors: { origin: '*' }, transports: ['websocket'], pingTimeout: 30000, connectTimeout: 60000 })
-export class BroadcastGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class BroadcastGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
   @WebSocketServer()
   server!: Server;
 
   private readonly logger = new Logger(BroadcastGateway.name);
+  private subRedis: Redis | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    // Create a dedicated Redis subscriber for broadcast channels
+    const redisHost = process.env.REDIS_HOST || 'localhost';
+    const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
+    this.subRedis = new Redis({ host: redisHost, port: redisPort });
+
+    this.subRedis.subscribe(BROADCAST_MOVE_CHANNEL, BROADCAST_SYNC_CHANNEL).catch((e) =>
+      this.logger.error(`Redis subscribe failed: ${e.message}`),
+    );
+
+    this.subRedis.on('message', (channel: string, message: string) => {
+      try {
+        const payload = JSON.parse(message);
+        if (channel === BROADCAST_MOVE_CHANNEL && payload.roundId) {
+          this.server.to(`broadcast:${payload.roundId}`).emit(BroadcastEvents.MOVE, payload);
+        } else if (channel === BROADCAST_SYNC_CHANNEL && payload.roundId) {
+          this.server.to(`broadcast:${payload.roundId}`).emit(BroadcastEvents.SYNC, payload);
+        }
+      } catch (e: any) {
+        this.logger.error(`Redis message parse error: ${e.message}`);
+      }
+    });
+
+    this.logger.log('Subscribed to Redis broadcast channels');
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.subRedis) {
+      await this.subRedis.unsubscribe().catch(() => {});
+      await this.subRedis.quit().catch(() => {});
+      this.subRedis = null;
+    }
+  }
 
   handleConnection(client: Socket): void {
     this.logger.log(`Broadcast client connected: ${client.id}`);
@@ -87,10 +131,12 @@ export class BroadcastGateway implements OnGatewayConnection, OnGatewayDisconnec
     this.logger.log(`Client ${client.id} unsubscribed from round ${roundId}`);
   }
 
+  /** @deprecated Use Redis pub/sub from broadcast-worker instead */
   emitMove(roundId: string, payload: WsBroadcastMovePayload): void {
     this.server.to(`broadcast:${roundId}`).emit(BroadcastEvents.MOVE, payload);
   }
 
+  /** @deprecated Use Redis pub/sub from broadcast-worker instead */
   emitSync(roundId: string, payload: { roundId: string; games: Array<{ gameIndex: number; fen: string; whitePlayer: string; blackPlayer: string; result: string | null; pgn: string | null }> }): void {
     this.server.to(`broadcast:${roundId}`).emit(BroadcastEvents.SYNC, payload);
   }
