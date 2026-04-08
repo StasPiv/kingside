@@ -452,7 +452,7 @@ export class ArenaService {
   async seekOpponent(tournamentId: string, userId: string): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t || t.status !== 'active') {
-      this.logger.log(`seekOpponent: tournament not active (status=${t?.status})`);
+      this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: REJECT tournament not active (status=${t?.status})`);
       return null;
     }
 
@@ -461,7 +461,7 @@ export class ArenaService {
       where: { tournamentId_userId: { tournamentId, userId } },
     });
     if (!entry || entry.withdrawn) {
-      this.logger.log(`seekOpponent: user ${userId} not in tournament or withdrawn`);
+      this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: REJECT not in tournament or withdrawn`);
       return null;
     }
 
@@ -472,10 +472,10 @@ export class ArenaService {
         status: { in: ['waiting', 'active'] },
         OR: [{ whiteId: userId }, { blackId: userId }],
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (activeGame) {
-      this.logger.log(`seekOpponent: user has active game ${activeGame.id.slice(0, 8)}, skip`);
+      this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: REJECT active game ${activeGame.id.slice(0, 8)} (${activeGame.status})`);
       return null;
     }
 
@@ -496,8 +496,8 @@ export class ArenaService {
     key: string,
     t: { timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
   ): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
-    // Remove self from queue if present (stale entry from previous seek)
-    await this.redis.zrem(key, userId);
+    // DON'T remove self before search — causes thundering herd when all bots seek simultaneously.
+    // Self is excluded via filter below. ZADD at the end is an upsert (safe if already in queue).
 
     // Check for opponent in queue (member=userId, score=rating)
     const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);
@@ -505,16 +505,21 @@ export class ArenaService {
     // Two-pass: prefer non-repeat opponent, fallback to any
     const lastOpp = await this.redis.get(this.lastOpponentKey(tournamentId, userId));
 
-    // Pass 1: non-repeat opponents, Pass 2: allow repeat
+    // Pass 1: non-repeat opponents, Pass 2: allow repeat (exclude self)
     const ordered = [
       ...candidates.filter(id => id !== userId && id !== lastOpp),
       ...candidates.filter(id => id !== userId && id === lastOpp),
     ];
 
+    this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: queue=${candidates.length} eligible=${ordered.length}`);
+
     for (const candidateId of ordered) {
       // Atomically claim this candidate — ZREM returns 1 only for the first claimer
       const claimed = await this.redis.zrem(key, candidateId);
-      if (!claimed) continue; // Another seeker already claimed this candidate
+      if (!claimed) {
+        this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: candidate ${candidateId.slice(0, 8)} already claimed`);
+        continue;
+      }
 
       // Verify opponent doesn't already have an active game
       const oppActiveGame = await this.prisma.game.findFirst({
@@ -527,9 +532,12 @@ export class ArenaService {
       });
       if (oppActiveGame) {
         // Stale candidate — continue searching
-        this.logger.log(`seekOpponent: candidate ${candidateId.slice(0, 8)} has active game, skipping`);
+        this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: candidate ${candidateId.slice(0, 8)} has active game, skipping`);
         continue;
       }
+
+      // Remove self from queue (we're matched, don't need to be there)
+      await this.redis.zrem(key, userId);
 
       // Record last opponents
       await this.redis.set(this.lastOpponentKey(tournamentId, userId), candidateId, 'EX', 300);
@@ -553,11 +561,13 @@ export class ArenaService {
 
       await this.gameService.initGame(game.id);
 
+      this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: MATCHED with ${candidateId.slice(0, 8)}, game=${game.id.slice(0, 8)}`);
       return { gameId: game.id, opponentId: candidateId, whiteId, blackId };
     }
 
-    // No match — add self to queue (member=userId, score=rating)
+    // No match — add self to queue (member=userId, score=rating). ZADD is an upsert.
     await this.redis.zadd(key, rating, userId);
+    this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: no match, added to queue`);
     return null;
   }
 
