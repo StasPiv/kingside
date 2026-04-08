@@ -62,7 +62,9 @@ aws ecs register-task-definition \
         {\"name\": \"PORT\", \"value\": \"3001\"},
         {\"name\": \"NODE_ENV\", \"value\": \"production\"},
         {\"name\": \"STOCKFISH_PATH\", \"value\": \"/usr/games/stockfish\"},
-        {\"name\": \"STOCKFISH_MAX_INSTANCES\", \"value\": \"1\"}
+        {\"name\": \"STOCKFISH_MAX_INSTANCES\", \"value\": \"1\"},
+        {\"name\": \"ECS_CLUSTER\", \"value\": \"kingside\"},
+        {\"name\": \"ECS_SERVICE\", \"value\": \"kingside-api\"}
       ],
       \"secrets\": [
         {\"name\": \"DATABASE_URL\", \"valueFrom\": \"${SECRET_ARN}:DATABASE_URL::\"},
