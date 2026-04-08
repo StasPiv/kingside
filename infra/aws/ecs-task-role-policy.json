@@ -20,6 +20,14 @@
         "logs:PutLogEvents"
       ],
       "Resource": "arn:aws:logs:*:*:log-group:/ecs/kingside-*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ecs:UpdateService",
+        "ecs:DescribeServices"
+      ],
+      "Resource": "arn:aws:ecs:eu-central-1:342946498289:service/kingside/kingside-api"
     }
   ]
 }
