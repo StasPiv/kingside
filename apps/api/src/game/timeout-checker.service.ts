@@ -1,9 +1,8 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from './game.service';
-import { GameClockService } from './game-clock.service';
 import { GameGateway } from './game.gateway';
+import { DEADLINES_KEY } from './game-clock.service';
 import { GameResult } from '../generated/prisma/enums';
 
 /** Check for timed-out games every 5 seconds */
@@ -15,16 +14,14 @@ export class TimeoutCheckerService implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly gameService: GameService,
-    private readonly clockService: GameClockService,
     private readonly gateway: GameGateway,
   ) {}
 
   onModuleInit() {
     this.timer = setInterval(() => this.check(), CHECK_INTERVAL_MS);
-    this.logger.log('Timeout checker started (every 5s)');
+    this.logger.log('Timeout checker started (every 5s, Redis sorted set)');
   }
 
   onModuleDestroy() {
@@ -36,30 +33,30 @@ export class TimeoutCheckerService implements OnModuleInit, OnModuleDestroy {
 
   private async check(): Promise<void> {
     try {
-      const activeGames = await this.prisma.game.findMany({
-        where: { status: 'active' },
-        select: { id: true },
-      });
+      // Single Redis call: get all games with deadline <= now
+      const now = Date.now();
+      const expiredGameIds = await this.redis.zrangebyscore(DEADLINES_KEY, 0, now);
 
-      for (const game of activeGames) {
-        await this.checkGame(game.id);
+      for (const gameId of expiredGameIds) {
+        await this.handleTimeout(gameId);
       }
     } catch (e: unknown) {
       this.logger.error(`Timeout check error: ${(e as Error).message}`);
     }
   }
 
-  private async checkGame(gameId: string): Promise<void> {
+  private async handleTimeout(gameId: string): Promise<void> {
+    // Remove from sorted set first to prevent duplicate processing
+    const removed = await this.redis.zrem(DEADLINES_KEY, gameId);
+    if (!removed) return; // Another instance already handled it
+
     const raw = await this.redis.hgetall(`game:${gameId}:state`);
     if (!raw.fen || raw.status !== 'active') return;
 
     const activeColor = raw.active_color === 'black' ? 'black' as const : 'white' as const;
-    const { timedOut } = await this.clockService.checkTimeout(gameId, activeColor);
-
-    if (!timedOut) return;
+    const result: GameResult = activeColor === 'white' ? 'black' : 'white';
 
     this.logger.log(`Game ${gameId}: ${activeColor} timed out, ending...`);
-    const result: GameResult = activeColor === 'white' ? 'black' : 'white';
     try {
       const ratingChange = await this.gameService.endGame(gameId, result, 'timeout');
       this.gateway.emitGameEnd(gameId, result, 'timeout', ratingChange || undefined);

@@ -8,6 +8,9 @@ export interface ClockState {
   running: boolean;
 }
 
+/** Redis sorted set key for game timeout deadlines (score = absolute timestamp ms) */
+export const DEADLINES_KEY = 'game:deadlines';
+
 @Injectable()
 export class GameClockService {
   constructor(private readonly redis: RedisService) {}
@@ -33,10 +36,15 @@ export class GameClockService {
   }
 
   async startClock(gameId: string): Promise<void> {
+    const now = Date.now();
+    const raw = await this.redis.hgetall(this.clockKey(gameId));
     await this.redis.hset(this.clockKey(gameId), {
-      last_tick: String(Date.now()),
+      last_tick: String(now),
       running: '1',
     });
+    // White always moves first — set deadline to white's time
+    const whiteMs = Number(raw.white_ms || '0');
+    await this.redis.zadd(DEADLINES_KEY, now + whiteMs, gameId);
   }
 
   async switchClock(
@@ -58,6 +66,10 @@ export class GameClockService {
 
     const whiteMs = colorThatMoved === 'white' ? remaining : Number(raw.white_ms);
     const blackMs = colorThatMoved === 'black' ? remaining : Number(raw.black_ms);
+
+    // Update deadline for next active player
+    const nextActiveMs = colorThatMoved === 'white' ? blackMs : whiteMs;
+    await this.redis.zadd(DEADLINES_KEY, now + nextActiveMs, gameId);
 
     return { whiteMs, blackMs, lastTick: now, running: true };
   }
@@ -133,6 +145,7 @@ export class GameClockService {
   async stopClock(gameId: string): Promise<ClockState> {
     const raw = await this.redis.hgetall(this.clockKey(gameId));
     await this.redis.hset(this.clockKey(gameId), { running: '0' });
+    await this.redis.zrem(DEADLINES_KEY, gameId);
     return {
       whiteMs: Number(raw.white_ms),
       blackMs: Number(raw.black_ms),
@@ -143,5 +156,6 @@ export class GameClockService {
 
   async deleteClock(gameId: string): Promise<void> {
     await this.redis.del(this.clockKey(gameId));
+    await this.redis.zrem(DEADLINES_KEY, gameId);
   }
 }
