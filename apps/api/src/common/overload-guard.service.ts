@@ -11,7 +11,7 @@ export class OverloadGuardService implements OnModuleInit, OnModuleDestroy {
   private readonly shedPercent: number;
 
   constructor(private readonly moduleRef: ModuleRef) {
-    this.maxConnections = parseInt(process.env.WS_OVERLOAD_THRESHOLD || '200', 10);
+    this.maxConnections = parseInt(process.env.WS_OVERLOAD_THRESHOLD || '500', 10);
     this.shedPercent = parseFloat(process.env.WS_SHED_PERCENT || '0.3');
   }
 

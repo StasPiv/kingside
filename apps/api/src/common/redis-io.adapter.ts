@@ -65,7 +65,7 @@ export class RedisIoAdapter extends IoAdapter {
       server.adapter(this.adapterConstructor);
     }
 
-    const maxConnections = parseInt(process.env.WS_MAX_CONNECTIONS || '200', 10);
+    const maxConnections = parseInt(process.env.WS_MAX_CONNECTIONS || '500', 10);
     const maxPendingHandshakes = parseInt(process.env.WS_MAX_PENDING_HANDSHAKES || '20', 10);
     let pendingHandshakes = 0;
 
