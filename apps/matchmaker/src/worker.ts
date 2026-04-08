@@ -26,7 +26,7 @@ interface QueueEntry {
 }
 
 export class MatchmakerWorker {
-  private readonly prisma = new PrismaClient();
+  private readonly prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
   private readonly redis: Redis;
   private readonly pubRedis: Redis;
   private timer: NodeJS.Timeout | null = null;
