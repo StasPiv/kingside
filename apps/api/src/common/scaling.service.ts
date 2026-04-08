@@ -19,6 +19,12 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
   /** Track busy state to emit server:busy / server:ready transitions only once */
   private isBusy = false;
 
+  /**
+   * Static busy flag — accessible from RedisIoAdapter (which runs outside DI).
+   * Set by the singleton ScalingService instance during check().
+   */
+  static busy = false;
+
   constructor(private readonly moduleRef: ModuleRef) {
     this.threshold = parseInt(process.env.WS_SCALE_THRESHOLD || '80', 10);
     this.cooldownMs = parseInt(process.env.WS_SCALE_COOLDOWN || '120000', 10);
@@ -67,6 +73,7 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
       if (overloaded && !this.isBusy) {
         // Transition to busy
         this.isBusy = true;
+        ScalingService.busy = true;
         this.emitToAll(gateway.server, 'server:busy', {
           connections: currentConnections,
           threshold: this.threshold,
@@ -76,6 +83,7 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
       } else if (!overloaded && this.isBusy) {
         // Transition to ready
         this.isBusy = false;
+        ScalingService.busy = false;
         this.emitToAll(gateway.server, 'server:ready', {
           connections: currentConnections,
           threshold: this.threshold,

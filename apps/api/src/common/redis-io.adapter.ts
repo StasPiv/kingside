@@ -3,6 +3,7 @@ import { INestApplication, Logger } from '@nestjs/common';
 import { createAdapter } from '@socket.io/redis-adapter';
 import { ServerOptions } from 'socket.io';
 import Redis, { RedisOptions } from 'ioredis';
+import { ScalingService } from './scaling.service';
 
 export class RedisIoAdapter extends IoAdapter {
   private readonly logger = new Logger(RedisIoAdapter.name);
@@ -71,17 +72,23 @@ export class RedisIoAdapter extends IoAdapter {
 
     // Connection admission control + handshake rate limiting
     server.use((socket: any, next: (err?: Error) => void) => {
+      // 0. Reject if ScalingService reports server is busy (scale-up in progress)
+      if (ScalingService.busy) {
+        this.logger.warn('Admission control: rejecting connection (server busy, scale-up in progress)');
+        return next(new Error(JSON.stringify({ type: 'server_busy', retryAfter: 60 })));
+      }
+
       // 1. Admission control: reject if too many connections
       const clientsCount = server.engine?.clientsCount ?? 0;
       if (clientsCount >= maxConnections) {
         this.logger.warn(`Admission control: rejecting connection (${clientsCount}/${maxConnections})`);
-        return next(new Error('server_busy'));
+        return next(new Error(JSON.stringify({ type: 'server_busy', retryAfter: 60 })));
       }
 
       // 2. Handshake rate limiting: reject if too many pending
       if (pendingHandshakes >= maxPendingHandshakes) {
         this.logger.warn(`Handshake rate limit: rejecting (${pendingHandshakes}/${maxPendingHandshakes} pending)`);
-        return next(new Error('server_busy'));
+        return next(new Error(JSON.stringify({ type: 'server_busy', retryAfter: 5 })));
       }
 
       pendingHandshakes++;
