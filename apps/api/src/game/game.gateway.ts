@@ -159,7 +159,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         isBot,
         botLevel,
       };
+      // Also emit via server.to(user room) as cross-instance fallback
       client.emit(GameEvents.STATE, statePayload);
+      this.server.to(`user:${userId}`).emit(GameEvents.STATE, statePayload);
       this.logger.log(`handleJoinGame: game=${data.gameId.slice(0, 8)} user=${client.data.user?.username} status=${state.status} fen=${state.fen.slice(0, 20)}`);
 
       if (isBot && state.moves.length === 0 && state.status === 'active') {
@@ -189,7 +191,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         clocks: { whiteMs: result.clocks.whiteMs, blackMs: result.clocks.blackMs },
         moveFlags: result.moveFlags,
       };
-      client.to(`game:${data.gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
+      this.server.to(`game:${data.gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
       this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_MOVE, movePayload);
 
       if (result.gameOver) {
