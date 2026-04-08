@@ -60,6 +60,9 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
   console.log(`[Arena] Tournament done`);
 }
 
+/** Global busy flag — shared across all bots in this process */
+let serverBusy = false;
+
 async function runBotInArena(
   bot: BotUser,
   tournamentId: string,
@@ -73,6 +76,7 @@ async function runBotInArena(
     let currentGameId: string | null = null;
     let finished = false;
     let seekInterval: ReturnType<typeof setInterval> | null = null;
+    let seekPaused = false;
 
     const cleanup = () => {
       if (finished) return;
@@ -87,7 +91,7 @@ async function runBotInArena(
     const timeout = setTimeout(cleanup, safetyMs);
 
     const trySeeking = () => {
-      if (!finished && !currentGameId) {
+      if (!finished && !currentGameId && !seekPaused && !serverBusy) {
         socket.emit('tournament:seek', { tournamentId });
       }
     };
@@ -95,6 +99,7 @@ async function runBotInArena(
     // Re-seek every 5s to handle race conditions in matchmaking queue
     const startSeekLoop = () => {
       if (seekInterval) clearInterval(seekInterval);
+      seekPaused = false;
       seekInterval = setInterval(trySeeking, 5_000);
       trySeeking();
     };
@@ -103,8 +108,28 @@ async function runBotInArena(
       if (seekInterval) { clearInterval(seekInterval); seekInterval = null; }
     };
 
+    const pauseSeekLoop = () => {
+      seekPaused = true;
+    };
+
+    const resumeSeekLoop = () => {
+      seekPaused = false;
+      // Immediately try seeking when resumed
+      trySeeking();
+    };
+
     socket.on('connect', () => {
       socket.emit('tournament:subscribe', { tournamentId });
+    });
+
+    socket.on('server:busy', () => {
+      serverBusy = true;
+      pauseSeekLoop();
+    });
+
+    socket.on('server:ready', () => {
+      serverBusy = false;
+      if (!finished && !currentGameId) resumeSeekLoop();
     });
 
     socket.on('tournament:started', () => {
@@ -141,6 +166,8 @@ async function runBotInArena(
         newSocket.on('connect', () => {
           newSocket.emit('tournament:subscribe', { tournamentId });
         });
+        newSocket.on('server:busy', () => { serverBusy = true; pauseSeekLoop(); });
+        newSocket.on('server:ready', () => { serverBusy = false; if (!finished && !currentGameId) resumeSeekLoop(); });
         newSocket.on('tournament:started', () => startSeekLoop());
         newSocket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
           currentGameId = data.gameId;
@@ -185,10 +212,42 @@ async function runBotInArena(
       }
     });
 
-    socket.on('connect_error', () => {
-      metrics.recordError();
-      clearTimeout(timeout);
-      cleanup();
+    socket.on('connect_error', async (err: Error) => {
+      let retryAfter = 0;
+      try {
+        const parsed = JSON.parse(err.message);
+        if (parsed.type === 'server_busy') retryAfter = parsed.retryAfter || 60;
+      } catch { /* not JSON */ }
+
+      if (retryAfter > 0 && !finished) {
+        console.log(`[${bot.username}] /tournament server_busy, retry in ${retryAfter}s`);
+        serverBusy = true;
+        await new Promise((r) => setTimeout(r, retryAfter * 1000));
+        if (!finished) {
+          try {
+            const newSocket = await bot.reconnectWs('/tournament');
+            newSocket.on('connect', () => { newSocket.emit('tournament:subscribe', { tournamentId }); });
+            newSocket.on('server:busy', () => { serverBusy = true; pauseSeekLoop(); });
+            newSocket.on('server:ready', () => { serverBusy = false; if (!finished && !currentGameId) resumeSeekLoop(); });
+            newSocket.on('tournament:started', () => startSeekLoop());
+            newSocket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
+              currentGameId = data.gameId;
+              stopSeekLoop();
+              metrics.recordGameStarted();
+              playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
+                metrics.recordGameCompleted();
+                currentGameId = null;
+                if (!finished) setTimeout(() => startSeekLoop(), 2000);
+              });
+            });
+            newSocket.on('tournament:finished', () => { clearTimeout(timeout); cleanup(); });
+          } catch { metrics.recordError(); }
+        }
+      } else {
+        metrics.recordError();
+        clearTimeout(timeout);
+        cleanup();
+      }
     });
   });
 }
@@ -347,7 +406,46 @@ function playArenaGame(
         }
       }
     });
-    socket.on('connect_error', (err: Error) => { console.log(`[${bot.username}/${myColor}] /game connect_error: ${err.message}`); metrics.recordError(); clearTimeout(timeout); finish(); });
+    socket.on('connect_error', async (err: Error) => {
+      // Parse server_busy error with retryAfter
+      let retryAfter = 0;
+      try {
+        const parsed = JSON.parse(err.message);
+        if (parsed.type === 'server_busy') retryAfter = parsed.retryAfter || 60;
+      } catch { /* not JSON — regular error */ }
+
+      if (retryAfter > 0) {
+        console.log(`[${bot.username}/${myColor}] /game server_busy, retry in ${retryAfter}s`);
+        socket.disconnect();
+        await new Promise((r) => setTimeout(r, retryAfter * 1000));
+        if (!gameOver) {
+          const retrySocket = bot.connectWs('/game');
+          retrySocket.on('connect', () => {
+            retrySocket.emit('game:join', { gameId });
+          });
+          retrySocket.on('game:state', (state: { fen: string; status: string }) => {
+            if (gameOver) return;
+            if (state.status !== 'active') { clearTimeout(timeout); finish(); return; }
+            lastServerFen = state.fen;
+            try { brain.loadFen(state.fen); } catch { /* ignore */ }
+            tryMove();
+          });
+          retrySocket.on('game:move', (data2: { fen: string }) => {
+            if (gameOver) return;
+            lastServerFen = data2.fen;
+            try { brain.loadFen(data2.fen); } catch { /* ignore */ }
+            tryMove();
+          });
+          retrySocket.on('game:end', () => { clearTimeout(timeout); finish(); });
+          retrySocket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
+        }
+      } else {
+        console.log(`[${bot.username}/${myColor}] /game connect_error: ${err.message}`);
+        metrics.recordError();
+        clearTimeout(timeout);
+        finish();
+      }
+    });
   });
 }
 
