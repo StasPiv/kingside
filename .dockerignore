@@ -4,6 +4,10 @@ node_modules
 .claude
 *.md
 apps/web
+!apps/web/package.json
+!apps/broadcast-worker/package.json
+!apps/matchmaker/package.json
+!apps/e2e/package.json
 .env
 apps/api/.env
 apps/api/dist
