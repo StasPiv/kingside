@@ -29,7 +29,7 @@ const CHALLENGE_TTL_SEC = 60;
 const ONLINE_SET_KEY = 'online_users';
 const DISCONNECT_GRACE_MS = 5_000;
 
-@WebSocketGateway({ namespace: '/messages', cors: { origin: '*' } })
+@WebSocketGateway({ namespace: '/messages', cors: { origin: '*' }, transports: ['websocket'], pingTimeout: 30000, connectTimeout: 60000 })
 export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;

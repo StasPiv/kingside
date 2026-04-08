@@ -26,7 +26,7 @@ import {
 
 const PLAYER_QUEUES_KEY = 'matchmaking:player_queues';
 
-@WebSocketGateway({ namespace: '/matchmaking', cors: { origin: '*' } })
+@WebSocketGateway({ namespace: '/matchmaking', cors: { origin: '*' }, transports: ['websocket'], pingTimeout: 30000, connectTimeout: 60000 })
 export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;

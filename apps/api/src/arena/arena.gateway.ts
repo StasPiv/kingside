@@ -31,7 +31,7 @@ const TOURNAMENT_EVENTS = {
   ROUND_END: 'tournament:round_end',
 };
 
-@WebSocketGateway({ namespace: '/tournament', cors: { origin: '*' } })
+@WebSocketGateway({ namespace: '/tournament', cors: { origin: '*' }, transports: ['websocket'], pingTimeout: 30000, connectTimeout: 60000 })
 export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;

@@ -29,7 +29,7 @@ type WsBroadcastMovePayload = {
   blackPlayer: string;
 };
 
-@WebSocketGateway({ namespace: '/broadcast', cors: { origin: '*' } })
+@WebSocketGateway({ namespace: '/broadcast', cors: { origin: '*' }, transports: ['websocket'], pingTimeout: 30000, connectTimeout: 60000 })
 export class BroadcastGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
