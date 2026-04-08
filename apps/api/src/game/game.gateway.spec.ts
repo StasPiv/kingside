@@ -69,7 +69,8 @@ describe('GameGateway', () => {
     const stockfishService = { streamAnalysis: jest.fn() } as any;
     const liveGameService = { spectatorDelayMs: 5000 } as any;
     const clockService = { checkTimeout: jest.fn() } as any;
-    gateway = new GameGateway(gameService, botGameService, jwtService, chatService, stockfishService, liveGameService, clockService);
+    const redisService = { hincrby: jest.fn(), expire: jest.fn(), hgetall: jest.fn(), zadd: jest.fn(), zrem: jest.fn() } as any;
+    gateway = new GameGateway(gameService, botGameService, jwtService, chatService, stockfishService, liveGameService, clockService, redisService);
     gateway.server = mockServer;
   });
 

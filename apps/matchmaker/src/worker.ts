@@ -177,9 +177,8 @@ export class MatchmakerWorker {
       },
     });
 
-    // Init game state in Redis (same as GameService.initGame)
+    // Init game state in Redis — clocks NOT running (wait for both players to join)
     const timeMs = t.timeInitialSec * 1000;
-    const now = Date.now();
     await this.redis.hset(`game:${game.id}:state`, {
       fen: INITIAL_FEN, moves: '[]', status: 'active', active_color: 'white',
       white_id: whiteId, black_id: blackId,
@@ -187,10 +186,11 @@ export class MatchmakerWorker {
     });
     await this.redis.hset(`game:${game.id}:clocks`, {
       white_ms: String(timeMs), black_ms: String(timeMs),
-      last_tick: String(now), running: '1',
+      last_tick: '0', running: '0',
     });
-    // Add to timeout deadline set
-    await this.redis.zadd('game:deadlines', now + timeMs, game.id);
+    // Do NOT add to deadlines — clocks start when both players join
+    // Set 30s join deadline — game aborted if both players don't join in time
+    await this.redis.zadd('game:join_deadlines', Date.now() + 30_000, game.id);
 
     await this.prisma.game.update({
       where: { id: game.id },
@@ -270,9 +270,8 @@ export class MatchmakerWorker {
             },
           });
 
-          // Init game state
+          // Init game state — clocks NOT running (wait for both players to join)
           const timeMs = seeker.timeInitialSec * 1000;
-          const now = Date.now();
           await this.redis.hset(`game:${game.id}:state`, {
             fen: INITIAL_FEN, moves: '[]', status: 'active', active_color: 'white',
             white_id: whiteId, black_id: blackId,
@@ -280,9 +279,10 @@ export class MatchmakerWorker {
           });
           await this.redis.hset(`game:${game.id}:clocks`, {
             white_ms: String(timeMs), black_ms: String(timeMs),
-            last_tick: String(now), running: '1',
+            last_tick: '0', running: '0',
           });
-          await this.redis.zadd('game:deadlines', now + timeMs, game.id);
+          // Set 30s join deadline — game aborted if both players don't join in time
+          await this.redis.zadd('game:join_deadlines', Date.now() + 30_000, game.id);
 
           await this.prisma.game.update({
             where: { id: game.id },

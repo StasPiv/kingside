@@ -10,6 +10,8 @@ export interface ClockState {
 
 /** Redis sorted set key for game timeout deadlines (score = absolute timestamp ms) */
 export const DEADLINES_KEY = 'game:deadlines';
+/** Redis sorted set for join-abort deadlines: game aborted if both players don't join within 30s */
+export const JOIN_DEADLINES_KEY = 'game:join_deadlines';
 
 @Injectable()
 export class GameClockService {

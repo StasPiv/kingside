@@ -14,7 +14,8 @@ import { GameService } from './game.service';
 import { BotGameService } from './bot-game.service';
 import { ChatService } from '../chat/chat.service';
 import { StockfishService } from '../engine/stockfish.service';
-import { GameClockService } from './game-clock.service';
+import { GameClockService, JOIN_DEADLINES_KEY } from './game-clock.service';
+import { RedisService } from '../redis/redis.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import {
   GameEvents,
@@ -60,6 +61,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly stockfishService: StockfishService,
     private readonly liveGameService: LiveGameService,
     private readonly clockService: GameClockService,
+    private readonly redis: RedisService,
   ) {}
 
   async handleConnection(client: Socket) {
@@ -165,6 +167,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
       client.emit(GameEvents.STATE, statePayload);
       this.logger.log(`handleJoinGame[3]: emitted game:state to ${client.data.user?.username}`);
+
+      // Track player joins — start clocks when both players have joined
+      if (color && state.status === 'active' && !clocks.running) {
+        await this.maybeStartClocks(data.gameId, color, whiteId, blackId);
+      }
 
       if (isBot && state.moves.length === 0 && state.status === 'active') {
         this.triggerBotReply(data.gameId);
@@ -568,6 +575,44 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     } catch (e: any) {
       this.logger.error(`Bot reply failed for game ${gameId}: ${e.message}`);
+    }
+  }
+
+  /**
+   * Track player joins. When both players have joined, start the clocks.
+   * Uses Redis HINCRBY on game:{gameId}:joins as atomic counter.
+   */
+  private async maybeStartClocks(
+    gameId: string,
+    color: 'white' | 'black',
+    whiteId: string,
+    blackId: string,
+  ): Promise<void> {
+    const joinKey = `game:${gameId}:joins`;
+    // Atomically increment join count; returns new count
+    const count = await this.redis.hincrby(joinKey, 'count', 1);
+    await this.redis.expire(joinKey, 120); // safety TTL
+
+    this.logger.log(`maybeStartClocks: game=${gameId.slice(0, 8)} ${color} joined (count=${count})`);
+
+    if (count === 1) {
+      // First player joined — abort deadline already set by matchmaker (30s)
+      this.logger.log(`maybeStartClocks: game=${gameId.slice(0, 8)} waiting for second player`);
+    } else if (count >= 2) {
+      // Both players joined — remove abort deadline and start clocks
+      await this.redis.zrem(JOIN_DEADLINES_KEY, gameId);
+      await this.clockService.startClock(gameId);
+      this.logger.log(`maybeStartClocks: game=${gameId.slice(0, 8)} clocks STARTED`);
+
+      const raw = await this.redis.hgetall(`game:${gameId}:clocks`);
+      const updatedClocks = { whiteMs: Number(raw.white_ms), blackMs: Number(raw.black_ms) };
+
+      const clockUpdate = {
+        gameId,
+        clocks: updatedClocks,
+        clocksRunning: true,
+      };
+      this.server.to(`game:${gameId}`).emit('game:clock_started', clockUpdate);
     }
   }
 }
