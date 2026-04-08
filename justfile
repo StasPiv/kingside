@@ -19,6 +19,18 @@ deploy-frontend:
 deploy-api:
     bash scripts/deploy-aws.sh api
 
+# Deploy only workers (broadcast-worker + matchmaker)
+deploy-workers:
+    bash scripts/deploy-aws.sh workers
+
+# Deploy only broadcast-worker
+deploy-broadcast:
+    bash scripts/deploy-aws.sh broadcast-worker
+
+# Deploy only matchmaker
+deploy-matchmaker:
+    bash scripts/deploy-aws.sh matchmaker
+
 # Deploy to Kamatera (legacy)
 deploy-kamatera:
     bash scripts/deploy-local.sh
