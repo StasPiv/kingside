@@ -224,16 +224,33 @@ class AgentDaemon:
             return None
 
     def interrupt(self):
-        """Отправляет SIGINT агенту (эмуляция Escape)."""
+        """Прерывает текущую операцию агента (SIGINT дочернему bash-процессу)."""
         with self.lock:
             if not self.proc or self.proc.poll() is not None:
                 return False
-            try:
-                os.kill(self.proc.pid, signal.SIGINT)
-                log(f"Daemon {self.name}: SIGINT отправлен (PID: {self.proc.pid})")
-                return True
-            except ProcessLookupError:
-                return False
+            pid = self.proc.pid
+        # Ищем дочерний bash-процесс (tool use)
+        try:
+            children = [
+                int(p) for p in os.listdir("/proc")
+                if p.isdigit() and os.path.isfile(f"/proc/{p}/stat")
+            ]
+            for cpid in children:
+                try:
+                    with open(f"/proc/{cpid}/stat") as f:
+                        stat = f.read().split()
+                        ppid = int(stat[3])
+                        comm = stat[1].strip("()")
+                    if ppid == pid and comm == "bash":
+                        os.kill(cpid, signal.SIGINT)
+                        log(f"Daemon {self.name}: SIGINT -> bash child PID {cpid}")
+                        return True
+                except (FileNotFoundError, ProcessLookupError, ValueError, IndexError):
+                    continue
+        except Exception as e:
+            log(f"Daemon {self.name}: ошибка поиска child: {e}")
+        log(f"Daemon {self.name}: дочерний bash-процесс не найден")
+        return False
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
