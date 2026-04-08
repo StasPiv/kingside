@@ -84,9 +84,9 @@ export class MessageGateway implements OnGatewayConnection, OnGatewayDisconnect 
       // Grace period — user may reconnect quickly (page reload)
       const timer = setTimeout(async () => {
         this.disconnectTimers.delete(user.id);
-        // Check if user reconnected (has other sockets)
-        const sockets = await this.server.fetchSockets();
-        const stillConnected = sockets.some((s) => s.data.user?.id === user.id);
+        // Check if user reconnected (has other sockets in user room)
+        const userRoom = (this.server?.adapter as any)?.rooms?.get(`user:${user.id}`);
+        const stillConnected = !!(userRoom && userRoom.size > 0);
         if (!stillConnected) {
           await this.redis.srem(ONLINE_SET_KEY, user.id);
           this.broadcastFriendStatus(user.id, user.username ?? '', FriendEvents.STATUS_OFFLINE);
