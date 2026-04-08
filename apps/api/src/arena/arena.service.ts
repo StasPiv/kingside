@@ -465,35 +465,7 @@ export class ArenaService {
       return null;
     }
 
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
-    const rating = (user[ratingField] as number) || 1500;
-
-    const key = this.seekKey(tournamentId);
-    const lockKey = `arena:${tournamentId}:seek_lock`;
-
-    // Acquire distributed lock to prevent race conditions in matchmaking
-    const lockAcquired = await this.redis.set(lockKey, userId, 'EX', 5, 'NX');
-    if (lockAcquired !== 'OK') {
-      // Another seek is in progress — caller should retry
-      return null;
-    }
-
-    try {
-      return await this.matchOrEnqueue(tournamentId, userId, rating, key, t);
-    } finally {
-      await this.redis.del(lockKey);
-    }
-  }
-
-  private async matchOrEnqueue(
-    tournamentId: string,
-    userId: string,
-    rating: number,
-    key: string,
-    t: { timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
-  ): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
-    // Check inside lock: don't allow players with an active game
+    // Don't allow players with an active game
     const activeGame = await this.prisma.game.findFirst({
       where: {
         tournamentId,
@@ -507,63 +479,65 @@ export class ArenaService {
       return null;
     }
 
-    // Check for opponent in queue
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
+    const rating = (user[ratingField] as number) || 1500;
+
+    const key = this.seekKey(tournamentId);
+
+    // No tournament-wide lock — use atomic ZREM as the concurrency guard
+    return this.matchOrEnqueue(tournamentId, userId, rating, key, t);
+  }
+
+  private async matchOrEnqueue(
+    tournamentId: string,
+    userId: string,
+    rating: number,
+    key: string,
+    t: { timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
+  ): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
+    // Remove self from queue if present (stale entry from previous seek)
+    await this.redis.zrem(key, userId);
+
+    // Check for opponent in queue (member=userId, score=rating)
     const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);
 
     // Two-pass: prefer non-repeat opponent, fallback to any
     const lastOpp = await this.redis.get(this.lastOpponentKey(tournamentId, userId));
-    let matchedData: string | null = null;
-    let matchedCandidate: { userId: string; rating: number } | null = null;
 
-    // Pass 1: non-repeat opponents
-    for (const data of candidates) {
-      const candidate = JSON.parse(data) as { userId: string; rating: number };
-      if (candidate.userId === userId) continue;
-      if (lastOpp === candidate.userId) continue;
-      matchedData = data;
-      matchedCandidate = candidate;
-      break;
-    }
+    // Pass 1: non-repeat opponents, Pass 2: allow repeat
+    const ordered = [
+      ...candidates.filter(id => id !== userId && id !== lastOpp),
+      ...candidates.filter(id => id !== userId && id === lastOpp),
+    ];
 
-    // Pass 2: allow repeat if no alternative
-    if (!matchedCandidate) {
-      for (const data of candidates) {
-        const candidate = JSON.parse(data) as { userId: string; rating: number };
-        if (candidate.userId === userId) continue;
-        matchedData = data;
-        matchedCandidate = candidate;
-        break;
-      }
-    }
-
-    if (matchedData && matchedCandidate) {
-      const candidate = matchedCandidate;
+    for (const candidateId of ordered) {
+      // Atomically claim this candidate — ZREM returns 1 only for the first claimer
+      const claimed = await this.redis.zrem(key, candidateId);
+      if (!claimed) continue; // Another seeker already claimed this candidate
 
       // Verify opponent doesn't already have an active game
       const oppActiveGame = await this.prisma.game.findFirst({
         where: {
           tournamentId,
           status: { in: ['waiting', 'active'] },
-          OR: [{ whiteId: candidate.userId }, { blackId: candidate.userId }],
+          OR: [{ whiteId: candidateId }, { blackId: candidateId }],
         },
         select: { id: true },
       });
       if (oppActiveGame) {
-        // Remove stale candidate from queue, don't create game
-        await this.redis.zrem(key, matchedData);
-        return null;
+        // Stale candidate — continue searching
+        this.logger.log(`seekOpponent: candidate ${candidateId.slice(0, 8)} has active game, skipping`);
+        continue;
       }
 
-      // Remove from queue
-      await this.redis.zrem(key, matchedData);
-
       // Record last opponents
-      await this.redis.set(this.lastOpponentKey(tournamentId, userId), candidate.userId, 'EX', 300);
-      await this.redis.set(this.lastOpponentKey(tournamentId, candidate.userId), userId, 'EX', 300);
+      await this.redis.set(this.lastOpponentKey(tournamentId, userId), candidateId, 'EX', 300);
+      await this.redis.set(this.lastOpponentKey(tournamentId, candidateId), userId, 'EX', 300);
 
       // Create game
-      const whiteId = Math.random() < 0.5 ? userId : candidate.userId;
-      const blackId = whiteId === userId ? candidate.userId : userId;
+      const whiteId = Math.random() < 0.5 ? userId : candidateId;
+      const blackId = whiteId === userId ? candidateId : userId;
 
       const game = await this.prisma.game.create({
         data: {
@@ -579,24 +553,16 @@ export class ArenaService {
 
       await this.gameService.initGame(game.id);
 
-      return { gameId: game.id, opponentId: candidate.userId, whiteId, blackId };
+      return { gameId: game.id, opponentId: candidateId, whiteId, blackId };
     }
 
-    // No match — add to queue
-    await this.redis.zadd(key, rating, JSON.stringify({ userId, rating }));
+    // No match — add self to queue (member=userId, score=rating)
+    await this.redis.zadd(key, rating, userId);
     return null;
   }
 
   async leaveSeeking(tournamentId: string, userId: string) {
-    const key = this.seekKey(tournamentId);
-    const members = await this.redis.zrange(key, 0, -1);
-    for (const m of members) {
-      const entry = JSON.parse(m) as { userId: string };
-      if (entry.userId === userId) {
-        await this.redis.zrem(key, m);
-        return;
-      }
-    }
+    await this.redis.zrem(this.seekKey(tournamentId), userId);
   }
 
   // --- Scoring ---
