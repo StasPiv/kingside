@@ -69,37 +69,22 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
       const gateway = this.moduleRef.get(GameGateway, { strict: false });
       if (!gateway?.server) return;
 
+      // gateway.server is a Namespace when namespace is configured.
+      // Root io.Server (with engine) is accessible via .server on the Namespace.
       const srv = gateway.server as any;
-
-      // Diagnostic: try every known way to count connections
-      const engineDirect = srv.engine?.clientsCount ?? -1;
-      const serverServer = srv.server?.engine?.clientsCount ?? -1;
-      const socketsSize = srv.sockets?.size ?? -1;
-
-      // Count across all namespaces via _nsps on root server
-      let nspsTotal = 0;
-      const rootServer = srv.server ?? srv;
-      const nsps = rootServer._nsps as Map<string, any> | undefined;
-      if (nsps) {
-        for (const nsp of nsps.values()) {
-          nspsTotal += nsp.sockets?.size ?? 0;
-        }
-      }
-
-      this.logger.log(
-        `check: engine.direct=${engineDirect} server.server.engine=${serverServer} ` +
-        `sockets.size=${socketsSize} nspsTotal=${nspsTotal} threshold=${this.threshold} busy=${this.isBusy}`,
-      );
-
-      // Use the best available count: nspsTotal covers all namespaces
-      const currentConnections = nspsTotal || (serverServer >= 0 ? serverServer : (engineDirect >= 0 ? engineDirect : 0));
+      const rootEngine = srv.server?.engine ?? srv.engine;
+      const currentConnections = rootEngine?.clientsCount ?? 0;
       const overloaded = currentConnections > this.threshold;
+
+      if (currentConnections > 0 || this.isBusy) {
+        this.logger.log(`check: connections=${currentConnections}, threshold=${this.threshold}, busy=${this.isBusy}`);
+      }
 
       if (overloaded && !this.isBusy) {
         // Transition to busy
         this.isBusy = true;
         ScalingService.busy = true;
-        this.emitToAll(rootServer, 'server:busy', {
+        this.emitToAll(srv.server ?? srv, 'server:busy', {
           connections: currentConnections,
           threshold: this.threshold,
           etaSec: SCALE_UP_ETA_SEC,
@@ -109,7 +94,7 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
         // Transition to ready
         this.isBusy = false;
         ScalingService.busy = false;
-        this.emitToAll(rootServer, 'server:ready', {
+        this.emitToAll(srv.server ?? srv, 'server:ready', {
           connections: currentConnections,
           threshold: this.threshold,
         });
