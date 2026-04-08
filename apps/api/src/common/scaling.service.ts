@@ -5,10 +5,8 @@ import { RedisService } from '../redis/redis.service';
 const CHECK_INTERVAL_MS = 3_000;
 /** Estimated time for a new instance to become healthy (seconds) */
 const SCALE_UP_ETA_SEC = 60;
-/** Minimum time to stay in busy state (ms) — prevents flapping */
-const MIN_BUSY_MS = 60_000;
-/** Consecutive checks below threshold needed to transition to ready */
-const READY_CHECKS_REQUIRED = 20; // 20 × 3s = 60s
+/** Fixed busy duration (ms) — server:ready fires after this, regardless of connection count */
+const BUSY_DURATION_MS = 60_000;
 /** Redis key for busy state — read by standalone matchmaker worker */
 export const REDIS_BUSY_KEY = 'server:busy';
 
@@ -27,10 +25,6 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
   private isBusy = false;
   /** Timestamp when busy state was entered */
   private busySince = 0;
-  /** Consecutive checks where connections < threshold (for hysteresis) */
-  private belowThresholdChecks = 0;
-  /** Last known non-zero connection count (to filter engine.clientsCount=0 glitches) */
-  private lastNonZeroCount = 0;
 
   /**
    * Static busy flag — accessible from RedisIoAdapter (which runs outside DI).
@@ -90,66 +84,40 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
       const srv = gateway.server as any;
       const rootServer = srv.server ?? srv;
       const rootEngine = rootServer.engine ?? srv.engine;
-      let currentConnections = rootEngine?.clientsCount ?? 0;
-
-      // Filter engine.clientsCount=0 glitches: if we had connections recently
-      // and suddenly see 0, use last known count (engine may reset between ticks)
-      if (currentConnections > 0) {
-        this.lastNonZeroCount = currentConnections;
-      } else if (this.isBusy && this.lastNonZeroCount > 0) {
-        // While busy, treat 0 as a glitch — keep last known count
-        this.logger.warn(`check: connections=0 while busy (glitch?), using lastNonZero=${this.lastNonZeroCount}`);
-        currentConnections = this.lastNonZeroCount;
-      }
-
+      const currentConnections = rootEngine?.clientsCount ?? 0;
       const overloaded = currentConnections > this.threshold;
       const now = Date.now();
 
       if (currentConnections > 0 || this.isBusy) {
-        this.logger.log(
-          `check: connections=${currentConnections}, threshold=${this.threshold}, ` +
-          `busy=${this.isBusy}, belowChecks=${this.belowThresholdChecks}/${READY_CHECKS_REQUIRED}`,
-        );
+        this.logger.log(`check: connections=${currentConnections}, threshold=${this.threshold}, busy=${this.isBusy}`);
       }
 
       if (overloaded && !this.isBusy) {
         // Transition to busy
         this.isBusy = true;
         this.busySince = now;
-        this.belowThresholdChecks = 0;
         ScalingService.busy = true;
-        await this.redis.set(REDIS_BUSY_KEY, '1', 'EX', 300).catch(() => {});
+        await this.redis.set(REDIS_BUSY_KEY, '1', 'EX', 120).catch(() => {});
         this.emitToAll(rootServer, 'server:busy', {
           connections: currentConnections,
           threshold: this.threshold,
           etaSec: SCALE_UP_ETA_SEC,
         });
         this.logger.warn(`server:busy emitted (${currentConnections} > ${this.threshold})`);
-      } else if (!overloaded && this.isBusy) {
-        // Hysteresis: don't transition to ready immediately
-        this.belowThresholdChecks++;
-
+      } else if (this.isBusy) {
+        // Timer-based ready: after BUSY_DURATION_MS, transition to ready
+        // regardless of current connection count (avoids deadlock with idle sockets)
         const busyElapsed = now - this.busySince;
-        if (busyElapsed >= MIN_BUSY_MS && this.belowThresholdChecks >= READY_CHECKS_REQUIRED) {
-          // Stable below threshold for enough checks AND minimum busy time elapsed
+        if (busyElapsed >= BUSY_DURATION_MS) {
           this.isBusy = false;
-          this.belowThresholdChecks = 0;
           ScalingService.busy = false;
           await this.redis.del(REDIS_BUSY_KEY).catch(() => {});
           this.emitToAll(rootServer, 'server:ready', {
             connections: currentConnections,
             threshold: this.threshold,
           });
-          this.logger.log(`server:ready emitted (${currentConnections} <= ${this.threshold}, stable for ${this.belowThresholdChecks} checks)`);
-        } else {
-          this.logger.log(
-            `server:busy held: elapsed=${Math.round(busyElapsed / 1000)}s/${MIN_BUSY_MS / 1000}s, ` +
-            `belowChecks=${this.belowThresholdChecks}/${READY_CHECKS_REQUIRED}`,
-          );
+          this.logger.log(`server:ready emitted after ${Math.round(busyElapsed / 1000)}s timer`);
         }
-      } else if (overloaded && this.isBusy) {
-        // Still overloaded — reset below-threshold counter
-        this.belowThresholdChecks = 0;
       }
 
       await this.checkAndScale(currentConnections);
