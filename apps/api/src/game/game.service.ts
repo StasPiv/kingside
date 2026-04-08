@@ -555,11 +555,16 @@ export class GameService {
     }
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
 
-    // Fire post-game hooks (arena scoring, etc.)
-    for (const hook of this.postGameHooks) {
-      try { await hook(gameId); } catch (e: any) {
-        this.logger.error(`Post-game hook failed for ${gameId}: ${e.message}`);
-      }
+    // Fire post-game hooks in background (arena scoring, etc.) — don't block the hot path
+    if (this.postGameHooks.length > 0) {
+      const hooks = [...this.postGameHooks];
+      setImmediate(async () => {
+        for (const hook of hooks) {
+          try { await hook(gameId); } catch (e: any) {
+            this.logger.error(`Post-game hook failed for ${gameId}: ${e.message}`);
+          }
+        }
+      });
     }
 
     return ratingChange;
