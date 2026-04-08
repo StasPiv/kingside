@@ -64,7 +64,8 @@ aws ecs register-task-definition \
         {\"name\": \"STOCKFISH_PATH\", \"value\": \"/usr/games/stockfish\"},
         {\"name\": \"STOCKFISH_MAX_INSTANCES\", \"value\": \"1\"},
         {\"name\": \"ECS_CLUSTER\", \"value\": \"kingside\"},
-        {\"name\": \"ECS_SERVICE\", \"value\": \"kingside-api\"}
+        {\"name\": \"ECS_SERVICE\", \"value\": \"kingside-api\"},
+        {\"name\": \"WS_USE_REDIS_ADAPTER\", \"value\": \"true\"}
       ],
       \"secrets\": [
         {\"name\": \"DATABASE_URL\", \"valueFrom\": \"${SECRET_ARN}:DATABASE_URL::\"},
