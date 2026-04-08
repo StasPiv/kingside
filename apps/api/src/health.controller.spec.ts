@@ -8,7 +8,8 @@ describe('HealthController', () => {
   beforeEach(() => {
     prisma = { $queryRawUnsafe: jest.fn() };
     redis = { set: jest.fn() };
-    controller = new HealthController(prisma as any, redis as any);
+    const moduleRef = { get: jest.fn().mockReturnValue(null) };
+    controller = new HealthController(prisma as any, redis as any, moduleRef as any);
   });
 
   it('should return ok when DB and Redis are healthy', async () => {
@@ -17,7 +18,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'ok', db: 'ok', redis: 'ok' });
+    expect(result).toEqual({ status: 'ok', db: 'ok', redis: 'ok', wsConnections: 0 });
   });
 
   it('should return degraded when DB is down', async () => {
@@ -26,7 +27,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'ok' });
+    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'ok', wsConnections: 0 });
   });
 
   it('should return degraded with readonly when Redis is READONLY', async () => {
@@ -35,7 +36,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'readonly' });
+    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'readonly', wsConnections: 0 });
   });
 
   it('should return degraded when Redis is down', async () => {
@@ -44,7 +45,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'error' });
+    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'error', wsConnections: 0 });
   });
 
   it('should return degraded when both are down', async () => {
@@ -53,6 +54,6 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'error' });
+    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'error', wsConnections: 0 });
   });
 });
