@@ -145,8 +145,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.join(`game:${data.gameId}`);
 
+    this.logger.log(`handleJoinGame[1]: user=${client.data.user?.username} game=${data.gameId.slice(0, 8)} joined room`);
+
     try {
       const { state, clocks, whiteId, blackId, players, isBot, botLevel } = await this.gameService.getGameState(data.gameId);
+      this.logger.log(`handleJoinGame[2]: getGameState OK status=${state.status} fen=${state.fen.slice(0, 20)}`);
+
       const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
       const statePayload: WsGameStatePayload = {
         gameId: data.gameId,
@@ -159,16 +163,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         isBot,
         botLevel,
       };
-      // Also emit via server.to(user room) as cross-instance fallback
       client.emit(GameEvents.STATE, statePayload);
-      this.server.to(`user:${userId}`).emit(GameEvents.STATE, statePayload);
-      this.logger.log(`handleJoinGame: game=${data.gameId.slice(0, 8)} user=${client.data.user?.username} status=${state.status} fen=${state.fen.slice(0, 20)}`);
+      this.logger.log(`handleJoinGame[3]: emitted game:state to ${client.data.user?.username}`);
 
       if (isBot && state.moves.length === 0 && state.status === 'active') {
         this.triggerBotReply(data.gameId);
       }
     } catch (e: unknown) {
-      this.logger.error(`handleJoinGame: game=${data.gameId.slice(0, 8)} error: ${(e as Error).message}`);
+      this.logger.error(`handleJoinGame: game=${data.gameId.slice(0, 8)} ERROR: ${(e as Error).message}`);
       client.emit(GameEvents.ERROR, { code: 'JOIN_ERROR', message: (e as Error).message });
     }
   }
