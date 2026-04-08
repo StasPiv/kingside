@@ -11,6 +11,10 @@ FROM base AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY apps/broadcast-worker/package.json apps/broadcast-worker/
+COPY apps/matchmaker/package.json apps/matchmaker/
+COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
 RUN npm ci --ignore-scripts
 COPY packages/shared ./packages/shared
