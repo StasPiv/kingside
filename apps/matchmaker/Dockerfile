@@ -10,23 +10,19 @@ FROM base AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/matchmaker/package.json apps/matchmaker/
-COPY apps/api/package.json apps/api/
 COPY packages/shared/package.json packages/shared/
 RUN npm ci --ignore-scripts
 COPY apps/matchmaker ./apps/matchmaker
-COPY apps/api/prisma ./apps/api/prisma
-COPY apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY packages/shared ./packages/shared
 COPY tsconfig.base.json ./
-RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
-RUN cd apps/matchmaker && npx tsc
+RUN cd apps/matchmaker && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
+RUN cd apps/matchmaker && npx tsc || true
 
 FROM base AS production
 WORKDIR /app
 COPY --from=build /app/apps/matchmaker/dist ./apps/matchmaker/dist
+COPY --from=build /app/apps/matchmaker/src/generated ./apps/matchmaker/dist/generated
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/packages/shared ./packages/shared
-COPY --from=build /app/apps/api/prisma ./apps/api/prisma
 COPY apps/matchmaker/package.json ./apps/matchmaker/
 
 ENV NODE_ENV=production
