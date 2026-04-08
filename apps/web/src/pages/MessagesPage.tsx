@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { messagesSocket } from '../socket';
+import { useLazySocket } from '../hooks/useLazySocket';
 import type {
   ConversationsResponse,
   ConversationItem,
@@ -29,6 +30,7 @@ function formatTime(dateStr: string): string {
 }
 
 export function MessagesPage() {
+  useLazySocket(messagesSocket);
   const { t } = useTranslation();
   const { userId: paramUserId } = useParams<{ userId?: string }>();
   const location = useLocation();
@@ -136,13 +138,7 @@ export function MessagesPage() {
 
   // WebSocket: listen for new messages
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token || !user) return;
-
-    if (!messagesSocket.connected) {
-      messagesSocket.auth = { token };
-      messagesSocket.connect();
-    }
+    if (!user) return;
 
     const onNewMessage = (payload: WsNewMessagePayload) => {
       const otherUserId = payload.senderId === user.id ? payload.receiverId : payload.senderId;

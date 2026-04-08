@@ -11,6 +11,7 @@ import type { EvalLine } from '../hooks/useStockfish';
 import { EvalBar } from '../components/EvalBar';
 import { formatEval, formatPv } from '../utils/chessFormat';
 import { socket } from '../socket';
+import { useLazySocket } from '../hooks/useLazySocket';
 import { api } from '../api';
 import { classifyOpening } from '../utils/ecoClassify';
 import '../review/components/ReviewMoveList.css';
@@ -29,6 +30,7 @@ function formatTime(seconds: number): string {
 }
 
 export function WatchGamePage() {
+  useLazySocket(socket, false); // spectators don't need auth
   const { t } = useTranslation();
   const { id: gameId } = useParams<{ id: string }>();
 
@@ -156,12 +158,6 @@ export function WatchGamePage() {
   // WebSocket: join/leave spectator room
   useEffect(() => {
     if (!gameId) return;
-
-    const token = localStorage.getItem('token');
-    if (!socket.connected) {
-      socket.auth = token ? { token } : {};
-      socket.connect();
-    }
 
     const onState = (state: WsGameStatePayload) => {
       // Replay all moves on a fresh Chess instance to keep history in sync

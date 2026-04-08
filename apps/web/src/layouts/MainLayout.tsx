@@ -5,8 +5,6 @@ import { FcGoogle } from 'react-icons/fc';
 import { FaFacebook, FaTelegram, FaCode, FaEnvelope, FaBell, FaUserFriends } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
-import { messagesSocket } from '../socket';
-import { MessageEvents } from '@kingside/shared';
 import { useChallenge } from '../hooks/useChallenge';
 import { useNotifications } from '../hooks/useNotifications';
 import { useActiveGame } from '../hooks/useActiveGame';
@@ -62,40 +60,22 @@ export function MainLayout() {
 
   useClickOutside(userMenuRef, () => setUserMenuOpen(false));
 
-  // Fetch unread count on login
+  // Poll unread message count via REST (no WS dependency)
   useEffect(() => {
     if (!user) { setUnreadCount(0); return; }
-    api.get<{ count: number }>('/api/messages/unread-count')
-      .then((data) => setUnreadCount(data.count))
-      .catch(() => {});
-  }, [user]);
-
-  // WebSocket: update badge on new message
-  useEffect(() => {
-    if (!user) return;
-    const token = localStorage.getItem('token');
-    if (!token) return;
-
-    if (!messagesSocket.connected) {
-      messagesSocket.auth = { token };
-      messagesSocket.connect();
-    }
-
-    const onNewMessage = () => {
-      setUnreadCount((prev) => prev + 1);
-    };
-    messagesSocket.on(MessageEvents.NEW_MESSAGE, onNewMessage);
-
-    // Re-fetch message unread count when messages are read (dispatched by MessagesPage)
-    const onMessagesRead = () => {
+    const fetchUnread = () => {
       api.get<{ count: number }>('/api/messages/unread-count')
         .then((data) => setUnreadCount(data.count))
         .catch(() => {});
     };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 15_000);
+
+    const onMessagesRead = () => fetchUnread();
     window.addEventListener('messages:read', onMessagesRead);
 
     return () => {
-      messagesSocket.off(MessageEvents.NEW_MESSAGE, onNewMessage);
+      clearInterval(interval);
       window.removeEventListener('messages:read', onMessagesRead);
     };
   }, [user]);

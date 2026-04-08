@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import type { User, AuthTokenResponse } from '@kingside/shared';
 import { api } from '../api';
-import { socket, matchmakingSocket } from '../socket';
 import i18n from '../i18n/index';
 
 type AuthState = {
@@ -90,18 +89,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setState((s) => ({ ...s, loading: false }));
     }
   }, [state.token, fetchMe]);
-
-  useEffect(() => {
-    if (state.token) {
-      socket.auth = { token: state.token };
-      socket.connect();
-      matchmakingSocket.auth = { token: state.token };
-      matchmakingSocket.connect();
-    } else {
-      socket.disconnect();
-      matchmakingSocket.disconnect();
-    }
-  }, [state.token]);
 
   const login = async (username: string, password: string) => {
     const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/api/auth/login', { username, password });
