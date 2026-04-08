@@ -7,7 +7,22 @@ const SOCKET_OPTS = {
   transports: ['websocket'] as ['websocket'],
 };
 
-function withServerBusyRetry(s: Socket): Socket {
+let reconnectToastTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function showReconnectingToast() {
+  // Avoid duplicate toasts
+  if (reconnectToastTimeout) return;
+  const el = document.createElement('div');
+  el.className = 'reconnect-toast';
+  el.textContent = 'Reconnecting...';
+  document.body.appendChild(el);
+  reconnectToastTimeout = setTimeout(() => {
+    el.remove();
+    reconnectToastTimeout = null;
+  }, 4000);
+}
+
+function withHandlers(s: Socket): Socket {
   s.on('connect_error', (err) => {
     if (err.message === 'server_busy') {
       const delay = 1000 + Math.random() * 2000; // 1-3s jitter
@@ -16,15 +31,25 @@ function withServerBusyRetry(s: Socket): Socket {
       }, delay);
     }
   });
+
+  s.on('reconnect_suggestion', () => {
+    showReconnectingToast();
+    s.disconnect();
+    const delay = 1000 + Math.random() * 2000;
+    setTimeout(() => {
+      s.connect();
+    }, delay);
+  });
+
   return s;
 }
 
-export const socket = withServerBusyRetry(io(`${API_URL}/game`, SOCKET_OPTS));
+export const socket = withHandlers(io(`${API_URL}/game`, SOCKET_OPTS));
 
-export const matchmakingSocket = withServerBusyRetry(io(`${API_URL}/matchmaking`, SOCKET_OPTS));
+export const matchmakingSocket = withHandlers(io(`${API_URL}/matchmaking`, SOCKET_OPTS));
 
-export const broadcastSocket = withServerBusyRetry(io(`${API_URL}/broadcast`, SOCKET_OPTS));
+export const broadcastSocket = withHandlers(io(`${API_URL}/broadcast`, SOCKET_OPTS));
 
-export const messagesSocket = withServerBusyRetry(io(`${API_URL}/messages`, SOCKET_OPTS));
+export const messagesSocket = withHandlers(io(`${API_URL}/messages`, SOCKET_OPTS));
 
-export const tournamentSocket = withServerBusyRetry(io(`${API_URL}/tournament`, SOCKET_OPTS));
+export const tournamentSocket = withHandlers(io(`${API_URL}/tournament`, SOCKET_OPTS));

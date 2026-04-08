@@ -185,3 +185,24 @@ input[type="range"] {
   border-radius: 2px;
   border: none;
 }
+
+/* Reconnect toast */
+.reconnect-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #f1f5f9;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  z-index: 10000;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  animation: reconnect-fade 4s ease-out forwards;
+}
+
+@keyframes reconnect-fade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
