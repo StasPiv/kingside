@@ -8,6 +8,7 @@ import { useMatchmaking } from '../hooks/useMatchmaking';
 import { useBotGame } from '../hooks/useBotGame';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
 import { HelpButton } from '../components/HelpButton';
+import { ServerBusyBanner } from '../components/ServerBusyBanner';
 
 type WorkshopGame = {
   id: string;
@@ -347,6 +348,7 @@ export function LobbyPage() {
         {searching ? t('lobby.cancelSearch') : t('lobby.play')}
       </button>
       {searching && <p className="searching">{t('lobby.searching')}</p>}
+      {searching && matchmaking.serverBusy && <ServerBusyBanner />}
     </div>
   );
 

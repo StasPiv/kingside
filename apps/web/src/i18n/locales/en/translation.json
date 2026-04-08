@@ -481,8 +481,6 @@
     "easy": "Easy",
     "medium": "Medium",
     "hard": "Hard",
-    "whiteToMove": "White to move",
-    "blackToMove": "Black to move",
     "wrong": "Wrong move",
     "tryAgain": "Try Again",
     "loadError": "Failed to load puzzle",
@@ -586,8 +584,18 @@
       "fromLichess": "Import lichess",
       "year": "Year",
       "month": "Month",
-      "jan": "Jan", "feb": "Feb", "mar": "Mar", "apr": "Apr", "may": "May", "jun": "Jun",
-      "jul": "Jul", "aug": "Aug", "sep": "Sep", "oct": "Oct", "nov": "Nov", "dec": "Dec",
+      "jan": "Jan",
+      "feb": "Feb",
+      "mar": "Mar",
+      "apr": "Apr",
+      "may": "May",
+      "jun": "Jun",
+      "jul": "Jul",
+      "aug": "Aug",
+      "sep": "Sep",
+      "oct": "Oct",
+      "nov": "Nov",
+      "dec": "Dec",
       "gameType": "Game type",
       "allTypes": "All",
       "limit": "Max games",
@@ -1009,5 +1017,8 @@
       "title": "Rating System",
       "guide": "Track your progress with Elo ratings.\n\n- Separate ratings for each time control: Bullet, Blitz, Rapid, Classical, and Puzzles\n- Starting rating: 1500\n- Rating changes after each game based on the result and opponent's rating\n- View your rating history chart on your profile page\n- See other players' profiles: click their name anywhere in the app\n- Players page shows all registered players sorted by rating\n- Online counter in the header shows how many players are currently on the site"
     }
+  },
+  "serverBusy": {
+    "message": "Please wait, scaling up. Your game will start in ~1 minute."
   }
 }
