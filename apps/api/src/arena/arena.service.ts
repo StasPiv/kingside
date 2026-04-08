@@ -451,12 +451,18 @@ export class ArenaService {
    */
   async addToSeekQueue(tournamentId: string, userId: string): Promise<void> {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
-    if (!t || t.status !== 'active') return;
+    if (!t || t.status !== 'active') {
+      this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: reject (tournament ${t?.status ?? 'not found'})`);
+      return;
+    }
 
     const entry = await this.prisma.arenaTournamentEntry.findUnique({
       where: { tournamentId_userId: { tournamentId, userId } },
     });
-    if (!entry || entry.withdrawn) return;
+    if (!entry || entry.withdrawn) {
+      this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: reject (no entry or withdrawn)`);
+      return;
+    }
 
     // Don't add players with an active game
     const activeGame = await this.prisma.game.findFirst({
@@ -467,13 +473,17 @@ export class ArenaService {
       },
       select: { id: true },
     });
-    if (activeGame) return;
+    if (activeGame) {
+      this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: reject (active game ${activeGame.id.slice(0, 8)})`);
+      return;
+    }
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
     const rating = (user[ratingField] as number) || 1500;
 
     await this.redis.zadd(this.seekKey(tournamentId), rating, userId);
+    this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: added (rating=${rating})`);
   }
 
   async leaveSeeking(tournamentId: string, userId: string) {

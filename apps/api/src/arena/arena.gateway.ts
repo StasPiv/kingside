@@ -53,45 +53,47 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   ) {}
 
   async onModuleInit(): Promise<void> {
-    const redisHost = process.env.REDIS_HOST || 'localhost';
-    const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
-    this.subRedis = new Redis({ host: redisHost, port: redisPort });
+    try {
+      const redisHost = process.env.REDIS_HOST || 'localhost';
+      const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
+      this.subRedis = new Redis({ host: redisHost, port: redisPort });
 
-    this.subRedis.subscribe(MATCHMAKER_PAIRED_CHANNEL).catch((e) =>
-      this.logger.error(`Redis subscribe failed: ${e.message}`),
-    );
+      await this.subRedis.subscribe(MATCHMAKER_PAIRED_CHANNEL);
 
-    this.subRedis.on('message', (channel: string, message: string) => {
-      if (channel !== MATCHMAKER_PAIRED_CHANNEL) return;
-      try {
-        const data = JSON.parse(message) as {
-          tournamentId: string; gameId: string; whiteId: string; blackId: string;
-        };
+      this.subRedis.on('message', (channel: string, message: string) => {
+        if (channel !== MATCHMAKER_PAIRED_CHANNEL) return;
+        try {
+          const data = JSON.parse(message) as {
+            tournamentId: string; gameId: string; whiteId: string; blackId: string;
+          };
 
-        // Emit tournament:paired to both players via user rooms
-        this.server.to(`user:${data.whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
-          gameId: data.gameId, tournamentId: data.tournamentId, color: 'white',
-        });
-        this.server.to(`user:${data.blackId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
-          gameId: data.gameId, tournamentId: data.tournamentId, color: 'black',
-        });
+          // Emit tournament:paired to both players via user rooms
+          this.server.to(`user:${data.whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
+            gameId: data.gameId, tournamentId: data.tournamentId, color: 'white',
+          });
+          this.server.to(`user:${data.blackId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
+            gameId: data.gameId, tournamentId: data.tournamentId, color: 'black',
+          });
 
-        // Emit tournament:gameStarted to all subscribers
-        const whiteUsername = this.usernames.get(data.whiteId) ?? '';
-        const blackUsername = this.usernames.get(data.blackId) ?? '';
-        this.emitGameStarted(data.tournamentId, {
-          gameId: data.gameId,
-          white: { id: data.whiteId, username: whiteUsername },
-          black: { id: data.blackId, username: blackUsername },
-        });
+          // Emit tournament:gameStarted to all subscribers
+          const whiteUsername = this.usernames.get(data.whiteId) ?? '';
+          const blackUsername = this.usernames.get(data.blackId) ?? '';
+          this.emitGameStarted(data.tournamentId, {
+            gameId: data.gameId,
+            white: { id: data.whiteId, username: whiteUsername },
+            black: { id: data.blackId, username: blackUsername },
+          });
 
-        this.logger.log(`matchmaker:paired → game=${data.gameId.slice(0, 8)} white=${data.whiteId.slice(0, 8)} black=${data.blackId.slice(0, 8)}`);
-      } catch (e: any) {
-        this.logger.error(`Redis message parse error: ${e.message}`);
-      }
-    });
+          this.logger.log(`matchmaker:paired → game=${data.gameId.slice(0, 8)} white=${data.whiteId.slice(0, 8)} black=${data.blackId.slice(0, 8)}`);
+        } catch (e: any) {
+          this.logger.error(`Redis message parse error: ${e.message}`);
+        }
+      });
 
-    this.logger.log('Subscribed to matchmaker:paired Redis channel');
+      this.logger.log('Subscribed to matchmaker:paired Redis channel');
+    } catch (e: any) {
+      this.logger.warn(`matchmaker:paired Redis subscribe failed (non-fatal): ${e.message}`);
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -192,6 +194,8 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   ) {
     const userId = client.data.user?.id;
     if (!userId) return;
+
+    this.logger.log(`handleSeek: ${client.data.user?.username} tournament=${data.tournamentId?.slice(0, 8)}`);
 
     // Only add to seek queue — matchmaker worker handles pairing via Redis pub/sub
     await this.arenaService.addToSeekQueue(data.tournamentId, userId);
