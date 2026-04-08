@@ -42,15 +42,17 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
+    // Always start the check timer — server:busy/ready emit doesn't require ECS
+    this.timer = setInterval(() => this.check(), CHECK_INTERVAL_MS);
+
     if (!this.enabled) {
-      this.logger.log('ScalingService disabled (ECS_CLUSTER/ECS_SERVICE not set)');
+      this.logger.log(`ScalingService: overload detection active (threshold=${this.threshold}), ECS scaling disabled (ECS_CLUSTER/ECS_SERVICE not set)`);
       return;
     }
 
     try {
       const { ECSClient } = await import('@aws-sdk/client-ecs');
       this.ecsClient = new ECSClient({});
-      this.timer = setInterval(() => this.check(), CHECK_INTERVAL_MS);
       this.logger.log(`ScalingService enabled (threshold=${this.threshold}, cooldown=${this.cooldownMs / 1000}s, every ${CHECK_INTERVAL_MS / 1000}s)`);
     } catch (e: unknown) {
       this.logger.warn(`ScalingService: @aws-sdk/client-ecs not available: ${(e as Error).message}`);
@@ -69,6 +71,10 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
 
       const currentConnections = gateway.server.engine?.clientsCount ?? 0;
       const overloaded = currentConnections > this.threshold;
+
+      if (currentConnections > 0) {
+        this.logger.debug(`check: connections=${currentConnections}, threshold=${this.threshold}, busy=${this.isBusy}`);
+      }
 
       if (overloaded && !this.isBusy) {
         // Transition to busy
