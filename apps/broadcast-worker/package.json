@@ -4,16 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prisma:generate": "prisma generate",
     "dev": "tsx watch src/index.ts",
-    "build": "tsc",
+    "build": "npm run prisma:generate && tsc",
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@prisma/client": "^6.4.1",
     "chess.js": "^1.0.0-beta.8",
     "ioredis": "^5.4.2"
   },
   "devDependencies": {
+    "prisma": "^6.4.1",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }

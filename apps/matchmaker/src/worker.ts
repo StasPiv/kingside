@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './generated/prisma/client.js';
 import Redis from 'ioredis';
 
 const POLL_INTERVAL_MS = 500;
