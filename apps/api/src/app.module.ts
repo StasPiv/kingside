@@ -29,10 +29,12 @@ import { ArenaModule } from './arena/arena.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 import { OverloadGuardService } from './common/overload-guard.service';
+import { ScalingService } from './common/scaling.service';
 
 @Module({
   controllers: [HealthController],
-  providers: [OverloadGuardService],
+  providers: [OverloadGuardService, ScalingService],
+  exports: [ScalingService],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
