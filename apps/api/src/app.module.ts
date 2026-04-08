@@ -28,9 +28,11 @@ import { PuzzleGeneratorModule } from './puzzle-generator/puzzle-generator.modul
 import { ArenaModule } from './arena/arena.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
+import { OverloadGuardService } from './common/overload-guard.service';
 
 @Module({
   controllers: [HealthController],
+  providers: [OverloadGuardService],
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
