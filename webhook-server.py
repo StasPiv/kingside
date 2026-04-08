@@ -223,6 +223,18 @@ class AgentDaemon:
         except (FileNotFoundError, ValueError, ProcessLookupError):
             return None
 
+    def interrupt(self):
+        """Отправляет SIGINT агенту (эмуляция Escape)."""
+        with self.lock:
+            if not self.proc or self.proc.poll() is not None:
+                return False
+            try:
+                os.kill(self.proc.pid, signal.SIGINT)
+                log(f"Daemon {self.name}: SIGINT отправлен (PID: {self.proc.pid})")
+                return True
+            except ProcessLookupError:
+                return False
+
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
@@ -431,8 +443,9 @@ def cleanup_stale_worktrees():
 # ---------------------------------------------------------------------------
 
 def send_to_agent(agent: str, prompt: str):
-    """Отправляет сообщение daemon-агенту."""
+    """Отправляет сообщение daemon-агенту. Сначала прерывает текущую работу."""
     daemon = get_daemon(agent)
+    daemon.interrupt()
     daemon.ensure_running()
     daemon.send_message(prompt)
 
@@ -1254,6 +1267,35 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             handle_agent_message(self, payload)
+            return
+
+        if path == "/agent/stop":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            agent = payload.get("agent", "").lower()
+            valid = get_valid_agents()
+            if agent not in valid:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"unknown agent '{agent}'"}).encode())
+                return
+            with agent_daemons_lock:
+                daemon = agent_daemons.get(agent)
+            if not daemon or not daemon.is_alive():
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "not_running", "agent": agent}).encode())
+                return
+            ok = daemon.interrupt()
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "interrupted" if ok else "failed", "agent": agent}).encode())
             return
 
         if path == "/telegram/send":
