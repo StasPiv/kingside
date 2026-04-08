@@ -69,18 +69,19 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
       const gateway = this.moduleRef.get(GameGateway, { strict: false });
       if (!gateway?.server) return;
 
-      const currentConnections = gateway.server.engine?.clientsCount ?? 0;
+      // gateway.server is a Namespace (not root Server) when namespace is set.
+      // Root server with engine is at .server.server
+      const rootServer = (gateway.server as any).server ?? gateway.server;
+      const currentConnections = rootServer.engine?.clientsCount ?? 0;
       const overloaded = currentConnections > this.threshold;
 
-      if (currentConnections > 0) {
-        this.logger.debug(`check: connections=${currentConnections}, threshold=${this.threshold}, busy=${this.isBusy}`);
-      }
+      this.logger.log(`check: connections=${currentConnections}, threshold=${this.threshold}, busy=${this.isBusy}`);
 
       if (overloaded && !this.isBusy) {
         // Transition to busy
         this.isBusy = true;
         ScalingService.busy = true;
-        this.emitToAll(gateway.server, 'server:busy', {
+        this.emitToAll(rootServer, 'server:busy', {
           connections: currentConnections,
           threshold: this.threshold,
           etaSec: SCALE_UP_ETA_SEC,
@@ -90,7 +91,7 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
         // Transition to ready
         this.isBusy = false;
         ScalingService.busy = false;
-        this.emitToAll(gateway.server, 'server:ready', {
+        this.emitToAll(rootServer, 'server:ready', {
           connections: currentConnections,
           threshold: this.threshold,
         });

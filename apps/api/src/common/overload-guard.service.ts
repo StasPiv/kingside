@@ -32,8 +32,9 @@ export class OverloadGuardService implements OnModuleInit, OnModuleDestroy {
       const gateway = this.moduleRef.get(GameGateway, { strict: false });
       if (!gateway?.server) return;
 
-      const server = gateway.server;
-      const count = server.engine?.clientsCount ?? 0;
+      // gateway.server is a Namespace; root server with engine is at .server.server
+      const rootServer = (gateway.server as any).server ?? gateway.server;
+      const count = rootServer.engine?.clientsCount ?? 0;
 
       if (count <= this.maxConnections) return;
 
@@ -41,8 +42,14 @@ export class OverloadGuardService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Overload: ${count} connections (threshold=${this.maxConnections}), shedding ${shedCount}`);
 
       // Shed from local sockets (each instance sheds its own)
-      const localSockets = Array.from(server.sockets.sockets.values());
-      const toShed = localSockets.slice(0, shedCount);
+      const nsps = rootServer._nsps as Map<string, any> | undefined;
+      const allSockets: any[] = [];
+      if (nsps) {
+        for (const nsp of nsps.values()) {
+          for (const s of nsp.sockets.values()) allSockets.push(s);
+        }
+      }
+      const toShed = allSockets.slice(0, shedCount);
       for (const sock of toShed) {
         sock.emit('reconnect_suggestion', { reason: 'server_busy' });
         sock.disconnect(true);

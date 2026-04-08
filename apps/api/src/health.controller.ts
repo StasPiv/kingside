@@ -58,7 +58,8 @@ export class HealthController {
     try {
       const { GameGateway } = require('./game/game.gateway');
       const gateway = this.moduleRef.get(GameGateway, { strict: false });
-      return gateway?.server?.engine?.clientsCount ?? 0;
+      const rootServer = (gateway?.server as any)?.server ?? gateway?.server;
+      return rootServer?.engine?.clientsCount ?? 0;
     } catch {
       return 0;
     }
