@@ -1,13 +1,16 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
+import { RedisService } from '../redis/redis.service';
 
-const CHECK_INTERVAL_MS = 15_000;
+const CHECK_INTERVAL_MS = 3_000;
 /** Estimated time for a new instance to become healthy (seconds) */
 const SCALE_UP_ETA_SEC = 60;
 /** Minimum time to stay in busy state (ms) — prevents flapping */
 const MIN_BUSY_MS = 60_000;
 /** Consecutive checks below threshold needed to transition to ready */
-const READY_CHECKS_REQUIRED = 4; // 4 × 15s = 60s
+const READY_CHECKS_REQUIRED = 20; // 20 × 3s = 60s
+/** Redis key for busy state — read by standalone matchmaker worker */
+export const REDIS_BUSY_KEY = 'server:busy';
 
 @Injectable()
 export class ScalingService implements OnModuleInit, OnModuleDestroy {
@@ -35,7 +38,10 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
    */
   static busy = false;
 
-  constructor(private readonly moduleRef: ModuleRef) {
+  constructor(
+    private readonly moduleRef: ModuleRef,
+    private readonly redis: RedisService,
+  ) {
     this.threshold = parseInt(process.env.WS_SCALE_THRESHOLD || '80', 10);
     this.cooldownMs = parseInt(process.env.WS_SCALE_COOLDOWN || '120000', 10);
     this.cluster = process.env.ECS_CLUSTER || '';
@@ -112,6 +118,7 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
         this.busySince = now;
         this.belowThresholdChecks = 0;
         ScalingService.busy = true;
+        await this.redis.set(REDIS_BUSY_KEY, '1', 'EX', 300).catch(() => {});
         this.emitToAll(rootServer, 'server:busy', {
           connections: currentConnections,
           threshold: this.threshold,
@@ -128,6 +135,7 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
           this.isBusy = false;
           this.belowThresholdChecks = 0;
           ScalingService.busy = false;
+          await this.redis.del(REDIS_BUSY_KEY).catch(() => {});
           this.emitToAll(rootServer, 'server:ready', {
             connections: currentConnections,
             threshold: this.threshold,

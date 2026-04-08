@@ -58,6 +58,12 @@ export class MatchmakerWorker {
 
   private async poll(): Promise<void> {
     try {
+      // Skip pairing when server is busy (scale-up in progress)
+      const busy = await this.redis.get('server:busy');
+      if (busy) {
+        return;
+      }
+
       await this.processArenaTournaments();
       await this.processRegularQueues();
     } catch (e: any) {
