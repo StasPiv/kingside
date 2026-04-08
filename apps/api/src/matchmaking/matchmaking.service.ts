@@ -35,13 +35,16 @@ export class MatchmakingService {
     private readonly blockService: BlockService,
   ) {}
 
+  /**
+   * Add player to matchmaking queue. Matching is handled by matchmaker worker.
+   */
   async joinQueue(
     userId: string,
     timeInitialSec: number,
     timeIncrementSec: number,
-    isOnline?: (userId: string) => Promise<boolean>,
+    _isOnline?: (userId: string) => Promise<boolean>,
     ratingFilter?: RatingFilter,
-  ): Promise<{ gameId: string; color: string; opponent: any } | null> {
+  ): Promise<null> {
     const timeControlType = classifyTimeControl(timeInitialSec, timeIncrementSec);
 
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -50,96 +53,10 @@ export class MatchmakingService {
 
     const ratingField = this.ratingFieldForCategory(timeControlType);
     const rating = user[ratingField];
-
-    // Resolve rating filter to absolute range
     const ratingRange = this.resolveRatingRange(rating, ratingFilter);
 
     const queueKey = `matchmaking:${timeControlType}`;
 
-    // Get blocked users set for filtering (fail-safe: empty set on error)
-    let blockedIds: Set<string>;
-    try {
-      blockedIds = await this.blockService.getBlockedIdSet(userId);
-    } catch {
-      blockedIds = new Set();
-    }
-
-    // Look for opponent in rating range
-    const candidates = await this.redis.zrangebyscore(
-      queueKey,
-      rating - this.RATING_RANGE,
-      rating + this.RATING_RANGE,
-    );
-
-    this.logger.log(
-      `joinQueue: ${userId} (rating ${rating}) seeking ${timeInitialSec}+${timeIncrementSec} in ${queueKey}, candidates: ${candidates.length}`,
-    );
-
-    for (const candidateData of candidates) {
-      const candidate: QueueEntry = JSON.parse(candidateData);
-
-      if (
-        candidate.userId === userId ||
-        candidate.timeInitialSec !== timeInitialSec ||
-        candidate.timeIncrementSec !== timeIncrementSec
-      ) {
-        this.logger.debug(`Skipping candidate ${candidate.userId}: self or different time control`);
-        continue;
-      }
-
-      // Skip blocked users
-      if (blockedIds.has(candidate.userId)) {
-        this.logger.debug(`Skipping candidate ${candidate.userId}: blocked`);
-        continue;
-      }
-
-      // Check mutual rating filter: both players must accept each other
-      if (!this.isMatchAllowedByFilters(rating, ratingRange, candidate)) {
-        this.logger.debug(`Skipping candidate ${candidate.userId}: rating filter mismatch`);
-        continue;
-      }
-
-      // Check if candidate is still online
-      if (isOnline && !(await isOnline(candidate.userId))) {
-        this.logger.log(`Removing offline candidate ${candidate.userId} from queue`);
-        await this.redis.zrem(queueKey, candidateData);
-        continue;
-      }
-
-      // Remove opponent from queue
-      await this.redis.zrem(queueKey, candidateData);
-
-      // Randomly assign colors
-      const whiteId = Math.random() < 0.5 ? userId : candidate.userId;
-      const blackId = whiteId === userId ? candidate.userId : userId;
-
-      const game = await this.prisma.game.create({
-        data: {
-          whiteId,
-          blackId,
-          status: 'waiting',
-          timeControlType,
-          timeInitialSec,
-          timeIncrementSec,
-        },
-      });
-
-      await this.gameService.initGame(game.id);
-
-      const opponent = await this.prisma.user.findUnique({
-        where: { id: candidate.userId },
-        select: { id: true, username: true },
-      });
-
-      return {
-        gameId: game.id,
-        color: whiteId === userId ? 'white' : 'black',
-        opponent,
-      };
-    }
-
-    // No match found - add to queue
-    this.logger.log(`No match found for ${userId}, adding to queue`);
     const entry: QueueEntry = {
       userId,
       rating,
@@ -149,6 +66,7 @@ export class MatchmakingService {
     };
 
     await this.redis.zadd(queueKey, rating, JSON.stringify(entry));
+    this.logger.log(`joinQueue: ${userId} (rating ${rating}) added to ${queueKey}`);
     return null;
   }
 

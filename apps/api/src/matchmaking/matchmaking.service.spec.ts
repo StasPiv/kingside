@@ -56,7 +56,7 @@ describe('MatchmakingService', () => {
       });
     });
 
-    it('should add user to queue when no opponent found', async () => {
+    it('should add user to queue and return null (matching done by worker)', async () => {
       const result = await service.joinQueue(userId, 300, 0);
 
       expect(result).toBeNull();
@@ -65,61 +65,6 @@ describe('MatchmakingService', () => {
         1500,
         expect.stringContaining(userId),
       );
-    });
-
-    it('should match with opponent in rating range', async () => {
-      const candidateEntry = JSON.stringify({
-        userId: opponentId,
-        rating: 1450,
-        timeInitialSec: 300,
-        timeIncrementSec: 0,
-      });
-
-      redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-      prisma.game.create.mockResolvedValue({ id: 'game-1' });
-      prisma.user.findUnique.mockResolvedValue({
-        id: opponentId,
-        username: 'opponent',
-      });
-
-      const result = await service.joinQueue(userId, 300, 0);
-
-      expect(result).not.toBeNull();
-      expect(result!.gameId).toBe('game-1');
-      expect(result!.opponent).toEqual({ id: opponentId, username: 'opponent' });
-      expect(redis.zrem).toHaveBeenCalled();
-      expect(gameService.initGame).toHaveBeenCalledWith('game-1');
-    });
-
-    it('should skip own entry in queue', async () => {
-      const ownEntry = JSON.stringify({
-        userId,
-        rating: 1500,
-        timeInitialSec: 300,
-        timeIncrementSec: 0,
-      });
-
-      redis.zrangebyscore.mockResolvedValue([ownEntry]);
-
-      const result = await service.joinQueue(userId, 300, 0);
-
-      expect(result).toBeNull();
-      expect(redis.zadd).toHaveBeenCalled();
-    });
-
-    it('should skip candidate with different time control', async () => {
-      const candidateEntry = JSON.stringify({
-        userId: opponentId,
-        rating: 1500,
-        timeInitialSec: 600,
-        timeIncrementSec: 0,
-      });
-
-      redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-
-      const result = await service.joinQueue(userId, 300, 0);
-
-      expect(result).toBeNull();
     });
 
     it('should use correct rating field for bullet', async () => {
@@ -159,130 +104,6 @@ describe('MatchmakingService', () => {
     });
 
     describe('rating filter', () => {
-      it('should skip candidate outside joiner absolute filter', async () => {
-        const candidateEntry = JSON.stringify({
-          userId: opponentId,
-          rating: 1200,
-          timeInitialSec: 300,
-          timeIncrementSec: 0,
-        });
-
-        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-
-        const result = await service.joinQueue(
-          userId, 300, 0, undefined,
-          { minRating: 1400, maxRating: 1600 },
-        );
-
-        expect(result).toBeNull();
-        expect(redis.zadd).toHaveBeenCalled();
-      });
-
-      it('should match candidate inside joiner absolute filter', async () => {
-        const candidateEntry = JSON.stringify({
-          userId: opponentId,
-          rating: 1450,
-          timeInitialSec: 300,
-          timeIncrementSec: 0,
-        });
-
-        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-        prisma.game.create.mockResolvedValue({ id: 'game-1' });
-        prisma.user.findUnique.mockResolvedValue({
-          id: opponentId,
-          username: 'opponent',
-        });
-
-        const result = await service.joinQueue(
-          userId, 300, 0, undefined,
-          { minRating: 1400, maxRating: 1600 },
-        );
-
-        expect(result).not.toBeNull();
-        expect(result!.gameId).toBe('game-1');
-      });
-
-      it('should skip candidate outside joiner ratingDelta filter', async () => {
-        const candidateEntry = JSON.stringify({
-          userId: opponentId,
-          rating: 1350,
-          timeInitialSec: 300,
-          timeIncrementSec: 0,
-        });
-
-        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-
-        const result = await service.joinQueue(
-          userId, 300, 0, undefined,
-          { ratingDelta: 100 },
-        );
-
-        expect(result).toBeNull();
-      });
-
-      it('should match candidate inside joiner ratingDelta filter', async () => {
-        const candidateEntry = JSON.stringify({
-          userId: opponentId,
-          rating: 1450,
-          timeInitialSec: 300,
-          timeIncrementSec: 0,
-        });
-
-        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-        prisma.game.create.mockResolvedValue({ id: 'game-1' });
-        prisma.user.findUnique.mockResolvedValue({
-          id: opponentId,
-          username: 'opponent',
-        });
-
-        const result = await service.joinQueue(
-          userId, 300, 0, undefined,
-          { ratingDelta: 100 },
-        );
-
-        expect(result).not.toBeNull();
-      });
-
-      it('should skip if candidate filter rejects joiner', async () => {
-        const candidateEntry = JSON.stringify({
-          userId: opponentId,
-          rating: 1450,
-          timeInitialSec: 300,
-          timeIncrementSec: 0,
-          ratingRange: { min: 1400, max: 1480 },
-        });
-
-        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-
-        const result = await service.joinQueue(userId, 300, 0);
-
-        expect(result).toBeNull();
-      });
-
-      it('should match when both filters accept each other', async () => {
-        const candidateEntry = JSON.stringify({
-          userId: opponentId,
-          rating: 1450,
-          timeInitialSec: 300,
-          timeIncrementSec: 0,
-          ratingRange: { min: 1400, max: 1600 },
-        });
-
-        redis.zrangebyscore.mockResolvedValue([candidateEntry]);
-        prisma.game.create.mockResolvedValue({ id: 'game-1' });
-        prisma.user.findUnique.mockResolvedValue({
-          id: opponentId,
-          username: 'opponent',
-        });
-
-        const result = await service.joinQueue(
-          userId, 300, 0, undefined,
-          { minRating: 1400, maxRating: 1600 },
-        );
-
-        expect(result).not.toBeNull();
-      });
-
       it('should store ratingRange in queue entry', async () => {
         await service.joinQueue(
           userId, 300, 0, undefined,

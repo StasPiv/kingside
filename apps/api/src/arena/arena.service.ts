@@ -449,23 +449,20 @@ export class ArenaService {
     return `arena:${tournamentId}:last:${userId}`;
   }
 
-  async seekOpponent(tournamentId: string, userId: string): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
+  /**
+   * Add user to the arena seek queue. Matchmaker worker handles pairing.
+   * Validates tournament status, entry, and active game before adding.
+   */
+  async addToSeekQueue(tournamentId: string, userId: string): Promise<void> {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
-    if (!t || t.status !== 'active') {
-      this.logger.log(`seekOpponent: tournament not active (status=${t?.status})`);
-      return null;
-    }
+    if (!t || t.status !== 'active') return;
 
-    // Don't allow withdrawn players to seek
     const entry = await this.prisma.arenaTournamentEntry.findUnique({
       where: { tournamentId_userId: { tournamentId, userId } },
     });
-    if (!entry || entry.withdrawn) {
-      this.logger.log(`seekOpponent: user ${userId} not in tournament or withdrawn`);
-      return null;
-    }
+    if (!entry || entry.withdrawn) return;
 
-    // Don't allow players with an active game
+    // Don't add players with an active game
     const activeGame = await this.prisma.game.findFirst({
       where: {
         tournamentId,
@@ -474,122 +471,13 @@ export class ArenaService {
       },
       select: { id: true },
     });
-    if (activeGame) {
-      this.logger.log(`seek[${userId.slice(0, 8)}]: REJECT active game ${activeGame.id.slice(0, 8)}`);
-      return null;
-    }
+    if (activeGame) return;
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
     const rating = (user[ratingField] as number) || 1500;
 
-    const key = this.seekKey(tournamentId);
-
-    // No tournament-wide lock — use atomic ZREM as the concurrency guard
-    return this.matchOrEnqueue(tournamentId, userId, rating, key, t);
-  }
-
-  /**
-   * Lua script for atomic claim: checks self is still in queue (not claimed by
-   * another seeker), then removes candidate and self atomically.
-   * KEYS[1] = queue key
-   * ARGV[1] = candidateId, ARGV[2] = selfId
-   * Returns 1 if claim successful, 0 if failed.
-   */
-  private static readonly CLAIM_SCRIPT = `
-    local selfScore = redis.call('ZSCORE', KEYS[1], ARGV[2])
-    if selfScore == false then
-      return 0
-    end
-    local removed = redis.call('ZREM', KEYS[1], ARGV[1])
-    if removed == 0 then
-      return 0
-    end
-    redis.call('ZREM', KEYS[1], ARGV[2])
-    return 1
-  `;
-
-  private async matchOrEnqueue(
-    tournamentId: string,
-    userId: string,
-    rating: number,
-    key: string,
-    t: { timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
-  ): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
-    // Add self to queue first — seekers must see each other to match.
-    // ZADD is upsert — safe to call even if already in queue.
-    await this.redis.zadd(key, rating, userId);
-
-    // Check for opponent in queue (member=userId, score=rating)
-    const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);
-
-    // Two-pass: prefer non-repeat opponent, fallback to any (exclude self)
-    const lastOpp = await this.redis.get(this.lastOpponentKey(tournamentId, userId));
-    const ordered = [
-      ...candidates.filter(id => id !== userId && id !== lastOpp),
-      ...candidates.filter(id => id !== userId && id === lastOpp),
-    ];
-
-    this.logger.log(`seek[${userId.slice(0, 8)}]: queueSize=${candidates.length} eligible=${ordered.length}`);
-
-    for (const candidateId of ordered) {
-      // Atomic claim via Lua: check self still in queue → ZREM candidate → ZREM self.
-      // If self was already claimed by another seeker, abort (return 0).
-      // Prevents mutual claiming: A→B and B→A can't both succeed.
-      const claimed = await this.redis.eval(
-        ArenaService.CLAIM_SCRIPT, 1, key, candidateId, userId,
-      ) as number;
-      if (!claimed) {
-        this.logger.log(`seek[${userId.slice(0, 8)}]: claim ${candidateId.slice(0, 8)} failed (already taken or self claimed)`);
-        continue;
-      }
-
-      // Verify opponent doesn't already have an active game
-      const oppActiveGame = await this.prisma.game.findFirst({
-        where: {
-          tournamentId,
-          status: { in: ['waiting', 'active'] },
-          OR: [{ whiteId: candidateId }, { blackId: candidateId }],
-        },
-        select: { id: true },
-      });
-      if (oppActiveGame) {
-        // Stale candidate — re-add self to queue and continue
-        await this.redis.zadd(key, rating, userId);
-        this.logger.log(`seek[${userId.slice(0, 8)}]: candidate ${candidateId.slice(0, 8)} has active game, re-queued self`);
-        continue;
-      }
-
-      // Record last opponents
-      await this.redis.set(this.lastOpponentKey(tournamentId, userId), candidateId, 'EX', 300);
-      await this.redis.set(this.lastOpponentKey(tournamentId, candidateId), userId, 'EX', 300);
-
-      // Create game
-      const whiteId = Math.random() < 0.5 ? userId : candidateId;
-      const blackId = whiteId === userId ? candidateId : userId;
-
-      const game = await this.prisma.game.create({
-        data: {
-          whiteId,
-          blackId,
-          status: 'waiting',
-          timeControlType: t.timeControlType as 'bullet' | 'blitz' | 'rapid' | 'classical',
-          timeInitialSec: t.timeInitialSec,
-          timeIncrementSec: t.timeIncrementSec,
-          tournamentId,
-        },
-      });
-
-      await this.gameService.initGame(game.id);
-
-      this.logger.log(`seek[${userId.slice(0, 8)}]: MATCHED ${candidateId.slice(0, 8)}, game=${game.id.slice(0, 8)}`);
-      return { gameId: game.id, opponentId: candidateId, whiteId, blackId };
-    }
-
-    // No match — self is already in queue from ZADD above.
-    // If self was claimed by someone else's Lua script, we'll get tournament:paired via emit.
-    this.logger.log(`seek[${userId.slice(0, 8)}]: no match, in queue`);
-    return null;
+    await this.redis.zadd(this.seekKey(tournamentId), rating, userId);
   }
 
   async leaveSeeking(tournamentId: string, userId: string) {
