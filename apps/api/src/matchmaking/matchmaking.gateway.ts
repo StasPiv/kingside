@@ -49,6 +49,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
       }
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
+      await client.join(`user:${payload.sub}`);
       this.logger.log(`Matchmaking client connected: ${payload.username} (${client.id})`);
     } catch {
       client.disconnect();
@@ -76,8 +77,8 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
     this.logger.log(`${user.username} joined ${timeControlType} queue (${data.timeInitial}+${data.increment})`);
 
     const isOnline = async (userId: string): Promise<boolean> => {
-      const sockets = await this.server.fetchSockets();
-      return sockets.some((s) => s.data.user?.id === userId);
+      const userRoom = (this.server?.adapter as any)?.rooms?.get(`user:${userId}`);
+      return !!(userRoom && userRoom.size > 0);
     };
 
     let result: Awaited<ReturnType<typeof this.matchmakingService.joinQueue>>;
@@ -120,30 +121,20 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
         opponent: { id: user.id, username: user.username },
       };
 
-      // Fetch all sockets once and deliver to ALL sockets of each player
+      // Deliver to ALL sockets of each player via user rooms
       // (handles multiple tabs / reconnects)
-      const allSockets = await this.server.fetchSockets();
+      this.server.to(`user:${user.id}`).emit(MatchmakingEvents.FOUND, initiatorPayload);
+      this.server.to(`user:${result.opponent!.id}`).emit(MatchmakingEvents.FOUND, opponentPayload);
 
-      let initiatorDelivered = 0;
-      let opponentDelivered = 0;
-
-      for (const sock of allSockets) {
-        const sockUserId = sock.data.user?.id;
-        if (sockUserId === user.id) {
-          sock.emit(MatchmakingEvents.FOUND, initiatorPayload);
-          initiatorDelivered++;
-        } else if (sockUserId === result.opponent?.id) {
-          sock.emit(MatchmakingEvents.FOUND, opponentPayload);
-          opponentDelivered++;
-        }
-      }
+      const opponentRoom = (this.server?.adapter as any)?.rooms?.get(`user:${result.opponent!.id}`);
+      const opponentDelivered = opponentRoom?.size ?? 0;
 
       if (opponentDelivered > 0) {
         await this.redis.hdel(PLAYER_QUEUES_KEY, result.opponent!.id);
       }
 
       this.logger.log(
-        `Match found: ${result.gameId} — delivered to initiator: ${initiatorDelivered}, opponent: ${opponentDelivered} socket(s)`,
+        `Match found: ${result.gameId} — opponent sockets: ${opponentDelivered}`,
       );
 
       if (opponentDelivered === 0) {

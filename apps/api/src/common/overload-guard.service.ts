@@ -33,22 +33,22 @@ export class OverloadGuardService implements OnModuleInit, OnModuleDestroy {
       if (!gateway?.server) return;
 
       const server = gateway.server;
-      const allSockets = await server.fetchSockets();
-      const count = allSockets.length;
+      const count = server.engine?.clientsCount ?? 0;
 
       if (count <= this.maxConnections) return;
 
       const shedCount = Math.ceil(count * this.shedPercent);
       this.logger.warn(`Overload: ${count} connections (threshold=${this.maxConnections}), shedding ${shedCount}`);
 
-      // Shed oldest connections (first in array = oldest)
-      const toShed = allSockets.slice(0, shedCount);
+      // Shed from local sockets (each instance sheds its own)
+      const localSockets = Array.from(server.sockets.sockets.values());
+      const toShed = localSockets.slice(0, shedCount);
       for (const sock of toShed) {
         sock.emit('reconnect_suggestion', { reason: 'server_busy' });
         sock.disconnect(true);
       }
 
-      this.logger.log(`Shed ${shedCount} connections, remaining: ${count - shedCount}`);
+      this.logger.log(`Shed ${toShed.length} connections, remaining: ~${count - toShed.length}`);
     } catch (e: unknown) {
       this.logger.error(`OverloadGuard check failed: ${(e as Error).message}`);
     }

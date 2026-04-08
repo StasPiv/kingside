@@ -37,6 +37,8 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger = new Logger(ArenaGateway.name);
+  /** Local cache of userId → username, populated on connect */
+  private readonly usernames = new Map<string, string>();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -49,6 +51,8 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (!token) { client.disconnect(); return; }
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
+      await client.join(`user:${payload.sub}`);
+      this.usernames.set(payload.sub, payload.username ?? '');
       this.logger.log(`Tournament client connected: ${payload.username} (${client.id})`);
     } catch {
       client.disconnect();
@@ -140,18 +144,13 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       client.emit(TOURNAMENT_EVENTS.PAIRED, { ...base, color: seekerColor });
 
-      // Find opponent's socket and collect usernames
-      const allSockets = await this.server.fetchSockets();
-      let opponentUsername = '';
-      for (const s of allSockets) {
-        if (s.data.user?.id === result.opponentId) {
-          s.emit(TOURNAMENT_EVENTS.PAIRED, { ...base, color: opponentColor });
-          opponentUsername = s.data.user?.username ?? '';
-        }
-      }
+      // Emit PAIRED to opponent via user room
+      this.server.to(`user:${result.opponentId}`).emit(TOURNAMENT_EVENTS.PAIRED, { ...base, color: opponentColor });
 
       // Emit tournament:gameStarted to all subscribers
       const seekerUsername = client.data.user?.username ?? '';
+      // Resolve opponent username from local user map
+      const opponentUsername = this.usernames.get(result.opponentId) ?? '';
       const whiteUsername = userId === result.whiteId ? seekerUsername : opponentUsername;
       const blackUsername = userId === result.blackId ? seekerUsername : opponentUsername;
       await this.emitGameStarted(data.tournamentId, {
@@ -235,23 +234,9 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       standings,
     };
 
-    // Primary: emit to room
+    // Emit to tournament room
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.GAME_FINISHED, payload);
-
-    // Fallback: if room appears empty, emit directly to sockets with matching tournamentId
-    if (roomSize === 0) {
-      const allSockets = await this.server.fetchSockets();
-      let fallbackCount = 0;
-      for (const s of allSockets) {
-        if (s.data.tournamentId === tournamentId) {
-          s.emit(TOURNAMENT_EVENTS.GAME_FINISHED, payload);
-          fallbackCount++;
-        }
-      }
-      this.logger.log(`emitGameFinished FALLBACK: room=${roomName} roomSize=0 fallback=${fallbackCount} game=${data.gameId.slice(0, 8)}`);
-    } else {
-      this.logger.log(`emitGameFinished: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} result=${data.result} standings=${standings.length}`);
-    }
+    this.logger.log(`emitGameFinished: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} result=${data.result} standings=${standings.length}`);
   }
 
   async emitGameStarted(
@@ -270,39 +255,16 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       black: data.black,
     };
 
-    // Primary: emit to room
+    // Emit to tournament room
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.GAME_STARTED, payload);
-
-    // Fallback: if room appears empty, emit directly to sockets with matching tournamentId
-    if (roomSize === 0) {
-      const allSockets = await this.server.fetchSockets();
-      let fallbackCount = 0;
-      for (const s of allSockets) {
-        if (s.data.tournamentId === tournamentId) {
-          s.emit(TOURNAMENT_EVENTS.GAME_STARTED, payload);
-          fallbackCount++;
-        }
-      }
-      this.logger.log(`emitGameStarted FALLBACK: room=${roomName} roomSize=0 fallback=${fallbackCount} game=${data.gameId.slice(0, 8)}`);
-    } else {
-      this.logger.log(`emitGameStarted: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} white=${data.white.username} black=${data.black.username}`);
-    }
+    this.logger.log(`emitGameStarted: room=${roomName} size=${roomSize} game=${data.gameId.slice(0, 8)} white=${data.white.username} black=${data.black.username}`);
   }
 
-  async emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {
+  emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {
     if (!blackId) return; // bye — no game
-    const allSockets = await this.server.fetchSockets();
-    let notified = 0;
-    for (const s of allSockets) {
-      if (s.data.user?.id === whiteId) {
-        s.emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'white' });
-        notified++;
-      } else if (s.data.user?.id === blackId) {
-        s.emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'black' });
-        notified++;
-      }
-    }
-    this.logger.log(`emitPaired: game ${gameId}, white=${whiteId}, black=${blackId}, sockets=${allSockets.length}, notified=${notified}`);
+    this.server.to(`user:${whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'white' });
+    this.server.to(`user:${blackId}`).emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'black' });
+    this.logger.log(`emitPaired: game ${gameId}, white=${whiteId}, black=${blackId}`);
   }
 
   emitPlayerLeft(tournamentId: string, userId: string) {

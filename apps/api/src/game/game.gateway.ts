@@ -72,6 +72,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const payload = this.jwtService.verify<JwtPayload>(String(token));
       client.data.user = { id: payload.sub, username: payload.username };
+      await client.join(`user:${payload.sub}`);
       this.logger.log(`Client connected: ${payload.username} (${client.id})`);
     } catch {
       // Invalid token — allow connection for spectating (no user set)
@@ -98,9 +99,9 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const timer = setTimeout(async () => {
       this.botDisconnectTimers.delete(userId);
 
-      // Check if user reconnected (has active sockets)
-      const sockets = await this.server.fetchSockets();
-      const reconnected = sockets.some((s) => s.data.user?.id === userId);
+      // Check if user reconnected (has active sockets in user room)
+      const userRoom = (this.server?.adapter as any)?.rooms?.get(`user:${userId}`);
+      const reconnected = userRoom && userRoom.size > 0;
       if (reconnected) {
         this.logger.log(`User ${userId} reconnected, skipping bot game end`);
         return;
@@ -529,15 +530,11 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`game:${gameId}`).emit(GameEvents.END, endPayload);
     this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_END, endPayload);
 
-    // Also emit directly to player sockets by userId (fallback for missed room join)
+    // Also emit to player user rooms (fallback for missed game room join)
     try {
       const game = await this.gameService.getGame(gameId);
-      const playerIds = [game.whiteId, game.blackId].filter(Boolean);
-      const allSockets = await this.server.fetchSockets();
-      for (const s of allSockets) {
-        if (s.data.user?.id && playerIds.includes(s.data.user.id)) {
-          s.emit(GameEvents.END, endPayload);
-        }
+      for (const playerId of [game.whiteId, game.blackId].filter(Boolean)) {
+        this.server.to(`user:${playerId}`).emit(GameEvents.END, endPayload);
       }
     } catch { /* game may already be cleaned up */ }
   }
