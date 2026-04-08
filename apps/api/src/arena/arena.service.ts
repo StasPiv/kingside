@@ -489,6 +489,21 @@ export class ArenaService {
     return this.matchOrEnqueue(tournamentId, userId, rating, key, t);
   }
 
+  /**
+   * Lua script: atomically claim a candidate by removing BOTH candidate and self
+   * from the sorted set. Returns 1 if candidate was in the set (claim success),
+   * 0 if candidate was already gone (claimed by someone else).
+   * This prevents mutual claiming (A claims B while B claims A → duplicate games).
+   */
+  private static readonly CLAIM_SCRIPT = `
+    local removed = redis.call('ZREM', KEYS[1], ARGV[1])
+    if removed == 1 then
+      redis.call('ZREM', KEYS[1], ARGV[2])
+      return 1
+    end
+    return 0
+  `;
+
   private async matchOrEnqueue(
     tournamentId: string,
     userId: string,
@@ -496,16 +511,15 @@ export class ArenaService {
     key: string,
     t: { timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
   ): Promise<{ gameId: string; opponentId: string; whiteId: string; blackId: string } | null> {
-    // DON'T remove self before search — causes thundering herd when all bots seek simultaneously.
-    // Self is excluded via filter below. ZADD at the end is an upsert (safe if already in queue).
+    // Add self to queue first (upsert). This ensures seekers see each other.
+    await this.redis.zadd(key, rating, userId);
 
     // Check for opponent in queue (member=userId, score=rating)
     const candidates = await this.redis.zrangebyscore(key, rating - 300, rating + 300);
 
-    // Two-pass: prefer non-repeat opponent, fallback to any
+    // Two-pass: prefer non-repeat opponent, fallback to any (exclude self)
     const lastOpp = await this.redis.get(this.lastOpponentKey(tournamentId, userId));
 
-    // Pass 1: non-repeat opponents, Pass 2: allow repeat (exclude self)
     const ordered = [
       ...candidates.filter(id => id !== userId && id !== lastOpp),
       ...candidates.filter(id => id !== userId && id === lastOpp),
@@ -514,8 +528,11 @@ export class ArenaService {
     this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: queue=${candidates.length} eligible=${ordered.length}`);
 
     for (const candidateId of ordered) {
-      // Atomically claim this candidate — ZREM returns 1 only for the first claimer
-      const claimed = await this.redis.zrem(key, candidateId);
+      // Atomically claim: remove candidate AND self in one Lua call.
+      // Prevents mutual claiming (A↔B creating 2 games).
+      const claimed = await this.redis.eval(
+        ArenaService.CLAIM_SCRIPT, 1, key, candidateId, userId,
+      );
       if (!claimed) {
         this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: candidate ${candidateId.slice(0, 8)} already claimed`);
         continue;
@@ -531,13 +548,11 @@ export class ArenaService {
         select: { id: true },
       });
       if (oppActiveGame) {
-        // Stale candidate — continue searching
+        // Stale candidate — re-add self to queue and continue
+        await this.redis.zadd(key, rating, userId);
         this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: candidate ${candidateId.slice(0, 8)} has active game, skipping`);
         continue;
       }
-
-      // Remove self from queue (we're matched, don't need to be there)
-      await this.redis.zrem(key, userId);
 
       // Record last opponents
       await this.redis.set(this.lastOpponentKey(tournamentId, userId), candidateId, 'EX', 300);
@@ -565,9 +580,8 @@ export class ArenaService {
       return { gameId: game.id, opponentId: candidateId, whiteId, blackId };
     }
 
-    // No match — add self to queue (member=userId, score=rating). ZADD is an upsert.
-    await this.redis.zadd(key, rating, userId);
-    this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: no match, added to queue`);
+    // No match — self is already in queue from ZADD above
+    this.logger.log(`seekOpponent[${userId.slice(0, 8)}]: no match, staying in queue`);
     return null;
   }
 
