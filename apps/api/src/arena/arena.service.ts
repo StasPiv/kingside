@@ -445,10 +445,6 @@ export class ArenaService {
     return `arena:${tournamentId}:seeking`;
   }
 
-  private lastOpponentKey(tournamentId: string, userId: string) {
-    return `arena:${tournamentId}:last:${userId}`;
-  }
-
   /**
    * Add user to the arena seek queue. Matchmaker worker handles pairing.
    * Validates tournament status, entry, and active game before adding.

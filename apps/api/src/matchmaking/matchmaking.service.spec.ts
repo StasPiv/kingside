@@ -4,9 +4,6 @@ jest.mock('../prisma/prisma.service', () => ({
 jest.mock('../redis/redis.service', () => ({
   RedisService: jest.fn(),
 }));
-jest.mock('../game/game.service', () => ({
-  GameService: jest.fn(),
-}));
 
 import { MatchmakingService } from './matchmaking.service';
 
@@ -14,7 +11,6 @@ describe('MatchmakingService', () => {
   let service: MatchmakingService;
   let prisma: any;
   let redis: any;
-  let gameService: any;
 
   const userId = '11111111-1111-4111-a111-111111111111';
   const opponentId = '22222222-2222-4222-a222-222222222222';
@@ -25,24 +21,15 @@ describe('MatchmakingService', () => {
         findUniqueOrThrow: jest.fn(),
         findUnique: jest.fn(),
       },
-      game: {
-        create: jest.fn(),
-      },
     } as any;
 
     redis = {
-      zrangebyscore: jest.fn().mockResolvedValue([]),
       zadd: jest.fn().mockResolvedValue(1),
       zrange: jest.fn().mockResolvedValue([]),
       zrem: jest.fn().mockResolvedValue(1),
     } as any;
 
-    gameService = {
-      initGame: jest.fn().mockResolvedValue(undefined),
-    } as any;
-
-    const blockService = { getBlockedIdSet: jest.fn().mockResolvedValue(new Set()) } as any;
-    service = new MatchmakingService(redis, gameService, prisma, blockService);
+    service = new MatchmakingService(redis, prisma);
   });
 
   describe('joinQueue', () => {

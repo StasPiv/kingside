@@ -1,8 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
-import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { BlockService } from '../user/block.service';
 import {
   classifyTimeControl,
   type TimeControlCategory,
@@ -19,20 +17,16 @@ interface QueueEntry {
   rating: number;
   timeInitialSec: number;
   timeIncrementSec: number;
-  /** Resolved absolute rating range filter (if set by the player) */
   ratingRange?: RatingRange;
 }
 
 @Injectable()
 export class MatchmakingService {
   private readonly logger = new Logger(MatchmakingService.name);
-  private readonly RATING_RANGE = 200;
 
   constructor(
     private readonly redis: RedisService,
-    private readonly gameService: GameService,
     private readonly prisma: PrismaService,
-    private readonly blockService: BlockService,
   ) {}
 
   /**
@@ -85,10 +79,6 @@ export class MatchmakingService {
     return false;
   }
 
-  /**
-   * Resolve a RatingFilter into an absolute { min, max } range.
-   * If no filter is provided, returns undefined (no restriction).
-   */
   private resolveRatingRange(
     playerRating: number,
     filter?: RatingFilter,
@@ -97,7 +87,6 @@ export class MatchmakingService {
 
     const { minRating, maxRating, ratingDelta } = filter;
 
-    // ratingDelta takes precedence when set
     if (ratingDelta !== undefined) {
       return {
         min: playerRating - ratingDelta,
@@ -113,33 +102,6 @@ export class MatchmakingService {
     }
 
     return undefined;
-  }
-
-  /**
-   * Check whether a match is allowed considering both players' rating filters.
-   * The joining player's rating must be accepted by the candidate's filter,
-   * and the candidate's rating must be accepted by the joining player's filter.
-   */
-  private isMatchAllowedByFilters(
-    joinerRating: number,
-    joinerRange: RatingRange | undefined,
-    candidate: QueueEntry,
-  ): boolean {
-    // Joiner's filter rejects candidate?
-    if (joinerRange) {
-      if (candidate.rating < joinerRange.min || candidate.rating > joinerRange.max) {
-        return false;
-      }
-    }
-
-    // Candidate's filter rejects joiner?
-    if (candidate.ratingRange) {
-      if (joinerRating < candidate.ratingRange.min || joinerRating > candidate.ratingRange.max) {
-        return false;
-      }
-    }
-
-    return true;
   }
 
   private ratingFieldForCategory(
