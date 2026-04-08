@@ -1,10 +1,12 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { RedisIoAdapter } from './common/redis-io.adapter';
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
   const corsOrigins: (string | RegExp)[] = process.env.CORS_ORIGIN
@@ -20,6 +22,18 @@ async function bootstrap() {
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
+
+  // Socket.IO Redis adapter for horizontal scaling
+  const redisHost = process.env.REDIS_HOST || 'localhost';
+  const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
+  try {
+    const redisAdapter = new RedisIoAdapter(app, redisHost, redisPort);
+    await redisAdapter.connectToRedis();
+    app.useWebSocketAdapter(redisAdapter);
+    logger.log('Socket.IO Redis adapter enabled');
+  } catch (e: unknown) {
+    logger.warn(`Redis adapter failed, using in-memory: ${(e as Error).message}`);
+  }
 
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');
