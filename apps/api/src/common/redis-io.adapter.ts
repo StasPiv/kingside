@@ -64,6 +64,39 @@ export class RedisIoAdapter extends IoAdapter {
     if (this.adapterConstructor) {
       server.adapter(this.adapterConstructor);
     }
+
+    const maxConnections = parseInt(process.env.WS_MAX_CONNECTIONS || '150', 10);
+    const maxPendingHandshakes = parseInt(process.env.WS_MAX_PENDING_HANDSHAKES || '20', 10);
+    let pendingHandshakes = 0;
+
+    // Connection admission control + handshake rate limiting
+    server.use((socket: any, next: (err?: Error) => void) => {
+      // 1. Admission control: reject if too many connections
+      const clientsCount = server.engine?.clientsCount ?? 0;
+      if (clientsCount >= maxConnections) {
+        this.logger.warn(`Admission control: rejecting connection (${clientsCount}/${maxConnections})`);
+        return next(new Error('server_busy'));
+      }
+
+      // 2. Handshake rate limiting: reject if too many pending
+      if (pendingHandshakes >= maxPendingHandshakes) {
+        this.logger.warn(`Handshake rate limit: rejecting (${pendingHandshakes}/${maxPendingHandshakes} pending)`);
+        return next(new Error('server_busy'));
+      }
+
+      pendingHandshakes++;
+      socket.once('disconnect', () => { /* cleanup handled below */ });
+
+      // Decrease pending count after handshake completes (next tick)
+      setImmediate(() => {
+        pendingHandshakes = Math.max(0, pendingHandshakes - 1);
+      });
+
+      next();
+    });
+
+    this.logger.log(`Admission control: maxConnections=${maxConnections}, maxPendingHandshakes=${maxPendingHandshakes}`);
+
     return server;
   }
 }
