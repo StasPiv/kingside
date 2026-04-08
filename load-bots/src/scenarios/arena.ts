@@ -70,7 +70,8 @@ async function runBotInArena(
   metrics: Metrics,
   tournamentDurationMin: number,
 ): Promise<void> {
-  const socket = bot.connectWs('/tournament');
+  // Mutable ref — updated on every reconnect so closures (trySeeking) use the live socket
+  let activeSocket = bot.connectWs('/tournament');
 
   return new Promise((resolve) => {
     let currentGameId: string | null = null;
@@ -82,7 +83,7 @@ async function runBotInArena(
       if (finished) return;
       finished = true;
       if (seekInterval) clearInterval(seekInterval);
-      socket.disconnect();
+      activeSocket.disconnect();
       resolve();
     };
 
@@ -92,11 +93,10 @@ async function runBotInArena(
 
     const trySeeking = () => {
       if (!finished && !currentGameId && !seekPaused && !serverBusy) {
-        socket.emit('tournament:seek', { tournamentId });
+        activeSocket.emit('tournament:seek', { tournamentId });
       }
     };
 
-    // Re-seek every 5s to handle race conditions in matchmaking queue
     const startSeekLoop = () => {
       if (seekInterval) clearInterval(seekInterval);
       seekPaused = false;
@@ -108,147 +108,81 @@ async function runBotInArena(
       if (seekInterval) { clearInterval(seekInterval); seekInterval = null; }
     };
 
-    const pauseSeekLoop = () => {
-      seekPaused = true;
-    };
+    const pauseSeekLoop = () => { seekPaused = true; };
+    const resumeSeekLoop = () => { seekPaused = false; trySeeking(); };
 
-    const resumeSeekLoop = () => {
-      seekPaused = false;
-      // Immediately try seeking when resumed
-      trySeeking();
-    };
+    /** Wire all event handlers onto a socket and update activeSocket ref */
+    const wireSocket = (sock: ReturnType<typeof bot.connectWs>) => {
+      activeSocket = sock;
 
-    socket.on('connect', () => {
-      socket.emit('tournament:subscribe', { tournamentId });
-    });
+      sock.on('connect', () => {
+        sock.emit('tournament:subscribe', { tournamentId });
+      });
 
-    socket.on('server:busy', () => {
-      serverBusy = true;
-      pauseSeekLoop();
-    });
+      sock.on('server:busy', () => { serverBusy = true; pauseSeekLoop(); });
+      sock.on('server:ready', () => { serverBusy = false; if (!finished && !currentGameId) resumeSeekLoop(); });
 
-    socket.on('server:ready', () => {
-      serverBusy = false;
-      if (!finished && !currentGameId) resumeSeekLoop();
-    });
+      sock.on('tournament:started', () => startSeekLoop());
 
-    socket.on('tournament:started', () => {
-      startSeekLoop();
-    });
+      sock.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
+        currentGameId = data.gameId;
+        stopSeekLoop();
+        metrics.recordGameStarted();
 
-    socket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
-      currentGameId = data.gameId;
-      stopSeekLoop();
-      metrics.recordGameStarted();
+        playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
+          metrics.recordGameCompleted();
+          currentGameId = null;
+          if (!finished) setTimeout(() => startSeekLoop(), 2000);
+        });
+      });
 
-      playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
-        metrics.recordGameCompleted();
-        currentGameId = null;
+      sock.on('tournament:finished', () => { clearTimeout(timeout); cleanup(); });
 
-        // Seek next game — play until tournament:finished
-        if (!finished) {
-          setTimeout(() => startSeekLoop(), 2000);
+      sock.on('disconnect', async () => {
+        if (finished) return;
+        console.log(`[${bot.username}] /tournament disconnected, reconnecting...`);
+        try {
+          wireSocket(await bot.reconnectWs('/tournament'));
+        } catch { metrics.recordError(); }
+      });
+
+      sock.on('error', async (err: { code?: string }) => {
+        if (err.code === 'AUTH_REQUIRED' && !finished) {
+          console.log(`[${bot.username}] Tournament AUTH_REQUIRED, re-login → reconnect`);
+          try {
+            wireSocket(await bot.reconnectWs('/tournament'));
+          } catch {
+            console.error(`[${bot.username}] Tournament re-login failed`);
+            metrics.recordError();
+          }
         }
       });
-    });
 
-    socket.on('tournament:finished', () => {
-      clearTimeout(timeout);
-      cleanup();
-    });
-
-    socket.on('disconnect', async () => {
-      if (finished) return;
-      console.log(`[${bot.username}] /tournament disconnected, reconnecting...`);
-      try {
-        const newSocket = await bot.reconnectWs('/tournament');
-        // Re-subscribe — connect handler on new socket
-        newSocket.on('connect', () => {
-          newSocket.emit('tournament:subscribe', { tournamentId });
-        });
-        newSocket.on('server:busy', () => { serverBusy = true; pauseSeekLoop(); });
-        newSocket.on('server:ready', () => { serverBusy = false; if (!finished && !currentGameId) resumeSeekLoop(); });
-        newSocket.on('tournament:started', () => startSeekLoop());
-        newSocket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
-          currentGameId = data.gameId;
-          stopSeekLoop();
-          metrics.recordGameStarted();
-          playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
-            metrics.recordGameCompleted();
-            currentGameId = null;
-            if (!finished) setTimeout(() => startSeekLoop(), 2000);
-          });
-        });
-        newSocket.on('tournament:finished', () => { clearTimeout(timeout); cleanup(); });
-      } catch {
-        metrics.recordError();
-      }
-    });
-
-    socket.on('error', async (err: { code?: string }) => {
-      if (err.code === 'AUTH_REQUIRED' && !finished) {
-        console.log(`[${bot.username}] Tournament AUTH_REQUIRED, re-login → reconnect`);
+      sock.on('connect_error', async (err: Error) => {
+        let retryAfter = 0;
         try {
-          const newSocket = await bot.reconnectWs('/tournament');
-          newSocket.on('connect', () => {
-            newSocket.emit('tournament:subscribe', { tournamentId });
-          });
-          newSocket.on('tournament:started', () => startSeekLoop());
-          newSocket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
-            currentGameId = data.gameId;
-            stopSeekLoop();
-            metrics.recordGameStarted();
-            playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
-              metrics.recordGameCompleted();
-              currentGameId = null;
-              if (!finished) setTimeout(() => startSeekLoop(), 2000);
-            });
-          });
-          newSocket.on('tournament:finished', () => { clearTimeout(timeout); cleanup(); });
-        } catch {
-          console.error(`[${bot.username}] Tournament re-login failed`);
+          const parsed = JSON.parse(err.message);
+          if (parsed.type === 'server_busy') retryAfter = parsed.retryAfter || 60;
+        } catch { /* not JSON */ }
+
+        if (retryAfter > 0 && !finished) {
+          console.log(`[${bot.username}] /tournament server_busy, retry in ${retryAfter}s`);
+          serverBusy = true;
+          await new Promise((r) => setTimeout(r, retryAfter * 1000));
+          if (!finished) {
+            try { wireSocket(await bot.reconnectWs('/tournament')); }
+            catch { metrics.recordError(); }
+          }
+        } else {
           metrics.recordError();
+          clearTimeout(timeout);
+          cleanup();
         }
-      }
-    });
+      });
+    };
 
-    socket.on('connect_error', async (err: Error) => {
-      let retryAfter = 0;
-      try {
-        const parsed = JSON.parse(err.message);
-        if (parsed.type === 'server_busy') retryAfter = parsed.retryAfter || 60;
-      } catch { /* not JSON */ }
-
-      if (retryAfter > 0 && !finished) {
-        console.log(`[${bot.username}] /tournament server_busy, retry in ${retryAfter}s`);
-        serverBusy = true;
-        await new Promise((r) => setTimeout(r, retryAfter * 1000));
-        if (!finished) {
-          try {
-            const newSocket = await bot.reconnectWs('/tournament');
-            newSocket.on('connect', () => { newSocket.emit('tournament:subscribe', { tournamentId }); });
-            newSocket.on('server:busy', () => { serverBusy = true; pauseSeekLoop(); });
-            newSocket.on('server:ready', () => { serverBusy = false; if (!finished && !currentGameId) resumeSeekLoop(); });
-            newSocket.on('tournament:started', () => startSeekLoop());
-            newSocket.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
-              currentGameId = data.gameId;
-              stopSeekLoop();
-              metrics.recordGameStarted();
-              playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
-                metrics.recordGameCompleted();
-                currentGameId = null;
-                if (!finished) setTimeout(() => startSeekLoop(), 2000);
-              });
-            });
-            newSocket.on('tournament:finished', () => { clearTimeout(timeout); cleanup(); });
-          } catch { metrics.recordError(); }
-        }
-      } else {
-        metrics.recordError();
-        clearTimeout(timeout);
-        cleanup();
-      }
-    });
+    // Wire initial socket
+    wireSocket(activeSocket);
   });
 }
 
