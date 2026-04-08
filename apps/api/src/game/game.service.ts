@@ -86,6 +86,9 @@ export class GameService {
       moves: '[]',
       status: 'active',
       active_color: 'white',
+      white_id: game.whiteId,
+      black_id: game.blackId,
+      time_increment_sec: String(game.timeIncrementSec),
     });
 
     await this.clockService.initClocks(gameId, game.timeInitialSec * 1000);
@@ -156,6 +159,165 @@ export class GameService {
   }
 
   async makeMove(gameId: string, userId: string, uci: string): Promise<MoveResult> {
+    // --- I/O #1: Pipeline read — state + clocks in one round-trip ---
+    const stateKey = this.stateKey(gameId);
+    const clockKey = `game:${gameId}:clocks`;
+    const pipelineRead = this.redis.pipeline();
+    pipelineRead.hgetall(stateKey);
+    pipelineRead.hgetall(clockKey);
+    const [[, raw], [, clockRaw]] = await pipelineRead.exec() as [[null, Record<string, string>], [null, Record<string, string>]];
+
+    if (raw.status !== 'active') {
+      throw new BadRequestException(this.i18n.t('messages.game.notActive'));
+    }
+
+    const activeColor = raw.active_color as 'white' | 'black';
+    const whiteId = raw.white_id;
+    const blackId = raw.black_id;
+    const timeIncrementSec = Number(raw.time_increment_sec || '0');
+
+    // Fallback: if whiteId/blackId not cached in Redis, fetch from Prisma
+    if (!whiteId || !blackId) {
+      return this.makeMoveWithPrismaFallback(gameId, userId, uci);
+    }
+
+    const expectedPlayer = activeColor === 'white' ? whiteId : blackId;
+    if (userId !== expectedPlayer) {
+      throw new ForbiddenException(this.i18n.t('messages.game.notYourTurn'));
+    }
+
+    // --- Inline timeout check (no extra Redis call) ---
+    const now = Date.now();
+    const clockField = activeColor === 'white' ? 'white_ms' : 'black_ms';
+    const elapsed = now - Number(clockRaw.last_tick);
+    const timeRemaining = Number(clockRaw[clockField]) - elapsed;
+
+    if (timeRemaining <= 0) {
+      const timeoutClocks: ClockState = {
+        whiteMs: activeColor === 'white' ? 0 : Number(clockRaw.white_ms),
+        blackMs: activeColor === 'black' ? 0 : Number(clockRaw.black_ms),
+        lastTick: now,
+        running: clockRaw.running === '1',
+      };
+      const result = activeColor === 'white' ? 'black' : 'white';
+      const ratingChange = await this.endGame(gameId, result, 'timeout');
+      return {
+        san: '',
+        fen: raw.fen,
+        clocks: timeoutClocks,
+        gameOver: true,
+        result,
+        termination: 'timeout',
+        ratingChange,
+      };
+    }
+
+    // --- CPU: chess.js validation ---
+    const chess = new Chess(raw.fen);
+
+    const from = uci.substring(0, 2);
+    const to = uci.substring(2, 4);
+    let promotion = uci.length > 4 ? uci[4] : undefined;
+
+    if (!promotion) {
+      const piece = chess.get(from as Square);
+      if (piece?.type === 'p' && (to[1] === '8' || to[1] === '1')) {
+        promotion = 'q';
+      }
+    }
+
+    const normalizedUci = promotion && uci.length <= 4 ? `${from}${to}${promotion}` : uci;
+
+    const move = chess.move({ from, to, promotion });
+    if (!move) {
+      throw new BadRequestException(this.i18n.t('messages.game.invalidMove'));
+    }
+
+    const moveFlags: MoveFlags = {
+      captured: !!move.captured,
+      isCheck: chess.inCheck(),
+      isCastle: move.flags.includes('k') || move.flags.includes('q'),
+      isPromotion: move.flags.includes('p'),
+    };
+
+    const newFen = chess.fen();
+    const moves = JSON.parse(raw.moves || '[]');
+    moves.push({ uci: normalizedUci, san: move.san });
+    const nextColor = activeColor === 'white' ? 'black' : 'white';
+
+    // --- Inline clock switch (compute from already-fetched clock data) ---
+    const incrementMs = timeIncrementSec * 1000;
+    const movedField = activeColor === 'white' ? 'white_ms' : 'black_ms';
+    const remaining = Math.max(0, Number(clockRaw[movedField]) - elapsed + incrementMs);
+    const whiteMs = activeColor === 'white' ? remaining : Number(clockRaw.white_ms);
+    const blackMs = activeColor === 'black' ? remaining : Number(clockRaw.black_ms);
+    const clocks: ClockState = { whiteMs, blackMs, lastTick: now, running: true };
+
+    // --- I/O #2: Pipeline write — state + clocks in one round-trip ---
+    const pipelineWrite = this.redis.pipeline();
+    pipelineWrite.hset(stateKey, {
+      fen: newFen,
+      moves: JSON.stringify(moves),
+      active_color: nextColor,
+    });
+    pipelineWrite.hset(clockKey, {
+      [movedField]: String(remaining),
+      last_tick: String(now),
+    });
+    await pipelineWrite.exec();
+
+    // --- I/O #3: Prisma write — persist move ---
+    await this.prisma.move.create({
+      data: {
+        gameId,
+        moveNumber: moves.length,
+        color: activeColor,
+        uci: normalizedUci,
+        san: move.san,
+        fenAfter: newFen,
+        timeLeftMs: activeColor === 'white' ? clocks.whiteMs : clocks.blackMs,
+      },
+    });
+
+    let gameOver = false;
+    let result: GameResult | undefined;
+    let termination: Termination | undefined;
+
+    if (chess.isCheckmate()) {
+      result = activeColor;
+      termination = 'checkmate';
+      gameOver = true;
+    } else if (chess.isStalemate()) {
+      result = 'draw';
+      termination = 'stalemate';
+      gameOver = true;
+    } else if (chess.isInsufficientMaterial()) {
+      result = 'draw';
+      termination = 'insufficient';
+      gameOver = true;
+    } else if (chess.isThreefoldRepetition()) {
+      result = 'draw';
+      termination = 'repetition';
+      gameOver = true;
+    } else if (chess.isDraw()) {
+      result = 'draw';
+      termination = 'fifty_moves';
+      gameOver = true;
+    }
+
+    let ratingChange: RatingChange | null | undefined;
+    if (gameOver && result && termination) {
+      ratingChange = await this.endGame(gameId, result, termination);
+    }
+
+    return { san: move.san, fen: newFen, clocks, gameOver, result, termination, ratingChange, moveFlags };
+  }
+
+  /**
+   * Fallback makeMove for games initialized before whiteId/blackId caching.
+   * Uses Prisma to fetch game metadata (old behavior).
+   */
+  private async makeMoveWithPrismaFallback(gameId: string, userId: string, uci: string): Promise<MoveResult> {
     const game = await this.prisma.game.findUniqueOrThrow({
       where: { id: gameId },
       select: { whiteId: true, blackId: true, timeIncrementSec: true, status: true },
@@ -164,6 +326,13 @@ export class GameService {
     if (game.status !== 'active') {
       throw new BadRequestException(this.i18n.t('messages.game.notActive'));
     }
+
+    // Backfill Redis cache for future calls
+    await this.redis.hset(this.stateKey(gameId), {
+      white_id: game.whiteId,
+      black_id: game.blackId,
+      time_increment_sec: String(game.timeIncrementSec),
+    });
 
     const raw = await this.redis.hgetall(this.stateKey(gameId));
     const activeColor = raw.active_color as 'white' | 'black';
@@ -192,20 +361,16 @@ export class GameService {
     }
 
     const chess = new Chess(raw.fen);
-
     const from = uci.substring(0, 2);
     const to = uci.substring(2, 4);
     let promotion = uci.length > 4 ? uci[4] : undefined;
-
     if (!promotion) {
       const piece = chess.get(from as Square);
       if (piece?.type === 'p' && (to[1] === '8' || to[1] === '1')) {
         promotion = 'q';
       }
     }
-
     const normalizedUci = promotion && uci.length <= 4 ? `${from}${to}${promotion}` : uci;
-
     const move = chess.move({ from, to, promotion });
     if (!move) {
       throw new BadRequestException(this.i18n.t('messages.game.invalidMove'));
