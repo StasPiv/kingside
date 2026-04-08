@@ -9,7 +9,8 @@ describe('HealthController', () => {
     prisma = { $queryRawUnsafe: jest.fn() };
     redis = { set: jest.fn() };
     const moduleRef = { get: jest.fn().mockReturnValue(null) };
-    controller = new HealthController(prisma as any, redis as any, moduleRef as any);
+    const scalingService = { getThreshold: jest.fn().mockReturnValue(80), getBusyState: jest.fn().mockReturnValue(false) };
+    controller = new HealthController(prisma as any, redis as any, moduleRef as any, scalingService as any);
   });
 
   it('should return ok when DB and Redis are healthy', async () => {

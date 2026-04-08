@@ -2,6 +2,7 @@ import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/co
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisService } from './redis/redis.service';
+import { ScalingService } from './common/scaling.service';
 
 type ComponentStatus = 'ok' | 'error' | 'readonly';
 
@@ -14,6 +15,7 @@ export class HealthController {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly moduleRef: ModuleRef,
+    private readonly scalingService: ScalingService,
   ) {
     this.wsOverloadThreshold = parseInt(process.env.WS_HEALTH_THRESHOLD || '120', 10);
   }
@@ -38,6 +40,18 @@ export class HealthController {
     }
 
     return response;
+  }
+
+  @Get('load')
+  getLoad() {
+    const connections = this.getWsConnectionCount();
+    const scaleThreshold = this.scalingService.getThreshold();
+    const busy = this.scalingService.getBusyState();
+    return {
+      connections,
+      threshold: scaleThreshold,
+      busy,
+    };
   }
 
   private getWsConnectionCount(): number {

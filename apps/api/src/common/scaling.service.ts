@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ModuleRef } from '@nestjs/core';
 
 const CHECK_INTERVAL_MS = 15_000;
+/** Estimated time for a new instance to become healthy (seconds) */
+const SCALE_UP_ETA_SEC = 60;
 
 @Injectable()
 export class ScalingService implements OnModuleInit, OnModuleDestroy {
@@ -14,6 +16,8 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
   private lastScaleTime = 0;
   private ecsClient: any = null;
   private timer: NodeJS.Timeout | null = null;
+  /** Track busy state to emit server:busy / server:ready transitions only once */
+  private isBusy = false;
 
   constructor(private readonly moduleRef: ModuleRef) {
     this.threshold = parseInt(process.env.WS_SCALE_THRESHOLD || '80', 10);
@@ -21,6 +25,14 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
     this.cluster = process.env.ECS_CLUSTER || '';
     this.service = process.env.ECS_SERVICE || '';
     this.enabled = !!(this.cluster && this.service);
+  }
+
+  getThreshold(): number {
+    return this.threshold;
+  }
+
+  getBusyState(): boolean {
+    return this.isBusy;
   }
 
   async onModuleInit() {
@@ -47,10 +59,44 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
     try {
       const { GameGateway } = await import('../game/game.gateway');
       const gateway = this.moduleRef.get(GameGateway, { strict: false });
-      const currentConnections = gateway?.server?.engine?.clientsCount ?? 0;
+      if (!gateway?.server) return;
+
+      const currentConnections = gateway.server.engine?.clientsCount ?? 0;
+      const overloaded = currentConnections > this.threshold;
+
+      if (overloaded && !this.isBusy) {
+        // Transition to busy
+        this.isBusy = true;
+        this.emitToAll(gateway.server, 'server:busy', {
+          connections: currentConnections,
+          threshold: this.threshold,
+          etaSec: SCALE_UP_ETA_SEC,
+        });
+        this.logger.warn(`server:busy emitted (${currentConnections} > ${this.threshold})`);
+      } else if (!overloaded && this.isBusy) {
+        // Transition to ready
+        this.isBusy = false;
+        this.emitToAll(gateway.server, 'server:ready', {
+          connections: currentConnections,
+          threshold: this.threshold,
+        });
+        this.logger.log(`server:ready emitted (${currentConnections} <= ${this.threshold})`);
+      }
+
       await this.checkAndScale(currentConnections);
     } catch (e: unknown) {
       this.logger.error(`ScalingService check failed: ${(e as Error).message}`);
+    }
+  }
+
+  /** Emit event to all connected clients across all namespaces */
+  private emitToAll(server: any, event: string, payload: Record<string, unknown>): void {
+    // server.emit broadcasts to the default namespace (/)
+    // Also emit to named namespaces where clients are connected
+    server.emit(event, payload);
+    for (const ns of ['/game', '/tournament', '/matchmaking', '/broadcast', '/messages']) {
+      const nsp = server._nsps?.get(ns);
+      if (nsp) nsp.emit(event, payload);
     }
   }
 
