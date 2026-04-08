@@ -23,7 +23,8 @@ import { useBoardSettings } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { useChallenge } from '../hooks/useChallenge';
 import { HelpButton } from '../components/HelpButton';
-import { socket } from '../socket';
+import { socket, messagesSocket } from '../socket';
+import { useLazySocket } from '../hooks/useLazySocket';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -41,6 +42,8 @@ function formatTime(seconds: number): string {
 }
 
 export function GamePage() {
+  useLazySocket(socket);
+  useLazySocket(messagesSocket); // challenges
   const { id: gameId } = useParams<{ id: string }>();
   const location = useLocation();
   const [urlParams] = useState(() => new URLSearchParams(location.search));

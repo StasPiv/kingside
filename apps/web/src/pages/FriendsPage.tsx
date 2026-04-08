@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { messagesSocket } from '../socket';
+import { useLazySocket } from '../hooks/useLazySocket';
 import { FriendEvents } from '@kingside/shared';
 import { useChallenge } from '../hooks/useChallenge';
 import { ChallengeModal } from '../components/ChallengeModal';
@@ -22,6 +23,7 @@ type RequestItem = {
 };
 
 export function FriendsPage() {
+  useLazySocket(messagesSocket); // online status + challenges
   const { t } = useTranslation();
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [requests, setRequests] = useState<RequestItem[]>([]);

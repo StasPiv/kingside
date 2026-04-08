@@ -7,6 +7,8 @@ import { useTimeControl, CATEGORIES, presetKey } from '../hooks/useTimeControl';
 import { useMatchmaking } from '../hooks/useMatchmaking';
 import { useBotGame } from '../hooks/useBotGame';
 import { useChallenge } from '../hooks/useChallenge';
+import { useLazySocket } from '../hooks/useLazySocket';
+import { messagesSocket } from '../socket';
 import { ChallengeModal } from '../components/ChallengeModal';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
 import { TC_LABEL_KEYS } from '../hooks/useTimeControl';
@@ -20,6 +22,7 @@ type FriendItem = {
 };
 
 export function PlayPage() {
+  useLazySocket(messagesSocket); // challenges
   const { t } = useTranslation();
   const { user } = useAuth();
 

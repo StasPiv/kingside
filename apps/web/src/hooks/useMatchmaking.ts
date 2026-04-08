@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { matchmakingSocket } from '../socket';
+import { useLazySocket } from './useLazySocket';
 import { MatchmakingEvents } from '@kingside/shared';
 import type { TimeControlCategory } from './useTimeControl';
 
@@ -14,6 +15,7 @@ type SearchPayload = {
 };
 
 export function useMatchmaking() {
+  useLazySocket(matchmakingSocket);
   const navigate = useNavigate();
   const { user } = useAuth();
   const [searching, setSearching] = useState(false);
