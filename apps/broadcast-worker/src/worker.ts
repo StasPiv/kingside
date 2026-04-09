@@ -67,7 +67,18 @@ export class BroadcastWorker {
     const redisPort = process.env.REDIS_PORT || '6380';
     console.log(`[broadcast-worker] Starting... Redis=${redisHost}:${redisPort} pinnedIds=${this.pinnedBroadcastIds.length}`);
 
-    // Connectivity check
+    // DB connectivity check
+    const dbUrl = (process.env.DATABASE_URL || '').replace(/\/\/[^@]*@/, '//***@');
+    console.log(`[broadcast-worker] DATABASE_URL=${dbUrl}`);
+    try {
+      const start = Date.now();
+      await this.prisma.$queryRawUnsafe('SELECT 1');
+      console.log(`[broadcast-worker] DB reachable (${Date.now() - start}ms)`);
+    } catch (e: any) {
+      console.error(`[broadcast-worker] DB UNREACHABLE: ${e.message}`);
+    }
+
+    // Lichess API connectivity check
     try {
       const testRes = await fetch('https://lichess.org/api', { signal: AbortSignal.timeout(10_000) });
       console.log(`[broadcast-worker] Lichess API reachable: ${testRes.status}`);
@@ -356,7 +367,6 @@ export class BroadcastWorker {
   }
 
   private async upsertBroadcast(bc: LichessBroadcast): Promise<void> {
-    console.log(`[broadcast-worker] upsertBroadcast: ${bc.tour.id} "${bc.tour.name}" rounds=${bc.rounds.length}`);
     const info = bc.tour.info;
     const dates = bc.tour.dates;
     const fields = {
@@ -368,11 +378,13 @@ export class BroadcastWorker {
       startDate: dates?.[0] ? new Date(dates[0]) : null,
       endDate: dates?.[1] ? new Date(dates[1]) : null,
     };
+    const start = Date.now();
     await this.prisma.broadcast.upsert({
       where: { lichessId: bc.tour.id },
       update: fields,
       create: { lichessId: bc.tour.id, ...fields },
     });
+    console.log(`[broadcast-worker] upsertBroadcast OK: ${bc.tour.id} "${bc.tour.name}" (${Date.now() - start}ms)`);
   }
 
   private async upsertRound(broadcastLichessId: string, round: LichessRound, isActive: boolean): Promise<void> {
