@@ -99,6 +99,7 @@ export class MatchmakerWorker {
       if (isActive) {
         // Player has active game — remove from seek queue
         await this.redis.zrem(key, userId);
+        console.log(`[matchmaker] Filtered active player ${userId.slice(0, 8)} from seek queue`);
       } else {
         available.push(userId);
       }
