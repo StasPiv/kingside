@@ -538,7 +538,7 @@ export class GameService {
           return {
             gameId,
             moveNumber: idx + 1,
-            color: idx % 2 === 0 ? 'white' : 'black',
+            color: idx % 2 === 0 ? 'white' as const : 'black' as const,
             uci: m.uci,
             san: m.san,
             fenAfter: replay.fen(),
