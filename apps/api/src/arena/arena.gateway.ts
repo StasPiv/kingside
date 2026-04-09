@@ -55,6 +55,13 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   ) {}
 
   async onModuleInit(): Promise<void> {
+    // Cleanup any existing subscription (guards against multiple onModuleInit calls)
+    if (this.subRedis) {
+      await this.subRedis.unsubscribe().catch(() => {});
+      await this.subRedis.quit().catch(() => {});
+      this.subRedis = null;
+    }
+
     try {
       const redisHost = process.env.REDIS_HOST || 'localhost';
       const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
@@ -71,7 +78,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
           // Dedup: skip if already emitted paired for this game
           if (this.emittedPaired.has(data.gameId)) {
-            this.logger.log(`matchmaker:paired DEDUP skipped game=${data.gameId.slice(0, 8)}`);
+            this.logger.warn(`matchmaker:paired DEDUP skipped game=${data.gameId.slice(0, 8)}`);
             return;
           }
           this.emittedPaired.add(data.gameId);
