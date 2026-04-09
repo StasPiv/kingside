@@ -535,6 +535,7 @@ export class GameService {
             uci: m.uci,
             san: m.san,
             fenAfter: '',
+            timeLeftMs: 0,
           })),
         });
         this.logger.log(`endGame ${gameId}: batch wrote ${moves.length} moves to DB`);
