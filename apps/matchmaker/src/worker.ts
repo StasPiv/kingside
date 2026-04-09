@@ -42,7 +42,10 @@ export class MatchmakerWorker {
   }
 
   async start(): Promise<void> {
-    console.log('[matchmaker] Starting...');
+    const redisHost = process.env.REDIS_HOST || 'localhost';
+    const redisPort = process.env.REDIS_PORT || '6380';
+    const redisUrl = process.env.REDIS_URL || `${redisHost}:${redisPort}`;
+    console.log(`[matchmaker] Starting... Redis=${redisUrl.replace(/\/\/.*:.*@/, '//***@')}`);
     this.timer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
     console.log(`[matchmaker] Running (poll every ${POLL_INTERVAL_MS}ms)`);
   }
@@ -96,6 +99,7 @@ export class MatchmakerWorker {
     const available: string[] = [];
     for (const userId of members) {
       const isActive = await this.redis.sismember(apKey, userId);
+      console.log(`[matchmaker] SISMEMBER key=${apKey} user=${userId.slice(0, 8)} result=${isActive}`);
       if (isActive) {
         // Player has active game — remove from seek queue
         await this.redis.zrem(key, userId);
@@ -144,6 +148,8 @@ export class MatchmakerWorker {
       try {
         // Mark BOTH players as active BEFORE creating game (prevents re-pairing)
         await this.redis.sadd(apKey, a, b);
+        const apMembers = await this.redis.smembers(apKey);
+        console.log(`[matchmaker] SADD key=${apKey} users=${a.slice(0, 8)},${b.slice(0, 8)} set_size=${apMembers.length} members=[${apMembers.map(m => m.slice(0, 8)).join(',')}]`);
         await this.createArenaGame(t, key, a, b);
       } catch (e: any) {
         console.error(`[matchmaker] Arena game creation failed: ${e.message}`);
