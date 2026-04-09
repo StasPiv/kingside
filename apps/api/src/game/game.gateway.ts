@@ -65,6 +65,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {}
 
   async handleConnection(client: Socket) {
+    // Log ALL incoming events for diagnostics (KS-1378)
+    client.onAny((event: string, ...args: unknown[]) => {
+      const user = client.data.user?.username || 'anon';
+      this.logger.log(`[event] ${user} ${event} ${JSON.stringify(args).slice(0, 120)}`);
+    });
+
     const token = client.handshake.auth?.token || client.handshake.query?.token;
     if (!token) {
       // Anonymous connection — allowed for spectating
@@ -187,8 +193,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: WsGameMovePayload,
   ) {
+    this.logger.log(`handleMove: user=${client.data.user?.username} game=${data?.gameId?.slice(0, 8)} uci=${data?.uci}`);
     const userId = client.data.user?.id;
-    if (!userId) return;
+    if (!userId) {
+      this.logger.warn(`handleMove: no userId for client ${client.id}`);
+      return;
+    }
 
     try {
       const result = await this.gameService.makeMove(data.gameId, userId, data.uci);
