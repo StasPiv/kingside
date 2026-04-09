@@ -230,7 +230,7 @@ function playArenaGame(
         gotGameState = true;
         lastServerFen = game.fen;
         try { brain.loadFen(game.fen); } catch { /* ignore */ }
-        tryMove();
+        tryMove('fallback');
       } catch (e) {
         console.error(`[${bot.username}/${myColor}] REST fallback failed:`, (e as Error).message);
       }
@@ -257,11 +257,12 @@ function playArenaGame(
       } catch { /* ignore REST errors */ }
     }, 15_000);
 
-    const tryMove = () => {
-      if (gameOver || !lastServerFen) return;
+    const tryMove = (source = 'unknown') => {
+      if (gameOver) { console.log(`[${bot.username}/${myColor}] tryMove(${source}): skip gameOver=true`); return; }
+      if (!lastServerFen) { console.log(`[${bot.username}/${myColor}] tryMove(${source}): skip no fen`); return; }
       const turn = lastServerFen.split(' ')[1];
       const isMyTurnNow = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
-      if (!isMyTurnNow) return;
+      if (!isMyTurnNow) { console.log(`[${bot.username}/${myColor}] tryMove(${source}): skip notMyTurn turn=${turn}`); return; }
 
       const [minMs, maxMs] = config.thinkTimeMs;
       const delay = minMs + Math.random() * (maxMs - minMs) * 0.5; // faster in arena
@@ -295,14 +296,16 @@ function playArenaGame(
     socket.on('game:state', (state: { fen: string; status: string }) => {
       lastStateReceivedAt = Date.now();
       const sinceStart = lastStateReceivedAt - gameStartedAt;
-      console.log(`[${bot.username}/${myColor}] game:state status=${state.status} fen=${state.fen?.substring(0, 30)} +${sinceStart}ms`);
+      const turn = state.fen?.split(' ')[1];
+      const isMyTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+      console.log(`[${bot.username}/${myColor}] game:state status=${state.status} turn=${turn} myTurn=${isMyTurn} gameOver=${gameOver} +${sinceStart}ms`);
       if (gameOver) return;
       gotGameState = true;
       if (stateCheckTimeout) { clearTimeout(stateCheckTimeout); stateCheckTimeout = null; }
-      if (state.status !== 'active') { clearTimeout(timeout); finish(); return; }
+      if (state.status !== 'active') { console.log(`[${bot.username}/${myColor}] game:state not active, finishing`); clearTimeout(timeout); finish(); return; }
       lastServerFen = state.fen;
       try { brain.loadFen(state.fen); } catch { /* ignore */ }
-      tryMove();
+      tryMove('game:state');
     });
 
     socket.on('game:move', (data: { fen: string }) => {
@@ -310,7 +313,7 @@ function playArenaGame(
       if (gameOver) return;
       lastServerFen = data.fen;
       try { brain.loadFen(data.fen); } catch { /* ignore */ }
-      tryMove();
+      tryMove('game:move');
     });
 
     socket.on('game:end', (data: unknown) => {
@@ -338,13 +341,13 @@ function playArenaGame(
             if (state.status !== 'active') { clearTimeout(timeout); finish(); return; }
             lastServerFen = state.fen;
             try { brain.loadFen(state.fen); } catch { /* ignore */ }
-            tryMove();
+            tryMove('fallback');
           });
           newSocket.on('game:move', (data2: { fen: string }) => {
             if (gameOver) return;
             lastServerFen = data2.fen;
             try { brain.loadFen(data2.fen); } catch { /* ignore */ }
-            tryMove();
+            tryMove('fallback');
           });
           newSocket.on('game:end', () => { clearTimeout(timeout); finish(); });
           newSocket.on('error', () => { clearTimeout(timeout); finish(); });
@@ -379,13 +382,13 @@ function playArenaGame(
             if (state.status !== 'active') { clearTimeout(timeout); finish(); return; }
             lastServerFen = state.fen;
             try { brain.loadFen(state.fen); } catch { /* ignore */ }
-            tryMove();
+            tryMove('fallback');
           });
           retrySocket.on('game:move', (data2: { fen: string }) => {
             if (gameOver) return;
             lastServerFen = data2.fen;
             try { brain.loadFen(data2.fen); } catch { /* ignore */ }
-            tryMove();
+            tryMove('fallback');
           });
           retrySocket.on('game:end', () => { clearTimeout(timeout); finish(); });
           retrySocket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
