@@ -44,6 +44,8 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   private readonly logger = new Logger(ArenaGateway.name);
   /** Local cache of userId → username, populated on connect */
   private readonly usernames = new Map<string, string>();
+  /** Track emitted paired gameIds to prevent duplicate delivery */
+  private readonly emittedPaired = new Set<string>();
   private subRedis: Redis | null = null;
 
   constructor(
@@ -66,6 +68,18 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
           const data = JSON.parse(message) as {
             tournamentId: string; gameId: string; whiteId: string; blackId: string;
           };
+
+          // Dedup: skip if already emitted paired for this game
+          if (this.emittedPaired.has(data.gameId)) {
+            this.logger.log(`matchmaker:paired DEDUP skipped game=${data.gameId.slice(0, 8)}`);
+            return;
+          }
+          this.emittedPaired.add(data.gameId);
+          // Cleanup old entries (keep last 1000)
+          if (this.emittedPaired.size > 1000) {
+            const first = this.emittedPaired.values().next().value;
+            if (first) this.emittedPaired.delete(first);
+          }
 
           // Emit tournament:paired to both players via user rooms
           this.server.to(`user:${data.whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
@@ -302,9 +316,14 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
   emitPaired(tournamentId: string, gameId: string, whiteId: string, blackId: string | null) {
     if (!blackId) return; // bye — no game
+    if (this.emittedPaired.has(gameId)) {
+      this.logger.log(`emitPaired DEDUP skipped game=${gameId.slice(0, 8)}`);
+      return;
+    }
+    this.emittedPaired.add(gameId);
     this.server.to(`user:${whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'white' });
     this.server.to(`user:${blackId}`).emit(TOURNAMENT_EVENTS.PAIRED, { gameId, tournamentId, color: 'black' });
-    this.logger.log(`emitPaired: game ${gameId}, white=${whiteId}, black=${blackId}`);
+    this.logger.log(`emitPaired: game ${gameId.slice(0, 8)}, white=${whiteId.slice(0, 8)}, black=${blackId.slice(0, 8)}`);
   }
 
   emitPlayerLeft(tournamentId: string, userId: string) {
