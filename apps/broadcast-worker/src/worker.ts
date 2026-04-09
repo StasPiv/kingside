@@ -164,6 +164,23 @@ export class BroadcastWorker {
 
     try {
       const broadcasts = await this.fetchActiveBroadcasts();
+
+      // Fetch pinned broadcasts individually (they may not appear in top-20 list)
+      const fetchedIds = new Set(broadcasts.map((b) => b.tour.id));
+      for (const pinnedId of this.pinnedBroadcastIds) {
+        if (fetchedIds.has(pinnedId)) continue;
+        await this.rateLimitDelay();
+        try {
+          const bc = await this.fetchBroadcastById(pinnedId);
+          if (bc) {
+            broadcasts.push(bc);
+            console.log(`[broadcast-worker] Fetched pinned broadcast ${pinnedId}: ${bc.tour.name}`);
+          }
+        } catch (e: any) {
+          console.warn(`[broadcast-worker] Failed to fetch pinned broadcast ${pinnedId}: ${e.message}`);
+        }
+      }
+
       let fetchCount = 0;
       for (const bc of broadcasts) {
         await this.upsertBroadcast(bc);
@@ -309,6 +326,17 @@ export class BroadcastWorker {
       }
     }
     throw lastError ?? new Error('fetchActiveBroadcasts failed');
+  }
+
+  private async fetchBroadcastById(lichessId: string): Promise<LichessBroadcast | null> {
+    const url = `${LICHESS_API}/broadcast/${lichessId}`;
+    const res = await this.lichessFetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'Kingside/1.0 (https://kingside.app)' },
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as LichessBroadcast;
+    if (!data.tour?.id || !data.rounds) return null;
+    return data;
   }
 
   private async upsertBroadcast(bc: LichessBroadcast): Promise<void> {
