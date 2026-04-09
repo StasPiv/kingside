@@ -40,13 +40,20 @@ export class GameClockService {
   async startClock(gameId: string): Promise<void> {
     const now = Date.now();
     const raw = await this.redis.hgetall(this.clockKey(gameId));
+    const whiteMs = Number(raw.white_ms || '0');
+    const blackMs = Number(raw.black_ms || '0');
+    const deadline = now + whiteMs;
+
+    if (whiteMs === 0 || !raw.white_ms) {
+      console.error(`[GameClockService] startClock ${gameId.slice(0, 8)}: white_ms=0! raw=${JSON.stringify(raw)}`);
+    }
+    console.log(`[GameClockService] startClock ${gameId.slice(0, 8)}: white_ms=${whiteMs} black_ms=${blackMs} deadline=now+${whiteMs}ms`);
+
     await this.redis.hset(this.clockKey(gameId), {
       last_tick: String(now),
       running: '1',
     });
-    // White always moves first — set deadline to white's time
-    const whiteMs = Number(raw.white_ms || '0');
-    await this.redis.zadd(DEADLINES_KEY, now + whiteMs, gameId);
+    await this.redis.zadd(DEADLINES_KEY, deadline, gameId);
   }
 
   async switchClock(
