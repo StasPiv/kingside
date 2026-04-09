@@ -52,6 +52,11 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
+    // Ensure clean state on startup
+    this.isBusy = false;
+    ScalingService.busy = false;
+    await this.redis.del(REDIS_BUSY_KEY).catch(() => {});
+
     // Always start the check timer — server:busy/ready emit doesn't require ECS
     this.timer = setInterval(() => this.check(), CHECK_INTERVAL_MS);
 
@@ -93,17 +98,22 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (overloaded && !this.isBusy) {
-        // Transition to busy
-        this.isBusy = true;
-        this.busySince = now;
-        ScalingService.busy = true;
-        await this.redis.set(REDIS_BUSY_KEY, '1', 'EX', 120).catch(() => {});
-        this.emitToAll(rootServer, 'server:busy', {
-          connections: currentConnections,
-          threshold: this.threshold,
-          etaSec: SCALE_UP_ETA_SEC,
-        });
-        this.logger.warn(`server:busy emitted (${currentConnections} > ${this.threshold})`);
+        // Only emit server:busy when ECS scaling is enabled —
+        // no point showing "scaling up" banner if there's no auto-scaling
+        if (!this.enabled) {
+          this.logger.warn(`Overloaded (${currentConnections} > ${this.threshold}) but ECS disabled — skipping server:busy`);
+        } else {
+          this.isBusy = true;
+          this.busySince = now;
+          ScalingService.busy = true;
+          await this.redis.set(REDIS_BUSY_KEY, '1', 'EX', 120).catch(() => {});
+          this.emitToAll(rootServer, 'server:busy', {
+            connections: currentConnections,
+            threshold: this.threshold,
+            etaSec: SCALE_UP_ETA_SEC,
+          });
+          this.logger.warn(`server:busy emitted (${currentConnections} > ${this.threshold})`);
+        }
       } else if (this.isBusy) {
         // Timer-based ready: after BUSY_DURATION_MS, transition to ready
         // regardless of current connection count (avoids deadlock with idle sockets)
