@@ -49,14 +49,16 @@ export class BroadcastController {
   /** GET /api/broadcasts — список активных трансляций */
   @Get()
   async getActiveBroadcasts(
-    @Query('take') take = '20',
-    @Query('skip') skip = '0',
+    @Query('take') take?: string,
+    @Query('skip') skip?: string,
   ): Promise<BroadcastListResponse> {
+    const takeNum = take ? parseInt(take, 10) : undefined;
+    const skipNum = skip ? parseInt(skip, 10) : undefined;
     const broadcasts = await this.prisma.broadcast.findMany({
       where: { isActive: true },
-      orderBy: { createdAt: 'desc' },
-      take: parseInt(take, 10),
-      skip: parseInt(skip, 10),
+      orderBy: { updatedAt: 'desc' },
+      ...(takeNum ? { take: takeNum } : {}),
+      ...(skipNum ? { skip: skipNum } : {}),
     });
 
     const data: BroadcastItem[] = broadcasts.map((b) => ({
