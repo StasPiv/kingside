@@ -454,7 +454,7 @@ export class BroadcastWorker {
   private async runStream(roundId: string, signal: AbortSignal): Promise<void> {
     const url = `${LICHESS_API}/stream/broadcast/round/${roundId}.pgn`;
     let retryDelay = 2000;
-    const maxDelay = 60000;
+    const maxDelay = 300_000; // 5 minutes — let Lichess rate limit reset
 
     while (!signal.aborted && !this.stopped) {
       try {
