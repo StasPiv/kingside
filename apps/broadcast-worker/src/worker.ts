@@ -164,6 +164,7 @@ export class BroadcastWorker {
 
     try {
       const broadcasts = await this.fetchActiveBroadcasts();
+      let fetchCount = 0;
       for (const bc of broadcasts) {
         await this.upsertBroadcast(bc);
         for (const round of bc.rounds) {
@@ -176,7 +177,9 @@ export class BroadcastWorker {
               }
             }
           } else if (round.finished) {
-            void this.fetchFinishedRoundGamesIfEmpty(round.id);
+            if (fetchCount > 0) await this.rateLimitDelay();
+            await this.fetchFinishedRoundGamesIfEmpty(round.id);
+            fetchCount++;
           }
         }
       }
