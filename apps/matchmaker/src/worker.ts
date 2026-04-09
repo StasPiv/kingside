@@ -3,6 +3,8 @@ import Redis from 'ioredis';
 
 const POLL_INTERVAL_MS = 500;
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+/** Max concurrent games per tournament (active_players / 2) */
+const MAX_CONCURRENT_GAMES = parseInt(process.env.MAX_CONCURRENT_GAMES || '40', 10);
 
 /** Redis pub/sub channel for paired events */
 export const MATCHMAKER_PAIRED_CHANNEL = 'matchmaker:paired';
@@ -92,6 +94,13 @@ export class MatchmakerWorker {
   }): Promise<void> {
     const key = arenaSeekKey(t.id);
     const apKey = activePlayers(t.id);
+
+    // Limit concurrent games
+    const activeCount = await this.redis.scard(apKey);
+    const currentGames = Math.floor(activeCount / 2);
+    if (currentGames >= MAX_CONCURRENT_GAMES) return;
+    const slotsAvailable = MAX_CONCURRENT_GAMES - currentGames;
+
     const members = await this.redis.zrange(key, 0, -1);
     if (members.length < 2) return;
 
@@ -152,7 +161,9 @@ export class MatchmakerWorker {
       redis.call("ZREM", KEYS[2], ARGV[1], ARGV[2])
       return 1`;
 
-    for (const [a, b] of pairs) {
+    const pairsToCreate = pairs.slice(0, slotsAvailable);
+
+    for (const [a, b] of pairsToCreate) {
       try {
         // Pre-claim diagnostics: check active_players state for both candidates
         const [aActive, bActive] = await Promise.all([
@@ -182,7 +193,7 @@ export class MatchmakerWorker {
     }
 
     if (pairs.length > 0) {
-      console.log(`[matchmaker] Arena ${t.id.slice(0, 8)}: paired ${pairs.length} games from ${available.length} seekers`);
+      console.log(`[matchmaker] Arena ${t.id.slice(0, 8)}: paired ${pairsToCreate.length}/${pairs.length} games (active=${currentGames}/${MAX_CONCURRENT_GAMES}, seekers=${available.length})`);
     }
   }
 
