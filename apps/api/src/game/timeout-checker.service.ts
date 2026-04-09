@@ -79,7 +79,8 @@ export class TimeoutCheckerService implements OnModuleInit, OnModuleDestroy {
     const activeColor = raw.active_color === 'black' ? 'black' as const : 'white' as const;
     const result: GameResult = activeColor === 'white' ? 'black' : 'white';
 
-    this.logger.log(`Game ${gameId}: ${activeColor} timed out, ending...`);
+    const clockRaw = await this.redis.hgetall(`game:${gameId}:clocks`);
+    this.logger.log(`Game ${gameId}: ${activeColor} timed out. clocks: white_ms=${clockRaw.white_ms} black_ms=${clockRaw.black_ms} last_tick=${clockRaw.last_tick} running=${clockRaw.running}`);
     try {
       const ratingChange = await this.gameService.endGame(gameId, result, 'timeout');
       this.gateway.emitGameEnd(gameId, result, 'timeout', ratingChange || undefined);
