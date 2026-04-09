@@ -459,6 +459,10 @@ export class BroadcastWorker {
     while (!signal.aborted && !this.stopped) {
       try {
         const res = await fetch(url, { headers: { Accept: 'application/x-ndjson' }, signal });
+        if (res.status === 429) {
+          console.warn(`[broadcast-worker] Stream ${roundId}: 429 rate limited, stopping stream (PGN poll will take over)`);
+          return; // Exit runStream — activeStreams.delete in startStream.then()
+        }
         if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
         retryDelay = 2000;
         const decoder = new TextDecoder();
