@@ -494,10 +494,19 @@ export class GameService {
     const stack = new Error().stack?.split('\n').slice(1, 4).map(s => s.trim()).join(' <- ');
     this.logger.log(`endGame(${gameId}, ${result}, ${termination}) called from: ${stack}`);
 
+    // Atomic guard: only first endGame call proceeds (prevents duplicate processing)
+    const lockKey = `game:${gameId}:ending`;
+    const acquired = await this.redis.set(lockKey, '1', 'EX', 60, 'NX');
+    if (!acquired) {
+      this.logger.warn(`endGame(${gameId}): skipped — already ending`);
+      return null;
+    }
+
+    // Read state BEFORE any modifications
+    const raw = await this.redis.hgetall(this.stateKey(gameId));
+
     await this.redis.hset(this.stateKey(gameId), { status: 'finished' });
     await this.clockService.stopClock(gameId);
-
-    const raw = await this.redis.hgetall(this.stateKey(gameId));
 
     try {
       await this.prisma.game.update({
@@ -554,7 +563,7 @@ export class GameService {
 
     await this.redis.del(this.stateKey(gameId));
     await this.clockService.deleteClock(gameId);
-    await this.redis.del(`game:${gameId}:draw_offer`);
+    await this.redis.del(`game:${gameId}:draw_offer`, `game:${gameId}:ending`);
 
     let ratingChange: RatingChange | null = null;
     try {
