@@ -144,12 +144,23 @@ export class MatchmakerWorker {
     }
 
     // Create games for all pairs
+    // Lua: atomically check both players not active, then SADD + ZREM
+    const CLAIM_PAIR_SCRIPT = `
+      if redis.call("SISMEMBER", KEYS[1], ARGV[1]) == 1 then return 0 end
+      if redis.call("SISMEMBER", KEYS[1], ARGV[2]) == 1 then return 0 end
+      redis.call("SADD", KEYS[1], ARGV[1], ARGV[2])
+      redis.call("ZREM", KEYS[2], ARGV[1], ARGV[2])
+      return 1`;
+
     for (const [a, b] of pairs) {
       try {
-        // Mark BOTH players as active BEFORE creating game (prevents re-pairing)
-        await this.redis.sadd(apKey, a, b);
-        const apMembers = await this.redis.smembers(apKey);
-        console.log(`[matchmaker] SADD key=${apKey} users=${a.slice(0, 8)},${b.slice(0, 8)} set_size=${apMembers.length} members=[${apMembers.map(m => m.slice(0, 8)).join(',')}]`);
+        // Atomic: check both not active → SADD + ZREM (prevents race with addToSeekQueue)
+        const claimed = await this.redis.eval(CLAIM_PAIR_SCRIPT, 2, apKey, key, a, b) as number;
+        if (!claimed) {
+          console.log(`[matchmaker] Pair ${a.slice(0, 8)}+${b.slice(0, 8)} SKIPPED (one already active)`);
+          continue;
+        }
+        console.log(`[matchmaker] Pair ${a.slice(0, 8)}+${b.slice(0, 8)} CLAIMED`);
         await this.createArenaGame(t, key, a, b);
       } catch (e: any) {
         console.error(`[matchmaker] Arena game creation failed: ${e.message}`);
@@ -169,8 +180,7 @@ export class MatchmakerWorker {
     userId: string,
     candidateId: string,
   ): Promise<void> {
-    // Remove both from queue
-    await this.redis.zrem(key, userId, candidateId);
+    // ZREM already done atomically in CLAIM_PAIR_SCRIPT
 
     // Record last opponents
     await this.redis.set(lastOpponentKey(t.id, userId), candidateId, 'EX', 300);
