@@ -67,13 +67,23 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
             tournamentId: string; gameId: string; whiteId: string; blackId: string;
           };
 
-          // Emit tournament:paired to both players via user rooms
-          this.server.to(`user:${data.whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
-            gameId: data.gameId, tournamentId: data.tournamentId, color: 'white',
-          });
-          this.server.to(`user:${data.blackId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
-            gameId: data.gameId, tournamentId: data.tournamentId, color: 'black',
-          });
+          // Emit tournament:paired to ONE socket per player (avoid duplicates from multiple sockets in user room)
+          const whiteRoom = this.server.in(`user:${data.whiteId}`);
+          const blackRoom = this.server.in(`user:${data.blackId}`);
+          const [whiteSockets, blackSockets] = await Promise.all([
+            whiteRoom.fetchSockets(),
+            blackRoom.fetchSockets(),
+          ]);
+          if (whiteSockets.length > 0) {
+            whiteSockets[0].emit(TOURNAMENT_EVENTS.PAIRED, {
+              gameId: data.gameId, tournamentId: data.tournamentId, color: 'white',
+            });
+          }
+          if (blackSockets.length > 0) {
+            blackSockets[0].emit(TOURNAMENT_EVENTS.PAIRED, {
+              gameId: data.gameId, tournamentId: data.tournamentId, color: 'black',
+            });
+          }
 
           // Emit tournament:gameStarted to all subscribers
           const whiteUsername = this.usernames.get(data.whiteId) ?? '';
