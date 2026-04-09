@@ -125,6 +125,7 @@ async function runBotInArena(
       sock.on('tournament:started', () => startSeekLoop());
 
       sock.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
+        console.log(`[${bot.username}] tournament:paired game=${data.gameId.slice(0, 8)} color=${data.color}`);
         currentGameId = data.gameId;
         stopSeekLoop();
         metrics.recordGameStarted();
@@ -196,6 +197,7 @@ function playArenaGame(
   return new Promise((resolve) => {
     let authRetried = false;
     const brain = new ChessBrain('smart');
+    console.log(`[${bot.username}/${myColor}] playArenaGame: connecting /game for ${gameId.slice(0, 8)}`);
     const socket = bot.connectWs('/game');
     let gameOver = false;
     let moveCount = 0;
@@ -218,6 +220,7 @@ function playArenaGame(
     // REST fallback: fetch game state if WS game:state not received within 3s
     const fetchStateViaRest = async () => {
       if (gameOver || gotGameState) return;
+      console.warn(`[${bot.username}/${myColor}] NO game:state after 3s, REST fallback for ${gameId.slice(0, 8)}`);
       try {
         const game = await bot.get<{ status: string; fen: string }>(`/api/games/${gameId}`);
         if (gameOver || gotGameState) return;
