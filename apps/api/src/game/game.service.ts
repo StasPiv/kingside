@@ -266,18 +266,7 @@ export class GameService {
     });
     await pipelineWrite.exec();
 
-    // --- I/O #3: Prisma write — persist move ---
-    await this.prisma.move.create({
-      data: {
-        gameId,
-        moveNumber: moves.length,
-        color: activeColor,
-        uci: normalizedUci,
-        san: move.san,
-        fenAfter: newFen,
-        timeLeftMs: activeColor === 'white' ? clocks.whiteMs : clocks.blackMs,
-      },
-    });
+    // Moves stored in Redis only (batch written to DB in endGame)
 
     let gameOver = false;
     let result: GameResult | undefined;
@@ -400,17 +389,7 @@ export class GameService {
       game.timeIncrementSec * 1000,
     );
 
-    await this.prisma.move.create({
-      data: {
-        gameId,
-        moveNumber: moves.length,
-        color: activeColor,
-        uci: normalizedUci,
-        san: move.san,
-        fenAfter: newFen,
-        timeLeftMs: activeColor === 'white' ? clocks.whiteMs : clocks.blackMs,
-      },
-    });
+    // Moves stored in Redis only (batch written to DB in endGame)
 
     let gameOver = false;
     let result: GameResult | undefined;
@@ -541,6 +520,27 @@ export class GameService {
           });
         }
       } catch { /* give up */ }
+    }
+
+    // Batch write all moves from Redis to DB
+    try {
+      const movesJson = raw.moves || '[]';
+      const moves: Array<{ uci: string; san: string }> = JSON.parse(movesJson);
+      if (moves.length > 0) {
+        await this.prisma.move.createMany({
+          data: moves.map((m, idx) => ({
+            gameId,
+            moveNumber: idx + 1,
+            color: idx % 2 === 0 ? 'white' : 'black',
+            uci: m.uci,
+            san: m.san,
+            fenAfter: '',
+          })),
+        });
+        this.logger.log(`endGame ${gameId}: batch wrote ${moves.length} moves to DB`);
+      }
+    } catch (e: any) {
+      this.logger.error(`endGame ${gameId}: batch move write failed: ${e.message}`);
     }
 
     await this.redis.del(this.stateKey(gameId));
