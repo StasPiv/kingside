@@ -56,7 +56,7 @@ export class BroadcastController {
     const skipNum = skip ? parseInt(skip, 10) : undefined;
     const broadcasts = await this.prisma.broadcast.findMany({
       where: { isActive: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { updatedAt: 'desc' },
       ...(takeNum ? { take: takeNum } : {}),
       ...(skipNum ? { skip: skipNum } : {}),
     });

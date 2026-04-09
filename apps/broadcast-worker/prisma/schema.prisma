@@ -398,6 +398,7 @@ model Broadcast {
   endDate       DateTime? @map("end_date")
   streams       Json?
   createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 
   rounds BroadcastRound[]
 
