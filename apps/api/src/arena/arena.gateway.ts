@@ -60,7 +60,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
       await this.subRedis.subscribe(MATCHMAKER_PAIRED_CHANNEL);
 
-      this.subRedis.on('message', (channel: string, message: string) => {
+      this.subRedis.on('message', async (channel: string, message: string) => {
         if (channel !== MATCHMAKER_PAIRED_CHANNEL) return;
         try {
           const data = JSON.parse(message) as {
