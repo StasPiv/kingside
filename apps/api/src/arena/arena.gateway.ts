@@ -88,6 +88,10 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
           }
 
           // Emit tournament:paired to both players via user rooms
+          const whiteRoom = (this.server.adapter as any).rooms?.get(`user:${data.whiteId}`);
+          const blackRoom = (this.server.adapter as any).rooms?.get(`user:${data.blackId}`);
+          this.logger.warn(`paired EMIT game=${data.gameId.slice(0, 8)} whiteRoomSize=${whiteRoom?.size ?? 0} blackRoomSize=${blackRoom?.size ?? 0}`);
+
           this.server.to(`user:${data.whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
             gameId: data.gameId, tournamentId: data.tournamentId, color: 'white',
           });
