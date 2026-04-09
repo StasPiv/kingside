@@ -224,11 +224,9 @@ export class BroadcastWorker {
                 this.startStream(round.id);
               }
             }
-          } else if (round.finished) {
-            if (fetchCount > 0) await this.rateLimitDelay();
-            await this.fetchFinishedRoundGamesIfEmpty(round.id);
-            fetchCount++;
           }
+          // Finished rounds: skip inline fetch (was blocking sync for ~5min)
+          // Handled asynchronously by syncPinnedBroadcasts PGN poll
         }
       }
 
