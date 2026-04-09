@@ -486,7 +486,11 @@ export class BroadcastWorker {
   private async processPgnUpdate(roundId: string, pgn: string): Promise<void> {
     const games = this.parsePgnGames(pgn);
     const round = await this.prisma.broadcastRound.findUnique({ where: { lichessRoundId: roundId } });
-    if (!round) return;
+    if (!round) {
+      console.warn(`[broadcast-worker] processPgnUpdate: round ${roundId} not found in DB`);
+      return;
+    }
+    console.log(`[broadcast-worker] processPgnUpdate: round=${roundId.slice(0, 8)} games=${games.length} withUci=${games.filter(g => g.uci).length}`);
 
     for (const game of games) {
       if (game.fen !== STARTING_FEN) {
@@ -553,23 +557,29 @@ export class BroadcastWorker {
       const site = headerMap['Site'] ?? '';
       const lichessGameId = site.split('/').pop() ?? null;
 
-      const computedFen = fenValue || this.computeFenFromMoves(section);
-      const fen = computedFen || STARTING_FEN;
+      const { fen: computedFen, lastUci } = this.computeFenAndLastUci(section);
+      const fen = fenValue || computedFen || STARTING_FEN;
+      const uci = lastMove || lastUci;
 
-      games.push({ index, white, black, result, fen, uci: lastMove, pgn: section.trim(), lichessGameId: lichessGameId || null });
+      games.push({ index, white, black, result, fen, uci, pgn: section.trim(), lichessGameId: lichessGameId || null });
       index++;
     }
     return games;
   }
 
-  private computeFenFromMoves(pgnText: string): string | null {
+  private computeFenAndLastUci(pgnText: string): { fen: string | null; lastUci: string } {
     const cleaned = pgnText.replace(/\{[^}]*\}/g, '');
     try {
       const chess = new Chess();
       chess.loadPgn(cleaned);
-      if (chess.history().length > 0) return chess.fen();
+      const history = chess.history({ verbose: true });
+      if (history.length > 0) {
+        const last = history[history.length - 1];
+        const uci = last.from + last.to + (last.promotion ?? '');
+        return { fen: chess.fen(), lastUci: uci };
+      }
     } catch { /* loadPgn failed */ }
-    return null;
+    return { fen: null, lastUci: '' };
   }
 
   private sleep(ms: number, signal: AbortSignal): Promise<void> {
