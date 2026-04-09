@@ -202,7 +202,7 @@ function playArenaGame(
   return new Promise((resolve) => {
     let authRetried = false;
     const brain = new ChessBrain('smart');
-    console.log(`[${bot.username}/${myColor}] playArenaGame: connecting /game for ${gameId.slice(0, 8)}`);
+    const connectStartMs = Date.now();
     const socket = bot.connectWs('/game');
     let gameOver = false;
     let moveCount = 0;
@@ -295,7 +295,8 @@ function playArenaGame(
     };
 
     socket.on('connect', () => {
-      console.log(`[${bot.username}/${myColor}] /game WS connected, joining game ${gameId}`);
+      const handshakeMs = Date.now() - connectStartMs;
+      console.log(`[${bot.username}/${myColor}] WS_HANDSHAKE game=${gameId.slice(0, 8)} duration=${handshakeMs}ms`);
       socket.emit('game:join', { gameId });
       // Fallback: if game:state not received within 3s, fetch via REST
       stateCheckTimeout = setTimeout(() => fetchStateViaRest(), 3_000);
