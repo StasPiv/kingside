@@ -113,6 +113,11 @@ async function runBotInArena(
 
     /** Wire all event handlers onto a socket and update activeSocket ref */
     const wireSocket = (sock: ReturnType<typeof bot.connectWs>) => {
+      // Disconnect previous socket to avoid duplicate event delivery
+      if (activeSocket && activeSocket !== sock) {
+        activeSocket.removeAllListeners();
+        activeSocket.disconnect();
+      }
       activeSocket = sock;
 
       sock.on('connect', () => {
