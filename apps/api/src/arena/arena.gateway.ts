@@ -92,6 +92,16 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
           const blackRoom = (this.server.adapter as any).rooms?.get(`user:${data.blackId}`);
           this.logger.warn(`paired EMIT game=${data.gameId.slice(0, 8)} whiteRoomSize=${whiteRoom?.size ?? 0} blackRoomSize=${blackRoom?.size ?? 0}`);
 
+          // Store pending paired in Redis (re-delivered on reconnect/subscribe)
+          await this.redis.set(
+            `arena:${data.tournamentId}:paired:${data.whiteId}`,
+            JSON.stringify({ gameId: data.gameId, color: 'white' }), 'EX', 120,
+          ).catch(() => {});
+          await this.redis.set(
+            `arena:${data.tournamentId}:paired:${data.blackId}`,
+            JSON.stringify({ gameId: data.gameId, color: 'black' }), 'EX', 120,
+          ).catch(() => {});
+
           this.server.to(`user:${data.whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
             gameId: data.gameId, tournamentId: data.tournamentId, color: 'white',
           });
@@ -172,6 +182,16 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       if (tournament.status === 'active') {
         client.emit(TOURNAMENT_EVENTS.STARTED, { tournamentId: data.tournamentId });
         this.logger.log(`handleSubscribe: sent tournament:started (late join) to ${client.data.user.username}`);
+
+        // Re-deliver pending paired event if user has active game in this tournament
+        const activeGame = await this.redis.get(`arena:${data.tournamentId}:paired:${userId}`);
+        if (activeGame) {
+          try {
+            const paired = JSON.parse(activeGame) as { gameId: string; color: string };
+            client.emit(TOURNAMENT_EVENTS.PAIRED, { gameId: paired.gameId, tournamentId: data.tournamentId, color: paired.color });
+            this.logger.warn(`handleSubscribe: re-delivered paired game=${paired.gameId.slice(0, 8)} to ${client.data.user.username}`);
+          } catch { /* ignore parse errors */ }
+        }
       } else if (tournament.status === 'finished') {
         client.emit(TOURNAMENT_EVENTS.FINISHED, { tournamentId: data.tournamentId });
       }
