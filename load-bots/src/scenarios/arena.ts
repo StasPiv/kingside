@@ -203,6 +203,8 @@ function playArenaGame(
     let gotGameState = false;
     let statusPollInterval: ReturnType<typeof setInterval> | null = null;
     let stateCheckTimeout: ReturnType<typeof setTimeout> | null = null;
+    let lastStateReceivedAt = 0; // timestamp of last game:state or game:move received
+    const gameStartedAt = Date.now();
 
     const finish = () => {
       if (gameOver) return;
@@ -268,9 +270,14 @@ function playArenaGame(
         try {
           const uci = brain.pickMove();
           if (!uci) return;
+          const now = Date.now();
+          const latency = lastStateReceivedAt ? now - lastStateReceivedAt : -1;
           socket.emit('game:move', { gameId, uci });
           metrics.recordMove();
           moveCount++;
+          if (moveCount <= 2 || latency > 5000) {
+            console.log(`[${bot.username}/${myColor}] EMIT game:move #${moveCount} uci=${uci} latency=${latency}ms (state→move)`);
+          }
         } catch (e) {
           console.error(`[${bot.username}/${myColor}] Move error:`, (e as Error).message);
           metrics.recordError();
@@ -286,7 +293,9 @@ function playArenaGame(
     });
 
     socket.on('game:state', (state: { fen: string; status: string }) => {
-      console.log(`[${bot.username}/${myColor}] game:state status=${state.status} fen=${state.fen?.substring(0, 30)}`);
+      lastStateReceivedAt = Date.now();
+      const sinceStart = lastStateReceivedAt - gameStartedAt;
+      console.log(`[${bot.username}/${myColor}] game:state status=${state.status} fen=${state.fen?.substring(0, 30)} +${sinceStart}ms`);
       if (gameOver) return;
       gotGameState = true;
       if (stateCheckTimeout) { clearTimeout(stateCheckTimeout); stateCheckTimeout = null; }
@@ -297,14 +306,22 @@ function playArenaGame(
     });
 
     socket.on('game:move', (data: { fen: string }) => {
-      console.log(`[${bot.username}/${myColor}] game:move fen=${data.fen?.substring(0, 30)}`);
+      lastStateReceivedAt = Date.now();
       if (gameOver) return;
       lastServerFen = data.fen;
       try { brain.loadFen(data.fen); } catch { /* ignore */ }
       tryMove();
     });
 
-    socket.on('game:end', (data: unknown) => { console.log(`[${bot.username}/${myColor}] game:end`, JSON.stringify(data)); clearTimeout(timeout); finish(); });
+    socket.on('game:end', (data: unknown) => {
+      const elapsed = Date.now() - gameStartedAt;
+      console.log(`[${bot.username}/${myColor}] game:end moves=${moveCount} gotState=${gotGameState} elapsed=${elapsed}ms`, JSON.stringify(data));
+      if (moveCount === 0) {
+        console.warn(`[${bot.username}/${myColor}] ZERO-MOVE game=${gameId.slice(0, 8)} gotState=${gotGameState} elapsed=${elapsed}ms`);
+      }
+      clearTimeout(timeout);
+      finish();
+    });
     socket.on('error', async (err: { code?: string }) => {
       if (err.code === 'AUTH_REQUIRED' && !authRetried) {
         authRetried = true;
