@@ -58,7 +58,9 @@ export class ArenaModule implements OnModuleInit {
       this.logger.log(`onGameEnd: tournament game ${gameId.slice(0, 8)} tournament=${tournamentId.slice(0, 8)} result=${game.result}`);
 
       // Remove players from active_players set so matchmaker can pair them again
-      await this.redis.srem(`arena:${tournamentId}:active_players`, game.whiteId, game.blackId).catch(() => {});
+      const apKey = `arena:${tournamentId}:active_players`;
+      const sremResult = await this.redis.srem(apKey, game.whiteId, game.blackId).catch(() => 0);
+      this.logger.log(`onGameEnd SREM key=${apKey} white=${game.whiteId.slice(0, 8)} black=${game.blackId.slice(0, 8)} removed=${sremResult}`);
 
       // 3. Update TournamentPairing.result
       const pairingInfo = await this.roundManager.updatePairingResult(gameId);
