@@ -204,9 +204,13 @@ export class BroadcastWorker {
       select: { lichessRoundId: true, broadcast: { select: { lichessId: true } } },
     });
 
+    // Exclude rounds that already have an active stream — they get data via streaming, no need to poll
+    const streamedRoundIds = new Set(this.activeStreams.keys());
+    const nonStreamedRounds = ongoingRounds.filter((r) => !streamedRoundIds.has(r.lichessRoundId));
+
     const pinnedSet = new Set(this.pinnedBroadcastIds);
-    const pinned = ongoingRounds.filter((r) => pinnedSet.has(r.broadcast.lichessId));
-    const others = ongoingRounds.filter((r) => !pinnedSet.has(r.broadcast.lichessId));
+    const pinned = nonStreamedRounds.filter((r) => pinnedSet.has(r.broadcast.lichessId));
+    const others = nonStreamedRounds.filter((r) => !pinnedSet.has(r.broadcast.lichessId));
 
     const remainingSlots = Math.max(0, MAX_PGN_POLLS_PER_CYCLE - pinned.length);
     const rotated: typeof others = [];
@@ -376,8 +380,8 @@ export class BroadcastWorker {
   private startStream(roundId: string): void {
     const ctrl = new AbortController();
     this.activeStreams.set(roundId, ctrl);
-    this.runStream(roundId, ctrl.signal).catch((e) => {
-      if (!ctrl.signal.aborted) console.error(`[broadcast-worker] Stream error ${roundId}: ${e.message}`);
+    this.runStream(roundId, ctrl.signal).then(() => {
+      // Stream ended (aborted or stopped) — clean up
       this.activeStreams.delete(roundId);
     });
   }
