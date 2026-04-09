@@ -253,7 +253,8 @@ export class GameService {
     const blackMs = activeColor === 'black' ? remaining : Number(clockRaw.black_ms);
     const clocks: ClockState = { whiteMs, blackMs, lastTick: now, running: true };
 
-    // --- I/O #2: Pipeline write — state + clocks in one round-trip ---
+    // --- I/O #2: Pipeline write — state + clocks + deadline in one round-trip ---
+    const nextActiveMs = activeColor === 'white' ? blackMs : whiteMs;
     const pipelineWrite = this.redis.pipeline();
     pipelineWrite.hset(stateKey, {
       fen: newFen,
@@ -264,6 +265,7 @@ export class GameService {
       [movedField]: String(remaining),
       last_tick: String(now),
     });
+    pipelineWrite.zadd('game:deadlines', now + nextActiveMs, gameId);
     await pipelineWrite.exec();
 
     // Moves stored in Redis only (batch written to DB in endGame)
