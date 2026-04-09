@@ -67,6 +67,10 @@ export class BroadcastWorker {
     const redisPort = process.env.REDIS_PORT || '6380';
     console.log(`[broadcast-worker] Starting... Redis=${redisHost}:${redisPort} pinnedIds=${this.pinnedBroadcastIds.length}`);
 
+    // Clear stale locks from previous instance
+    await this.redis.del(SYNC_LOCK_KEY, PINNED_LOCK_KEY).catch(() => {});
+    console.log('[broadcast-worker] Cleared stale locks');
+
     // DB connectivity check
     const dbUrl = (process.env.DATABASE_URL || '').replace(/\/\/[^@]*@/, '//***@');
     console.log(`[broadcast-worker] DATABASE_URL=${dbUrl}`);
@@ -170,7 +174,10 @@ export class BroadcastWorker {
   // --- Sync logic (ported from BroadcastSyncService) ---
 
   async syncBroadcasts(): Promise<void> {
-    if (!await this.acquireLock(SYNC_LOCK_KEY, SYNC_LOCK_TTL)) return;
+    if (!await this.acquireLock(SYNC_LOCK_KEY, SYNC_LOCK_TTL)) {
+      console.log('[broadcast-worker] syncBroadcasts: lock not acquired, skipping');
+      return;
+    }
     console.log('[broadcast-worker] Syncing broadcasts from Lichess...');
 
     try {
@@ -238,7 +245,10 @@ export class BroadcastWorker {
   }
 
   async syncPinnedBroadcasts(): Promise<void> {
-    if (!await this.acquireLock(PINNED_LOCK_KEY, PINNED_LOCK_TTL)) return;
+    if (!await this.acquireLock(PINNED_LOCK_KEY, PINNED_LOCK_TTL)) {
+      console.log('[broadcast-worker] syncPinnedBroadcasts: lock not acquired, skipping');
+      return;
+    }
 
     const ongoingRounds = await this.prisma.broadcastRound.findMany({
       where: { status: 'ongoing' },
