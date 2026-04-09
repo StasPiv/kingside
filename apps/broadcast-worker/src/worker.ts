@@ -63,7 +63,17 @@ export class BroadcastWorker {
   }
 
   async start(): Promise<void> {
-    console.log('[broadcast-worker] Starting...');
+    const redisHost = process.env.REDIS_HOST || 'localhost';
+    const redisPort = process.env.REDIS_PORT || '6380';
+    console.log(`[broadcast-worker] Starting... Redis=${redisHost}:${redisPort} pinnedIds=${this.pinnedBroadcastIds.length}`);
+
+    // Connectivity check
+    try {
+      const testRes = await fetch('https://lichess.org/api', { signal: AbortSignal.timeout(10_000) });
+      console.log(`[broadcast-worker] Lichess API reachable: ${testRes.status}`);
+    } catch (e: any) {
+      console.error(`[broadcast-worker] Lichess API UNREACHABLE: ${e.message} cause=${(e.cause as any)?.message ?? 'none'}`);
+    }
 
     await this.syncBroadcasts();
     this.syncTimer = setInterval(() => {
@@ -103,13 +113,22 @@ export class BroadcastWorker {
       const secsLeft = Math.ceil((this.rateLimitBackoffUntil - Date.now()) / 1000);
       throw new Error(`Lichess 429 backoff active (${secsLeft}s left)`);
     }
-    const res = await fetch(url, init);
-    if (res.status === 429) {
-      this.rateLimitBackoffUntil = Date.now() + RATE_LIMIT_429_BACKOFF_TTL * 1000;
-      console.warn(`[broadcast-worker] Lichess 429 on ${url}. Backing off ${RATE_LIMIT_429_BACKOFF_TTL}s`);
-      throw new Error('Lichess 429 Too Many Requests');
+    try {
+      const res = await fetch(url, {
+        ...init,
+        signal: init?.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (res.status === 429) {
+        this.rateLimitBackoffUntil = Date.now() + RATE_LIMIT_429_BACKOFF_TTL * 1000;
+        console.warn(`[broadcast-worker] Lichess 429 on ${url}. Backing off ${RATE_LIMIT_429_BACKOFF_TTL}s`);
+        throw new Error('Lichess 429 Too Many Requests');
+      }
+      return res;
+    } catch (e: any) {
+      // Enhanced diagnostics for network errors
+      console.error(`[broadcast-worker] lichessFetch FAILED url=${url} error=${e.message} cause=${(e.cause as any)?.message ?? 'none'}`);
+      throw e;
     }
-    return res;
   }
 
   private rateLimitDelay(): Promise<void> {
@@ -257,16 +276,32 @@ export class BroadcastWorker {
 
   private async fetchActiveBroadcasts(): Promise<LichessBroadcast[]> {
     const url = `${LICHESS_API}/broadcast?nb=20`;
-    const res = await this.lichessFetch(url, { headers: { Accept: 'application/x-ndjson' } });
-    if (!res.ok) throw new Error(`Lichess API error: ${res.status}`);
-    const text = await res.text();
-    const broadcasts: LichessBroadcast[] = [];
-    for (const line of text.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try { broadcasts.push(JSON.parse(trimmed)); } catch { /* skip */ }
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await this.lichessFetch(url, {
+          headers: { Accept: 'application/x-ndjson', 'User-Agent': 'Kingside/1.0 (https://kingside.app)' },
+        });
+        if (!res.ok) throw new Error(`Lichess API error: ${res.status}`);
+        const text = await res.text();
+        const broadcasts: LichessBroadcast[] = [];
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try { broadcasts.push(JSON.parse(trimmed)); } catch { /* skip */ }
+        }
+        console.log(`[broadcast-worker] Fetched ${broadcasts.length} broadcasts from Lichess (attempt ${attempt + 1})`);
+        return broadcasts;
+      } catch (e: any) {
+        lastError = e;
+        if (attempt < 2) {
+          const delay = (attempt + 1) * 5000;
+          console.warn(`[broadcast-worker] fetchActiveBroadcasts attempt ${attempt + 1} failed: ${e.message}. Retry in ${delay}ms`);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
     }
-    return broadcasts;
+    throw lastError ?? new Error('fetchActiveBroadcasts failed');
   }
 
   private async upsertBroadcast(bc: LichessBroadcast): Promise<void> {
