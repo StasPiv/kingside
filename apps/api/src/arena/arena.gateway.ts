@@ -55,11 +55,10 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   ) {}
 
   async onModuleInit(): Promise<void> {
-    // Cleanup any existing subscription (guards against multiple onModuleInit calls)
+    // Guard: subscribe only once (onModuleInit may be called multiple times)
     if (this.subRedis) {
-      await this.subRedis.unsubscribe().catch(() => {});
-      await this.subRedis.quit().catch(() => {});
-      this.subRedis = null;
+      this.logger.warn('onModuleInit called again — already subscribed, skipping');
+      return;
     }
 
     try {
