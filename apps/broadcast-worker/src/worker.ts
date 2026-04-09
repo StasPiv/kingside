@@ -466,7 +466,8 @@ export class BroadcastWorker {
         for await (const chunk of res.body as any) {
           if (signal.aborted) break;
           buffer += decoder.decode(chunk, { stream: true });
-          const parts = buffer.split('\n\n');
+          // Lichess PGN stream separates full updates with triple newline
+          const parts = buffer.split('\n\n\n');
           buffer = parts.pop() ?? '';
           for (const part of parts) {
             const pgn = part.trim();
