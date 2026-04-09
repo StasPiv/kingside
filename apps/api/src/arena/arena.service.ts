@@ -458,16 +458,24 @@ export class ArenaService {
     });
     if (!entry || entry.withdrawn) return;
 
-    // Fast Redis check: player already in an active game (set by matchmaker worker)
-    const isActive = await this.redis.sismember(`arena:${tournamentId}:active_players`, userId);
-    if (isActive) return;
-
+    // Atomic check: only ZADD if player NOT in active_players set (Lua script)
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ratingField = `rating${t.timeControlType.charAt(0).toUpperCase() + t.timeControlType.slice(1)}` as keyof typeof user;
     const rating = (user[ratingField] as number) || 1500;
 
-    await this.redis.zadd(this.seekKey(tournamentId), rating, userId);
-    this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: added (rating=${rating})`);
+    const added = await this.redis.eval(
+      `if redis.call("SISMEMBER", KEYS[1], ARGV[1]) == 1 then return 0 end
+       redis.call("ZADD", KEYS[2], ARGV[2], ARGV[1])
+       return 1`,
+      2,
+      `arena:${tournamentId}:active_players`,
+      this.seekKey(tournamentId),
+      userId,
+      String(rating),
+    ) as number;
+    if (added) {
+      this.logger.log(`addToSeekQueue[${userId.slice(0, 8)}]: added (rating=${rating})`);
+    }
   }
 
   async leaveSeeking(tournamentId: string, userId: string) {
