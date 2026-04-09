@@ -125,6 +125,11 @@ async function runBotInArena(
       sock.on('tournament:started', () => startSeekLoop());
 
       sock.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
+        // Ignore duplicate paired events for same game or if already playing
+        if (currentGameId) {
+          console.log(`[${bot.username}] tournament:paired IGNORED (already in game ${currentGameId.slice(0, 8)}) dup=${data.gameId.slice(0, 8)}`);
+          return;
+        }
         console.log(`[${bot.username}] tournament:paired game=${data.gameId.slice(0, 8)} color=${data.color}`);
         currentGameId = data.gameId;
         stopSeekLoop();
