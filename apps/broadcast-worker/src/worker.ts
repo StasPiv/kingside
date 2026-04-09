@@ -494,7 +494,9 @@ export class BroadcastWorker {
     console.log(`[broadcast-worker] processPgnUpdate: round=${roundId.slice(0, 8)} games=${games.length} withUci=${games.filter(g => g.uci).length}`);
 
     for (const game of games) {
-      if (game.fen !== STARTING_FEN) {
+      const isStarting = game.fen === STARTING_FEN;
+      console.log(`[broadcast-worker] game[${game.index}] ${game.white} vs ${game.black} fen=${isStarting ? 'STARTING' : game.fen.slice(0, 30)} uci=${game.uci || 'NONE'} lichessId=${game.lichessGameId?.slice(0, 8) ?? 'null'} pgnLen=${game.pgn.length}`);
+      if (!isStarting) {
         await this.redis.set(`broadcast:fen:${roundId}:${game.index}`, game.fen, 'EX', REDIS_FEN_TTL).catch(() => {});
       }
 
