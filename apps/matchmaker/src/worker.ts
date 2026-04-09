@@ -154,13 +154,25 @@ export class MatchmakerWorker {
 
     for (const [a, b] of pairs) {
       try {
+        // Pre-claim diagnostics: check active_players state for both candidates
+        const [aActive, bActive] = await Promise.all([
+          this.redis.sismember(apKey, a),
+          this.redis.sismember(apKey, b),
+        ]);
+        const apSize = await this.redis.scard(apKey);
+        console.log(`[matchmaker] PRE-CLAIM ${a.slice(0, 8)}+${b.slice(0, 8)}: aActive=${aActive} bActive=${bActive} setSize=${apSize}`);
+
         // Atomic: check both not active → SADD + ZREM (prevents race with addToSeekQueue)
         const claimed = await this.redis.eval(CLAIM_PAIR_SCRIPT, 2, apKey, key, a, b) as number;
         if (!claimed) {
-          console.log(`[matchmaker] Pair ${a.slice(0, 8)}+${b.slice(0, 8)} SKIPPED (one already active)`);
+          const [aPost, bPost] = await Promise.all([
+            this.redis.sismember(apKey, a),
+            this.redis.sismember(apKey, b),
+          ]);
+          console.log(`[matchmaker] Pair ${a.slice(0, 8)}+${b.slice(0, 8)} SKIPPED: aActive=${aPost} bActive=${bPost}`);
           continue;
         }
-        console.log(`[matchmaker] Pair ${a.slice(0, 8)}+${b.slice(0, 8)} CLAIMED`);
+        console.log(`[matchmaker] Pair ${a.slice(0, 8)}+${b.slice(0, 8)} CLAIMED (setSize now ${await this.redis.scard(apKey)})`);
         await this.createArenaGame(t, key, a, b);
       } catch (e: any) {
         console.error(`[matchmaker] Arena game creation failed: ${e.message}`);
