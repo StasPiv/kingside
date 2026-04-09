@@ -176,6 +176,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Track player joins — start clocks when both players have joined
       if (color && state.status === 'active' && !clocks.running) {
+        this.logger.warn(`handleJoinGame: calling maybeStartClocks user=${client.data.user?.username} game=${data.gameId.slice(0, 8)} color=${color} clocksRunning=${clocks.running}`);
         await this.maybeStartClocks(data.gameId, color, whiteId, blackId);
       }
 
@@ -603,16 +604,14 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const count = await this.redis.hincrby(joinKey, 'count', 1);
     await this.redis.expire(joinKey, 120); // safety TTL
 
-    this.logger.log(`maybeStartClocks: game=${gameId.slice(0, 8)} ${color} joined (count=${count})`);
+    this.logger.warn(`maybeStartClocks: game=${gameId.slice(0, 8)} color=${color} whiteId=${whiteId.slice(0, 8)} blackId=${blackId.slice(0, 8)} count=${count} joinKey=${joinKey}`);
 
     if (count === 1) {
-      // First player joined — abort deadline already set by matchmaker (30s)
       this.logger.log(`maybeStartClocks: game=${gameId.slice(0, 8)} waiting for second player`);
     } else if (count >= 2) {
-      // Both players joined — remove abort deadline and start clocks
       await this.redis.zrem(JOIN_DEADLINES_KEY, gameId);
       await this.clockService.startClock(gameId);
-      this.logger.log(`maybeStartClocks: game=${gameId.slice(0, 8)} clocks STARTED`);
+      this.logger.warn(`maybeStartClocks: game=${gameId.slice(0, 8)} clocks STARTED count=${count} triggeredBy=${color}`);
 
       const raw = await this.redis.hgetall(`game:${gameId}:clocks`);
       const updatedClocks = { whiteMs: Number(raw.white_ms), blackMs: Number(raw.black_ms) };
