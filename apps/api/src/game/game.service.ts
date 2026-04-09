@@ -524,22 +524,28 @@ export class GameService {
       } catch { /* give up */ }
     }
 
-    // Batch write all moves from Redis to DB
+    // Batch write all moves from Redis to DB (replay FENs via chess.js)
     try {
       const movesJson = raw.moves || '[]';
       const moves: Array<{ uci: string; san: string }> = JSON.parse(movesJson);
       if (moves.length > 0) {
-        await this.prisma.move.createMany({
-          data: moves.map((m, idx) => ({
+        const replay = new Chess();
+        const data = moves.map((m, idx) => {
+          const from = m.uci.substring(0, 2);
+          const to = m.uci.substring(2, 4);
+          const promotion = m.uci.length > 4 ? m.uci[4] : undefined;
+          replay.move({ from, to, promotion });
+          return {
             gameId,
             moveNumber: idx + 1,
             color: idx % 2 === 0 ? 'white' : 'black',
             uci: m.uci,
             san: m.san,
-            fenAfter: '',
+            fenAfter: replay.fen(),
             timeLeftMs: 0,
-          })),
+          };
         });
+        await this.prisma.move.createMany({ data });
         this.logger.log(`endGame ${gameId}: batch wrote ${moves.length} moves to DB`);
       }
     } catch (e: any) {
