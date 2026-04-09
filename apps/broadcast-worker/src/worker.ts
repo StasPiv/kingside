@@ -181,12 +181,25 @@ export class BroadcastWorker {
         }
       }
 
+      console.log(`[broadcast-worker] Processing ${broadcasts.length} broadcasts...`);
       let fetchCount = 0;
-      for (const bc of broadcasts) {
-        await this.upsertBroadcast(bc);
+      for (let idx = 0; idx < broadcasts.length; idx++) {
+        const bc = broadcasts[idx];
+        console.log(`[broadcast-worker] [${idx + 1}/${broadcasts.length}] upsert ${bc.tour.id} "${bc.tour.name}"`);
+        try {
+          await this.upsertBroadcast(bc);
+        } catch (e: any) {
+          console.error(`[broadcast-worker] upsertBroadcast FAILED ${bc.tour.id}: ${e.message}`);
+          continue;
+        }
         for (const round of bc.rounds) {
           const isActive = round.ongoing === true;
-          await this.upsertRound(bc.tour.id, round, isActive);
+          try {
+            await this.upsertRound(bc.tour.id, round, isActive);
+          } catch (e: any) {
+            console.error(`[broadcast-worker] upsertRound FAILED ${round.id}: ${e.message}`);
+            continue;
+          }
           if (isActive) {
             if (!this.activeStreams.has(round.id)) {
               if (this.activeStreams.size < MAX_CONCURRENT_STREAMS) {
@@ -303,11 +316,14 @@ export class BroadcastWorker {
     let lastError: Error | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
+        // Use a single AbortSignal for both fetch and body read
+        const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
         const res = await this.lichessFetch(url, {
           headers: { Accept: 'application/x-ndjson', 'User-Agent': 'Kingside/1.0 (https://kingside.app)' },
+          signal,
         });
         if (!res.ok) throw new Error(`Lichess API error: ${res.status}`);
-        const text = await res.text();
+        const text = await res.text(); // signal aborts body read too
         const broadcasts: LichessBroadcast[] = [];
         for (const line of text.split('\n')) {
           const trimmed = line.trim();
@@ -340,6 +356,7 @@ export class BroadcastWorker {
   }
 
   private async upsertBroadcast(bc: LichessBroadcast): Promise<void> {
+    console.log(`[broadcast-worker] upsertBroadcast: ${bc.tour.id} "${bc.tour.name}" rounds=${bc.rounds.length}`);
     const info = bc.tour.info;
     const dates = bc.tour.dates;
     const fields = {
