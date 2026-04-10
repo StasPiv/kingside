@@ -333,7 +333,7 @@ function playArenaGame(
       if (state.status !== 'active') { console.log(`[${bot.username}/${myColor}] game:state not active, finishing`); clearTimeout(timeout); finish(); return; }
       lastServerFen = state.fen;
       try { brain.loadFen(state.fen); } catch { /* ignore */ }
-      tryMove('game:state');
+      if (isMyTurn) tryMove('game:state');
     });
 
     socket.on('game:move', (data: { fen: string }) => {
@@ -341,7 +341,10 @@ function playArenaGame(
       if (gameOver) return;
       lastServerFen = data.fen;
       try { brain.loadFen(data.fen); } catch { /* ignore */ }
-      tryMove('game:move');
+      // Only try move if it's our turn (avoid noisy "skip notMyTurn" logs)
+      const turn = data.fen?.split(' ')[1];
+      const isMyTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
+      if (isMyTurn) tryMove('game:move');
     });
 
     socket.on('game:end', (data: unknown) => {

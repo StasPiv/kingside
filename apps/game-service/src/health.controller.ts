@@ -1,20 +1,18 @@
-import * as os from 'os';
 import { Controller, Get } from '@nestjs/common';
 import { RedisService } from './redis/redis.service';
+import { INSTANCE_ID } from './instance-logger';
 
 @Controller('health')
 export class HealthController {
-  private readonly instanceId = os.hostname().slice(-12);
-
   constructor(private readonly redis: RedisService) {}
 
   @Get()
   async check() {
     try {
       await this.redis.ping();
-      return { status: 'ok', redis: 'ok', instance: this.instanceId };
+      return { status: 'ok', redis: 'ok', instance: INSTANCE_ID };
     } catch {
-      return { status: 'degraded', redis: 'error', instance: this.instanceId };
+      return { status: 'degraded', redis: 'error', instance: INSTANCE_ID };
     }
   }
 }

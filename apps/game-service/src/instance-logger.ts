@@ -1,12 +1,21 @@
 import * as os from 'os';
 import { ConsoleLogger, LogLevel } from '@nestjs/common';
 
-const INSTANCE_ID = os.hostname().slice(-12);
+function getInstanceId(): string {
+  // Try private IP (unique per ECS task)
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name] ?? []) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return os.hostname().slice(-12);
+}
 
-/**
- * Logger that prefixes every message with instance ID.
- * Allows distinguishing logs from different ECS tasks.
- */
+export const INSTANCE_ID = getInstanceId();
+
 export class InstanceLogger extends ConsoleLogger {
   protected formatMessage(
     logLevel: LogLevel,
