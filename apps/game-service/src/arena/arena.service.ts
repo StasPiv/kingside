@@ -30,8 +30,8 @@ export class ArenaService {
     pointsLoss?: number;
     startsAt: string;
   }) {
-    if (data.durationMin < 30 || data.durationMin > 180) {
-      throw new BadRequestException('Duration must be 30-180 minutes');
+    if (data.durationMin < 1 || data.durationMin > 180) {
+      throw new BadRequestException('Duration must be 1-180 minutes');
     }
 
     const existing = await this.prisma.arenaTournament.count({
