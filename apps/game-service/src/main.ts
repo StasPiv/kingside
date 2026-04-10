@@ -1,9 +1,12 @@
 import 'reflect-metadata';
+import * as os from 'os';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { RedisIoAdapter } from './common/redis-io.adapter';
+
+const INSTANCE_ID = os.hostname().slice(-12);
 
 function shouldUseRedisAdapter(logger: Logger): boolean {
   const setting = (process.env.WS_USE_REDIS_ADAPTER || 'auto').toLowerCase();
@@ -17,6 +20,8 @@ function shouldUseRedisAdapter(logger: Logger): boolean {
 
 async function bootstrap() {
   const logger = new Logger('GameService');
+  logger.log(`Instance: ${INSTANCE_ID} (hostname: ${os.hostname()})`);
+
   const app = await NestFactory.create(AppModule);
   // No global prefix — Game Service is WS-primary, health at /health
   app.enableCors({ origin: '*', credentials: true });
@@ -37,7 +42,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3002;
   await app.listen(port, '0.0.0.0');
-  logger.log(`Game Service running on http://0.0.0.0:${port}`);
+  logger.log(`Game Service running on http://0.0.0.0:${port} [${INSTANCE_ID}]`);
 }
 
 bootstrap();
