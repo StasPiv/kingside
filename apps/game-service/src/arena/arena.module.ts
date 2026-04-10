@@ -60,6 +60,8 @@ export class ArenaModule implements OnModuleInit {
       // Remove players from active_players set so matchmaker can pair them again
       const apKey = `arena:${tournamentId}:active_players`;
       const sremResult = await this.redis.srem(apKey, game.whiteId, game.blackId).catch(() => 0);
+      // Clear playing flags so players can seek again
+      await this.redis.del(`arena:${tournamentId}:playing:${game.whiteId}`, `arena:${tournamentId}:playing:${game.blackId}`).catch(() => {});
       this.logger.log(`onGameEnd SREM key=${apKey} white=${game.whiteId.slice(0, 8)} black=${game.blackId.slice(0, 8)} removed=${sremResult}`);
 
       // 3. Update TournamentPairing.result
