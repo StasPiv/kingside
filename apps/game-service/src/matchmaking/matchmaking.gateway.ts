@@ -109,6 +109,7 @@ export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconn
       client.data.user = { id: payload.sub, username: payload.username };
       await client.join(`user:${payload.sub}`);
       this.logger.log(`Matchmaking client connected: ${payload.username} (${client.id})`);
+      client.emit('server:instance', { instanceId: require('../instance-logger').INSTANCE_ID });
     } catch {
       client.disconnect();
     }

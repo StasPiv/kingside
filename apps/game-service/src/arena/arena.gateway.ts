@@ -151,6 +151,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       await client.join(`user:${payload.sub}`);
       this.usernames.set(payload.sub, payload.username ?? '');
       this.logger.log(`Tournament client connected: ${payload.username} (${client.id})`);
+      client.emit('server:instance', { instanceId: require('../instance-logger').INSTANCE_ID });
       client.on('disconnect', (reason: string) => {
         this.logger.warn(`Tournament WS disconnect: ${payload.username} reason=${reason}`);
       });
