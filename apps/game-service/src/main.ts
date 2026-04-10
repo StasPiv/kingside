@@ -18,7 +18,7 @@ function shouldUseRedisAdapter(logger: Logger): boolean {
 async function bootstrap() {
   const logger = new Logger('GameService');
   const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api');
+  // No global prefix — Game Service is WS-primary, health at /health
   app.enableCors({ origin: '*', credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
