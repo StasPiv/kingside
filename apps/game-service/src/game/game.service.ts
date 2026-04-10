@@ -188,11 +188,12 @@ export class GameService {
 
     // --- Inline timeout check (no extra Redis call) ---
     const now = Date.now();
+    const clocksRunning = clockRaw.running === '1';
     const clockField = activeColor === 'white' ? 'white_ms' : 'black_ms';
-    const elapsed = now - Number(clockRaw.last_tick);
+    const elapsed = clocksRunning ? now - Number(clockRaw.last_tick) : 0;
     const timeRemaining = Number(clockRaw[clockField]) - elapsed;
 
-    if (timeRemaining <= 0) {
+    if (clocksRunning && timeRemaining <= 0) {
       const timeoutClocks: ClockState = {
         whiteMs: activeColor === 'white' ? 0 : Number(clockRaw.white_ms),
         blackMs: activeColor === 'black' ? 0 : Number(clockRaw.black_ms),
