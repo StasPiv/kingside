@@ -1,24 +1,17 @@
 import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from './prisma/prisma.service';
 import { RedisService } from './redis/redis.service';
-import { ScalingService } from './common/scaling.service';
 
 type ComponentStatus = 'ok' | 'error' | 'readonly';
 
 @Controller('health')
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
-  private readonly wsOverloadThreshold: number;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
-    private readonly moduleRef: ModuleRef,
-    private readonly scalingService: ScalingService,
-  ) {
-    this.wsOverloadThreshold = parseInt(process.env.WS_HEALTH_THRESHOLD || '120', 10);
-  }
+  ) {}
 
   @Get()
   async check() {
@@ -27,42 +20,8 @@ export class HealthController {
       this.checkRedis(),
     ]);
 
-    // Check WS connection count
-    const wsConnections = this.getWsConnectionCount();
-    const wsOverloaded = wsConnections > this.wsOverloadThreshold;
-
-    const status = db === 'ok' && redis === 'ok' && !wsOverloaded ? 'ok' : 'degraded';
-    const response = { status, db, redis, wsConnections };
-
-    if (wsOverloaded) {
-      this.logger.warn(`Health 503: WS overloaded (${wsConnections}/${this.wsOverloadThreshold})`);
-      throw new ServiceUnavailableException(response);
-    }
-
-    return response;
-  }
-
-  @Get('load')
-  getLoad() {
-    const connections = this.getWsConnectionCount();
-    const scaleThreshold = this.scalingService.getThreshold();
-    const busy = this.scalingService.getBusyState();
-    return {
-      connections,
-      threshold: scaleThreshold,
-      busy,
-    };
-  }
-
-  private getWsConnectionCount(): number {
-    try {
-      const { GameGateway } = require('./game/game.gateway');
-      const gateway = this.moduleRef.get(GameGateway, { strict: false });
-      const rootServer = (gateway?.server as any)?.server ?? gateway?.server;
-      return rootServer?.engine?.clientsCount ?? 0;
-    } catch {
-      return 0;
-    }
+    const status = db === 'ok' && redis === 'ok' ? 'ok' : 'degraded';
+    return { status, db, redis };
   }
 
   private async checkDb(): Promise<ComponentStatus> {
