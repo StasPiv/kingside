@@ -40,7 +40,7 @@ export class RedisIoAdapter extends IoAdapter {
         new Promise<void>((resolve) => subClient.on('ready', resolve)),
       ]);
 
-      this.adapterConstructor = createAdapter(pubClient, subClient);
+      this.adapterConstructor = createAdapter(pubClient, subClient, { key: 'socket.io-game' });
     } else {
       connLabel = `${redisHost}:${redisPort}`;
       const pubClient = new Redis({ host: redisHost, port: redisPort });
@@ -54,7 +54,7 @@ export class RedisIoAdapter extends IoAdapter {
         new Promise<void>((resolve) => subClient.on('ready', resolve)),
       ]);
 
-      this.adapterConstructor = createAdapter(pubClient, subClient);
+      this.adapterConstructor = createAdapter(pubClient, subClient, { key: 'socket.io-game' });
     }
 
     this.logger.log(`Redis adapter connected (${connLabel})`);
