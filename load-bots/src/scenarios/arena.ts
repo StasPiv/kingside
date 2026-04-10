@@ -133,6 +133,10 @@ async function runBotInArena(
         sock.emit('tournament:subscribe', { tournamentId });
       });
 
+      sock.on('server:instance', (data: { instanceId: string }) => {
+        serverInstanceId = data.instanceId ?? '';
+      });
+
       sock.on('server:busy', () => { serverBusy = true; pauseSeekLoop(); });
       sock.on('server:ready', () => { serverBusy = false; if (!finished && !currentGameId) resumeSeekLoop(); });
 
