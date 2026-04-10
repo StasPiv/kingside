@@ -1,5 +1,7 @@
+import * as path from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AcceptLanguageResolver, I18nModule, QueryResolver } from 'nestjs-i18n';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
@@ -17,6 +19,11 @@ import { HealthController } from './health.controller';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['../../.env', '.env'],
+    }),
+    I18nModule.forRoot({
+      fallbackLanguage: 'en',
+      loaderOptions: { path: path.join(__dirname, '/i18n/'), watch: false },
+      resolvers: [{ use: QueryResolver, options: ['lang'] }, AcceptLanguageResolver],
     }),
     PrismaModule,
     RedisModule,

@@ -1,0 +1,18 @@
+{
+  "auth.invalidCredentials": "Invalid credentials",
+  "auth.usernameOrEmailTaken": "Username or email already taken",
+  "auth.invalidRefreshToken": "Invalid refresh token",
+  "user.notFound": "User not found",
+  "user.wrongPassword": "Current password is incorrect",
+  "game.notActive": "Game is not active",
+  "game.notYourTurn": "Not your turn",
+  "game.invalidMove": "Invalid move",
+  "game.notAPlayer": "Not a player in this game",
+  "game.noDrawOffer": "No draw offer to accept",
+  "auth.missingToken": "Missing authentication token",
+  "auth.invalidToken": "Invalid authentication token",
+  "matchmaking.alreadyInQueue": "Already in matchmaking queue",
+  "game.botGameLimitReached": "Too many active bot games",
+  "puzzle.notFound": "Puzzle not found",
+  "puzzle.noPuzzlesAvailable": "No puzzles available for your rating"
+}
