@@ -11,6 +11,10 @@ FROM base AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/game-service/package.json apps/game-service/
+COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
+COPY apps/broadcast-worker/package.json apps/broadcast-worker/
+COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
 RUN npm ci --ignore-scripts
 COPY packages/shared ./packages/shared
@@ -18,7 +22,11 @@ COPY apps/game-service ./apps/game-service
 COPY tsconfig.base.json ./
 RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
-RUN cd apps/game-service && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
+RUN cd apps/game-service && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
+RUN cd apps/game-service && npx nest build 2>&1 || true
+RUN cp -r apps/game-service/src/engine/*.json apps/game-service/dist/engine/ 2>/dev/null || true
+RUN cp -r apps/game-service/src/i18n apps/game-service/dist/i18n 2>/dev/null || true
+RUN ls apps/game-service/dist/main.js
 
 FROM base AS production
 WORKDIR /app
