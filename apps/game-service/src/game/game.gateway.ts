@@ -64,7 +64,12 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly redis: RedisService,
   ) {}
 
+  private readonly instanceId = require('os').hostname().slice(-12);
+
   async handleConnection(client: Socket) {
+    // Send instance ID to client on connect
+    client.emit('server:instance', { instanceId: this.instanceId });
+
     // Log ALL incoming events for diagnostics (KS-1378)
     client.onAny((event: string, ...args: unknown[]) => {
       const user = client.data.user?.username || 'anon';
