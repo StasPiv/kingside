@@ -1,0 +1,407 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { GameService } from '../game/game.service';
+import { SwissPairingService } from './swiss-pairing.service';
+import { RoundRobinPairingService } from './round-robin-pairing.service';
+
+@Injectable()
+export class RoundManagerService {
+  private readonly logger = new Logger(RoundManagerService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gameService: GameService,
+    private readonly swissPairing: SwissPairingService,
+    private readonly rrPairing: RoundRobinPairingService,
+  ) {}
+
+  /**
+   * Start the next round of a Swiss/RR tournament.
+   */
+  async startNextRound(tournamentId: string): Promise<string | null> {
+    const t = await this.prisma.arenaTournament.findUnique({
+      where: { id: tournamentId },
+      include: { entries: true },
+    });
+    if (!t || t.status !== 'active') {
+      this.logger.warn(`startNextRound: tournament ${tournamentId} not found or not active (status=${t?.status})`);
+      return null;
+    }
+    if (t.type === 'arena') {
+      this.logger.log(`startNextRound: skipping arena tournament ${tournamentId}`);
+      return null;
+    }
+
+    const nextRound = t.currentRound + 1;
+    // Compute max rounds: use totalRounds if set, otherwise derive from cycles
+    let maxRounds = t.totalRounds;
+    if (!maxRounds && t.type === 'round-robin' && t.cycles) {
+      const playerCount = t.entries.filter((e) => !e.withdrawn).length;
+      const paddedCount = playerCount + (playerCount % 2);
+      maxRounds = t.cycles * (paddedCount - 1);
+    }
+    if (maxRounds && nextRound > maxRounds) {
+      this.logger.log(`startNextRound: all ${maxRounds} rounds played for ${tournamentId}`);
+      return null;
+    }
+
+    this.logger.log(`startNextRound: ${t.type} tournament ${tournamentId}, round ${nextRound}, ${t.entries.length} entries`);
+
+    let pairings: { whiteId: string; blackId: string | null; board: number }[];
+
+    if (t.type === 'round-robin') {
+      // RR: use pre-generated pending round from schedule
+      const pendingRound = await this.prisma.tournamentRound.findUnique({
+        where: { tournamentId_roundNumber: { tournamentId, roundNumber: nextRound } },
+        include: { pairings: { orderBy: { board: 'asc' } } },
+      });
+
+      if (pendingRound && pendingRound.status === 'pending') {
+        // Activate the pending round, create games for each pairing
+        await this.prisma.tournamentRound.update({
+          where: { id: pendingRound.id },
+          data: { status: 'active', startedAt: new Date() },
+        });
+
+        const withdrawnIds = new Set(t.entries.filter((e) => e.withdrawn).map((e) => e.userId));
+
+        for (const p of pendingRound.pairings) {
+          if (p.result === 'bye' || !p.blackId) {
+            // Bye: round-robin = 0 pts (skip), swiss = pointsWin
+            if (t.type !== 'round-robin') {
+              const byePoints = t.pointsWin;
+              if (!withdrawnIds.has(p.whiteId)) {
+                await this.prisma.arenaTournamentEntry.updateMany({
+                  where: { tournamentId, userId: p.whiteId },
+                  data: { score: { increment: byePoints }, wins: { increment: 1 } },
+                });
+                this.logger.log(`Bye: ${p.whiteId.slice(0, 8)} gets ${byePoints} pts (round ${nextRound})`);
+              }
+            } else {
+              this.logger.log(`Bye: ${p.whiteId.slice(0, 8)} skips round ${nextRound} (RR, 0 pts)`);
+            }
+            continue;
+          }
+
+          // Skip if both players withdrew
+          const wWhite = withdrawnIds.has(p.whiteId);
+          const wBlack = withdrawnIds.has(p.blackId);
+          if (wWhite && wBlack) {
+            await this.prisma.tournamentPairing.update({
+              where: { id: p.id },
+              data: { result: 'bye' },
+            });
+            continue;
+          }
+
+          // If one withdrew, convert to bye for the other
+          if (wWhite || wBlack) {
+            const activePlayer = wWhite ? p.blackId : p.whiteId;
+            await this.prisma.tournamentPairing.update({
+              where: { id: p.id },
+              data: { result: 'bye', whiteId: activePlayer, blackId: null },
+            });
+            if (t.type !== 'round-robin') {
+              const byePoints = t.pointsWin;
+              await this.prisma.arenaTournamentEntry.updateMany({
+                where: { tournamentId, userId: activePlayer },
+                data: { score: { increment: byePoints }, wins: { increment: 1 } },
+              });
+            }
+            continue;
+          }
+
+          // Create game
+          const game = await this.prisma.game.create({
+            data: {
+              whiteId: p.whiteId,
+              blackId: p.blackId,
+              status: 'waiting',
+              timeControlType: t.timeControlType as 'bullet' | 'blitz' | 'rapid' | 'classical',
+              timeInitialSec: t.timeInitialSec,
+              timeIncrementSec: t.timeIncrementSec,
+              tournamentId,
+            },
+          });
+          await this.gameService.initGame(game.id);
+          await this.prisma.tournamentPairing.update({
+            where: { id: p.id },
+            data: { gameId: game.id },
+          });
+          this.logger.log(`startNextRound RR: created game ${game.id} — ${p.whiteId} vs ${p.blackId} (board ${p.board})`);
+        }
+
+        await this.prisma.arenaTournament.update({
+          where: { id: tournamentId },
+          data: { currentRound: nextRound },
+        });
+
+        this.logger.log(`Tournament ${tournamentId}: RR round ${nextRound} activated with pre-generated pairings`);
+        return pendingRound.id;
+      }
+
+      // Fallback: no pending round found — generate pairings dynamically (legacy)
+      const playerIds = t.entries.map((e) => e.userId);
+      const withdrawnIds = new Set(t.entries.filter((e) => e.withdrawn).map((e) => e.userId));
+      const allRounds = this.rrPairing.generateFullSchedule(playerIds, t.cycles ?? 1);
+      const rawPairings = nextRound <= allRounds.length ? allRounds[nextRound - 1] : [];
+      pairings = rawPairings.reduce<typeof rawPairings>((acc, p) => {
+        const wWhite = withdrawnIds.has(p.whiteId);
+        const wBlack = p.blackId ? withdrawnIds.has(p.blackId) : true;
+        if (wWhite && wBlack) return acc;
+        if (wWhite) acc.push({ whiteId: p.blackId!, blackId: null, board: p.board });
+        else if (wBlack) acc.push({ whiteId: p.whiteId, blackId: null, board: p.board });
+        else acc.push(p);
+        return acc;
+      }, []);
+    } else {
+      // Swiss
+      const players = await this.getSwissPlayers(tournamentId);
+      pairings = this.swissPairing.pair(players, nextRound);
+    }
+
+    if (pairings.length === 0) {
+      this.logger.warn(`startNextRound: 0 pairings generated for round ${nextRound} of ${tournamentId}`);
+      return null;
+    }
+
+    this.logger.log(`startNextRound: ${pairings.length} pairings generated for round ${nextRound}`);
+
+    // Create round
+    const round = await this.prisma.tournamentRound.create({
+      data: {
+        tournamentId,
+        roundNumber: nextRound,
+        status: 'active',
+        startedAt: new Date(),
+      },
+    });
+
+    // Create games + pairings
+    for (const p of pairings) {
+      let gameId: string | null = null;
+
+      if (p.blackId) {
+        const game = await this.prisma.game.create({
+          data: {
+            whiteId: p.whiteId,
+            blackId: p.blackId,
+            status: 'waiting',
+            timeControlType: t.timeControlType as 'bullet' | 'blitz' | 'rapid' | 'classical',
+            timeInitialSec: t.timeInitialSec,
+            timeIncrementSec: t.timeIncrementSec,
+            tournamentId,
+          },
+        });
+        await this.gameService.initGame(game.id);
+        gameId = game.id;
+        this.logger.log(`startNextRound: created game ${game.id} — ${p.whiteId} vs ${p.blackId} (board ${p.board})`);
+      } else {
+        this.logger.log(`startNextRound: bye for ${p.whiteId} (board ${p.board})`);
+      }
+
+      await this.prisma.tournamentPairing.create({
+        data: {
+          roundId: round.id,
+          whiteId: p.whiteId,
+          blackId: p.blackId,
+          gameId,
+          board: p.board,
+          result: p.blackId ? null : 'bye',
+        },
+      });
+
+      // Bye: round-robin = 0 pts, swiss = pointsWin, arena = 1
+      if (!p.blackId && t.type !== 'round-robin') {
+        const byePoints = t.type === 'arena' ? 1 : t.pointsWin;
+        await this.prisma.arenaTournamentEntry.updateMany({
+          where: { tournamentId, userId: p.whiteId },
+          data: { score: { increment: byePoints }, wins: { increment: 1 } },
+        });
+      }
+    }
+
+    // Update tournament currentRound
+    await this.prisma.arenaTournament.update({
+      where: { id: tournamentId },
+      data: { currentRound: nextRound },
+    });
+
+    this.logger.log(`Tournament ${tournamentId}: round ${nextRound} started with ${pairings.length} pairings`);
+    return round.id;
+  }
+
+  /**
+   * Check if all games in current round are finished.
+   */
+  async checkRoundComplete(tournamentId: string): Promise<boolean> {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t || t.currentRound === 0) return false;
+
+    const round = await this.prisma.tournamentRound.findUnique({
+      where: { tournamentId_roundNumber: { tournamentId, roundNumber: t.currentRound } },
+      include: { pairings: true },
+    });
+    if (!round || round.status === 'finished') return false;
+
+    const pendingGames = round.pairings.filter((p) => p.gameId && !p.result);
+    this.logger.log(`checkRoundComplete: tournament ${tournamentId}, round ${t.currentRound}/${t.totalRounds ?? '∞'}, pending=${pendingGames.length}, total pairings=${round.pairings.length}`);
+    return pendingGames.length === 0;
+  }
+
+  /**
+   * Finalize current round and update pairing results from games.
+   */
+  async finalizeRound(tournamentId: string): Promise<void> {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t || t.currentRound === 0) return;
+
+    const round = await this.prisma.tournamentRound.findUnique({
+      where: { tournamentId_roundNumber: { tournamentId, roundNumber: t.currentRound } },
+      include: { pairings: true },
+    });
+    if (!round) return;
+
+    // Update pairing results from games
+    for (const p of round.pairings) {
+      if (p.result || !p.gameId) continue;
+      const game = await this.prisma.game.findUnique({
+        where: { id: p.gameId },
+        select: { result: true, status: true },
+      });
+      if (game?.status === 'finished' && game.result) {
+        let result: string;
+        if (game.result === 'white') result = '1-0';
+        else if (game.result === 'black') result = '0-1';
+        else result = '1/2-1/2';
+
+        await this.prisma.tournamentPairing.update({
+          where: { id: p.id },
+          data: { result },
+        });
+      }
+    }
+
+    await this.prisma.tournamentRound.update({
+      where: { id: round.id },
+      data: { status: 'finished', finishedAt: new Date() },
+    });
+
+    // Check if tournament is complete
+    let maxRoundsF = t.totalRounds;
+    if (!maxRoundsF && t.type === 'round-robin' && t.cycles) {
+      const entryCount = await this.prisma.arenaTournamentEntry.count({
+        where: { tournamentId, withdrawn: false },
+      });
+      const paddedCount = entryCount + (entryCount % 2);
+      maxRoundsF = t.cycles * (paddedCount - 1);
+    }
+    this.logger.log(`finalizeRound: tournament ${tournamentId}, currentRound=${t.currentRound}, maxRounds=${maxRoundsF ?? '∞'}`);
+    if (maxRoundsF && t.currentRound >= maxRoundsF) {
+      await this.prisma.arenaTournament.update({
+        where: { id: tournamentId },
+        data: { status: 'finished', totalRounds: maxRoundsF },
+      });
+      this.logger.log(`Tournament ${tournamentId} finished (all ${maxRoundsF} rounds complete)`);
+    } else {
+      this.logger.log(`finalizeRound: round ${t.currentRound} finalized, tournament continues (${t.currentRound}/${maxRoundsF ?? '∞'})`);
+    }
+  }
+
+  /**
+   * Get rounds for a tournament.
+   */
+  async getRounds(tournamentId: string) {
+    return this.prisma.tournamentRound.findMany({
+      where: { tournamentId },
+      orderBy: { roundNumber: 'asc' },
+      include: {
+        pairings: {
+          orderBy: { board: 'asc' },
+        },
+      },
+    });
+  }
+
+  async getRound(tournamentId: string, roundNumber: number) {
+    return this.prisma.tournamentRound.findUnique({
+      where: { tournamentId_roundNumber: { tournamentId, roundNumber } },
+      include: {
+        pairings: {
+          orderBy: { board: 'asc' },
+        },
+      },
+    });
+  }
+
+  /**
+   * Update TournamentPairing result based on finished game.
+   * Returns pairing id + tournament info if found.
+   */
+  async updatePairingResult(gameId: string): Promise<{ pairingId: string; tournamentId: string; currentRound: number } | null> {
+    const pairing = await this.prisma.tournamentPairing.findFirst({
+      where: { gameId },
+      include: { round: true },
+    });
+    if (!pairing || pairing.result) return null;
+
+    const game = await this.prisma.game.findUnique({
+      where: { id: gameId },
+      select: { result: true, status: true, tournamentId: true },
+    });
+    if (!game || game.status !== 'finished' || !game.result) return null;
+
+    let result: string;
+    if (game.result === 'white') result = '1-0';
+    else if (game.result === 'black') result = '0-1';
+    else result = '1/2-1/2';
+
+    await this.prisma.tournamentPairing.update({
+      where: { id: pairing.id },
+      data: { result },
+    });
+
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: pairing.round.tournamentId } });
+
+    return {
+      pairingId: pairing.id,
+      tournamentId: pairing.round.tournamentId,
+      currentRound: t?.currentRound ?? 0,
+    };
+  }
+
+  private async getSwissPlayers(tournamentId: string) {
+    const entries = await this.prisma.arenaTournamentEntry.findMany({
+      where: { tournamentId, withdrawn: false },
+      include: { user: { select: { ratingBlitz: true } } },
+    });
+
+    // Get opponent history from pairings
+    const pairings = await this.prisma.tournamentPairing.findMany({
+      where: { round: { tournamentId } },
+      select: { whiteId: true, blackId: true },
+    });
+
+    const opponentMap = new Map<string, string[]>();
+    const colorMap = new Map<string, ('w' | 'b')[]>();
+    for (const p of pairings) {
+      if (!p.blackId) continue;
+      if (!opponentMap.has(p.whiteId)) opponentMap.set(p.whiteId, []);
+      if (!opponentMap.has(p.blackId)) opponentMap.set(p.blackId, []);
+      opponentMap.get(p.whiteId)!.push(p.blackId);
+      opponentMap.get(p.blackId)!.push(p.whiteId);
+      if (!colorMap.has(p.whiteId)) colorMap.set(p.whiteId, []);
+      if (!colorMap.has(p.blackId)) colorMap.set(p.blackId, []);
+      colorMap.get(p.whiteId)!.push('w');
+      colorMap.get(p.blackId)!.push('b');
+    }
+
+    return entries.map((e) => ({
+      userId: e.userId,
+      score: e.score,
+      rating: e.user?.ratingBlitz ?? 1500,
+      opponents: opponentMap.get(e.userId) ?? [],
+      colorHistory: colorMap.get(e.userId) ?? [],
+    }));
+  }
+}
