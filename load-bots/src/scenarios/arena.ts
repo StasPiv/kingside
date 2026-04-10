@@ -42,7 +42,7 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
       startsAt,
     });
   } catch (e: unknown) {
-    warn('-', '[Arena] Failed to create tournament:', (e as Error).message);
+    warn('-', `[Arena] Failed to create tournament: ${(e as Error).message}`);
     bots.forEach((b) => b.disconnect());
     return;
   }
@@ -221,6 +221,7 @@ function playArenaGame(
 ): Promise<void> {
   return new Promise((resolve) => {
     let authRetried = false;
+    let serverInstanceId = '';
     const brain = new ChessBrain('smart');
     const connectStartMs = Date.now();
     log(serverInstanceId, `[${bot.username}/${myColor}] PAIRED→CONNECT game=${gameId.slice(0, 8)} delay=${connectStartMs - pairedAt}ms`);
@@ -321,7 +322,6 @@ function playArenaGame(
       }, delay);
     };
 
-    let serverInstanceId = '';
     socket.on('server:instance', (data: { instanceId: string }) => {
       serverInstanceId = data.instanceId ?? '';
       const handshakeMs = Date.now() - connectStartMs;
@@ -363,7 +363,7 @@ function playArenaGame(
     socket.on('game:end', (data: unknown) => {
       const elapsed = Date.now() - gameStartedAt;
       const firstMoveDelay = firstMoveEmittedAt ? firstMoveEmittedAt - pairedAt : -1;
-      log(serverInstanceId, `[${bot.username}/${myColor}] game:end moves=${moveCount} gotState=${gotGameState} elapsed=${elapsed}ms paired→1st=${firstMoveDelay}ms instance=${serverInstanceId}`, JSON.stringify(data));
+      log(serverInstanceId, `[${bot.username}/${myColor}] game:end moves=${moveCount} gotState=${gotGameState} elapsed=${elapsed}ms paired→1st=${firstMoveDelay}ms ${JSON.stringify(data)}`);
       if (moveCount === 0) {
         warn(serverInstanceId, `[${bot.username}/${myColor}] ZERO-MOVE game=${gameId.slice(0, 8)} gotState=${gotGameState} elapsed=${elapsed}ms instance=${serverInstanceId}`);
       }
