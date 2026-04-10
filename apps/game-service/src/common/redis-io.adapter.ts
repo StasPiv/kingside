@@ -60,22 +60,14 @@ export class RedisIoAdapter extends IoAdapter {
     this.logger.log(`Redis adapter connected (${connLabel})`);
   }
 
-  /** Cached server — single Socket.IO Server for all namespaces */
-  private cachedServer: any = null;
-
   createIOServer(port: number, options?: ServerOptions) {
-    // Return cached server for subsequent namespace registrations
-    if (this.cachedServer) {
-      this.logger.log(`createIOServer: reusing cached server`);
-      return this.cachedServer;
-    }
-
-    this.logger.log(`createIOServer called: port=${port}`);
+    this.logger.log(`createIOServer called: port=${port} options=${JSON.stringify(options ?? {})}`);
     const server = super.createIOServer(port, options);
     if (this.adapterConstructor) {
       server.adapter(this.adapterConstructor);
     }
 
+    // Log all namespaces registered
     server.on('new_namespace', (nsp: any) => {
       this.logger.log(`Namespace registered: ${nsp.name}`);
     });
@@ -84,27 +76,40 @@ export class RedisIoAdapter extends IoAdapter {
     const maxPendingHandshakes = parseInt(process.env.WS_MAX_PENDING_HANDSHAKES || '20', 10);
     let pendingHandshakes = 0;
 
+    // Connection admission control + handshake rate limiting
     server.use((socket: any, next: (err?: Error) => void) => {
+      this.logger.log(`WS connect attempt: nsp=${socket.nsp?.name ?? '?'} id=${socket.id} transport=${socket.conn?.transport?.name ?? '?'}`);
+      // 0. Reject if ScalingService reports server is busy (scale-up in progress)
       if (ScalingService.busy) {
-        this.logger.warn('Admission control: rejecting connection (server busy)');
+        this.logger.warn('Admission control: rejecting connection (server busy, scale-up in progress)');
         return next(new Error(JSON.stringify({ type: 'server_busy', retryAfter: 60 })));
       }
+
+      // 1. Admission control: reject if too many connections
       const clientsCount = server.engine?.clientsCount ?? 0;
       if (clientsCount >= maxConnections) {
-        this.logger.warn(`Admission control: rejecting (${clientsCount}/${maxConnections})`);
+        this.logger.warn(`Admission control: rejecting connection (${clientsCount}/${maxConnections})`);
         return next(new Error(JSON.stringify({ type: 'server_busy', retryAfter: 60 })));
       }
+
+      // 2. Handshake rate limiting: reject if too many pending
       if (pendingHandshakes >= maxPendingHandshakes) {
-        this.logger.warn(`Handshake rate limit: rejecting (${pendingHandshakes}/${maxPendingHandshakes})`);
+        this.logger.warn(`Handshake rate limit: rejecting (${pendingHandshakes}/${maxPendingHandshakes} pending)`);
         return next(new Error(JSON.stringify({ type: 'server_busy', retryAfter: 5 })));
       }
+
       pendingHandshakes++;
-      setImmediate(() => { pendingHandshakes = Math.max(0, pendingHandshakes - 1); });
+      socket.once('disconnect', () => { /* cleanup handled below */ });
+
+      // Decrease pending count after handshake completes (next tick)
+      setImmediate(() => {
+        pendingHandshakes = Math.max(0, pendingHandshakes - 1);
+      });
+
       next();
     });
 
     this.logger.log(`Admission control: maxConnections=${maxConnections}, maxPendingHandshakes=${maxPendingHandshakes}`);
-    this.cachedServer = server;
 
     return server;
   }
