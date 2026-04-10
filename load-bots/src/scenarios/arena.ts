@@ -3,6 +3,14 @@ import { ChessBrain } from '../chess-brain.js';
 import { Metrics } from '../metrics.js';
 import { Config } from '../config.js';
 
+/** Prefixed log: [ISO timestamp] [instance] message */
+function log(instance: string, msg: string) {
+  console.log(`[${new Date().toISOString()}] [${instance || '-'}] ${msg}`);
+}
+function warn(instance: string, msg: string) {
+  console.warn(`[${new Date().toISOString()}] [${instance || '-'}] ${msg}`);
+}
+
 /**
  * Arena tournament: create tournament, N bots join, play rounds via WS.
  * Flow: create → join → subscribe WS → seek → get paired → play game → repeat.
@@ -11,7 +19,7 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
   const botCount = config.concurrency;
   const durationMin = parseInt(process.env.ARENA_DURATION_MIN || '30', 10);
   const timeInitialSec = parseInt(process.env.TIME_INITIAL_SEC || '180', 10);
-  console.log(`[Arena] ${botCount} bots, tournament ${durationMin}min, time ${timeInitialSec}s`);
+  log('-', `[Arena] ${botCount} bots, tournament ${durationMin}min, time ${timeInitialSec}s`);
 
   // Create bots and login
   const bots: BotUser[] = [];
@@ -34,13 +42,13 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
       startsAt,
     });
   } catch (e: unknown) {
-    console.error('[Arena] Failed to create tournament:', (e as Error).message);
+    warn('-', '[Arena] Failed to create tournament:', (e as Error).message);
     bots.forEach((b) => b.disconnect());
     return;
   }
 
   const tournamentId = tournament.id;
-  console.log(`[Arena] Tournament ${tournamentId} created, joining ${botCount} bots...`);
+  log('-', `[Arena] Tournament ${tournamentId} created, joining ${botCount} bots...`);
 
   // All bots join the tournament
   for (const bot of bots) {
@@ -57,7 +65,7 @@ export async function runArenaScenario(config: Config, metrics: Metrics): Promis
 
   // Cleanup
   bots.forEach((b) => b.disconnect());
-  console.log(`[Arena] Tournament done`);
+  log('-', `[Arena] Tournament done`);
 }
 
 /** Global busy flag — shared across all bots in this process */
@@ -132,11 +140,11 @@ async function runBotInArena(
       sock.on('tournament:paired', (data: { gameId: string; color: 'white' | 'black' }) => {
         // Ignore duplicate paired events for same game or if already playing
         if (currentGameId) {
-          console.log(`[${bot.username}] tournament:paired IGNORED (already in game ${currentGameId.slice(0, 8)}) dup=${data.gameId.slice(0, 8)}`);
+          log(serverInstanceId, `[${bot.username}] tournament:paired IGNORED (already in game ${currentGameId.slice(0, 8)}) dup=${data.gameId.slice(0, 8)}`);
           return;
         }
         const pairedAt = Date.now();
-        console.log(`[${bot.username}] tournament:paired game=${data.gameId.slice(0, 8)} color=${data.color}`);
+        log(serverInstanceId, `[${bot.username}] tournament:paired game=${data.gameId.slice(0, 8)} color=${data.color}`);
         currentGameId = data.gameId;
         stopSeekLoop();
         metrics.recordGameStarted();
@@ -152,7 +160,7 @@ async function runBotInArena(
 
       sock.on('disconnect', async () => {
         if (finished) return;
-        console.log(`[${bot.username}] /tournament disconnected, reconnecting...`);
+        log(serverInstanceId, `[${bot.username}] /tournament disconnected, reconnecting...`);
         try {
           wireSocket(await bot.reconnectWs('/tournament'));
         } catch { metrics.recordError(); }
@@ -160,11 +168,11 @@ async function runBotInArena(
 
       sock.on('error', async (err: { code?: string }) => {
         if (err.code === 'AUTH_REQUIRED' && !finished) {
-          console.log(`[${bot.username}] Tournament AUTH_REQUIRED, re-login → reconnect`);
+          log(serverInstanceId, `[${bot.username}] Tournament AUTH_REQUIRED, re-login → reconnect`);
           try {
             wireSocket(await bot.reconnectWs('/tournament'));
           } catch {
-            console.error(`[${bot.username}] Tournament re-login failed`);
+            warn(serverInstanceId, `[${bot.username}] Tournament re-login failed`);
             metrics.recordError();
           }
         }
@@ -178,7 +186,7 @@ async function runBotInArena(
         } catch { /* not JSON */ }
 
         if (retryAfter > 0 && !finished) {
-          console.log(`[${bot.username}] /tournament server_busy, retry in ${retryAfter}s`);
+          log(serverInstanceId, `[${bot.username}] /tournament server_busy, retry in ${retryAfter}s`);
           serverBusy = true;
           await new Promise((r) => setTimeout(r, retryAfter * 1000));
           if (!finished) {
@@ -210,7 +218,7 @@ function playArenaGame(
     let authRetried = false;
     const brain = new ChessBrain('smart');
     const connectStartMs = Date.now();
-    console.log(`[${bot.username}/${myColor}] PAIRED→CONNECT game=${gameId.slice(0, 8)} delay=${connectStartMs - pairedAt}ms`);
+    log(serverInstanceId, `[${bot.username}/${myColor}] PAIRED→CONNECT game=${gameId.slice(0, 8)} delay=${connectStartMs - pairedAt}ms`);
     const socket = bot.connectWs('/game');
     let gameOver = false;
     let moveCount = 0;
@@ -234,11 +242,11 @@ function playArenaGame(
     // REST fallback: fetch game state if WS game:state not received within 3s
     const fetchStateViaRest = async () => {
       if (gameOver || gotGameState) return;
-      console.warn(`[${bot.username}/${myColor}] NO game:state after 3s, REST fallback for ${gameId.slice(0, 8)}`);
+      warn(serverInstanceId, `[${bot.username}/${myColor}] NO game:state after 3s, REST fallback for ${gameId.slice(0, 8)}`);
       try {
         const game = await bot.get<{ status: string; fen: string }>(`/api/games/${gameId}`);
         if (gameOver || gotGameState) return;
-        console.log(`[${bot.username}/${myColor}] REST fallback: game:state fen=${game.fen?.substring(0, 30)} status=${game.status}`);
+        log(serverInstanceId, `[${bot.username}/${myColor}] REST fallback: game:state fen=${game.fen?.substring(0, 30)} status=${game.status}`);
         if (game.status === 'finished' || game.status === 'aborted') {
           clearTimeout(timeout);
           finish();
@@ -249,13 +257,13 @@ function playArenaGame(
         try { brain.loadFen(game.fen); } catch { /* ignore */ }
         tryMove('fallback');
       } catch (e) {
-        console.error(`[${bot.username}/${myColor}] REST fallback failed:`, (e as Error).message);
+        warn(serverInstanceId, `[${bot.username}/${myColor}] REST fallback failed: ${(e as Error).message}`);
       }
     };
 
     const timeout = setTimeout(() => {
       if (!gameOver) {
-        console.log(`[${bot.username}/${myColor}] RESIGN: 600s arena timeout, moves=${moveCount}`);
+        log(serverInstanceId, `[${bot.username}/${myColor}] RESIGN: 600s arena timeout, moves=${moveCount}`);
         socket.emit('game:resign', { gameId });
         setTimeout(finish, 500);
       }
@@ -267,7 +275,7 @@ function playArenaGame(
       try {
         const game = await bot.get<{ status: string }>(`/api/games/${gameId}`);
         if (game.status === 'finished' || game.status === 'aborted') {
-          console.log(`[${bot.username}/${myColor}] REST poll: game ${gameId.slice(0, 8)} is ${game.status}, finishing`);
+          log(serverInstanceId, `[${bot.username}/${myColor}] REST poll: game ${gameId.slice(0, 8)} is ${game.status}, finishing`);
           clearTimeout(timeout);
           finish();
         }
@@ -275,11 +283,11 @@ function playArenaGame(
     }, 15_000);
 
     const tryMove = (source = 'unknown') => {
-      if (gameOver) { console.log(`[${bot.username}/${myColor}] tryMove(${source}): skip gameOver=true`); return; }
-      if (!lastServerFen) { console.log(`[${bot.username}/${myColor}] tryMove(${source}): skip no fen`); return; }
+      if (gameOver) { log(serverInstanceId, `[${bot.username}/${myColor}] tryMove(${source}): skip gameOver=true`); return; }
+      if (!lastServerFen) { log(serverInstanceId, `[${bot.username}/${myColor}] tryMove(${source}): skip no fen`); return; }
       const turn = lastServerFen.split(' ')[1];
       const isMyTurnNow = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
-      if (!isMyTurnNow) { console.log(`[${bot.username}/${myColor}] tryMove(${source}): skip notMyTurn turn=${turn}`); return; }
+      if (!isMyTurnNow) { log(serverInstanceId, `[${bot.username}/${myColor}] tryMove(${source}): skip notMyTurn turn=${turn}`); return; }
 
       const [minMs, maxMs] = config.thinkTimeMs;
       const delay = minMs + Math.random() * (maxMs - minMs) * 0.5; // faster in arena
@@ -297,12 +305,12 @@ function playArenaGame(
             firstMoveEmittedAt = now;
             const stateToMove = lastStateReceivedAt ? now - lastStateReceivedAt : -1;
             const pairedToMove = now - pairedAt;
-            console.log(`[${bot.username}/${myColor}] FIRST_MOVE game=${gameId.slice(0, 8)} uci=${uci} state→move=${stateToMove}ms paired→move=${pairedToMove}ms instance=${serverInstanceId}`);
+            log(serverInstanceId, `[${bot.username}/${myColor}] FIRST_MOVE game=${gameId.slice(0, 8)} uci=${uci} state→move=${stateToMove}ms paired→move=${pairedToMove}ms instance=${serverInstanceId}`);
           } else if (latency > 5000) {
-            console.log(`[${bot.username}/${myColor}] EMIT game:move #${moveCount} uci=${uci} latency=${latency}ms (state→move)`);
+            log(serverInstanceId, `[${bot.username}/${myColor}] EMIT game:move #${moveCount} uci=${uci} latency=${latency}ms (state→move)`);
           }
         } catch (e) {
-          console.error(`[${bot.username}/${myColor}] Move error:`, (e as Error).message);
+          warn(serverInstanceId, `[${bot.username}/${myColor}] Move error: ${(e as Error).message}`);
           metrics.recordError();
         }
       }, delay);
@@ -312,7 +320,7 @@ function playArenaGame(
     socket.on('server:instance', (data: { instanceId: string }) => {
       serverInstanceId = data.instanceId ?? '';
       const handshakeMs = Date.now() - connectStartMs;
-      console.log(`[${bot.username}/${myColor}] WS_HANDSHAKE game=${gameId.slice(0, 8)} duration=${handshakeMs}ms instance=${serverInstanceId}`);
+      log(serverInstanceId, `[${bot.username}/${myColor}] WS_HANDSHAKE game=${gameId.slice(0, 8)} duration=${handshakeMs}ms instance=${serverInstanceId}`);
     });
 
     socket.on('connect', () => {
@@ -326,11 +334,11 @@ function playArenaGame(
       const sinceStart = lastStateReceivedAt - gameStartedAt;
       const turn = state.fen?.split(' ')[1];
       const isMyTurn = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
-      console.log(`[${bot.username}/${myColor}] game:state status=${state.status} turn=${turn} myTurn=${isMyTurn} gameOver=${gameOver} +${sinceStart}ms`);
+      log(serverInstanceId, `[${bot.username}/${myColor}] game:state status=${state.status} turn=${turn} myTurn=${isMyTurn} gameOver=${gameOver} +${sinceStart}ms`);
       if (gameOver) return;
       gotGameState = true;
       if (stateCheckTimeout) { clearTimeout(stateCheckTimeout); stateCheckTimeout = null; }
-      if (state.status !== 'active') { console.log(`[${bot.username}/${myColor}] game:state not active, finishing`); clearTimeout(timeout); finish(); return; }
+      if (state.status !== 'active') { log(serverInstanceId, `[${bot.username}/${myColor}] game:state not active, finishing`); clearTimeout(timeout); finish(); return; }
       lastServerFen = state.fen;
       try { brain.loadFen(state.fen); } catch { /* ignore */ }
       if (isMyTurn) tryMove('game:state');
@@ -350,9 +358,9 @@ function playArenaGame(
     socket.on('game:end', (data: unknown) => {
       const elapsed = Date.now() - gameStartedAt;
       const firstMoveDelay = firstMoveEmittedAt ? firstMoveEmittedAt - pairedAt : -1;
-      console.log(`[${bot.username}/${myColor}] game:end moves=${moveCount} gotState=${gotGameState} elapsed=${elapsed}ms paired→1st=${firstMoveDelay}ms instance=${serverInstanceId}`, JSON.stringify(data));
+      log(serverInstanceId, `[${bot.username}/${myColor}] game:end moves=${moveCount} gotState=${gotGameState} elapsed=${elapsed}ms paired→1st=${firstMoveDelay}ms instance=${serverInstanceId}`, JSON.stringify(data));
       if (moveCount === 0) {
-        console.warn(`[${bot.username}/${myColor}] ZERO-MOVE game=${gameId.slice(0, 8)} gotState=${gotGameState} elapsed=${elapsed}ms instance=${serverInstanceId}`);
+        warn(serverInstanceId, `[${bot.username}/${myColor}] ZERO-MOVE game=${gameId.slice(0, 8)} gotState=${gotGameState} elapsed=${elapsed}ms instance=${serverInstanceId}`);
       }
       clearTimeout(timeout);
       finish();
@@ -360,12 +368,12 @@ function playArenaGame(
     socket.on('error', async (err: { code?: string }) => {
       if (err.code === 'AUTH_REQUIRED' && !authRetried) {
         authRetried = true;
-        console.log(`[${bot.username}/${myColor}] AUTH_REQUIRED, re-login → retry join`);
+        log(serverInstanceId, `[${bot.username}/${myColor}] AUTH_REQUIRED, re-login → retry join`);
         try {
           await bot.login(config.devBypassSecret);
           const newSocket = bot.connectWs('/game');
           newSocket.on('connect', () => {
-            console.log(`[${bot.username}/${myColor}] Re-auth OK, re-joining game ${gameId}`);
+            log(serverInstanceId, `[${bot.username}/${myColor}] Re-auth OK, re-joining game ${gameId}`);
             newSocket.emit('game:join', { gameId });
           });
           newSocket.on('game:state', (state: { fen: string; status: string }) => {
@@ -385,7 +393,7 @@ function playArenaGame(
           newSocket.on('error', () => { clearTimeout(timeout); finish(); });
           newSocket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
         } catch {
-          console.error(`[${bot.username}/${myColor}] Re-login failed, finishing`);
+          warn(serverInstanceId, `[${bot.username}/${myColor}] Re-login failed, finishing`);
           metrics.recordError();
           clearTimeout(timeout);
           finish();
@@ -401,7 +409,7 @@ function playArenaGame(
       } catch { /* not JSON — regular error */ }
 
       if (retryAfter > 0) {
-        console.log(`[${bot.username}/${myColor}] /game server_busy, retry in ${retryAfter}s`);
+        log(serverInstanceId, `[${bot.username}/${myColor}] /game server_busy, retry in ${retryAfter}s`);
         socket.disconnect();
         await new Promise((r) => setTimeout(r, retryAfter * 1000));
         if (!gameOver) {
@@ -426,7 +434,7 @@ function playArenaGame(
           retrySocket.on('connect_error', () => { metrics.recordError(); clearTimeout(timeout); finish(); });
         }
       } else {
-        console.log(`[${bot.username}/${myColor}] /game connect_error: ${err.message}`);
+        log(serverInstanceId, `[${bot.username}/${myColor}] /game connect_error: ${err.message}`);
         metrics.recordError();
         clearTimeout(timeout);
         finish();
