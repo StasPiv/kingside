@@ -5,9 +5,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { RedisIoAdapter } from './common/redis-io.adapter';
-import { InstanceLogger } from './instance-logger';
-
-const INSTANCE_ID = os.hostname().slice(-12);
+import { InstanceLogger, INSTANCE_ID, resolveInstanceId } from './instance-logger';
 
 function shouldUseRedisAdapter(logger: Logger): boolean {
   const setting = (process.env.WS_USE_REDIS_ADAPTER || 'auto').toLowerCase();
@@ -20,6 +18,7 @@ function shouldUseRedisAdapter(logger: Logger): boolean {
 }
 
 async function bootstrap() {
+  await resolveInstanceId();
   const logger = new Logger('GameService');
   logger.log(`Instance: ${INSTANCE_ID} (hostname: ${os.hostname()})`);
 
