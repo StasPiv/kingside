@@ -50,10 +50,6 @@ export class MatchmakerWorkerService implements OnModuleInit, OnModuleDestroy {
 
   private async poll(): Promise<void> {
     try {
-      // Distributed lock — only one instance runs matchmaker at a time
-      const acquired = await this.redis.set('matchmaker:lock', '1', 'PX', 400, 'NX');
-      if (!acquired) return;
-
       const busy = await this.redis.get('server:busy');
       if (busy) return;
       await this.processArenaTournaments();
