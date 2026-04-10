@@ -67,9 +67,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly instanceId = require('os').hostname().slice(-12);
 
   async handleConnection(client: Socket) {
-    // Send instance ID to client on connect
-    client.emit('server:instance', { instanceId: this.instanceId });
-
     // Log ALL incoming events for diagnostics (KS-1378)
     client.onAny((event: string, ...args: unknown[]) => {
       const user = client.data.user?.username || 'anon';
@@ -87,6 +84,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       client.data.user = { id: payload.sub, username: payload.username };
       await client.join(`user:${payload.sub}`);
       this.logger.log(`Client connected: ${payload.username} (${client.id})`);
+      client.emit('server:instance', { instanceId: this.instanceId });
     } catch {
       // Invalid token — allow connection for spectating (no user set)
       this.logger.log(`Client connected with invalid token: ${client.id}`);
