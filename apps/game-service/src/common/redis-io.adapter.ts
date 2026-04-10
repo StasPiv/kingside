@@ -61,10 +61,16 @@ export class RedisIoAdapter extends IoAdapter {
   }
 
   createIOServer(port: number, options?: ServerOptions) {
+    this.logger.log(`createIOServer called: port=${port} options=${JSON.stringify(options ?? {})}`);
     const server = super.createIOServer(port, options);
     if (this.adapterConstructor) {
       server.adapter(this.adapterConstructor);
     }
+
+    // Log all namespaces registered
+    server.on('new_namespace', (nsp: any) => {
+      this.logger.log(`Namespace registered: ${nsp.name}`);
+    });
 
     const maxConnections = parseInt(process.env.WS_MAX_CONNECTIONS || '500', 10);
     const maxPendingHandshakes = parseInt(process.env.WS_MAX_PENDING_HANDSHAKES || '20', 10);
@@ -72,6 +78,7 @@ export class RedisIoAdapter extends IoAdapter {
 
     // Connection admission control + handshake rate limiting
     server.use((socket: any, next: (err?: Error) => void) => {
+      this.logger.log(`WS connect attempt: nsp=${socket.nsp?.name ?? '?'} id=${socket.id} transport=${socket.conn?.transport?.name ?? '?'}`);
       // 0. Reject if ScalingService reports server is busy (scale-up in progress)
       if (ScalingService.busy) {
         this.logger.warn('Admission control: rejecting connection (server busy, scale-up in progress)');
