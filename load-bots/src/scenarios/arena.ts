@@ -135,12 +135,13 @@ async function runBotInArena(
           console.log(`[${bot.username}] tournament:paired IGNORED (already in game ${currentGameId.slice(0, 8)}) dup=${data.gameId.slice(0, 8)}`);
           return;
         }
+        const pairedAt = Date.now();
         console.log(`[${bot.username}] tournament:paired game=${data.gameId.slice(0, 8)} color=${data.color}`);
         currentGameId = data.gameId;
         stopSeekLoop();
         metrics.recordGameStarted();
 
-        playArenaGame(bot, data.gameId, data.color, config, metrics).then(() => {
+        playArenaGame(bot, data.gameId, data.color, config, metrics, pairedAt).then(() => {
           metrics.recordGameCompleted();
           currentGameId = null;
           if (!finished) setTimeout(() => startSeekLoop(), 2000);
@@ -203,16 +204,19 @@ function playArenaGame(
   myColor: 'white' | 'black',
   config: Config,
   metrics: Metrics,
+  pairedAt = Date.now(),
 ): Promise<void> {
   return new Promise((resolve) => {
     let authRetried = false;
     const brain = new ChessBrain('smart');
     const connectStartMs = Date.now();
+    console.log(`[${bot.username}/${myColor}] PAIRED→CONNECT game=${gameId.slice(0, 8)} delay=${connectStartMs - pairedAt}ms`);
     const socket = bot.connectWs('/game');
     let gameOver = false;
     let moveCount = 0;
     let lastServerFen = '';
     let gotGameState = false;
+    let firstMoveEmittedAt = 0;
     let statusPollInterval: ReturnType<typeof setInterval> | null = null;
     let stateCheckTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastStateReceivedAt = 0; // timestamp of last game:state or game:move received
@@ -289,7 +293,12 @@ function playArenaGame(
           socket.emit('game:move', { gameId, uci });
           metrics.recordMove();
           moveCount++;
-          if (moveCount <= 2 || latency > 5000) {
+          if (moveCount === 1) {
+            firstMoveEmittedAt = now;
+            const stateToMove = lastStateReceivedAt ? now - lastStateReceivedAt : -1;
+            const pairedToMove = now - pairedAt;
+            console.log(`[${bot.username}/${myColor}] FIRST_MOVE game=${gameId.slice(0, 8)} uci=${uci} state→move=${stateToMove}ms paired→move=${pairedToMove}ms`);
+          } else if (latency > 5000) {
             console.log(`[${bot.username}/${myColor}] EMIT game:move #${moveCount} uci=${uci} latency=${latency}ms (state→move)`);
           }
         } catch (e) {
@@ -332,7 +341,8 @@ function playArenaGame(
 
     socket.on('game:end', (data: unknown) => {
       const elapsed = Date.now() - gameStartedAt;
-      console.log(`[${bot.username}/${myColor}] game:end moves=${moveCount} gotState=${gotGameState} elapsed=${elapsed}ms`, JSON.stringify(data));
+      const firstMoveDelay = firstMoveEmittedAt ? firstMoveEmittedAt - pairedAt : -1;
+      console.log(`[${bot.username}/${myColor}] game:end moves=${moveCount} gotState=${gotGameState} elapsed=${elapsed}ms paired→1st=${firstMoveDelay}ms`, JSON.stringify(data));
       if (moveCount === 0) {
         console.warn(`[${bot.username}/${myColor}] ZERO-MOVE game=${gameId.slice(0, 8)} gotState=${gotGameState} elapsed=${elapsed}ms`);
       }
