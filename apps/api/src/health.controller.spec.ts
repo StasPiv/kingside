@@ -8,9 +8,7 @@ describe('HealthController', () => {
   beforeEach(() => {
     prisma = { $queryRawUnsafe: jest.fn() };
     redis = { set: jest.fn() };
-    const moduleRef = { get: jest.fn().mockReturnValue(null) };
-    const scalingService = { getThreshold: jest.fn().mockReturnValue(80), getBusyState: jest.fn().mockReturnValue(false) };
-    controller = new HealthController(prisma as any, redis as any, moduleRef as any, scalingService as any);
+    controller = new HealthController(prisma as any, redis as any);
   });
 
   it('should return ok when DB and Redis are healthy', async () => {
@@ -19,7 +17,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'ok', db: 'ok', redis: 'ok', wsConnections: 0 });
+    expect(result).toEqual({ status: 'ok', db: 'ok', redis: 'ok' });
   });
 
   it('should return degraded when DB is down', async () => {
@@ -28,7 +26,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'ok', wsConnections: 0 });
+    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'ok' });
   });
 
   it('should return degraded with readonly when Redis is READONLY', async () => {
@@ -37,7 +35,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'readonly', wsConnections: 0 });
+    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'readonly' });
   });
 
   it('should return degraded when Redis is down', async () => {
@@ -46,7 +44,7 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'error', wsConnections: 0 });
+    expect(result).toEqual({ status: 'degraded', db: 'ok', redis: 'error' });
   });
 
   it('should return degraded when both are down', async () => {
@@ -55,6 +53,6 @@ describe('HealthController', () => {
 
     const result = await controller.check();
 
-    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'error', wsConnections: 0 });
+    expect(result).toEqual({ status: 'degraded', db: 'error', redis: 'error' });
   });
 });
