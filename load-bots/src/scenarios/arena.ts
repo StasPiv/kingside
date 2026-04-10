@@ -86,6 +86,7 @@ async function runBotInArena(
     let finished = false;
     let seekInterval: ReturnType<typeof setInterval> | null = null;
     let seekPaused = false;
+    let serverInstanceId = ''; // updated from playArenaGame via closure
 
     const cleanup = () => {
       if (finished) return;
