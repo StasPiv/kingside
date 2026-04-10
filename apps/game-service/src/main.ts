@@ -5,6 +5,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { RedisIoAdapter } from './common/redis-io.adapter';
+import { InstanceLogger } from './instance-logger';
 
 const INSTANCE_ID = os.hostname().slice(-12);
 
@@ -22,7 +23,7 @@ async function bootstrap() {
   const logger = new Logger('GameService');
   logger.log(`Instance: ${INSTANCE_ID} (hostname: ${os.hostname()})`);
 
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { logger: new InstanceLogger() });
   // No global prefix — Game Service is WS-primary, health at /health
   app.enableCors({ origin: '*', credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
