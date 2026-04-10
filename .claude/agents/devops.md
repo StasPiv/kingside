@@ -50,6 +50,7 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`
 - Инфраструктура как код — всё должно быть в репозитории
+- 🔴 **AWS CLI: используй credentials из ~/.aws/credentials.** НЕ хардкодь access key и secret key в командах (export AWS_ACCESS_KEY_ID=...). Просто вызывай aws cli — он подхватит credentials автоматически.
 - 🔴 **ЗАПРЕЩЕНО использовать sleep для ожидания деплоя/операций.** Используй `aws ecs wait services-stable` или поллинг статуса. Проверяй состояние перед действием (`aws ecs describe-services`), не делай слепых операций.
 - 🔴 **После убийства ботов — сразу завершай турнир** (UPDATE arena_tournaments SET status = 'finished' WHERE status = 'active'). Не оставляй активные турниры без участников.
 - 🔴 **Отчёты по метрикам**: не считай clock timeout как zero-move. Zero-move — только партии с 0 ходов (проверяй через /moves endpoint или БД). Перепроверяй данные перед включением в отчёт
