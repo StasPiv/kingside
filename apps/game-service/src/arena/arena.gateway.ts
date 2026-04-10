@@ -249,7 +249,10 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     // Fast Redis check: reject seek if player already in a game
     const playingKey = `arena:${data.tournamentId}:playing:${userId}`;
     const playing = await this.redis.get(playingKey);
-    if (playing) return; // silently reject — bot will re-seek after game ends
+    if (playing) {
+      this.logger.warn(`handleSeek BLOCKED: ${client.data.user?.username} already playing game=${playing.slice(0, 8)}`);
+      return;
+    }
 
     await this.arenaService.addToSeekQueue(data.tournamentId, userId);
   }
