@@ -2,14 +2,16 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, ParseUUIDPipe, Post
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { ArenaService } from './arena.service';
-import { ArenaGateway } from './arena.gateway';
 import { RoundManagerService } from './round-manager.service';
 
+/**
+ * ArenaController — REST endpoints only.
+ * WS notifications (standings, paired) handled by Game Service.
+ */
 @Controller('arena')
 export class ArenaController {
   constructor(
     private readonly arena: ArenaService,
-    private readonly gateway: ArenaGateway,
     private readonly roundManager: RoundManagerService,
   ) {}
 
@@ -52,11 +54,8 @@ export class ArenaController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/join')
-  async join(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
-    const result = await this.arena.join(id, req.user.id);
-    // Notify WS room about new player
-    await this.gateway.emitStandings(id);
-    return result;
+  join(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.arena.join(id, req.user.id);
   }
 
   @Get(':id/rounds')
@@ -87,14 +86,8 @@ export class ArenaController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/leave')
-  async leave(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
-    const result = await this.arena.leave(id, req.user.id);
-    this.gateway.emitPlayerLeft(id, req.user.id);
-    await this.gateway.emitStandings(id);
-    if (result.tournamentFinished) {
-      this.gateway.emitTournamentFinished(id);
-    }
-    return result;
+  leave(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.arena.leave(id, req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)

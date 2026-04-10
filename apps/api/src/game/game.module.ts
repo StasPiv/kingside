@@ -1,26 +1,25 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
-import { ChatModule } from '../chat/chat.module';
 import { UserModule } from '../user/user.module';
-import { GameGateway } from './game.gateway';
+import { GameController } from './game.controller';
 import { GameService } from './game.service';
 import { GameClockService } from './game-clock.service';
 import { RatingService } from './rating.service';
 import { RatingProtectionService } from './rating-protection.service';
-import { BotGameService } from './bot-game.service';
+import { GameReportService } from './game-report.service';
+import { LiveGameService } from './live-game.service';
+import { EcoService } from './eco.service';
 import { StockfishService } from '../engine/stockfish.service';
 import { OpeningBookService } from '../engine/opening-book.service';
-import { GameController } from './game.controller';
-import { LiveGameService } from './live-game.service';
-import { GameReportService } from './game-report.service';
-import { BotCleanupService } from './bot-cleanup.service';
-import { TimeoutCheckerService } from './timeout-checker.service';
-import { WsJwtGuard } from './guards/ws-jwt.guard';
 
+/**
+ * GameModule for API Service — REST endpoints + analysis.
+ * WS gateway, timeout-checker, bot logic moved to Game Service.
+ */
 @Module({
-  imports: [AuthModule, ChatModule, UserModule],
+  imports: [AuthModule, UserModule],
   controllers: [GameController],
-  providers: [GameGateway, GameService, GameClockService, RatingService, RatingProtectionService, BotGameService, StockfishService, OpeningBookService, LiveGameService, GameReportService, BotCleanupService, TimeoutCheckerService, WsJwtGuard],
-  exports: [GameService, GameGateway, BotGameService, LiveGameService, WsJwtGuard],
+  providers: [GameService, GameClockService, RatingService, RatingProtectionService, GameReportService, LiveGameService, EcoService, StockfishService, OpeningBookService],
+  exports: [GameService],
 })
 export class GameModule {}
