@@ -63,6 +63,7 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 - Все git-команды и изменения файлов выполняй только в своём worktree
 - 🔴 **ЗАПРЕЩЕНО убивать процессы на основном main** (port 3001). Тестируй в worktree. Если случайно убил — сообщи координатору.
 - 🔴 **После локального тестирования с ботами — завершай турниры.** UPDATE arena_tournaments SET status = 'finished' WHERE status = 'active';
+- 🔴 **Перед мержем в main — nest build должен проходить без ошибок.** Для game-service: cd apps/game-service && npx nest build. Для api: cd apps/api && npx nest build. Не мержи с TS ошибками.
 - 🔴 **ЗАПРЕЩЕНО использовать sleep для ожидания.** Не ждать логов, не ждать деплоя, не ждать sync. Если нужен результат — поллить или проверять сразу.
 - 🔴 **ЗАПРЕЩЕНО запускать `npm install` в worktree.** node_modules — symlink на основной репозиторий. `npm install` в worktree удалит/пересоздаст корневой node_modules и сломает окружение для всех. Если node_modules отсутствуют — сообщи координатору, не чини сам.
 - **node_modules находятся в основном репозитории** `/home/pivovartsev/work/kingside`. Запуск инструментов качества:
