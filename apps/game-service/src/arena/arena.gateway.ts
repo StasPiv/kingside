@@ -92,6 +92,10 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
           const blackRoom = (this.server.adapter as any).rooms?.get(`user:${data.blackId}`);
           this.logger.warn(`paired EMIT game=${data.gameId.slice(0, 8)} whiteRoomSize=${whiteRoom?.size ?? 0} blackRoomSize=${blackRoom?.size ?? 0}`);
 
+          // Mark both players as playing — blocks seek until game ends
+          await this.redis.set(`arena:${data.tournamentId}:playing:${data.whiteId}`, data.gameId, 'EX', 600).catch(() => {});
+          await this.redis.set(`arena:${data.tournamentId}:playing:${data.blackId}`, data.gameId, 'EX', 600).catch(() => {});
+
           // Store pending paired in Redis (re-delivered on reconnect/subscribe)
           await this.redis.set(
             `arena:${data.tournamentId}:paired:${data.whiteId}`,
@@ -242,9 +246,11 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     const userId = client.data.user?.id;
     if (!userId) return;
 
-    this.logger.log(`handleSeek: ${client.data.user?.username} tournament=${data.tournamentId?.slice(0, 8)}`);
+    // Fast Redis check: reject seek if player already in a game
+    const playingKey = `arena:${data.tournamentId}:playing:${userId}`;
+    const playing = await this.redis.get(playingKey);
+    if (playing) return; // silently reject — bot will re-seek after game ends
 
-    // Only add to seek queue — matchmaker worker handles pairing via Redis pub/sub
     await this.arenaService.addToSeekQueue(data.tournamentId, userId);
   }
 
