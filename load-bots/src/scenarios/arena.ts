@@ -298,6 +298,7 @@ function playArenaGame(
           const now = Date.now();
           const latency = lastStateReceivedAt ? now - lastStateReceivedAt : -1;
           socket.emit('game:move', { gameId, uci });
+          log(serverInstanceId, `[${bot.username}/${myColor}] MOVE_SENT game=${gameId.slice(0, 8)} #${moveCount + 1} uci=${uci} at=${now}`);
           metrics.recordMove();
           moveCount++;
           if (moveCount === 1) {
@@ -349,7 +350,9 @@ function playArenaGame(
     });
 
     socket.on('game:move', (data: { fen: string }) => {
-      lastStateReceivedAt = Date.now();
+      const receivedAt = Date.now();
+      log(serverInstanceId, `[${bot.username}/${myColor}] MOVE_RECEIVED game=${gameId.slice(0, 8)} at=${receivedAt}`);
+      lastStateReceivedAt = receivedAt;
       if (gameOver) return;
       lastServerFen = data.fen;
       try { brain.loadFen(data.fen); } catch { /* ignore */ }
