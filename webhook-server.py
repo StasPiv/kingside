@@ -1315,6 +1315,35 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "interrupted" if ok else "failed", "agent": agent}).encode())
             return
 
+        if path == "/agent/kill":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                self.send_response(400)
+                self.end_headers()
+                return
+            agent = payload.get("agent", "").lower()
+            valid = get_valid_agents()
+            if agent not in valid:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"unknown agent '{agent}'"}).encode())
+                return
+            with agent_daemons_lock:
+                daemon = agent_daemons.get(agent)
+            if not daemon or not daemon.is_alive():
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "not_running", "agent": agent}).encode())
+                return
+            daemon.stop()
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "killed", "agent": agent}).encode())
+            return
+
         if path == "/telegram/send":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
