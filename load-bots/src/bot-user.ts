@@ -75,6 +75,7 @@ export class BotUser {
       auth: { token: this.accessToken },
       transports: ['websocket'],
       reconnection: false,
+      forceNew: true,
     });
 
     this.sockets.set(namespace, socket);
