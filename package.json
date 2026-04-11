@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "preinstall": "bash scripts/prevent-worktree-install.sh",
     "build": "turbo run build",
     "dev": "turbo run dev",
     "start": "docker compose up -d && turbo run dev",

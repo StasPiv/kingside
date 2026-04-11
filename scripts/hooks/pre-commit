@@ -2,14 +2,30 @@
 # Pre-commit hook: проверка типов TypeScript (tsc --noEmit)
 # Предотвращает коммиты с TS ошибками
 # Устанавливается через: bash scripts/install-hooks.sh
+#
+# ВАЖНО: Используем git-common-dir (не show-toplevel) чтобы всегда
+# получить основной репо, а не worktree path.
+# Вызываем бинарники напрямую (не npx) — npx может модифицировать
+# workspace symlinks в node_modules.
 
-REPO_DIR="$(git rev-parse --show-toplevel 2>/dev/null)"
-if [ -z "$REPO_DIR" ]; then
+# Получаем путь к основному репо (не worktree)
+GIT_COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+if [ -z "$GIT_COMMON_DIR" ]; then
     exit 0
 fi
+REPO_DIR="$(dirname "$GIT_COMMON_DIR")"
 
 # Пропускаем проверку для internal: коммитов (через env variable)
 if [ "$SKIP_TSC_CHECK" = "1" ]; then
+    exit 0
+fi
+
+# Прямые пути к бинарникам (без npx — он ломает workspace symlinks)
+TSC_CLI="$REPO_DIR/node_modules/typescript/bin/tsc"
+PRISMA_CLI="$REPO_DIR/node_modules/prisma/build/index.js"
+
+if [ ! -f "$TSC_CLI" ]; then
+    echo "[pre-commit] WARN: tsc не найден ($TSC_CLI), пропускаем проверку"
     exit 0
 fi
 
@@ -20,9 +36,12 @@ ERRORS=0
 # apps/api
 if [ -f "$REPO_DIR/apps/api/tsconfig.json" ]; then
     echo "  Generating Prisma client..."
-    npx --prefix "$REPO_DIR" prisma generate --schema="$REPO_DIR/apps/api/prisma/schema.prisma" 2>&1 | tail -1
+    if [ -f "$PRISMA_CLI" ]; then
+        node "$PRISMA_CLI" generate --schema="$REPO_DIR/apps/api/prisma/schema.prisma" 2>&1 | tail -1
+    fi
+    echo ""
     echo "  Checking apps/api..."
-    npx --prefix "$REPO_DIR" tsc --noEmit --project "$REPO_DIR/apps/api/tsconfig.json" 2>&1
+    node "$TSC_CLI" --noEmit --project "$REPO_DIR/apps/api/tsconfig.json" 2>&1
     if [ $? -ne 0 ]; then
         echo "  ❌ apps/api: TS ошибки"
         ERRORS=1
@@ -34,7 +53,7 @@ fi
 # apps/web
 if [ -f "$REPO_DIR/apps/web/tsconfig.json" ]; then
     echo "  Checking apps/web..."
-    npx --prefix "$REPO_DIR" tsc --noEmit --project "$REPO_DIR/apps/web/tsconfig.json" 2>&1
+    node "$TSC_CLI" --noEmit --project "$REPO_DIR/apps/web/tsconfig.json" 2>&1
     if [ $? -ne 0 ]; then
         echo "  ❌ apps/web: TS ошибки"
         ERRORS=1
