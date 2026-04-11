@@ -101,12 +101,15 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
             JSON.stringify({ gameId: data.gameId, color: 'black' }), 'EX', 120,
           ).catch(() => {});
 
+          const beforeEmit = Date.now();
           this.server.to(`user:${data.whiteId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
             gameId: data.gameId, tournamentId: data.tournamentId, color: 'white',
           });
           this.server.to(`user:${data.blackId}`).emit(TOURNAMENT_EVENTS.PAIRED, {
             gameId: data.gameId, tournamentId: data.tournamentId, color: 'black',
           });
+          const afterEmit = Date.now();
+          this.logger.warn(`paired EMIT TIMING game=${data.gameId.slice(0, 8)} before=${beforeEmit} after=${afterEmit} took=${afterEmit - beforeEmit}ms`);
 
           // Emit tournament:gameStarted to all subscribers
           const whiteUsername = this.usernames.get(data.whiteId) ?? '';

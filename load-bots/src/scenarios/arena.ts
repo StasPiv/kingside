@@ -143,6 +143,11 @@ async function runBotInArena(
         serverInstanceId = data.instanceId ?? '';
       });
 
+      // Log ALL incoming events on tournament socket
+      sock.onAny((event: string) => {
+        log(serverInstanceId, `[${bot.username}] T_EVENT: ${event} at=${Date.now()}`);
+      });
+
       sock.on('server:busy', () => { serverBusy = true; pauseSeekLoop(); });
       sock.on('server:ready', () => { serverBusy = false; if (!finished && !currentGameId) resumeSeekLoop(); });
 
