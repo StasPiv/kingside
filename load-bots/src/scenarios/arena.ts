@@ -131,6 +131,12 @@ async function runBotInArena(
 
       sock.on('connect', () => {
         sock.emit('tournament:subscribe', { tournamentId });
+        // Log ping/pong on tournament socket
+        const engine = (sock as any).io?.engine;
+        if (engine) {
+          engine.on('ping', () => log(serverInstanceId, `[${bot.username}] PING received (tournament)`));
+          engine.on('pong', () => log(serverInstanceId, `[${bot.username}] PONG sent (tournament)`));
+        }
       });
 
       sock.on('server:instance', (data: { instanceId: string }) => {
@@ -319,6 +325,12 @@ function playArenaGame(
       socket.emit('game:join', { gameId });
       // Fallback: if game:state not received within 3s, fetch via REST
       stateCheckTimeout = setTimeout(() => fetchStateViaRest(), 3_000);
+      // Log ping/pong on game socket
+      const engine = (socket as any).io?.engine;
+      if (engine) {
+        engine.on('ping', () => log(serverInstanceId, `[${bot.username}/${myColor}] PING received (game)`));
+        engine.on('pong', () => log(serverInstanceId, `[${bot.username}/${myColor}] PONG sent (game)`));
+      }
     });
 
     socket.on('game:state', (state: { fen: string; status: string }) => {
