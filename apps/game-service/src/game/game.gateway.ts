@@ -14,7 +14,7 @@ import { GameService } from './game.service';
 import { BotGameService } from './bot-game.service';
 import { ChatService } from '../chat/chat.service';
 import { StockfishService } from '../engine/stockfish.service';
-import { GameClockService, JOIN_DEADLINES_KEY } from './game-clock.service';
+import { GameClockService } from './game-clock.service';
 import { RedisService } from '../redis/redis.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import {
@@ -612,7 +612,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (count === 1) {
       this.logger.log(`maybeStartClocks: game=${gameId.slice(0, 8)} waiting for second player`);
     } else if (count >= 2) {
-      await this.redis.zrem(JOIN_DEADLINES_KEY, gameId);
       await this.clockService.startClock(gameId);
       this.logger.warn(`maybeStartClocks: game=${gameId.slice(0, 8)} clocks STARTED count=${count} triggeredBy=${color}`);
 

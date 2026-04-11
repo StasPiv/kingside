@@ -178,7 +178,6 @@ export class MatchmakerWorkerService implements OnModuleInit, OnModuleDestroy {
       white_ms: String(timeMs), black_ms: String(timeMs),
       last_tick: '0', running: '0',
     });
-    await this.redis.zadd('game:join_deadlines', Date.now() + 30_000, game.id);
 
     await this.prisma.game.update({
       where: { id: game.id },
@@ -254,7 +253,6 @@ export class MatchmakerWorkerService implements OnModuleInit, OnModuleDestroy {
             white_ms: String(timeMs), black_ms: String(timeMs),
             last_tick: '0', running: '0',
           });
-          await this.redis.zadd('game:join_deadlines', Date.now() + 30_000, game.id);
 
           await this.prisma.game.update({
             where: { id: game.id },
