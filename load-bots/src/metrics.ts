@@ -63,4 +63,24 @@ export class Metrics {
     this.gamesCompleted = 0;
     this.movesMade = 0;
   }
+
+  /** Serializable snapshot for worker_threads communication */
+  snapshot(): { totalRequests: number; errors: number; gamesStarted: number; gamesCompleted: number; movesMade: number } {
+    return {
+      totalRequests: this.totalRequests,
+      errors: this.errors,
+      gamesStarted: this.gamesStarted,
+      gamesCompleted: this.gamesCompleted,
+      movesMade: this.movesMade,
+    };
+  }
+
+  /** Merge snapshot from worker into this instance */
+  merge(snap: { totalRequests: number; errors: number; gamesStarted: number; gamesCompleted: number; movesMade: number }): void {
+    this.totalRequests += snap.totalRequests;
+    this.errors += snap.errors;
+    this.gamesStarted += snap.gamesStarted;
+    this.gamesCompleted += snap.gamesCompleted;
+    this.movesMade += snap.movesMade;
+  }
 }

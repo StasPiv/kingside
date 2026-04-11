@@ -448,3 +448,6 @@ function playArenaGame(
   });
 }
 
+/** Exported for worker_threads usage */
+export { runBotInArena as runBotInArenaExported };
+
