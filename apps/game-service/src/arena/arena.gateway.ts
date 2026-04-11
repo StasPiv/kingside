@@ -14,6 +14,7 @@ import { JwtService } from '@nestjs/jwt';
 import { JwtPayload } from '../auth/jwt.strategy';
 import { ArenaService } from './arena.service';
 import { RedisService } from '../redis/redis.service';
+import { MatchmakerWorkerService } from '../matchmaker-worker/matchmaker-worker.service';
 
 /** Redis pub/sub channel from matchmaker worker */
 const MATCHMAKER_PAIRED_CHANNEL = 'matchmaker:paired';
@@ -52,6 +53,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     private readonly jwtService: JwtService,
     private readonly arenaService: ArenaService,
     private readonly redis: RedisService,
+    private readonly matchmaker: MatchmakerWorkerService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -256,6 +258,7 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     }
 
     await this.arenaService.addToSeekQueue(data.tournamentId, userId);
+    await this.matchmaker.tryPairArena(data.tournamentId);
   }
 
   @SubscribeMessage(TOURNAMENT_EVENTS.LEAVE)

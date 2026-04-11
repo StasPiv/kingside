@@ -10,7 +10,6 @@ import { ArenaModule } from './arena/arena.module';
 import { MatchmakingModule } from './matchmaking/matchmaking.module';
 import { ChatModule } from './chat/chat.module';
 import { UserModule } from './user/user.module';
-import { MatchmakerWorkerModule } from './matchmaker-worker/matchmaker-worker.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -33,7 +32,6 @@ import { HealthController } from './health.controller';
     ArenaModule,
     MatchmakingModule,
     ChatModule,
-    MatchmakerWorkerModule,
   ],
 })
 export class AppModule {}

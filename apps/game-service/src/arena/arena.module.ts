@@ -11,9 +11,10 @@ import { ArenaSchedulerService } from './arena-scheduler.service';
 import { RoundManagerService } from './round-manager.service';
 import { SwissPairingService } from './swiss-pairing.service';
 import { RoundRobinPairingService } from './round-robin-pairing.service';
+import { MatchmakerWorkerModule } from '../matchmaker-worker/matchmaker-worker.module';
 
 @Module({
-  imports: [AuthModule, GameModule],
+  imports: [AuthModule, GameModule, MatchmakerWorkerModule],
   controllers: [ArenaController],
   providers: [ArenaService, ArenaGateway, ArenaSchedulerService, RoundManagerService, SwissPairingService, RoundRobinPairingService],
   exports: [ArenaService, ArenaGateway, RoundManagerService],

@@ -23,7 +23,7 @@ const config: runtime.GetPrismaClientConfig = {
       "value": "prisma-client"
     },
     "output": {
-      "value": "/home/pivovartsev/work/kingside/.worktrees/KS-1390/apps/game-service/src/generated/prisma",
+      "value": "/home/pivovartsev/work/kingside/apps/game-service/src/generated/prisma",
       "fromEnvVar": null
     },
     "config": {
@@ -37,7 +37,7 @@ const config: runtime.GetPrismaClientConfig = {
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "/home/pivovartsev/work/kingside/.worktrees/KS-1390/apps/game-service/prisma/schema.prisma",
+    "sourceFilePath": "/home/pivovartsev/work/kingside/apps/game-service/prisma/schema.prisma",
     "isCustomOutput": true
   },
   "relativePath": "../../../prisma",
