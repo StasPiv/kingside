@@ -231,7 +231,6 @@ function playArenaGame(
     let lastServerFen = '';
     let gotGameState = false;
     let firstMoveEmittedAt = 0;
-    let statusPollInterval: ReturnType<typeof setInterval> | null = null;
     let stateCheckTimeout: ReturnType<typeof setTimeout> | null = null;
     let lastStateReceivedAt = 0; // timestamp of last game:state or game:move received
     const gameStartedAt = Date.now();
@@ -239,7 +238,6 @@ function playArenaGame(
     const finish = () => {
       if (gameOver) return;
       gameOver = true;
-      if (statusPollInterval) clearInterval(statusPollInterval);
       if (stateCheckTimeout) clearTimeout(stateCheckTimeout);
       socket.disconnect();
       resolve();
@@ -275,18 +273,7 @@ function playArenaGame(
       }
     }, 600_000);
 
-    // Fallback: poll REST every 15s to detect missed game:end
-    statusPollInterval = setInterval(async () => {
-      if (gameOver) return;
-      try {
-        const game = await bot.get<{ status: string }>(`/api/games/${gameId}`);
-        if (game.status === 'finished' || game.status === 'aborted') {
-          log(serverInstanceId, `[${bot.username}/${myColor}] REST poll: game ${gameId.slice(0, 8)} is ${game.status}, finishing`);
-          clearTimeout(timeout);
-          finish();
-        }
-      } catch { /* ignore REST errors */ }
-    }, 15_000);
+    // REST poll removed — rely on WS game:end event
 
     const tryMove = (source = 'unknown') => {
       if (gameOver) { log(serverInstanceId, `[${bot.username}/${myColor}] tryMove(${source}): skip gameOver=true`); return; }
