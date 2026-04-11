@@ -103,10 +103,13 @@ async function runBotInArena(
     const trySeeking = () => {
       if (!finished && !currentGameId && !seekPaused && !serverBusy) {
         activeSocket.emit('tournament:seek', { tournamentId });
+      } else {
+        log(serverInstanceId, `[${bot.username}] SEEK_SKIP finished=${finished} gameId=${currentGameId?.slice(0, 8) ?? 'null'} paused=${seekPaused} busy=${serverBusy} connected=${activeSocket.connected}`);
       }
     };
 
     const startSeekLoop = () => {
+      log(serverInstanceId, `[${bot.username}] SEEK_LOOP_START connected=${activeSocket.connected}`);
       if (seekInterval) clearInterval(seekInterval);
       seekPaused = false;
       seekInterval = setInterval(trySeeking, 5_000);
@@ -169,6 +172,7 @@ async function runBotInArena(
 
         playArenaGame(bot, data.gameId, data.color, config, metrics, pairedAt).then(() => {
           metrics.recordGameCompleted();
+          log(serverInstanceId, `[${bot.username}] GAME_RESOLVED game=${data.gameId.slice(0, 8)} finished=${finished} connected=${activeSocket.connected}`);
           currentGameId = null;
           if (!finished) setTimeout(() => startSeekLoop(), 2000);
         });
