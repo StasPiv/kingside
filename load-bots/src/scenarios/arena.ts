@@ -130,7 +130,9 @@ async function runBotInArena(
       activeSocket = sock;
 
       sock.on('connect', () => {
-        sock.emit('tournament:subscribe', { tournamentId });
+        // Use tournament:join instead of tournament:subscribe to avoid joining
+        // the tournament broadcast room (gameFinished/gameStarted flood)
+        sock.emit('tournament:join', { tournamentId });
         // Log ping/pong on tournament socket
         const engine = (sock as any).io?.engine;
         if (engine) {

@@ -92,7 +92,7 @@ export class ArenaController {
     this.gateway.emitPlayerLeft(id, req.user.id);
     await this.gateway.emitStandings(id);
     if (result.tournamentFinished) {
-      this.gateway.emitTournamentFinished(id);
+      await this.gateway.emitTournamentFinished(id);
     }
     return result;
   }

@@ -83,6 +83,14 @@ export class ArenaService {
     });
   }
 
+  async getParticipantIds(tournamentId: string): Promise<string[]> {
+    const entries = await this.prisma.arenaTournamentEntry.findMany({
+      where: { tournamentId, withdrawn: false },
+      select: { userId: true },
+    });
+    return entries.map((e) => e.userId);
+  }
+
   async findOne(id: string) {
     const t = await this.prisma.arenaTournament.findUnique({
       where: { id },

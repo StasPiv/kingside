@@ -36,12 +36,12 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Tournaments just started: ${started.join(', ')}`);
       }
       for (const id of started) {
-        this.gateway.emitTournamentStarted(id);
+        await this.gateway.emitTournamentStarted(id);
         // Auto-start first round for Swiss/RR tournaments
         await this.autoStartFirstRound(id);
       }
       for (const id of cancelled) {
-        this.gateway.emitTournamentFinished(id);
+        await this.gateway.emitTournamentFinished(id);
       }
 
       // Fallback: check for stuck completed rounds (e.g. after API restart lost setTimeout)
@@ -52,7 +52,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`Tournaments just finished: ${finished.join(', ')}`);
       }
       for (const id of finished) {
-        this.gateway.emitTournamentFinished(id);
+        await this.gateway.emitTournamentFinished(id);
       }
     } catch (e: unknown) {
       this.logger.error(`Arena scheduler error: ${(e as Error).message}`, (e as Error).stack);
@@ -128,7 +128,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
       if (!updated || updated.status === 'finished') {
         this.gateway.emitRoundEnd(t.id, t.currentRound, null);
         await this.gateway.emitStandings(t.id);
-        this.gateway.emitTournamentFinished(t.id);
+        await this.gateway.emitTournamentFinished(t.id);
         continue;
       }
 

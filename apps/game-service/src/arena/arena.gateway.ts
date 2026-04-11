@@ -213,7 +213,8 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     if (!userId) return;
 
     const roomName = `tournament:${data.tournamentId}`;
-    await client.join(roomName);
+    // NOTE: do NOT join tournament room here — subscribe does that for spectators/frontend.
+    // This keeps players out of the broadcast flood (gameFinished/gameStarted).
     client.data.tournamentId = data.tournamentId;
 
     // Join tournament entry
@@ -226,12 +227,33 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
 
     this.logger.log(`handleJoin: ${client.data.user.username} joined tournament ${data.tournamentId}`);
 
-    // Notify room
+    // Notify tournament room (spectators/frontend)
     this.server.to(roomName).emit(TOURNAMENT_EVENTS.PLAYER_JOINED, {
       userId,
       username: client.data.user.username,
     });
     this.logger.log(`handleJoin: emitted player_joined to room ${roomName}`);
+
+    // Deliver tournament:started to user room if tournament is already active
+    try {
+      const tournament = await this.arenaService.findOne(data.tournamentId);
+      if (tournament.status === 'active') {
+        client.emit(TOURNAMENT_EVENTS.STARTED, { tournamentId: data.tournamentId });
+        this.logger.log(`handleJoin: sent tournament:started to ${client.data.user.username} via user room`);
+
+        // Re-deliver pending paired event
+        const activeGame = await this.redis.get(`arena:${data.tournamentId}:paired:${userId}`);
+        if (activeGame) {
+          try {
+            const paired = JSON.parse(activeGame) as { gameId: string; color: string };
+            client.emit(TOURNAMENT_EVENTS.PAIRED, { gameId: paired.gameId, tournamentId: data.tournamentId, color: paired.color });
+            this.logger.warn(`handleJoin: re-delivered paired game=${paired.gameId.slice(0, 8)} to ${client.data.user.username}`);
+          } catch { /* ignore parse errors */ }
+        }
+      } else if (tournament.status === 'finished') {
+        client.emit(TOURNAMENT_EVENTS.FINISHED, { tournamentId: data.tournamentId });
+      }
+    } catch { /* tournament not found — ignore */ }
 
     // Update standings so all players see the new entry
     await this.emitStandings(data.tournamentId);
@@ -280,12 +302,34 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
   }
 
   // Called by scheduler when tournament starts/finishes
-  emitTournamentStarted(tournamentId: string) {
+  async emitTournamentStarted(tournamentId: string) {
+    // Broadcast to tournament room (spectators/frontend)
     this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.STARTED, { tournamentId });
+    // Also emit to each participant's user room (players who skipped subscribe)
+    try {
+      const participantIds = await this.arenaService.getParticipantIds(tournamentId);
+      for (const userId of participantIds) {
+        this.server.to(`user:${userId}`).emit(TOURNAMENT_EVENTS.STARTED, { tournamentId });
+      }
+      this.logger.log(`emitTournamentStarted: room + ${participantIds.length} user rooms`);
+    } catch (e: any) {
+      this.logger.error(`emitTournamentStarted user rooms failed: ${e.message}`);
+    }
   }
 
-  emitTournamentFinished(tournamentId: string) {
+  async emitTournamentFinished(tournamentId: string) {
+    // Broadcast to tournament room (spectators/frontend)
     this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.FINISHED, { tournamentId });
+    // Also emit to each participant's user room (players who skipped subscribe)
+    try {
+      const participantIds = await this.arenaService.getParticipantIds(tournamentId);
+      for (const userId of participantIds) {
+        this.server.to(`user:${userId}`).emit(TOURNAMENT_EVENTS.FINISHED, { tournamentId });
+      }
+      this.logger.log(`emitTournamentFinished: room + ${participantIds.length} user rooms`);
+    } catch (e: any) {
+      this.logger.error(`emitTournamentFinished user rooms failed: ${e.message}`);
+    }
   }
 
   async emitStandings(tournamentId: string) {

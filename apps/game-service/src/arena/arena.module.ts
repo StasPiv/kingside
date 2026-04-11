@@ -94,7 +94,7 @@ export class ArenaModule implements OnModuleInit {
       if (!updated || updated.status === 'finished') {
         this.gateway.emitRoundEnd(tournamentId, t.currentRound, null);
         await this.gateway.emitStandings(tournamentId);
-        this.gateway.emitTournamentFinished(tournamentId);
+        await this.gateway.emitTournamentFinished(tournamentId);
         this.logger.log(`Tournament ${tournamentId} finished after round ${t.currentRound}`);
         return;
       }
