@@ -30,7 +30,7 @@ const MATCHMAKER_FOUND_CHANNEL = 'matchmaker:found';
 
 const PLAYER_QUEUES_KEY = 'matchmaking:player_queues';
 
-@WebSocketGateway({ namespace: '/matchmaking', cors: { origin: '*' }, transports: ['websocket'], pingTimeout: 30000, connectTimeout: 60000 })
+@WebSocketGateway({ namespace: '/matchmaking', cors: { origin: '*' }, transports: ['websocket'], pingInterval: 300000, pingTimeout: 300000, connectTimeout: 60000 })
 export class MatchmakingGateway implements OnGatewayConnection, OnGatewayDisconnect, OnModuleInit, OnModuleDestroy {
   @WebSocketServer()
   server!: Server;

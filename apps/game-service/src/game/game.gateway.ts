@@ -42,7 +42,7 @@ import {
 } from '@kingside/shared';
 import { LiveGameService } from './live-game.service';
 
-@WebSocketGateway({ namespace: '/game', cors: { origin: '*' }, transports: ['websocket'], pingTimeout: 30000, connectTimeout: 60000 })
+@WebSocketGateway({ namespace: '/game', cors: { origin: '*' }, transports: ['websocket'], pingInterval: 300000, pingTimeout: 300000, connectTimeout: 60000 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
