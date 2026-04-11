@@ -6,7 +6,7 @@
  * Usage:
  *   CONCURRENCY=100 BOTS_PER_WORKER=25 tsx src/run-arena-workers.ts
  */
-import { Worker } from 'worker_threads';
+import { spawn } from 'child_process';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { loadConfig } from './config.js';
@@ -82,30 +82,26 @@ async function main() {
     const workerPath = path.join(__dirname, 'arena-worker.ts');
 
     const promise = new Promise<void>((resolve, reject) => {
-      const worker = new Worker(workerPath, {
-        workerData: {
-          tournamentId: tournament.id,
-          botStartIndex: botStart,
-          botCount: count,
-          config,
-          durationMin,
-          timeInitialSec,
+      const loadBotsRoot = path.resolve(__dirname, '..');
+      const tsxBin = path.resolve(loadBotsRoot, '..', 'node_modules', '.bin', 'tsx');
+      const worker = spawn(tsxBin, [workerPath], {
+        cwd: loadBotsRoot,
+        env: {
+          ...process.env,
+          WORKER_DATA: JSON.stringify({
+            tournamentId: tournament.id,
+            botStartIndex: botStart,
+            botCount: count,
+            config,
+            durationMin,
+            timeInitialSec,
+          }),
         },
-        execArgv: ['--import', 'tsx/esm'],
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
 
-      worker.on('message', (msg: { type: string; data?: any; msg?: string }) => {
-        if (msg.type === 'metrics' && msg.data) {
-          aggregated.merge(msg.data);
-        } else if (msg.type === 'log') {
-          console.log(`[Worker${w}] ${msg.msg}`);
-        } else if (msg.type === 'error') {
-          console.error(`[Worker${w}] ERROR: ${msg.msg}`);
-        } else if (msg.type === 'done') {
-          doneCount++;
-          console.log(`[Worker${w}] Done (${doneCount}/${workerCount})`);
-        }
-      });
+      worker.stdout.on('data', (chunk: Buffer) => process.stdout.write(`[W${w}] ${chunk}`));
+      worker.stderr.on('data', (chunk: Buffer) => process.stderr.write(`[W${w}] ${chunk}`));
 
       worker.on('error', (err) => {
         console.error(`[Worker${w}] Fatal: ${err.message}`);
@@ -113,9 +109,8 @@ async function main() {
       });
 
       worker.on('exit', (code) => {
-        if (code !== 0) {
-          console.error(`[Worker${w}] Exit code ${code}`);
-        }
+        doneCount++;
+        console.log(`[Worker${w}] Done (${doneCount}/${workerCount}, exit=${code})`);
         resolve();
       });
     });
