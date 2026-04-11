@@ -23,8 +23,8 @@ export async function playMatchmakingGame(
 ): Promise<void> {
   // Both join matchmaking concurrently
   const [matchA, matchB] = await Promise.all([
-    joinMatchmaking(botA, config),
-    joinMatchmaking(botB, config),
+    joinMatchmaking(botA, config, metrics),
+    joinMatchmaking(botB, config, metrics),
   ]);
 
   if (!matchA || !matchB) {
@@ -57,7 +57,7 @@ export async function playMatchmakingGame(
   metrics.recordGameCompleted();
 }
 
-function joinMatchmaking(bot: BotUser, config: Config): Promise<MatchResult | null> {
+function joinMatchmaking(bot: BotUser, config: Config, metrics: Metrics): Promise<MatchResult | null> {
   return new Promise((resolve) => {
     const socket = bot.connectWs('/matchmaking');
     const timeout = setTimeout(() => {
