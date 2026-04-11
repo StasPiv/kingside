@@ -43,7 +43,19 @@ async function run() {
 
   const { runBotInArenaExported } = await import('./scenarios/arena.js');
   const promises = bots.map((bot) => runBotInArenaExported(bot, tournamentId, config, metrics, durationMin));
+
+  // Hard timeout: tournament duration + 2 min buffer, then force exit
+  const hardTimeoutMs = (durationMin + 2) * 60_000;
+  const hardTimer = setTimeout(() => {
+    console.log(`Worker force exit after ${durationMin + 2}min`);
+    metrics.report();
+    bots.forEach((b) => b.disconnect());
+    process.exit(0);
+  }, hardTimeoutMs);
+  hardTimer.unref();
+
   await Promise.all(promises);
+  clearTimeout(hardTimer);
 
   metrics.stopPeriodicReport();
   metrics.report();
