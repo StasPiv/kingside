@@ -26,6 +26,7 @@
     "ioredis": "^5.0.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.0.0",
+    "nestjs-i18n": "10.5.1",
     "socket.io": "^4.0.0"
   },
   "devDependencies": {
