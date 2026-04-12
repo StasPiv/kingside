@@ -226,6 +226,7 @@ export class BroadcastWorker {
             }
           }
           // Finished rounds: re-fetch if games have no result or starting FEN
+          console.log(`[broadcast-worker] round ${round.id} ongoing=${round.ongoing} finished=${round.finished} fetchCount=${fetchCount}`);
           if (round.finished && fetchCount < MAX_PGN_POLLS_PER_CYCLE) {
             try {
               await this.rateLimitDelay();
