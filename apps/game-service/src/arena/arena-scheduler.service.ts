@@ -91,7 +91,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
             gameId: p.gameId,
             board: p.board,
           }));
-          this.gateway.emitRoundStart(tournamentId, 1, pairingsPayload);
+          await this.gateway.emitRoundStart(tournamentId, 1, pairingsPayload);
           for (const p of round.pairings) {
             if (p.gameId) {
               this.logger.log(`autoStartFirstRound: emitting paired — game ${p.gameId}, white ${p.whiteId}, black ${p.blackId}`);
@@ -126,7 +126,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
 
       const updated = await this.prisma.arenaTournament.findUnique({ where: { id: t.id } });
       if (!updated || updated.status === 'finished') {
-        this.gateway.emitRoundEnd(t.id, t.currentRound, null);
+        await this.gateway.emitRoundEnd(t.id, t.currentRound, null);
         await this.gateway.emitStandings(t.id);
         await this.gateway.emitTournamentFinished(t.id);
         continue;
@@ -140,13 +140,13 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
         const pauseEnd = new Date(round.finishedAt).getTime() + t.roundPauseMin * 60_000;
         if (Date.now() < pauseEnd) {
           // Still in pause — emit round_end with nextRoundStartsAt so frontend shows timer
-          this.gateway.emitRoundEnd(t.id, t.currentRound, new Date(pauseEnd).toISOString());
+          await this.gateway.emitRoundEnd(t.id, t.currentRound, new Date(pauseEnd).toISOString());
           await this.gateway.emitStandings(t.id);
           continue;
         }
       }
 
-      this.gateway.emitRoundEnd(t.id, t.currentRound, null);
+      await this.gateway.emitRoundEnd(t.id, t.currentRound, null);
       await this.gateway.emitStandings(t.id);
 
       // Start next round
@@ -162,7 +162,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
               gameId: p.gameId,
               board: p.board,
             }));
-            this.gateway.emitRoundStart(t.id, refreshed.currentRound, pairingsPayload);
+            await this.gateway.emitRoundStart(t.id, refreshed.currentRound, pairingsPayload);
             for (const p of round.pairings) {
               if (p.gameId) {
                 this.gateway.emitPaired(t.id, p.gameId, p.whiteId, p.blackId);
@@ -217,7 +217,7 @@ export class ArenaSchedulerService implements OnModuleInit, OnModuleDestroy {
               gameId: p.gameId,
               board: p.board,
             }));
-            this.gateway.emitRoundStart(t.id, refreshed.currentRound, pairingsPayload);
+            await this.gateway.emitRoundStart(t.id, refreshed.currentRound, pairingsPayload);
             for (const p of round.pairings) {
               if (p.gameId) {
                 this.gateway.emitPaired(t.id, p.gameId, p.whiteId, p.blackId);

@@ -344,12 +344,28 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
     this.logger.log(`emitStandings: room ${roomName}, size=${roomSize}, entries=${standings.length}`);
   }
 
-  emitRoundStart(tournamentId: string, roundNumber: number, pairings?: { whiteId: string; blackId: string | null; gameId: string | null; board: number }[]) {
-    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.ROUND_START, { tournamentId, roundNumber, pairings: pairings ?? [] });
+  async emitRoundStart(tournamentId: string, roundNumber: number, pairings?: { whiteId: string; blackId: string | null; gameId: string | null; board: number }[]) {
+    const payload = { tournamentId, roundNumber, pairings: pairings ?? [] };
+    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.ROUND_START, payload);
+    // Also emit to user rooms (players who skipped subscribe)
+    try {
+      const participantIds = await this.arenaService.getParticipantIds(tournamentId);
+      for (const userId of participantIds) {
+        this.server.to(`user:${userId}`).emit(TOURNAMENT_EVENTS.ROUND_START, payload);
+      }
+    } catch { /* non-critical */ }
   }
 
-  emitRoundEnd(tournamentId: string, roundNumber: number, nextRoundStartsAt?: string | null) {
-    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.ROUND_END, { tournamentId, roundNumber, nextRoundStartsAt: nextRoundStartsAt ?? null });
+  async emitRoundEnd(tournamentId: string, roundNumber: number, nextRoundStartsAt?: string | null) {
+    const payload = { tournamentId, roundNumber, nextRoundStartsAt: nextRoundStartsAt ?? null };
+    this.server.to(`tournament:${tournamentId}`).emit(TOURNAMENT_EVENTS.ROUND_END, payload);
+    // Also emit to user rooms (players who skipped subscribe)
+    try {
+      const participantIds = await this.arenaService.getParticipantIds(tournamentId);
+      for (const userId of participantIds) {
+        this.server.to(`user:${userId}`).emit(TOURNAMENT_EVENTS.ROUND_END, payload);
+      }
+    } catch { /* non-critical */ }
   }
 
   emitGameEnd(tournamentId: string, gameId: string, result: string, pairingId: string) {

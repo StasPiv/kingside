@@ -93,7 +93,7 @@ export class ArenaModule implements OnModuleInit {
       // Check if tournament is finished (finalizeRound may have set status to finished)
       const updated = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
       if (!updated || updated.status === 'finished') {
-        this.gateway.emitRoundEnd(tournamentId, t.currentRound, null);
+        await this.gateway.emitRoundEnd(tournamentId, t.currentRound, null);
         await this.gateway.emitStandings(tournamentId);
         await this.gateway.emitTournamentFinished(tournamentId);
         this.logger.log(`Tournament ${tournamentId} finished after round ${t.currentRound}`);
@@ -103,7 +103,7 @@ export class ArenaModule implements OnModuleInit {
       // Start next round (with pause if configured)
       const pauseMs = (t.roundPauseMin ?? 0) * 60_000;
       const nextRoundStartsAt = pauseMs > 0 ? new Date(Date.now() + pauseMs).toISOString() : null;
-      this.gateway.emitRoundEnd(tournamentId, t.currentRound, nextRoundStartsAt);
+      await this.gateway.emitRoundEnd(tournamentId, t.currentRound, nextRoundStartsAt);
       await this.gateway.emitStandings(tournamentId);
 
       if (pauseMs > 0) {
@@ -134,7 +134,7 @@ export class ArenaModule implements OnModuleInit {
           gameId: p.gameId,
           board: p.board,
         }));
-        this.gateway.emitRoundStart(tournamentId, t.currentRound, pairingsPayload);
+        await this.gateway.emitRoundStart(tournamentId, t.currentRound, pairingsPayload);
 
         for (const p of round.pairings) {
           if (p.gameId) {
