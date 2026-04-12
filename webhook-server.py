@@ -1095,6 +1095,9 @@ LOGS_HTML = """<!DOCTYPE html>
               font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
   #send-btn:hover { background: #2ea043; }
   #send-btn:disabled { background: #21262d; color: #484f58; cursor: not-allowed; }
+  #kill-btn { background: #da3633; color: #fff; border: none; border-radius: 6px; padding: 8px 16px;
+              font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  #kill-btn:hover { background: #f85149; }
   #mic-btn { background: none; border: 1px solid #30363d; border-radius: 6px; padding: 6px 10px;
              font-size: 18px; cursor: pointer; color: #8b949e; }
   #mic-btn:hover { border-color: #58a6ff; color: #58a6ff; }
@@ -1117,6 +1120,7 @@ LOGS_HTML = """<!DOCTYPE html>
   <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1"></textarea>
   <button id="mic-btn" title="Голосовой ввод">🎤</button><span id="mic-status"></span>
   <button id="send-btn">Send</button>
+  <button id="kill-btn" title="Kill agent (Esc)">Kill</button>
 </div>
 <script>
 const log = document.getElementById('log');
@@ -1170,11 +1174,26 @@ async function sendPrompt() {
 }
 
 sendBtn.addEventListener('click', sendPrompt);
+
+const killBtn = document.getElementById('kill-btn');
+async function killAgent() {
+  const agent = agentSel.value;
+  await fetch('/agent/kill', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({agent}),
+  });
+}
+killBtn.addEventListener('click', killAgent);
+
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     sendPrompt();
   }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') killAgent();
 });
 
 // Voice input
