@@ -565,6 +565,20 @@ export class GameService {
     }
     this.logger.log(`Game ${gameId} ended: ${result} by ${termination}`);
 
+    // Clear arena playing flags BEFORE emit game:end reaches client (avoid seek BLOCKED race)
+    try {
+      const gameForTournament = await this.prisma.game.findUnique({
+        where: { id: gameId },
+        select: { tournamentId: true, whiteId: true, blackId: true },
+      });
+      if (gameForTournament?.tournamentId) {
+        const tid = gameForTournament.tournamentId;
+        const apKey = `arena:${tid}:active_players`;
+        await this.redis.srem(apKey, gameForTournament.whiteId, gameForTournament.blackId).catch(() => {});
+        await this.redis.del(`arena:${tid}:playing:${gameForTournament.whiteId}`, `arena:${tid}:playing:${gameForTournament.blackId}`).catch(() => {});
+      }
+    } catch { /* non-critical */ }
+
     // Fire post-game hooks in background (arena scoring, etc.) — don't block the hot path
     if (this.postGameHooks.length > 0) {
       const hooks = [...this.postGameHooks];
