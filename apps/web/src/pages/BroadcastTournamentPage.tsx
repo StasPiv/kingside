@@ -81,7 +81,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   const [liveGames, setLiveGames] = useState<BroadcastGame[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('standings');
 
-  const ongoingRound = useMemo(() => rounds.find((r) => r.status === 'active'), [rounds]);
+  const ongoingRound = useMemo(() => rounds.find((r) => r.status === 'ongoing'), [rounds]);
 
   // Set default tab after rounds load
   useEffect(() => {
@@ -304,7 +304,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
           <div className="broadcast-tab-panel">
             <div className="tournament-rounds-grid">
               {rounds.map((r) => {
-                const isLive = r.status === 'active';
+                const isLive = r.status === 'ongoing';
                 const isFuture = r.status === 'pending' && r.startsAt && new Date(r.startsAt) > new Date();
                 return (
                   <button
