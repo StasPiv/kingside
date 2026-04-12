@@ -855,7 +855,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
             f'<div class="ev ev-user">'
             f'<span class="badge badge-user">{_esc(source)}</span>'
             f'<span class="prompt-arrow">→</span>'
-            f'<span class="badge" style="background:{color}">{_esc(agent.upper())}</span>'
+            f'<span class="badge" style="background:{color}" data-agent="{_esc(agent.lower())}">{_esc(agent.upper())}</span>'
             f'<pre class="user-text">{_esc(text)}</pre>'
             f'</div>'
         )
@@ -867,7 +867,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
         color = _agent_color(agent)
         return (
             f'<div class="ev ev-msg">'
-            f'<span class="badge" style="background:{color}">{_esc(agent)}</span>'
+            f'<span class="badge" style="background:{color}" data-agent="{_esc(agent.lower())}">{_esc(agent)}</span>'
             f'<span class="task">{_esc(task)}</span>'
             f'<span class="lbl">новое сообщение</span>'
             f'</div>'
@@ -881,7 +881,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
         color = _agent_color(agent)
         return (
             f'<div class="ev ev-init">'
-            f'<span class="badge" style="background:{color}">{_esc(agent.upper())}</span>'
+            f'<span class="badge" style="background:{color}" data-agent="{_esc(agent.lower())}">{_esc(agent.upper())}</span>'
             f'daemon запущен'
             f'</div>'
         )
@@ -912,7 +912,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
                 if text:
                     parts.append(
                         f'<div class="ev ev-think">'
-                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'<span class="badge" style="background:{color}" data-agent="{_esc(name.lower())}">{_esc(name)}</span>'
                         f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
                         f'<pre class="think-text">{_esc(text)}</pre>'
                         f'</div>'
@@ -922,7 +922,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
                 if text:
                     parts.append(
                         f'<div class="ev ev-text">'
-                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'<span class="badge" style="background:{color}" data-agent="{_esc(name.lower())}">{_esc(name)}</span>'
                         f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
                         f'<span class="text-body">{_esc(text)}</span>'
                         f'</div>'
@@ -933,7 +933,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
                 tool_html = _format_tool_use(tname, inp)
                 parts.append(
                     f'<div class="ev ev-tool">'
-                    f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                    f'<span class="badge" style="background:{color}" data-agent="{_esc(name.lower())}">{_esc(name)}</span>'
                     f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
                     f'{tool_html}'
                     f'</div>'
@@ -945,7 +945,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
                 if content:
                     parts.append(
                         f'<div class="ev ev-tool-result">'
-                        f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+                        f'<span class="badge" style="background:{color}" data-agent="{_esc(name.lower())}">{_esc(name)}</span>'
                         f'<pre class="tool-code">{_esc(content)}</pre>'
                         f'</div>'
                     )
@@ -957,7 +957,7 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
         cost = data.get("total_cost_usd", 0)
         return (
             f'<div class="ev ev-result">'
-            f'<span class="badge" style="background:{color}">{_esc(name)}</span>'
+            f'<span class="badge" style="background:{color}" data-agent="{_esc(name.lower())}">{_esc(name)}</span>'
             f'{f"<span class=task>{_esc(task)}</span>" if task else ""}'
             f'<span class="cost">${cost:.4f}</span> готов'
             f'</div>'
@@ -1049,7 +1049,7 @@ LOGS_HTML = """<!DOCTYPE html>
   .ev-result { background: #0d2818; border-left: 3px solid #00ff88; font-weight: 600; }
   .ev-user { background: #1a1a30; border-left: 3px solid #a371f7; }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: 700;
-           color: #fff; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0; }
+           color: #fff; letter-spacing: 0.5px; white-space: nowrap; flex-shrink: 0; cursor: pointer; }
   .badge-user { background: #6e40c9; }
   .prompt-arrow { color: #6e7681; }
   .user-text { color: #e2c5ff; font-size: 13px; white-space: pre-wrap; word-break: break-word;
@@ -1207,6 +1207,13 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { killAgent().then(() => input.focus()); }
 });
 document.addEventListener('click', (e) => {
+  const badge = e.target.closest('.badge[data-agent]');
+  if (badge) {
+    const agent = badge.dataset.agent;
+    if ([...agentSel.options].some(o => o.value === agent)) {
+      agentSel.value = agent;
+    }
+  }
   if (!e.target.closest('#input-bar')) input.focus();
 });
 
