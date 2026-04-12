@@ -1058,7 +1058,7 @@ LOGS_HTML = """<!DOCTYPE html>
   .ts { color: #484f58; font-size: 11px; font-family: monospace; flex-shrink: 0; }
   .lbl { color: #ffd700; font-weight: 600; }
   .cost { color: #f0883e; font-weight: 700; font-family: monospace; }
-  .text-body { color: #c9d1d9; word-break: break-word; }
+  .text-body { color: #c9d1d9; word-break: break-word; white-space: pre-wrap; }
   .tool-name { color: #d2a8ff; font-weight: 600; font-family: monospace; white-space: nowrap; }
   .tool-args { color: #7d8590; font-family: monospace; font-size: 12px; word-break: break-all; }
   .tool-desc { color: #8b949e; font-style: italic; }
