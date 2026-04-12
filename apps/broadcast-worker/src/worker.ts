@@ -226,12 +226,11 @@ export class BroadcastWorker {
             }
           }
           // Finished rounds: re-fetch if games have no result or starting FEN
-          console.log(`[broadcast-worker] round ${round.id} ongoing=${round.ongoing} finished=${round.finished} fetchCount=${fetchCount}`);
           if (round.finished && fetchCount < MAX_PGN_POLLS_PER_CYCLE) {
             try {
               await this.rateLimitDelay();
-              await this.fetchFinishedRoundGamesIfEmpty(round.id);
-              fetchCount++;
+              const fetched = await this.fetchFinishedRoundGamesIfEmpty(round.id);
+              if (fetched) fetchCount++;
             } catch (e: any) {
               console.warn(`[broadcast-worker] fetchFinishedRoundGamesIfEmpty failed ${round.id}: ${e.message}`);
             }
@@ -415,19 +414,20 @@ export class BroadcastWorker {
     });
   }
 
-  private async fetchFinishedRoundGamesIfEmpty(lichessRoundId: string): Promise<void> {
+  /** Returns true if an actual Lichess fetch was performed */
+  private async fetchFinishedRoundGamesIfEmpty(lichessRoundId: string): Promise<boolean> {
     const round = await this.prisma.broadcastRound.findUnique({ where: { lichessRoundId } });
-    if (!round) return;
+    if (!round) return false;
 
     const staleGames = await this.prisma.broadcastGame.count({
       where: { roundId: round.id, OR: [{ currentFen: STARTING_FEN }, { result: null }, { result: '*' }] },
     });
     const totalGames = await this.prisma.broadcastGame.count({ where: { roundId: round.id } });
-    if (totalGames > 0 && staleGames === 0) return;
+    if (totalGames > 0 && staleGames === 0) return false;
 
     const cooldownKey = `broadcast:pgn-fetch-cooldown:${lichessRoundId}`;
     const cooldown = await this.redis.get(cooldownKey).catch(() => null);
-    if (cooldown) return;
+    if (cooldown) return false;
 
     try {
       const url = `${LICHESS_API}/broadcast/round/${lichessRoundId}.pgn`;
@@ -437,7 +437,7 @@ export class BroadcastWorker {
       });
       if (!res.ok) {
         await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL).catch(() => {});
-        return;
+        return true;
       }
       const pgn = await res.text();
       if (pgn.trim()) {
@@ -445,9 +445,11 @@ export class BroadcastWorker {
       } else {
         await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL).catch(() => {});
       }
+      return true;
     } catch (e: any) {
       console.error(`[broadcast-worker] PGN fetch error ${lichessRoundId}: ${e.message}`);
       await this.redis.set(cooldownKey, '1', 'EX', FETCH_COOLDOWN_TTL).catch(() => {});
+      return true;
     }
   }
 
