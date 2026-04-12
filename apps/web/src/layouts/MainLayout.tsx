@@ -131,7 +131,7 @@ export function MainLayout() {
 
           {/* RIGHT: Utilities + Profile */}
           <div className="header-right">
-            {activeGame && (
+            {activeGame && !location.pathname.startsWith(`/game/${activeGame.gameId}`) && (
               <Link to={`/game/${activeGame.gameId}`} className="active-game-btn">
                 {t('nav.backToGame', 'Back to game')}
               </Link>
