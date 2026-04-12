@@ -275,8 +275,12 @@ export class ArenaGateway implements OnGatewayConnection, OnGatewayDisconnect, O
       return;
     }
 
+    const seekStart = Date.now();
     await this.arenaService.addToSeekQueue(data.tournamentId, userId);
+    const queuedAt = Date.now();
     await this.matchmaker.tryPairArena(data.tournamentId);
+    const pairDone = Date.now();
+    this.logger.log(`handleSeek: ${client.data.user?.username} queued=${queuedAt - seekStart}ms pair=${pairDone - queuedAt}ms total=${pairDone - seekStart}ms`);
   }
 
   @SubscribeMessage(TOURNAMENT_EVENTS.LEAVE)

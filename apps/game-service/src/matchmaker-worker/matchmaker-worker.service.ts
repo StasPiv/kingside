@@ -33,6 +33,7 @@ export class MatchmakerWorkerService {
    */
   async tryPairArena(tournamentId: string): Promise<void> {
     try {
+      const pairStart = Date.now();
       const t = await this.prisma.arenaTournament.findUnique({
         where: { id: tournamentId },
         select: { id: true, timeControlType: true, timeInitialSec: true, timeIncrementSec: true, status: true },
@@ -44,9 +45,13 @@ export class MatchmakerWorkerService {
 
       const activeCount = await this.redis.scard(apKey);
       const currentGames = Math.floor(activeCount / 2);
-      if (currentGames >= MAX_CONCURRENT_GAMES) return;
+      if (currentGames >= MAX_CONCURRENT_GAMES) {
+        this.logger.warn(`tryPairArena: MAX_CONCURRENT_GAMES reached (${currentGames}/${MAX_CONCURRENT_GAMES})`);
+        return;
+      }
 
       const members = await this.redis.zrange(key, 0, -1);
+      this.logger.log(`tryPairArena: seekQueue=${members.length} activeGames=${currentGames} maxGames=${MAX_CONCURRENT_GAMES} elapsed=${Date.now() - pairStart}ms`);
       if (members.length < 2) return;
 
       // Filter active players
