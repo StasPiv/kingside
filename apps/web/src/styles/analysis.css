@@ -2101,9 +2101,11 @@
 .material-balance {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
-  border-top: 1px solid #334155;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  margin: 4px 0;
 }
 
 .material-balance__side {
@@ -2113,9 +2115,8 @@
 }
 
 .material-balance__piece {
-  width: 24px;
-  height: 24px;
-  margin-right: -4px;
-  filter: drop-shadow(0 0 2px rgba(255,255,255,0.8)) drop-shadow(0 0 1px rgba(255,255,255,0.5));
+  width: 30px;
+  height: 30px;
+  margin-right: -6px;
 }
 
