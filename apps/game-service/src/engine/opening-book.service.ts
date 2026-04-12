@@ -18,10 +18,11 @@ export class OpeningBookService implements OnModuleInit {
 
   private loadBook(): void {
     const paths = [
-      join(process.cwd(), 'data', 'opening-book.bin'),           // Docker: /app/apps/api/data/
+      join(process.cwd(), 'data', 'opening-book.bin'),           // Docker: /app/apps/game-service/data/
       join(__dirname, '..', '..', 'data', 'opening-book.bin'),   // dev: dist/engine/../../data/
       join(__dirname, '..', 'data', 'opening-book.bin'),         // alt: dist/engine/../data/
-      join(process.cwd(), 'apps', 'api', 'data', 'opening-book.bin'), // monorepo root cwd
+      join(process.cwd(), 'apps', 'game-service', 'data', 'opening-book.bin'), // monorepo root cwd
+      join(process.cwd(), 'apps', 'api', 'data', 'opening-book.bin'), // legacy: api data dir
     ];
 
     for (const filePath of paths) {
