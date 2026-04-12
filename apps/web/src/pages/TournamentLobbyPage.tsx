@@ -78,6 +78,7 @@ export function TournamentLobbyPage() {
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [standings, setStandings] = useState<Standing[]>([]);
+  const standingsGamesRef = useRef(0);
   const [rounds, setRounds] = useState<RoundData[]>([]);
   const [loading, setLoading] = useState(true);
   const [seeking, setSeeking] = useState(false);
@@ -116,9 +117,9 @@ export function TournamentLobbyPage() {
     if (!id) return;
     try {
       const data = await api.get<Standing[]>(`/api/arena/${id}/standings`);
-      setStandings(data);
+      updateStandings(data);
     } catch { /* ignore */ }
-  }, [id]);
+  }, [id, updateStandings]);
 
   const fetchRounds = useCallback(async () => {
     if (!id) return;
@@ -127,6 +128,18 @@ export function TournamentLobbyPage() {
       setRounds(data);
     } catch { /* ignore */ }
   }, [id]);
+
+  // Guard: only accept standings that are at least as fresh as current
+  const updateStandings = useCallback((next: Standing[]) => {
+    const totalGames = next.reduce((sum, s) => sum + s.games.length, 0);
+    if (totalGames >= standingsGamesRef.current) {
+      standingsGamesRef.current = totalGames;
+      setStandings(next);
+    }
+  }, []);
+
+  const updateStandingsRef = useRef(updateStandings);
+  updateStandingsRef.current = updateStandings;
 
   fetchTournamentRef.current = fetchTournament;
   fetchStandingsRef.current = fetchStandings;
@@ -237,7 +250,7 @@ export function TournamentLobbyPage() {
     };
 
     const onStandings = (data: { standings: Standing[] }) => {
-      setStandings(data.standings);
+      updateStandingsRef.current(data.standings);
     };
 
     const onFinished = () => {
@@ -288,7 +301,7 @@ export function TournamentLobbyPage() {
         });
       }
       if (data.standings) {
-        setStandings(data.standings);
+        updateStandingsRef.current(data.standings);
       }
       fetchRoundsRef.current();
       setCrossTableRefresh((n) => n + 1);
