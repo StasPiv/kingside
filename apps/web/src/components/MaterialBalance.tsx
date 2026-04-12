@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
+import { useBoardSettings } from '../hooks/useBoardSettings';
 
-const PIECE_VALUES: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 const PIECE_ORDER = ['q', 'r', 'b', 'n', 'p'];
 
-const WHITE_PIECES: Record<string, string> = {
-  q: '\u2655', r: '\u2656', b: '\u2657', n: '\u2658', p: '\u2659',
-};
-const BLACK_PIECES: Record<string, string> = {
-  q: '\u265B', r: '\u265C', b: '\u265D', n: '\u265E', p: '\u265F',
+const PIECE_CODES: Record<string, { white: string; black: string }> = {
+  q: { white: 'wQ', black: 'bQ' },
+  r: { white: 'wR', black: 'bR' },
+  b: { white: 'wB', black: 'bB' },
+  n: { white: 'wN', black: 'bN' },
+  p: { white: 'wP', black: 'bP' },
 };
 
 function parseMaterial(fen: string) {
@@ -27,11 +28,9 @@ function parseMaterial(fen: string) {
 function computeDiff(white: Record<string, number>, black: Record<string, number>) {
   const whiteExtra: string[] = [];
   const blackExtra: string[] = [];
-  let scoreDiff = 0;
 
   for (const piece of PIECE_ORDER) {
     const diff = white[piece] - black[piece];
-    scoreDiff += diff * PIECE_VALUES[piece];
     if (diff > 0) {
       for (let i = 0; i < diff; i++) whiteExtra.push(piece);
     } else if (diff < 0) {
@@ -39,7 +38,12 @@ function computeDiff(white: Record<string, number>, black: Record<string, number
     }
   }
 
-  return { whiteExtra, blackExtra, scoreDiff };
+  return { whiteExtra, blackExtra };
+}
+
+function pieceSrc(pieceSet: string, code: string): string {
+  if (pieceSet === 'standard') return `/pieces/cburnett/${code}.svg`;
+  return `/pieces/${pieceSet}/${code}.svg`;
 }
 
 type Props = {
@@ -47,7 +51,9 @@ type Props = {
 };
 
 export function MaterialBalance({ fen }: Props) {
-  const { whiteExtra, blackExtra, scoreDiff } = useMemo(() => {
+  const { pieceSet } = useBoardSettings();
+
+  const { whiteExtra, blackExtra } = useMemo(() => {
     const { white, black } = parseMaterial(fen);
     return computeDiff(white, black);
   }, [fen]);
@@ -56,22 +62,20 @@ export function MaterialBalance({ fen }: Props) {
 
   return (
     <div className="material-balance">
-      <span className="material-balance__side">
-        {whiteExtra.map((p, i) => (
-          <span key={i} className="material-balance__piece material-balance__piece--white">
-            {WHITE_PIECES[p]}
-          </span>
-        ))}
-        {scoreDiff > 0 && <span className="material-balance__score">+{scoreDiff}</span>}
-      </span>
-      <span className="material-balance__side">
-        {blackExtra.map((p, i) => (
-          <span key={i} className="material-balance__piece material-balance__piece--black">
-            {BLACK_PIECES[p]}
-          </span>
-        ))}
-        {scoreDiff < 0 && <span className="material-balance__score">+{-scoreDiff}</span>}
-      </span>
+      {whiteExtra.length > 0 && (
+        <span className="material-balance__side">
+          {whiteExtra.map((p, i) => (
+            <img key={i} className="material-balance__piece" src={pieceSrc(pieceSet, PIECE_CODES[p].white)} alt={p} />
+          ))}
+        </span>
+      )}
+      {blackExtra.length > 0 && (
+        <span className="material-balance__side">
+          {blackExtra.map((p, i) => (
+            <img key={i} className="material-balance__piece" src={pieceSrc(pieceSet, PIECE_CODES[p].black)} alt={p} />
+          ))}
+        </span>
+      )}
     </div>
   );
 }
