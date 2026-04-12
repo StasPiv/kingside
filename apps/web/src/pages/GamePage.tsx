@@ -16,6 +16,7 @@ import {
   type WsErrorPayload,
 } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../api';
 import { useResponsiveBoardSize } from '../hooks/useResponsiveBoardSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
@@ -48,6 +49,7 @@ export function GamePage() {
   const location = useLocation();
   const [urlParams] = useState(() => new URLSearchParams(location.search));
   const tournamentId = urlParams.get('tournamentId');
+  const [tournamentType, setTournamentType] = useState<string | null>(null);
   const routeColor = (location.state as { color?: 'white' | 'black' } | null)?.color;
   const { user, refreshUser } = useAuth();
   const { t } = useTranslation();
@@ -113,6 +115,14 @@ export function GamePage() {
       })
       .catch(() => {});
   }, [gameId, user]);
+
+  // Fetch tournament type for berserk visibility
+  useEffect(() => {
+    if (!tournamentId) return;
+    api.get<{ type: string }>(`/api/arena/${tournamentId}`)
+      .then((t) => setTournamentType(t.type))
+      .catch(() => {});
+  }, [tournamentId]);
 
   const handleRematch = useCallback(() => {
     if (!gameMeta) return;
@@ -578,7 +588,7 @@ export function GamePage() {
 
         {status === 'active' && (
           <div className="game-actions">
-            {tournamentId && (playerColor === 'white' ? moves.length === 0 : moves.length <= 1) && !(playerColor === 'white' ? whiteBerserk : blackBerserk) && (
+            {tournamentId && tournamentType === 'arena' && (playerColor === 'white' ? moves.length === 0 : moves.length <= 1) && !(playerColor === 'white' ? whiteBerserk : blackBerserk) && (
               <button
                 onClick={() => socket.emit('game:berserk', { gameId })}
                 style={{ background: '#f59e0b', color: '#000', fontWeight: 'bold', borderRadius: 4 }}
