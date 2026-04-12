@@ -2113,8 +2113,9 @@
 }
 
 .material-balance__piece {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   margin-right: -4px;
+  filter: drop-shadow(0 0 2px rgba(255,255,255,0.8)) drop-shadow(0 0 1px rgba(255,255,255,0.5));
 }
 
