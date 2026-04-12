@@ -42,33 +42,57 @@ export class MatchmakerWorkerService {
       const key = arenaSeekKey(t.id);
       const apKey = activePlayers(t.id);
 
-      const activeCount = await this.redis.scard(apKey);
-      const currentGames = Math.floor(activeCount / 2);
-
       const members = await this.redis.zrange(key, 0, -1);
-      this.logger.log(`tryPairArena: seekQueue=${members.length} activeGames=${currentGames} elapsed=${Date.now() - pairStart}ms`);
-      if (members.length < 2) return;
+      if (members.length < 2) {
+        this.logger.log(`tryPairArena: seekQueue=${members.length} elapsed=${Date.now() - pairStart}ms`);
+        return;
+      }
 
-      // Filter active players
-      const available: string[] = [];
+      // Batch check: which members are active (already playing)
+      const pipe = this.redis.pipeline();
       for (const userId of members) {
-        const isActive = await this.redis.sismember(apKey, userId);
+        pipe.sismember(apKey, userId);
+      }
+      const activeResults = await pipe.exec();
+
+      // Filter: remove active players from seek queue, collect available
+      const available: string[] = [];
+      const toRemove: string[] = [];
+      for (let i = 0; i < members.length; i++) {
+        const isActive = activeResults?.[i]?.[1];
         if (isActive) {
-          await this.redis.zrem(key, userId);
+          toRemove.push(members[i]);
         } else {
-          available.push(userId);
+          available.push(members[i]);
         }
       }
+      if (toRemove.length > 0) {
+        await this.redis.zrem(key, ...toRemove);
+      }
+
+      this.logger.log(`tryPairArena: seekQueue=${members.length} available=${available.length} removed=${toRemove.length} elapsed=${Date.now() - pairStart}ms`);
       if (available.length < 2) return;
+
+      // Batch fetch lastOpponent for all available players
+      const oppPipe = this.redis.pipeline();
+      for (const userId of available) {
+        oppPipe.get(lastOpponentKey(t.id, userId));
+      }
+      const oppResults = await oppPipe.exec();
+      const lastOppMap = new Map<string, string | null>();
+      for (let i = 0; i < available.length; i++) {
+        lastOppMap.set(available[i], (oppResults?.[i]?.[1] as string) ?? null);
+      }
 
       // Pair all available matches
       let created = 0;
-
       const paired = new Set<string>();
+      const gamesToCreate: Array<{ userId: string; match: string }> = [];
+
       for (let i = 0; i < available.length; i++) {
         if (paired.has(available[i])) continue;
         const userId = available[i];
-        const lastOpp = await this.redis.get(lastOpponentKey(t.id, userId)).catch(() => null);
+        const lastOpp = lastOppMap.get(userId) ?? null;
 
         let match: string | null = null;
         for (let j = i + 1; j < available.length; j++) {
@@ -83,9 +107,16 @@ export class MatchmakerWorkerService {
 
         paired.add(userId);
         paired.add(match);
-        await this.createArenaGame(t, userId, match);
-        created++;
+        gamesToCreate.push({ userId, match });
       }
+
+      // Create all games concurrently
+      await Promise.all(gamesToCreate.map(({ userId, match }) =>
+        this.createArenaGame(t, userId, match),
+      ));
+      created = gamesToCreate.length;
+
+      this.logger.log(`tryPairArena: paired=${created} total=${Date.now() - pairStart}ms`);
     } catch (e: any) {
       this.logger.error(`tryPairArena error: ${e.message}`);
     }
@@ -95,9 +126,6 @@ export class MatchmakerWorkerService {
     t: { id: string; timeControlType: string; timeInitialSec: number; timeIncrementSec: number },
     userId: string, candidateId: string,
   ): Promise<void> {
-    await this.redis.set(lastOpponentKey(t.id, userId), candidateId, 'EX', 300);
-    await this.redis.set(lastOpponentKey(t.id, candidateId), userId, 'EX', 300);
-
     const whiteId = Math.random() < 0.5 ? userId : candidateId;
     const blackId = whiteId === userId ? candidateId : userId;
 
@@ -112,15 +140,19 @@ export class MatchmakerWorkerService {
     });
 
     const timeMs = t.timeInitialSec * 1000;
-    await this.redis.hset(`game:${game.id}:state`, {
+    const pipe = this.redis.pipeline();
+    pipe.set(lastOpponentKey(t.id, userId), candidateId, 'EX', 300);
+    pipe.set(lastOpponentKey(t.id, candidateId), userId, 'EX', 300);
+    pipe.hset(`game:${game.id}:state`, {
       fen: INITIAL_FEN, moves: '[]', status: 'active', active_color: 'white',
       white_id: whiteId, black_id: blackId,
       time_increment_sec: String(t.timeIncrementSec),
     });
-    await this.redis.hset(`game:${game.id}:clocks`, {
+    pipe.hset(`game:${game.id}:clocks`, {
       white_ms: String(timeMs), black_ms: String(timeMs),
       last_tick: '0', running: '0',
     });
+    await pipe.exec();
 
     await this.prisma.game.update({
       where: { id: game.id },
