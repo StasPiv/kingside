@@ -8,6 +8,7 @@ import { GameMetaBar } from '../components/GameMetaBar';
 import type { GameMetaInfo } from '../components/GameMetaBar';
 import { EngineSettingsModal } from '../components/EngineSettingsModal';
 import { EvalBar } from '../components/EvalBar';
+import { MaterialBalance } from '../components/MaterialBalance';
 import { SetPositionModal } from '../components/SetPositionModal';
 import { PgnHeadersModal } from '../components/PgnHeadersModal';
 import { useStablePosition } from '../hooks/useStablePosition';
@@ -756,6 +757,8 @@ export function AnalysisPage() {
               )}
             </div>
           </div>
+
+          <MaterialBalance fen={currentFen} />
 
           <div className="analysis-board-controls">
             <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>&#x21E4;</button>
