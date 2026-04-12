@@ -93,10 +93,19 @@ async function runBotInSwiss(
       cleanup();
     }, safetyMs);
 
-    const handlePaired = (data: { gameId: string; color: 'white' | 'black' }) => {
+    const handlePaired = async (data: { gameId: string; color: 'white' | 'black' }) => {
       if (finished) return;
       metrics.recordGameStarted();
       console.log(`[${bot.username}] Paired: game=${data.gameId.slice(0, 8)} color=${data.color}`);
+
+      // Re-login before each game to avoid expired JWT (15min expiry)
+      try {
+        await bot.login(config.devBypassSecret);
+      } catch (e) {
+        console.error(`[${bot.username}] Re-login failed: ${(e as Error).message}`);
+        metrics.recordError();
+        return;
+      }
 
       playSwissGame(bot, data.gameId, data.color, config, metrics).then(() => {
         metrics.recordGameCompleted();

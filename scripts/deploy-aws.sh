@@ -25,6 +25,7 @@ ECS_SERVICE="kingside-api"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
 ECS_SERVICE_MATCHMAKER="kingside-matchmaker"
 PROD_API_URL="${VITE_API_URL:-https://kingside.site}"
+PROD_GAME_URL="${VITE_GAME_URL:-wss://game.kingside.site}"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
 
 # Load .env
@@ -173,8 +174,8 @@ echo ""
 
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 if $DEPLOY_FRONTEND; then
-    echo "[frontend] Building (VITE_API_URL=$PROD_API_URL)..."
-    VITE_API_URL="$PROD_API_URL" VITE_APP_ORIGIN="$PROD_API_URL" npm run build --prefix "$REPO_DIR" --workspace=apps/web
+    echo "[frontend] Building (VITE_API_URL=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL)..."
+    VITE_API_URL="$PROD_API_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
 
     echo "[frontend] Syncing to S3..."
