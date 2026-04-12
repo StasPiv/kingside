@@ -3,7 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const MAX_CONCURRENT_GAMES = parseInt(process.env.MAX_CONCURRENT_GAMES || '40', 10);
 
 export const MATCHMAKER_PAIRED_CHANNEL = 'matchmaker:paired';
 export const MATCHMAKER_FOUND_CHANNEL = 'matchmaker:found';
@@ -45,13 +44,9 @@ export class MatchmakerWorkerService {
 
       const activeCount = await this.redis.scard(apKey);
       const currentGames = Math.floor(activeCount / 2);
-      if (currentGames >= MAX_CONCURRENT_GAMES) {
-        this.logger.warn(`tryPairArena: MAX_CONCURRENT_GAMES reached (${currentGames}/${MAX_CONCURRENT_GAMES})`);
-        return;
-      }
 
       const members = await this.redis.zrange(key, 0, -1);
-      this.logger.log(`tryPairArena: seekQueue=${members.length} activeGames=${currentGames} maxGames=${MAX_CONCURRENT_GAMES} elapsed=${Date.now() - pairStart}ms`);
+      this.logger.log(`tryPairArena: seekQueue=${members.length} activeGames=${currentGames} elapsed=${Date.now() - pairStart}ms`);
       if (members.length < 2) return;
 
       // Filter active players
@@ -66,12 +61,11 @@ export class MatchmakerWorkerService {
       }
       if (available.length < 2) return;
 
-      // Pair first available match
-      const slotsAvailable = MAX_CONCURRENT_GAMES - currentGames;
+      // Pair all available matches
       let created = 0;
 
       const paired = new Set<string>();
-      for (let i = 0; i < available.length && created < slotsAvailable; i++) {
+      for (let i = 0; i < available.length; i++) {
         if (paired.has(available[i])) continue;
         const userId = available[i];
         const lastOpp = await this.redis.get(lastOpponentKey(t.id, userId)).catch(() => null);
