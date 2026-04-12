@@ -225,8 +225,16 @@ export class BroadcastWorker {
               }
             }
           }
-          // Finished rounds: skip inline fetch (was blocking sync for ~5min)
-          // Handled asynchronously by syncPinnedBroadcasts PGN poll
+          // Finished rounds: re-fetch if games have no result or starting FEN
+          if (round.finished && fetchCount < MAX_PGN_POLLS_PER_CYCLE) {
+            try {
+              await this.rateLimitDelay();
+              await this.fetchFinishedRoundGamesIfEmpty(round.id);
+              fetchCount++;
+            } catch (e: any) {
+              console.warn(`[broadcast-worker] fetchFinishedRoundGamesIfEmpty failed ${round.id}: ${e.message}`);
+            }
+          }
         }
       }
 
