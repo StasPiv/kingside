@@ -1038,7 +1038,6 @@ export function AnalysisPage() {
                   onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
                 />
               </div>
-              <MaterialBalance fen={currentFen} />
             </div>
             {mobileTab === 'report' && gameId && (
               <div className="analysis-mobile-section analysis-mobile-section--report active">
