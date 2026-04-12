@@ -1117,7 +1117,7 @@ LOGS_HTML = """<!DOCTYPE html>
     <option value="devops">devops</option>
     <option value="architect">architect</option>
   </select>
-  <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1"></textarea>
+  <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1" autofocus></textarea>
   <button id="mic-btn" title="Голосовой ввод">🎤</button><span id="mic-status"></span>
   <button id="send-btn">Send</button>
   <button id="kill-btn" title="Kill agent (Esc)">Kill</button>
@@ -1178,13 +1178,24 @@ sendBtn.addEventListener('click', sendPrompt);
 const killBtn = document.getElementById('kill-btn');
 async function killAgent() {
   const agent = agentSel.value;
-  await fetch('/agent/kill', {
+  const res = await fetch('/agent/kill', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({agent}),
   });
+  if (res.ok) {
+    const data = await res.json();
+    if (data.status === 'killed') {
+      const div = document.createElement('div');
+      div.className = 'ev system';
+      const ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
+      div.innerHTML = '<span class="ts">' + ts + '</span> агент <b>' + agent + '</b> убит';
+      log.appendChild(div);
+      if (autoScroll) window.scrollTo(0, document.body.scrollHeight);
+    }
+  }
 }
-killBtn.addEventListener('click', killAgent);
+killBtn.addEventListener('click', () => { killAgent().then(() => input.focus()); });
 
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -1193,7 +1204,10 @@ input.addEventListener('keydown', (e) => {
   }
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') killAgent();
+  if (e.key === 'Escape') { killAgent().then(() => input.focus()); }
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#input-bar')) input.focus();
 });
 
 // Voice input
