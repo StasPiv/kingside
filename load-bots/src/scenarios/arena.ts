@@ -299,10 +299,8 @@ function playArenaGame(
       const isMyTurnNow = (myColor === 'white' && turn === 'w') || (myColor === 'black' && turn === 'b');
       if (!isMyTurnNow) { log(serverInstanceId, `[${bot.username}/${myColor}] tryMove(${source}): skip notMyTurn turn=${turn}`); return; }
 
-      const [minMs, maxMs] = config.thinkTimeMs;
-      const delay = minMs + Math.random() * (maxMs - minMs) * 0.5; // faster in arena
-      setTimeout(() => {
-        if (gameOver) return;
+      // No think delay — move instantly for load testing
+      {
         try {
           const uci = brain.pickMove();
           if (!uci) return;
@@ -324,7 +322,7 @@ function playArenaGame(
           warn(serverInstanceId, `[${bot.username}/${myColor}] Move error: ${(e as Error).message}`);
           metrics.recordError();
         }
-      }, delay);
+      }
     };
 
     socket.on('server:instance', (data: { instanceId: string }) => {
