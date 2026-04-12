@@ -1034,6 +1034,7 @@ LOGS_HTML = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kingside Agents</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px;
@@ -1058,7 +1059,16 @@ LOGS_HTML = """<!DOCTYPE html>
   .ts { color: #484f58; font-size: 11px; font-family: monospace; flex-shrink: 0; }
   .lbl { color: #ffd700; font-weight: 600; }
   .cost { color: #f0883e; font-weight: 700; font-family: monospace; }
-  .text-body { color: #c9d1d9; word-break: break-word; white-space: pre-wrap; }
+  .text-body { color: #c9d1d9; word-break: break-word; }
+  .text-body p { margin: 0.3em 0; }
+  .text-body ol, .text-body ul { margin: 0.3em 0 0.3em 1.5em; }
+  .text-body code { background: #1c2128; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .text-body pre { background: #1c2128; padding: 8px; border-radius: 6px; overflow-x: auto; margin: 0.3em 0; }
+  .text-body pre code { background: none; padding: 0; }
+  .text-body table { border-collapse: collapse; margin: 0.3em 0; }
+  .text-body th, .text-body td { border: 1px solid #30363d; padding: 4px 8px; }
+  .text-body th { background: #161b22; }
+  .text-body strong { color: #e6edf3; }
   .tool-name { color: #d2a8ff; font-weight: 600; font-family: monospace; white-space: nowrap; }
   .tool-args { color: #7d8590; font-family: monospace; font-size: 12px; word-break: break-all; }
   .tool-desc { color: #8b949e; font-style: italic; }
@@ -1139,6 +1149,9 @@ es.onmessage = (e) => {
   const ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
   const div = document.createElement('div');
   div.innerHTML = e.data.replace(/^(<div class="ev[^"]*">)/, '$1<span class="ts">' + ts + '</span>');
+  div.querySelectorAll('.text-body').forEach(el => {
+    el.innerHTML = marked.parse(el.textContent);
+  });
   while (div.firstChild) log.appendChild(div.firstChild);
   while (log.childElementCount > 2000) log.removeChild(log.firstChild);
   if (autoScroll) window.scrollTo(0, document.body.scrollHeight);
