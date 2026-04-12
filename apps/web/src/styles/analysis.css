@@ -2100,11 +2100,12 @@
 /* Material balance */
 .material-balance {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   padding: 4px 8px;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
-  min-height: 28px;
+  border-top: 1px solid #334155;
 }
 
 .material-balance__side {

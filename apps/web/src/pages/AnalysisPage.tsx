@@ -758,8 +758,6 @@ export function AnalysisPage() {
             </div>
           </div>
 
-          <MaterialBalance fen={currentFen} />
-
           <div className="analysis-board-controls">
             <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>&#x21E4;</button>
             <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>&#x2190;</button>
@@ -978,6 +976,7 @@ export function AnalysisPage() {
               />
             </div>
           )}
+          <MaterialBalance fen={currentFen} />
         </div>
 
         {/* ===== Mobile: Single panel with tabs ===== */}
@@ -1039,6 +1038,7 @@ export function AnalysisPage() {
                   onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
                 />
               </div>
+              <MaterialBalance fen={currentFen} />
             </div>
             {mobileTab === 'report' && gameId && (
               <div className="analysis-mobile-section analysis-mobile-section--report active">
