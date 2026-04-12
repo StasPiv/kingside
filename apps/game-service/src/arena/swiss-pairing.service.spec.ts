@@ -53,6 +53,22 @@ describe('SwissPairingService', () => {
     expect(bye!.whiteId).not.toBe('p3');
   });
 
+  it('should swap pairing to avoid double bye', () => {
+    // p3 hadBye=true, p1 faced p2 and p3 faced p2 → p1 vs p3, p2 left → bye p2
+    // But if pairing leaves p3 unpaired (e.g. p1 vs p2 as fallback), swap should happen
+    const players = [
+      { userId: 'p1', score: 2, rating: 2000, opponents: ['p3'], colorHistory: ['w' as const, 'w' as const], hadBye: false },
+      { userId: 'p2', score: 1, rating: 1800, opponents: ['p1'], colorHistory: ['b' as const, 'w' as const], hadBye: false },
+      { userId: 'p3', score: 0, rating: 1600, opponents: ['p2'], colorHistory: ['b' as const], hadBye: true },
+    ];
+
+    const pairings = service.pair(players, 3);
+    const bye = pairings.find((p) => p.blackId === null);
+    expect(bye).toBeDefined();
+    // p3 already had bye — swap should ensure bye goes to p1 or p2
+    expect(bye!.whiteId).not.toBe('p3');
+  });
+
   it('should avoid repeats in later rounds', () => {
     const players = [
       { userId: 'p1', score: 1, rating: 2000, opponents: ['p2'], colorHistory: ['w' as const] },

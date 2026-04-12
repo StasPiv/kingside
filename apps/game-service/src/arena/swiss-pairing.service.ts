@@ -74,11 +74,38 @@ export class SwissPairingService {
       }
     }
 
-    // Bye for unpaired player (odd number) — prefer player who hasn't had bye yet
+    // Bye for unpaired player (odd number) — player who hasn't had bye yet
     const unpaired = sorted.filter((p) => !paired.has(p.userId));
     if (unpaired.length > 0) {
-      // Pick the first player without a previous bye; fallback to first unpaired
-      const byePlayer = unpaired.find((p) => !p.hadBye) ?? unpaired[0];
+      let byePlayer = unpaired.find((p) => !p.hadBye) ?? null;
+
+      if (!byePlayer && unpaired.length === 1 && pairings.length > 0) {
+        // Only unpaired player already had bye — swap with someone from last pairing
+        const hadByePlayer = unpaired[0];
+        // Search pairings from bottom (lowest-ranked) for a swap candidate without hadBye
+        for (let k = pairings.length - 1; k >= 0; k--) {
+          const p = pairings[k];
+          if (p.blackId === null) continue;
+          const whiteP = sorted.find((s) => s.userId === p.whiteId);
+          const blackP = sorted.find((s) => s.userId === p.blackId);
+          // Try to swap: give bye to one of the paired players (who hasn't had bye)
+          // and pair hadByePlayer with the other
+          if (blackP && !blackP.hadBye) {
+            pairings[k] = { whiteId: hadByePlayer.userId, blackId: p.whiteId, board: p.board };
+            byePlayer = blackP;
+            break;
+          }
+          if (whiteP && !whiteP.hadBye) {
+            pairings[k] = { whiteId: p.blackId!, blackId: hadByePlayer.userId, board: p.board };
+            byePlayer = whiteP;
+            break;
+          }
+        }
+        // If no swap possible (everyone had bye), fallback
+        if (!byePlayer) byePlayer = hadByePlayer;
+      }
+
+      if (!byePlayer) byePlayer = unpaired[0];
       pairings.push({ whiteId: byePlayer.userId, blackId: null, board: board++ });
     }
 
