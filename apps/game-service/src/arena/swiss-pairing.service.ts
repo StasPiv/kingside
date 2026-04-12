@@ -6,6 +6,7 @@ interface Player {
   rating: number;
   opponents: string[]; // previously played
   colorHistory: ('w' | 'b')[]; // recent colors
+  hadBye?: boolean; // already received bye in a previous round
 }
 
 export interface Pairing {
@@ -73,11 +74,12 @@ export class SwissPairingService {
       }
     }
 
-    // Bye for unpaired player (odd number)
-    for (const p of sorted) {
-      if (!paired.has(p.userId)) {
-        pairings.push({ whiteId: p.userId, blackId: null, board: board++ });
-      }
+    // Bye for unpaired player (odd number) — prefer player who hasn't had bye yet
+    const unpaired = sorted.filter((p) => !paired.has(p.userId));
+    if (unpaired.length > 0) {
+      // Pick the first player without a previous bye; fallback to first unpaired
+      const byePlayer = unpaired.find((p) => !p.hadBye) ?? unpaired[0];
+      pairings.push({ whiteId: byePlayer.userId, blackId: null, board: board++ });
     }
 
     return pairings;

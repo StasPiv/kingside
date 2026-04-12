@@ -39,6 +39,20 @@ describe('SwissPairingService', () => {
     expect(bye).toBeDefined();
   });
 
+  it('should not give bye to player who already had bye', () => {
+    const players = [
+      { userId: 'p1', score: 1, rating: 2000, opponents: ['p2'], colorHistory: ['w' as const], hadBye: false },
+      { userId: 'p2', score: 0, rating: 1800, opponents: ['p1'], colorHistory: ['b' as const], hadBye: false },
+      { userId: 'p3', score: 1, rating: 1600, opponents: [], colorHistory: [], hadBye: true },
+    ];
+
+    const pairings = service.pair(players, 2);
+    const bye = pairings.find((p) => p.blackId === null);
+    expect(bye).toBeDefined();
+    // p3 already had bye — bye should go to p1 or p2
+    expect(bye!.whiteId).not.toBe('p3');
+  });
+
   it('should avoid repeats in later rounds', () => {
     const players = [
       { userId: 'p1', score: 1, rating: 2000, opponents: ['p2'], colorHistory: ['w' as const] },

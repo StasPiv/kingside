@@ -384,8 +384,12 @@ export class RoundManagerService {
 
     const opponentMap = new Map<string, string[]>();
     const colorMap = new Map<string, ('w' | 'b')[]>();
+    const byeSet = new Set<string>();
     for (const p of pairings) {
-      if (!p.blackId) continue;
+      if (!p.blackId) {
+        byeSet.add(p.whiteId);
+        continue;
+      }
       if (!opponentMap.has(p.whiteId)) opponentMap.set(p.whiteId, []);
       if (!opponentMap.has(p.blackId)) opponentMap.set(p.blackId, []);
       opponentMap.get(p.whiteId)!.push(p.blackId);
@@ -402,6 +406,7 @@ export class RoundManagerService {
       rating: e.user?.ratingBlitz ?? 1500,
       opponents: opponentMap.get(e.userId) ?? [],
       colorHistory: colorMap.get(e.userId) ?? [],
+      hadBye: byeSet.has(e.userId),
     }));
   }
 }
