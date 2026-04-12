@@ -184,12 +184,16 @@ export function GamePage() {
   useEffect(() => {
     const onGameState = (state: WsGameStatePayload) => {
       console.log('[WS] game:state received, status=' + state.status + ', clocks=' + JSON.stringify(state.clocks));
+      const isFirstState = !stateReceivedRef.current;
       stateReceivedRef.current = true;
       if (state.color) setPlayerColor(state.color);
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
       if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
       updateFromState(state);
+      if (isFirstState && state.status === 'active') {
+        playSound('game-start');
+      }
     };
 
     const onGameMove = (data: WsGameMoveServerPayload) => {

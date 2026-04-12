@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-export type SoundEvent = 'move' | 'capture' | 'check' | 'castle' | 'game-end' | 'puzzle-correct' | 'puzzle-incorrect' | 'puzzle-gameover';
+export type SoundEvent = 'move' | 'capture' | 'check' | 'castle' | 'game-start' | 'game-end' | 'puzzle-correct' | 'puzzle-incorrect' | 'puzzle-gameover';
 
 function getAudioContext(): AudioContext | null {
   try {
@@ -61,6 +61,13 @@ function playCastle(ctx: AudioContext): void {
   playTone(ctx, 400, 0.1, t, 'triangle', 0.2);
   playTone(ctx, 900, 0.08, t + 0.18, 'square', 0.12);
   playTone(ctx, 450, 0.1, t + 0.18, 'triangle', 0.18);
+}
+
+function playGameStart(ctx: AudioContext): void {
+  const t = ctx.currentTime;
+  // Two quick ascending tones: G4 → C5 (bright, alert)
+  playTone(ctx, 392, 0.12, t, 'sine', 0.3);
+  playTone(ctx, 523, 0.2, t + 0.12, 'sine', 0.35);
 }
 
 function playGameEnd(ctx: AudioContext): void {
@@ -147,6 +154,9 @@ export function useSounds() {
           break;
         case 'castle':
           playCastle(ctx);
+          break;
+        case 'game-start':
+          playGameStart(ctx);
           break;
         case 'game-end':
           playGameEnd(ctx);
