@@ -104,6 +104,18 @@ export function TournamentLobbyPage() {
     setSearchParams({ tab }, { replace: true });
   };
 
+  // Guard: only accept standings that are at least as fresh as current
+  const updateStandings = useCallback((next: Standing[]) => {
+    const totalGames = next.reduce((sum, s) => sum + s.games.length, 0);
+    if (totalGames >= standingsGamesRef.current) {
+      standingsGamesRef.current = totalGames;
+      setStandings(next);
+    }
+  }, []);
+
+  const updateStandingsRef = useRef(updateStandings);
+  updateStandingsRef.current = updateStandings;
+
   const fetchTournament = useCallback(async () => {
     if (!id) return;
     try {
@@ -128,18 +140,6 @@ export function TournamentLobbyPage() {
       setRounds(data);
     } catch { /* ignore */ }
   }, [id]);
-
-  // Guard: only accept standings that are at least as fresh as current
-  const updateStandings = useCallback((next: Standing[]) => {
-    const totalGames = next.reduce((sum, s) => sum + s.games.length, 0);
-    if (totalGames >= standingsGamesRef.current) {
-      standingsGamesRef.current = totalGames;
-      setStandings(next);
-    }
-  }, []);
-
-  const updateStandingsRef = useRef(updateStandings);
-  updateStandingsRef.current = updateStandings;
 
   fetchTournamentRef.current = fetchTournament;
   fetchStandingsRef.current = fetchStandings;
