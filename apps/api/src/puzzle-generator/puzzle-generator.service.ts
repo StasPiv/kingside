@@ -1,8 +1,9 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { StockfishService } from '../engine/stockfish.service';
+import { STOCKFISH_BOT_ID } from '@kingside/shared';
 
 interface PuzzleCandidate {
   fen: string;         // position AFTER the blunder (puzzle start)
@@ -19,6 +20,9 @@ const MIN_EVAL_DROP = 200;  // minimum cp drop to detect blunder
 const MIN_SPREAD = 150;     // minimum spread for unique solution
 const MIN_MOVE_NUM = 10;    // skip opening (first 10 half-moves)
 const MAX_SOLUTION_MOVES = 6; // max half-moves in solution line
+const MIN_TIME_CONTROL_SEC = 180; // minimum time control (3+0)
+const MIN_PLAYER_RATING = 1200;   // minimum rating for both players
+const MIN_GAME_MOVES = 20;        // minimum half-moves in game
 
 @Injectable()
 export class PuzzleGeneratorService {
@@ -43,11 +47,33 @@ export class PuzzleGeneratorService {
   ): Promise<{ puzzlesCreated: number; positionsAnalyzed: number }> {
     const game = await this.prisma.game.findUnique({
       where: { id: gameId },
-      select: { id: true, status: true },
+      select: {
+        id: true, status: true, whiteId: true, blackId: true,
+        timeInitialSec: true, timeIncrementSec: true,
+        white: { select: { ratingBlitz: true, ratingRapid: true } },
+        black: { select: { ratingBlitz: true, ratingRapid: true } },
+      },
     });
 
     if (!game || game.status !== 'finished') {
       throw new NotFoundException('Game not found or not finished');
+    }
+
+    // Filter: no bot games
+    if (game.whiteId === STOCKFISH_BOT_ID || game.blackId === STOCKFISH_BOT_ID) {
+      throw new BadRequestException('Bot games are not eligible for puzzle generation');
+    }
+
+    // Filter: time control >= 3+0
+    if (game.timeInitialSec < MIN_TIME_CONTROL_SEC) {
+      throw new BadRequestException(`Time control too fast: ${game.timeInitialSec}s (min ${MIN_TIME_CONTROL_SEC}s)`);
+    }
+
+    // Filter: both players rated >= 1200
+    const whiteRating = game.white?.ratingBlitz ?? game.white?.ratingRapid ?? 0;
+    const blackRating = game.black?.ratingBlitz ?? game.black?.ratingRapid ?? 0;
+    if (whiteRating < MIN_PLAYER_RATING || blackRating < MIN_PLAYER_RATING) {
+      throw new BadRequestException(`Player rating too low: white=${whiteRating} black=${blackRating} (min ${MIN_PLAYER_RATING})`);
     }
 
     const moves = await this.prisma.move.findMany({
@@ -56,7 +82,8 @@ export class PuzzleGeneratorService {
       select: { uci: true, san: true, fenAfter: true },
     });
 
-    if (moves.length < MIN_MOVE_NUM + 2) {
+    // Filter: minimum game length
+    if (moves.length < MIN_GAME_MOVES) {
       return { puzzlesCreated: 0, positionsAnalyzed: 0 };
     }
 
@@ -128,8 +155,14 @@ export class PuzzleGeneratorService {
       const spread = Math.abs(solutionBest - solutionSecond);
       if (spread < MIN_SPREAD) continue;
 
+      // Filter: skip if solution is a simple recapture (same target square as blunder)
+      const blunderTo = pos.playedUci.slice(2, 4);
+      const solutionFirstMove = postBlunderAnalysis[0].bestMove;
+      const solutionTo = solutionFirstMove.slice(2, 4);
+      if (blunderTo === solutionTo) continue; // recapture — not interesting
+
       // Step 4: Build solution line from post-blunder position
-      const solutionMoves = await this.buildSolutionLine(pos.fenAfter, postBlunderAnalysis[0].bestMove, depth);
+      const solutionMoves = await this.buildSolutionLine(pos.fenAfter, solutionFirstMove, depth);
       if (solutionMoves.split(' ').length < 1) continue;
 
       const rating = this.estimateRating(evalDrop, spread, solutionMoves.split(' ').length);
