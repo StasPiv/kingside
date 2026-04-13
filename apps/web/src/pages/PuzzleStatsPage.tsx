@@ -24,13 +24,6 @@ type RatingPoint = {
   solved?: number;
 };
 
-type ThemeStat = {
-  theme: string;
-  attempted: number;
-  solved: number;
-  rate: number;
-};
-
 type Attempt = {
   id: string;
   puzzleId: string;
@@ -48,7 +41,6 @@ export function PuzzleStatsPage() {
   const { user } = useAuth();
   const [stats, setStats] = useState<PuzzleStats | null>(null);
   const [ratingHistory, setRatingHistory] = useState<RatingPoint[]>([]);
-  const [themes, setThemes] = useState<ThemeStat[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
   const [allAttempts, setAllAttempts] = useState<Attempt[]>([]);
   const [attemptsPage, setAttemptsPage] = useState(0);
@@ -60,12 +52,10 @@ export function PuzzleStatsPage() {
     Promise.all([
       api.get<PuzzleStats>('/api/puzzles/stats/me').catch(() => null),
       api.get<RatingPoint[]>('/api/puzzles/stats/rating-history?days=30').catch(() => []),
-      api.get<ThemeStat[]>('/api/puzzles/stats/themes').catch(() => []),
       api.get<Attempt[]>('/api/puzzles/attempts?take=100&skip=0').catch(() => []),
-    ]).then(([s, rh, th, att]) => {
+    ]).then(([s, rh, att]) => {
       if (s) setStats(s);
       setRatingHistory(Array.isArray(rh) ? rh : []);
-      setThemes(Array.isArray(th) ? th : []);
       const attArr = Array.isArray(att) ? att : [];
       setAllAttempts(attArr);
       setAttempts(attArr.slice(0, PAGE_SIZE));
@@ -164,26 +154,6 @@ export function PuzzleStatsPage() {
                 return <circle key={i} cx={x} cy={y} r="3" fill="#7c83ff" />;
               })}
             </svg>
-          </div>
-        </div>
-      )}
-
-      {/* Themes */}
-      {themes.length > 0 && (
-        <div className="puzzle-stats-section">
-          <h2>{t('puzzleStats.themes', 'Themes')}</h2>
-          <div className="puzzle-stats-themes">
-            {themes.map((th) => (
-              <div key={th.theme} className="puzzle-stats-theme">
-                <div className="puzzle-stats-theme__header">
-                  <span className="puzzle-stats-theme__name">{th.theme}</span>
-                  <span className="puzzle-stats-theme__rate">{Math.round(th.rate)}% ({th.solved}/{th.attempted})</span>
-                </div>
-                <div className="puzzle-stats-theme__bar">
-                  <div className="puzzle-stats-theme__fill" style={{ width: `${th.rate}%` }} />
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}
