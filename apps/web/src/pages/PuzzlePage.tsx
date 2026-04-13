@@ -199,14 +199,13 @@ export function PuzzlePage() {
         return false;
       }
 
+      playSound(soundEventFromSan(move.san));
       setGame(copy);
       const nextIndex = moveIndex + 1;
       setMoveIndex(nextIndex);
 
-      // Check if puzzle is complete
-      // Generated puzzles: solved after first correct move
-      // Lichess puzzles: solved after all moves
-      const isSolved = isGenerated ? true : nextIndex >= puzzleMoves.length;
+      // Check if puzzle is complete — all moves in solution line must be played
+      const isSolved = nextIndex >= puzzleMoves.length;
       if (isSolved) {
         setStatus('correct');
         playSound('puzzle-correct');
@@ -223,7 +222,8 @@ export function PuzzlePage() {
         const oTo = opponentMove.slice(2, 4);
         const oPromotion = opponentMove.length > 4 ? opponentMove[4] : undefined;
         const next = new Chess(copy.fen());
-        next.move({ from: oFrom, to: oTo, promotion: oPromotion });
+        const oMove = next.move({ from: oFrom, to: oTo, promotion: oPromotion });
+        if (oMove) playSound(soundEventFromSan(oMove.san));
         setGame(next);
         setMoveIndex(nextIndex + 1);
       }, 300);
