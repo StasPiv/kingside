@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
@@ -91,6 +91,11 @@ export function PuzzleBrowserPage() {
         <button className={`puzzle-browser-tab${mine ? ' active' : ''}`} onClick={() => toggleMine(true)}>
           {t('puzzleBrowser.myPuzzles', 'My puzzles')}
         </button>
+        {user && (
+          <Link to="/puzzles/stats" className="puzzle-browser-tab">
+            {t('puzzleStats.title', 'Statistics')}
+          </Link>
+        )}
       </div>
 
       {/* Toolbar */}

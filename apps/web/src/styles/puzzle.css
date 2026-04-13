@@ -1891,3 +1891,99 @@ body:has(.puzzle-rush-board) {
 .puzzle-rating-change.negative {
   color: #ef4444;
 }
+
+/* Puzzle Stats Page */
+.puzzle-stats-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.puzzle-stats-page h1 { margin-bottom: 4px; }
+.puzzle-stats-page h2 { margin: 24px 0 12px; font-size: 16px; color: #cbd5e1; }
+
+.puzzle-stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.puzzle-stats-card {
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+}
+
+.puzzle-stats-card__value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #7c83ff;
+}
+
+.puzzle-stats-card__label {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 4px;
+}
+
+.puzzle-stats-section { margin-top: 8px; }
+
+.puzzle-stats-chart {
+  background: #1e293b;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.puzzle-stats-themes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.puzzle-stats-theme__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+
+.puzzle-stats-theme__name { color: #e2e8f0; }
+.puzzle-stats-theme__rate { color: #94a3b8; }
+
+.puzzle-stats-theme__bar {
+  height: 6px;
+  background: #334155;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.puzzle-stats-theme__fill {
+  height: 100%;
+  background: #7c83ff;
+  border-radius: 3px;
+}
+
+.puzzle-stats-attempts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.puzzle-stats-attempt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: #1e293b;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.puzzle-stats-attempt__link { color: #7c83ff; text-decoration: none; }
+.puzzle-stats-attempt__result.correct { color: #4ade80; }
+.puzzle-stats-attempt__result.wrong { color: #f87171; }
+.puzzle-stats-attempt__time { color: #94a3b8; }
+.puzzle-stats-attempt__rating { color: #cbd5e1; margin-left: auto; }
+.puzzle-stats-attempt__date { color: #64748b; font-size: 11px; }

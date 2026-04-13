@@ -10,6 +10,7 @@ import { GamePage } from './pages/GamePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { DailyPuzzlePage } from './pages/DailyPuzzlePage';
 import { PuzzleBrowserPage } from './pages/PuzzleBrowserPage';
+import { PuzzleStatsPage } from './pages/PuzzleStatsPage';
 import { PuzzlePage } from './pages/PuzzlePage';
 import { PuzzleRushLeaderboardPage } from './pages/PuzzleRushLeaderboardPage';
 import { PuzzleRushReviewPage } from './pages/PuzzleRushReviewPage';
@@ -108,6 +109,7 @@ export function App() {
         <Route path="/puzzle-rush/review/:scoreId" element={<ProtectedRoute><PuzzleRushReviewPage /></ProtectedRoute>} />
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<PuzzleBrowserPage />} />
+        <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
         <Route path="/puzzle" element={<PuzzlePage />} />
         <Route path="/puzzle/:id" element={<PuzzlePage />} />
         <Route path="/analysis" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
