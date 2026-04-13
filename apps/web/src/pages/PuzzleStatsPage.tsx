@@ -113,20 +113,30 @@ export function PuzzleStatsPage() {
             <div className="puzzle-stats-card__label">{t('puzzleStats.rating', 'Rating')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{Math.round(stats.solveRate)}%</div>
+            <div className="puzzle-stats-card__value">
+              {stats.solveRate != null
+                ? `${Math.round(stats.solveRate)}%`
+                : stats.totalAttempted
+                  ? `${Math.round(((stats.totalSolved ?? 0) / stats.totalAttempted) * 100)}%`
+                  : '—'}
+            </div>
             <div className="puzzle-stats-card__label">{t('puzzleStats.solveRate', 'Solve Rate')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.currentStreak}</div>
+            <div className="puzzle-stats-card__value">{stats.currentStreak ?? 0}</div>
             <div className="puzzle-stats-card__label">{t('puzzleStats.streak', 'Streak')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.avgTimeMs > 0 ? `${Math.round(stats.avgTimeMs / 1000)}s` : '—'}</div>
+            <div className="puzzle-stats-card__value">{stats.avgTimeMs && stats.avgTimeMs > 0 ? `${Math.round(stats.avgTimeMs / 1000)}s` : '—'}</div>
             <div className="puzzle-stats-card__label">{t('puzzleStats.avgTime', 'Avg Time')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.todaySolved}/{stats.todayAttempted}</div>
-            <div className="puzzle-stats-card__label">{t('puzzleStats.today', 'Today')}</div>
+            <div className="puzzle-stats-card__value">
+              {stats.todaySolved != null ? `${stats.todaySolved}/${stats.todayAttempted}` : (stats.totalSolved ?? 0).toString()}
+            </div>
+            <div className="puzzle-stats-card__label">
+              {stats.todaySolved != null ? t('puzzleStats.today', 'Today') : t('puzzleStats.solved', 'Solved')}
+            </div>
           </div>
           {stats.bestStreak != null && (
             <div className="puzzle-stats-card">
