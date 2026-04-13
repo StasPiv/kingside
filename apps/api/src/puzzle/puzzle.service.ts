@@ -197,6 +197,8 @@ export class PuzzleService {
     puzzleId: string,
     solved: boolean,
     timeMs: number,
+    userMoves?: string,
+    hintsUsed?: number,
   ) {
     const puzzle = await this.prisma.puzzle.findUnique({
       where: { id: puzzleId },
@@ -219,6 +221,8 @@ export class PuzzleService {
         timeMs,
         ratingBefore: ratingChange.userRatingBefore,
         ratingAfter: ratingChange.userRatingAfter,
+        userMoves: userMoves ?? null,
+        hintsUsed: hintsUsed ?? 0,
       },
     });
 

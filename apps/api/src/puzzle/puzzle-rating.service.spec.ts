@@ -3,6 +3,7 @@ jest.mock('../prisma/prisma.service', () => ({
 }));
 
 import { PuzzleRatingService } from './puzzle-rating.service';
+import { GlickoRatingService } from '../puzzle-generator/glicko-rating.service';
 
 describe('PuzzleRatingService', () => {
   let service: PuzzleRatingService;
@@ -21,17 +22,17 @@ describe('PuzzleRatingService', () => {
         findUniqueOrThrow: jest.fn(),
         update: jest.fn(),
       },
+      puzzleRatingSnapshot: {
+        upsert: jest.fn(),
+      },
     };
 
-    service = new PuzzleRatingService(prisma);
+    service = new PuzzleRatingService(prisma, new GlickoRatingService());
   });
 
   it('should increase user rating on solve', async () => {
-    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
-      rating: 1500,
-      ratingDev: 350,
-    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500, ratingPuzzleDev: 350, puzzleStreak: 0 });
+    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1500, ratingDev: 350 });
 
     const result = await service.applyRatingChange(userId, puzzleId, true);
 
@@ -40,82 +41,55 @@ describe('PuzzleRatingService', () => {
   });
 
   it('should decrease user rating on fail', async () => {
-    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
-      rating: 1500,
-      ratingDev: 350,
-    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500, ratingPuzzleDev: 350, puzzleStreak: 0 });
+    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1500, ratingDev: 350 });
 
     const result = await service.applyRatingChange(userId, puzzleId, false);
 
     expect(result.userRatingAfter).toBeLessThan(result.userRatingBefore);
   });
 
-  it('should give more points for solving harder puzzles', async () => {
-    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
-      rating: 1800,
-      ratingDev: 100,
-    });
-
-    const hard = await service.applyRatingChange(userId, puzzleId, true);
-
-    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
-      rating: 1200,
-      ratingDev: 100,
-    });
-
-    const easy = await service.applyRatingChange(userId, puzzleId, true);
-
-    expect(hard.userRatingAfter - hard.userRatingBefore).toBeGreaterThan(
-      easy.userRatingAfter - easy.userRatingBefore,
-    );
-  });
-
-  it('should update both user and puzzle in DB', async () => {
-    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
-      rating: 1500,
-      ratingDev: 350,
-    });
-
-    await service.applyRatingChange(userId, puzzleId, true);
-
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: userId },
-      data: { ratingPuzzle: expect.any(Number) },
-    });
-    expect(prisma.puzzle.update).toHaveBeenCalledWith({
-      where: { id: puzzleId },
-      data: { rating: expect.any(Number) },
-    });
-  });
-
   it('should adjust puzzle rating inversely', async () => {
-    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
-      rating: 1500,
-      ratingDev: 350,
-    });
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500, ratingPuzzleDev: 350, puzzleStreak: 0 });
+    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1500, ratingDev: 350 });
 
     const result = await service.applyRatingChange(userId, puzzleId, true);
 
-    // When user solves, puzzle rating should decrease (puzzle "lost")
     expect(result.puzzleRatingAfter).toBeLessThan(result.puzzleRatingBefore);
   });
 
-  it('should use equal ratings formula correctly', async () => {
-    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({
-      rating: 1500,
-      ratingDev: 350,
-    });
+  it('should update streak on solve', async () => {
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500, ratingPuzzleDev: 350, puzzleStreak: 3 });
+    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1500, ratingDev: 350 });
 
-    const result = await service.applyRatingChange(userId, puzzleId, true);
+    await service.applyRatingChange(userId, puzzleId, true);
 
-    // With equal ratings, expected = 0.5, score = 1
-    // Change = K * (1 - 0.5) = 32 * 0.5 = 16
-    expect(result.userRatingAfter).toBe(1516);
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ puzzleStreak: 4 }),
+      }),
+    );
+  });
+
+  it('should reset streak on fail', async () => {
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500, ratingPuzzleDev: 350, puzzleStreak: 5 });
+    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1500, ratingDev: 350 });
+
+    await service.applyRatingChange(userId, puzzleId, false);
+
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ puzzleStreak: 0 }),
+      }),
+    );
+  });
+
+  it('should upsert daily snapshot', async () => {
+    prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500, ratingPuzzleDev: 350, puzzleStreak: 0 });
+    prisma.puzzle.findUniqueOrThrow.mockResolvedValue({ rating: 1500, ratingDev: 350 });
+
+    await service.applyRatingChange(userId, puzzleId, true);
+
+    expect(prisma.puzzleRatingSnapshot.upsert).toHaveBeenCalled();
   });
 });

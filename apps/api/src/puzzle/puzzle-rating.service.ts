@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { GlickoRatingService } from '../puzzle-generator/glicko-rating.service';
 
 export interface RatingChange {
   userRatingBefore: number;
@@ -11,18 +12,15 @@ export interface RatingChange {
 @Injectable()
 export class PuzzleRatingService {
   private readonly logger = new Logger(PuzzleRatingService.name);
-  private readonly K_USER = 32;
-  private readonly K_PUZZLE = 8;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly glicko: GlickoRatingService,
+  ) {}
 
   /**
-   * Calculate and apply Elo rating changes after a puzzle attempt.
-   *
-   * The user "plays" against the puzzle: solving counts as a win (score=1),
-   * failing counts as a loss (score=0).
-   * The puzzle rating adjusts in the opposite direction with a smaller K-factor
-   * to keep puzzle ratings more stable.
+   * Calculate and apply Glicko-1 rating changes after a puzzle attempt.
+   * Updates user rating, puzzle rating, streak, and daily snapshot.
    */
   async applyRatingChange(
     userId: string,
@@ -32,7 +30,7 @@ export class PuzzleRatingService {
     const [user, puzzle] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { ratingPuzzle: true },
+        select: { ratingPuzzle: true, ratingPuzzleDev: true, puzzleStreak: true },
       }),
       this.prisma.puzzle.findUniqueOrThrow({
         where: { id: puzzleId },
@@ -41,40 +39,69 @@ export class PuzzleRatingService {
     ]);
 
     const userRating = user.ratingPuzzle;
+    const userRD = user.ratingPuzzleDev;
     const puzzleRating = puzzle.rating;
+    const puzzleRD = puzzle.ratingDev;
 
-    const expectedUser =
-      1 / (1 + Math.pow(10, (puzzleRating - userRating) / 400));
+    // Glicko-1 update for user
+    const userUpdate = this.glicko.updateUserRating(userRating, userRD, puzzleRating, puzzleRD, solved);
 
-    const score = solved ? 1 : 0;
+    // Glicko-1 update for puzzle
+    const puzzleUpdate = this.glicko.updatePuzzleRating(puzzleRating, puzzleRD, userRating, solved);
 
-    const newUserRating = Math.round(
-      userRating + this.K_USER * (score - expectedUser),
-    );
-    const newPuzzleRating = Math.round(
-      puzzleRating + this.K_PUZZLE * (expectedUser - score),
-    );
+    // Streak: solved → +1, failed → reset to 0
+    const newStreak = solved ? user.puzzleStreak + 1 : 0;
 
     await Promise.all([
       this.prisma.user.update({
         where: { id: userId },
-        data: { ratingPuzzle: newUserRating },
+        data: {
+          ratingPuzzle: userUpdate.newRating,
+          ratingPuzzleDev: userUpdate.newRD,
+          puzzleStreak: newStreak,
+        },
       }),
       this.prisma.puzzle.update({
         where: { id: puzzleId },
-        data: { rating: newPuzzleRating },
+        data: {
+          rating: puzzleUpdate.newRating,
+          ratingDev: puzzleUpdate.newRD,
+        },
       }),
     ]);
 
+    // Upsert daily snapshot
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    try {
+      await this.prisma.puzzleRatingSnapshot.upsert({
+        where: { userId_date: { userId, date: today } },
+        update: {
+          rating: userUpdate.newRating,
+          attempts: { increment: 1 },
+          solved: solved ? { increment: 1 } : undefined,
+        },
+        create: {
+          userId,
+          date: today,
+          rating: userUpdate.newRating,
+          attempts: 1,
+          solved: solved ? 1 : 0,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`Snapshot upsert failed: ${e.message}`);
+    }
+
     this.logger.log(
-      `Puzzle rating: user ${userRating}->${newUserRating}, puzzle ${puzzleRating}->${newPuzzleRating} (${solved ? 'solved' : 'failed'})`,
+      `Puzzle rating (Glicko): user ${userRating}±${userRD}->${userUpdate.newRating}±${userUpdate.newRD}, puzzle ${puzzleRating}±${puzzleRD}->${puzzleUpdate.newRating}±${puzzleUpdate.newRD} (${solved ? 'solved' : 'failed'}) streak=${newStreak}`,
     );
 
     return {
       userRatingBefore: userRating,
-      userRatingAfter: newUserRating,
+      userRatingAfter: userUpdate.newRating,
       puzzleRatingBefore: puzzleRating,
-      puzzleRatingAfter: newPuzzleRating,
+      puzzleRatingAfter: puzzleUpdate.newRating,
     };
   }
 }

@@ -1,4 +1,4 @@
-import { IsIn, IsInt, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import type { PuzzleAttemptRequest, PuzzleAttemptResult } from '@kingside/shared';
 
 export class SubmitAttemptDto implements PuzzleAttemptRequest {
@@ -8,4 +8,13 @@ export class SubmitAttemptDto implements PuzzleAttemptRequest {
   @IsInt()
   @Min(0)
   timeMs!: number;
+
+  @IsOptional()
+  @IsString()
+  userMoves?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  hintsUsed?: number;
 }

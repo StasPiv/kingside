@@ -67,4 +67,34 @@ export class GlickoRatingService {
     const score = solved ? 1 : 0;
     return Math.round(playerRating + K * (score - expected));
   }
+
+  /**
+   * Glicko-1 update for the user's puzzle rating.
+   * INVERSION: if user solved, user "won" (score=1).
+   */
+  updateUserRating(
+    userRating: number,
+    userRD: number,
+    puzzleRating: number,
+    puzzleRD: number,
+    solved: boolean,
+  ): { newRating: number; newRD: number } {
+    const userScore = solved ? 1 : 0;
+
+    const gPuzzleRD = this.g(puzzleRD);
+    const E = this.expectedScore(userRating, puzzleRating, puzzleRD);
+
+    const dSquared = 1 / (Q * Q * gPuzzleRD * gPuzzleRD * E * (1 - E));
+
+    const newRating = Math.round(
+      userRating + (Q / (1 / (userRD * userRD) + 1 / dSquared)) * gPuzzleRD * (userScore - E),
+    );
+
+    const newRD = Math.max(
+      MIN_RD,
+      Math.round(Math.sqrt(1 / (1 / (userRD * userRD) + 1 / dSquared))),
+    );
+
+    return { newRating, newRD };
+  }
 }

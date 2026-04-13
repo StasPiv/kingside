@@ -103,6 +103,8 @@ export class PuzzleController {
       id,
       dto.result === 'solved',
       dto.timeMs,
+      dto.userMoves,
+      dto.hintsUsed,
     );
   }
 }
