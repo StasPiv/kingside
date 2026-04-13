@@ -250,7 +250,8 @@ export async function generatePuzzlesFromPgn(
       replay.move(moves[i].san);
     }
 
-    for (let pi = 0; pi < positions.length; pi++) {
+    const SKIP_OPENING = 20; // skip first 10 moves (20 half-moves)
+    for (let pi = SKIP_OPENING; pi < positions.length; pi++) {
       if (abortSignal?.aborted) break;
 
       onProgress({
