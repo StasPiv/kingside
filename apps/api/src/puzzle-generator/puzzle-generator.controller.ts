@@ -13,20 +13,57 @@ import {
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { Chess } from 'chess.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { PuzzleGeneratorService } from './puzzle-generator.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { GlickoRatingService } from './glicko-rating.service';
+import { GenerateFromPgnDto } from './dto/generate-from-pgn.dto';
 
 @Controller('puzzles/generated')
 export class PuzzleGeneratorController {
   constructor(
     private readonly generator: PuzzleGeneratorService,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly glicko: GlickoRatingService,
   ) {}
+
+  /**
+   * POST /api/puzzles/generated/generate-pgn — queue PGN for puzzle generation.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('generate-pgn')
+  async generateFromPgn(
+    @Body() dto: GenerateFromPgnDto,
+  ) {
+    // Validate PGN with chess.js
+    const chess = new Chess();
+    try {
+      chess.loadPgn(dto.pgn);
+    } catch {
+      throw new NotFoundException('Invalid PGN: failed to parse');
+    }
+
+    const history = chess.history();
+    if (history.length < 20) {
+      throw new NotFoundException(`PGN too short: ${history.length} moves (minimum 20)`);
+    }
+
+    // Push to puzzle-gen queue
+    const message = JSON.stringify({
+      type: 'pgn',
+      pgn: dto.pgn,
+      whiteRating: dto.whiteRating ?? 1500,
+      blackRating: dto.blackRating ?? 1500,
+    });
+    await this.redis.lpush('puzzle-gen:queue', message);
+
+    return { status: 'queued', moves: history.length };
+  }
 
   /**
    * POST /api/puzzles/generate — start puzzle generation from a game.
