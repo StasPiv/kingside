@@ -123,8 +123,11 @@ export class PuzzleWorker {
     const output = await this.waitFor('bestmove', depth * 3000 + 15000);
 
     const pvMap = new Map<number, PVLine>();
+    let infoCount = 0;
     for (const line of output.split('\n')) {
-      const m = line.match(/^info depth (\d+) .* multipv (\d+) .* score (cp|mate) (-?\d+) .* pv (.+)/);
+      const trimmed = line.trim();
+      const m = trimmed.match(/^info depth (\d+) .* multipv (\d+) .* score (cp|mate) (-?\d+) .* pv (.+)/);
+      if (trimmed.startsWith('info depth')) infoCount++;
       if (m && parseInt(m[1]) === depth) {
         const idx = parseInt(m[2]);
         const pv = m[5].trim();
@@ -137,7 +140,13 @@ export class PuzzleWorker {
     }
 
     this.sendCmd('setoption name MultiPV value 1');
-    return Array.from(pvMap.entries()).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+    const result = Array.from(pvMap.entries()).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+    if (result.length === 0 && infoCount > 0) {
+      // Regex didn't match — log sample for debugging
+      const sample = output.split('\n').filter(l => l.trim().startsWith('info depth')).slice(-3);
+      console.log(`[puzzle-worker] analyzeMultiPV: ${infoCount} info lines, 0 matched depth=${depth}. Sample: ${sample.join(' | ')}`);
+    }
+    return result;
   }
 
   private scoreToCp(s: Score): number {
