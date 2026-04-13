@@ -155,6 +155,7 @@ export function PuzzlePage() {
       if (moveIndex >= puzzleMoves.length) return false;
 
       const expectedMove = puzzleMoves[moveIndex];
+      console.log(`[Puzzle] onPieceDrop: moveIndex=${moveIndex} expected=${expectedMove} player=${sourceSquare}${targetSquare} total=${puzzleMoves.length}`);
       const from = expectedMove.slice(0, 2);
       const to = expectedMove.slice(2, 4);
       const promotion = expectedMove.length > 4 ? expectedMove[4] : undefined;
@@ -217,6 +218,7 @@ export function PuzzlePage() {
 
       // Play the opponent's response after a short delay
       setTimeout(() => {
+        console.log(`[Puzzle] Auto-play opponent: index=${nextIndex} move=${puzzleMoves[nextIndex]}`);
         const opponentMove = puzzleMoves[nextIndex];
         const oFrom = opponentMove.slice(0, 2);
         const oTo = opponentMove.slice(2, 4);
@@ -225,12 +227,22 @@ export function PuzzlePage() {
         const oMove = next.move({ from: oFrom, to: oTo, promotion: oPromotion });
         if (oMove) playSound(soundEventFromSan(oMove.san));
         setGame(next);
-        setMoveIndex(nextIndex + 1);
+        const afterOpponentIndex = nextIndex + 1;
+        setMoveIndex(afterOpponentIndex);
+
+        // If opponent's move was the last move — puzzle is solved
+        if (afterOpponentIndex >= puzzleMoves.length) {
+          setStatus('correct');
+          playSound('puzzle-correct');
+          setStreak((s) => s + 1);
+          setTotalSolved((n) => n + 1);
+          submitAttemptResult(true);
+        }
       }, 300);
 
       return true;
     },
-    [game, puzzle, status, moveIndex, puzzleMoves, submitAttemptResult],
+    [game, puzzle, status, moveIndex, puzzleMoves, playSound, submitAttemptResult, isGenerated],
   );
 
   const lastMoveUci = solutionMove ?? (moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null);
