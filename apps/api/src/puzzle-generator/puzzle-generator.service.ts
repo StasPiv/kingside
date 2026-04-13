@@ -165,7 +165,8 @@ export class PuzzleGeneratorService {
       const solutionMoves = await this.buildSolutionLine(pos.fenAfter, solutionFirstMove, depth);
       if (solutionMoves.split(' ').length < 2) continue; // minimum 2 half-moves
 
-      const rating = this.estimateRating(evalDrop, spread, solutionMoves.split(' ').length);
+      const avgPlayerRating = Math.round((whiteRating + blackRating) / 2);
+      const rating = this.estimateRating(avgPlayerRating, evalDrop, solutionMoves.split(' ').length);
 
       candidates.push({
         fen: pos.fenAfter,
@@ -272,19 +273,23 @@ export class PuzzleGeneratorService {
    * Larger drop = easier to spot = lower rating.
    * Longer solution = harder = higher rating.
    */
-  private estimateRating(evalDrop: number, spread: number, solutionLength: number): number {
-    let base: number;
-    if (evalDrop >= 500) base = 800;
-    else if (evalDrop >= 300) base = 1200;
-    else base = 1600;
+  /**
+   * Estimate puzzle rating from average player rating + adjustments.
+   * Base = avg(player_ratings).
+   * Short line (2 moves) → -200, long (6) → +200.
+   * Large eval drop (easy to spot) → -100, small drop → +100.
+   */
+  private estimateRating(avgPlayerRating: number, evalDrop: number, solutionLength: number): number {
+    let rating = avgPlayerRating;
 
-    // Longer solutions are harder
-    base += (solutionLength - 1) * 100;
+    // Solution length adjustment: 2 moves = -200, 4 moves = 0, 6 moves = +200
+    rating += (solutionLength - 4) * 100;
 
-    // Add randomness
-    base += Math.floor(Math.random() * 200) - 100;
+    // Eval drop adjustment: large drop = easy = lower rating
+    if (evalDrop >= 500) rating -= 100;
+    else if (evalDrop < 300) rating += 100;
 
-    return Math.max(600, Math.min(2500, base));
+    return Math.max(600, Math.min(2500, rating));
   }
 
   private scoreToCp(score: { type: 'cp' | 'mate'; value: number }): number {
