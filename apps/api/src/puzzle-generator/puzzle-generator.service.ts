@@ -135,6 +135,7 @@ export class PuzzleGeneratorService {
         } else {
           // Played move not in top 3 — analyze it separately
           const playedAnalysis = await this.stockfish.analyze(pos.fenAfter, Math.min(depth, 14));
+          if (!playedAnalysis.score) continue;
           // Score from opponent's perspective → negate
           playedScore = -this.scoreToCp(playedAnalysis.score);
         }
