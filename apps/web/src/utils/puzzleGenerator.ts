@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import type { EngineAdapter, BridgeConfig } from './engineAdapter';
+import type { EngineAdapter, AnalysisResult, InfoLine, BridgeConfig } from './engineAdapter';
 import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
 
 export type { BridgeConfig };
@@ -10,12 +10,16 @@ export type SourceMetadata = {
   event?: string;
   date?: string;
   result?: string;
+  bestScore?: number;
+  bestMove?: string;
+  secondBestScore?: number;
+  secondBestMove?: string;
 };
 
 export type GeneratedPuzzleData = {
   fen: string;
   moves: string; // space-separated UCI moves
-  acceptedMoves?: string;
+  acceptedMoves?: string; // space-separated UCI moves (multiple correct answers)
   rating: number;
   gap: number;
   themes: string;
@@ -33,6 +37,126 @@ export type GenerationProgress = {
   puzzlesFound: number;
 };
 
+
+function scoreToCP(score: { type: 'cp' | 'mate'; value: number }): number {
+  if (score.type === 'mate') {
+    // Differentiate by mate distance: mate in 1 = 10000, mate in 2 = 9900, etc.
+    const dist = Math.abs(score.value);
+    const base = 10000 - (dist - 1) * 100;
+    return score.value > 0 ? base : -base;
+  }
+  return score.value;
+}
+
+function classifyThemes(gap: number, pv: string[], fen: string, isMate: boolean, mateDist: number): string[] {
+  const themes: string[] = [];
+  const chess = new Chess(fen);
+  const pieces = chess.board().flat().filter(Boolean).length;
+
+  // Mate themes
+  if (isMate) {
+    themes.push('mate');
+    if (mateDist === 1) themes.push('mateIn1');
+    else if (mateDist === 2) themes.push('mateIn2');
+    else if (mateDist === 3) themes.push('mateIn3');
+    else if (mateDist <= 5) themes.push('mateIn5');
+  } else {
+    if (gap >= 500) themes.push('crushing');
+    else if (gap >= 300) themes.push('advantage');
+  }
+
+  // Length
+  if (pv.length <= 2) themes.push('oneMove');
+  else if (pv.length <= 4) themes.push('short');
+  if (pv.length >= 10) themes.push('long');
+
+  // Endgame
+  if (pieces <= 10) themes.push('endgame');
+
+  // Tactical detection
+  try {
+    const move = chess.move({ from: pv[0].slice(0, 2), to: pv[0].slice(2, 4), promotion: pv[0][4] });
+    if (move?.captured) themes.push('capture');
+    if (move?.san.includes('+')) themes.push('check');
+    if (move?.san.includes('#')) themes.push('checkmate');
+  } catch { /* ignore */ }
+
+  if (themes.length === 0) themes.push('tactical');
+  return themes;
+}
+
+const PIECE_VALUE: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+/** Estimate puzzle rating based on move type (obvious/standard/hard/brilliant) */
+function estimateRating(fen: string, pv: string[], isMate: boolean, mateDist: number): number {
+  const chess = new Chess(fen);
+  const allMoves = chess.moves({ verbose: true });
+  const solutionUci = pv[0];
+  const from = solutionUci.slice(0, 2);
+  const to = solutionUci.slice(2, 4);
+  const promotion = solutionUci[4];
+
+  const move = chess.move({ from, to, promotion });
+  if (!move) return 1500;
+  chess.undo();
+
+  const isCapture = !!move.captured;
+  const isCheck = move.san.includes('+') || move.san.includes('#');
+  const isQuietMove = !isCapture && !isCheck;
+
+  const opponent = move.color === 'w' ? 'b' : 'w';
+  const isTargetDefended = chess.isAttacked(to as Parameters<typeof chess.isAttacked>[0], opponent);
+
+  const movedPieceValue = PIECE_VALUE[move.piece] || 0;
+  const capturedPieceValue = move.captured ? (PIECE_VALUE[move.captured] || 0) : 0;
+  const isSacrifice = isTargetDefended && movedPieceValue > capturedPieceValue;
+  const isBigSacrifice = isSacrifice && movedPieceValue >= 5;
+
+  const isHangingCapture = isCapture && !isTargetDefended && capturedPieceValue >= 3;
+
+  const temptingAlternatives = allMoves.filter(m =>
+    (m.captured || m.san.includes('+')) &&
+    !(m.from === from && m.to === to)
+  ).length;
+
+  let rating = 1200;
+
+  if (isHangingCapture) {
+    rating = 700;
+  } else if (isCapture && !isTargetDefended) {
+    rating = 800;
+  } else if (isCapture && capturedPieceValue > movedPieceValue) {
+    rating = 900;
+  } else if (isCheck && !isQuietMove) {
+    rating = 1000;
+  } else if (isCapture) {
+    rating = 1100;
+  } else if (isCheck) {
+    rating = 1200;
+  } else if (isBigSacrifice) {
+    rating = 1800;
+  } else if (isSacrifice) {
+    rating = 1600;
+  } else if (isQuietMove) {
+    rating = 1500;
+  }
+
+  const playerMoves = Math.ceil(pv.length / 2);
+  rating += (playerMoves - 1) * 150;
+
+  rating += Math.min(300, temptingAlternatives * 50);
+
+  if (isMate && mateDist === 1) {
+    rating = Math.min(rating, 1200);
+  }
+
+  return Math.min(2800, Math.max(600, Math.round(rating / 50) * 50));
+}
+
+/**
+ * Analyze positions from a PGN game and find puzzles.
+ * Uses a Stockfish WASM worker directly.
+ */
 export interface PuzzleGenSettings {
   depth: number;
   multiPv: number;
@@ -55,139 +179,244 @@ export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
   acceptedMoves: 1,
 };
 
-// --- Constants (matching server puzzle-worker) ---
-const MIN_EVAL_DROP = 150;
-const MIN_SPREAD = 100;
-const MIN_MOVE_NUM = 8;
-const MAX_SOLUTION_MOVES = 6;
+export async function generatePuzzlesFromPgn(
+  pgn: string,
+  onProgress: (progress: GenerationProgress) => void,
+  options: Partial<PuzzleGenSettings> & { abortSignal?: AbortSignal; bridgeConfig?: BridgeConfig } = {},
+): Promise<GeneratedPuzzleData[]> {
+  const settings = { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...options };
+  const { depth, gapThreshold, maxSecondCp, skipHangingCapture, skipAttackedByLesser, skipUndefendedAfterMove, acceptedMoves } = settings;
+  // Ensure multiPv is at least acceptedMoves + 1 (need gap after N-th move)
+  const effectiveMultiPv = Math.max(settings.multiPv, acceptedMoves + 1);
+  const { abortSignal, bridgeConfig } = options;
 
-function scoreToCp(s: { type: 'cp' | 'mate'; value: number }): number {
-  return s.type === 'mate' ? (s.value > 0 ? 10000 : -10000) : s.value;
-}
+  // Parse PGN into individual games
+  const games = splitPgnIntoGames(pgn);
+  console.log('[PuzzleGen] PGN split into', games.length, 'games, input length:', pgn.length);
+  const puzzles: GeneratedPuzzleData[] = [];
 
-// --- Engine helpers ---
+  // Create engine adapter
+  let engine: EngineAdapter;
+  if (bridgeConfig) {
+    engine = new BridgeEngineAdapter(bridgeConfig);
+  } else {
+    engine = new WasmEngineAdapter();
+  }
 
-async function engineAnalyzeSingle(
-  engine: EngineAdapter,
-  fen: string,
-  depth: number,
-): Promise<{ bestMove: string; score: { type: 'cp' | 'mate'; value: number } }> {
-  const result = await engine.analyze(fen, depth, 1);
-  if (result.lines.length === 0) return { bestMove: '', score: { type: 'cp', value: 0 } };
-  return { bestMove: result.lines[0].pv[0], score: result.lines[0].score };
-}
+  await engine.init();
 
-async function engineAnalyzeMultiPV(
-  engine: EngineAdapter,
-  fen: string,
-  depth: number,
-  mpv: number,
-): Promise<Array<{ bestMove: string; score: { type: 'cp' | 'mate'; value: number }; pv: string[] }>> {
-  const result = await engine.analyze(fen, depth, mpv);
-  return result.lines.map((l) => ({ bestMove: l.pv[0], score: l.score, pv: l.pv }));
-}
+  engine.setOption('MultiPV', String(effectiveMultiPv));
+  if (bridgeConfig) {
+    engine.setOption('Threads', '16');
+    engine.setOption('Hash', '256');
+  } else {
+    engine.setOption('Threads', '1');
+  }
 
-// --- Solution line builder ---
+  for (let gi = 0; gi < games.length; gi++) {
+    if (abortSignal?.aborted) break;
 
-async function buildSolutionLine(
-  engine: EngineAdapter,
-  fen: string,
-  firstMove: string,
-  depth: number,
-): Promise<string> {
-  const chess = new Chess(fen);
-  const moves: string[] = [];
-  try {
-    chess.move({ from: firstMove.slice(0, 2), to: firstMove.slice(2, 4), promotion: firstMove.length > 4 ? firstMove[4] : undefined });
-    moves.push(firstMove);
+    const gamePgn = stripPgnAnnotations(games[gi]);
+    const chess = new Chess();
+    try {
+      chess.loadPgn(gamePgn);
+    } catch (e) {
+      console.warn('[PuzzleGen] Failed to parse game', gi + 1, ':', e instanceof Error ? e.message : e);
+      continue;
+    }
 
-    for (let step = 1; step < MAX_SOLUTION_MOVES; step++) {
-      if (chess.isGameOver()) break;
-      const isSolver = step % 2 === 0;
+    // Parse PGN headers for source metadata
+    const metadata: SourceMetadata = {};
+    const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
+    let hMatch;
+    while ((hMatch = headerRegex.exec(gamePgn)) !== null) {
+      const [, key, value] = hMatch;
+      if (key === 'White') metadata.white = value;
+      else if (key === 'Black') metadata.black = value;
+      else if (key === 'Event') metadata.event = value;
+      else if (key === 'Date') metadata.date = value;
+      else if (key === 'Result') metadata.result = value;
+    }
 
-      if (isSolver) {
-        const mpv = await engineAnalyzeMultiPV(engine, chess.fen(), Math.min(depth, 14), 2);
-        if (mpv.length < 1 || !mpv[0].bestMove || mpv[0].bestMove === '(none)') { console.log(`[buildSolution] step ${step}: no best move`); break; }
-        const solverSpread = mpv.length >= 2 ? Math.abs(scoreToCp(mpv[0].score) - scoreToCp(mpv[1].score)) : 9999;
-        if (solverSpread < MIN_SPREAD) { console.log(`[buildSolution] step ${step}: spread=${solverSpread}cp < ${MIN_SPREAD}, stopping`); break; }
-        const bm = mpv[0].bestMove;
-        chess.move({ from: bm.slice(0, 2), to: bm.slice(2, 4), promotion: bm.length > 4 ? bm[4] : undefined });
-        moves.push(bm);
-      } else {
-        const a = await engineAnalyzeSingle(engine, chess.fen(), Math.min(depth, 14));
-        if (!a.bestMove || a.bestMove === '(none)') break;
-        chess.move({ from: a.bestMove.slice(0, 2), to: a.bestMove.slice(2, 4), promotion: a.bestMove.length > 4 ? a.bestMove[4] : undefined });
-        moves.push(a.bestMove);
+    const moves = chess.history({ verbose: true });
+    console.log('[PuzzleGen] Game', gi + 1, ':', moves.length, 'moves');
+    const positions: { fen: string; moveNum: number }[] = [];
+    // Use FEN from PGN header if present, otherwise standard start
+    const fenMatch = gamePgn.match(/\[FEN\s+"([^"]+)"\]/);
+    const startFen = fenMatch ? fenMatch[1] : undefined;
+    const replay = startFen ? new Chess(startFen) : new Chess();
+    for (let i = 0; i < moves.length; i++) {
+      positions.push({ fen: replay.fen(), moveNum: i + 1 });
+      replay.move(moves[i].san);
+    }
+
+    for (let pi = 0; pi < positions.length; pi++) {
+      if (abortSignal?.aborted) break;
+
+      onProgress({
+        gameIndex: gi,
+        totalGames: games.length,
+        positionIndex: pi,
+        totalPositions: positions.length,
+        puzzlesFound: puzzles.length,
+      });
+
+      const { fen, moveNum } = positions[pi];
+
+      // Skip terminal positions (checkmate, stalemate, draw)
+      try {
+        const check = new Chess(fen);
+        if (check.isGameOver()) { console.log(`[PuzzleGen] pos=${pi} SKIP: gameOver`); continue; }
+        const legalMoves = check.moves().length;
+        if (legalMoves <= 1) { console.log(`[PuzzleGen] pos=${pi} SKIP: legalMoves=${legalMoves}`); continue; }
+      } catch (e) {
+        console.warn('[PuzzleGen] pos=', pi, 'SKIP: fen check error:', e instanceof Error ? e.message : e);
+        continue;
+      }
+
+      // Single analysis with depth history tracking
+      let analysis: Awaited<ReturnType<EngineAdapter['analyze']>>;
+      try {
+        analysis = await engine.analyze(fen, depth, effectiveMultiPv);
+      } catch (e) {
+        console.error('[PuzzleGen] Engine analyze error at pos', pi, ':', e);
+        continue;
+      }
+      if (analysis.lines.length === 0) continue;
+
+      const best = analysis.lines[0];
+      const bestMoveUci = best.pv[0];
+
+      const bestCp = scoreToCP(best.score);
+      // For acceptedMoves=N, gap is between N-th and (N+1)-th line
+      const N = acceptedMoves;
+      const nthCp = analysis.lines.length > N - 1 ? scoreToCP(analysis.lines[N - 1].score) : bestCp;
+      const nextCp = analysis.lines.length > N ? scoreToCP(analysis.lines[N].score) : 0;
+      const gap = analysis.lines.length > N ? Math.abs(nthCp - nextCp) : (best.score.type === 'mate' ? 10000 : 0);
+      // topSpread: difference between 1st and N-th move (must be small for multiple accepted)
+      const topSpread = Math.abs(bestCp - nthCp);
+      const TOP_SPREAD_THRESHOLD = 30;
+      const secondCp = analysis.lines.length >= 2 ? scoreToCP(analysis.lines[1].score) : 0;
+
+      // Eval growth: compare eval at depth 1 vs depth 14
+      const evalAtShallow = analysis.evalByDepth.get(1) ?? analysis.evalByDepth.get(2) ?? bestCp;
+      const evalAtDeep = bestCp;
+      const evalGrowth = evalAtDeep - evalAtShallow;
+      const EVAL_GROWTH_THRESHOLD = 25;
+
+      // Analyze bestMove properties
+      let isHangingCapture = false;
+      let attackedByLesser = false;
+      let undefendedAfterMove = false;
+      if (best.pv.length >= 1) {
+        try {
+          const testChess = new Chess(fen);
+          const from = best.pv[0].slice(0, 2);
+          const to = best.pv[0].slice(2, 4);
+          const movedPiece = testChess.get(from as Parameters<typeof testChess.get>[0]);
+          const movedValue = movedPiece ? (PIECE_VALUE[movedPiece.type] || 0) : 0;
+          const moveObj = testChess.move({ from, to, promotion: best.pv[0][4] });
+
+          if (moveObj) {
+            // Hanging capture: captured piece and no recapture possible
+            if (moveObj.captured) {
+              const recaptures = testChess.moves({ verbose: true }).filter(m => m.to === moveObj.to && m.captured);
+              if (recaptures.length === 0) isHangingCapture = true;
+            }
+
+            // Attacked by lesser: after move, piece on target attacked by cheaper piece
+            const opponent = moveObj.color === 'w' ? 'b' : 'w';
+            if (testChess.isAttacked(to as Parameters<typeof testChess.isAttacked>[0], opponent)) {
+              const attackerMoves = testChess.moves({ verbose: true }).filter(m => m.to === to);
+              const cheapestAttacker = Math.min(...attackerMoves.map(m => PIECE_VALUE[m.piece] || 0));
+              if (cheapestAttacker < movedValue) attackedByLesser = true;
+
+              // Undefended: attacked but not defended by own pieces
+              testChess.undo();
+              testChess.move(moveObj.san); // replay to check own defense
+              // Swap turn to check if own side defends
+              // chess.js doesn't have "isDefended" — approximate: undo, check if own piece attacks the square
+              const ownColor = moveObj.color;
+              const preMove = new Chess(fen);
+              // Check if any own piece (other than the moved one) attacks the target square
+              const ownAttacks = preMove.moves({ verbose: true }).filter(m => m.to === to && m.from !== from);
+              if (ownAttacks.length === 0) undefendedAfterMove = true;
+            }
+
+            testChess.undo();
+          }
+        } catch { /* ignore */ }
+      }
+
+      const isMate = best.score.type === 'mate';
+      const mateDist = isMate ? Math.abs(best.score.value) : 0;
+      const logBase = `[PuzzleGen] pos=${pi} bestMove=${bestMoveUci} evalShallow=${evalAtShallow} evalDeep=${evalAtDeep} growth=${evalGrowth} gap=${gap}`;
+
+      // Apply filters with explicit skip reason
+      if (skipHangingCapture && isHangingCapture) {
+        console.log(`${logBase} SKIP:hangingCapture`); continue;
+      }
+      if (skipAttackedByLesser && attackedByLesser) {
+        console.log(`${logBase} SKIP:attackedByLesser`); continue;
+      }
+      if (skipUndefendedAfterMove && undefendedAfterMove) {
+        console.log(`${logBase} SKIP:undefendedAfterMove`); continue;
+      }
+      if (analysis.lines.length >= 2 && Math.abs(secondCp) > maxSecondCp) {
+        console.log(`${logBase} SKIP:|secondCp|=${Math.abs(secondCp)}>${maxSecondCp}`); continue;
+      }
+      if (gap < gapThreshold) {
+        console.log(`${logBase} SKIP:gap<${gapThreshold}`); continue;
+      }
+      if (N > 1 && topSpread > TOP_SPREAD_THRESHOLD) {
+        console.log(`${logBase} SKIP:topSpread=${topSpread}>${TOP_SPREAD_THRESHOLD}`); continue;
+      }
+      if (best.pv.length < (isMate ? 1 : 2)) {
+        console.log(`${logBase} SKIP:pv.length=${best.pv.length}<${isMate ? 1 : 2}`); continue;
+      }
+
+      {
+        const themes = classifyThemes(gap, best.pv, fen, isMate, mateDist);
+        const rating = estimateRating(fen, [best.pv[0]], isMate, mateDist);
+        console.log(`${logBase} ACCEPTED rating=${rating}`);
+
+        // Use scores from THIS position's analysis (same side moves)
+        const secondLine = analysis.lines.length >= 2 ? analysis.lines[1] : null;
+
+        // Collect accepted moves (top N lines' first moves)
+        const acceptedMovesList = analysis.lines.slice(0, N).map((l) => l.pv[0]).filter(Boolean);
+
+        puzzles.push({
+          fen,
+          moves: best.pv.slice(0, 8).join(' '),
+          acceptedMoves: acceptedMovesList.length > 1 ? acceptedMovesList.join(' ') : undefined,
+          rating,
+          gap,
+          themes: themes.join(' '),
+          sourceType: 'pgn_import',
+          sourceId: null,
+          sourceMoveNum: moveNum,
+          sourceMetadata: {
+            ...metadata,
+            bestScore: bestCp,
+            bestMove: best.pv[0],
+            secondBestScore: secondLine ? scoreToCP(secondLine.score) : undefined,
+            secondBestMove: secondLine ? secondLine.pv[0] : undefined,
+          },
+        });
       }
     }
-  } catch { /* invalid move */ }
-  return moves.join(' ');
+  }
+
+  engine.destroy();
+  console.log('[PuzzleGen] Done. Total puzzles:', puzzles.length);
+  return puzzles;
 }
 
-// --- Themes ---
-
-function classifyThemes(fen: string, solutionMoves: string): string[] {
-  const themes: string[] = [];
-  const moves = solutionMoves.split(' ');
-  const chess = new Chess(fen);
-
-  // Endgame: <= 7 total pieces
-  const pieces = fen.split(' ')[0].replace(/[0-9/]/g, '');
-  if (pieces.length <= 7) themes.push('endgame');
-
-  // Play through solution to check for mate
-  try {
-    for (const uci of moves) {
-      chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-    }
-    if (chess.isCheckmate()) {
-      const solverMoves = Math.ceil(moves.length / 2);
-      if (solverMoves <= 3) themes.push(`mateIn${solverMoves}`);
-      themes.push('mate');
-    }
-  } catch { /* invalid move sequence */ }
-
-  // Fork: first solution move attacks >= 2 opponent pieces
-  try {
-    const forkChess = new Chess(fen);
-    const firstUci = moves[0];
-    forkChess.move({ from: firstUci.slice(0, 2), to: firstUci.slice(2, 4), promotion: firstUci.length > 4 ? firstUci[4] : undefined });
-    const to = firstUci.slice(2, 4);
-    const board = forkChess.board();
-    const pieceColor = fen.split(' ')[1] === 'w' ? 'w' : 'b'; // solver's color
-    let attackCount = 0;
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const sq = board[r][c];
-        if (!sq || sq.color === pieceColor) continue;
-        const sqName = String.fromCharCode(97 + c) + (8 - r);
-        if (sqName === to) continue;
-        const legalMoves = forkChess.moves({ square: to as any, verbose: true });
-        if (legalMoves.some((m: any) => m.to === sqName)) attackCount++;
-      }
-    }
-    if (attackCount >= 2) themes.push('fork');
-  } catch { /* ignore */ }
-
-  if (themes.length === 0) themes.push('tactical');
-  return themes;
-}
-
-// --- Rating ---
-
-function estimateRating(avgPlayerRating: number, evalDrop: number, solutionLength: number): number {
-  let rating = avgPlayerRating;
-  rating += (solutionLength - 4) * 100;
-  if (evalDrop >= 500) rating -= 100;
-  else if (evalDrop < 300) rating += 100;
-  return Math.max(600, Math.min(2500, rating));
-}
-
-// --- PGN helpers ---
 
 /** Strip comments {…}, variations (…), NAG ($1 etc), extra whitespace from PGN movetext */
 function stripPgnAnnotations(pgn: string): string {
+  // Preserve header lines, only strip from movetext
   const lines = pgn.split('\n');
   const result: string[] = [];
   for (const line of lines) {
@@ -230,191 +459,4 @@ function splitPgnIntoGames(pgn: string): string[] {
   }
 
   return games.filter((g) => g.trim().length > 0);
-}
-
-// --- Main generation function ---
-
-export async function generatePuzzlesFromPgn(
-  pgn: string,
-  onProgress: (progress: GenerationProgress) => void,
-  options: Partial<PuzzleGenSettings> & { abortSignal?: AbortSignal; bridgeConfig?: BridgeConfig } = {},
-): Promise<GeneratedPuzzleData[]> {
-  const settings = { ...DEFAULT_PUZZLE_GEN_SETTINGS, ...options };
-  const { depth } = settings;
-  const { abortSignal, bridgeConfig } = options;
-
-  const games = splitPgnIntoGames(pgn);
-  console.log('[PuzzleGen] PGN split into', games.length, 'games, input length:', pgn.length);
-  const puzzles: GeneratedPuzzleData[] = [];
-
-  // Create engine
-  let engine: EngineAdapter;
-  if (bridgeConfig) {
-    engine = new BridgeEngineAdapter(bridgeConfig);
-  } else {
-    engine = new WasmEngineAdapter();
-  }
-
-  await engine.init();
-
-  if (bridgeConfig) {
-    engine.setOption('Threads', '16');
-    engine.setOption('Hash', '256');
-  } else {
-    engine.setOption('Threads', '1');
-  }
-
-  for (let gi = 0; gi < games.length; gi++) {
-    if (abortSignal?.aborted) break;
-
-    const gamePgn = stripPgnAnnotations(games[gi]);
-    const chess = new Chess();
-    try {
-      chess.loadPgn(gamePgn);
-    } catch (e) {
-      console.warn('[PuzzleGen] Failed to parse game', gi + 1, ':', e instanceof Error ? e.message : e);
-      continue;
-    }
-
-    // Parse PGN headers for metadata
-    const metadata: SourceMetadata = {};
-    const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
-    let hMatch;
-    while ((hMatch = headerRegex.exec(gamePgn)) !== null) {
-      const [, key, value] = hMatch;
-      if (key === 'White') metadata.white = value;
-      else if (key === 'Black') metadata.black = value;
-      else if (key === 'Event') metadata.event = value;
-      else if (key === 'Date') metadata.date = value;
-      else if (key === 'Result') metadata.result = value;
-    }
-
-    // Parse ratings from headers
-    const whiteRatingMatch = gamePgn.match(/\[WhiteElo\s+"(\d+)"\]/);
-    const blackRatingMatch = gamePgn.match(/\[BlackElo\s+"(\d+)"\]/);
-    const whiteRating = whiteRatingMatch ? parseInt(whiteRatingMatch[1]) : 1500;
-    const blackRating = blackRatingMatch ? parseInt(blackRatingMatch[1]) : 1500;
-    const avgRating = Math.round((whiteRating + blackRating) / 2);
-
-    const history = chess.history({ verbose: true });
-    console.log('[PuzzleGen] Game', gi + 1, ':', history.length, 'moves');
-    if (history.length < 16) {
-      console.log('[PuzzleGen] Game', gi + 1, ': too short, skipping');
-      continue;
-    }
-
-    // Reconstruct positions
-    const replay = new Chess();
-    const positions: Array<{ fenBefore: string; fenAfter: string; playedUci: string; moveNum: number }> = [];
-    for (const move of history) {
-      const fenBefore = replay.fen();
-      const uci = move.from + move.to + (move.promotion ?? '');
-      replay.move(move);
-      positions.push({ fenBefore, fenAfter: replay.fen(), playedUci: uci, moveNum: positions.length + 1 });
-    }
-
-    const totalToAnalyze = Math.max(0, positions.length - 2 - MIN_MOVE_NUM);
-    console.log('[PuzzleGen] Positions:', positions.length, 'Analyzing:', totalToAnalyze, '(from move', MIN_MOVE_NUM + 1, 'to', positions.length - 2, ')');
-
-    for (let i = MIN_MOVE_NUM; i < positions.length - 2; i++) {
-      if (abortSignal?.aborted) break;
-      const pos = positions[i];
-      const analyzeIndex = i - MIN_MOVE_NUM;
-
-      onProgress({
-        gameIndex: gi,
-        totalGames: games.length,
-        positionIndex: analyzeIndex,
-        totalPositions: totalToAnalyze,
-        puzzlesFound: puzzles.length,
-      });
-
-      // Step 1: Blunder detection — MultiPV 3 on position BEFORE the played move
-      let analysis;
-      try {
-        analysis = await engineAnalyzeMultiPV(engine, pos.fenBefore, depth, 3);
-      } catch (e) {
-        console.error('[PuzzleGen] Engine error at move', pos.moveNum, ':', e);
-        continue;
-      }
-      if (analysis.length < 1) continue;
-
-      const bestScore = scoreToCp(analysis[0].score);
-      const bestMove = analysis[0].bestMove;
-
-      // Find the score of the played move
-      let playedScore: number;
-      const playedPV = analysis.find((a) => a.bestMove === pos.playedUci);
-      if (playedPV) {
-        playedScore = scoreToCp(playedPV.score);
-      } else {
-        // Played move not in top 3 — analyze position after move
-        try {
-          const pa = await engineAnalyzeSingle(engine, pos.fenAfter, Math.min(depth, 14));
-          playedScore = -scoreToCp(pa.score); // flip perspective
-        } catch {
-          continue;
-        }
-      }
-
-      const evalDrop = bestScore - playedScore;
-      if (analyzeIndex % 5 === 0 || evalDrop >= MIN_EVAL_DROP) {
-        console.log(`[PuzzleGen] move ${pos.moveNum}: best=${bestScore}cp played=${playedScore}cp drop=${evalDrop}cp`);
-      }
-      if (evalDrop < MIN_EVAL_DROP) continue;
-
-      // Step 2: Spread check — MultiPV 2 on position AFTER the blunder
-      let postAnalysis;
-      try {
-        postAnalysis = await engineAnalyzeMultiPV(engine, pos.fenAfter, depth, 2);
-      } catch { continue; }
-      if (postAnalysis.length < 2) continue;
-      const spread = Math.abs(scoreToCp(postAnalysis[0].score) - scoreToCp(postAnalysis[1].score));
-      if (spread < MIN_SPREAD) {
-        console.log(`[PuzzleGen] move ${pos.moveNum}: skip spread=${spread}cp < ${MIN_SPREAD}`);
-        continue;
-      }
-
-      // Step 3: Recapture filter
-      const blunderTo = pos.playedUci.slice(2, 4);
-      const solutionFirst = postAnalysis[0].bestMove;
-      if (solutionFirst.slice(2, 4) === blunderTo) {
-        console.log(`[PuzzleGen] move ${pos.moveNum}: skip recapture on ${blunderTo}`);
-        continue;
-      }
-
-      // Step 4: Build forced solution line
-      const solutionMoves = await buildSolutionLine(engine, pos.fenAfter, solutionFirst, depth);
-      const moveCount = solutionMoves.split(' ').length;
-      // Minimum 3 UCI moves = 2 solver moves (solver → opponent → solver)
-      if (moveCount < 3) {
-        console.log(`[PuzzleGen] move ${pos.moveNum}: skip short solution (${moveCount} UCI moves)`);
-        continue;
-      }
-
-      // Step 5: Rating
-      const rating = estimateRating(avgRating, evalDrop, moveCount);
-
-      // Step 6: Themes
-      const themes = classifyThemes(pos.fenAfter, solutionMoves);
-
-      console.log(`[PuzzleGen] PUZZLE: move ${pos.moveNum} drop=${evalDrop}cp spread=${spread}cp solution=${solutionMoves} rating=${rating} themes=${themes.join(',')}`);
-
-      puzzles.push({
-        fen: pos.fenAfter,
-        moves: solutionMoves,
-        rating,
-        gap: spread,
-        themes: themes.join(' '),
-        sourceType: 'pgn_import',
-        sourceId: null,
-        sourceMoveNum: pos.moveNum,
-        sourceMetadata: metadata,
-      });
-    }
-  }
-
-  engine.destroy();
-  console.log('[PuzzleGen] Done. Total puzzles:', puzzles.length);
-  return puzzles;
 }
