@@ -38,8 +38,6 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [settings, setSettings] = useState<PuzzleGenSettings>(loadSettings);
   const [engineType, setEngineType] = useState<'wasm' | 'bridge'>('wasm');
-  const [serverSending, setServerSending] = useState(false);
-  const [serverResult, setServerResult] = useState<{ status: string; moves: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const savedConfigs = loadEngineConfigs();
@@ -86,23 +84,6 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
       abortRef.current = null;
     }
   }, [pgnText, generating, settings]);
-
-  const handleServerGenerate = useCallback(async () => {
-    if (!pgnText.trim() || serverSending) return;
-    setServerSending(true);
-    setError(null);
-    setServerResult(null);
-    try {
-      const res = await api.post<{ status: string; moves: number }>('/api/puzzles/generated/generate-pgn', {
-        pgn: pgnText,
-      });
-      setServerResult(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Server generation failed');
-    } finally {
-      setServerSending(false);
-    }
-  }, [pgnText, serverSending]);
 
   const handleSave = useCallback(async () => {
     if (!result || result.length === 0 || saving) return;
@@ -230,25 +211,9 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
               )}
             </div>
 
-            <div className="puzzle-generator-buttons">
-              <button className="puzzle-generator-start" onClick={handleGenerate} disabled={!pgnText.trim() || (engineType === 'bridge' && !hasBridge)}>
-                {t('puzzleGenerator.generate', 'Generate Puzzles')}
-              </button>
-              <button
-                className="puzzle-generator-server"
-                onClick={handleServerGenerate}
-                disabled={!pgnText.trim() || serverSending}
-              >
-                {serverSending
-                  ? t('common.loading')
-                  : t('puzzleGenerator.generateServer', 'Generate on Server')}
-              </button>
-            </div>
-            {serverResult && (
-              <div className="puzzle-generator-server-result">
-                {t('puzzleGenerator.serverQueued', 'PGN sent for analysis ({{moves}} moves). Puzzles will appear shortly.', { moves: serverResult.moves })}
-              </div>
-            )}
+            <button className="puzzle-generator-start" onClick={handleGenerate} disabled={!pgnText.trim() || (engineType === 'bridge' && !hasBridge)}>
+              {t('puzzleGenerator.generate', 'Generate Puzzles')}
+            </button>
           </div>
         )}
 

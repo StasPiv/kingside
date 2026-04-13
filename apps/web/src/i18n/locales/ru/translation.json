@@ -965,9 +965,7 @@
     "myPuzzles": "Мои задачи",
     "fromPgn": "Генерация из PGN",
     "pastePgn": "Вставьте PGN сюда...",
-    "orUpload": "или загрузите .pgn файл",
-    "generateServer": "Сгенерировать на сервере",
-    "serverQueued": "PGN отправлен на анализ ({{moves}} ходов). Паззлы появятся в ближайшее время."
+    "orUpload": "или загрузите .pgn файл"
   },
   "features": {
     "hero": {
