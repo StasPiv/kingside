@@ -165,7 +165,7 @@ export function PuzzleStatsPage() {
           <div className="puzzle-stats-attempts">
             {attempts.map((a) => (
               <div key={a.id} className={`puzzle-stats-attempt${a.solved ? ' solved' : ' failed'}`}>
-                <Link to={`/puzzle/${a.puzzleId}`} className="puzzle-stats-attempt__link">
+                <Link to={`/puzzle/${a.puzzleId}${a.puzzleId.includes('-') ? '?source=generated' : ''}`} className="puzzle-stats-attempt__link">
                   #{a.puzzleId.slice(0, 6)}
                 </Link>
                 <span className={`puzzle-stats-attempt__result${a.solved ? ' correct' : ' wrong'}`}>

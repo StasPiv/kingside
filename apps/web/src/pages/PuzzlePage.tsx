@@ -111,7 +111,12 @@ export function PuzzlePage() {
       if (isGenerated && specificId) {
         data = await api.get<PuzzleDto>(`/api/puzzles/generated/${specificId}`);
       } else if (specificId) {
-        data = await puzzleApi.getById(specificId);
+        try {
+          data = await puzzleApi.getById(specificId);
+        } catch {
+          // Fallback: try generated puzzles table
+          data = await api.get<PuzzleDto>(`/api/puzzles/generated/${specificId}`);
+        }
       } else {
         data = await puzzleApi.getNext();
       }
