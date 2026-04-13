@@ -5,15 +5,20 @@ import { RedisService } from '../redis/redis.service';
 import { StockfishService } from '../engine/stockfish.service';
 
 interface PuzzleCandidate {
-  fen: string;
-  moves: string;   // solution moves separated by space (UCI)
-  gap: number;      // cp gap between best and 2nd best
+  fen: string;         // position AFTER the blunder (puzzle start)
+  setupMove: string;   // the blunder move (shown to player before puzzle)
+  moves: string;       // solution moves separated by space (UCI)
+  evalDrop: number;    // cp drop from best to played move
+  spread: number;      // cp gap between best and 2nd best in solution position
   rating: number;
   sourceMoveNum: number;
 }
 
 const CACHE_TTL = 86400; // 24h
-const MIN_GAP = 150;     // minimum cp gap to qualify as puzzle
+const MIN_EVAL_DROP = 200;  // minimum cp drop to detect blunder
+const MIN_SPREAD = 150;     // minimum spread for unique solution
+const MIN_MOVE_NUM = 10;    // skip opening (first 10 half-moves)
+const MAX_SOLUTION_MOVES = 6; // max half-moves in solution line
 
 @Injectable()
 export class PuzzleGeneratorService {
@@ -26,8 +31,10 @@ export class PuzzleGeneratorService {
   ) {}
 
   /**
-   * Generate puzzles from a game. Analyzes each position with MultiPV
-   * and finds positions where there is a large gap between best and 2nd best move.
+   * Generate puzzles from a game using blunder detection.
+   * 1. For each position, compare played move vs best move (eval drop >= 200cp)
+   * 2. In position after blunder, check spread >= 150cp (unique solution)
+   * 3. Build solution line from the post-blunder position
    */
   async generateFromGame(
     gameId: string,
@@ -49,53 +56,97 @@ export class PuzzleGeneratorService {
       select: { uci: true, san: true, fenAfter: true },
     });
 
-    if (moves.length < 6) {
+    if (moves.length < MIN_MOVE_NUM + 2) {
       return { puzzlesCreated: 0, positionsAnalyzed: 0 };
     }
 
+    // Reconstruct FEN before each move
+    const chess = new Chess();
+    const positions: Array<{ fenBefore: string; fenAfter: string; playedUci: string; moveNum: number }> = [];
+    for (const move of moves) {
+      const fenBefore = chess.fen();
+      const from = move.uci.slice(0, 2);
+      const to = move.uci.slice(2, 4);
+      const promo = move.uci.length > 4 ? move.uci[4] : undefined;
+      try {
+        chess.move({ from, to, promotion: promo });
+      } catch {
+        break; // invalid move — stop
+      }
+      positions.push({ fenBefore, fenAfter: chess.fen(), playedUci: move.uci, moveNum: positions.length + 1 });
+    }
+
     const candidates: PuzzleCandidate[] = [];
+    let analyzed = 0;
 
-    // Analyze positions starting from move 4 (skip opening)
-    for (let i = 3; i < moves.length - 2; i++) {
-      const fen = moves[i].fenAfter;
+    // Analyze positions starting from MIN_MOVE_NUM, stop 2 before end
+    for (let i = MIN_MOVE_NUM; i < positions.length - 2; i++) {
+      const pos = positions[i];
+      analyzed++;
 
-      // Check Redis cache first
-      const cached = await this.getCachedAnalysis(fen);
-      let gap: number;
+      // Step 1: Analyze position BEFORE the move (MultiPV=2)
+      const cached = await this.getCachedAnalysis(pos.fenBefore);
       let bestMove: string;
-      let secondBestMove: string | undefined;
+      let bestScore: number;
+      let playedScore: number;
 
       if (cached) {
-        gap = cached.gap;
         bestMove = cached.bestMove;
-        secondBestMove = cached.secondBestMove;
+        bestScore = cached.bestScore;
+        playedScore = cached.playedScores?.[pos.playedUci] ?? bestScore;
       } else {
-        const analysis = await this.stockfish.analyzeMultiPV(fen, depth, 3);
-        if (analysis.length < 2) continue;
+        const analysis = await this.stockfish.analyzeMultiPV(pos.fenBefore, depth, 3);
+        if (analysis.length < 1) continue;
 
-        const bestScore = this.scoreToCp(analysis[0].score);
-        const secondScore = this.scoreToCp(analysis[1].score);
-        gap = Math.abs(bestScore - secondScore);
         bestMove = analysis[0].bestMove;
-        secondBestMove = analysis[1].bestMove;
+        bestScore = this.scoreToCp(analysis[0].score);
 
-        // Cache result
-        await this.cacheAnalysis(fen, { gap, bestMove, secondBestMove });
+        // Find score of the played move among PV lines
+        const playedPV = analysis.find((a) => a.bestMove === pos.playedUci);
+        if (playedPV) {
+          playedScore = this.scoreToCp(playedPV.score);
+        } else {
+          // Played move not in top 3 — analyze it separately
+          const playedAnalysis = await this.stockfish.analyze(pos.fenAfter, Math.min(depth, 14));
+          // Score from opponent's perspective → negate
+          playedScore = -this.scoreToCp(playedAnalysis.score);
+        }
+
+        await this.cacheAnalysis(pos.fenBefore, { bestMove, bestScore, playedScores: { [pos.playedUci]: playedScore } });
       }
 
-      if (gap >= MIN_GAP) {
-        // Build solution line: best move + opponent response + best move...
-        const solutionMoves = await this.buildSolutionLine(fen, bestMove, depth);
-        const rating = this.estimateRating(gap);
+      // Step 2: Detect blunder — eval drop from side-to-move perspective
+      const evalDrop = bestScore - playedScore;
+      if (evalDrop < MIN_EVAL_DROP) continue;
 
-        candidates.push({
-          fen,
-          moves: solutionMoves,
-          gap,
-          rating,
-          sourceMoveNum: i + 1,
-        });
-      }
+      // Step 3: In position AFTER blunder, check spread (unique solution)
+      const postBlunderAnalysis = await this.stockfish.analyzeMultiPV(pos.fenAfter, depth, 2);
+      if (postBlunderAnalysis.length < 2) continue;
+
+      const solutionBest = this.scoreToCp(postBlunderAnalysis[0].score);
+      const solutionSecond = this.scoreToCp(postBlunderAnalysis[1].score);
+      const spread = Math.abs(solutionBest - solutionSecond);
+      if (spread < MIN_SPREAD) continue;
+
+      // Step 4: Build solution line from post-blunder position
+      const solutionMoves = await this.buildSolutionLine(pos.fenAfter, postBlunderAnalysis[0].bestMove, depth);
+      if (solutionMoves.split(' ').length < 1) continue;
+
+      const rating = this.estimateRating(evalDrop, spread, solutionMoves.split(' ').length);
+
+      candidates.push({
+        fen: pos.fenAfter,
+        setupMove: pos.playedUci,
+        moves: solutionMoves,
+        evalDrop,
+        spread,
+        rating,
+        sourceMoveNum: pos.moveNum,
+      });
+
+      this.logger.log(
+        `Blunder found: move ${pos.moveNum} ${pos.playedUci} drop=${evalDrop}cp spread=${spread}cp solution=${solutionMoves}`,
+      );
     }
 
     // Save candidates to DB
@@ -106,7 +157,7 @@ export class PuzzleGeneratorService {
           fen: c.fen,
           moves: c.moves,
           rating: c.rating,
-          gap: c.gap,
+          gap: c.spread,
           sourceType: 'game',
           sourceId: gameId,
           sourceMoveNum: c.sourceMoveNum,
@@ -118,15 +169,15 @@ export class PuzzleGeneratorService {
     }
 
     this.logger.log(
-      `Generated ${created} puzzles from game ${gameId} (${moves.length} positions analyzed)`,
+      `Generated ${created} puzzles from game ${gameId} (${analyzed} positions analyzed, ${candidates.length} blunders found)`,
     );
 
-    return { puzzlesCreated: created, positionsAnalyzed: moves.length - 5 };
+    return { puzzlesCreated: created, positionsAnalyzed: analyzed };
   }
 
   /**
-   * Build a solution line: best move, then opponent's best response, then best move...
-   * Returns UCI moves separated by space.
+   * Build a solution line from the post-blunder position.
+   * Each move must be the unique best (large spread over 2nd best).
    */
   private async buildSolutionLine(
     fen: string,
@@ -137,15 +188,13 @@ export class PuzzleGeneratorService {
     const solutionMoves: string[] = [];
 
     try {
-      // First move (the "setup" move that creates the puzzle)
       const from = firstMove.slice(0, 2);
       const to = firstMove.slice(2, 4);
       const promo = firstMove.length > 4 ? firstMove[4] : undefined;
       chess.move({ from, to, promotion: promo });
       solutionMoves.push(firstMove);
 
-      // Up to 3 more half-moves (opponent response + solution + opponent response)
-      for (let step = 0; step < 3; step++) {
+      for (let step = 0; step < MAX_SOLUTION_MOVES - 1; step++) {
         const currentFen = chess.fen();
         if (chess.isGameOver()) break;
 
@@ -167,14 +216,23 @@ export class PuzzleGeneratorService {
   }
 
   /**
-   * Estimate puzzle rating from cp gap.
-   * Larger gap = easier puzzle = lower rating.
+   * Estimate puzzle rating from eval drop, spread, and solution length.
+   * Larger drop = easier to spot = lower rating.
+   * Longer solution = harder = higher rating.
    */
-  private estimateRating(gap: number): number {
-    if (gap >= 500) return 800 + Math.floor(Math.random() * 400);
-    if (gap >= 300) return 1200 + Math.floor(Math.random() * 400);
-    if (gap >= 200) return 1600 + Math.floor(Math.random() * 300);
-    return 1900 + Math.floor(Math.random() * 300);
+  private estimateRating(evalDrop: number, spread: number, solutionLength: number): number {
+    let base: number;
+    if (evalDrop >= 500) base = 800;
+    else if (evalDrop >= 300) base = 1200;
+    else base = 1600;
+
+    // Longer solutions are harder
+    base += (solutionLength - 1) * 100;
+
+    // Add randomness
+    base += Math.floor(Math.random() * 200) - 100;
+
+    return Math.max(600, Math.min(2500, base));
   }
 
   private scoreToCp(score: { type: 'cp' | 'mate'; value: number }): number {
@@ -186,7 +244,7 @@ export class PuzzleGeneratorService {
 
   private async getCachedAnalysis(
     fen: string,
-  ): Promise<{ gap: number; bestMove: string; secondBestMove?: string } | null> {
+  ): Promise<{ bestMove: string; bestScore: number; playedScores?: Record<string, number> } | null> {
     const key = `pgen:${fen}`;
     const data = await this.redis.get(key);
     if (!data) return null;
@@ -199,7 +257,7 @@ export class PuzzleGeneratorService {
 
   private async cacheAnalysis(
     fen: string,
-    data: { gap: number; bestMove: string; secondBestMove?: string },
+    data: { bestMove: string; bestScore: number; playedScores?: Record<string, number> },
   ): Promise<void> {
     const key = `pgen:${fen}`;
     await this.redis.set(key, JSON.stringify(data), 'EX', CACHE_TTL);
