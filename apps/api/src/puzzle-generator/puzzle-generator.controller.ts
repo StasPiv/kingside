@@ -41,10 +41,11 @@ export class PuzzleGeneratorController {
   async generateFromPgn(
     @Body() dto: GenerateFromPgnDto,
   ) {
-    // Validate PGN with chess.js
+    // Strip comments { ... } before parsing — chess.js chokes on some annotation formats
+    const cleanPgn = dto.pgn.replace(/\{[^}]*\}/g, '');
     const chess = new Chess();
     try {
-      chess.loadPgn(dto.pgn);
+      chess.loadPgn(cleanPgn);
     } catch {
       throw new BadRequestException('Invalid PGN: failed to parse');
     }
