@@ -365,20 +365,20 @@ export class PuzzleWorker {
       }
 
       const evalDrop = bestScore - playedScore;
-      if (evalDrop < MIN_EVAL_DROP) continue;
+      if (evalDrop < MIN_EVAL_DROP) { console.log(`[puzzle-worker] move ${pos.moveNum}: skip evalDrop=${evalDrop}cp < ${MIN_EVAL_DROP}`); continue; }
 
       const postAnalysis = await this.analyzeMultiPV(pos.fenAfter, ANALYSIS_DEPTH, 2);
-      if (postAnalysis.length < 2) continue;
+      if (postAnalysis.length < 2) { console.log(`[puzzle-worker] move ${pos.moveNum}: skip postAnalysis < 2 lines`); continue; }
       const spread = Math.abs(this.scoreToCp(postAnalysis[0].score) - this.scoreToCp(postAnalysis[1].score));
-      if (spread < MIN_SPREAD) continue;
+      if (spread < MIN_SPREAD) { console.log(`[puzzle-worker] move ${pos.moveNum}: skip spread=${spread}cp < ${MIN_SPREAD} (drop=${evalDrop}cp)`); continue; }
 
       const blunderTo = pos.playedUci.slice(2, 4);
       const solutionFirst = postAnalysis[0].bestMove;
-      if (solutionFirst.slice(2, 4) === blunderTo) continue;
+      if (solutionFirst.slice(2, 4) === blunderTo) { console.log(`[puzzle-worker] move ${pos.moveNum}: skip recapture on ${blunderTo}`); continue; }
 
       const solutionMoves = await this.buildSolutionLine(pos.fenAfter, solutionFirst);
       const moveCount = solutionMoves.split(' ').length;
-      if (moveCount < 2) continue;
+      if (moveCount < 2) { console.log(`[puzzle-worker] move ${pos.moveNum}: skip short solution (${moveCount} moves)`); continue; }
 
       const rating = this.estimateRating(avgRating, evalDrop, moveCount);
       const themes = this.classifyThemes(pos.fenAfter, solutionMoves);
