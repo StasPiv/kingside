@@ -78,7 +78,12 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
       const puzzles = await generatePuzzlesFromPgn(pgnText, (p) => setProgress(p), { ...settings, abortSignal: abortRef.current.signal, bridgeConfig });
       setResult(puzzles);
     } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') setError(err.message);
+      console.error('[PuzzleGen] Generation error:', err);
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setError(err.message);
+      } else if (typeof err === 'string') {
+        setError(err);
+      }
     } finally {
       setGenerating(false);
       abortRef.current = null;

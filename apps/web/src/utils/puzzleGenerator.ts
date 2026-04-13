@@ -192,6 +192,7 @@ export async function generatePuzzlesFromPgn(
 
   // Parse PGN into individual games
   const games = splitPgnIntoGames(pgn);
+  console.log('[PuzzleGen] PGN split into', games.length, 'games, input length:', pgn.length);
   const puzzles: GeneratedPuzzleData[] = [];
 
   // Create engine adapter
@@ -219,7 +220,8 @@ export async function generatePuzzlesFromPgn(
     const chess = new Chess();
     try {
       chess.loadPgn(gamePgn);
-    } catch {
+    } catch (e) {
+      console.warn('[PuzzleGen] Failed to parse game', gi + 1, ':', e instanceof Error ? e.message : e);
       continue;
     }
 
@@ -237,6 +239,7 @@ export async function generatePuzzlesFromPgn(
     }
 
     const moves = chess.history({ verbose: true });
+    console.log('[PuzzleGen] Game', gi + 1, ':', moves.length, 'moves');
     const positions: { fen: string; moveNum: number }[] = [];
     // Use FEN from PGN header if present, otherwise standard start
     const fenMatch = gamePgn.match(/\[FEN\s+"([^"]+)"\]/);
@@ -266,10 +269,19 @@ export async function generatePuzzlesFromPgn(
         if (check.isGameOver()) { console.log(`[PuzzleGen] pos=${pi} SKIP: gameOver`); continue; }
         const legalMoves = check.moves().length;
         if (legalMoves <= 1) { console.log(`[PuzzleGen] pos=${pi} SKIP: legalMoves=${legalMoves}`); continue; }
-      } catch { continue; }
+      } catch (e) {
+        console.warn('[PuzzleGen] pos=', pi, 'SKIP: fen check error:', e instanceof Error ? e.message : e);
+        continue;
+      }
 
       // Single analysis with depth history tracking
-      const analysis = await engine.analyze(fen, depth, effectiveMultiPv);
+      let analysis: Awaited<ReturnType<EngineAdapter['analyze']>>;
+      try {
+        analysis = await engine.analyze(fen, depth, effectiveMultiPv);
+      } catch (e) {
+        console.error('[PuzzleGen] Engine analyze error at pos', pi, ':', e);
+        continue;
+      }
       if (analysis.lines.length === 0) continue;
 
       const best = analysis.lines[0];
@@ -397,6 +409,7 @@ export async function generatePuzzlesFromPgn(
   }
 
   engine.destroy();
+  console.log('[PuzzleGen] Done. Total puzzles:', puzzles.length);
   return puzzles;
 }
 
