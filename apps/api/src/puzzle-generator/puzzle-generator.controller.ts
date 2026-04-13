@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -45,12 +46,12 @@ export class PuzzleGeneratorController {
     try {
       chess.loadPgn(dto.pgn);
     } catch {
-      throw new NotFoundException('Invalid PGN: failed to parse');
+      throw new BadRequestException('Invalid PGN: failed to parse');
     }
 
     const history = chess.history();
     if (history.length < 20) {
-      throw new NotFoundException(`PGN too short: ${history.length} moves (minimum 20)`);
+      throw new BadRequestException(`PGN too short: ${history.length} moves (minimum 20)`);
     }
 
     // Push to puzzle-gen queue
