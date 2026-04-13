@@ -43,7 +43,8 @@ describe('PuzzleService', () => {
       applyRatingChange: jest.fn(),
     };
 
-    service = new PuzzleService(prisma, i18n, ratingService);
+    const redis = { get: jest.fn(), set: jest.fn() } as any;
+    service = new PuzzleService(prisma, i18n, ratingService, redis);
   });
 
   describe('findPuzzles', () => {

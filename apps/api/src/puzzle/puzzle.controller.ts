@@ -77,6 +77,21 @@ export class PuzzleController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('stats/rating-history')
+  getRatingHistory(
+    @Request() req: AuthenticatedRequest,
+    @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
+  ) {
+    return this.puzzleService.getRatingHistory(req.user.id, Math.min(days, 365));
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('stats/themes')
+  getThemeStats(@Request() req: AuthenticatedRequest) {
+    return this.puzzleService.getThemeStats(req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('attempts')
   getAttempts(
     @Request() req: AuthenticatedRequest,

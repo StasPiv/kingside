@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class PuzzleService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly puzzleRating: PuzzleRatingService,
+    private readonly redis: RedisService,
   ) {}
 
   /**
@@ -256,25 +258,102 @@ export class PuzzleService {
   async getStats(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { ratingPuzzle: true },
+      select: { ratingPuzzle: true, ratingPuzzleDev: true, puzzleStreak: true },
     });
 
-    const [totalAttempted, totalSolved, bestRush] = await Promise.all([
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [totalAttempted, totalSolved, genAttempted, genSolved, bestRush, avgTime, todaySnapshot] = await Promise.all([
       this.prisma.puzzleAttempt.count({ where: { userId } }),
       this.prisma.puzzleAttempt.count({ where: { userId, solved: true } }),
+      this.prisma.generatedPuzzleAttempt.count({ where: { userId } }),
+      this.prisma.generatedPuzzleAttempt.count({ where: { userId, solved: true } }),
       this.prisma.puzzleRushScore.findFirst({
         where: { userId },
         orderBy: { score: 'desc' },
         select: { score: true },
       }),
+      this.prisma.puzzleAttempt.aggregate({
+        where: { userId },
+        _avg: { timeMs: true },
+      }),
+      this.prisma.puzzleRatingSnapshot.findUnique({
+        where: { userId_date: { userId, date: today } },
+      }),
     ]);
+
+    const allAttempted = totalAttempted + genAttempted;
+    const allSolved = totalSolved + genSolved;
 
     return {
       rating: user.ratingPuzzle,
-      totalSolved,
-      totalAttempted,
+      ratingDev: user.ratingPuzzleDev,
+      totalSolved: allSolved,
+      totalAttempted: allAttempted,
+      solveRate: allAttempted > 0 ? Math.round((allSolved / allAttempted) * 100) : 0,
+      avgTimeMs: Math.round(avgTime._avg.timeMs ?? 0),
+      currentStreak: user.puzzleStreak,
+      todaySolved: todaySnapshot?.solved ?? 0,
+      todayAttempted: todaySnapshot?.attempts ?? 0,
       bestPuzzleRushScore: bestRush?.score ?? null,
     };
+  }
+
+  async getRatingHistory(userId: string, days = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    since.setHours(0, 0, 0, 0);
+
+    const snapshots = await this.prisma.puzzleRatingSnapshot.findMany({
+      where: { userId, date: { gte: since } },
+      orderBy: { date: 'asc' },
+      select: { date: true, rating: true, attempts: true, solved: true },
+    });
+
+    return snapshots.map((s: { date: Date; rating: number; attempts: number; solved: number }) => ({
+      date: s.date.toISOString().slice(0, 10),
+      rating: s.rating,
+      attempts: s.attempts,
+      solved: s.solved,
+    }));
+  }
+
+  async getThemeStats(userId: string) {
+    const cacheKey = `puzzle:theme-stats:${userId}`;
+    const cached = await this.redis.get(cacheKey).catch(() => null);
+    if (cached) return JSON.parse(cached);
+
+    // Aggregate from puzzle_attempts joined with puzzles (lichess)
+    const raw = await this.prisma.$queryRaw<Array<{ themes: string; total: bigint; solved: bigint }>>`
+      SELECT p.themes, COUNT(*)::bigint as total, SUM(CASE WHEN pa.solved THEN 1 ELSE 0 END)::bigint as solved
+      FROM puzzle_attempts pa
+      JOIN puzzles p ON pa.puzzle_id = p.id
+      WHERE pa.user_id = ${userId}::uuid AND p.themes != ''
+      GROUP BY p.themes
+    `;
+
+    const themeMap = new Map<string, { attempted: number; solved: number }>();
+    for (const row of raw) {
+      for (const theme of row.themes.split(' ').filter(Boolean)) {
+        const existing = themeMap.get(theme) ?? { attempted: 0, solved: 0 };
+        existing.attempted += Number(row.total);
+        existing.solved += Number(row.solved);
+        themeMap.set(theme, existing);
+      }
+    }
+
+    const result = Array.from(themeMap.entries())
+      .map(([theme, stats]) => ({
+        theme,
+        attempted: stats.attempted,
+        solved: stats.solved,
+        rate: stats.attempted > 0 ? Math.round((stats.solved / stats.attempted) * 100) : 0,
+      }))
+      .sort((a, b) => b.attempted - a.attempted);
+
+    await this.redis.set(cacheKey, JSON.stringify(result), 'EX', 300).catch(() => {});
+    return result;
   }
 
   /**
