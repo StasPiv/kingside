@@ -6,26 +6,9 @@ import { useAuth } from '../context/AuthContext';
 
 type PuzzleStats = {
   rating: number;
-  rd: number;
-  totalAttempts: number;
-  solved: number;
-  failed: number;
-  solveRate: number;
-  currentStreak: number;
-  bestStreak: number;
-  avgTimeMs: number;
-};
-
-type RatingPoint = {
-  date: string;
-  rating: number;
-};
-
-type ThemeStat = {
-  theme: string;
-  total: number;
-  solved: number;
-  rate: number;
+  totalSolved: number;
+  totalAttempted: number;
+  bestPuzzleRushScore: number;
 };
 
 type Attempt = {
@@ -44,11 +27,9 @@ export function PuzzleStatsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [stats, setStats] = useState<PuzzleStats | null>(null);
-  const [ratingHistory, setRatingHistory] = useState<RatingPoint[]>([]);
-  const [themes, setThemes] = useState<ThemeStat[]>([]);
   const [attempts, setAttempts] = useState<Attempt[]>([]);
+  const [allAttempts, setAllAttempts] = useState<Attempt[]>([]);
   const [attemptsPage, setAttemptsPage] = useState(0);
-  const [attemptsTotal, setAttemptsTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,29 +37,20 @@ export function PuzzleStatsPage() {
     setLoading(true);
     Promise.all([
       api.get<PuzzleStats>('/api/puzzles/stats/me').catch(() => null),
-      api.get<RatingPoint[]>('/api/puzzles/stats/rating-history?days=30').catch(() => []),
-      api.get<ThemeStat[]>('/api/puzzles/stats/themes').catch(() => []),
-    ]).then(([s, r, th]) => {
+      api.get<Attempt[]>('/api/puzzles/attempts?take=100&skip=0').catch(() => []),
+    ]).then(([s, att]) => {
       if (s) setStats(s);
-      setRatingHistory(Array.isArray(r) ? r : []);
-      setThemes(Array.isArray(th) ? th : []);
+      const attArr = Array.isArray(att) ? att : [];
+      setAllAttempts(attArr);
+      setAttempts(attArr.slice(0, PAGE_SIZE));
       setLoading(false);
     });
   }, [user]);
 
-  const fetchAttempts = useCallback(async (page: number) => {
-    try {
-      const data = await api.get<{ data: Attempt[]; total: number }>(
-        `/api/puzzles/attempts?take=${PAGE_SIZE}&skip=${page * PAGE_SIZE}`,
-      );
-      setAttempts(data.data ?? []);
-      setAttemptsTotal(data.total ?? 0);
-    } catch { setAttempts([]); }
-  }, []);
-
-  useEffect(() => {
-    if (user) fetchAttempts(attemptsPage);
-  }, [user, attemptsPage, fetchAttempts]);
+  const changePage = useCallback((page: number) => {
+    setAttemptsPage(page);
+    setAttempts(allAttempts.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE));
+  }, [allAttempts]);
 
   if (!user) {
     return <div className="puzzle-stats-page"><p>{t('common.loginRequired', 'Please log in')}</p></div>;
@@ -88,7 +60,25 @@ export function PuzzleStatsPage() {
     return <div className="puzzle-stats-page"><p>{t('common.loading')}</p></div>;
   }
 
-  const totalAttemptsPages = Math.max(1, Math.ceil(attemptsTotal / PAGE_SIZE));
+  const solveRate = stats && stats.totalAttempted > 0 ? Math.round((stats.totalSolved / stats.totalAttempted) * 100) : 0;
+  const totalAttemptsPages = Math.max(1, Math.ceil(allAttempts.length / PAGE_SIZE));
+
+  // Compute streak from attempts (consecutive solved from most recent)
+  let currentStreak = 0;
+  for (const a of allAttempts) {
+    if (a.solved) currentStreak++;
+    else break;
+  }
+
+  // Avg time from recent attempts
+  const solvedAttempts = allAttempts.filter((a) => a.solved);
+  const avgTimeMs = solvedAttempts.length > 0 ? solvedAttempts.reduce((s, a) => s + a.timeMs, 0) / solvedAttempts.length : 0;
+
+  // Rating history from attempts (reverse order for chart)
+  const ratingHistory = [...allAttempts].reverse().map((a) => ({
+    rating: Math.round(a.ratingAfter),
+    date: a.createdAt,
+  }));
 
   // Simple SVG rating chart
   const chartWidth = 600;
@@ -115,24 +105,24 @@ export function PuzzleStatsPage() {
             <div className="puzzle-stats-card__label">{t('puzzleStats.rating', 'Rating')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.solveRate}%</div>
+            <div className="puzzle-stats-card__value">{solveRate}%</div>
             <div className="puzzle-stats-card__label">{t('puzzleStats.solveRate', 'Solve Rate')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.currentStreak}</div>
+            <div className="puzzle-stats-card__value">{currentStreak}</div>
             <div className="puzzle-stats-card__label">{t('puzzleStats.streak', 'Streak')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.avgTimeMs > 0 ? `${Math.round(stats.avgTimeMs / 1000)}s` : '—'}</div>
+            <div className="puzzle-stats-card__value">{avgTimeMs > 0 ? `${Math.round(avgTimeMs / 1000)}s` : '—'}</div>
             <div className="puzzle-stats-card__label">{t('puzzleStats.avgTime', 'Avg Time')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.totalAttempts}</div>
+            <div className="puzzle-stats-card__value">{stats.totalAttempted}</div>
             <div className="puzzle-stats-card__label">{t('puzzleStats.total', 'Total')}</div>
           </div>
           <div className="puzzle-stats-card">
-            <div className="puzzle-stats-card__value">{stats.bestStreak}</div>
-            <div className="puzzle-stats-card__label">{t('puzzleStats.bestStreak', 'Best Streak')}</div>
+            <div className="puzzle-stats-card__value">{stats.totalSolved}</div>
+            <div className="puzzle-stats-card__label">{t('puzzleStats.solved', 'Solved')}</div>
           </div>
         </div>
       )}
@@ -140,7 +130,7 @@ export function PuzzleStatsPage() {
       {/* Rating Graph */}
       {ratingHistory.length > 1 && (
         <div className="puzzle-stats-section">
-          <h2>{t('puzzleStats.ratingGraph', 'Rating (30 days)')}</h2>
+          <h2>{t('puzzleStats.ratingGraph', 'Rating History')}</h2>
           <div className="puzzle-stats-chart">
             <svg viewBox={`-30 -10 ${chartWidth + 40} ${chartHeight + 20}`} width="100%" preserveAspectRatio="xMidYMid meet">
               <text x="-5" y="10" fontSize="10" fill="#94a3b8" textAnchor="end">{Math.round(ratingMax)}</text>
@@ -154,26 +144,6 @@ export function PuzzleStatsPage() {
                 return <circle key={i} cx={x} cy={y} r="3" fill="#7c83ff" />;
               })}
             </svg>
-          </div>
-        </div>
-      )}
-
-      {/* Themes */}
-      {themes.length > 0 && (
-        <div className="puzzle-stats-section">
-          <h2>{t('puzzleStats.themes', 'Themes')}</h2>
-          <div className="puzzle-stats-themes">
-            {themes.map((th) => (
-              <div key={th.theme} className="puzzle-stats-theme">
-                <div className="puzzle-stats-theme__header">
-                  <span className="puzzle-stats-theme__name">{th.theme}</span>
-                  <span className="puzzle-stats-theme__rate">{th.rate}% ({th.solved}/{th.total})</span>
-                </div>
-                <div className="puzzle-stats-theme__bar">
-                  <div className="puzzle-stats-theme__fill" style={{ width: `${th.rate}%` }} />
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}
@@ -203,13 +173,13 @@ export function PuzzleStatsPage() {
           </div>
           {totalAttemptsPages > 1 && (
             <div className="puzzle-pagination">
-              <button disabled={attemptsPage <= 0} onClick={() => setAttemptsPage((p) => p - 1)}>
+              <button disabled={attemptsPage <= 0} onClick={() => changePage(attemptsPage - 1)}>
                 {t('puzzleBrowser.prev', 'Prev')}
               </button>
               <span className="puzzle-pagination__info">
                 {attemptsPage + 1} / {totalAttemptsPages}
               </span>
-              <button disabled={attemptsPage >= totalAttemptsPages - 1} onClick={() => setAttemptsPage((p) => p + 1)}>
+              <button disabled={attemptsPage >= totalAttemptsPages - 1} onClick={() => changePage(attemptsPage + 1)}>
                 {t('puzzleBrowser.next', 'Next')}
               </button>
             </div>
