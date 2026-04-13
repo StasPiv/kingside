@@ -216,7 +216,7 @@ export async function generatePuzzlesFromPgn(
   for (let gi = 0; gi < games.length; gi++) {
     if (abortSignal?.aborted) break;
 
-    const gamePgn = games[gi];
+    const gamePgn = stripPgnAnnotations(games[gi]);
     const chess = new Chess();
     try {
       chess.loadPgn(gamePgn);
@@ -413,6 +413,27 @@ export async function generatePuzzlesFromPgn(
   return puzzles;
 }
 
+
+/** Strip comments {…}, variations (…), NAG ($1 etc), extra whitespace from PGN movetext */
+function stripPgnAnnotations(pgn: string): string {
+  // Preserve header lines, only strip from movetext
+  const lines = pgn.split('\n');
+  const result: string[] = [];
+  for (const line of lines) {
+    if (line.trimStart().startsWith('[')) {
+      result.push(line);
+    } else {
+      const cleaned = line
+        .replace(/\{[^}]*\}/g, '')
+        .replace(/\([^)]*\)/g, '')
+        .replace(/\$\d+/g, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      result.push(cleaned);
+    }
+  }
+  return result.join('\n');
+}
 
 function splitPgnIntoGames(pgn: string): string[] {
   const games: string[] = [];
