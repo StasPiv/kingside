@@ -297,6 +297,7 @@ export class PuzzleWorker {
           sourceId: gameId,
           sourceMoveNum: pos.moveNum,
           depth: ANALYSIS_DEPTH,
+          isPublic: true,
         },
       });
       created++;
@@ -402,6 +403,7 @@ export class PuzzleWorker {
           sourceType: 'pgn',
           sourceMoveNum: pos.moveNum,
           depth: ANALYSIS_DEPTH,
+          isPublic: true,
         },
       });
       created++;
