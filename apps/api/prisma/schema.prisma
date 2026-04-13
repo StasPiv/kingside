@@ -22,6 +22,8 @@ model User {
   ratingRapid     Int      @default(1500) @map("rating_rapid")
   ratingClassical Int      @default(1500) @map("rating_classical")
   ratingPuzzle    Int      @default(1500) @map("rating_puzzle")
+  ratingPuzzleDev Int      @default(350)  @map("rating_puzzle_dev")
+  puzzleStreak    Int      @default(0)    @map("puzzle_streak")
   gamesPlayedBullet    Int @default(0) @map("games_played_bullet")
   gamesPlayedBlitz     Int @default(0) @map("games_played_blitz")
   gamesPlayedRapid     Int @default(0) @map("games_played_rapid")
@@ -55,6 +57,7 @@ model User {
   ratingHistory       RatingHistory[]
   arenaEntries        ArenaTournamentEntry[]
   notifications       Notification[]
+  puzzleRatingSnapshots PuzzleRatingSnapshot[]
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -215,6 +218,8 @@ model PuzzleAttempt {
   timeMs       Int      @map("time_ms")
   ratingBefore Int      @map("rating_before")
   ratingAfter  Int      @map("rating_after")
+  userMoves    String?  @map("user_moves")
+  hintsUsed    Int      @default(0) @map("hints_used")
   createdAt    DateTime @default(now()) @map("created_at")
 
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
@@ -579,6 +584,8 @@ model GeneratedPuzzleAttempt {
   userRatingAfter     Int      @map("user_rating_after")
   puzzleRatingBefore  Int      @map("puzzle_rating_before")
   puzzleRatingAfter   Int      @map("puzzle_rating_after")
+  userMoves           String?  @map("user_moves")
+  hintsUsed           Int      @default(0) @map("hints_used")
   createdAt           DateTime @default(now()) @map("created_at")
 
   puzzle GeneratedPuzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
@@ -586,6 +593,21 @@ model GeneratedPuzzleAttempt {
   @@index([puzzleId])
   @@index([userId])
   @@map("generated_puzzle_attempts")
+}
+
+model PuzzleRatingSnapshot {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  rating   Int
+  date     DateTime @db.Date
+  attempts Int      @default(0)
+  solved   Int      @default(0)
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@map("puzzle_rating_snapshots")
 }
 
 model ArenaTournament {
