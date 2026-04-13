@@ -107,8 +107,9 @@ async function buildSolutionLine(
 
       if (isSolver) {
         const mpv = await engineAnalyzeMultiPV(engine, chess.fen(), Math.min(depth, 14), 2);
-        if (mpv.length < 1 || !mpv[0].bestMove || mpv[0].bestMove === '(none)') break;
-        if (mpv.length >= 2 && Math.abs(scoreToCp(mpv[0].score) - scoreToCp(mpv[1].score)) < MIN_SPREAD) break;
+        if (mpv.length < 1 || !mpv[0].bestMove || mpv[0].bestMove === '(none)') { console.log(`[buildSolution] step ${step}: no best move`); break; }
+        const solverSpread = mpv.length >= 2 ? Math.abs(scoreToCp(mpv[0].score) - scoreToCp(mpv[1].score)) : 9999;
+        if (solverSpread < MIN_SPREAD) { console.log(`[buildSolution] step ${step}: spread=${solverSpread}cp < ${MIN_SPREAD}, stopping`); break; }
         const bm = mpv[0].bestMove;
         chess.move({ from: bm.slice(0, 2), to: bm.slice(2, 4), promotion: bm.length > 4 ? bm[4] : undefined });
         moves.push(bm);
@@ -385,8 +386,9 @@ export async function generatePuzzlesFromPgn(
       // Step 4: Build forced solution line
       const solutionMoves = await buildSolutionLine(engine, pos.fenAfter, solutionFirst, depth);
       const moveCount = solutionMoves.split(' ').length;
-      if (moveCount < 2) {
-        console.log(`[PuzzleGen] move ${pos.moveNum}: skip short solution (${moveCount} moves)`);
+      // Minimum 3 UCI moves = 2 solver moves (solver → opponent → solver)
+      if (moveCount < 3) {
+        console.log(`[PuzzleGen] move ${pos.moveNum}: skip short solution (${moveCount} UCI moves)`);
         continue;
       }
 
