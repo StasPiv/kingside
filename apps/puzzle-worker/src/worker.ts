@@ -220,10 +220,13 @@ export class PuzzleWorker {
     let analyzed = 0;
     let created = 0;
     const avgRating = Math.round((whiteRating + blackRating) / 2);
+    const totalToAnalyze = positions.length - 2 - MIN_MOVE_NUM;
+    console.log(`[puzzle-worker] Game: ${moves.length} moves, ${totalToAnalyze} positions to analyze`);
 
     for (let i = MIN_MOVE_NUM; i < positions.length - 2; i++) {
       const pos = positions[i];
       analyzed++;
+      if (analyzed % 5 === 1) console.log(`[puzzle-worker] Analyzing position ${analyzed}/${totalToAnalyze} (move ${pos.moveNum})`);
 
       // Check cache
       const cacheKey = `pgen:${pos.fenBefore}`;
@@ -327,9 +330,13 @@ export class PuzzleWorker {
     let created = 0;
     const avgRating = Math.round((whiteRating + blackRating) / 2);
 
+    const totalToAnalyze = positions.length - 2 - MIN_MOVE_NUM;
+    console.log(`[puzzle-worker] PGN: ${history.length} moves, ${totalToAnalyze} positions to analyze`);
+
     for (let i = MIN_MOVE_NUM; i < positions.length - 2; i++) {
       const pos = positions[i];
       analyzed++;
+      if (analyzed % 5 === 1) console.log(`[puzzle-worker] Analyzing position ${analyzed}/${totalToAnalyze} (move ${pos.moveNum})`);
 
       const cacheKey = `pgen:${pos.fenBefore}`;
       const cached = await this.redis.get(cacheKey).catch(() => null);
