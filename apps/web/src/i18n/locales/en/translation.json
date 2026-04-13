@@ -965,7 +965,9 @@
     "myPuzzles": "My puzzles",
     "fromPgn": "Generate from PGN",
     "pastePgn": "Paste PGN here...",
-    "orUpload": "or upload .pgn file"
+    "orUpload": "or upload .pgn file",
+    "generateServer": "Generate on Server",
+    "serverQueued": "PGN sent for analysis ({{moves}} moves). Puzzles will appear shortly."
   },
   "features": {
     "hero": {

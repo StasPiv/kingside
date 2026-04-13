@@ -1411,6 +1411,41 @@ body:has(.puzzle-rush-board) {
   opacity: 0.5;
 }
 
+.puzzle-generator-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.puzzle-generator-buttons .puzzle-generator-start {
+  margin-top: 0;
+}
+
+.puzzle-generator-server {
+  background: #16a34a;
+  color: #fff;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.puzzle-generator-server:disabled {
+  opacity: 0.5;
+}
+
+.puzzle-generator-server-result {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #1e3a2f;
+  border: 1px solid #16a34a;
+  border-radius: 6px;
+  color: #86efac;
+  font-size: 13px;
+}
+
 .puzzle-generator-progress {
   text-align: center;
   padding: 20px 0;
