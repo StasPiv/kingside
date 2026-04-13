@@ -227,6 +227,7 @@ export type FindPuzzlesQuery = {
 export type PuzzleAttemptRequest = {
   result: PuzzleAttemptResult;
   timeMs: number;
+  userMoves?: string;
 };
 
 export type PuzzleAttemptResponse = {

@@ -34,6 +34,7 @@ export function PuzzlePage() {
   const [ratingChange, setRatingChange] = useState<{ before: number; after: number } | null>(null);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
+  const userMovesRef = useRef<string[]>([]);
 
   // Track solved generated puzzles in localStorage
   const markSolved = useCallback((id: string) => {
@@ -99,6 +100,7 @@ export function PuzzlePage() {
     setRatingChange(null);
     startTimeRef.current = Date.now();
     attemptSubmittedRef.current = false;
+    userMovesRef.current = [];
   }, [playSound]);
 
   const loadPuzzle = useCallback(async (specificId?: string) => {
@@ -131,17 +133,18 @@ export function PuzzlePage() {
     // Skip saving for guests
     if (!user) return null;
     const timeMs = Date.now() - startTimeRef.current;
+    const userMoves = userMovesRef.current.join(' ');
     try {
       if (isGenerated) {
         // Generated puzzle: use Glicko attempt API
         const res = await api.post<{ userRatingBefore: number; userRatingAfter: number }>(
           `/api/puzzles/generated/${puzzle.id}/attempt`,
-          { solved, timeMs },
+          { solved, timeMs, userMoves },
         );
         setRatingChange({ before: res.userRatingBefore, after: res.userRatingAfter });
         return null;
       }
-      const response = await puzzleApi.submitAttempt(puzzle.id, { result: solved ? 'solved' : 'failed', timeMs });
+      const response = await puzzleApi.submitAttempt(puzzle.id, { result: solved ? 'solved' : 'failed', timeMs, userMoves });
       return response.nextPuzzle;
     } catch {
       return null;
@@ -162,6 +165,7 @@ export function PuzzlePage() {
 
       // For generated puzzles with multiple accepted moves (first move only)
       const playerUci = sourceSquare + targetSquare;
+      userMovesRef.current.push(playerUci);
       const acceptedList = isGenerated && moveIndex === 0 && (puzzle as unknown as { acceptedMoves?: string }).acceptedMoves
         ? (puzzle as unknown as { acceptedMoves: string }).acceptedMoves.split(' ')
         : null;
