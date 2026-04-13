@@ -163,7 +163,7 @@ export class PuzzleGeneratorService {
 
       // Step 4: Build solution line from post-blunder position
       const solutionMoves = await this.buildSolutionLine(pos.fenAfter, solutionFirstMove, depth);
-      if (solutionMoves.split(' ').length < 1) continue;
+      if (solutionMoves.split(' ').length < 2) continue; // minimum 2 half-moves
 
       const rating = this.estimateRating(evalDrop, spread, solutionMoves.split(' ').length);
 
@@ -209,8 +209,10 @@ export class PuzzleGeneratorService {
   }
 
   /**
-   * Build a solution line from the post-blunder position.
-   * Each move must be the unique best (large spread over 2nd best).
+   * Build a forced solution line from the post-blunder position.
+   * Solver's moves (odd indices: 0, 2, 4) must have spread >= 150cp.
+   * Opponent's moves (even indices: 1, 3, 5) are simply the best response.
+   * Line length: 2-6 half-moves.
    */
   private async buildSolutionLine(
     fen: string,
@@ -221,25 +223,42 @@ export class PuzzleGeneratorService {
     const solutionMoves: string[] = [];
 
     try {
+      // First move already validated with spread check in caller
       const from = firstMove.slice(0, 2);
       const to = firstMove.slice(2, 4);
       const promo = firstMove.length > 4 ? firstMove[4] : undefined;
       chess.move({ from, to, promotion: promo });
       solutionMoves.push(firstMove);
 
-      for (let step = 0; step < MAX_SOLUTION_MOVES - 1; step++) {
+      for (let step = 1; step < MAX_SOLUTION_MOVES; step++) {
         const currentFen = chess.fen();
         if (chess.isGameOver()) break;
 
-        const analysis = await this.stockfish.analyze(currentFen, Math.min(depth, 14));
-        if (!analysis.bestMove || analysis.bestMove === '(none)') break;
+        const isSolverMove = step % 2 === 0; // step 0=solver(done), 1=opponent, 2=solver, 3=opponent...
 
-        const bm = analysis.bestMove;
-        const f = bm.slice(0, 2);
-        const t = bm.slice(2, 4);
-        const p = bm.length > 4 ? bm[4] : undefined;
-        chess.move({ from: f, to: t, promotion: p });
-        solutionMoves.push(bm);
+        if (isSolverMove) {
+          // Solver's move: must have spread >= MIN_SPREAD
+          const multiPV = await this.stockfish.analyzeMultiPV(currentFen, Math.min(depth, 14), 2);
+          if (multiPV.length < 1 || !multiPV[0].bestMove || multiPV[0].bestMove === '(none)') break;
+
+          if (multiPV.length >= 2) {
+            const best = this.scoreToCp(multiPV[0].score);
+            const second = this.scoreToCp(multiPV[1].score);
+            if (Math.abs(best - second) < MIN_SPREAD) break; // not forced — stop
+          }
+
+          const bm = multiPV[0].bestMove;
+          chess.move({ from: bm.slice(0, 2), to: bm.slice(2, 4), promotion: bm.length > 4 ? bm[4] : undefined });
+          solutionMoves.push(bm);
+        } else {
+          // Opponent's move: just best response
+          const analysis = await this.stockfish.analyze(currentFen, Math.min(depth, 14));
+          if (!analysis.bestMove || analysis.bestMove === '(none)') break;
+
+          const bm = analysis.bestMove;
+          chess.move({ from: bm.slice(0, 2), to: bm.slice(2, 4), promotion: bm.length > 4 ? bm[4] : undefined });
+          solutionMoves.push(bm);
+        }
       }
     } catch {
       // Invalid move — return what we have
