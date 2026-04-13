@@ -313,6 +313,7 @@ export async function generatePuzzlesFromPgn(
     }
 
     const totalToAnalyze = Math.max(0, positions.length - 2 - MIN_MOVE_NUM);
+    console.log('[PuzzleGen] Positions:', positions.length, 'Analyzing:', totalToAnalyze, '(from move', MIN_MOVE_NUM + 1, 'to', positions.length - 2, ')');
 
     for (let i = MIN_MOVE_NUM; i < positions.length - 2; i++) {
       if (abortSignal?.aborted) break;
@@ -356,6 +357,9 @@ export async function generatePuzzlesFromPgn(
       }
 
       const evalDrop = bestScore - playedScore;
+      if (analyzeIndex % 5 === 0 || evalDrop >= MIN_EVAL_DROP) {
+        console.log(`[PuzzleGen] move ${pos.moveNum}: best=${bestScore}cp played=${playedScore}cp drop=${evalDrop}cp`);
+      }
       if (evalDrop < MIN_EVAL_DROP) continue;
 
       // Step 2: Spread check — MultiPV 2 on position AFTER the blunder

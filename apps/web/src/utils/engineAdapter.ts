@@ -136,6 +136,7 @@ export class WasmEngineAdapter implements EngineAdapter {
       };
 
       this.worker!.addEventListener('message', handler);
+      this.worker!.postMessage(`setoption name MultiPV value ${multiPv}`);
       this.worker!.postMessage(`position fen ${fen}`);
       this.worker!.postMessage(`go depth ${depth}`);
     });
