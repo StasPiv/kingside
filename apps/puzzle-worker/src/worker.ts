@@ -299,9 +299,11 @@ export class PuzzleWorker {
     whiteRating: number,
     blackRating: number,
   ): Promise<{ puzzlesCreated: number; positionsAnalyzed: number }> {
+    // Strip comments { ... } and variations ( ... ) before parsing
+    const cleanPgn = pgn.replace(/\{[^}]*\}/g, '').replace(/\([^)]*\)/g, '');
     const chess = new Chess();
     try {
-      chess.loadPgn(pgn);
+      chess.loadPgn(cleanPgn);
     } catch (e: any) {
       console.error(`[puzzle-worker] Invalid PGN: ${e.message}`);
       return { puzzlesCreated: 0, positionsAnalyzed: 0 };
