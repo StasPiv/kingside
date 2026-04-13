@@ -373,17 +373,57 @@ export class PuzzleService {
    * Get user's recent puzzle attempts.
    */
   async getUserAttempts(userId: string, take = 20, skip = 0) {
-    return this.prisma.puzzleAttempt.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take,
-      skip,
-      include: {
-        puzzle: {
-          select: { id: true, fen: true, rating: true, themes: true },
+    // Fetch from both tables, merge, sort by date
+    const [lichess, generated] = await Promise.all([
+      this.prisma.puzzleAttempt.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: take + skip, // overfetch for merge
+        include: {
+          puzzle: { select: { id: true, fen: true, rating: true, themes: true } },
         },
-      },
-    });
+      }),
+      this.prisma.generatedPuzzleAttempt.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: take + skip,
+        include: {
+          puzzle: { select: { id: true, fen: true, rating: true, themes: true } },
+        },
+      }),
+    ]);
+
+    const merged = [
+      ...lichess.map((a: any) => ({
+        id: a.id,
+        puzzleId: a.puzzleId,
+        solved: a.solved,
+        timeMs: a.timeMs,
+        ratingBefore: a.ratingBefore,
+        ratingAfter: a.ratingAfter,
+        userMoves: a.userMoves ?? null,
+        hintsUsed: a.hintsUsed ?? 0,
+        createdAt: a.createdAt,
+        puzzleType: 'lichess' as const,
+        puzzle: a.puzzle,
+      })),
+      ...generated.map((a: any) => ({
+        id: a.id,
+        puzzleId: a.puzzleId,
+        solved: a.solved,
+        timeMs: a.timeMs,
+        ratingBefore: a.userRatingBefore,
+        ratingAfter: a.userRatingAfter,
+        userMoves: a.userMoves ?? null,
+        hintsUsed: a.hintsUsed ?? 0,
+        createdAt: a.createdAt,
+        puzzleType: 'generated' as const,
+        puzzle: a.puzzle,
+      })),
+    ];
+
+    merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return merged.slice(skip, skip + take);
   }
 
   private formatPuzzle(puzzle: {
