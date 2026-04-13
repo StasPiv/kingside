@@ -56,9 +56,9 @@ export const DEFAULT_PUZZLE_GEN_SETTINGS: PuzzleGenSettings = {
 };
 
 // --- Constants (matching server puzzle-worker) ---
-const MIN_EVAL_DROP = 200;
-const MIN_SPREAD = 150;
-const MIN_MOVE_NUM = 10;
+const MIN_EVAL_DROP = 150;
+const MIN_SPREAD = 100;
+const MIN_MOVE_NUM = 8;
 const MAX_SOLUTION_MOVES = 6;
 
 function scoreToCp(s: { type: 'cp' | 'mate'; value: number }): number {
@@ -297,7 +297,7 @@ export async function generatePuzzlesFromPgn(
 
     const history = chess.history({ verbose: true });
     console.log('[PuzzleGen] Game', gi + 1, ':', history.length, 'moves');
-    if (history.length < 20) {
+    if (history.length < 16) {
       console.log('[PuzzleGen] Game', gi + 1, ': too short, skipping');
       continue;
     }
