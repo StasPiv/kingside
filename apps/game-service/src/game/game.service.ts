@@ -579,6 +579,15 @@ export class GameService {
       }
     } catch { /* non-critical */ }
 
+    // Push to puzzle generation queue (human vs human only)
+    try {
+      const wId = raw.white_id;
+      const bId = raw.black_id;
+      if (wId && bId && wId !== STOCKFISH_BOT_ID && bId !== STOCKFISH_BOT_ID) {
+        await this.redis.lpush('puzzle-gen:queue', gameId);
+      }
+    } catch { /* non-critical */ }
+
     // Fire post-game hooks in background (arena scoring, etc.) — don't block the hot path
     if (this.postGameHooks.length > 0) {
       const hooks = [...this.postGameHooks];
