@@ -152,13 +152,27 @@ export class PuzzleWorker {
       try {
         const result = await this.redis.brpop(QUEUE_KEY, 5);
         if (!result) continue;
-        const gameId = result[1];
-        console.log(`[puzzle-worker] Processing game ${gameId}`);
+        const msg = result[1];
+
         try {
-          const { puzzlesCreated, positionsAnalyzed } = await this.processGame(gameId);
-          console.log(`[puzzle-worker] Game ${gameId}: ${puzzlesCreated} puzzles from ${positionsAnalyzed} positions`);
+          let res: { puzzlesCreated: number; positionsAnalyzed: number };
+          // Detect message type: JSON with type=pgn or plain UUID
+          if (msg.startsWith('{')) {
+            const parsed = JSON.parse(msg);
+            if (parsed.type === 'pgn' && parsed.pgn) {
+              console.log(`[puzzle-worker] Processing PGN (${parsed.pgn.length} chars)`);
+              res = await this.processPgn(parsed.pgn, parsed.whiteRating ?? 1500, parsed.blackRating ?? 1500);
+            } else {
+              console.warn(`[puzzle-worker] Unknown message type: ${parsed.type}`);
+              continue;
+            }
+          } else {
+            console.log(`[puzzle-worker] Processing game ${msg}`);
+            res = await this.processGame(msg);
+          }
+          console.log(`[puzzle-worker] Result: ${res.puzzlesCreated} puzzles from ${res.positionsAnalyzed} positions`);
         } catch (e: any) {
-          console.error(`[puzzle-worker] Game ${gameId} failed: ${e.message}`);
+          console.error(`[puzzle-worker] Processing failed: ${e.message}`);
         }
       } catch (e: any) {
         if (!this.stopped) console.error(`[puzzle-worker] Poll error: ${e.message}`);
@@ -275,6 +289,105 @@ export class PuzzleWorker {
       });
       created++;
       console.log(`[puzzle-worker] Puzzle: move ${pos.moveNum} drop=${evalDrop}cp spread=${spread}cp solution=${solutionMoves}`);
+    }
+
+    return { puzzlesCreated: created, positionsAnalyzed: analyzed };
+  }
+
+  private async processPgn(
+    pgn: string,
+    whiteRating: number,
+    blackRating: number,
+  ): Promise<{ puzzlesCreated: number; positionsAnalyzed: number }> {
+    const chess = new Chess();
+    try {
+      chess.loadPgn(pgn);
+    } catch (e: any) {
+      console.error(`[puzzle-worker] Invalid PGN: ${e.message}`);
+      return { puzzlesCreated: 0, positionsAnalyzed: 0 };
+    }
+
+    const history = chess.history({ verbose: true });
+    if (history.length < MIN_GAME_MOVES) return { puzzlesCreated: 0, positionsAnalyzed: 0 };
+
+    // Reconstruct positions from history
+    const replay = new Chess();
+    const positions: Array<{ fenBefore: string; fenAfter: string; playedUci: string; moveNum: number }> = [];
+    for (const move of history) {
+      const fenBefore = replay.fen();
+      const uci = move.from + move.to + (move.promotion ?? '');
+      replay.move(move);
+      positions.push({ fenBefore, fenAfter: replay.fen(), playedUci: uci, moveNum: positions.length + 1 });
+    }
+
+    // Reuse analysis logic — same as processGame but with sourceType=pgn
+    let analyzed = 0;
+    let created = 0;
+    const avgRating = Math.round((whiteRating + blackRating) / 2);
+
+    for (let i = MIN_MOVE_NUM; i < positions.length - 2; i++) {
+      const pos = positions[i];
+      analyzed++;
+
+      const cacheKey = `pgen:${pos.fenBefore}`;
+      const cached = await this.redis.get(cacheKey).catch(() => null);
+      let bestMove: string, bestScore: number, playedScore: number;
+
+      if (cached) {
+        const c = JSON.parse(cached);
+        bestMove = c.bestMove;
+        bestScore = c.bestScore;
+        playedScore = c.playedScores?.[pos.playedUci] ?? bestScore;
+      } else {
+        const analysis = await this.analyzeMultiPV(pos.fenBefore, ANALYSIS_DEPTH, 3);
+        if (analysis.length < 1) continue;
+        bestMove = analysis[0].bestMove;
+        bestScore = this.scoreToCp(analysis[0].score);
+
+        const playedPV = analysis.find((a) => a.bestMove === pos.playedUci);
+        if (playedPV) {
+          playedScore = this.scoreToCp(playedPV.score);
+        } else {
+          const pa = await this.analyze(pos.fenAfter, Math.min(ANALYSIS_DEPTH, 14));
+          playedScore = -this.scoreToCp(pa.score);
+        }
+
+        await this.redis.set(cacheKey, JSON.stringify({ bestMove, bestScore, playedScores: { [pos.playedUci]: playedScore } }), 'EX', CACHE_TTL).catch(() => {});
+      }
+
+      const evalDrop = bestScore - playedScore;
+      if (evalDrop < MIN_EVAL_DROP) continue;
+
+      const postAnalysis = await this.analyzeMultiPV(pos.fenAfter, ANALYSIS_DEPTH, 2);
+      if (postAnalysis.length < 2) continue;
+      const spread = Math.abs(this.scoreToCp(postAnalysis[0].score) - this.scoreToCp(postAnalysis[1].score));
+      if (spread < MIN_SPREAD) continue;
+
+      const blunderTo = pos.playedUci.slice(2, 4);
+      const solutionFirst = postAnalysis[0].bestMove;
+      if (solutionFirst.slice(2, 4) === blunderTo) continue;
+
+      const solutionMoves = await this.buildSolutionLine(pos.fenAfter, solutionFirst);
+      const moveCount = solutionMoves.split(' ').length;
+      if (moveCount < 2) continue;
+
+      const rating = this.estimateRating(avgRating, evalDrop, moveCount);
+      const themes = this.classifyThemes(pos.fenAfter, solutionMoves);
+
+      await this.prisma.generatedPuzzle.create({
+        data: {
+          fen: pos.fenAfter,
+          moves: solutionMoves,
+          rating,
+          gap: spread,
+          themes: themes.join(' '),
+          sourceType: 'pgn',
+          sourceMoveNum: pos.moveNum,
+          depth: ANALYSIS_DEPTH,
+        },
+      });
+      created++;
+      console.log(`[puzzle-worker] PGN Puzzle: move ${pos.moveNum} drop=${evalDrop}cp spread=${spread}cp solution=${solutionMoves}`);
     }
 
     return { puzzlesCreated: created, positionsAnalyzed: analyzed };
