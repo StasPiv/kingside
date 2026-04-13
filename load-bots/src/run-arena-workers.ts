@@ -39,7 +39,7 @@ async function main() {
   const bot0 = new BotUser(config.baseUrl, config.wsUrl, `${config.userPrefix}T0`, new Metrics());
   await bot0.login(config.devBypassSecret);
 
-  const startsAt = new Date(Date.now() + 15_000).toISOString();
+  const startsAt = new Date(Date.now() + 60_000).toISOString();
   let tournament: { id: string };
   try {
     tournament = await bot0.post<{ id: string }>('/api/arena', {

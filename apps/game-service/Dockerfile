@@ -31,6 +31,7 @@ RUN ls apps/game-service/dist/main.js
 FROM base AS production
 WORKDIR /app
 COPY --from=build /app/apps/game-service/dist ./apps/game-service/dist
+COPY apps/game-service/data ./apps/game-service/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
 COPY --from=build /app/apps/game-service/prisma ./apps/game-service/prisma
