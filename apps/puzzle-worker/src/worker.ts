@@ -258,6 +258,7 @@ export class PuzzleWorker {
       if (moveCount < 2) continue;
 
       const rating = this.estimateRating(avgRating, evalDrop, moveCount);
+      const themes = this.classifyThemes(pos.fenAfter, solutionMoves);
 
       await this.prisma.generatedPuzzle.create({
         data: {
@@ -265,6 +266,7 @@ export class PuzzleWorker {
           moves: solutionMoves,
           rating,
           gap: spread,
+          themes: themes.join(' '),
           sourceType: 'game',
           sourceId: gameId,
           sourceMoveNum: pos.moveNum,
@@ -305,6 +307,63 @@ export class PuzzleWorker {
       }
     } catch { /* invalid move */ }
     return moves.join(' ');
+  }
+
+  private classifyThemes(fen: string, solutionMoves: string): string[] {
+    const themes: string[] = [];
+    const moves = solutionMoves.split(' ');
+    const chess = new Chess(fen);
+
+    // Endgame: <= 7 total pieces (kings + others, excluding pawns is too complex for MVP)
+    const pieces = fen.split(' ')[0].replace(/[0-9/]/g, '');
+    if (pieces.length <= 7) themes.push('endgame');
+
+    // Play through solution to check for mate
+    try {
+      for (const uci of moves) {
+        chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+      }
+      if (chess.isCheckmate()) {
+        // Count solver's moves (indices 0, 2, 4...) = ceil(moves.length / 2)
+        const solverMoves = Math.ceil(moves.length / 2);
+        if (solverMoves <= 3) themes.push(`mateIn${solverMoves}`);
+        themes.push('mate');
+      }
+    } catch { /* invalid move sequence */ }
+
+    // Fork: first solution move attacks >= 2 pieces (including king)
+    try {
+      const forkChess = new Chess(fen);
+      const firstUci = moves[0];
+      forkChess.move({ from: firstUci.slice(0, 2), to: firstUci.slice(2, 4), promotion: firstUci.length > 4 ? firstUci[4] : undefined });
+      const to = firstUci.slice(2, 4);
+      // Get all squares attacked by the piece that just moved
+      const attackedPieces: string[] = [];
+      const board = forkChess.board();
+      const movingColor = fen.split(' ')[1] === 'w' ? 'b' : 'w'; // after move, it's opponent's turn; piece that moved is opposite
+      const pieceColor = movingColor === 'w' ? 'b' : 'w'; // the solver's color
+
+      // Check all opponent pieces — are they attacked by the piece on 'to'?
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const sq = board[r][c];
+          if (!sq || sq.color === pieceColor) continue; // skip own pieces
+          const sqName = String.fromCharCode(97 + c) + (8 - r);
+          if (sqName === to) continue;
+          // Check if piece on 'to' attacks this square
+          const testChess = new Chess(forkChess.fen());
+          // Remove the opponent piece and see if our piece can move there
+          // Simpler: check if there's a legal move from 'to' to 'sqName' (capture)
+          const legalMoves = testChess.moves({ square: to as any, verbose: true });
+          if (legalMoves.some((m: any) => m.to === sqName)) {
+            attackedPieces.push(sq.type);
+          }
+        }
+      }
+      if (attackedPieces.length >= 2) themes.push('fork');
+    } catch { /* ignore */ }
+
+    return themes;
   }
 
   private estimateRating(avgPlayerRating: number, evalDrop: number, solutionLength: number): number {
