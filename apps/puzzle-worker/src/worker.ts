@@ -105,7 +105,7 @@ export class PuzzleWorker {
     for (const line of output.split('\n')) {
       const bm = line.match(/^bestmove (\S+)/);
       if (bm) bestMove = bm[1];
-      const info = line.match(/^info depth (\d+) .* score (cp|mate) (-?\d+) .* pv (.+)/);
+      const info = line.trim().match(/^info depth (\d+) .*?score (cp|mate) (-?\d+) .*? pv (.+)/);
       if (info && parseInt(info[1]) === depth) {
         score = { type: info[2] as 'cp' | 'mate', value: parseInt(info[3]) };
       }
@@ -126,7 +126,7 @@ export class PuzzleWorker {
     let infoCount = 0;
     for (const line of output.split('\n')) {
       const trimmed = line.trim();
-      const m = trimmed.match(/^info depth (\d+) .* multipv (\d+) .* score (cp|mate) (-?\d+) .* pv (.+)/);
+      const m = trimmed.match(/^info depth (\d+) .*?multipv (\d+) .*?score (cp|mate) (-?\d+) .*? pv (.+)/);
       if (trimmed.startsWith('info depth')) infoCount++;
       if (m && parseInt(m[1]) === depth) {
         const idx = parseInt(m[2]);
