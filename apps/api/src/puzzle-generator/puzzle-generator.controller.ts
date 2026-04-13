@@ -41,8 +41,15 @@ export class PuzzleGeneratorController {
   async generateFromPgn(
     @Body() dto: GenerateFromPgnDto,
   ) {
-    // Strip comments { ... } before parsing — chess.js chokes on some annotation formats
-    const cleanPgn = dto.pgn.replace(/\{[^}]*\}/g, '');
+    // Strip comments { ... } and variations ( ... ) before parsing
+    let cleanPgn = dto.pgn.replace(/\{[^}]*\}/g, '').replace(/\([^)]*\)/g, '');
+
+    // Reject multi-game PGN
+    const eventCount = (cleanPgn.match(/\[Event\s/g) || []).length;
+    if (eventCount > 1) {
+      throw new BadRequestException(`Multiple games in PGN (${eventCount}). Please send one game at a time.`);
+    }
+
     const chess = new Chess();
     try {
       chess.loadPgn(cleanPgn);
