@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { I18nService } from 'nestjs-i18n';
+import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
@@ -216,6 +217,15 @@ export class PuzzleService {
       throw new NotFoundException(this.i18n.t('messages.puzzle.notFound'));
     }
 
+    // Server-side validation: verify user played the correct side
+    if (solved && userMoves) {
+      const isValid = this.validatePlayerSide(puzzle.fen, puzzle.moves, puzzle.source, userMoves);
+      if (!isValid) {
+        this.logger.warn(`Puzzle ${puzzleId}: user ${userId} played wrong side, overriding solved=false`);
+        solved = false;
+      }
+    }
+
     // Check if already solved — retry without rating change
     const alreadySolved = await this.prisma.puzzleAttempt.findFirst({
       where: { userId, puzzleId, solved: true },
@@ -398,6 +408,44 @@ export class PuzzleService {
         puzzle: { select: { id: true, fen: true, rating: true, themes: true, source: true } },
       },
     });
+  }
+
+  /**
+   * Validate that user's moves were made by the correct side.
+   * Lichess puzzles: moves[0] is setup (opponent), player is opposite side.
+   * Generated puzzles: no setup, player is the side to move in FEN.
+   */
+  private validatePlayerSide(fen: string, moves: string, source: string, userMoves: string): boolean {
+    try {
+      const chess = new Chess(fen);
+      const solutionMoves = moves.split(' ');
+      const userMovesList = userMoves.split(' ').filter(Boolean);
+      if (userMovesList.length === 0) return true; // no moves to validate
+
+      const initialTurn = chess.turn();
+      const isGenerated = source === 'generated';
+      const playerColor = isGenerated ? initialTurn : (initialTurn === 'w' ? 'b' : 'w');
+
+      // For Lichess: apply setup move to reach the player's position
+      if (!isGenerated && solutionMoves.length > 1) {
+        const setup = solutionMoves[0];
+        chess.move({ from: setup.slice(0, 2), to: setup.slice(2, 4), promotion: setup[4] });
+      }
+
+      // After setup, it must be the player's turn
+      if (chess.turn() !== playerColor) return false;
+
+      // Check that the first user move is a piece of the player's color
+      const firstUci = userMovesList[0];
+      if (firstUci.length >= 4) {
+        const piece = chess.get(firstUci.slice(0, 2) as any);
+        if (piece && piece.color !== playerColor) return false;
+      }
+
+      return true;
+    } catch {
+      return true; // don't block on validation errors
+    }
   }
 
   private formatPuzzle(puzzle: {
