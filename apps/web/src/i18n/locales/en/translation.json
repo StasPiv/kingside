@@ -1020,5 +1020,9 @@
   },
   "serverBusy": {
     "message": "Please wait, scaling up. Your game will start in ~1 minute."
+  },
+  "testMode": {
+    "message": "Site is in test mode. Feedback and suggestions",
+    "feedbackLink": "feedback form"
   }
 }
