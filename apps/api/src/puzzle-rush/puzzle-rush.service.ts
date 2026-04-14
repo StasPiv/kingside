@@ -625,6 +625,7 @@ export class PuzzleRushService {
     // Use raw query for random selection with exclusion
     const puzzles = await this.prisma.puzzle.findMany({
       where: {
+        source: 'lichess',
         rating: { gte: minRating, lte: maxRating },
         id: { notIn: allExcludeIds.length > 0 ? allExcludeIds : undefined },
       },
@@ -636,6 +637,7 @@ export class PuzzleRushService {
       // Fallback: try without rating filter
       const fallback = await this.prisma.puzzle.findMany({
         where: {
+          source: 'lichess',
           id: { notIn: allExcludeIds.length > 0 ? allExcludeIds : undefined },
         },
         take: 1,

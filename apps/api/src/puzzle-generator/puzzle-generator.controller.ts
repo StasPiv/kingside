@@ -61,13 +61,14 @@ export class PuzzleGeneratorController {
     const puzzles = body.puzzles ?? [];
     if (puzzles.length === 0) return { count: 0 };
 
-    const created = await this.prisma.generatedPuzzle.createMany({
+    const created = await this.prisma.puzzle.createMany({
       data: puzzles.slice(0, 200).map((p) => ({
         fen: p.fen,
         moves: p.moves,
         rating: p.rating,
         gap: p.gap,
         themes: p.themes,
+        source: 'generated',
         sourceType: p.sourceType || 'pgn_import',
         sourceId: p.sourceId || null,
         sourceMoveNum: p.sourceMoveNum ?? 0,
@@ -75,6 +76,7 @@ export class PuzzleGeneratorController {
         acceptedMoves: p.acceptedMoves || null,
         depth: 14,
         createdBy: req.user.id,
+        isPublic: true,
       })),
       skipDuplicates: true,
     });
@@ -110,7 +112,7 @@ export class PuzzleGeneratorController {
       : 'createdAt';
     const sortOrder: 'asc' | 'desc' = order === 'asc' ? 'asc' : 'desc';
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { source: 'generated' };
 
     // Visibility filter
     if (mine === 'true' && userId) {
@@ -142,13 +144,13 @@ export class PuzzleGeneratorController {
     }
 
     const [data, total] = await Promise.all([
-      this.prisma.generatedPuzzle.findMany({
+      this.prisma.puzzle.findMany({
         where,
         take: limit,
         skip: offset,
         orderBy: { [sortField]: sortOrder },
       }),
-      this.prisma.generatedPuzzle.count({ where }),
+      this.prisma.puzzle.count({ where }),
     ]);
 
     return {
@@ -187,7 +189,7 @@ export class PuzzleGeneratorController {
     @Query('mine') mine?: string,
   ) {
     const userId = req.user?.id;
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { source: 'generated' };
 
     // Visibility filter
     if (mine === 'true' && userId) {
@@ -210,11 +212,11 @@ export class PuzzleGeneratorController {
       where.rating = rating;
     }
 
-    const count = await this.prisma.generatedPuzzle.count({ where });
+    const count = await this.prisma.puzzle.count({ where });
     if (count === 0) return null;
 
     const skip = Math.floor(Math.random() * count);
-    const puzzle = await this.prisma.generatedPuzzle.findFirst({ where, skip });
+    const puzzle = await this.prisma.puzzle.findFirst({ where, skip });
     if (!puzzle) return null;
 
     return {
@@ -238,8 +240,8 @@ export class PuzzleGeneratorController {
   @UseGuards(JwtAuthGuard)
   @Patch('publish-all')
   async publishAll(@Request() req: AuthenticatedRequest) {
-    const result = await this.prisma.generatedPuzzle.updateMany({
-      where: { createdBy: req.user.id },
+    const result = await this.prisma.puzzle.updateMany({
+      where: { createdBy: req.user.id, source: 'generated' },
       data: { isPublic: true },
     });
     return { updated: result.count };
@@ -255,11 +257,11 @@ export class PuzzleGeneratorController {
     @Request() req: AuthenticatedRequest,
     @Body() body: { isPublic?: boolean },
   ) {
-    const puzzle = await this.prisma.generatedPuzzle.findUnique({ where: { id } });
+    const puzzle = await this.prisma.puzzle.findUnique({ where: { id } });
     if (!puzzle) throw new NotFoundException('Puzzle not found');
     if (puzzle.createdBy !== req.user.id) throw new ForbiddenException();
 
-    const updated = await this.prisma.generatedPuzzle.update({
+    const updated = await this.prisma.puzzle.update({
       where: { id },
       data: { isPublic: body.isPublic ?? puzzle.isPublic },
     });
@@ -277,8 +279,8 @@ export class PuzzleGeneratorController {
   @UseGuards(JwtAuthGuard)
   @Delete('all')
   async deleteAll(@Request() req: AuthenticatedRequest) {
-    const result = await this.prisma.generatedPuzzle.deleteMany({
-      where: { createdBy: req.user.id },
+    const result = await this.prisma.puzzle.deleteMany({
+      where: { createdBy: req.user.id, source: 'generated' },
     });
     return { deleted: result.count };
   }
@@ -292,11 +294,11 @@ export class PuzzleGeneratorController {
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
   ) {
-    const puzzle = await this.prisma.generatedPuzzle.findUnique({ where: { id } });
+    const puzzle = await this.prisma.puzzle.findUnique({ where: { id } });
     if (!puzzle || puzzle.createdBy !== req.user.id) {
       return { deleted: 0 };
     }
-    await this.prisma.generatedPuzzle.delete({ where: { id } });
+    await this.prisma.puzzle.delete({ where: { id } });
     return { deleted: 1 };
   }
 
@@ -305,7 +307,7 @@ export class PuzzleGeneratorController {
    */
   @Get(':id')
   async getOne(@Param('id', ParseUUIDPipe) id: string) {
-    const puzzle = await this.prisma.generatedPuzzle.findUnique({ where: { id } });
+    const puzzle = await this.prisma.puzzle.findUnique({ where: { id } });
     if (!puzzle) return null;
 
     return {
@@ -336,7 +338,7 @@ export class PuzzleGeneratorController {
     @Request() req: AuthenticatedRequest,
     @Body() body: { solved: boolean; timeMs: number },
   ) {
-    const puzzle = await this.prisma.generatedPuzzle.findUnique({ where: { id } });
+    const puzzle = await this.prisma.puzzle.findUnique({ where: { id } });
     if (!puzzle) throw new NotFoundException('Puzzle not found');
 
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -356,19 +358,19 @@ export class PuzzleGeneratorController {
 
     // Save all in transaction
     await this.prisma.$transaction([
-      this.prisma.generatedPuzzleAttempt.create({
+      this.prisma.puzzleAttempt.create({
         data: {
           puzzleId: id,
           userId: req.user.id,
           solved: body.solved,
           timeMs: body.timeMs,
-          userRatingBefore,
-          userRatingAfter,
+          ratingBefore: userRatingBefore,
+          ratingAfter: userRatingAfter,
           puzzleRatingBefore,
           puzzleRatingAfter,
         },
       }),
-      this.prisma.generatedPuzzle.update({
+      this.prisma.puzzle.update({
         where: { id },
         data: {
           rating: puzzleRatingAfter,

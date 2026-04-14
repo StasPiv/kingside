@@ -187,17 +187,19 @@ export class PuzzleGeneratorService {
     // Save candidates to DB
     let created = 0;
     for (const c of candidates) {
-      await this.prisma.generatedPuzzle.create({
+      await this.prisma.puzzle.create({
         data: {
           fen: c.fen,
           moves: c.moves,
           rating: c.rating,
           gap: c.spread,
+          source: 'generated',
           sourceType: 'game',
           sourceId: gameId,
           sourceMoveNum: c.sourceMoveNum,
           depth,
           createdBy: userId,
+          isPublic: true,
         },
       });
       created++;

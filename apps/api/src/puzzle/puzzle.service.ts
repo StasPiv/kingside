@@ -264,11 +264,9 @@ export class PuzzleService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const [totalAttempted, totalSolved, genAttempted, genSolved, bestRush, avgTime, todaySnapshot] = await Promise.all([
+    const [totalAttempted, totalSolved, bestRush, avgTime, todaySnapshot] = await Promise.all([
       this.prisma.puzzleAttempt.count({ where: { userId } }),
       this.prisma.puzzleAttempt.count({ where: { userId, solved: true } }),
-      this.prisma.generatedPuzzleAttempt.count({ where: { userId } }),
-      this.prisma.generatedPuzzleAttempt.count({ where: { userId, solved: true } }),
       this.prisma.puzzleRushScore.findFirst({
         where: { userId },
         orderBy: { score: 'desc' },
@@ -283,15 +281,12 @@ export class PuzzleService {
       }),
     ]);
 
-    const allAttempted = totalAttempted + genAttempted;
-    const allSolved = totalSolved + genSolved;
-
     return {
       rating: user.ratingPuzzle,
       ratingDev: user.ratingPuzzleDev,
-      totalSolved: allSolved,
-      totalAttempted: allAttempted,
-      solveRate: allAttempted > 0 ? Math.round((allSolved / allAttempted) * 100) : 0,
+      totalSolved,
+      totalAttempted,
+      solveRate: totalAttempted > 0 ? Math.round((totalSolved / totalAttempted) * 100) : 0,
       avgTimeMs: Math.round(avgTime._avg.timeMs ?? 0),
       currentStreak: user.puzzleStreak,
       todaySolved: todaySnapshot?.solved ?? 0,
@@ -373,57 +368,15 @@ export class PuzzleService {
    * Get user's recent puzzle attempts.
    */
   async getUserAttempts(userId: string, take = 20, skip = 0) {
-    // Fetch from both tables, merge, sort by date
-    const [lichess, generated] = await Promise.all([
-      this.prisma.puzzleAttempt.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-        take: take + skip, // overfetch for merge
-        include: {
-          puzzle: { select: { id: true, fen: true, rating: true, themes: true } },
-        },
-      }),
-      this.prisma.generatedPuzzleAttempt.findMany({
-        where: { userId },
-        orderBy: { createdAt: 'desc' },
-        take: take + skip,
-        include: {
-          puzzle: { select: { id: true, fen: true, rating: true, themes: true } },
-        },
-      }),
-    ]);
-
-    const merged = [
-      ...lichess.map((a: any) => ({
-        id: a.id,
-        puzzleId: a.puzzleId,
-        solved: a.solved,
-        timeMs: a.timeMs,
-        ratingBefore: a.ratingBefore,
-        ratingAfter: a.ratingAfter,
-        userMoves: a.userMoves ?? null,
-        hintsUsed: a.hintsUsed ?? 0,
-        createdAt: a.createdAt,
-        puzzleType: 'lichess' as const,
-        puzzle: a.puzzle,
-      })),
-      ...generated.map((a: any) => ({
-        id: a.id,
-        puzzleId: a.puzzleId,
-        solved: a.solved,
-        timeMs: a.timeMs,
-        ratingBefore: a.userRatingBefore,
-        ratingAfter: a.userRatingAfter,
-        userMoves: a.userMoves ?? null,
-        hintsUsed: a.hintsUsed ?? 0,
-        createdAt: a.createdAt,
-        puzzleType: 'generated' as const,
-        puzzle: a.puzzle,
-      })),
-    ];
-
-    merged.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-    return merged.slice(skip, skip + take);
+    return this.prisma.puzzleAttempt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take,
+      skip,
+      include: {
+        puzzle: { select: { id: true, fen: true, rating: true, themes: true, source: true } },
+      },
+    });
   }
 
   private formatPuzzle(puzzle: {
