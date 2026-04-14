@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { FeedbackModal } from './FeedbackModal';
 
 const NAV_ITEMS = [
   { path: '/lobby', icon: '🏠', i18nKey: 'nav.home', match: ['/lobby'] },
@@ -18,26 +20,38 @@ const NAV_ITEMS = [
 export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const isActive = (match: string[]) => match.some((p) => location.pathname.startsWith(p));
 
   return (
-    <aside className="sidebar">
-      {NAV_ITEMS.map((item, i) => {
-        if (!item.path) {
-          return <div key={i} className="sidebar-divider" />;
-        }
-        return (
-          <Link
-            key={item.path}
-            to={item.path}
-            className={`sidebar-item${isActive(item.match) ? ' sidebar-item--active' : ''}`}
-            title={t(item.i18nKey)}
-          >
-            <span className="sidebar-icon">{item.icon}</span>
-          </Link>
-        );
-      })}
-    </aside>
+    <>
+      <aside className="sidebar">
+        {NAV_ITEMS.map((item, i) => {
+          if (!item.path) {
+            return <div key={i} className="sidebar-divider" />;
+          }
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`sidebar-item${isActive(item.match) ? ' sidebar-item--active' : ''}`}
+              title={t(item.i18nKey)}
+            >
+              <span className="sidebar-icon">{item.icon}</span>
+            </Link>
+          );
+        })}
+        <div className="sidebar-spacer" />
+        <button
+          className="sidebar-item sidebar-feedback-btn"
+          onClick={() => setShowFeedback(true)}
+          title={t('feedback.title', 'Feedback')}
+        >
+          <span className="sidebar-icon">💬</span>
+        </button>
+      </aside>
+      {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}
+    </>
   );
 }

@@ -1024,5 +1024,19 @@
   "testMode": {
     "message": "Сайт в тестовом режиме. Замечания и предложения",
     "feedbackLink": "форма обратной связи"
+  },
+  "feedback": {
+    "title": "Обратная связь",
+    "type": "Тип",
+    "type_bug": "Баг",
+    "type_suggestion": "Предложение",
+    "type_question": "Вопрос",
+    "email": "Email (необязательно)",
+    "emailPlaceholder": "your@email.com",
+    "message": "Сообщение",
+    "messagePlaceholder": "Опишите проблему или предложение...",
+    "send": "Отправить",
+    "thanks": "Спасибо! Мы получили ваше сообщение.",
+    "error": "Не удалось отправить"
   }
 }

@@ -1024,5 +1024,19 @@
   "testMode": {
     "message": "Site is in test mode. Feedback and suggestions",
     "feedbackLink": "feedback form"
+  },
+  "feedback": {
+    "title": "Feedback",
+    "type": "Type",
+    "type_bug": "Bug",
+    "type_suggestion": "Suggestion",
+    "type_question": "Question",
+    "email": "Email (optional)",
+    "emailPlaceholder": "your@email.com",
+    "message": "Message",
+    "messagePlaceholder": "Describe your issue or suggestion...",
+    "send": "Send",
+    "thanks": "Thank you! We received your message.",
+    "error": "Failed to send"
   }
 }

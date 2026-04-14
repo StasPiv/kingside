@@ -262,3 +262,31 @@ input[type="range"] {
   opacity: 0.7;
 }
 .test-mode-banner__close:hover { opacity: 1; }
+
+/* Feedback Modal */
+.feedback-modal { max-width: 480px; }
+.feedback-form { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.feedback-field { display: flex; flex-direction: column; gap: 4px; }
+.feedback-field label { font-size: 13px; color: #94a3b8; }
+.feedback-field input, .feedback-field textarea {
+  background: #0f172a; border: 1px solid #334155; border-radius: 6px;
+  color: #e2e8f0; padding: 8px 10px; font-size: 13px; font-family: inherit;
+}
+.feedback-field textarea { resize: vertical; }
+.feedback-type-btns { display: flex; gap: 6px; }
+.feedback-type-btn {
+  flex: 1; padding: 6px 10px; border-radius: 6px; border: 1px solid #334155;
+  background: #1e293b; color: #e2e8f0; font-size: 13px; cursor: pointer;
+}
+.feedback-type-btn.active { border-color: #7c83ff; background: #1e2a4a; }
+.feedback-submit-btn {
+  background: #7c83ff; color: #fff; border: none; padding: 10px; border-radius: 6px;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.feedback-submit-btn:disabled { opacity: 0.5; }
+.feedback-error { color: #f87171; font-size: 13px; }
+.feedback-success { padding: 30px; text-align: center; color: #4ade80; font-size: 15px; }
+.feedback-done-btn {
+  margin-top: 16px; background: #7c83ff; color: #fff; border: none;
+  padding: 8px 24px; border-radius: 6px; cursor: pointer; font-size: 14px;
+}
