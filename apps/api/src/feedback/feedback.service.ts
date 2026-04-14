@@ -35,7 +35,8 @@ export class FeedbackService {
     });
     this.logger.log(`Feedback created: ${feedback.id} type=${data.type}`);
     this.notifyTelegram(feedback.id, data).catch((e) => this.logger.warn(`Telegram failed: ${e.message}`));
-    this.notifyWebhook(feedback.id, data, feedback.user?.username ?? null).catch((e) => this.logger.warn(`Webhook error: ${e.message}`));
+    const author = feedback.user?.username ?? data.email ?? 'anonymous';
+    this.notifyWebhook({ id: feedback.id, title: data.title ?? null, author, message: data.message ?? null }).catch((e) => this.logger.warn(`Webhook error: ${e.message}`));
     return { id: feedback.id, status: 'created' };
   }
 
@@ -112,6 +113,10 @@ export class FeedbackService {
       include: { user: { select: { id: true, username: true } } },
     });
     await this.prisma.feedback.update({ where: { id: feedbackId }, data: { commentCount: { increment: 1 } } });
+    this.notifyWebhook({
+      id: comment.id, feedbackId, title: feedback.title ?? null,
+      author: comment.user.username, message: comment.message, type: 'comment',
+    }).catch((e) => this.logger.warn(`Webhook error: ${e.message}`));
     return { id: comment.id, message: comment.message, user: { id: comment.user.id, username: comment.user.username }, createdAt: comment.createdAt.toISOString() };
   }
 
@@ -169,9 +174,8 @@ export class FeedbackService {
     return { deleted: true };
   }
 
-  private async notifyWebhook(feedbackId: string, data: { title?: string; email?: string; message?: string }, username: string | null) {
+  private async notifyWebhook(payload: Record<string, unknown>) {
     if (!this.webhookUrl) return;
-    const author = username ?? data.email ?? 'anonymous';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.webhookSecret) headers['X-Feedback-Secret'] = this.webhookSecret;
     const controller = new AbortController();
@@ -179,7 +183,7 @@ export class FeedbackService {
     try {
       const res = await fetch(this.webhookUrl, {
         method: 'POST', headers, signal: controller.signal,
-        body: JSON.stringify({ id: feedbackId, title: data.title ?? null, author, message: data.message ?? null }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) this.logger.warn(`Webhook failed: ${res.status}`);
     } finally {
