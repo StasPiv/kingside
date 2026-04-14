@@ -1987,3 +1987,11 @@ body:has(.puzzle-rush-board) {
 .puzzle-stats-attempt__time { color: #94a3b8; }
 .puzzle-stats-attempt__rating { color: #cbd5e1; margin-left: auto; }
 .puzzle-stats-attempt__date { color: #64748b; font-size: 11px; }
+
+/* Puzzle review mode */
+.puzzle-review-label {
+  text-align: center;
+  padding: 8px;
+  color: #94a3b8;
+  font-size: 14px;
+}
