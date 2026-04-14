@@ -157,6 +157,8 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
     const paired = new Set<string>();
     const now = Date.now();
 
+    this.logger.log(`processQueue ${category}: ${entries.length} entries`);
+
     // Pass 1: pair players within rating range
     for (let i = 0; i < entries.length; i++) {
       if (paired.has(entries[i].userId)) continue;
@@ -181,7 +183,9 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
       for (let i = 0; i < entries.length; i++) {
         if (paired.has(entries[i].userId)) continue;
         const entry = entries[i];
-        const waitSec = (now - entry.joinedAt) / 1000;
+        const waitSec = (now - (entry.joinedAt || 0)) / 1000;
+
+        this.logger.log(`Fallback check: ${entry.userId.slice(0, 8)} wait=${waitSec.toFixed(0)}s joinedAt=${entry.joinedAt} threshold=${FALLBACK_SEC}s`);
 
         if (waitSec >= FALLBACK_SEC) {
           paired.add(entry.userId);
@@ -189,6 +193,8 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
           await this.createBotGame(entry, category);
         }
       }
+    } else {
+      this.logger.log('Fallback disabled');
     }
   }
 
