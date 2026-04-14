@@ -598,7 +598,7 @@ def handle_ai_chat(handler):
     full_prompt = "\n\n".join(prompt_parts)
 
     cmd = [
-        "claude", "-p", "--bare",
+        "claude", "-p",
         "--model", "sonnet",
         "--output-format", "text",
         "--no-session-persistence",
