@@ -79,60 +79,7 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async check() {
-    try {
-      // WS gateways moved to game-service. API has no WS connections to monitor.
-      return;
-
-      // gateway.server is a Namespace when namespace is configured.
-      // Root io.Server (with engine) is accessible via .server on the Namespace.
-      const srv = gateway.server as any;
-      const rootServer = srv.server ?? srv;
-      const rootEngine = rootServer.engine ?? srv.engine;
-      const currentConnections = rootEngine?.clientsCount ?? 0;
-      const overloaded = currentConnections > this.threshold;
-      const now = Date.now();
-
-      if (currentConnections > 0 || this.isBusy) {
-        this.logger.log(`check: connections=${currentConnections}, threshold=${this.threshold}, busy=${this.isBusy}`);
-      }
-
-      if (overloaded && !this.isBusy) {
-        // Only emit server:busy when ECS scaling is enabled —
-        // no point showing "scaling up" banner if there's no auto-scaling
-        if (!this.enabled) {
-          this.logger.warn(`Overloaded (${currentConnections} > ${this.threshold}) but ECS disabled — skipping server:busy`);
-        } else {
-          this.isBusy = true;
-          this.busySince = now;
-          ScalingService.busy = true;
-          await this.redis.set(REDIS_BUSY_KEY, '1', 'EX', 120).catch(() => {});
-          this.emitToAll(rootServer, 'server:busy', {
-            connections: currentConnections,
-            threshold: this.threshold,
-            etaSec: SCALE_UP_ETA_SEC,
-          });
-          this.logger.warn(`server:busy emitted (${currentConnections} > ${this.threshold})`);
-        }
-      } else if (this.isBusy) {
-        // Timer-based ready: after BUSY_DURATION_MS, transition to ready
-        // regardless of current connection count (avoids deadlock with idle sockets)
-        const busyElapsed = now - this.busySince;
-        if (busyElapsed >= BUSY_DURATION_MS) {
-          this.isBusy = false;
-          ScalingService.busy = false;
-          await this.redis.del(REDIS_BUSY_KEY).catch(() => {});
-          this.emitToAll(rootServer, 'server:ready', {
-            connections: currentConnections,
-            threshold: this.threshold,
-          });
-          this.logger.log(`server:ready emitted after ${Math.round(busyElapsed / 1000)}s timer`);
-        }
-      }
-
-      await this.checkAndScale(currentConnections);
-    } catch (e: unknown) {
-      this.logger.error(`ScalingService check failed: ${(e as Error).message}`);
-    }
+    // WS gateways moved to game-service. API has no WS connections to monitor.
   }
 
   /** Emit event to all connected clients across all namespaces */
