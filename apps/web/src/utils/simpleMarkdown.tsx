@@ -7,7 +7,7 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const INTERNAL_HOSTS = [window.location.host, 'kingside.site', 'www.kingside.site'];
+const INTERNAL_HOSTS = [window.location.host, 'kingside.site', 'www.kingside.site', 'chess-analyze.online'];
 
 function isInternal(url: string): boolean {
   try {
