@@ -169,7 +169,7 @@ export class FeedbackService {
     return { deleted: true };
   }
 
-  private async notifyWebhook(feedbackId: string, data: { title?: string; email?: string }, username: string | null) {
+  private async notifyWebhook(feedbackId: string, data: { title?: string; email?: string; message?: string }, username: string | null) {
     if (!this.webhookUrl) return;
     const author = username ?? data.email ?? 'anonymous';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -179,7 +179,7 @@ export class FeedbackService {
     try {
       const res = await fetch(this.webhookUrl, {
         method: 'POST', headers, signal: controller.signal,
-        body: JSON.stringify({ id: feedbackId, title: data.title ?? null, author }),
+        body: JSON.stringify({ id: feedbackId, title: data.title ?? null, author, message: data.message ?? null }),
       });
       if (!res.ok) this.logger.warn(`Webhook failed: ${res.status}`);
     } finally {

@@ -546,7 +546,8 @@ def handle_feedback_notify(handler):
     title = payload.get("title", "")
     author = payload.get("author", "")
     feedback_id = payload.get("id", "")
-    msg = f"[from feedback] New feedback: {title} by {author} (ID: {feedback_id})"
+    message = payload.get("message", "")
+    msg = f"[from feedback] New feedback: {title} by {author}: {message} (ID: {feedback_id})"
     log(f"Feedback notify: {msg}")
     send_to_agent("coordinator", msg)
 
