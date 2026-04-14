@@ -517,6 +517,45 @@ def handle_telegram_send(handler, payload):
     handler.wfile.write(json.dumps({"status": "sent"}).encode())
 
 
+FEEDBACK_WEBHOOK_SECRET = os.environ.get("FEEDBACK_WEBHOOK_SECRET", "")
+
+
+def handle_feedback_notify(handler):
+    """Обрабатывает POST /feedback/notify — уведомление о новом фидбеке."""
+    # Проверка секретного ключа
+    if FEEDBACK_WEBHOOK_SECRET:
+        secret = handler.headers.get("X-Feedback-Secret", "")
+        if secret != FEEDBACK_WEBHOOK_SECRET:
+            handler.send_response(403)
+            handler.send_header("Content-Type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"error": "forbidden"}).encode())
+            return
+
+    content_length = int(handler.headers.get("Content-Length", 0))
+    body = handler.rfile.read(content_length)
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        handler.send_response(400)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "invalid json"}).encode())
+        return
+
+    title = payload.get("title", "")
+    author = payload.get("author", "")
+    feedback_id = payload.get("id", "")
+    msg = f"[from feedback] New feedback: {title} by {author} (ID: {feedback_id})"
+    log(f"Feedback notify: {msg}")
+    send_to_agent("coordinator", msg)
+
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/json")
+    handler.end_headers()
+    handler.wfile.write(json.dumps({"ok": True}).encode())
+
+
 def launch_agent(key, summary, agent, prompt=None):
     """Формирует промпт и отправляет его daemon-агенту."""
     if not prompt:
@@ -1409,6 +1448,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
             handle_telegram_send(self, payload)
             return
 
+        if path == "/feedback/notify":
+            handle_feedback_notify(self)
+            return
+
         if path != "/webhook/tracker":
             self.send_response(404)
             self.end_headers()
@@ -1653,6 +1696,30 @@ if __name__ == "__main__":
     class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         daemon_threads = True
 
+    # Публичный сервер только для /feedback/notify
+    PUBLIC_PORT = 9877
+
+    class FeedbackNotifyHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            path = self.path.split("?")[0]
+            if path == "/feedback/notify":
+                handle_feedback_notify(self)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_GET(self):
+            self.send_response(404)
+            self.end_headers()
+
+        def log_message(self, fmt, *args):
+            pass  # подавить стандартный вывод
+
+    public_server = ThreadingHTTPServer(("0.0.0.0", PUBLIC_PORT), FeedbackNotifyHandler)
+    public_thread = threading.Thread(target=public_server.serve_forever, daemon=True)
+    public_thread.start()
+    log(f"Публичный /feedback/notify запущен на 0.0.0.0:{PUBLIC_PORT}")
+
     server = ThreadingHTTPServer(("127.0.0.1", PORT), WebhookHandler)
     log(f"Webhook-сервер v2.0 запущен на порту {PORT} (daemon-режим агентов)")
     try:
@@ -1662,3 +1729,4 @@ if __name__ == "__main__":
         shutdown_daemons()
         log("Webhook-сервер остановлен")
         server.server_close()
+        public_server.server_close()
