@@ -25,7 +25,7 @@ export class ChatAssistantService {
     private readonly contextCollector: ContextCollectorService,
   ) {
     this.apiKey = this.config.get<string>('ANTHROPIC_API_KEY', '');
-    this.model = this.config.get<string>('CHAT_MODEL', 'claude-3-haiku-20240307');
+    this.model = this.config.get<string>('CHAT_MODEL', 'claude-sonnet-4-20250514');
     this.maxTokens = parseInt(this.config.get<string>('CHAT_MAX_TOKENS', '1024'), 10);
   }
 
