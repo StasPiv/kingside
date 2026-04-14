@@ -25,6 +25,7 @@ import { FriendModule } from './friend/friend.module';
 import { NotificationModule } from './notification/notification.module';
 import { PuzzleGeneratorModule } from './puzzle-generator/puzzle-generator.module';
 import { ArenaModule } from './arena/arena.module';
+import { AiChatModule } from './ai-chat/ai-chat.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -64,6 +65,7 @@ import { HealthController } from './health.controller';
     MessageModule,
     FriendModule,
     NotificationModule,
+    AiChatModule,
   ],
 })
 export class AppModule implements NestModule {
