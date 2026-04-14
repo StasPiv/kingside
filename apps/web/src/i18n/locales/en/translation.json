@@ -1026,7 +1026,7 @@
   },
   "testMode": {
     "message": "Site is in test mode. Feedback and suggestions",
-    "feedbackLink": "feedback form"
+    "feedbackLink": "feedback section"
   },
   "feedback": {
     "title": "Feedback",
