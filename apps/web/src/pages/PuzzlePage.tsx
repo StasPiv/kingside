@@ -370,16 +370,26 @@ export function PuzzlePage() {
     const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
     setPuzzleMoves(moves);
     const chess = new Chess(puzzle.fen);
-    if (moves.length > 0) {
+    if (isGenerated) {
+      // Generated: no setup move, player finds moves[0]
+      setGame(chess);
+      setMoveIndex(0);
+    } else if (moves.length > 1) {
+      // Lichess: apply setup move, player finds moves[1]
       const uci = moves[0];
-      const from = uci.slice(0, 2);
-      const to = uci.slice(2, 4);
-      const promotion = uci.length > 4 ? uci[4] : undefined;
-      chess.move({ from, to, promotion });
+      chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+      setGame(chess);
+      setMoveIndex(1);
+    } else {
+      setGame(chess);
+      setMoveIndex(0);
     }
-    setGame(chess);
-    setMoveIndex(1);
     setStatus('thinking');
+    setSolutionMove(null);
+    setAltMoveMsg(null);
+    userMovesRef.current = [];
+    attemptSubmittedRef.current = false;
+    startTimeRef.current = Date.now();
   };
 
   if (loading) {
