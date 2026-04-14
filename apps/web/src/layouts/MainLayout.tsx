@@ -13,6 +13,7 @@ import { NotificationDropdown } from '../components/NotificationDropdown';
 import { MobileBottomBar } from '../components/MobileBottomBar';
 import { Sidebar } from '../components/Sidebar';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
+import { ChatWidget } from '../components/ChatWidget';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -261,6 +262,7 @@ export function MainLayout() {
         />
       )}
       {user && !hideBottomBar && <MobileBottomBar />}
+      <ChatWidget />
     </div>
   );
 }
