@@ -209,7 +209,7 @@ export function PuzzleBrowserPage() {
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        await api.delete(`/api/puzzles/${puzzle.id}`);
+                        await api.delete(`/api/puzzles/generated/${puzzle.id}`);
                         setPuzzles((prev) => prev.filter((p) => p.id !== puzzle.id));
                         setTotal((n) => n - 1);
                       } catch { /* ignore */ }

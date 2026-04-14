@@ -101,7 +101,7 @@ export function PuzzleGeneratorModal({ onClose }: PuzzleGeneratorModalProps) {
     try {
       for (let i = 0; i < total; i += BATCH_SIZE) {
         const batch = result.slice(i, i + BATCH_SIZE);
-        await api.post('/api/puzzles/batch', { puzzles: batch });
+        await api.post('/api/puzzles/generated/batch', { puzzles: batch });
         savedCount += batch.length;
         setSaveProgress({ saved: savedCount, total });
       }
