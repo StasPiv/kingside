@@ -31,6 +31,7 @@ export function PuzzlePage() {
   const [streak, setStreak] = useState(0);
   const [totalSolved, setTotalSolved] = useState(0);
   const [solutionMove, setSolutionMove] = useState<string | null>(null);
+  const [altMoveMsg, setAltMoveMsg] = useState<string | null>(null);
   const [allSolved, setAllSolved] = useState(false);
   const [ratingChange, setRatingChange] = useState<{ before: number; after: number } | null>(null);
   const startTimeRef = useRef(Date.now());
@@ -115,6 +116,7 @@ export function PuzzlePage() {
     }
     setStatus('thinking');
     setSolutionMove(null);
+    setAltMoveMsg(null);
     setRatingChange(null);
     startTimeRef.current = Date.now();
     attemptSubmittedRef.current = false;
@@ -218,44 +220,51 @@ export function PuzzlePage() {
             console.log(`[Puzzle] Engine check: player=${playerUci} cp=${playerCp}, solution=${expectedMove} cp=${solutionCp}, diff=${solutionCp - playerCp}`);
 
             if (playerLine && Math.abs(solutionCp - playerCp) <= ALT_THRESHOLD) {
-              // Alternative move accepted — snap back to solution line
-              const nextIndex = moveIndex + 1;
-              const isSolved = nextIndex >= puzzleMoves.length;
-              if (isSolved) {
-                setMoveIndex(nextIndex);
-                setStatus('correct');
-                playSound('puzzle-correct');
-                setStreak((s) => s + 1);
-                setTotalSolved((n) => n + 1);
-                submitAttemptResult(true);
-              } else {
-                // Revert board to solution: apply solution move + opponent response
-                setStatus('thinking');
-                setTimeout(() => {
-                  const replayFromSolution = new Chess(currentFen);
-                  try {
-                    // Apply solution move (solver's correct move)
-                    replayFromSolution.move({ from, to, promotion });
-                    // Apply opponent response from solution line
-                    const opponentUci = puzzleMoves[nextIndex];
-                    if (opponentUci) {
-                      const oMove = replayFromSolution.move({ from: opponentUci.slice(0, 2), to: opponentUci.slice(2, 4), promotion: opponentUci.length > 4 ? opponentUci[4] : undefined });
-                      if (oMove) playSound(soundEventFromSan(oMove.san));
-                    }
-                    setGame(replayFromSolution);
-                    setMoveIndex(nextIndex + 1);
+              // Good alternative — show message, revert to solution line, apply solution move + opponent
+              setAltMoveMsg(t('puzzle.altMoveAccepted', 'Good move! But let\'s follow the main line.'));
+              setTimeout(() => {
+                setAltMoveMsg(null);
+                const replay = new Chess(currentFen);
+                try {
+                  // Apply solution move
+                  const solMove = replay.move({ from, to, promotion });
+                  if (solMove) playSound(soundEventFromSan(solMove.san));
+                  setGame(new Chess(replay.fen()));
+                  setMoveIndex(moveIndex + 1);
 
-                    // Check if opponent's move was the last
-                    if (nextIndex + 1 >= puzzleMoves.length) {
-                      setStatus('correct');
-                      playSound('puzzle-correct');
-                      setStreak((s) => s + 1);
-                      setTotalSolved((n) => n + 1);
-                      submitAttemptResult(true);
-                    }
-                  } catch { /* ignore */ }
-                }, 400);
-              }
+                  // Auto-play opponent response after short delay
+                  const nextIndex = moveIndex + 1;
+                  if (nextIndex < puzzleMoves.length) {
+                    setTimeout(() => {
+                      const opponentUci = puzzleMoves[nextIndex];
+                      const oFrom = opponentUci.slice(0, 2);
+                      const oTo = opponentUci.slice(2, 4);
+                      const oProm = opponentUci.length > 4 ? opponentUci[4] : undefined;
+                      const next = new Chess(replay.fen());
+                      const oMove = next.move({ from: oFrom, to: oTo, promotion: oProm });
+                      if (oMove) playSound(soundEventFromSan(oMove.san));
+                      setGame(next);
+                      setMoveIndex(nextIndex + 1);
+                      setStatus('thinking');
+
+                      if (nextIndex + 1 >= puzzleMoves.length) {
+                        setStatus('correct');
+                        playSound('puzzle-correct');
+                        setStreak((s) => s + 1);
+                        setTotalSolved((n) => n + 1);
+                        submitAttemptResult(true);
+                      }
+                    }, 400);
+                  } else {
+                    // Solution move was last
+                    setStatus('correct');
+                    playSound('puzzle-correct');
+                    setStreak((s) => s + 1);
+                    setTotalSolved((n) => n + 1);
+                    submitAttemptResult(true);
+                  }
+                } catch { /* ignore */ }
+              }, 1200);
             } else {
               // Move is too weak — incorrect
               setStatus('incorrect');
@@ -489,6 +498,7 @@ export function PuzzlePage() {
         />
 
         <div className="puzzle-actions-slot">
+          {altMoveMsg && <div className="puzzle-alt-move-msg">{altMoveMsg}</div>}
           {status === 'incorrect' && (
             <button onClick={handleRetry}>{t('puzzle.retry')}</button>
           )}

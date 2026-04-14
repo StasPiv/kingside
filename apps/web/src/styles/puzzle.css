@@ -2026,3 +2026,14 @@ body:has(.puzzle-rush-board) {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
+
+.puzzle-alt-move-msg {
+  text-align: center;
+  padding: 8px 12px;
+  background: #1e3a2f;
+  border: 1px solid #4ade80;
+  border-radius: 6px;
+  color: #86efac;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
