@@ -172,14 +172,11 @@ export function PuzzleBrowserPage() {
                 <span className="puzzle-rating">{puzzle.rating}</span>
               </div>
               <div className="puzzle-card-themes">
-                {puzzle.themes.slice(0, 3).map((theme) => (
+                {(Array.isArray(puzzle.themes) ? puzzle.themes : (puzzle.themes || '').split(/\s+/).filter(Boolean)).slice(0, 3).map((theme) => (
                   <span key={theme} className="puzzle-theme-tag">
                     {t(`puzzleBrowser.themes.${theme}`, theme)}
                   </span>
                 ))}
-                {puzzle.themes.length > 3 && (
-                  <span className="puzzle-theme-tag more">+{puzzle.themes.length - 3}</span>
-                )}
               </div>
               <div className="puzzle-card-actions">
                 <button
