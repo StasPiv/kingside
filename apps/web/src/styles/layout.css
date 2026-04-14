@@ -674,8 +674,9 @@ body.has-analysis-page .main {
     display: flex;
     justify-content: space-around;
   }
+  /* KS-1493: enough space so bottom bar never covers content */
   .main {
-    padding-bottom: 60px;
+    padding-bottom: 72px;
   }
 }
 
