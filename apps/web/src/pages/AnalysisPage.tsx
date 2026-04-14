@@ -128,6 +128,7 @@ export function AnalysisPage() {
   const urlParams = new URLSearchParams(location.search);
   const puzzleFen = (location.state as { puzzleFen?: string } | null)?.puzzleFen ?? urlParams.get('fen') ?? undefined;
   const puzzlePgn = (location.state as { puzzlePgn?: string } | null)?.puzzlePgn ?? urlParams.get('pgn') ?? undefined;
+  const puzzleMovesParam = urlParams.get('moves') ?? undefined;
   const puzzleSide = urlParams.get('side') as 'white' | 'black' | null;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
@@ -184,6 +185,23 @@ export function AnalysisPage() {
             } as unknown as ChessMove);
           }
           loadFromPgn(chessMoves);
+        } catch { /* ignore parse errors */ }
+      } else if (puzzleMovesParam) {
+        try {
+          // Parse UCI moves from query param
+          const uciMoves = puzzleMovesParam.split(/[\s+]+/).filter(Boolean);
+          const replay = new Chess(puzzleFen);
+          const chessMoves: ChessMove[] = [];
+          for (const uci of uciMoves) {
+            const mv = replay.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+            if (!mv) break;
+            chessMoves.push({
+              san: mv.san,
+              uci: mv.from + mv.to + (mv.promotion || ''),
+              fenAfter: replay.fen(),
+            } as unknown as ChessMove);
+          }
+          if (chessMoves.length > 0) loadFromPgn(chessMoves);
         } catch { /* ignore parse errors */ }
       }
     }

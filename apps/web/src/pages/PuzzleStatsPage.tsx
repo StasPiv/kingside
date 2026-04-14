@@ -32,7 +32,7 @@ type Attempt = {
   ratingBefore: number;
   ratingAfter: number;
   createdAt: string;
-  puzzle?: { fen?: string };
+  puzzle?: { fen?: string; moves?: string | string[] };
 };
 
 const PAGE_SIZE = 20;
@@ -166,7 +166,7 @@ export function PuzzleStatsPage() {
           <div className="puzzle-stats-attempts">
             {attempts.map((a) => (
               <div key={a.id} className={`puzzle-stats-attempt${a.solved ? ' solved' : ' failed'}`}>
-                <Link to={a.puzzle?.fen ? `/analysis?fen=${encodeURIComponent(a.puzzle.fen)}` : `/puzzle/${a.puzzleId}`} className="puzzle-stats-attempt__link">
+                <Link to={a.puzzle?.fen ? `/analysis?fen=${encodeURIComponent(a.puzzle.fen)}${a.puzzle.moves ? `&moves=${encodeURIComponent(Array.isArray(a.puzzle.moves) ? a.puzzle.moves.join(' ') : a.puzzle.moves)}` : ''}` : `/puzzle/${a.puzzleId}`} className="puzzle-stats-attempt__link">
                   #{a.puzzleId.slice(0, 6)}
                 </Link>
                 <span className={`puzzle-stats-attempt__result${a.solved ? ' correct' : ' wrong'}`}>
