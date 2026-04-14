@@ -215,16 +215,19 @@ export function AnalysisPage() {
       .then((puzzle) => {
         setInitialFen(puzzle.fen);
         const movesArr = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(/\s+/).filter(Boolean);
-        try {
-          const replay = new Chess(puzzle.fen);
-          const chessMoves: ChessMove[] = [];
-          for (const uci of movesArr) {
-            const mv = replay.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-            if (!mv) break;
-            chessMoves.push({ san: mv.san, uci: mv.from + mv.to + (mv.promotion || ''), fenAfter: replay.fen() } as unknown as ChessMove);
-          }
-          if (chessMoves.length > 0) loadFromPgn(chessMoves);
-        } catch { /* ignore */ }
+        // Delay loadFromPgn to let initialFen settle
+        requestAnimationFrame(() => {
+          try {
+            const replay = new Chess(puzzle.fen);
+            const chessMoves: ChessMove[] = [];
+            for (const uci of movesArr) {
+              const mv = replay.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+              if (!mv) break;
+              chessMoves.push({ san: mv.san, uci: mv.from + mv.to + (mv.promotion || ''), fenAfter: replay.fen() } as unknown as ChessMove);
+            }
+            if (chessMoves.length > 0) loadFromPgn(chessMoves);
+          } catch { /* ignore */ }
+        });
       })
       .catch(() => { /* puzzle not found */ });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
