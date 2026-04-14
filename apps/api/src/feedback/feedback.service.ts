@@ -46,14 +46,17 @@ export class FeedbackService {
   }
 
   private async notifyTelegram(feedbackId: string, data: { userId?: string; email?: string; type: string; message: string; page?: string }) {
-    if (!this.telegramBotToken || !this.telegramChatId) return;
+    if (!this.telegramBotToken || !this.telegramChatId) {
+      this.logger.warn(`Telegram not configured: token=${!!this.telegramBotToken} chatId=${!!this.telegramChatId}`);
+      return;
+    }
 
     const emoji = data.type === 'bug' ? '🐛' : data.type === 'suggestion' ? '💡' : '❓';
     const user = data.email || data.userId?.slice(0, 8) || 'anonymous';
     const page = data.page ? `\nPage: ${data.page}` : '';
     const text = `${emoji} *${data.type.toUpperCase()}* from ${user}${page}\n\n${data.message.slice(0, 500)}`;
 
-    await fetch(`https://api.telegram.org/bot${this.telegramBotToken}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${this.telegramBotToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -62,5 +65,11 @@ export class FeedbackService {
         parse_mode: 'Markdown',
       }),
     });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      this.logger.warn(`Telegram API ${res.status}: ${body.slice(0, 200)}`);
+    } else {
+      this.logger.log(`Telegram notification sent for feedback ${feedbackId}`);
+    }
   }
 }
