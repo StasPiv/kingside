@@ -234,3 +234,31 @@ input[type="range"] {
 @keyframes busy-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Test mode banner */
+.test-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  background: #f59e0b;
+  color: #1a1a2e;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 10001;
+  position: relative;
+}
+.test-mode-banner a { color: #1e3a5f; text-decoration: underline; font-weight: 600; }
+.test-mode-banner__close {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #1a1a2e;
+  font-size: 18px;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.7;
+}
+.test-mode-banner__close:hover { opacity: 1; }
