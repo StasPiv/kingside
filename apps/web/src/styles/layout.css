@@ -676,7 +676,7 @@ body.has-analysis-page .main {
   }
   /* KS-1493: enough space so bottom bar never covers content */
   .main {
-    padding-bottom: 72px;
+    padding-bottom: 80px;
   }
 }
 

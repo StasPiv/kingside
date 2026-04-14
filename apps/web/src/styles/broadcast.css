@@ -778,6 +778,15 @@
   }
 }
 
+/* KS-1493: padding for MobileBottomBar on mobile */
+@media (max-width: 768px) {
+  .broadcasts-page,
+  .broadcast-round-page,
+  .broadcast-lobby {
+    padding-bottom: 72px;
+  }
+}
+
 /* Featured broadcasts (KS-1116) */
 .broadcasts-featured-section {
   display: flex;
