@@ -179,8 +179,17 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Track player joins — start clocks when both players have joined
       if (color && state.status === 'active' && !clocks.running) {
-        this.logger.warn(`handleJoinGame: calling maybeStartClocks user=${client.data.user?.username} game=${data.gameId.slice(0, 8)} color=${color} clocksRunning=${clocks.running}`);
-        await this.maybeStartClocks(data.gameId, color, whiteId, blackId);
+        if (isBot) {
+          // Bot doesn't join via WS — count as 2 joins immediately
+          const joinKey = `game:${data.gameId}:joins`;
+          await this.redis.hset(joinKey, 'count', '2');
+          await this.redis.expire(joinKey, 120);
+          await this.clockService.startClock(data.gameId);
+          this.logger.warn(`handleJoinGame: bot game clocks STARTED game=${data.gameId.slice(0, 8)}`);
+        } else {
+          this.logger.warn(`handleJoinGame: calling maybeStartClocks user=${client.data.user?.username} game=${data.gameId.slice(0, 8)} color=${color} clocksRunning=${clocks.running}`);
+          await this.maybeStartClocks(data.gameId, color, whiteId, blackId);
+        }
       }
 
       if (isBot && state.moves.length === 0 && state.status === 'active') {
