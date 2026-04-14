@@ -11,9 +11,8 @@ type FeedbackPost = {
   type: string;
   status: string;
   message: string;
-  votes?: number;
-  voteCount?: number;
-  voted: boolean;
+  voteCount: number;
+  voted: 'up' | 'down' | null;
   commentCount: number;
   user?: { username: string } | null;
   createdAt: string;
@@ -50,9 +49,9 @@ export function FeedbackBoardPage() {
 
   useEffect(() => { fetchPosts(); }, [fetchPosts]);
 
-  const handleVote = async (id: string) => {
+  const handleVote = async (id: string, direction: 'up' | 'down') => {
     try {
-      const res = await api.post<{ voteCount: number; voted: boolean }>(`/api/feedback/${id}/vote`, {});
+      const res = await api.post<{ voteCount: number; voted: 'up' | 'down' | null }>(`/api/feedback/${id}/vote`, { direction });
       setPosts((prev) => prev.map((p) => p.id === id ? { ...p, voteCount: res.voteCount, voted: res.voted } : p));
     } catch { /* ignore */ }
   };
@@ -95,10 +94,15 @@ export function FeedbackBoardPage() {
         <div className="fb-list">
           {posts.map((post) => (
             <div key={post.id} className="fb-post-card">
-              <button className={`fb-vote-btn${post.voted ? ' voted' : ''}`} onClick={() => handleVote(post.id)} disabled={!user}>
-                <span className="fb-vote-arrow">&#9650;</span>
-                <span className="fb-vote-count">{post.voteCount ?? post.votes ?? 0}</span>
-              </button>
+              <div className="fb-vote-group">
+                <button className={`fb-vote-btn${post.voted === 'up' ? ' voted' : ''}`} onClick={() => handleVote(post.id, 'up')} disabled={!user}>
+                  <span className="fb-vote-arrow">&#9650;</span>
+                </button>
+                <span className="fb-vote-count">{post.voteCount}</span>
+                <button className={`fb-vote-btn fb-vote-btn--down${post.voted === 'down' ? ' voted-down' : ''}`} onClick={() => handleVote(post.id, 'down')} disabled={!user}>
+                  <span className="fb-vote-arrow">&#9660;</span>
+                </button>
+              </div>
               <div className="fb-post-body">
                 <Link to={`/feedback/${post.id}`} className="fb-post-title">
                   <span className="fb-post-type">{TYPE_ICONS[post.type] || ''}</span>

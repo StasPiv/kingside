@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 type Comment = { id: string; message: string; user?: { username: string } | null; createdAt: string };
 type FeedbackDetail = {
   id: string; title: string | null; type: string; status: string; message: string;
-  votes?: number; voteCount?: number; voted: boolean; email?: string;
+  voteCount: number; voted: 'up' | 'down' | null; email?: string;
   user?: { username: string } | null; createdAt: string;
   comments: Comment[];
 };
@@ -36,10 +36,10 @@ export function FeedbackDetailPage() {
 
   useEffect(() => { fetchPost(); }, [fetchPost]);
 
-  const handleVote = async () => {
+  const handleVote = async (direction: 'up' | 'down') => {
     if (!post || !user) return;
     try {
-      const res = await api.post<{ voteCount: number; voted: boolean }>(`/api/feedback/${post.id}/vote`, {});
+      const res = await api.post<{ voteCount: number; voted: 'up' | 'down' | null }>(`/api/feedback/${post.id}/vote`, { direction });
       setPost((p) => p ? { ...p, voteCount: res.voteCount, voted: res.voted } : p);
     } catch { /* ignore */ }
   };
@@ -64,10 +64,15 @@ export function FeedbackDetailPage() {
 
       <div className="fb-detail-card">
         <div className="fb-detail-header">
-          <button className={`fb-vote-btn fb-vote-btn--lg${post.voted ? ' voted' : ''}`} onClick={handleVote} disabled={!user}>
-            <span className="fb-vote-arrow">&#9650;</span>
-            <span className="fb-vote-count">{post.voteCount ?? post.votes ?? 0}</span>
-          </button>
+          <div className="fb-vote-group fb-vote-group--lg">
+            <button className={`fb-vote-btn fb-vote-btn--lg${post.voted === 'up' ? ' voted' : ''}`} onClick={() => handleVote('up')} disabled={!user}>
+              <span className="fb-vote-arrow">&#9650;</span>
+            </button>
+            <span className="fb-vote-count">{post.voteCount}</span>
+            <button className={`fb-vote-btn fb-vote-btn--lg${post.voted === 'down' ? ' voted-down' : ''}`} onClick={() => handleVote('down')} disabled={!user}>
+              <span className="fb-vote-arrow">&#9660;</span>
+            </button>
+          </div>
           <div>
             <h1 className="fb-detail-title">
               <span>{TYPE_ICONS[post.type] || ''}</span> {post.title || post.message.slice(0, 80)}
