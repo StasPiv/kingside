@@ -20,7 +20,6 @@ export function PuzzlePage() {
   const { id: puzzleId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const isGenerated = searchParams.get('source') === 'generated';
-  const isReview = searchParams.get('review') === 'true';
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
   const [game, setGame] = useState<Chess | null>(null);
   const [status, setStatus] = useState<PuzzleStatus>('thinking');
@@ -32,7 +31,6 @@ export function PuzzlePage() {
   const [totalSolved, setTotalSolved] = useState(0);
   const [solutionMove, setSolutionMove] = useState<string | null>(null);
   const [allSolved, setAllSolved] = useState(false);
-  const [reviewStep, setReviewStep] = useState(0);
   const [ratingChange, setRatingChange] = useState<{ before: number; after: number } | null>(null);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
@@ -127,22 +125,6 @@ export function PuzzlePage() {
     loadPuzzle(puzzleId);
   }, [loadPuzzle, puzzleId]);
 
-  // Review mode: auto-play solution moves one by one
-  useEffect(() => {
-    if (!isReview || !puzzle || !game || reviewStep >= puzzleMoves.length) return;
-    const timer = setTimeout(() => {
-      const uci = puzzleMoves[reviewStep];
-      const copy = new Chess(game.fen());
-      try {
-        const move = copy.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-        if (move) playSound(soundEventFromSan(move.san));
-        setGame(copy);
-        setMoveIndex(reviewStep + 1);
-        setReviewStep(reviewStep + 1);
-      } catch { /* invalid */ }
-    }, reviewStep === 0 ? 600 : 800);
-    return () => clearTimeout(timer);
-  }, [isReview, puzzle, game, reviewStep, puzzleMoves, playSound]);
 
   const submitAttemptResult = useCallback(async (solved: boolean): Promise<PuzzleDto | null> => {
     if (!puzzle || attemptSubmittedRef.current) return null;
@@ -400,20 +382,14 @@ export function PuzzlePage() {
         <PuzzleBoard
           game={game}
           boardOrientation={boardOrientation}
-          enabled={!isReview && status === 'thinking'}
+          enabled={status === 'thinking'}
           onPieceDrop={onPieceDrop}
           lastMoveUci={lastMoveUci}
           status={status}
         />
 
         <div className="puzzle-actions-slot">
-          {isReview && reviewStep >= puzzleMoves.length && (
-            <div className="puzzle-review-label">{t('puzzle.reviewComplete', 'Solution review complete')}</div>
-          )}
-          {isReview && reviewStep < puzzleMoves.length && (
-            <div className="puzzle-review-label">{t('puzzle.reviewPlaying', 'Playing solution...')}</div>
-          )}
-          {!isReview && status === 'incorrect' && (
+          {status === 'incorrect' && (
             <button onClick={handleRetry}>{t('puzzle.retry')}</button>
           )}
           <button
