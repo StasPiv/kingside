@@ -7,6 +7,8 @@ export class FeedbackService {
   private readonly logger = new Logger(FeedbackService.name);
   private readonly telegramChatId: string;
   private readonly telegramBotToken: string;
+  private readonly webhookUrl: string;
+  private readonly webhookSecret: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -14,6 +16,8 @@ export class FeedbackService {
   ) {
     this.telegramChatId = this.config.get<string>('FEEDBACK_TELEGRAM_CHAT_ID', '');
     this.telegramBotToken = this.config.get<string>('TELEGRAM_BOT_TOKEN', '');
+    this.webhookUrl = this.config.get<string>('FEEDBACK_WEBHOOK_URL', '');
+    this.webhookSecret = this.config.get<string>('FEEDBACK_WEBHOOK_SECRET', '');
   }
 
   async create(data: {
@@ -27,9 +31,11 @@ export class FeedbackService {
         page: data.page ?? null, userAgent: data.userAgent ?? null,
         isPublic: data.isPublic ?? true,
       },
+      include: { user: { select: { username: true } } },
     });
     this.logger.log(`Feedback created: ${feedback.id} type=${data.type}`);
     this.notifyTelegram(feedback.id, data).catch((e) => this.logger.warn(`Telegram failed: ${e.message}`));
+    this.notifyWebhook(feedback.id, data, feedback.user?.username ?? null).catch(() => {});
     return { id: feedback.id, status: 'created' };
   }
 
@@ -161,6 +167,18 @@ export class FeedbackService {
     await this.prisma.feedbackComment.delete({ where: { id: commentId } });
     await this.prisma.feedback.update({ where: { id: comment.feedbackId }, data: { commentCount: { decrement: 1 } } });
     return { deleted: true };
+  }
+
+  private async notifyWebhook(feedbackId: string, data: { title?: string; email?: string }, username: string | null) {
+    if (!this.webhookUrl) return;
+    const author = username ?? data.email ?? 'anonymous';
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (this.webhookSecret) headers['X-Feedback-Secret'] = this.webhookSecret;
+    const res = await fetch(this.webhookUrl, {
+      method: 'POST', headers,
+      body: JSON.stringify({ id: feedbackId, title: data.title ?? null, author }),
+    });
+    if (!res.ok) this.logger.warn(`Webhook failed: ${res.status}`);
   }
 
   private async notifyTelegram(feedbackId: string, data: { userId?: string; email?: string; type: string; message: string; page?: string; title?: string }) {
