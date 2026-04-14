@@ -40,7 +40,7 @@ export function PuzzleBrowserPage() {
   const [loading, setLoading] = useState(true);
   const [showGenerator, setShowGenerator] = useState(false);
   const [mine, setMine] = useState(mineParam);
-  const [hideSolved, setHideSolved] = useState(false);
+  const [hideSolved, setHideSolved] = useState(true);
 
   const fetchPuzzles = useCallback(async () => {
     setLoading(true);
