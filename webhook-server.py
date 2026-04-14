@@ -558,6 +558,95 @@ def handle_feedback_notify(handler):
     handler.wfile.write(json.dumps({"ok": True}).encode())
 
 
+AI_CHAT_TIMEOUT = 30
+
+
+def handle_ai_chat(handler):
+    """Обрабатывает POST /ai-chat — однократный вызов Claude CLI."""
+    content_length = int(handler.headers.get("Content-Length", 0))
+    body = handler.rfile.read(content_length)
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        handler.send_response(400)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "invalid json"}).encode())
+        return
+
+    message = payload.get("message", "").strip()
+    system_prompt = payload.get("systemPrompt", "").strip()
+    history = payload.get("history", [])
+
+    if not message:
+        handler.send_response(400)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "missing message"}).encode())
+        return
+
+    # Формируем промпт: history + текущее сообщение
+    prompt_parts = []
+    for entry in history:
+        role = entry.get("role", "user")
+        content = entry.get("content", "")
+        if role == "user":
+            prompt_parts.append(f"User: {content}")
+        elif role == "assistant":
+            prompt_parts.append(f"Assistant: {content}")
+    prompt_parts.append(f"User: {message}")
+    full_prompt = "\n\n".join(prompt_parts)
+
+    cmd = [
+        "claude", "-p", "--bare",
+        "--model", "sonnet",
+        "--output-format", "text",
+        "--no-session-persistence",
+    ]
+    if system_prompt:
+        cmd.extend(["--system-prompt", system_prompt])
+    cmd.append(full_prompt)
+
+    log(f"AI chat: msg={message[:80]}, history={len(history)} turns")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=AI_CHAT_TIMEOUT,
+            cwd="/tmp",
+        )
+        response_text = result.stdout.strip()
+        if result.returncode != 0:
+            log(f"AI chat error: rc={result.returncode}, stderr={result.stderr[:200]}")
+            handler.send_response(500)
+            handler.send_header("Content-Type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({"error": "claude error", "detail": result.stderr[:500]}).encode())
+            return
+
+        log(f"AI chat response: {response_text[:100]}")
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"response": response_text}).encode())
+
+    except subprocess.TimeoutExpired:
+        log("AI chat timeout")
+        handler.send_response(504)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "timeout"}).encode())
+
+    except Exception as e:
+        log(f"AI chat exception: {e}")
+        handler.send_response(500)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": str(e)}).encode())
+
+
 def launch_agent(key, summary, agent, prompt=None):
     """Формирует промпт и отправляет его daemon-агенту."""
     if not prompt:
@@ -1452,6 +1541,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
         if path == "/feedback/notify":
             handle_feedback_notify(self)
+            return
+
+        if path == "/ai-chat":
+            handle_ai_chat(self)
             return
 
         if path != "/webhook/tracker":
