@@ -86,7 +86,7 @@ export function FeedbackDetailPage() {
             <div className="fb-detail-meta">
               <span className="fb-post-status" style={{ background: STATUS_COLORS[post.status] || '#64748b' }}>{post.status}</span>
               <span>{post.user?.username || t('feedbackBoard.anonymous', 'Anonymous')}</span>
-              <span>{new Date(post.createdAt).toLocaleDateString()}</span>
+              <span>{new Date(post.createdAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           </div>
         </div>
@@ -102,7 +102,7 @@ export function FeedbackDetailPage() {
               {(c.userId ?? c.user?.id) === SUPPORT_USER_ID && (
                 <span className="fb-support-badge">{t('feedbackBoard.supportBadge', 'Kingside Team')}</span>
               )}
-              <span>{new Date(c.createdAt).toLocaleDateString()}</span>
+              <span>{new Date(c.createdAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
             </div>
             <div className="fb-comment-body">{c.message}</div>
           </div>

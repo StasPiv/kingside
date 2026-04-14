@@ -119,7 +119,7 @@ export function FeedbackBoardPage() {
                 <div className="fb-post-meta">
                   <span className="fb-post-status" style={{ background: STATUS_COLORS[post.status] || '#64748b' }}>{post.status}</span>
                   <span>{post.user?.username || t('feedbackBoard.anonymous', 'Anonymous')}</span>
-                  <span>{new Date(post.createdAt).toLocaleDateString()}</span>
+                  <span>{new Date(post.createdAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                   <span>{post.commentCount} {t('feedbackBoard.comments', 'comments')}</span>
                 </div>
               </div>
