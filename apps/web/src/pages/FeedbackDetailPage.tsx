@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 
-type Comment = { id: string; message: string; user?: { username: string } | null; createdAt: string };
+const SUPPORT_USER_ID = '00000000-0000-0000-0000-000000000002';
+type Comment = { id: string; userId?: string; message: string; user?: { username: string; id?: string } | null; createdAt: string };
 type FeedbackDetail = {
   id: string; title: string | null; type: string; status: string; message: string;
   voteCount: number; upCount: number; downCount: number; voted: 'up' | 'down' | null; email?: string;
@@ -95,9 +96,12 @@ export function FeedbackDetailPage() {
       <div className="fb-comments-section">
         <h2>{t('feedbackBoard.comments', 'Comments')} ({post.comments.length})</h2>
         {post.comments.map((c) => (
-          <div key={c.id} className="fb-comment">
+          <div key={c.id} className={`fb-comment${(c.userId ?? c.user?.id) === SUPPORT_USER_ID ? ' fb-comment--support' : ''}`}>
             <div className="fb-comment-meta">
               <strong>{c.user?.username || t('feedbackBoard.anonymous', 'Anonymous')}</strong>
+              {(c.userId ?? c.user?.id) === SUPPORT_USER_ID && (
+                <span className="fb-support-badge">{t('feedbackBoard.supportBadge', 'Kingside Team')}</span>
+              )}
               <span>{new Date(c.createdAt).toLocaleDateString()}</span>
             </div>
             <div className="fb-comment-body">{c.message}</div>

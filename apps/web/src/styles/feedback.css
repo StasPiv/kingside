@@ -65,3 +65,14 @@
 .fb-vote-group .fb-vote-btn { display: flex; align-items: center; gap: 4px; }
 .fb-vote-count--up { color: #4ade80; font-size: 12px; }
 .fb-vote-count--down { color: #f87171; font-size: 12px; }
+
+.fb-comment--support { border-left: 3px solid #7c83ff; background: #1e2a4a; }
+.fb-support-badge {
+  background: #7c83ff;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+}
