@@ -59,6 +59,8 @@ model User {
   notifications       Notification[]
   puzzleRatingSnapshots PuzzleRatingSnapshot[]
   chatConversations   ChatConversation[]
+  feedback            Feedback[]
+  feedbackComments    FeedbackComment[]
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -689,17 +691,53 @@ model ChatAssistantMessage {
 }
 
 model Feedback {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String?  @map("user_id") @db.Uuid
-  email     String?
-  type      String   // bug, suggestion, question
-  message   String   @db.Text
-  page      String?
-  userAgent String?  @map("user_agent")
-  status    String   @default("new") // new, read, resolved
-  createdAt DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
+  email        String?
+  title        String?
+  type         String   // bug, suggestion, question
+  message      String   @db.Text
+  page         String?
+  userAgent    String?  @map("user_agent")
+  status       String   @default("new") // new, read, resolved
+  isPublic     Boolean  @default(true) @map("is_public")
+  voteCount    Int      @default(0) @map("vote_count")
+  commentCount Int      @default(0) @map("comment_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user     User?             @relation(fields: [userId], references: [id])
+  comments FeedbackComment[]
+  votes    FeedbackVote[]
 
   @@index([status])
   @@index([createdAt])
+  @@index([type])
+  @@index([voteCount])
   @@map("feedback")
+}
+
+model FeedbackComment {
+  id         String   @id @default(uuid()) @db.Uuid
+  feedbackId String   @map("feedback_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  message    String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([feedbackId])
+  @@map("feedback_comments")
+}
+
+model FeedbackVote {
+  id         String   @id @default(uuid()) @db.Uuid
+  feedbackId String   @map("feedback_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)
+
+  @@unique([feedbackId, userId])
+  @@map("feedback_votes")
 }

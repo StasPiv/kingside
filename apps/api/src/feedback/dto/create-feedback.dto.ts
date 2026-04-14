@@ -1,9 +1,14 @@
-import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateFeedbackDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  title?: string;
 
   @IsIn(['bug', 'suggestion', 'question'])
   type!: string;
@@ -16,4 +21,8 @@ export class CreateFeedbackDto {
   @IsOptional()
   @IsString()
   page?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPublic?: boolean;
 }
