@@ -48,19 +48,19 @@ export class FeedbackService {
       this.prisma.feedback.count({ where }),
     ]);
 
-    let votedSet = new Set<string>();
+    let votedMap = new Map<string, string>();
     if (userId) {
       const votes = await this.prisma.feedbackVote.findMany({
         where: { userId, feedbackId: { in: data.map((f) => f.id) } },
-        select: { feedbackId: true },
+        select: { feedbackId: true, direction: true },
       });
-      votedSet = new Set(votes.map((v) => v.feedbackId));
+      for (const v of votes) votedMap.set(v.feedbackId, v.direction);
     }
 
     return {
       data: data.map((f) => ({
         id: f.id, title: f.title, type: f.type, message: f.message, status: f.status,
-        voteCount: f.voteCount, commentCount: f._count.comments, voted: votedSet.has(f.id),
+        voteCount: f.voteCount, commentCount: f._count.comments, voted: votedMap.get(f.id) ?? null,
         user: f.user ? { id: f.user.id, username: f.user.username } : null,
         createdAt: f.createdAt.toISOString(),
       })),
@@ -78,9 +78,10 @@ export class FeedbackService {
     });
     if (!feedback) throw new NotFoundException('Feedback not found');
 
-    let voted = false;
+    let voted: string | null = null;
     if (userId) {
-      voted = !!(await this.prisma.feedbackVote.findUnique({ where: { feedbackId_userId: { feedbackId: id, userId } } }));
+      const vote = await this.prisma.feedbackVote.findUnique({ where: { feedbackId_userId: { feedbackId: id, userId } } });
+      voted = vote?.direction ?? null;
     }
 
     return {
@@ -107,18 +108,32 @@ export class FeedbackService {
     return { id: comment.id, message: comment.message, user: { id: comment.user.id, username: comment.user.username }, createdAt: comment.createdAt.toISOString() };
   }
 
-  async toggleVote(feedbackId: string, userId: string) {
+  async toggleVote(feedbackId: string, userId: string, direction: 'up' | 'down' = 'up') {
     const feedback = await this.prisma.feedback.findUnique({ where: { id: feedbackId } });
     if (!feedback) throw new NotFoundException('Feedback not found');
+
     const existing = await this.prisma.feedbackVote.findUnique({ where: { feedbackId_userId: { feedbackId, userId } } });
+
     if (existing) {
-      await this.prisma.feedbackVote.delete({ where: { id: existing.id } });
-      await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { decrement: 1 } } });
-      return { voted: false, voteCount: feedback.voteCount - 1 };
+      if (existing.direction === direction) {
+        // Same direction — remove vote
+        const delta = direction === 'up' ? -1 : 1;
+        await this.prisma.feedbackVote.delete({ where: { id: existing.id } });
+        await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { increment: delta } } });
+        return { voted: null, voteCount: feedback.voteCount + delta };
+      } else {
+        // Different direction — flip (±2)
+        const delta = direction === 'up' ? 2 : -2;
+        await this.prisma.feedbackVote.update({ where: { id: existing.id }, data: { direction } });
+        await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { increment: delta } } });
+        return { voted: direction, voteCount: feedback.voteCount + delta };
+      }
     } else {
-      await this.prisma.feedbackVote.create({ data: { feedbackId, userId } });
-      await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { increment: 1 } } });
-      return { voted: true, voteCount: feedback.voteCount + 1 };
+      // New vote
+      const delta = direction === 'up' ? 1 : -1;
+      await this.prisma.feedbackVote.create({ data: { feedbackId, userId, direction } });
+      await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { increment: delta } } });
+      return { voted: direction, voteCount: feedback.voteCount + delta };
     }
   }
 

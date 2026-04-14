@@ -734,6 +734,7 @@ model FeedbackVote {
   id         String   @id @default(uuid()) @db.Uuid
   feedbackId String   @map("feedback_id") @db.Uuid
   userId     String   @map("user_id") @db.Uuid
+  direction  String   @default("up") // up, down
   createdAt  DateTime @default(now()) @map("created_at")
 
   feedback Feedback @relation(fields: [feedbackId], references: [id], onDelete: Cascade)

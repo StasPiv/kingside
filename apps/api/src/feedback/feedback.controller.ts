@@ -76,8 +76,9 @@ export class FeedbackController {
   toggleVote(
     @Param('id', ParseUUIDPipe) id: string,
     @Request() req: AuthenticatedRequest,
+    @Body() body: { direction?: 'up' | 'down' },
   ) {
-    return this.feedbackService.toggleVote(id, req.user.id);
+    return this.feedbackService.toggleVote(id, req.user.id, body.direction ?? 'up');
   }
 
   @UseGuards(JwtAuthGuard)
