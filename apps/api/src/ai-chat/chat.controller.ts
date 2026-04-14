@@ -30,6 +30,7 @@ export class ChatController {
     @Res() res: Response,
   ) {
     const userId = req.user.id;
+    const siteUrl = (req.headers.origin as string) || undefined;
 
     // Rate limit check
     await this.chatService.checkRateLimit(userId);
@@ -46,7 +47,7 @@ export class ChatController {
     res.flushHeaders();
 
     try {
-      for await (const chunk of this.chatService.streamResponse(userId, body.message, conversationId)) {
+      for await (const chunk of this.chatService.streamResponse(userId, body.message, conversationId, siteUrl)) {
         res.write(`data: ${JSON.stringify({ text: chunk })}\n\n`);
       }
       res.write(`data: ${JSON.stringify({ done: true, conversationId })}\n\n`);

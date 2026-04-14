@@ -125,6 +125,7 @@ export class ChatAssistantService {
     userId: string,
     message: string,
     conversationId: string,
+    siteUrl?: string,
   ): AsyncGenerator<string> {
     if (!this.apiKey) {
       yield 'AI chat is not configured. Please set ANTHROPIC_API_KEY.';
@@ -133,7 +134,8 @@ export class ChatAssistantService {
 
     // Collect context and build system prompt
     const context = await this.contextCollector.collectContext(userId);
-    const systemPrompt = buildSystemPrompt(context);
+    const resolvedSiteUrl = siteUrl || this.config.get<string>('SITE_URL', 'https://kingside.site');
+    const systemPrompt = buildSystemPrompt(context, resolvedSiteUrl);
 
     // Get conversation history
     const history = await this.getHistory(conversationId);
