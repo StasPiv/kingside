@@ -12,9 +12,9 @@ type FeedbackPost = {
   status: string;
   message: string;
   voteCount: number;
-  upCount: number;
-  downCount: number;
-  voted: 'up' | 'down' | null;
+  upCount?: number;
+  downCount?: number;
+  voted: 'up' | 'down' | boolean | null;
   commentCount: number;
   user?: { username: string } | null;
   createdAt: string;
@@ -53,8 +53,13 @@ export function FeedbackBoardPage() {
 
   const handleVote = async (id: string, direction: 'up' | 'down') => {
     try {
-      const res = await api.post<{ voteCount: number; upCount: number; downCount: number; voted: 'up' | 'down' | null }>(`/api/feedback/${id}/vote`, { direction });
-      setPosts((prev) => prev.map((p) => p.id === id ? { ...p, voteCount: res.voteCount, upCount: res.upCount, downCount: res.downCount, voted: res.voted } : p));
+      const res = await api.post<Record<string, unknown>>(`/api/feedback/${id}/vote`, { direction });
+      const voteCount = (res.voteCount ?? 0) as number;
+      const upCount = (res.upCount ?? (direction === 'up' && res.voted ? 1 : 0)) as number;
+      const downCount = (res.downCount ?? (direction === 'down' && res.voted ? 1 : 0)) as number;
+      // voted can be boolean (old API) or string (new API)
+      const voted = res.voted === true ? direction : res.voted === false ? null : (res.voted as 'up' | 'down' | null);
+      setPosts((prev) => prev.map((p) => p.id === id ? { ...p, voteCount, upCount, downCount, voted } : p));
     } catch { /* ignore */ }
   };
 
@@ -97,13 +102,13 @@ export function FeedbackBoardPage() {
           {posts.map((post) => (
             <div key={post.id} className="fb-post-card">
               <div className="fb-vote-group">
-                <button className={`fb-vote-btn${post.voted === 'up' ? ' voted' : ''}`} onClick={() => handleVote(post.id, 'up')} disabled={!user}>
+                <button className={`fb-vote-btn${post.voted === 'up' || post.voted === true ? ' voted' : ''}`} onClick={() => handleVote(post.id, 'up')} disabled={!user}>
                   <span className="fb-vote-arrow">&#9650;</span>
-                  <span className="fb-vote-count fb-vote-count--up">+{post.upCount ?? 0}</span>
+                  <span className="fb-vote-count fb-vote-count--up">{post.upCount ?? post.voteCount ?? 0}</span>
                 </button>
                 <button className={`fb-vote-btn fb-vote-btn--down${post.voted === 'down' ? ' voted-down' : ''}`} onClick={() => handleVote(post.id, 'down')} disabled={!user}>
                   <span className="fb-vote-arrow">&#9660;</span>
-                  <span className="fb-vote-count fb-vote-count--down">-{post.downCount ?? 0}</span>
+                  <span className="fb-vote-count fb-vote-count--down">{post.downCount ?? 0}</span>
                 </button>
               </div>
               <div className="fb-post-body">

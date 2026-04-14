@@ -39,8 +39,12 @@ export function FeedbackDetailPage() {
   const handleVote = async (direction: 'up' | 'down') => {
     if (!post || !user) return;
     try {
-      const res = await api.post<{ voteCount: number; upCount: number; downCount: number; voted: 'up' | 'down' | null }>(`/api/feedback/${post.id}/vote`, { direction });
-      setPost((p) => p ? { ...p, voteCount: res.voteCount, upCount: res.upCount, downCount: res.downCount, voted: res.voted } : p);
+      const res = await api.post<Record<string, unknown>>(`/api/feedback/${post.id}/vote`, { direction });
+      const voteCount = (res.voteCount ?? 0) as number;
+      const upCount = (res.upCount ?? (direction === 'up' && res.voted ? 1 : 0)) as number;
+      const downCount = (res.downCount ?? (direction === 'down' && res.voted ? 1 : 0)) as number;
+      const voted = res.voted === true ? direction : res.voted === false ? null : (res.voted as 'up' | 'down' | null);
+      setPost((p) => p ? { ...p, voteCount, upCount, downCount, voted } : p);
     } catch { /* ignore */ }
   };
 
