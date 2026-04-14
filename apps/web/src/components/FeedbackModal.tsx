@@ -11,8 +11,10 @@ interface FeedbackModalProps {
 export function FeedbackModal({ onClose }: FeedbackModalProps) {
   const { t } = useTranslation();
   const [type, setType] = useState<FeedbackType>('suggestion');
+  const [title, setTitle] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
+  const [isPublic, setIsPublic] = useState(true);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
@@ -24,8 +26,10 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
     try {
       await api.post('/api/feedback', {
         type,
+        title: title.trim() || undefined,
         message: message.trim(),
         email: email.trim() || undefined,
+        isPublic,
         page: window.location.pathname,
         userAgent: navigator.userAgent,
       });
@@ -70,6 +74,16 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
             </div>
 
             <div className="feedback-field">
+              <label>{t('feedback.titleField', 'Title')}</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t('feedback.titlePlaceholder', 'Short summary')}
+              />
+            </div>
+
+            <div className="feedback-field">
               <label>{t('feedback.email', 'Email (optional)')}</label>
               <input
                 type="email"
@@ -88,6 +102,11 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
                 rows={5}
               />
             </div>
+
+            <label className="feedback-public-check">
+              <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+              {t('feedback.isPublic', 'Show on feedback board')}
+            </label>
 
             {error && <div className="feedback-error">{error}</div>}
 

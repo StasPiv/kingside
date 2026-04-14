@@ -1038,6 +1038,26 @@
     "messagePlaceholder": "Describe your issue or suggestion...",
     "send": "Send",
     "thanks": "Thank you! We received your message.",
-    "error": "Failed to send"
+    "error": "Failed to send",
+    "titleField": "Title",
+    "titlePlaceholder": "Short summary",
+    "isPublic": "Show on feedback board"
+  },
+  "feedbackBoard": {
+    "title": "Feedback & Ideas",
+    "newPost": "New Post",
+    "allTypes": "All types",
+    "allStatuses": "All statuses",
+    "statusOpen": "Open",
+    "statusPlanned": "Planned",
+    "statusInProgress": "In Progress",
+    "statusDone": "Done",
+    "statusDeclined": "Declined",
+    "sortNewest": "Newest",
+    "sortPopular": "Most voted",
+    "empty": "No posts yet. Be the first!",
+    "comments": "comments",
+    "anonymous": "Anonymous",
+    "addComment": "Add a comment..."
   }
 }

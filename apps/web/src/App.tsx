@@ -30,6 +30,8 @@ import { TournamentsPage } from './pages/TournamentsPage';
 import { TournamentLobbyPage } from './pages/TournamentLobbyPage';
 import { DevBypassPage } from './pages/DevBypassPage';
 import { PlayPage } from './pages/PlayPage';
+import { FeedbackBoardPage } from './pages/FeedbackBoardPage';
+import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
 import { useAuth } from './context/AuthContext';
 
 // Lazy-loaded heavy pages
@@ -110,6 +112,8 @@ export function App() {
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<PuzzleBrowserPage />} />
         <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
+        <Route path="/feedback" element={<FeedbackBoardPage />} />
+        <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
         <Route path="/puzzle" element={<PuzzlePage />} />
         <Route path="/puzzle/:id" element={<PuzzlePage />} />
         <Route path="/analysis" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />

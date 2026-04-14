@@ -1038,6 +1038,26 @@
     "messagePlaceholder": "Опишите проблему или предложение...",
     "send": "Отправить",
     "thanks": "Спасибо! Мы получили ваше сообщение.",
-    "error": "Не удалось отправить"
+    "error": "Не удалось отправить",
+    "titleField": "Заголовок",
+    "titlePlaceholder": "Краткое описание",
+    "isPublic": "Показать на доске обратной связи"
+  },
+  "feedbackBoard": {
+    "title": "Обратная связь и идеи",
+    "newPost": "Новый пост",
+    "allTypes": "Все типы",
+    "allStatuses": "Все статусы",
+    "statusOpen": "Открыт",
+    "statusPlanned": "Запланирован",
+    "statusInProgress": "В работе",
+    "statusDone": "Готово",
+    "statusDeclined": "Отклонено",
+    "sortNewest": "Новые",
+    "sortPopular": "Популярные",
+    "empty": "Постов пока нет. Будьте первым!",
+    "comments": "комментариев",
+    "anonymous": "Аноним",
+    "addComment": "Добавить комментарий..."
   }
 }
