@@ -507,7 +507,8 @@
       "survival": "Survival",
       "threeMinutes": "3 Minutes",
       "fiveMinutes": "5 Minutes"
-    }
+    },
+    "checkingAlt": "Checking alternative move..."
   },
   "profile": {
     "loadError": "Failed to load profile",

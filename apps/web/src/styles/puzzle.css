@@ -2037,3 +2037,11 @@ body:has(.puzzle-rush-board) {
   font-size: 13px;
   margin-bottom: 8px;
 }
+
+.puzzle-checking-msg {
+  text-align: center;
+  padding: 8px;
+  color: #f59e0b;
+  font-size: 13px;
+  animation: checking-pulse 1s ease-in-out infinite;
+}

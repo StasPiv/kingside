@@ -507,7 +507,8 @@
       "survival": "На выживание",
       "threeMinutes": "3 минуты",
       "fiveMinutes": "5 минут"
-    }
+    },
+    "checkingAlt": "Проверяем альтернативный ход..."
   },
   "profile": {
     "loadError": "Ошибка загрузки профиля",

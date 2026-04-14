@@ -498,6 +498,9 @@ export function PuzzlePage() {
         />
 
         <div className="puzzle-actions-slot">
+          {status === 'checking' && (
+            <div className="puzzle-checking-msg">{t('puzzle.checkingAlt', 'Checking alternative move...')}</div>
+          )}
           {altMoveMsg && <div className="puzzle-alt-move-msg">{altMoveMsg}</div>}
           {status === 'incorrect' && (
             <button onClick={handleRetry}>{t('puzzle.retry')}</button>
