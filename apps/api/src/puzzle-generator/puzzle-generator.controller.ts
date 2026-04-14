@@ -61,8 +61,10 @@ export class PuzzleGeneratorController {
     const puzzles = body.puzzles ?? [];
     if (puzzles.length === 0) return { count: 0 };
 
+    const { randomUUID } = await import('crypto');
     const created = await this.prisma.puzzle.createMany({
       data: puzzles.slice(0, 200).map((p) => ({
+        id: randomUUID(),
         fen: p.fen,
         moves: p.moves,
         rating: p.rating,

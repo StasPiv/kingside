@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
@@ -189,6 +190,7 @@ export class PuzzleGeneratorService {
     for (const c of candidates) {
       await this.prisma.puzzle.create({
         data: {
+          id: randomUUID(),
           fen: c.fen,
           moves: c.moves,
           rating: c.rating,
