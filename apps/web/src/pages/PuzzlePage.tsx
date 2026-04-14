@@ -528,9 +528,9 @@ export function PuzzlePage() {
                   isWhiteTurn = !isWhiteTurn;
                 } catch { break; }
               }
-              const pgn = pgnParts.join(' ');
-              const params = new URLSearchParams({ fen: puzzle.fen, pgn, side: boardOrientation });
-              window.open(`/analysis?${params.toString()}`, '_blank');
+              const movesText = pgnParts.join(' ');
+              const fullPgn = `[FEN "${puzzle.fen}"]\n\n${movesText}`;
+              navigate('/analysis', { state: { pgn: fullPgn, title: `Puzzle #${puzzle.id.slice(0, 6)}` } });
             }}
           >
             {t('puzzle.analyze', 'Analyze')}
