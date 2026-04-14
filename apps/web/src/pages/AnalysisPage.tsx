@@ -293,7 +293,11 @@ export function AnalysisPage() {
     if (!gameId) {
       const pgn = (location.state as { pgn?: string } | null)?.pgn;
       if (pgn) {
-        try { loadFromPgn(parseAnnotatedPgn(pgn)); } catch { /* ignore */ }
+        try {
+          const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
+          if (fenMatch) setInitialFen(fenMatch[1]);
+          loadFromPgn(parseAnnotatedPgn(pgn));
+        } catch { /* ignore */ }
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
         const id = localIdRef.current;
