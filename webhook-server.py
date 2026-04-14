@@ -1696,30 +1696,6 @@ if __name__ == "__main__":
     class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         daemon_threads = True
 
-    # Публичный сервер только для /feedback/notify
-    PUBLIC_PORT = 9877
-
-    class FeedbackNotifyHandler(BaseHTTPRequestHandler):
-        def do_POST(self):
-            path = self.path.split("?")[0]
-            if path == "/feedback/notify":
-                handle_feedback_notify(self)
-            else:
-                self.send_response(404)
-                self.end_headers()
-
-        def do_GET(self):
-            self.send_response(404)
-            self.end_headers()
-
-        def log_message(self, fmt, *args):
-            pass  # подавить стандартный вывод
-
-    public_server = ThreadingHTTPServer(("0.0.0.0", PUBLIC_PORT), FeedbackNotifyHandler)
-    public_thread = threading.Thread(target=public_server.serve_forever, daemon=True)
-    public_thread.start()
-    log(f"Публичный /feedback/notify запущен на 0.0.0.0:{PUBLIC_PORT}")
-
     server = ThreadingHTTPServer(("127.0.0.1", PORT), WebhookHandler)
     log(f"Webhook-сервер v2.0 запущен на порту {PORT} (daemon-режим агентов)")
     try:
@@ -1729,4 +1705,3 @@ if __name__ == "__main__":
         shutdown_daemons()
         log("Webhook-сервер остановлен")
         server.server_close()
-        public_server.server_close()
