@@ -100,7 +100,8 @@ export function PuzzleStatsPage() {
         else if ((i + (isBlackFirst ? 1 : 0)) % 2 === 0) pgn += `${moveNum}. `;
         pgn += san + ' ';
       });
-      navigate('/analysis', { state: { puzzleFen: puzzle.fen, puzzlePgn: pgn.trim(), title: `Puzzle #${puzzleId.slice(0, 6)}` } });
+      const fullPgn = `[FEN "${puzzle.fen}"]\n\n${pgn.trim()}`;
+      navigate('/analysis', { state: { pgn: fullPgn, title: `Puzzle #${puzzleId.slice(0, 6)}` } });
     } catch {
       navigate(`/puzzle/${puzzleId}`);
     }
