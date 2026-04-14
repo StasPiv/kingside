@@ -60,7 +60,8 @@ export class FeedbackService {
     return {
       data: data.map((f) => ({
         id: f.id, title: f.title, type: f.type, message: f.message, status: f.status,
-        voteCount: f.voteCount, commentCount: f._count.comments, voted: votedMap.get(f.id) ?? null,
+        voteCount: f.voteCount, upCount: f.upCount, downCount: f.downCount,
+        commentCount: f._count.comments, voted: votedMap.get(f.id) ?? null,
         user: f.user ? { id: f.user.id, username: f.user.username } : null,
         createdAt: f.createdAt.toISOString(),
       })),
@@ -86,7 +87,7 @@ export class FeedbackService {
 
     return {
       id: feedback.id, title: feedback.title, type: feedback.type, message: feedback.message,
-      status: feedback.status, voteCount: feedback.voteCount, voted,
+      status: feedback.status, voteCount: feedback.voteCount, upCount: feedback.upCount, downCount: feedback.downCount, voted,
       user: feedback.user ? { id: feedback.user.id, username: feedback.user.username } : null,
       createdAt: feedback.createdAt.toISOString(),
       comments: feedback.comments.map((c) => ({
@@ -114,26 +115,34 @@ export class FeedbackService {
 
     const existing = await this.prisma.feedbackVote.findUnique({ where: { feedbackId_userId: { feedbackId, userId } } });
 
+    let updateData: Record<string, unknown>;
+
     if (existing) {
       if (existing.direction === direction) {
         // Same direction — remove vote
-        const delta = direction === 'up' ? -1 : 1;
         await this.prisma.feedbackVote.delete({ where: { id: existing.id } });
-        await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { increment: delta } } });
-        return { voted: null, voteCount: feedback.voteCount + delta };
+        updateData = direction === 'up'
+          ? { voteCount: { decrement: 1 }, upCount: { decrement: 1 } }
+          : { voteCount: { increment: 1 }, downCount: { decrement: 1 } };
+        await this.prisma.feedback.update({ where: { id: feedbackId }, data: updateData });
+        return { voted: null, voteCount: feedback.voteCount + (direction === 'up' ? -1 : 1), upCount: feedback.upCount + (direction === 'up' ? -1 : 0), downCount: feedback.downCount + (direction === 'down' ? -1 : 0) };
       } else {
-        // Different direction — flip (±2)
-        const delta = direction === 'up' ? 2 : -2;
+        // Flip direction
         await this.prisma.feedbackVote.update({ where: { id: existing.id }, data: { direction } });
-        await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { increment: delta } } });
-        return { voted: direction, voteCount: feedback.voteCount + delta };
+        updateData = direction === 'up'
+          ? { voteCount: { increment: 2 }, upCount: { increment: 1 }, downCount: { decrement: 1 } }
+          : { voteCount: { decrement: 2 }, upCount: { decrement: 1 }, downCount: { increment: 1 } };
+        await this.prisma.feedback.update({ where: { id: feedbackId }, data: updateData });
+        return { voted: direction, voteCount: feedback.voteCount + (direction === 'up' ? 2 : -2), upCount: feedback.upCount + (direction === 'up' ? 1 : -1), downCount: feedback.downCount + (direction === 'down' ? 1 : -1) };
       }
     } else {
       // New vote
-      const delta = direction === 'up' ? 1 : -1;
       await this.prisma.feedbackVote.create({ data: { feedbackId, userId, direction } });
-      await this.prisma.feedback.update({ where: { id: feedbackId }, data: { voteCount: { increment: delta } } });
-      return { voted: direction, voteCount: feedback.voteCount + delta };
+      updateData = direction === 'up'
+        ? { voteCount: { increment: 1 }, upCount: { increment: 1 } }
+        : { voteCount: { decrement: 1 }, downCount: { increment: 1 } };
+      await this.prisma.feedback.update({ where: { id: feedbackId }, data: updateData });
+      return { voted: direction, voteCount: feedback.voteCount + (direction === 'up' ? 1 : -1), upCount: feedback.upCount + (direction === 'up' ? 1 : 0), downCount: feedback.downCount + (direction === 'down' ? 1 : 0) };
     }
   }
 
