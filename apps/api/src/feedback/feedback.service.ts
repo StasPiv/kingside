@@ -35,7 +35,7 @@ export class FeedbackService {
     });
     this.logger.log(`Feedback created: ${feedback.id} type=${data.type}`);
     this.notifyTelegram(feedback.id, data).catch((e) => this.logger.warn(`Telegram failed: ${e.message}`));
-    this.notifyWebhook(feedback.id, data, feedback.user?.username ?? null).catch(() => {});
+    this.notifyWebhook(feedback.id, data, feedback.user?.username ?? null).catch((e) => this.logger.warn(`Webhook error: ${e.message}`));
     return { id: feedback.id, status: 'created' };
   }
 
@@ -174,11 +174,17 @@ export class FeedbackService {
     const author = username ?? data.email ?? 'anonymous';
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (this.webhookSecret) headers['X-Feedback-Secret'] = this.webhookSecret;
-    const res = await fetch(this.webhookUrl, {
-      method: 'POST', headers,
-      body: JSON.stringify({ id: feedbackId, title: data.title ?? null, author }),
-    });
-    if (!res.ok) this.logger.warn(`Webhook failed: ${res.status}`);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const res = await fetch(this.webhookUrl, {
+        method: 'POST', headers, signal: controller.signal,
+        body: JSON.stringify({ id: feedbackId, title: data.title ?? null, author }),
+      });
+      if (!res.ok) this.logger.warn(`Webhook failed: ${res.status}`);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async notifyTelegram(feedbackId: string, data: { userId?: string; email?: string; type: string; message: string; page?: string; title?: string }) {
