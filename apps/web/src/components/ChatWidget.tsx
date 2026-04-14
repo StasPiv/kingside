@@ -64,7 +64,7 @@ export function ChatWidget() {
     }
   };
 
-  if (!user) return null;
+  if (!user || import.meta.env.VITE_AI_CHAT_ENABLED === 'false') return null;
 
   return (
     <>
