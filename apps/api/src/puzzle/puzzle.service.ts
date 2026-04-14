@@ -27,7 +27,6 @@ export class PuzzleService {
     const DEFAULT_RATING = 1500;
     const range = 200;
     let userRating = DEFAULT_RATING;
-    const excludeIds: string[] = [];
 
     if (userId) {
       const user = await this.prisma.user.findUnique({
@@ -35,55 +34,63 @@ export class PuzzleService {
         select: { ratingPuzzle: true },
       });
       if (user) userRating = user.ratingPuzzle;
-
-      const attemptedIds = await this.prisma.puzzleAttempt.findMany({
-        where: { userId },
-        select: { puzzleId: true },
-        distinct: ['puzzleId'],
-      });
-      excludeIds.push(...attemptedIds.map((a) => a.puzzleId));
     }
 
     const minRating = filters?.ratingMin ?? userRating - range;
     const maxRating = filters?.ratingMax ?? userRating + range;
-    if (excludeId && !excludeIds.includes(excludeId)) {
-      excludeIds.push(excludeId);
+
+    // Build conditions for raw query
+    const conditions: string[] = ['p.rating >= $1', 'p.rating <= $2'];
+    const params: (string | number)[] = [minRating, maxRating];
+    let paramIdx = 3;
+
+    if (excludeId) {
+      conditions.push(`p.id != $${paramIdx}`);
+      params.push(excludeId);
+      paramIdx++;
     }
 
-    const where: Record<string, unknown> = {
-      rating: { gte: minRating, lte: maxRating },
-      id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
-    };
+    // NOT EXISTS: exclude only solved puzzles (failed can reappear)
+    if (userId) {
+      conditions.push(`NOT EXISTS (
+        SELECT 1 FROM puzzle_attempts pa
+        WHERE pa.puzzle_id = p.id AND pa.user_id = $${paramIdx}::uuid AND pa.solved = true
+      )`);
+      params.push(userId);
+      paramIdx++;
+    }
 
     if (filters?.themes && filters.themes.length > 0) {
-      where.AND = filters.themes.map((t) => ({ themes: { contains: t } }));
+      for (const theme of filters.themes) {
+        conditions.push(`p.themes LIKE $${paramIdx}`);
+        params.push(`%${theme}%`);
+        paramIdx++;
+      }
     }
 
-    const puzzles = await this.prisma.puzzle.findMany({
-      where,
-      take: 10,
-      orderBy: { popularity: 'desc' },
-    });
+    const whereClause = conditions.join(' AND ');
+    const puzzles = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string }>>(
+      `SELECT * FROM puzzles p WHERE ${whereClause} ORDER BY p.popularity DESC LIMIT 10`,
+      ...params,
+    );
 
     if (puzzles.length === 0) {
-      const fallbackWhere: Record<string, unknown> = {
-        id: { notIn: excludeIds.length > 0 ? excludeIds : undefined },
-      };
-      if (filters?.themes && filters.themes.length > 0) {
-        fallbackWhere.AND = filters.themes.map((t) => ({ themes: { contains: t } }));
-      }
-      const fallback = await this.prisma.puzzle.findFirst({
-        where: fallbackWhere,
-        orderBy: { rating: 'asc' },
-      });
-      if (!fallback) {
+      // Fallback: remove rating filter
+      const fbConditions = conditions.filter(c => !c.includes('rating'));
+      const fbWhere = fbConditions.length > 0 ? fbConditions.join(' AND ') : 'true';
+      const fbParams = params.slice(2); // skip minRating/maxRating
+      const fallbackArr = await this.prisma.$queryRawUnsafe<Array<{ id: string; fen: string; moves: string; rating: number; themes: string; game_url: string | null; opening_tags: string | null; source: string }>>(
+        `SELECT * FROM puzzles p WHERE ${fbWhere} ORDER BY p.rating ASC LIMIT 1`,
+        ...fbParams,
+      );
+      if (fallbackArr.length === 0) {
         throw new NotFoundException(this.i18n.t('messages.puzzle.noPuzzlesAvailable'));
       }
-      return this.formatPuzzle(fallback);
+      return this.formatRawPuzzle(fallbackArr[0]);
     }
 
     const picked = puzzles[Math.floor(Math.random() * puzzles.length)];
-    return this.formatPuzzle(picked);
+    return this.formatRawPuzzle(picked);
   }
 
   /**
@@ -209,11 +216,28 @@ export class PuzzleService {
       throw new NotFoundException(this.i18n.t('messages.puzzle.notFound'));
     }
 
-    const ratingChange = await this.puzzleRating.applyRatingChange(
-      userId,
-      puzzleId,
-      solved,
-    );
+    // Check if already solved — retry without rating change
+    const alreadySolved = await this.prisma.puzzleAttempt.findFirst({
+      where: { userId, puzzleId, solved: true },
+    });
+    const isRetry = !!alreadySolved;
+
+    let ratingChange;
+    if (isRetry) {
+      // No rating change on retry
+      const user = await this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { ratingPuzzle: true },
+      });
+      ratingChange = {
+        userRatingBefore: user.ratingPuzzle,
+        userRatingAfter: user.ratingPuzzle,
+        puzzleRatingBefore: puzzle.rating,
+        puzzleRatingAfter: puzzle.rating,
+      };
+    } else {
+      ratingChange = await this.puzzleRating.applyRatingChange(userId, puzzleId, solved);
+    }
 
     await this.prisma.puzzleAttempt.create({
       data: {
@@ -229,21 +253,18 @@ export class PuzzleService {
     });
 
     this.logger.log(
-      `Puzzle ${puzzleId} ${solved ? 'solved' : 'failed'} by user ${userId}: rating ${ratingChange.userRatingBefore} -> ${ratingChange.userRatingAfter}`,
+      `Puzzle ${puzzleId} ${solved ? 'solved' : 'failed'} by user ${userId}: rating ${ratingChange.userRatingBefore} -> ${ratingChange.userRatingAfter}${isRetry ? ' (retry)' : ''}`,
     );
 
-    // Fetch next puzzle atomically to avoid race condition (KS-177):
-    // the attempt is already persisted, so getNextPuzzle will correctly
-    // exclude this puzzle if it was solved.
     let nextPuzzle = null;
     try {
       nextPuzzle = await this.getNextPuzzle(userId, puzzleId);
     } catch (e: unknown) { this.logger.warn(`Daily puzzle error: ${(e as Error).message ?? e}`);
-      // no puzzles available — not critical
     }
 
     return {
       solved,
+      isRetry,
       puzzleRating: ratingChange.puzzleRatingAfter,
       userRatingBefore: ratingChange.userRatingBefore,
       userRatingAfter: ratingChange.userRatingAfter,
@@ -392,6 +413,18 @@ export class PuzzleService {
       moves: puzzle.moves.split(' '),
       rating: puzzle.rating,
       themes: puzzle.themes.split(' ').filter(Boolean),
+    };
+  }
+
+  private formatRawPuzzle(p: { id: string; fen: string; moves: string; rating: number; themes: string; game_url?: string | null; opening_tags?: string | null }) {
+    return {
+      id: p.id,
+      fen: p.fen,
+      moves: p.moves.split(' '),
+      rating: p.rating,
+      themes: p.themes.split(' ').filter(Boolean),
+      gameUrl: p.game_url ?? null,
+      openingTags: p.opening_tags ?? null,
     };
   }
 }

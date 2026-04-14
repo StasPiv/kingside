@@ -247,6 +247,7 @@ model PuzzleAttempt {
   @@index([userId])
   @@index([puzzleId])
   @@index([userId, createdAt])
+  @@index([userId, puzzleId, solved])
   @@map("puzzle_attempts")
 }
 
