@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -39,6 +39,7 @@ const PAGE_SIZE = 20;
 
 export function PuzzleStatsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [stats, setStats] = useState<PuzzleStats | null>(null);
   const [ratingHistory, setRatingHistory] = useState<RatingPoint[]>([]);
@@ -72,6 +73,38 @@ export function PuzzleStatsPage() {
   if (!user) {
     return <div className="puzzle-stats-page"><p>{t('common.loginRequired', 'Please log in')}</p></div>;
   }
+
+  const openPuzzleAnalysis = async (puzzleId: string) => {
+    try {
+      const puzzle = await api.get<{ fen: string; moves: string | string[] }>(`/api/puzzles/${puzzleId}`);
+      const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(/\s+/).filter(Boolean);
+      // Convert UCI to SAN PGN
+      const { Chess } = await import('chess.js');
+      const replay = new Chess(puzzle.fen);
+      const sanMoves: string[] = [];
+      for (const uci of moves) {
+        try {
+          const mv = replay.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+          if (mv) sanMoves.push(mv.san);
+          else break;
+        } catch { break; }
+      }
+      // Build PGN string
+      let pgn = '';
+      const fenParts = puzzle.fen.split(' ');
+      const startMoveNum = parseInt(fenParts[5] || '1', 10);
+      const isBlackFirst = fenParts[1] === 'b';
+      sanMoves.forEach((san, i) => {
+        const moveNum = startMoveNum + Math.floor((i + (isBlackFirst ? 1 : 0)) / 2);
+        if (i === 0 && isBlackFirst) pgn += `${moveNum}... `;
+        else if ((i + (isBlackFirst ? 1 : 0)) % 2 === 0) pgn += `${moveNum}. `;
+        pgn += san + ' ';
+      });
+      navigate('/analysis', { state: { puzzleFen: puzzle.fen, puzzlePgn: pgn.trim(), title: `Puzzle #${puzzleId.slice(0, 6)}` } });
+    } catch {
+      navigate(`/puzzle/${puzzleId}`);
+    }
+  };
 
   if (loading) {
     return <div className="puzzle-stats-page"><p>{t('common.loading')}</p></div>;
@@ -166,9 +199,9 @@ export function PuzzleStatsPage() {
           <div className="puzzle-stats-attempts">
             {attempts.map((a) => (
               <div key={a.id} className={`puzzle-stats-attempt${a.solved ? ' solved' : ' failed'}`}>
-                <Link to={`/analysis?puzzleId=${a.puzzleId}`} className="puzzle-stats-attempt__link">
+                <a href="#" className="puzzle-stats-attempt__link" onClick={(e) => { e.preventDefault(); openPuzzleAnalysis(a.puzzleId); }}>
                   #{a.puzzleId.slice(0, 6)}
-                </Link>
+                </a>
                 <span className={`puzzle-stats-attempt__result${a.solved ? ' correct' : ' wrong'}`}>
                   {a.solved ? '✓' : '✗'}
                 </span>

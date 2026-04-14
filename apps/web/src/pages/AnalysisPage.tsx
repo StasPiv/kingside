@@ -129,7 +129,6 @@ export function AnalysisPage() {
   const puzzleFen = (location.state as { puzzleFen?: string } | null)?.puzzleFen ?? urlParams.get('fen') ?? undefined;
   const puzzlePgn = (location.state as { puzzlePgn?: string } | null)?.puzzlePgn ?? urlParams.get('pgn') ?? undefined;
   const puzzleMovesParam = urlParams.get('moves') ?? undefined;
-  const puzzleIdParam = urlParams.get('puzzleId') ?? undefined;
   const puzzleSide = urlParams.get('side') as 'white' | 'black' | null;
   const [analysisTitle, setAnalysisTitle] = useState<string>(() => {
     const state = location.state as { title?: string } | null;
@@ -206,33 +205,6 @@ export function AnalysisPage() {
         } catch { /* ignore parse errors */ }
       }
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Load puzzle by ID from stats page
-  useEffect(() => {
-    console.log('[Analysis] puzzleId effect:', { puzzleIdParam, gameId, analysisId, puzzleFen: !!puzzleFen });
-    if (!puzzleIdParam || gameId || analysisId || puzzleFen) return;
-    console.log('[Analysis] Fetching puzzle:', puzzleIdParam);
-    api.get<{ fen: string; moves: string | string[] }>(`/api/puzzles/${puzzleIdParam}`)
-      .then((puzzle) => {
-        console.log('[Analysis] Puzzle loaded, moves:', Array.isArray(puzzle.moves) ? puzzle.moves.length : puzzle.moves?.length);
-        setInitialFen(puzzle.fen);
-        const movesArr = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(/\s+/).filter(Boolean);
-        // Delay loadFromPgn to let initialFen settle
-        requestAnimationFrame(() => {
-          try {
-            const replay = new Chess(puzzle.fen);
-            const chessMoves: ChessMove[] = [];
-            for (const uci of movesArr) {
-              const mv = replay.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-              if (!mv) break;
-              chessMoves.push({ san: mv.san, uci: mv.from + mv.to + (mv.promotion || ''), fenAfter: replay.fen() } as unknown as ChessMove);
-            }
-            if (chessMoves.length > 0) loadFromPgn(chessMoves);
-          } catch { /* ignore */ }
-        });
-      })
-      .catch(() => { /* puzzle not found */ });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Game Report
