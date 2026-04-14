@@ -79,6 +79,7 @@ class AgentDaemon:
         log_file = os.path.join(LOG_DIR, "agents.log")
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
+        env.pop("ANTHROPIC_API_KEY", None)
 
         cmd = self._build_cmd()
 
