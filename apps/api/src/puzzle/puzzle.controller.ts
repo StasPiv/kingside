@@ -156,9 +156,9 @@ export class PuzzleController {
     if (ratingMinStr) { conditions.push(`p.rating >= $${idx}`); params.push(parseInt(ratingMinStr, 10)); idx++; }
     if (ratingMaxStr) { conditions.push(`p.rating <= $${idx}`); params.push(parseInt(ratingMaxStr, 10)); idx++; }
 
-    // hideSolved: exclude puzzles already solved by this user
+    // hideSolved: exclude all attempted puzzles (solved and failed)
     if (hideSolved === 'true' && userId) {
-      conditions.push(`NOT EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid AND pa.solved = true)`);
+      conditions.push(`NOT EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid)`);
       params.push(userId);
       idx++;
     }
