@@ -46,31 +46,42 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const convId = res.headers.get('X-Conversation-Id');
       if (convId) setConversationId(convId);
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No reader');
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const contentType = res.headers.get('Content-Type') || '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.text) {
-              fullText += data.text;
-              setMessages((prev) => { const u = [...prev]; u[u.length - 1] = { role: 'assistant', content: fullText }; return u; });
-            }
-            if (data.conversationId) setConversationId(data.conversationId);
-            if (data.error) {
-              fullText += `\n\n⚠️ ${data.error}`;
-              setMessages((prev) => { const u = [...prev]; u[u.length - 1] = { role: 'assistant', content: fullText }; return u; });
-            }
-          } catch { /* ignore */ }
+      if (contentType.includes('application/json')) {
+        // JSON response (webhook mode) — show answer immediately
+        const data = await res.json();
+        if (data.conversationId) setConversationId(data.conversationId);
+        fullText = data.response || data.text || '';
+        setMessages((prev) => { const u = [...prev]; u[u.length - 1] = { role: 'assistant', content: fullText }; return u; });
+      } else {
+        // SSE stream (Anthropic mode)
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No reader');
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.text) {
+                fullText += data.text;
+                setMessages((prev) => { const u = [...prev]; u[u.length - 1] = { role: 'assistant', content: fullText }; return u; });
+              }
+              if (data.conversationId) setConversationId(data.conversationId);
+              if (data.error) {
+                fullText += `\n\n⚠️ ${data.error}`;
+                setMessages((prev) => { const u = [...prev]; u[u.length - 1] = { role: 'assistant', content: fullText }; return u; });
+              }
+            } catch { /* ignore */ }
+          }
         }
       }
     } catch (err) {
