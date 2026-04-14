@@ -687,3 +687,19 @@ model ChatAssistantMessage {
   @@index([conversationId])
   @@map("chat_assistant_messages")
 }
+
+model Feedback {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  email     String?
+  type      String   // bug, suggestion, question
+  message   String   @db.Text
+  page      String?
+  userAgent String?  @map("user_agent")
+  status    String   @default("new") // new, read, resolved
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@index([createdAt])
+  @@map("feedback")
+}
