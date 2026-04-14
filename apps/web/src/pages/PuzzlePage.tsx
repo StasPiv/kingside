@@ -20,8 +20,9 @@ export function PuzzlePage() {
   const { user } = useAuth();
   const { id: puzzleId } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const isGenerated = searchParams.get('source') === 'generated';
+  const isGeneratedParam = searchParams.get('source') === 'generated';
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
+  const isGenerated = (puzzle as unknown as { source?: string })?.source === 'generated' || isGeneratedParam;
   const [game, setGame] = useState<Chess | null>(null);
   const [status, setStatus] = useState<PuzzleStatus>('thinking');
   const [moveIndex, setMoveIndex] = useState(0);
