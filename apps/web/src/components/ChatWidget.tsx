@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
-import { useChatStream, type ChatMessage } from '../hooks/useChatStream';
+import { useChat } from '../context/ChatContext';
 import { api } from '../api';
 import { renderMarkdown } from '../utils/simpleMarkdown';
 
@@ -10,14 +10,12 @@ type Conversation = { id: string; title: string | null; updatedAt: string };
 export function ChatWidget() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, messages, streaming, sendMessage, stopStreaming, loadConversation, newConversation } = useChat();
   const [showHistory, setShowHistory] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  const { messages, streaming, sendMessage, stopStreaming, loadConversation, newConversation } = useChatStream();
 
   // Auto-scroll
   useEffect(() => {
@@ -58,14 +56,12 @@ export function ChatWidget() {
 
   return (
     <>
-      {/* Floating button */}
       {!open && (
         <button className="chat-widget-btn" onClick={() => setOpen(true)} title={t('chat.title', 'AI Assistant')}>
           💬
         </button>
       )}
 
-      {/* Panel */}
       {open && (
         <div className="chat-panel">
           <div className="chat-panel__header">

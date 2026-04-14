@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BoardSettingsProvider } from './context/BoardSettingsContext';
+import { ChatProvider } from './context/ChatContext';
 import { App } from './App';
 import { initClientLogger } from './utils/clientLogger';
 import './i18n';
@@ -32,9 +33,11 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <BoardSettingsProvider>
-          <App />
-        </BoardSettingsProvider>
+        <ChatProvider>
+          <BoardSettingsProvider>
+            <App />
+          </BoardSettingsProvider>
+        </ChatProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,
