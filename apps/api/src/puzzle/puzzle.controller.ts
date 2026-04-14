@@ -3,9 +3,13 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
+  ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Request,
@@ -14,16 +18,19 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { PuzzleService } from './puzzle.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { SubmitAttemptDto } from './dto/submit-attempt.dto';
 import { FindPuzzlesDto } from './dto/find-puzzles.dto';
 
 @Controller('puzzles')
 export class PuzzleController {
-  constructor(private readonly puzzleService: PuzzleService) {}
+  constructor(
+    private readonly puzzleService: PuzzleService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * GET /puzzles — search puzzles by theme and difficulty.
-   * Query: ?themes[]=fork&themes[]=pin&ratingMin=1200&ratingMax=1600&limit=10
    */
   @Get()
   findPuzzles(@Query() dto: FindPuzzlesDto) {
@@ -36,7 +43,7 @@ export class PuzzleController {
   }
 
   /**
-   * GET /puzzles/themes — list all available themes with counts.
+   * GET /puzzles/themes
    */
   @Get('themes')
   getThemes() {
@@ -57,9 +64,6 @@ export class PuzzleController {
     });
   }
 
-  /**
-   * GET /puzzles/next/:theme — get next puzzle by theme for the user.
-   */
   @UseGuards(OptionalJwtGuard)
   @Get('next/:theme')
   getNextPuzzleByTheme(
@@ -99,6 +103,152 @@ export class PuzzleController {
     @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
   ) {
     return this.puzzleService.getUserAttempts(req.user.id, take, skip);
+  }
+
+  /**
+   * GET /puzzles/browse — list puzzles with filters (generated).
+   */
+  @UseGuards(OptionalJwtGuard)
+  @Get('browse')
+  async browse(
+    @Request() req: AuthenticatedRequest,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset: number,
+    @Query('sort') sort?: string,
+    @Query('order') order?: string,
+    @Query('mine') mine?: string,
+    @Query('themes') themes?: string,
+    @Query('ratingMin') ratingMinStr?: string,
+    @Query('ratingMax') ratingMaxStr?: string,
+  ) {
+    const userId = req.user?.id;
+    const take = Math.min(50, limit);
+
+    const allowedSort = ['rating', 'createdAt'] as const;
+    const sortField = allowedSort.includes(sort as typeof allowedSort[number])
+      ? (sort as typeof allowedSort[number])
+      : 'createdAt';
+    const sortOrder: 'asc' | 'desc' = order === 'asc' ? 'asc' : 'desc';
+
+    const where: Record<string, unknown> = { source: 'generated' };
+    if (mine === 'true' && userId) {
+      where.createdBy = userId;
+    } else if (userId) {
+      where.OR = [{ createdBy: userId }, { isPublic: true }];
+    } else {
+      where.isPublic = true;
+    }
+
+    if (themes) {
+      where.AND = themes.split(',').map((t) => ({ themes: { contains: t.trim() } }));
+    }
+    if (ratingMinStr || ratingMaxStr) {
+      const rating: Record<string, number> = {};
+      if (ratingMinStr) rating.gte = parseInt(ratingMinStr, 10);
+      if (ratingMaxStr) rating.lte = parseInt(ratingMaxStr, 10);
+      where.rating = rating;
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.puzzle.findMany({ where, take, skip: offset, orderBy: { [sortField]: sortOrder } }),
+      this.prisma.puzzle.count({ where }),
+    ]);
+
+    return {
+      data: data.map((p: any) => ({
+        id: p.id, fen: p.fen, moves: p.moves, rating: p.rating,
+        themes: p.themes, sourceType: p.sourceType, isPublic: p.isPublic,
+        createdBy: p.createdBy, createdAt: p.createdAt?.toISOString(),
+      })),
+      total,
+    };
+  }
+
+  /**
+   * POST /puzzles/batch — save generated puzzles.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('batch')
+  async batch(
+    @Body() body: { puzzles: Array<{ fen: string; moves: string; rating: number; gap: number; themes: string; sourceType: string; sourceId?: string | null; sourceMoveNum?: number; sourceMetadata?: Record<string, string>; acceptedMoves?: string }> },
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const puzzles = body.puzzles ?? [];
+    if (puzzles.length === 0) return { count: 0 };
+
+    const created = await this.prisma.puzzle.createMany({
+      data: puzzles.slice(0, 200).map((p) => ({
+        fen: p.fen, moves: p.moves, rating: p.rating, gap: p.gap, themes: p.themes,
+        source: 'generated', sourceType: p.sourceType || 'pgn_import',
+        sourceId: p.sourceId || null, sourceMoveNum: p.sourceMoveNum ?? 0,
+        sourceMetadata: p.sourceMetadata ? JSON.stringify(p.sourceMetadata) : null,
+        acceptedMoves: p.acceptedMoves || null, depth: 14,
+        createdBy: req.user.id, isPublic: true,
+      })),
+      skipDuplicates: true,
+    });
+    return { count: created.count };
+  }
+
+  /**
+   * PATCH /puzzles/publish-all
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('publish-all')
+  async publishAll(@Request() req: AuthenticatedRequest) {
+    const result = await this.prisma.puzzle.updateMany({
+      where: { createdBy: req.user.id, source: 'generated' },
+      data: { isPublic: true },
+    });
+    return { updated: result.count };
+  }
+
+  /**
+   * PATCH /puzzles/:id — update puzzle (isPublic).
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  async updateOne(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+    @Body() body: { isPublic?: boolean },
+  ) {
+    const puzzle = await this.prisma.puzzle.findUnique({ where: { id } });
+    if (!puzzle) throw new NotFoundException('Puzzle not found');
+    if (puzzle.createdBy !== req.user.id) throw new ForbiddenException();
+
+    const updated = await this.prisma.puzzle.update({
+      where: { id },
+      data: { isPublic: body.isPublic ?? puzzle.isPublic },
+    });
+    return { id: updated.id, isPublic: updated.isPublic, rating: updated.rating };
+  }
+
+  /**
+   * DELETE /puzzles/all — delete all own generated puzzles.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete('all')
+  async deleteAll(@Request() req: AuthenticatedRequest) {
+    const result = await this.prisma.puzzle.deleteMany({
+      where: { createdBy: req.user.id, source: 'generated' },
+    });
+    return { deleted: result.count };
+  }
+
+  /**
+   * DELETE /puzzles/:id
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  async deleteOne(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ) {
+    const puzzle = await this.prisma.puzzle.findUnique({ where: { id } });
+    if (!puzzle || puzzle.createdBy !== req.user.id) return { deleted: 0 };
+    await this.prisma.puzzle.delete({ where: { id } });
+    return { deleted: 1 };
   }
 
   @Get(':id')
