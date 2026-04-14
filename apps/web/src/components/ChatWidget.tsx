@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useChatStream, type ChatMessage } from '../hooks/useChatStream';
 import { api } from '../api';
+import { renderMarkdown } from '../utils/simpleMarkdown';
 
 type Conversation = { id: string; title: string | null; updatedAt: string };
 
@@ -103,7 +104,11 @@ export function ChatWidget() {
                 )}
                 {messages.map((msg, i) => (
                   <div key={i} className={`chat-msg chat-msg--${msg.role}`}>
-                    <div className="chat-msg__content">{msg.content || (streaming && i === messages.length - 1 ? '...' : '')}</div>
+                    {msg.role === 'assistant' ? (
+                      <div className="chat-msg__content chat-msg__md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content || (streaming && i === messages.length - 1 ? '...' : '')) }} />
+                    ) : (
+                      <div className="chat-msg__content">{msg.content}</div>
+                    )}
                   </div>
                 ))}
                 <div ref={messagesEndRef} />
