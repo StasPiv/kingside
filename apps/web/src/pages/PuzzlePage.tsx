@@ -108,15 +108,8 @@ export function PuzzlePage() {
     setError('');
     try {
       let data: PuzzleDto;
-      if (isGenerated && specificId) {
-        data = await api.get<PuzzleDto>(`/api/puzzles/generated/${specificId}`);
-      } else if (specificId) {
-        try {
-          data = await puzzleApi.getById(specificId);
-        } catch {
-          // Fallback: try generated puzzles table
-          data = await api.get<PuzzleDto>(`/api/puzzles/generated/${specificId}`);
-        }
+      if (specificId) {
+        data = await puzzleApi.getById(specificId);
       } else {
         data = await puzzleApi.getNext();
       }
@@ -126,7 +119,7 @@ export function PuzzlePage() {
     } finally {
       setLoading(false);
     }
-  }, [initPuzzle, isGenerated]);
+  }, [initPuzzle]);
 
   useEffect(() => {
     loadPuzzle(puzzleId);
@@ -140,21 +133,15 @@ export function PuzzlePage() {
     const timeMs = Date.now() - startTimeRef.current;
     const userMoves = userMovesRef.current.join(' ');
     try {
-      if (isGenerated) {
-        // Generated puzzle: use Glicko attempt API
-        const res = await api.post<{ userRatingBefore: number; userRatingAfter: number }>(
-          `/api/puzzles/generated/${puzzle.id}/attempt`,
-          { solved, timeMs, userMoves },
-        );
-        setRatingChange({ before: res.userRatingBefore, after: res.userRatingAfter });
-        return null;
-      }
       const response = await puzzleApi.submitAttempt(puzzle.id, { result: solved ? 'solved' : 'failed', timeMs, userMoves });
+      if (response.userRatingBefore != null && response.userRatingAfter != null) {
+        setRatingChange({ before: response.userRatingBefore, after: response.userRatingAfter });
+      }
       return response.nextPuzzle;
     } catch {
       return null;
     }
-  }, [puzzle, isGenerated, user]);
+  }, [puzzle, user]);
 
   const onPieceDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {
@@ -251,39 +238,20 @@ export function PuzzlePage() {
 
       return true;
     },
-    [game, puzzle, status, moveIndex, puzzleMoves, playSound, submitAttemptResult, isGenerated],
+    [game, puzzle, status, moveIndex, puzzleMoves, playSound, submitAttemptResult],
   );
 
   const lastMoveUci = solutionMove ?? (moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null);
 
   const handleNext = useCallback(async () => {
-    // Mark current puzzle as solved for generated puzzles
-    if (isGenerated && puzzle) {
-      markSolved(puzzle.id);
-    }
+    if (puzzle) markSolved(puzzle.id);
     const nextPuzzle = await submitAttemptResult(status === 'correct');
     if (nextPuzzle) {
       initPuzzle(nextPuzzle);
-    } else if (isGenerated) {
-      // For generated puzzles: load next unsolved
-      try {
-        const solvedIds = getSolvedIds();
-        const list = await api.get<{ data: Array<{ id: string }> }>('/api/puzzles/generated?limit=50');
-        const unsolved = (list.data ?? []).filter((p) => !solvedIds.includes(p.id));
-        if (unsolved.length === 0) {
-          setAllSolved(true);
-          return;
-        }
-        const nextId = unsolved[Math.floor(Math.random() * unsolved.length)].id;
-        const data = await api.get<PuzzleDto>(`/api/puzzles/generated/${nextId}`);
-        initPuzzle(data);
-      } catch {
-        setAllSolved(true);
-      }
     } else {
       await loadPuzzle();
     }
-  }, [submitAttemptResult, status, initPuzzle, loadPuzzle, isGenerated, puzzle, markSolved, getSolvedIds]);
+  }, [submitAttemptResult, status, initPuzzle, loadPuzzle, puzzle, markSolved]);
 
   // No auto-advance — user clicks Next manually after any result.
 
