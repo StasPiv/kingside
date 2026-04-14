@@ -190,16 +190,31 @@ model UserTimeControl {
 }
 
 model Puzzle {
-  id          String @id
-  fen         String
-  moves       String
-  rating      Int
-  ratingDev   Int    @map("rating_dev")
-  popularity  Int
-  nbPlays     Int    @map("nb_plays")
-  themes      String
-  gameUrl     String @map("game_url")
-  openingTags String @default("") @map("opening_tags")
+  id             String   @id
+  fen            String
+  moves          String
+  rating         Int      @default(1500)
+  ratingDev      Int      @default(350) @map("rating_dev")
+  popularity     Int      @default(0)
+  nbPlays        Int      @default(0) @map("nb_plays")
+  themes         String   @default("")
+  source         String   @default("lichess")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  // Lichess-specific (nullable for generated)
+  gameUrl        String?  @map("game_url")
+  openingTags    String?  @map("opening_tags")
+
+  // Generated-specific (nullable for lichess)
+  sourceType     String?  @map("source_type")
+  sourceId       String?  @map("source_id")
+  sourceMoveNum  Int?     @map("source_move_num")
+  gap            Int?
+  depth          Int?
+  createdBy      String?  @map("created_by") @db.Uuid
+  isPublic       Boolean  @default(true) @map("is_public")
+  sourceMetadata String?  @map("source_metadata") @db.Text
+  acceptedMoves  String?  @map("accepted_moves")
 
   attempts            PuzzleAttempt[]
   dailyPuzzles        DailyPuzzle[]
@@ -207,20 +222,24 @@ model Puzzle {
 
   @@index([rating])
   @@index([themes])
+  @@index([source])
+  @@index([createdBy])
   @@map("puzzles")
 }
 
 model PuzzleAttempt {
-  id           String   @id @default(uuid()) @db.Uuid
-  puzzleId     String   @map("puzzle_id")
-  userId       String   @map("user_id") @db.Uuid
-  solved       Boolean
-  timeMs       Int      @map("time_ms")
-  ratingBefore Int      @map("rating_before")
-  ratingAfter  Int      @map("rating_after")
-  userMoves    String?  @map("user_moves")
-  hintsUsed    Int      @default(0) @map("hints_used")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id                  String   @id @default(uuid()) @db.Uuid
+  puzzleId            String   @map("puzzle_id")
+  userId              String   @map("user_id") @db.Uuid
+  solved              Boolean
+  timeMs              Int      @map("time_ms")
+  ratingBefore        Int      @map("rating_before")
+  ratingAfter         Int      @map("rating_after")
+  puzzleRatingBefore  Int?     @map("puzzle_rating_before")
+  puzzleRatingAfter   Int?     @map("puzzle_rating_after")
+  userMoves           String?  @map("user_moves")
+  hintsUsed           Int      @default(0) @map("hints_used")
+  createdAt           DateTime @default(now()) @map("created_at")
 
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
   user   User   @relation(fields: [userId], references: [id])
