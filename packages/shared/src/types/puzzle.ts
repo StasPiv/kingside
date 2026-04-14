@@ -71,6 +71,7 @@ export type PuzzleDto = {
   themes: PuzzleTheme[];
   gameUrl: string;
   openingTags: string;
+  source?: string;
 };
 
 export type PuzzleAttemptResult = 'solved' | 'failed';

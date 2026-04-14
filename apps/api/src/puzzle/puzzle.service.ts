@@ -454,6 +454,7 @@ export class PuzzleService {
     moves: string;
     rating: number;
     themes: string;
+    source: string;
   }) {
     return {
       id: puzzle.id,
@@ -461,16 +462,18 @@ export class PuzzleService {
       moves: puzzle.moves.split(' '),
       rating: puzzle.rating,
       themes: puzzle.themes.split(' ').filter(Boolean),
+      source: puzzle.source,
     };
   }
 
-  private formatRawPuzzle(p: { id: string; fen: string; moves: string; rating: number; themes: string; game_url?: string | null; opening_tags?: string | null }) {
+  private formatRawPuzzle(p: { id: string; fen: string; moves: string; rating: number; themes: string; source: string; game_url?: string | null; opening_tags?: string | null }) {
     return {
       id: p.id,
       fen: p.fen,
       moves: p.moves.split(' '),
       rating: p.rating,
       themes: p.themes.split(' ').filter(Boolean),
+      source: p.source,
       gameUrl: p.game_url ?? null,
       openingTags: p.opening_tags ?? null,
     };
