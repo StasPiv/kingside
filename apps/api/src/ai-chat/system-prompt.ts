@@ -48,7 +48,7 @@ export function buildSystemPrompt(context: UserContext): string {
 }
 
 function formatContext(ctx: UserContext): string {
-  const { profile, puzzleStats, recentGames, ratingHistory } = ctx;
+  const { profile, puzzleStats, recentGames, ratingHistory, recentPuzzleAttempts } = ctx;
 
   const lines: string[] = ['## Player Context'];
 
@@ -79,5 +79,27 @@ function formatContext(ctx: UserContext): string {
     lines.push(`\nPuzzle rating trend (30d): ${first.rating} → ${last.rating} (${diff > 0 ? '+' : ''}${diff})`);
   }
 
+  // Recent puzzle attempts
+  if (recentPuzzleAttempts.length > 0) {
+    lines.push('\n## Recent Puzzle Attempts');
+    for (const a of recentPuzzleAttempts) {
+      const themes = a.themes.split(' ').filter(Boolean).join(',') || 'no-theme';
+      const status = a.solved ? 'solved' : 'failed';
+      const timeS = Math.round(a.timeMs / 1000);
+      const ago = formatTimeAgo(new Date(a.createdAt));
+      lines.push(`- #${a.puzzleId.slice(0, 8)} ${themes} rating:${a.rating} — ${status} (${timeS}s) — ${ago}`);
+    }
+  }
+
   return lines.join('\n');
+}
+
+function formatTimeAgo(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} days ago`;
 }

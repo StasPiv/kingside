@@ -34,6 +34,14 @@ export interface UserContext {
     date: string;
     rating: number;
   }>;
+  recentPuzzleAttempts: Array<{
+    puzzleId: string;
+    solved: boolean;
+    timeMs: number;
+    themes: string;
+    rating: number;
+    createdAt: string;
+  }>;
 }
 
 @Injectable()
@@ -43,14 +51,15 @@ export class ContextCollectorService {
   constructor(private readonly prisma: PrismaService) {}
 
   async collectContext(userId: string): Promise<UserContext> {
-    const [user, puzzleStats, recentGames, ratingHistory] = await Promise.all([
+    const [user, puzzleStats, recentGames, ratingHistory, recentPuzzleAttempts] = await Promise.all([
       this.getProfile(userId),
       this.getPuzzleStats(userId),
       this.getRecentGames(userId),
       this.getRatingHistory(userId),
+      this.getRecentPuzzleAttempts(userId),
     ]);
 
-    return { profile: user, puzzleStats, recentGames, ratingHistory };
+    return { profile: user, puzzleStats, recentGames, ratingHistory, recentPuzzleAttempts };
   }
 
   private async getProfile(userId: string) {
@@ -134,6 +143,27 @@ export class ContextCollectorService {
     return snapshots.map((s) => ({
       date: s.date.toISOString().slice(0, 10),
       rating: s.rating,
+    }));
+  }
+
+  private async getRecentPuzzleAttempts(userId: string) {
+    const attempts = await this.prisma.puzzleAttempt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      select: {
+        puzzleId: true, solved: true, timeMs: true, createdAt: true,
+        puzzle: { select: { themes: true, rating: true } },
+      },
+    });
+
+    return attempts.map((a) => ({
+      puzzleId: a.puzzleId,
+      solved: a.solved,
+      timeMs: a.timeMs,
+      themes: a.puzzle?.themes ?? '',
+      rating: a.puzzle?.rating ?? 0,
+      createdAt: a.createdAt.toISOString(),
     }));
   }
 }
