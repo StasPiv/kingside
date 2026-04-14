@@ -61,3 +61,7 @@
 .fb-vote-btn--down .fb-vote-arrow { display: inline-block; }
 .fb-vote-btn.voted-down { color: #f87171; }
 .fb-vote-btn.voted-down:hover { color: #f87171; }
+
+.fb-vote-group .fb-vote-btn { display: flex; align-items: center; gap: 4px; }
+.fb-vote-count--up { color: #4ade80; font-size: 12px; }
+.fb-vote-count--down { color: #f87171; font-size: 12px; }

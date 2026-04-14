@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 type Comment = { id: string; message: string; user?: { username: string } | null; createdAt: string };
 type FeedbackDetail = {
   id: string; title: string | null; type: string; status: string; message: string;
-  voteCount: number; voted: 'up' | 'down' | null; email?: string;
+  voteCount: number; upCount: number; downCount: number; voted: 'up' | 'down' | null; email?: string;
   user?: { username: string } | null; createdAt: string;
   comments: Comment[];
 };
@@ -39,8 +39,8 @@ export function FeedbackDetailPage() {
   const handleVote = async (direction: 'up' | 'down') => {
     if (!post || !user) return;
     try {
-      const res = await api.post<{ voteCount: number; voted: 'up' | 'down' | null }>(`/api/feedback/${post.id}/vote`, { direction });
-      setPost((p) => p ? { ...p, voteCount: res.voteCount, voted: res.voted } : p);
+      const res = await api.post<{ voteCount: number; upCount: number; downCount: number; voted: 'up' | 'down' | null }>(`/api/feedback/${post.id}/vote`, { direction });
+      setPost((p) => p ? { ...p, voteCount: res.voteCount, upCount: res.upCount, downCount: res.downCount, voted: res.voted } : p);
     } catch { /* ignore */ }
   };
 
@@ -67,10 +67,11 @@ export function FeedbackDetailPage() {
           <div className="fb-vote-group fb-vote-group--lg">
             <button className={`fb-vote-btn fb-vote-btn--lg${post.voted === 'up' ? ' voted' : ''}`} onClick={() => handleVote('up')} disabled={!user}>
               <span className="fb-vote-arrow">&#9650;</span>
+              <span className="fb-vote-count fb-vote-count--up">+{post.upCount ?? 0}</span>
             </button>
-            <span className="fb-vote-count">{post.voteCount}</span>
             <button className={`fb-vote-btn fb-vote-btn--lg${post.voted === 'down' ? ' voted-down' : ''}`} onClick={() => handleVote('down')} disabled={!user}>
               <span className="fb-vote-arrow">&#9660;</span>
+              <span className="fb-vote-count fb-vote-count--down">-{post.downCount ?? 0}</span>
             </button>
           </div>
           <div>
