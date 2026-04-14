@@ -80,9 +80,8 @@ export class ScalingService implements OnModuleInit, OnModuleDestroy {
 
   private async check() {
     try {
-      const { GameGateway } = await import('../game/game.gateway');
-      const gateway = this.moduleRef.get(GameGateway, { strict: false });
-      if (!gateway?.server) return;
+      // WS gateways moved to game-service. API has no WS connections to monitor.
+      return;
 
       // gateway.server is a Namespace when namespace is configured.
       // Root io.Server (with engine) is accessible via .server on the Namespace.
