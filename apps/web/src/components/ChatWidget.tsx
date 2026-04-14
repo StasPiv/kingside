@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { useChat } from '../context/ChatContext';
@@ -9,6 +10,7 @@ type Conversation = { id: string; title: string | null; updatedAt: string };
 
 export function ChatWidget() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { open, setOpen, messages, streaming, sendMessage, stopStreaming, loadConversation, newConversation } = useChat();
   const [showHistory, setShowHistory] = useState(false);
@@ -16,6 +18,23 @@ export function ChatWidget() {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Intercept internal link clicks for SPA navigation
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const handler = (e: MouseEvent) => {
+      const a = (e.target as HTMLElement).closest('a[data-internal]');
+      if (a) {
+        e.preventDefault();
+        const href = a.getAttribute('href');
+        if (href) navigate(href);
+      }
+    };
+    el.addEventListener('click', handler);
+    return () => el.removeEventListener('click', handler);
+  }, [navigate]);
 
   // Auto-scroll
   useEffect(() => {
@@ -63,7 +82,7 @@ export function ChatWidget() {
       )}
 
       {open && (
-        <div className="chat-panel">
+        <div className="chat-panel" ref={panelRef}>
           <div className="chat-panel__header">
             <span className="chat-panel__title">{t('chat.title', 'AI Assistant')}</span>
             <div className="chat-panel__actions">

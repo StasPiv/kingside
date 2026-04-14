@@ -7,13 +7,32 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+const INTERNAL_HOSTS = [window.location.host, 'kingside.site', 'www.kingside.site'];
+
+function isInternal(url: string): boolean {
+  try {
+    const u = new URL(url, window.location.origin);
+    return INTERNAL_HOSTS.includes(u.host);
+  } catch {
+    return url.startsWith('/');
+  }
+}
+
+function makeLink(url: string, label: string): string {
+  if (isInternal(url)) {
+    const path = url.startsWith('/') ? url : new URL(url).pathname + new URL(url).search;
+    return `<a href="${path}" data-internal="true">${label}</a>`;
+  }
+  return `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
+}
+
 function renderInline(text: string): string {
   return escapeHtml(text)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    .replace(/(^|[^"=])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => makeLink(url, label))
+    .replace(/(^|[^"=])(https?:\/\/[^\s<]+)/g, (_, pre, url) => pre + makeLink(url, url));
 }
 
 export function renderMarkdown(md: string): string {
