@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
 import { api } from '../api';
@@ -19,10 +19,8 @@ export function PuzzlePage() {
   const { playSound } = useSounds();
   const { user } = useAuth();
   const { id: puzzleId } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
-  const isGeneratedParam = searchParams.get('source') === 'generated';
   const [puzzle, setPuzzle] = useState<PuzzleDto | null>(null);
-  const isGenerated = (puzzle as unknown as { source?: string })?.source === 'generated' || isGeneratedParam;
+  const isGenerated = (puzzle as unknown as { source?: string })?.source === 'generated';
   const [game, setGame] = useState<Chess | null>(null);
   const [status, setStatus] = useState<PuzzleStatus>('thinking');
   const [moveIndex, setMoveIndex] = useState(0);
@@ -77,7 +75,8 @@ export function PuzzlePage() {
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;
     const setupGame = new Chess(puzzle.fen);
-    if (isGenerated) {
+    const gen = (puzzle as unknown as { source?: string })?.source === 'generated';
+    if (gen) {
       // Generated puzzles: player IS the side to move (no auto setup)
       return setupGame.turn() === 'w' ? 'white' as const : 'black' as const;
     }
@@ -87,7 +86,7 @@ export function PuzzlePage() {
     }
     // Lichess puzzles: setup move plays first, player is opposite side
     return setupGame.turn() === 'w' ? 'black' as const : 'white' as const;
-  }, [puzzle, game, isGenerated]);
+  }, [puzzle, game]);
 
   const initPuzzle = useCallback((data: PuzzleDto) => {
     setPuzzle(data);
@@ -95,7 +94,8 @@ export function PuzzlePage() {
     setPuzzleMoves(moves);
 
     const chess = new Chess(data.fen);
-    if (isGenerated) {
+    const gen = (data as unknown as { source?: string }).source === 'generated';
+    if (gen) {
       // Generated puzzles: no auto move, player finds moves[0]
       setGame(chess);
       setMoveIndex(0);
@@ -371,7 +371,8 @@ export function PuzzlePage() {
     const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(' ');
     setPuzzleMoves(moves);
     const chess = new Chess(puzzle.fen);
-    if (isGenerated) {
+    const gen = (puzzle as unknown as { source?: string })?.source === 'generated';
+    if (gen) {
       // Generated: no setup move, player finds moves[0]
       setGame(chess);
       setMoveIndex(0);
