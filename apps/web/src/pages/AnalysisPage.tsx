@@ -173,20 +173,22 @@ export function AnalysisPage() {
         try {
           // Parse SAN moves from PGN and apply with custom FEN
           const sanMoves = puzzlePgn.replace(/\d+\.\.\./g, '').replace(/\d+\./g, '').trim().split(/\s+/).filter(Boolean);
+          console.log('[Analysis] Parsing SAN moves:', sanMoves, 'from FEN:', puzzleFen.slice(0, 30));
           const replay = new Chess(puzzleFen);
           const chessMoves: ChessMove[] = [];
           for (const san of sanMoves) {
             if (san === '*' || san === '1-0' || san === '0-1' || san === '1/2-1/2') break;
             const mv = replay.move(san);
-            if (!mv) break;
+            if (!mv) { console.log('[Analysis] Failed to apply move:', san); break; }
             chessMoves.push({
               san: mv.san,
               uci: mv.from + mv.to + (mv.promotion || ''),
               fenAfter: replay.fen(),
             } as unknown as ChessMove);
           }
+          console.log('[Analysis] Loading', chessMoves.length, 'moves into review');
           loadFromPgn(chessMoves);
-        } catch { /* ignore parse errors */ }
+        } catch (e) { console.error('[Analysis] Parse error:', e); }
       } else if (puzzleMovesParam) {
         try {
           // Parse UCI moves from query param
