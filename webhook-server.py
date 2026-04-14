@@ -79,7 +79,6 @@ class AgentDaemon:
         log_file = os.path.join(LOG_DIR, "agents.log")
         env = os.environ.copy()
         env.pop("CLAUDECODE", None)
-        env.pop("ANTHROPIC_API_KEY", None)
 
         cmd = self._build_cmd()
 
@@ -611,7 +610,6 @@ def handle_ai_chat(handler):
     log(f"AI chat: msg={message[:80]}, history={len(history)} turns")
 
     env = os.environ.copy()
-    env.pop("ANTHROPIC_API_KEY", None)
 
     try:
         result = subprocess.run(
