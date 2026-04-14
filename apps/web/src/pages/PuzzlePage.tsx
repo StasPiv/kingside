@@ -218,32 +218,43 @@ export function PuzzlePage() {
             console.log(`[Puzzle] Engine check: player=${playerUci} cp=${playerCp}, solution=${expectedMove} cp=${solutionCp}, diff=${solutionCp - playerCp}`);
 
             if (playerLine && Math.abs(solutionCp - playerCp) <= ALT_THRESHOLD) {
-              // Alternative move accepted — treat as correct for this step
+              // Alternative move accepted — snap back to solution line
               const nextIndex = moveIndex + 1;
-              setMoveIndex(nextIndex);
               const isSolved = nextIndex >= puzzleMoves.length;
               if (isSolved) {
+                setMoveIndex(nextIndex);
                 setStatus('correct');
                 playSound('puzzle-correct');
                 setStreak((s) => s + 1);
                 setTotalSolved((n) => n + 1);
                 submitAttemptResult(true);
               } else {
-                // Auto-play opponent response using engine best move
+                // Revert board to solution: apply solution move + opponent response
                 setStatus('thinking');
                 setTimeout(() => {
-                  const opponentAnalysis = result; // reuse
-                  const bestReply = lines[0]?.pv[1]; // opponent's response from best line
-                  if (bestReply) {
-                    const next = new Chess(testCopy.fen());
-                    try {
-                      const oMove = next.move({ from: bestReply.slice(0, 2), to: bestReply.slice(2, 4), promotion: bestReply.length > 4 ? bestReply[4] : undefined });
+                  const replayFromSolution = new Chess(currentFen);
+                  try {
+                    // Apply solution move (solver's correct move)
+                    replayFromSolution.move({ from, to, promotion });
+                    // Apply opponent response from solution line
+                    const opponentUci = puzzleMoves[nextIndex];
+                    if (opponentUci) {
+                      const oMove = replayFromSolution.move({ from: opponentUci.slice(0, 2), to: opponentUci.slice(2, 4), promotion: opponentUci.length > 4 ? opponentUci[4] : undefined });
                       if (oMove) playSound(soundEventFromSan(oMove.san));
-                      setGame(next);
-                      setMoveIndex(nextIndex + 1);
-                    } catch { /* fallback: use solution opponent move */ }
-                  }
-                }, 300);
+                    }
+                    setGame(replayFromSolution);
+                    setMoveIndex(nextIndex + 1);
+
+                    // Check if opponent's move was the last
+                    if (nextIndex + 1 >= puzzleMoves.length) {
+                      setStatus('correct');
+                      playSound('puzzle-correct');
+                      setStreak((s) => s + 1);
+                      setTotalSolved((n) => n + 1);
+                      submitAttemptResult(true);
+                    }
+                  } catch { /* ignore */ }
+                }, 400);
               }
             } else {
               // Move is too weak — incorrect
