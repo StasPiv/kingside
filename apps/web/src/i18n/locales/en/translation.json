@@ -413,7 +413,8 @@
     "analyze": "Analyze",
     "backToLobby": "Back to Lobby",
     "mute": "Mute sound",
-    "unmute": "Unmute sound"
+    "unmute": "Unmute sound",
+    "botFallback": "You are playing against a bot. While few players are online, a bot replaces your opponent."
   },
   "gameResult": {
     "victory": "Victory!",

@@ -68,6 +68,7 @@ export function GamePage() {
   const [isOpponentMove, setIsOpponentMove] = useState(false);
   const [isBot, setIsBot] = useState(false);
   const [botLevel, setBotLevel] = useState<number | null>(null);
+  const [botBannerDismissed, setBotBannerDismissed] = useState(false);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
   const [pendingPremove, setPendingPremove] = useState<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
   const pendingPremoveRef = useRef<{ from: Square; to: Square; promotion?: 'q' | 'r' | 'b' | 'n' } | null>(null);
@@ -504,6 +505,12 @@ export function GamePage() {
     <div className="game-page" ref={gamePageRef}>
       <Link to="/" className="back-nav-link">&larr; {t('game.backToLobby')}</Link>
       <HelpButton section="play" />
+      {isBot && !botBannerDismissed && (
+        <div className="bot-fallback-banner">
+          <span>{t('game.botFallback', 'You are playing against a bot. While few players are online, a bot replaces your opponent.')}</span>
+          <button onClick={() => setBotBannerDismissed(true)}>&times;</button>
+        </div>
+      )}
       <div className="game-board-area" ref={boardAreaRef}>
         <div className="player-info opponent-info">
           <span className={`color-indicator ${opponentColor}`} />
