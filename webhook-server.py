@@ -560,6 +560,16 @@ def handle_feedback_notify(handler):
 
 AI_CHAT_TIMEOUT = 30
 
+# Загружаем ANTHROPIC_API_KEY из .env для claude CLI
+_dotenv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+if not ANTHROPIC_API_KEY and os.path.exists(_dotenv_path):
+    with open(_dotenv_path) as _f:
+        for _line in _f:
+            if _line.startswith("ANTHROPIC_API_KEY="):
+                ANTHROPIC_API_KEY = _line.strip().split("=", 1)[1]
+                break
+
 
 def handle_ai_chat(handler):
     """Обрабатывает POST /ai-chat — однократный вызов Claude CLI."""
@@ -609,6 +619,10 @@ def handle_ai_chat(handler):
 
     log(f"AI chat: msg={message[:80]}, history={len(history)} turns")
 
+    env = os.environ.copy()
+    if ANTHROPIC_API_KEY:
+        env["ANTHROPIC_API_KEY"] = ANTHROPIC_API_KEY
+
     try:
         result = subprocess.run(
             cmd,
@@ -616,6 +630,7 @@ def handle_ai_chat(handler):
             text=True,
             timeout=AI_CHAT_TIMEOUT,
             cwd="/tmp",
+            env=env,
         )
         response_text = result.stdout.strip()
         if result.returncode != 0:
