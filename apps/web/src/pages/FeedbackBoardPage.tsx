@@ -11,7 +11,8 @@ type FeedbackPost = {
   type: string;
   status: string;
   message: string;
-  votes: number;
+  votes?: number;
+  voteCount?: number;
   voted: boolean;
   commentCount: number;
   user?: { username: string } | null;
@@ -51,8 +52,8 @@ export function FeedbackBoardPage() {
 
   const handleVote = async (id: string) => {
     try {
-      const res = await api.post<{ votes: number; voted: boolean }>(`/api/feedback/${id}/vote`, {});
-      setPosts((prev) => prev.map((p) => p.id === id ? { ...p, votes: res.votes, voted: res.voted } : p));
+      const res = await api.post<{ voteCount: number; voted: boolean }>(`/api/feedback/${id}/vote`, {});
+      setPosts((prev) => prev.map((p) => p.id === id ? { ...p, voteCount: res.voteCount, voted: res.voted } : p));
     } catch { /* ignore */ }
   };
 
@@ -96,7 +97,7 @@ export function FeedbackBoardPage() {
             <div key={post.id} className="fb-post-card">
               <button className={`fb-vote-btn${post.voted ? ' voted' : ''}`} onClick={() => handleVote(post.id)} disabled={!user}>
                 <span className="fb-vote-arrow">&#9650;</span>
-                <span className="fb-vote-count">{post.votes}</span>
+                <span className="fb-vote-count">{post.voteCount ?? post.votes ?? 0}</span>
               </button>
               <div className="fb-post-body">
                 <Link to={`/feedback/${post.id}`} className="fb-post-title">

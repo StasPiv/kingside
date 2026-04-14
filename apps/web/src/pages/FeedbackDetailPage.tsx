@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext';
 type Comment = { id: string; message: string; user?: { username: string } | null; createdAt: string };
 type FeedbackDetail = {
   id: string; title: string | null; type: string; status: string; message: string;
-  votes: number; voted: boolean; email?: string;
+  votes?: number; voteCount?: number; voted: boolean; email?: string;
   user?: { username: string } | null; createdAt: string;
   comments: Comment[];
 };
@@ -39,8 +39,8 @@ export function FeedbackDetailPage() {
   const handleVote = async () => {
     if (!post || !user) return;
     try {
-      const res = await api.post<{ votes: number; voted: boolean }>(`/api/feedback/${post.id}/vote`, {});
-      setPost((p) => p ? { ...p, votes: res.votes, voted: res.voted } : p);
+      const res = await api.post<{ voteCount: number; voted: boolean }>(`/api/feedback/${post.id}/vote`, {});
+      setPost((p) => p ? { ...p, voteCount: res.voteCount, voted: res.voted } : p);
     } catch { /* ignore */ }
   };
 
@@ -66,7 +66,7 @@ export function FeedbackDetailPage() {
         <div className="fb-detail-header">
           <button className={`fb-vote-btn fb-vote-btn--lg${post.voted ? ' voted' : ''}`} onClick={handleVote} disabled={!user}>
             <span className="fb-vote-arrow">&#9650;</span>
-            <span className="fb-vote-count">{post.votes}</span>
+            <span className="fb-vote-count">{post.voteCount ?? post.votes ?? 0}</span>
           </button>
           <div>
             <h1 className="fb-detail-title">
