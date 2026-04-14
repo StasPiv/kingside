@@ -9,8 +9,9 @@ import { HelpButton } from '../components/HelpButton';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useAuth } from '../context/AuthContext';
 import type { PuzzleDto } from '@kingside/shared';
+import { WasmEngineAdapter } from '../utils/engineAdapter';
 
-type PuzzleStatus = 'thinking' | 'correct' | 'incorrect';
+type PuzzleStatus = 'thinking' | 'checking' | 'correct' | 'incorrect';
 
 export function PuzzlePage() {
   const { t } = useTranslation();
@@ -35,6 +36,23 @@ export function PuzzlePage() {
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
   const userMovesRef = useRef<string[]>([]);
+  const engineRef = useRef<WasmEngineAdapter | null>(null);
+  const engineReadyRef = useRef(false);
+
+  // Lazy-init engine on first need
+  const getEngine = useCallback(async (): Promise<WasmEngineAdapter> => {
+    if (engineRef.current && engineReadyRef.current) return engineRef.current;
+    const engine = new WasmEngineAdapter();
+    await engine.init();
+    engineRef.current = engine;
+    engineReadyRef.current = true;
+    return engine;
+  }, []);
+
+  // Cleanup engine on unmount
+  useEffect(() => {
+    return () => { engineRef.current?.destroy(); engineRef.current = null; engineReadyRef.current = false; };
+  }, []);
 
   // Track solved generated puzzles in localStorage
   const markSolved = useCallback((id: string) => {
@@ -165,26 +183,97 @@ export function PuzzlePage() {
       const isAccepted = acceptedList ? acceptedList.some((m) => m.startsWith(playerUci)) : false;
 
       if (!isAccepted && (sourceSquare !== from || targetSquare !== to)) {
-        setStatus('incorrect');
-        playSound('puzzle-incorrect');
-        setStreak(0);
-        submitAttemptResult(false);
-        // Show correct move after delay
-        setTimeout(() => {
-          setSolutionMove(expectedMove);
-          // Play the correct move on the board after another delay
-          setTimeout(() => {
-            if (game) {
-              const copy = new Chess(game.fen());
-              try {
-                copy.move({ from, to, promotion });
-                setGame(copy);
-                setMoveIndex((idx) => idx + 1);
-              } catch { /* ignore */ }
+        // Try alternative move via engine analysis
+        const currentFen = game.fen();
+        const testCopy = new Chess(currentFen);
+        const testMove = testCopy.move({ from: sourceSquare, to: targetSquare });
+        if (!testMove) {
+          // Illegal move
+          return false;
+        }
+
+        // Show move on board, mark as checking
+        setGame(testCopy);
+        setStatus('checking');
+        playSound(soundEventFromSan(testMove.san));
+
+        // Async engine check
+        (async () => {
+          const ALT_THRESHOLD = 50; // centipawns tolerance
+          try {
+            const engine = await getEngine();
+            const result = await engine.analyze(currentFen, 16, 5);
+            const lines = result.lines.sort((a, b) => {
+              const acp = a.score.type === 'mate' ? (a.score.value > 0 ? 10000 : -10000) : a.score.value;
+              const bcp = b.score.type === 'mate' ? (b.score.value > 0 ? 10000 : -10000) : b.score.value;
+              return bcp - acp; // descending for white, need to consider side
+            });
+
+            const solutionLine = lines.find((l) => l.pv[0] === expectedMove);
+            const playerLine = lines.find((l) => l.pv[0] === playerUci);
+            const bestCp = lines.length > 0 ? (lines[0].score.type === 'mate' ? (lines[0].score.value > 0 ? 10000 : -10000) : lines[0].score.value) : 0;
+            const playerCp = playerLine ? (playerLine.score.type === 'mate' ? (playerLine.score.value > 0 ? 10000 : -10000) : playerLine.score.value) : -99999;
+            const solutionCp = solutionLine ? (solutionLine.score.type === 'mate' ? (solutionLine.score.value > 0 ? 10000 : -10000) : solutionLine.score.value) : bestCp;
+
+            console.log(`[Puzzle] Engine check: player=${playerUci} cp=${playerCp}, solution=${expectedMove} cp=${solutionCp}, diff=${solutionCp - playerCp}`);
+
+            if (playerLine && Math.abs(solutionCp - playerCp) <= ALT_THRESHOLD) {
+              // Alternative move accepted — treat as correct for this step
+              const nextIndex = moveIndex + 1;
+              setMoveIndex(nextIndex);
+              const isSolved = nextIndex >= puzzleMoves.length;
+              if (isSolved) {
+                setStatus('correct');
+                playSound('puzzle-correct');
+                setStreak((s) => s + 1);
+                setTotalSolved((n) => n + 1);
+                submitAttemptResult(true);
+              } else {
+                // Auto-play opponent response using engine best move
+                setStatus('thinking');
+                setTimeout(() => {
+                  const opponentAnalysis = result; // reuse
+                  const bestReply = lines[0]?.pv[1]; // opponent's response from best line
+                  if (bestReply) {
+                    const next = new Chess(testCopy.fen());
+                    try {
+                      const oMove = next.move({ from: bestReply.slice(0, 2), to: bestReply.slice(2, 4), promotion: bestReply.length > 4 ? bestReply[4] : undefined });
+                      if (oMove) playSound(soundEventFromSan(oMove.san));
+                      setGame(next);
+                      setMoveIndex(nextIndex + 1);
+                    } catch { /* fallback: use solution opponent move */ }
+                  }
+                }, 300);
+              }
+            } else {
+              // Move is too weak — incorrect
+              setStatus('incorrect');
+              playSound('puzzle-incorrect');
+              setStreak(0);
+              submitAttemptResult(false);
+              setTimeout(() => {
+                setSolutionMove(expectedMove);
+                setTimeout(() => {
+                  const revert = new Chess(currentFen);
+                  try {
+                    revert.move({ from, to, promotion });
+                    setGame(revert);
+                    setMoveIndex((idx) => idx + 1);
+                  } catch { /* ignore */ }
+                }, 800);
+              }, 600);
             }
-          }, 800);
-        }, 600);
-        return false;
+          } catch (err) {
+            console.error('[Puzzle] Engine error:', err);
+            // Fallback: mark incorrect
+            setStatus('incorrect');
+            playSound('puzzle-incorrect');
+            setStreak(0);
+            submitAttemptResult(false);
+          }
+        })();
+
+        return true; // move applied visually
       }
 
       const copy = new Chess(game.fen());
@@ -239,7 +328,7 @@ export function PuzzlePage() {
 
       return true;
     },
-    [game, puzzle, status, moveIndex, puzzleMoves, playSound, submitAttemptResult],
+    [game, puzzle, status, moveIndex, puzzleMoves, playSound, submitAttemptResult, getEngine],
   );
 
   const lastMoveUci = solutionMove ?? (moveIndex > 0 && puzzleMoves[moveIndex - 1] ? puzzleMoves[moveIndex - 1] : null);

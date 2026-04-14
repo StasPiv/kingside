@@ -2012,3 +2012,17 @@ body:has(.puzzle-rush-board) {
   cursor: pointer;
 }
 .puzzle-hide-solved input { cursor: pointer; }
+
+/* Puzzle checking indicator */
+.puzzle-indicator--checking {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: #f59e0b;
+  animation: checking-pulse 1s ease-in-out infinite;
+  z-index: 10;
+}
+@keyframes checking-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
