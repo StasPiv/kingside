@@ -18,6 +18,13 @@
 }
 .chat-widget-btn:hover { background: #6b71e8; }
 
+/* KS-1491: Lift chat button above MobileBottomBar */
+@media (max-width: 768px) {
+  .chat-widget-btn {
+    bottom: 72px;
+  }
+}
+
 /* Chat Panel */
 .chat-panel {
   position: fixed;
