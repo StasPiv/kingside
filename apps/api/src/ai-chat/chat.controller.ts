@@ -39,7 +39,17 @@ export class ChatController {
     // Get or create conversation
     const conversationId = await this.chatService.getOrCreateConversation(userId, body.conversationId);
 
-    // SSE headers
+    // Webhook mode: return JSON response
+    if (this.chatService.isWebhookMode) {
+      try {
+        const response = await this.chatService.getResponse(userId, body.message, conversationId, siteUrl);
+        return res.json({ conversationId, response });
+      } catch (e: any) {
+        return res.status(500).json({ error: e.message, conversationId });
+      }
+    }
+
+    // Fallback: SSE stream via Anthropic API
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');

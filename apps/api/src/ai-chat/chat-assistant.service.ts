@@ -17,6 +17,7 @@ export class ChatAssistantService {
   private readonly apiKey: string;
   private readonly model: string;
   private readonly maxTokens: number;
+  private readonly webhookUrl: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -27,6 +28,11 @@ export class ChatAssistantService {
     this.apiKey = this.config.get<string>('ANTHROPIC_API_KEY', '');
     this.model = this.config.get<string>('CHAT_MODEL', 'claude-sonnet-4-20250514');
     this.maxTokens = parseInt(this.config.get<string>('CHAT_MAX_TOKENS', '1024'), 10);
+    this.webhookUrl = this.config.get<string>('AI_CHAT_WEBHOOK_URL', '');
+  }
+
+  get isWebhookMode(): boolean {
+    return !!this.webhookUrl;
   }
 
   async checkRateLimit(userId: string): Promise<void> {
@@ -180,6 +186,61 @@ export class ChatAssistantService {
         data: { title },
       });
     }
+  }
+
+  async getResponse(
+    userId: string,
+    message: string,
+    conversationId: string,
+    siteUrl?: string,
+  ): Promise<string> {
+    // Collect context and build system prompt
+    const context = await this.contextCollector.collectContext(userId);
+    const resolvedSiteUrl = siteUrl || this.config.get<string>('SITE_URL', 'https://kingside.site');
+    const systemPrompt = buildSystemPrompt(context, resolvedSiteUrl);
+
+    // Get conversation history
+    const history = await this.getHistory(conversationId);
+    const messages = [
+      ...history.map((m) => ({ role: m.role, content: m.content })),
+      { role: 'user', content: message },
+    ];
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 45_000);
+    let responseText: string;
+    try {
+      const res = await fetch(this.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ message, systemPrompt, history: messages }),
+      });
+      if (!res.ok) {
+        this.logger.warn(`AI webhook failed: ${res.status}`);
+        throw new Error(`AI webhook returned ${res.status}`);
+      }
+      const data = await res.json() as { response?: string };
+      responseText = data.response ?? '';
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // Save both messages
+    await this.saveMessage(conversationId, 'user', message);
+    await this.saveMessage(conversationId, 'assistant', responseText);
+
+    // Auto-title
+    const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
+    if (conv && !conv.title) {
+      const title = message.slice(0, 100);
+      await this.prisma.chatConversation.update({
+        where: { id: conversationId },
+        data: { title },
+      });
+    }
+
+    return responseText;
   }
 
   async getConversations(userId: string) {
