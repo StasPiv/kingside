@@ -165,6 +165,7 @@ export function AnalysisPage() {
 
   // Load puzzle position if navigated from PuzzlePage
   useEffect(() => {
+    console.log('[Analysis] puzzleFen effect:', { puzzleFen: !!puzzleFen, puzzlePgn: puzzlePgn?.slice(0, 50), gameId, analysisId });
     if (puzzleFen && !gameId && !analysisId) {
       setInitialFen(puzzleFen);
       if (puzzleSide) setBoardOrientation(puzzleSide);
