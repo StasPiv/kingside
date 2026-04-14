@@ -19,6 +19,7 @@ type GeneratedPuzzle = {
   isPublic?: boolean;
   userId?: string;
   createdAt: string;
+  solvedStatus?: 'solved' | 'failed' | null;
 };
 
 const PAGE_SIZE = 20;
@@ -39,14 +40,16 @@ export function PuzzleBrowserPage() {
   const [loading, setLoading] = useState(true);
   const [showGenerator, setShowGenerator] = useState(false);
   const [mine, setMine] = useState(mineParam);
+  const [hideSolved, setHideSolved] = useState(false);
 
   const fetchPuzzles = useCallback(async () => {
     setLoading(true);
     try {
       const offset = (page - 1) * PAGE_SIZE;
       const mineQuery = mine ? '&mine=true' : '';
+      const hideQuery = hideSolved ? '&hideSolved=true' : '';
       const data = await api.get<{ data: GeneratedPuzzle[]; total: number }>(
-        `/api/puzzles/browse?limit=${PAGE_SIZE}&offset=${offset}&sort=${sort}&order=${order}${mineQuery}`
+        `/api/puzzles/browse?limit=${PAGE_SIZE}&offset=${offset}&sort=${sort}&order=${order}${mineQuery}${hideQuery}`
       );
       setPuzzles(data.data ?? []);
       setTotal(data.total ?? 0);
@@ -55,7 +58,7 @@ export function PuzzleBrowserPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, sort, order, mine]);
+  }, [page, sort, order, mine, hideSolved]);
 
   const toggleMine = (val: boolean) => {
     setMine(val);
@@ -135,6 +138,12 @@ export function PuzzleBrowserPage() {
           )}
         </div>
         <div className="puzzle-toolbar__right">
+          {user && (
+            <label className="puzzle-hide-solved">
+              <input type="checkbox" checked={hideSolved} onChange={(e) => { setHideSolved(e.target.checked); setPage(1); }} />
+              {t('puzzleBrowser.hideSolved', 'Hide solved')}
+            </label>
+          )}
           <span className="puzzle-toolbar__total">{t('puzzleBrowser.totalCount', '{{count}} puzzles', { count: total })}</span>
           <button
             className={`puzzle-sort-btn${sort === 'createdAt' ? ' active' : ''}`}
@@ -161,8 +170,10 @@ export function PuzzleBrowserPage() {
       ) : (
         <div className="puzzle-list">
           {puzzles.map((puzzle) => (
-            <div key={puzzle.id} className="puzzle-card">
+            <div key={puzzle.id} className={`puzzle-card${puzzle.solvedStatus === 'solved' ? ' puzzle-card--solved' : puzzle.solvedStatus === 'failed' ? ' puzzle-card--failed' : ''}`}>
               <div className="puzzle-card-header">
+                {puzzle.solvedStatus === 'solved' && <span className="puzzle-card-status puzzle-card-status--solved" title="Solved">✓</span>}
+                {puzzle.solvedStatus === 'failed' && <span className="puzzle-card-status puzzle-card-status--failed" title="Failed">✗</span>}
                 <span className="puzzle-card-title">
                   {puzzle.sourceMetadata?.white && puzzle.sourceMetadata?.black
                     ? `${puzzle.sourceMetadata.white} vs ${puzzle.sourceMetadata.black}`

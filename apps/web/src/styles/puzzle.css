@@ -1995,3 +1995,20 @@ body:has(.puzzle-rush-board) {
   color: #94a3b8;
   font-size: 14px;
 }
+
+/* Puzzle solved/failed status */
+.puzzle-card-status { font-size: 16px; margin-right: 4px; }
+.puzzle-card-status--solved { color: #4ade80; }
+.puzzle-card-status--failed { color: #f87171; }
+.puzzle-card--solved { border-left: 3px solid #4ade80; }
+.puzzle-card--failed { border-left: 3px solid #f87171; }
+
+.puzzle-hide-solved {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.puzzle-hide-solved input { cursor: pointer; }
