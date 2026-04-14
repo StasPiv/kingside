@@ -210,9 +210,12 @@ export function AnalysisPage() {
 
   // Load puzzle by ID from stats page
   useEffect(() => {
+    console.log('[Analysis] puzzleId effect:', { puzzleIdParam, gameId, analysisId, puzzleFen: !!puzzleFen });
     if (!puzzleIdParam || gameId || analysisId || puzzleFen) return;
+    console.log('[Analysis] Fetching puzzle:', puzzleIdParam);
     api.get<{ fen: string; moves: string | string[] }>(`/api/puzzles/${puzzleIdParam}`)
       .then((puzzle) => {
+        console.log('[Analysis] Puzzle loaded, moves:', Array.isArray(puzzle.moves) ? puzzle.moves.length : puzzle.moves?.length);
         setInitialFen(puzzle.fen);
         const movesArr = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(/\s+/).filter(Boolean);
         // Delay loadFromPgn to let initialFen settle
