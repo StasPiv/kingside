@@ -120,47 +120,84 @@ export class PuzzleController {
     @Query('themes') themes?: string,
     @Query('ratingMin') ratingMinStr?: string,
     @Query('ratingMax') ratingMaxStr?: string,
+    @Query('hideSolved') hideSolved?: string,
   ) {
     const userId = req.user?.id;
     const take = Math.min(50, limit);
 
-    const allowedSort = ['rating', 'createdAt'] as const;
-    const sortField = allowedSort.includes(sort as typeof allowedSort[number])
-      ? (sort as typeof allowedSort[number])
-      : 'createdAt';
-    const sortOrder: 'asc' | 'desc' = order === 'asc' ? 'asc' : 'desc';
+    const allowedSort: Record<string, string> = { rating: 'rating', createdAt: 'created_at' };
+    const sortCol = allowedSort[sort ?? ''] ?? 'created_at';
+    const sortDir = order === 'asc' ? 'ASC' : 'DESC';
 
-    const where: Record<string, unknown> = { source: 'generated' };
+    const conditions: string[] = ["p.source = 'generated'"];
+    const params: (string | number)[] = [];
+    let idx = 1;
+
+    // Visibility
     if (mine === 'true' && userId) {
-      where.createdBy = userId;
+      conditions.push(`p.created_by = $${idx}::uuid`);
+      params.push(userId);
+      idx++;
     } else if (userId) {
-      where.OR = [{ createdBy: userId }, { isPublic: true }];
+      conditions.push(`(p.created_by = $${idx}::uuid OR p.is_public = true)`);
+      params.push(userId);
+      idx++;
     } else {
-      where.isPublic = true;
+      conditions.push('p.is_public = true');
     }
 
     if (themes) {
-      where.AND = themes.split(',').map((t) => ({ themes: { contains: t.trim() } }));
+      for (const t of themes.split(',')) {
+        conditions.push(`p.themes LIKE $${idx}`);
+        params.push(`%${t.trim()}%`);
+        idx++;
+      }
     }
-    if (ratingMinStr || ratingMaxStr) {
-      const rating: Record<string, number> = {};
-      if (ratingMinStr) rating.gte = parseInt(ratingMinStr, 10);
-      if (ratingMaxStr) rating.lte = parseInt(ratingMaxStr, 10);
-      where.rating = rating;
+    if (ratingMinStr) { conditions.push(`p.rating >= $${idx}`); params.push(parseInt(ratingMinStr, 10)); idx++; }
+    if (ratingMaxStr) { conditions.push(`p.rating <= $${idx}`); params.push(parseInt(ratingMaxStr, 10)); idx++; }
+
+    // hideSolved: exclude puzzles already solved by this user
+    if (hideSolved === 'true' && userId) {
+      conditions.push(`NOT EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid AND pa.solved = true)`);
+      params.push(userId);
+      idx++;
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.puzzle.findMany({ where, take, skip: offset, orderBy: { [sortField]: sortOrder } }),
-      this.prisma.puzzle.count({ where }),
+    const whereClause = conditions.join(' AND ');
+
+    // solvedStatus subquery
+    const solvedStatusSelect = userId
+      ? `, CASE
+          WHEN EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid AND pa.solved = true) THEN 'solved'
+          WHEN EXISTS (SELECT 1 FROM puzzle_attempts pa WHERE pa.puzzle_id = p.id AND pa.user_id = $${idx}::uuid) THEN 'failed'
+          ELSE NULL
+        END AS solved_status`
+      : ', NULL AS solved_status';
+    if (userId) { params.push(userId); idx++; }
+
+    const limitParam = `$${idx}`;
+    params.push(take);
+    idx++;
+    const offsetParam = `$${idx}`;
+    params.push(offset);
+
+    const dataQuery = `SELECT p.id, p.fen, p.moves, p.rating, p.themes, p.source_type, p.is_public, p.created_by, p.created_at${solvedStatusSelect}
+      FROM puzzles p WHERE ${whereClause} ORDER BY p.${sortCol} ${sortDir} LIMIT ${limitParam} OFFSET ${offsetParam}`;
+    const countQuery = `SELECT COUNT(*)::int as total FROM puzzles p WHERE ${whereClause}`;
+
+    const [data, countResult] = await Promise.all([
+      this.prisma.$queryRawUnsafe<Array<any>>(dataQuery, ...params),
+      this.prisma.$queryRawUnsafe<[{ total: number }]>(countQuery, ...params.slice(0, -2)),
     ]);
 
     return {
       data: data.map((p: any) => ({
         id: p.id, fen: p.fen, moves: p.moves, rating: p.rating,
-        themes: p.themes, sourceType: p.sourceType, isPublic: p.isPublic,
-        createdBy: p.createdBy, createdAt: p.createdAt?.toISOString(),
+        themes: p.themes, sourceType: p.source_type, isPublic: p.is_public,
+        createdBy: p.created_by, createdAt: p.created_at?.toISOString?.() ?? p.created_at,
+        solvedStatus: p.solved_status ?? null,
       })),
-      total,
+      total: countResult[0]?.total ?? 0,
     };
   }
 
