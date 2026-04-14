@@ -563,57 +563,6 @@ model Notification {
   @@map("notifications")
 }
 
-model GeneratedPuzzle {
-  id            String   @id @default(uuid()) @db.Uuid
-  fen           String
-  moves         String
-  rating        Int      @default(1500)
-  ratingDev     Int      @default(350) @map("rating_dev")
-  themes        String   @default("")
-  sourceType    String   @map("source_type")   // game, pgn, fen
-  sourceId      String?  @map("source_id")
-  sourceMoveNum Int?     @map("source_move_num")
-  gap           Int      @default(0)           // cp gap between best and second-best
-  depth         Int      @default(18)
-  createdBy      String?  @map("created_by") @db.Uuid
-  isPublic       Boolean  @default(false) @map("is_public")
-  popularity     Int      @default(0)
-  nbPlays        Int      @default(0) @map("nb_plays")
-  sourceMetadata String?  @map("source_metadata") @db.Text
-  acceptedMoves  String?  @map("accepted_moves")
-  createdAt      DateTime @default(now()) @map("created_at")
-
-  attempts GeneratedPuzzleAttempt[]
-
-  @@index([rating])
-  @@index([themes])
-  @@index([sourceType, sourceId])
-  @@index([createdBy])
-  @@index([isPublic])
-  @@map("generated_puzzles")
-}
-
-model GeneratedPuzzleAttempt {
-  id                  String   @id @default(uuid()) @db.Uuid
-  puzzleId            String   @map("puzzle_id") @db.Uuid
-  userId              String   @map("user_id") @db.Uuid
-  solved              Boolean
-  timeMs              Int      @map("time_ms")
-  userRatingBefore    Int      @map("user_rating_before")
-  userRatingAfter     Int      @map("user_rating_after")
-  puzzleRatingBefore  Int      @map("puzzle_rating_before")
-  puzzleRatingAfter   Int      @map("puzzle_rating_after")
-  userMoves           String?  @map("user_moves")
-  hintsUsed           Int      @default(0) @map("hints_used")
-  createdAt           DateTime @default(now()) @map("created_at")
-
-  puzzle GeneratedPuzzle @relation(fields: [puzzleId], references: [id], onDelete: Cascade)
-
-  @@index([puzzleId])
-  @@index([userId])
-  @@map("generated_puzzle_attempts")
-}
-
 model PuzzleRatingSnapshot {
   id       String   @id @default(uuid()) @db.Uuid
   userId   String   @map("user_id") @db.Uuid
