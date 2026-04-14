@@ -232,6 +232,15 @@ export class PuzzleController {
   @UseGuards(JwtAuthGuard)
   @Delete('all')
   async deleteAll(@Request() req: AuthenticatedRequest) {
+    // Delete attempts first (no cascade), then puzzles
+    const puzzles = await this.prisma.puzzle.findMany({
+      where: { createdBy: req.user.id, source: 'generated' },
+      select: { id: true },
+    });
+    const ids = puzzles.map((p) => p.id);
+    if (ids.length > 0) {
+      await this.prisma.puzzleAttempt.deleteMany({ where: { puzzleId: { in: ids } } });
+    }
     const result = await this.prisma.puzzle.deleteMany({
       where: { createdBy: req.user.id, source: 'generated' },
     });
@@ -256,6 +265,18 @@ export class PuzzleController {
   @Get(':id')
   getPuzzle(@Param('id') id: string) {
     return this.puzzleService.getPuzzle(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/attempt')
+  submitAttemptSingular(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() dto: SubmitAttemptDto,
+  ) {
+    return this.puzzleService.submitAttempt(
+      req.user.id, id, dto.result === 'solved', dto.timeMs, dto.userMoves, dto.hintsUsed,
+    );
   }
 
   @UseGuards(JwtAuthGuard)
