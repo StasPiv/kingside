@@ -109,9 +109,10 @@ export class AdminService implements OnModuleInit {
     };
   }
 
-  async deleteComment(commentId: string) {
+  async deleteComment(commentId: string, feedbackId?: string) {
     const comment = await this.prisma.feedbackComment.findUnique({ where: { id: commentId } });
     if (!comment) throw new NotFoundException('Comment not found');
+    if (feedbackId && comment.feedbackId !== feedbackId) throw new NotFoundException('Comment not found');
 
     await this.prisma.feedbackComment.delete({ where: { id: commentId } });
     await this.prisma.feedback.update({

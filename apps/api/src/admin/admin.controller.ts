@@ -47,8 +47,11 @@ export class AdminController {
     return this.adminService.addSupportComment(id, body.message);
   }
 
-  @Delete('feedback/comments/:id')
-  deleteComment(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminService.deleteComment(id);
+  @Delete('feedback/:feedbackId/comments/:commentId')
+  deleteComment(
+    @Param('feedbackId', ParseUUIDPipe) feedbackId: string,
+    @Param('commentId', ParseUUIDPipe) commentId: string,
+  ) {
+    return this.adminService.deleteComment(commentId, feedbackId);
   }
 }
