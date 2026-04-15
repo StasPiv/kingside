@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+
+Disallow: /game/
+Disallow: /settings
+Disallow: /profile
+Disallow: /messages
+Disallow: /friends
+Disallow: /dev-bypass
+
+Sitemap: https://kingside.site/sitemap.xml
