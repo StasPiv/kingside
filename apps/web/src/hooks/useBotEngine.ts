@@ -1,28 +1,27 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 
-/**
- * Bot level → Stockfish UCI settings.
- * Level 1 = weakest (Skill Level 0, depth 1, 50ms)
- * Level 10 = strongest (Skill Level 20, depth 18, 2000ms)
- */
 function levelToSettings(level: number) {
   const clamped = Math.max(1, Math.min(10, level));
   return {
-    skillLevel: Math.round((clamped - 1) * (20 / 9)),       // 0..20
-    depth: Math.min(1 + Math.round(clamped * 1.7), 18),     // 1..18
-    movetime: Math.round(50 + (clamped - 1) * 217),         // 50..2000
+    skillLevel: Math.round((clamped - 1) * (20 / 9)),
+    depth: Math.min(1 + Math.round(clamped * 1.7), 18),
+    movetime: Math.round(50 + (clamped - 1) * 217),
   };
 }
+
+export type BotEngineStatus = 'idle' | 'loading' | 'ready' | 'error';
+export type BotDebugInfo = { status: BotEngineStatus; lastCall: string | null; lastResult: string | null; error: string | null };
 
 export function useBotEngine(gameId: string | undefined, botLevel: number | null, isActive: boolean) {
   const workerRef = useRef<Worker | null>(null);
   const readyRef = useRef(false);
   const levelRef = useRef(botLevel);
   levelRef.current = botLevel;
+  const [debug, setDebug] = useState<BotDebugInfo>({ status: 'idle', lastCall: null, lastResult: null, error: null });
 
-  // Init / destroy worker
   useEffect(() => {
-    if (!isActive || botLevel == null) return;
+    if (!isActive || botLevel == null) { setDebug((d) => ({ ...d, status: 'idle' })); return; }
+    setDebug({ status: 'loading', lastCall: null, lastResult: null, error: null });
 
     const worker = new Worker('/stockfish/stockfish-18-single.js');
     workerRef.current = worker;
@@ -37,13 +36,17 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
       }
       if (typeof e.data === 'string' && e.data.includes('readyok')) {
         readyRef.current = true;
+        setDebug((d) => ({ ...d, status: 'ready' }));
       }
     };
+    const onError = () => { setDebug((d) => ({ ...d, status: 'error', error: 'Worker error' })); };
     worker.addEventListener('message', onMessage);
+    worker.addEventListener('error', onError);
     worker.postMessage('uci');
 
     return () => {
       worker.removeEventListener('message', onMessage);
+      worker.removeEventListener('error', onError);
       worker.terminate();
       workerRef.current = null;
       readyRef.current = false;
@@ -51,14 +54,21 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
   }, [gameId, botLevel, isActive]);
 
   const getBotMove = useCallback((fen: string): Promise<string> => {
+    setDebug((d) => ({ ...d, lastCall: fen.split(' ')[0].slice(0, 20), lastResult: null, error: null }));
     return new Promise((resolve, reject) => {
       const worker = workerRef.current;
-      if (!worker) { reject(new Error('Engine not ready')); return; }
+      if (!worker) {
+        setDebug((d) => ({ ...d, error: 'Engine not ready' }));
+        reject(new Error('Engine not ready'));
+        return;
+      }
 
       const level = levelRef.current ?? 5;
       const s = levelToSettings(level);
-      const timeout = s.movetime + 5000;
-      const timer = setTimeout(() => { reject(new Error('Engine timeout')); }, timeout);
+      const timer = setTimeout(() => {
+        setDebug((d) => ({ ...d, error: 'Timeout' }));
+        reject(new Error('Engine timeout'));
+      }, s.movetime + 5000);
 
       const handler = (e: MessageEvent) => {
         const msg = typeof e.data === 'string' ? e.data : '';
@@ -66,6 +76,7 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
         if (match) {
           clearTimeout(timer);
           worker.removeEventListener('message', handler);
+          setDebug((d) => ({ ...d, lastResult: match[1] }));
           resolve(match[1]);
         }
       };
@@ -76,5 +87,5 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
     });
   }, []);
 
-  return { getBotMove };
+  return { getBotMove, debug };
 }

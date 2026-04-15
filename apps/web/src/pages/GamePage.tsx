@@ -79,7 +79,7 @@ export function GamePage() {
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [whiteBerserk, setWhiteBerserk] = useState(false);
   const [blackBerserk, setBlackBerserk] = useState(false);
-  const { getBotMove } = useBotEngine(gameId, botLevel, isBot);
+  const { getBotMove, debug: botDebug } = useBotEngine(gameId, botLevel, isBot);
   const getBotMoveRef = useRef(getBotMove);
   getBotMoveRef.current = getBotMove;
   const [showResultModal, setShowResultModal] = useState(false);
@@ -746,6 +746,14 @@ export function GamePage() {
               )}
             </div>
           </div>
+        </div>
+      )}
+      {isBot && (
+        <div className="bot-debug-panel">
+          bot={String(isBot)} lv={botLevel} wasm={botDebug.status}
+          {botDebug.lastCall && <> call={botDebug.lastCall}</>}
+          {botDebug.lastResult && <> res={botDebug.lastResult}</>}
+          {botDebug.error && <> err={botDebug.error}</>}
         </div>
       )}
     </div>
