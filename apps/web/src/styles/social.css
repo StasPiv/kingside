@@ -1653,3 +1653,16 @@
   color: #888;
   margin-top: 4px;
 }
+
+.bot-badge {
+  display: inline-block;
+  background: #7c83ff;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: middle;
+  text-transform: uppercase;
+}
