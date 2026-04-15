@@ -19,7 +19,7 @@ export class ChatController {
   constructor(private readonly chatService: ChatAssistantService) {}
 
   /**
-   * POST /api/chat — send message, receive SSE stream.
+   * POST /api/chat — send message, receive SSE stream or JSON.
    * Body: { message: string, conversationId?: string }
    */
   @UseGuards(JwtAuthGuard)
@@ -32,8 +32,20 @@ export class ChatController {
     const userId = req.user.id;
     const siteUrl = (req.headers.origin as string) || undefined;
 
-    // Rate limit check
-    await this.chatService.checkRateLimit(userId);
+    // Validate message length
+    this.chatService.validateMessageLength(body.message ?? '');
+
+    // Rate limit check (throws 429 with structured JSON)
+    try {
+      await this.chatService.checkRateLimit(userId);
+    } catch (e: any) {
+      if (e.status === 429) {
+        const body = e.response;
+        res.setHeader('Retry-After', String(body.retryAfter ?? 60));
+        return res.status(429).json(body);
+      }
+      throw e;
+    }
     await this.chatService.incrementRateLimit(userId);
 
     // Get or create conversation
@@ -66,6 +78,15 @@ export class ChatController {
     }
 
     res.end();
+  }
+
+  /**
+   * GET /api/chat/limits — current rate limit usage.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('limits')
+  getLimits(@Request() req: AuthenticatedRequest) {
+    return this.chatService.getLimits(req.user.id);
   }
 
   /**

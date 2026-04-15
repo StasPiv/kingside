@@ -1,4 +1,4 @@
-import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -7,8 +7,6 @@ import { buildSystemPrompt } from './system-prompt';
 
 const MAX_MESSAGES_PER_CONVERSATION = 50;
 const MAX_CONVERSATIONS_PER_USER = 10;
-const RATE_LIMIT_PER_MIN = 10;
-const RATE_LIMIT_PER_DAY = 100;
 const HISTORY_LIMIT = 10;
 
 @Injectable()
@@ -18,6 +16,10 @@ export class ChatAssistantService {
   private readonly model: string;
   private readonly maxTokens: number;
   private readonly webhookUrl: string;
+  readonly rateLimitPerMin: number;
+  readonly rateLimitPerDay: number;
+  readonly globalDailyLimit: number;
+  readonly maxMsgLength: number;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -29,39 +31,99 @@ export class ChatAssistantService {
     this.model = this.config.get<string>('CHAT_MODEL', 'claude-sonnet-4-20250514');
     this.maxTokens = parseInt(this.config.get<string>('CHAT_MAX_TOKENS', '1024'), 10);
     this.webhookUrl = this.config.get<string>('AI_CHAT_WEBHOOK_URL', '');
+    this.rateLimitPerMin = parseInt(this.config.get<string>('CHAT_RATE_LIMIT_PER_MIN', '10'), 10);
+    this.rateLimitPerDay = parseInt(this.config.get<string>('CHAT_RATE_LIMIT_PER_DAY', '100'), 10);
+    this.globalDailyLimit = parseInt(this.config.get<string>('CHAT_GLOBAL_DAILY_LIMIT', '1000'), 10);
+    this.maxMsgLength = parseInt(this.config.get<string>('CHAT_MAX_MSG_LENGTH', '2000'), 10);
   }
 
   get isWebhookMode(): boolean {
     return !!this.webhookUrl;
   }
 
+  validateMessageLength(message: string): void {
+    if (message.length > this.maxMsgLength) {
+      throw new BadRequestException(`Message too long: max ${this.maxMsgLength} characters`);
+    }
+  }
+
   async checkRateLimit(userId: string): Promise<void> {
     const minKey = `chat:rate:min:${userId}`;
     const dayKey = `chat:rate:day:${userId}`;
+    const globalKey = `chat:rate:global:${new Date().toISOString().slice(0, 10)}`;
 
-    const [minCount, dayCount] = await Promise.all([
+    const [minCount, dayCount, globalCount] = await Promise.all([
       this.redis.get(minKey),
       this.redis.get(dayKey),
+      this.redis.get(globalKey),
     ]);
 
-    if (parseInt(minCount ?? '0', 10) >= RATE_LIMIT_PER_MIN) {
-      throw new ForbiddenException('Rate limit: max 10 messages per minute');
+    const minUsed = parseInt(minCount ?? '0', 10);
+    const dayUsed = parseInt(dayCount ?? '0', 10);
+    const globalUsed = parseInt(globalCount ?? '0', 10);
+
+    if (minUsed >= this.rateLimitPerMin) {
+      throw new HttpException({
+        error: 'rate_limit',
+        retryAfter: 60,
+        limits: { perMinute: { used: minUsed, max: this.rateLimitPerMin }, perDay: { used: dayUsed, max: this.rateLimitPerDay } },
+      }, HttpStatus.TOO_MANY_REQUESTS);
     }
-    if (parseInt(dayCount ?? '0', 10) >= RATE_LIMIT_PER_DAY) {
-      throw new ForbiddenException('Rate limit: max 100 messages per day');
+    if (dayUsed >= this.rateLimitPerDay) {
+      throw new HttpException({
+        error: 'rate_limit',
+        retryAfter: this.secondsUntilMidnight(),
+        limits: { perMinute: { used: minUsed, max: this.rateLimitPerMin }, perDay: { used: dayUsed, max: this.rateLimitPerDay } },
+      }, HttpStatus.TOO_MANY_REQUESTS);
+    }
+    if (globalUsed >= this.globalDailyLimit) {
+      throw new HttpException({
+        error: 'rate_limit',
+        retryAfter: this.secondsUntilMidnight(),
+        limits: { perMinute: { used: minUsed, max: this.rateLimitPerMin }, perDay: { used: dayUsed, max: this.rateLimitPerDay }, globalDaily: { used: globalUsed, max: this.globalDailyLimit } },
+      }, HttpStatus.TOO_MANY_REQUESTS);
     }
   }
 
   async incrementRateLimit(userId: string): Promise<void> {
     const minKey = `chat:rate:min:${userId}`;
     const dayKey = `chat:rate:day:${userId}`;
+    const globalKey = `chat:rate:global:${new Date().toISOString().slice(0, 10)}`;
 
     const pipe = this.redis.pipeline();
     pipe.incr(minKey);
     pipe.expire(minKey, 60);
     pipe.incr(dayKey);
     pipe.expire(dayKey, 86400);
+    pipe.incr(globalKey);
+    pipe.expire(globalKey, 86400);
     await pipe.exec();
+  }
+
+  async getLimits(userId: string) {
+    const minKey = `chat:rate:min:${userId}`;
+    const dayKey = `chat:rate:day:${userId}`;
+    const globalKey = `chat:rate:global:${new Date().toISOString().slice(0, 10)}`;
+
+    const [minCount, dayCount, globalCount] = await Promise.all([
+      this.redis.get(minKey),
+      this.redis.get(dayKey),
+      this.redis.get(globalKey),
+    ]);
+
+    return {
+      perMinute: { used: parseInt(minCount ?? '0', 10), max: this.rateLimitPerMin, resetsIn: 60 },
+      perDay: { used: parseInt(dayCount ?? '0', 10), max: this.rateLimitPerDay, resetsIn: this.secondsUntilMidnight() },
+      globalDaily: { used: parseInt(globalCount ?? '0', 10), max: this.globalDailyLimit },
+      maxMessageLength: this.maxMsgLength,
+    };
+  }
+
+  private secondsUntilMidnight(): number {
+    const now = new Date();
+    const midnight = new Date(now);
+    midnight.setUTCHours(24, 0, 0, 0);
+    return Math.ceil((midnight.getTime() - now.getTime()) / 1000);
   }
 
   async getOrCreateConversation(userId: string, conversationId?: string): Promise<string> {
