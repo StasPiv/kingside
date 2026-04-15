@@ -248,6 +248,12 @@
   color: #fff;
 }
 
+/* KS-1518: profile icon hidden on desktop, shown on mobile */
+.nav-user__icon {
+  display: none;
+  font-size: 20px;
+}
+
 .dropdown-arrow {
   font-size: 10px;
 }
@@ -951,7 +957,7 @@ body.has-analysis-page .main {
   text-transform: uppercase;
 }
 
-/* KS-1517: compact header on mobile */
+/* KS-1517/KS-1518: compact header on mobile */
 @media (max-width: 480px) {
   .logo {
     font-size: 16px;
@@ -960,16 +966,11 @@ body.has-analysis-page .main {
     font-size: 8px;
     padding: 0 3px;
   }
-  .header-right {
-    flex-shrink: 1;
-    min-width: 0;
+  /* KS-1518: show icon, hide username text */
+  .nav-user__icon {
+    display: inline;
   }
-  .dropdown-toggle.nav-user {
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    display: block;
-    line-height: 36px;
+  .nav-user__text {
+    display: none;
   }
 }

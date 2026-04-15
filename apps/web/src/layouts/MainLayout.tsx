@@ -200,7 +200,9 @@ export function MainLayout() {
                   className="dropdown-toggle nav-user"
                   onClick={() => setUserMenuOpen(!userMenuOpen)}
                 >
-                  {user.username}{user.ratingBlitz != null && ` (${user.ratingBlitz})`} <span className="dropdown-arrow">&#9662;</span>
+                  <span className="nav-user__icon">&#128100;</span>
+                  <span className="nav-user__text">{user.username}{user.ratingBlitz != null && ` (${user.ratingBlitz})`}</span>
+                  <span className="dropdown-arrow">&#9662;</span>
                 </button>
                 {userMenuOpen && (
                   <div className="dropdown-menu dropdown-menu--right">
