@@ -215,7 +215,7 @@ export function GamePage() {
           const fen = new Chess().fen(); // starting position
           getBotMoveRef.current(fen).then((uci) => {
             socket.emit('game:bot-move', { gameId, uci });
-          }).catch((err) => console.error('[Bot] initial getBotMove error:', err));
+          }).catch(() => {});
         }
       }
     };
@@ -230,11 +230,9 @@ export function GamePage() {
         setClocks(msToSeconds(data.clocks));
         // Trigger bot move if it's bot's turn after player's move echo
         if (isBotRef.current && gameId) {
-          console.log('[Bot] Triggering getBotMove for FEN:', data.fen.slice(0, 30));
           getBotMoveRef.current(data.fen).then((uci) => {
-            console.log('[Bot] Sending game:bot-move:', uci);
             socket.emit('game:bot-move', { gameId, uci });
-          }).catch((err) => console.error('[Bot] getBotMove error:', err));
+          }).catch(() => {});
         }
         return;
       }
