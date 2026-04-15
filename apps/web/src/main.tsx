@@ -6,10 +6,12 @@ import { BoardSettingsProvider } from './context/BoardSettingsContext';
 import { ChatProvider } from './context/ChatContext';
 import { App } from './App';
 import { initClientLogger } from './utils/clientLogger';
+import { initGA4 } from './utils/analytics';
 import './i18n';
 import './styles.css';
 
 initClientLogger();
+initGA4();
 
 // Hide mobile browser address bar by triggering a minimal scroll.
 // Only on touch devices, after first load.

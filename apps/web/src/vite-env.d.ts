@@ -9,6 +9,7 @@ interface ImportMetaEnv {
   readonly VITE_DEV_BYPASS_SECRET?: string;
   readonly VITE_TEST_MODE?: string;
   readonly VITE_AI_CHAT_ENABLED?: string;
+  readonly VITE_GA4_ID?: string;
 }
 
 interface ImportMeta {
