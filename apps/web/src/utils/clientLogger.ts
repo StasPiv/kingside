@@ -37,7 +37,7 @@ function sendEntries(entries: LogEntry[]): void {
     fetch(`${API_URL}/api/logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entries),
+      body: JSON.stringify({ logs: entries }),
       keepalive: true,
     }).catch(() => {
       // silent fail
