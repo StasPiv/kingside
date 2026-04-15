@@ -133,35 +133,41 @@ export class AdminService implements OnModuleInit {
     const ids = bots.map((b) => b.id);
     this.logger.log(`Cleanup bots: found ${ids.length} loadbot users`);
 
-    // Delete related data in order (no cascade in schema)
-    await this.prisma.$executeRawUnsafe(
-      `DELETE FROM moves WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
-      ids,
-    );
-    await this.prisma.$executeRawUnsafe(
-      `DELETE FROM chat_messages WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
-      ids,
-    );
-    await this.prisma.$executeRawUnsafe(
-      `DELETE FROM game_reports WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
-      ids,
-    );
-    await this.prisma.$executeRawUnsafe(
-      `DELETE FROM game_analyses WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
-      ids,
-    );
-    await this.prisma.$executeRawUnsafe(
-      `DELETE FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[])`,
-      ids,
-    );
-    await this.prisma.$executeRawUnsafe(`DELETE FROM puzzle_attempts WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM puzzle_rush_scores WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM puzzle_rating_snapshots WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM chat_conversations WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM feedback_votes WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM feedback_comments WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM feedback WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM users WHERE id = ANY($1::uuid[])`, ids);
+    // All FK relations to users (from Prisma schema), in dependency order, wrapped in transaction
+    await this.prisma.$transaction(async (tx) => {
+      const r = (sql: string) => tx.$executeRawUnsafe(sql, ids);
+      const gameSubquery = `(SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`;
+
+      // Game child tables
+      await r(`DELETE FROM moves WHERE game_id IN ${gameSubquery}`);
+      await r(`DELETE FROM chat_messages WHERE game_id IN ${gameSubquery}`);
+      await r(`DELETE FROM game_reports WHERE game_id IN ${gameSubquery}`);
+      await r(`DELETE FROM game_analyses WHERE game_id IN ${gameSubquery}`);
+      await r(`DELETE FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[])`);
+
+      // Direct user FK tables
+      await r(`DELETE FROM puzzle_attempts WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM puzzle_rush_scores WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM puzzle_rating_snapshots WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM rating_history WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM chat_assistant_messages WHERE conversation_id IN (SELECT id FROM chat_conversations WHERE user_id = ANY($1::uuid[]))`);
+      await r(`DELETE FROM chat_conversations WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM feedback_votes WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM feedback_comments WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM feedback WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM notifications WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM arena_tournament_entries WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM analyses WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM saved_filters WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM pgn_imports WHERE user_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM direct_messages WHERE sender_id = ANY($1::uuid[]) OR receiver_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM friendships WHERE requester_id = ANY($1::uuid[]) OR addressee_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM blocked_users WHERE blocker_id = ANY($1::uuid[]) OR blocked_id = ANY($1::uuid[])`);
+      await r(`DELETE FROM user_time_controls WHERE user_id = ANY($1::uuid[])`);
+
+      // Finally delete users
+      await r(`DELETE FROM users WHERE id = ANY($1::uuid[])`);
+    });
 
     this.logger.log(`Cleanup bots: deleted ${ids.length} users and related data`);
     return { deletedUsers: ids.length };
