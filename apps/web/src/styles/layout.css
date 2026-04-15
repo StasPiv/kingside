@@ -960,4 +960,16 @@ body.has-analysis-page .main {
     font-size: 8px;
     padding: 0 3px;
   }
+  .header-right {
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .dropdown-toggle.nav-user {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+    line-height: 36px;
+  }
 }
