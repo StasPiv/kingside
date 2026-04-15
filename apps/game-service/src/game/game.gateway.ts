@@ -512,8 +512,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     try {
       const dbGame = await this.gameService.getGame(data.gameId);
 
-      if (!dbGame.isBot || !dbGame.botClientSide) {
-        client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: 'Not a client-side bot game' });
+      if (!dbGame.isBot) {
+        client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: 'Not a bot game' });
         return;
       }
 
