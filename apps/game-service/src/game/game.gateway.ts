@@ -575,6 +575,10 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private async triggerBotReply(gameId: string): Promise<void> {
     try {
+      // Skip server-side bot move if client handles it
+      const game = await this.gameService.getGame(gameId);
+      if (game.botClientSide) return;
+
       const botResult = await this.botGameService.maybeBotReply(gameId);
       if (!botResult) return;
 
