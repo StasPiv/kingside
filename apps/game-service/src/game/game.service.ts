@@ -628,6 +628,7 @@ export class GameService {
     color: 'white' | 'black' | 'random',
     botLevel: number,
     timeControl: 'bullet' | 'blitz' | 'rapid' | 'classical',
+    wasmSupported?: boolean,
   ) {
     await this.cleanupStaleBotGames(userId);
 
@@ -663,6 +664,7 @@ export class GameService {
         status: 'waiting',
         isBot: true,
         botLevel,
+        botClientSide: !!wasmSupported,
       },
     });
 

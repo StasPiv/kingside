@@ -71,6 +71,7 @@ export class GameController {
       dto.color,
       dto.botLevel,
       dto.timeControl,
+      dto.wasmSupported,
     );
   }
 

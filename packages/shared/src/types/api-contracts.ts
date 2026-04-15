@@ -171,6 +171,7 @@ export type CreateGameWithBotRequest = {
   color: 'white' | 'black' | 'random';
   botLevel: number;
   timeControl: 'bullet' | 'blitz' | 'rapid' | 'classical';
+  wasmSupported?: boolean;
 };
 
 export type CreateGameResponse = {
