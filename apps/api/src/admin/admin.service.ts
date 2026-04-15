@@ -161,7 +161,6 @@ export class AdminService implements OnModuleInit {
     await this.prisma.$executeRawUnsafe(`DELETE FROM feedback_votes WHERE user_id = ANY($1::uuid[])`, ids);
     await this.prisma.$executeRawUnsafe(`DELETE FROM feedback_comments WHERE user_id = ANY($1::uuid[])`, ids);
     await this.prisma.$executeRawUnsafe(`DELETE FROM feedback WHERE user_id = ANY($1::uuid[])`, ids);
-    await this.prisma.$executeRawUnsafe(`DELETE FROM refresh_tokens WHERE user_id = ANY($1::uuid[])`, ids);
     await this.prisma.$executeRawUnsafe(`DELETE FROM users WHERE id = ANY($1::uuid[])`, ids);
 
     this.logger.log(`Cleanup bots: deleted ${ids.length} users and related data`);
