@@ -12,7 +12,15 @@ export function ChatWidget() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { open, setOpen, messages, streaming, sendMessage, stopStreaming, loadConversation, newConversation } = useChat();
+  const { open, setOpen, messages, streaming, usage, rateLimitEnd, sendMessage, stopStreaming, loadConversation, newConversation } = useChat();
+  const [countdown, setCountdown] = useState(0);
+  useEffect(() => {
+    if (!rateLimitEnd) { setCountdown(0); return; }
+    const tick = () => setCountdown(Math.max(0, Math.ceil((rateLimitEnd - Date.now()) / 1000)));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [rateLimitEnd]);
   const [showHistory, setShowHistory] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [input, setInput] = useState('');
@@ -122,20 +130,26 @@ export function ChatWidget() {
                 <div ref={messagesEndRef} />
               </div>
 
+              {countdown > 0 && (
+                <div className="chat-rate-limit">
+                  {t('chat.rateLimited', 'Limit reached. Try again in {{seconds}}s', { seconds: countdown })}
+                </div>
+              )}
               <div className="chat-panel__input">
+                {usage && <span className="chat-usage-badge">{usage.used}/{usage.limit}</span>}
                 <textarea
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder={t('chat.placeholder', 'Type a message...')}
+                  placeholder={countdown > 0 ? t('chat.rateLimitedShort', 'Limit reached') : t('chat.placeholder', 'Type a message...')}
                   rows={1}
-                  disabled={streaming}
+                  disabled={streaming || countdown > 0}
                 />
                 {streaming ? (
                   <button className="chat-send-btn" onClick={stopStreaming}>⏹</button>
                 ) : (
-                  <button className="chat-send-btn" onClick={handleSend} disabled={!input.trim()}>➤</button>
+                  <button className="chat-send-btn" onClick={handleSend} disabled={!input.trim() || countdown > 0}>➤</button>
                 )}
               </div>
             </>
