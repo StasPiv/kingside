@@ -4,6 +4,7 @@ import { api } from '../api';
 import { ApiError } from '../ApiError';
 import type { CreateGameResponse } from '@kingside/shared';
 import type { TimeControlCategory } from './useTimeControl';
+import { detectWasmSupport } from '../utils/botConfig';
 
 type PieceColor = 'white' | 'black' | 'random';
 
@@ -24,6 +25,7 @@ export function useBotGame() {
         color: botColor,
         botLevel,
         timeControl: botTC,
+        wasmSupported: detectWasmSupport(),
       });
       navigate(`/game/${game.id}`);
     } catch (err) {
