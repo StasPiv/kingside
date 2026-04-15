@@ -41,6 +41,7 @@ import {
   type GameResult,
 } from '@kingside/shared';
 import { LiveGameService } from './live-game.service';
+import { STOCKFISH_BOT_ID } from '@kingside/shared';
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: '*' }, transports: ['websocket'], pingInterval: 300000, pingTimeout: 300000, connectTimeout: 60000 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -571,6 +572,64 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server.to(`user:${playerId}`).emit(GameEvents.END, endPayload);
       }
     } catch { /* game may already be cleaned up */ }
+  }
+
+  @SubscribeMessage('game:bot-move')
+  async handleBotMove(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { gameId: string; uci: string },
+  ) {
+    const userId = client.data.user?.id;
+    if (!userId) return;
+
+    try {
+      const dbGame = await this.gameService.getGame(data.gameId);
+
+      if (!dbGame.isBot || !dbGame.botClientSide) {
+        client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: 'Not a client-side bot game' });
+        return;
+      }
+
+      // Determine bot player ID
+      const botPlayerId = dbGame.whiteId === STOCKFISH_BOT_ID ? dbGame.whiteId
+        : dbGame.blackId === STOCKFISH_BOT_ID ? dbGame.blackId : null;
+      if (!botPlayerId) {
+        client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: 'No bot player found' });
+        return;
+      }
+
+      // Verify it's the bot's turn
+      const { state } = await this.gameService.getGameState(data.gameId);
+      const nextPlayerId = state.activeColor === 'white' ? dbGame.whiteId : dbGame.blackId;
+      if (nextPlayerId !== botPlayerId) {
+        client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: 'Not bot turn' });
+        return;
+      }
+
+      // Make the move on behalf of the bot
+      const result = await this.gameService.makeMove(data.gameId, botPlayerId, data.uci);
+
+      const movePayload: WsGameMoveServerPayload = {
+        uci: data.uci,
+        san: result.san,
+        fen: result.fen,
+        clocks: { whiteMs: result.clocks.whiteMs, blackMs: result.clocks.blackMs },
+        moveFlags: result.moveFlags,
+      };
+      this.server.to(`game:${data.gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
+      this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_MOVE, movePayload);
+
+      if (result.gameOver) {
+        const endPayload: WsGameEndPayload = {
+          result: result.result as GameResult,
+          termination: result.termination!,
+        };
+        this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
+        this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
+      }
+    } catch (e: any) {
+      client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: e.message });
+    }
   }
 
   private async triggerBotReply(gameId: string): Promise<void> {

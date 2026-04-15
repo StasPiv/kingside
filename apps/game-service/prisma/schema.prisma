@@ -114,6 +114,7 @@ model Game {
   blackBerserk      Boolean          @default(false) @map("black_berserk")
   isBot             Boolean          @default(false) @map("is_bot")
   botLevel          Int?             @map("bot_level")
+  botClientSide     Boolean          @default(false) @map("bot_client_side")
   createdAt         DateTime         @default(now()) @map("created_at")
   startedAt         DateTime?        @map("started_at")
   finishedAt        DateTime?        @map("finished_at")
