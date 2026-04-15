@@ -22,7 +22,9 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
 
   // Init / destroy worker
   useEffect(() => {
+    console.log('[BotEngine] effect:', { isActive, botLevel, gameId });
     if (!isActive || botLevel == null) return;
+    console.log('[BotEngine] Starting WASM worker, level:', botLevel);
 
     const worker = new Worker('/stockfish/stockfish-18-single.js');
     workerRef.current = worker;
