@@ -13,13 +13,13 @@ import { JwtService } from '@nestjs/jwt';
 import { GameService } from './game.service';
 import { BotGameService } from './bot-game.service';
 import { ChatService } from '../chat/chat.service';
-import { StockfishService } from '../engine/stockfish.service';
 import { GameClockService } from './game-clock.service';
 import { RedisService } from '../redis/redis.service';
 import { JwtPayload } from '../auth/jwt.strategy';
 import {
   GameEvents,
   SpectatorEvents,
+  STOCKFISH_BOT_ID,
   type WsGameJoinPayload,
   type WsGameMovePayload,
   type WsGameResignPayload,
@@ -32,16 +32,12 @@ import {
   type WsGameEndPayload,
   type WsGameDrawOfferedPayload,
   type WsErrorPayload,
-  type WsAnalysisStartPayload,
-  type WsAnalysisLinePayload,
-  type WsAnalysisDonePayload,
   type WsSpectateJoinPayload,
   type WsSpectateLeavePayload,
   type GameStatus,
   type GameResult,
 } from '@kingside/shared';
 import { LiveGameService } from './live-game.service';
-import { STOCKFISH_BOT_ID } from '@kingside/shared';
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: '*' }, transports: ['websocket'], pingInterval: 300000, pingTimeout: 300000, connectTimeout: 60000 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -49,7 +45,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly logger = new Logger(GameGateway.name);
-  private readonly analysisSessions = new Map<string, AbortController>();
   /** Grace period before ending bot games on disconnect (ms) */
   private static readonly BOT_DISCONNECT_GRACE_MS = 30_000;
   private readonly botDisconnectTimers = new Map<string, NodeJS.Timeout>();
@@ -59,7 +54,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly botGameService: BotGameService,
     private readonly jwtService: JwtService,
     private readonly chatService: ChatService,
-    private readonly stockfishService: StockfishService,
     private readonly liveGameService: LiveGameService,
     private readonly clockService: GameClockService,
     private readonly redis: RedisService,
@@ -95,8 +89,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(client: Socket) {
     const userId = client.data.user?.id;
     this.logger.log(`Client disconnected: ${client.id}`);
-
-    this.stopAnalysisSession(client.id);
 
     if (userId) {
       this.scheduleBotGameEnd(userId);
@@ -193,9 +185,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
-      if (isBot && state.moves.length === 0 && state.status === 'active') {
-        this.triggerBotReply(data.gameId);
-      }
     } catch (e: unknown) {
       this.logger.error(`handleJoinGame: game=${data.gameId.slice(0, 8)} ERROR: ${(e as Error).message}`);
       client.emit(GameEvents.ERROR, { code: 'JOIN_ERROR', message: (e as Error).message });
@@ -235,8 +224,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         };
         this.server.to(`game:${data.gameId}`).emit(GameEvents.END, endPayload);
         this.emitToSpectatorsDelayed(data.gameId, SpectatorEvents.SPECTATE_END, endPayload);
-      } else {
-        this.triggerBotReply(data.gameId);
       }
     } catch (e: any) {
       const errorPayload: WsErrorPayload = { code: 'INVALID_MOVE', message: e.message };
@@ -442,67 +429,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
-  @SubscribeMessage(GameEvents.ANALYSIS_START)
-  async handleAnalysisStart(
-    @ConnectedSocket() client: Socket,
-    @MessageBody() data: WsAnalysisStartPayload,
-  ) {
-    if (!client.data.user?.id) return;
-
-    // Stop any existing session for this client first
-    this.stopAnalysisSession(client.id);
-
-    const controller = new AbortController();
-    this.analysisSessions.set(client.id, controller);
-    const depth = data.depth ?? 20;
-
-    try {
-      const result = await this.stockfishService.streamAnalysis(
-        data.fen,
-        depth,
-        (line) => {
-          const linePayload: WsAnalysisLinePayload = {
-            depth: line.depth,
-            score: line.score,
-            bestMove: line.bestMove,
-          };
-          client.emit(GameEvents.ANALYSIS_LINE, linePayload);
-        },
-        controller.signal,
-      );
-
-      if (!controller.signal.aborted) {
-        const donePayload: WsAnalysisDonePayload = {
-          bestMove: result.bestMove,
-          ponder: result.ponder,
-          score: result.score,
-          depth: result.depth,
-        };
-        client.emit(GameEvents.ANALYSIS_DONE, donePayload);
-      }
-    } catch (e: any) {
-      if (!controller.signal.aborted) {
-        const errorPayload: WsErrorPayload = { code: 'ANALYSIS_ERROR', message: e.message };
-        client.emit(GameEvents.ERROR, errorPayload);
-      }
-    } finally {
-      this.analysisSessions.delete(client.id);
-    }
-  }
-
-  @SubscribeMessage(GameEvents.ANALYSIS_STOP)
-  handleAnalysisStop(@ConnectedSocket() client: Socket) {
-    this.stopAnalysisSession(client.id);
-  }
-
-  private stopAnalysisSession(clientId: string): void {
-    const controller = this.analysisSessions.get(clientId);
-    if (controller) {
-      controller.abort();
-      this.analysisSessions.delete(clientId);
-    }
-  }
-
   @SubscribeMessage(SpectatorEvents.SPECTATE_JOIN)
   async handleSpectateJoin(
     @ConnectedSocket() client: Socket,
@@ -629,38 +555,6 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
     } catch (e: any) {
       client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: e.message });
-    }
-  }
-
-  private async triggerBotReply(gameId: string): Promise<void> {
-    try {
-      // Skip server-side bot move if client handles it
-      const game = await this.gameService.getGame(gameId);
-      if (game.botClientSide) return;
-
-      const botResult = await this.botGameService.maybeBotReply(gameId);
-      if (!botResult) return;
-
-      const movePayload: WsGameMoveServerPayload = {
-        uci: botResult.uci,
-        san: botResult.san,
-        fen: botResult.fen,
-        clocks: { whiteMs: botResult.clocks.whiteMs, blackMs: botResult.clocks.blackMs },
-        moveFlags: botResult.moveFlags,
-      };
-      this.server.to(`game:${gameId}`).emit(GameEvents.MOVE_SERVER, movePayload);
-      this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_MOVE, movePayload);
-
-      if (botResult.gameOver) {
-        const endPayload: WsGameEndPayload = {
-          result: botResult.result as GameResult,
-          termination: botResult.termination!,
-        };
-        this.server.to(`game:${gameId}`).emit(GameEvents.END, endPayload);
-        this.emitToSpectatorsDelayed(gameId, SpectatorEvents.SPECTATE_END, endPayload);
-      }
-    } catch (e: any) {
-      this.logger.error(`Bot reply failed for game ${gameId}: ${e.message}`);
     }
   }
 
