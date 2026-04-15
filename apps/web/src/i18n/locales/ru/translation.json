@@ -935,7 +935,15 @@
     "tabPlayers": "Игроки",
     "noRoundsYet": "Туров пока нет",
     "allRounds": "Все туры",
-    "playersList": "Игроки"
+    "playersList": "Игроки",
+    "visibility": "Видимость",
+    "visPublic": "Публичный",
+    "visUnlisted": "По ссылке (unlisted)",
+    "visPrivate": "Приватный (только по приглашению)",
+    "vis_unlisted": "По ссылке",
+    "vis_private": "Приватный",
+    "inviteInvalid": "Недействительная или просроченная ссылка-приглашение",
+    "cycles": "Количество кругов"
   },
   "puzzleGenerator": {
     "title": "Генерация задач из PGN",

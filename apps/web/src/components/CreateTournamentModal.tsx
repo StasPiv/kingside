@@ -36,6 +36,9 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
   const [pointsDraw, setPointsDraw] = useState(0.5);
   const [pointsLoss, setPointsLoss] = useState(0);
   const [startsIn, setStartsIn] = useState(5);
+  const [visibility, setVisibility] = useState<'public' | 'unlisted' | 'private'>('public');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,9 +61,10 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
     setError(null);
     try {
       const startsAt = new Date(Date.now() + startsIn * 60 * 1000).toISOString();
-      await api.post('/api/arena', {
+      const result = await api.post<{ id: string; inviteCode?: string }>('/api/arena', {
         name: name.trim(),
         type,
+        visibility,
         timeInitialSec: effectiveInitial,
         timeIncrementSec: effectiveIncrement,
         durationMin,
@@ -68,6 +72,11 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
         ...(type === 'round-robin' ? { cycles, roundPauseMin, pointsWin, pointsDraw, pointsLoss } : {}),
         startsAt,
       });
+      if (result.inviteCode) {
+        setInviteLink(`${window.location.origin}/t/${result.inviteCode}`);
+        setCreating(false);
+        return; // Don't close — show invite link
+      }
       onCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed');
@@ -220,10 +229,28 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
               </select>
             </div>
 
+            <div className="tcm-field">
+              <label>{t('tournaments.visibility', 'Visibility')}</label>
+              <select className="ks-select" value={visibility} onChange={(e) => setVisibility(e.target.value as 'public' | 'unlisted' | 'private')}>
+                <option value="public">{t('tournaments.visPublic', 'Public')}</option>
+                <option value="unlisted">{t('tournaments.visUnlisted', 'Unlisted (invite link)')}</option>
+                <option value="private">{t('tournaments.visPrivate', 'Private (invite only)')}</option>
+              </select>
+            </div>
+
+            {inviteLink && (
+              <div className="tcm-invite-link">
+                <input type="text" readOnly value={inviteLink} className="ks-input" />
+                <button onClick={() => { navigator.clipboard.writeText(inviteLink); setCopied(true); setTimeout(() => setCopied(false), 2000); }}>
+                  {copied ? '✓' : t('common.copy', 'Copy')}
+                </button>
+              </div>
+            )}
+
             {error && <div className="error">{error}</div>}
 
-            <button className="tcm-submit" onClick={handleCreate} disabled={creating || !name.trim()}>
-              {creating ? t('common.loading') : t('tournaments.create', 'Create Tournament')}
+            <button className="tcm-submit" onClick={inviteLink ? () => onCreated() : handleCreate} disabled={creating || !name.trim()}>
+              {inviteLink ? t('common.done', 'Done') : creating ? t('common.loading') : t('tournaments.create', 'Create Tournament')}
             </button>
           </div>
         </div>

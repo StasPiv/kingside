@@ -17,6 +17,7 @@ type Tournament = {
   startsAt: string;
   creatorId: string;
   creatorUsername?: string;
+  visibility?: 'public' | 'unlisted' | 'private';
   _count?: { entries: number };
 };
 
@@ -128,7 +129,10 @@ export function TournamentsPage() {
             <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tnr-card">
               <div className="tnr-card__row1">
                 <span className={`tnr-card__dot tnr-card__dot--${tnr.status}`} />
-                <span className="tnr-card__name">{tnr.name}</span>
+                <span className="tnr-card__name">
+                  {tnr.name}
+                  {tnr.visibility && tnr.visibility !== 'public' && <span className="tnr-visibility-badge">🔒</span>}
+                </span>
                 <span className="tnr-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
               </div>
               <div className="tnr-card__row2">

@@ -935,7 +935,15 @@
     "tabPlayers": "Players",
     "noRoundsYet": "No rounds yet",
     "allRounds": "All Rounds",
-    "playersList": "Players"
+    "playersList": "Players",
+    "visibility": "Visibility",
+    "visPublic": "Public",
+    "visUnlisted": "Unlisted (invite link)",
+    "visPrivate": "Private (invite only)",
+    "vis_unlisted": "Unlisted",
+    "vis_private": "Private",
+    "inviteInvalid": "Invalid or expired invite link",
+    "cycles": "Number of cycles"
   },
   "puzzleGenerator": {
     "title": "Generate Puzzles from PGN",

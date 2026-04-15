@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom';
+import { lazy, Suspense, useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useLocation, useSearchParams, useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
@@ -33,6 +33,7 @@ import { PlayPage } from './pages/PlayPage';
 import { FeedbackBoardPage } from './pages/FeedbackBoardPage';
 import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
 import { useAuth } from './context/AuthContext';
+import { api } from './api';
 
 // Lazy-loaded heavy pages
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
@@ -73,6 +74,23 @@ function ProfileRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/" replace />;
   return <Navigate to={`/player/${user.username}`} replace />;
+}
+
+function InviteRedirect() {
+  const { code } = useParams<{ code: string }>();
+  const navigate = useNavigate();
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!code) return;
+    api.post<{ tournamentId: string }>(`/api/arena/invite/${code}`, {})
+      .then((data) => navigate(`/tournaments/${data.tournamentId}`, { replace: true }))
+      .catch(() => setError(t('tournaments.inviteInvalid', 'Invalid or expired invite link')));
+  }, [code, navigate, t]);
+
+  if (error) return <div className="error">{error}</div>;
+  return <div className="loading">{t('common.loading')}</div>;
 }
 
 export function App() {
@@ -131,6 +149,7 @@ export function App() {
         <Route path="/tournaments" element={<TournamentsPage />} />
         <Route path="/tournaments/:id" element={<TournamentLobbyPage />} />
         <Route path="/arena/:id" element={<TournamentLobbyPage />} />
+        <Route path="/t/:code" element={<ProtectedRoute><InviteRedirect /></ProtectedRoute>} />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />

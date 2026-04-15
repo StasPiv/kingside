@@ -375,6 +375,42 @@
   cursor: not-allowed;
 }
 
+/* Invite link */
+.tcm-invite-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.tcm-invite-link input {
+  flex: 1;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.tcm-invite-link button {
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tcm-invite-link button:hover {
+  background: #6a72e8;
+}
+
+/* Visibility badge */
+.tnr-visibility-badge {
+  margin-left: 6px;
+  font-size: 14px;
+  vertical-align: middle;
+}
+
 /* TC categories */
 .tcm-tc-cats { display: flex; gap: 0; border-radius: 6px; overflow: hidden; border: 1px solid #333; margin-bottom: 8px; }
 .tcm-tc-cat { flex: 1; padding: 6px 8px; background: transparent; border: none; color: #888; font-size: 12px; font-weight: 600; cursor: pointer; border-radius: 0; transition: background 0.15s, color 0.15s; }

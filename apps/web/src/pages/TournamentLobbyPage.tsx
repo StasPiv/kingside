@@ -27,6 +27,8 @@ type Tournament = {
   pointsWin: number;
   pointsDraw: number;
   pointsLoss: number;
+  visibility?: 'public' | 'unlisted' | 'private';
+  inviteCode?: string;
 };
 
 type RoundData = {
@@ -87,6 +89,7 @@ export function TournamentLobbyPage() {
   const [nextRoundStartsAt, setNextRoundStartsAt] = useState<string | null>(null);
   const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
   const [crossTableRefresh, setCrossTableRefresh] = useState(0);
+  const [inviteCopied, setInviteCopied] = useState(false);
   const serverBusy = useServerBusy(tournamentSocket);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -476,7 +479,12 @@ export function TournamentLobbyPage() {
       <div className="tournament-header">
         <Link to="/tournaments" className="back-nav-link">&larr; {t('tournaments.backToList', 'Tournaments')}</Link>
         <div className="tournament-header__top">
-          <h1 className="tournament-header__name">{tournament.name}</h1>
+          <h1 className="tournament-header__name">
+            {tournament.name}
+            {tournament.visibility && tournament.visibility !== 'public' && (
+              <span className="tnr-visibility-badge" title={t(`tournaments.vis_${tournament.visibility}`)}>🔒</span>
+            )}
+          </h1>
           <div className="tournament-header__meta">
             <span className="tournament-header__tc">{formatTc(tournament.timeInitialSec, tournament.timeIncrementSec)}</span>
             {!isArena && tournament.totalRounds && (
@@ -522,6 +530,19 @@ export function TournamentLobbyPage() {
             <button className="tournament-withdraw-btn" onClick={handleWithdraw}>{t('tournaments.withdraw', 'Withdraw')}</button>
           )}
         </div>
+
+        {tournament.inviteCode && tournament.visibility !== 'public' && (
+          <div className="tcm-invite-link" style={{ marginTop: 8 }}>
+            <input type="text" readOnly value={`${window.location.origin}/t/${tournament.inviteCode}`} className="ks-input" />
+            <button onClick={() => {
+              navigator.clipboard.writeText(`${window.location.origin}/t/${tournament.inviteCode}`);
+              setInviteCopied(true);
+              setTimeout(() => setInviteCopied(false), 2000);
+            }}>
+              {inviteCopied ? '✓' : t('common.copy', 'Copy')}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ===== TAB BAR ===== */}
