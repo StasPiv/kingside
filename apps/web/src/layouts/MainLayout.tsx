@@ -14,7 +14,6 @@ import { MobileBottomBar } from '../components/MobileBottomBar';
 import { Sidebar } from '../components/Sidebar';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import { ChatWidget } from '../components/ChatWidget';
-import { TestModeBanner } from '../components/TestModeBanner';
 
 const DEV_BYPASS_SECRET = import.meta.env.VITE_DEV_BYPASS_SECRET;
 const isLocalhost = window.location.hostname === 'localhost';
@@ -122,13 +121,12 @@ export function MainLayout() {
 
   return (
     <div className="app">
-      <TestModeBanner />
       <header className="header">
         <nav className="header-nav">
           {/* LEFT: Logo */}
           <div className="header-left">
-            <Link to="/" className="logo" onClick={closeAll} title={appVersion ? `v.${appVersion}` : undefined}>
-              Kingside
+            <Link to="/feedback" className="logo" onClick={closeAll} title={appVersion ? `v.${appVersion}` : undefined}>
+              Kingside <span className="logo-beta">Beta</span>
             </Link>
           </div>
 
