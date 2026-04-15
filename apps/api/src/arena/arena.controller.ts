@@ -43,6 +43,12 @@ export class ArenaController {
     return this.arena.findAll(status);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('my')
+  findMy(@Request() req: AuthenticatedRequest) {
+    return this.arena.findMy(req.user.id);
+  }
+
   @Get(':id')
   findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.arena.findOne(id);
@@ -114,9 +120,9 @@ export class ArenaController {
   invite(
     @Request() req: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() body: { userId: string },
+    @Body() body: { username: string },
   ) {
-    return this.arena.invitePlayer(id, body.userId, req.user.id);
+    return this.arena.invitePlayer(id, body.username, req.user.id);
   }
 
   @UseGuards(JwtAuthGuard)

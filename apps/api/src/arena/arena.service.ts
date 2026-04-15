@@ -830,15 +830,32 @@ export class ArenaService {
 
   // --- Invite API ---
 
-  async invitePlayer(tournamentId: string, userId: string, invitedBy: string) {
+  async findMy(userId: string) {
+    return this.prisma.arenaTournament.findMany({
+      where: {
+        OR: [
+          { createdBy: userId },
+          { entries: { some: { userId } } },
+          { invites: { some: { userId } } },
+        ],
+      },
+      orderBy: { startsAt: 'desc' },
+      include: { _count: { select: { entries: true } } },
+    });
+  }
+
+  async invitePlayer(tournamentId: string, username: string, invitedBy: string) {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) throw new NotFoundException('Tournament not found');
     if (t.createdBy !== invitedBy) throw new ForbiddenException('Only creator can invite');
 
+    const user = await this.prisma.user.findUnique({ where: { username }, select: { id: true } });
+    if (!user) throw new NotFoundException('User not found');
+
     return this.prisma.tournamentInvite.upsert({
-      where: { tournamentId_userId: { tournamentId, userId } },
+      where: { tournamentId_userId: { tournamentId, userId: user.id } },
       update: { status: 'pending', invitedBy },
-      create: { tournamentId, userId, invitedBy },
+      create: { tournamentId, userId: user.id, invitedBy },
     });
   }
 
