@@ -68,6 +68,8 @@ export function GamePage() {
   const [drawOffered, setDrawOffered] = useState(false);
   const [isOpponentMove, setIsOpponentMove] = useState(false);
   const [isBot, setIsBot] = useState(false);
+  const isBotRef = useRef(false);
+  isBotRef.current = isBot;
   const [botLevel, setBotLevel] = useState<number | null>(null);
   const [botBannerDismissed, setBotBannerDismissed] = useState(false);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: Square; to: Square } | null>(null);
@@ -227,8 +229,10 @@ export function GamePage() {
       if (game.fen() === data.fen) {
         setClocks(msToSeconds(data.clocks));
         // Trigger bot move if it's bot's turn after player's move echo
-        if (isBot && gameId) {
+        if (isBotRef.current && gameId) {
+          console.log('[Bot] Triggering getBotMove for FEN:', data.fen.slice(0, 30));
           getBotMoveRef.current(data.fen).then((uci) => {
+            console.log('[Bot] Sending game:bot-move:', uci);
             socket.emit('game:bot-move', { gameId, uci });
           }).catch((err) => console.error('[Bot] getBotMove error:', err));
         }
