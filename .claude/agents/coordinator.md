@@ -66,7 +66,7 @@ curl -s -X DELETE http://localhost:8090/api/issues/KS-XX
     Then <ожидаемый результат>
   ```
   Сценарии должны описывать поведение с точки зрения конечного пользователя. Агент обязан проверить все сценарии перед закрытием задачи.
-- Assignee: `backend`, `frontend`, `layout`, `devops`, `architect`, `chess-expert`
+- Assignee: `backend`, `frontend`, `layout`, `devops`, `architect`, `chess-expert`, `marketing`
 - Задачи по вёрстке (CSS, стили, адаптивность, визуальные баги) — assignee `layout`, тагай `@layout`
 - Задачи по логике приложения (state, API, WebSocket, роутинг) — assignee `frontend`, тагай `@frontend`
 - ЗАПРЕЩЕНО назначать задачу более чем одному агенту. Если работа требует двух агентов — создавай две отдельные задачи
