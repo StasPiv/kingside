@@ -306,6 +306,10 @@
       "tournaments": "Топ активных турниров",
       "tournamentsComingSoon": "Скоро",
       "openWorkshop": "Открыть мастерскую"
+    },
+    "feedbackTeaser": {
+      "title": "Обратная связь и идеи",
+      "desc": "Сообщить о баге, предложить идею, проголосовать"
     }
   },
   "common": {

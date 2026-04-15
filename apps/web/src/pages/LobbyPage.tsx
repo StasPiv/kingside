@@ -588,6 +588,15 @@ export function LobbyPage() {
         </div>
       )}
 
+      <Link to="/feedback" className="lobby-feedback-teaser">
+        <span className="lobby-feedback-teaser__icon">📋</span>
+        <span className="lobby-feedback-teaser__text">
+          <strong>{t('lobby.feedbackTeaser.title', 'Feedback & Ideas')}</strong>
+          <span>{t('lobby.feedbackTeaser.desc', 'Report bugs, suggest features, vote on ideas')}</span>
+        </span>
+        <span className="lobby-feedback-teaser__arrow">&rarr;</span>
+      </Link>
+
       <div className="lobby-teasers">
         {teasers.map((teaser) => (
           <div key={teaser.id} className="lobby-teaser">

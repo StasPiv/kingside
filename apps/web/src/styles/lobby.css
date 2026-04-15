@@ -727,3 +727,24 @@
   color: #e0e0e0;
 }
 
+
+/* Feedback teaser */
+.lobby-feedback-teaser {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  text-decoration: none;
+  color: #e2e8f0;
+  transition: border-color 0.15s;
+}
+.lobby-feedback-teaser:hover { border-color: #7c83ff; }
+.lobby-feedback-teaser__icon { font-size: 24px; }
+.lobby-feedback-teaser__text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.lobby-feedback-teaser__text strong { font-size: 14px; }
+.lobby-feedback-teaser__text span { font-size: 12px; color: #94a3b8; }
+.lobby-feedback-teaser__arrow { font-size: 18px; color: #64748b; }

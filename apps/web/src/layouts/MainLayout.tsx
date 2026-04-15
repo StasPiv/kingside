@@ -125,7 +125,7 @@ export function MainLayout() {
         <nav className="header-nav">
           {/* LEFT: Logo */}
           <div className="header-left">
-            <Link to="/feedback" className="logo" onClick={closeAll} title={appVersion ? `v.${appVersion}` : undefined}>
+            <Link to="/" className="logo" onClick={closeAll} title={appVersion ? `v.${appVersion}` : undefined}>
               Kingside <span className="logo-beta">Beta</span>
             </Link>
           </div>

@@ -306,6 +306,10 @@
       "tournaments": "Top Active Tournaments",
       "tournamentsComingSoon": "Coming soon",
       "openWorkshop": "Open Workshop"
+    },
+    "feedbackTeaser": {
+      "title": "Feedback & Ideas",
+      "desc": "Report bugs, suggest features, vote on ideas"
     }
   },
   "common": {
