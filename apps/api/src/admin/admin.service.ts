@@ -121,4 +121,50 @@ export class AdminService implements OnModuleInit {
     });
     return { deleted: true };
   }
+
+  async cleanupBots(): Promise<{ deletedUsers: number }> {
+    // Find loadbot users
+    const bots = await this.prisma.user.findMany({
+      where: { username: { startsWith: 'loadbot' } },
+      select: { id: true, username: true },
+    });
+    if (bots.length === 0) return { deletedUsers: 0 };
+
+    const ids = bots.map((b) => b.id);
+    this.logger.log(`Cleanup bots: found ${ids.length} loadbot users`);
+
+    // Delete related data in order (no cascade in schema)
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM moves WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
+      ids,
+    );
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM chat_messages WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
+      ids,
+    );
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM game_reports WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
+      ids,
+    );
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM game_analyses WHERE game_id IN (SELECT id FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[]))`,
+      ids,
+    );
+    await this.prisma.$executeRawUnsafe(
+      `DELETE FROM games WHERE white_id = ANY($1::uuid[]) OR black_id = ANY($1::uuid[])`,
+      ids,
+    );
+    await this.prisma.$executeRawUnsafe(`DELETE FROM puzzle_attempts WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM puzzle_rush_scores WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM puzzle_rating_snapshots WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM chat_conversations WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM feedback_votes WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM feedback_comments WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM feedback WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM refresh_tokens WHERE user_id = ANY($1::uuid[])`, ids);
+    await this.prisma.$executeRawUnsafe(`DELETE FROM users WHERE id = ANY($1::uuid[])`, ids);
+
+    this.logger.log(`Cleanup bots: deleted ${ids.length} users and related data`);
+    return { deletedUsers: ids.length };
+  }
 }

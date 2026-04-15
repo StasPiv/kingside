@@ -47,6 +47,11 @@ export class AdminController {
     return this.adminService.addSupportComment(id, body.message);
   }
 
+  @Delete('users/cleanup-bots')
+  cleanupBots() {
+    return this.adminService.cleanupBots();
+  }
+
   @Delete('feedback/:feedbackId/comments/:commentId')
   deleteComment(
     @Param('feedbackId', ParseUUIDPipe) feedbackId: string,
