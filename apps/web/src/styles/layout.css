@@ -950,3 +950,14 @@ body.has-analysis-page .main {
   margin-left: 2px;
   text-transform: uppercase;
 }
+
+/* KS-1517: compact header on mobile */
+@media (max-width: 480px) {
+  .logo {
+    font-size: 16px;
+  }
+  .logo-beta {
+    font-size: 8px;
+    padding: 0 3px;
+  }
+}
