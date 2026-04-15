@@ -14,6 +14,10 @@ interface LogEntry {
 let buffer: LogEntry[] = [];
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 
+export function sendClientLog(type: string, message: string): void {
+  addEntry({ type, message, timestamp: new Date().toISOString(), url: window.location.href, userAgent: navigator.userAgent });
+}
+
 function addEntry(entry: LogEntry): void {
   buffer.push(entry);
   if (buffer.length >= BATCH_SIZE) {

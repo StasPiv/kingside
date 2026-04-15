@@ -1,4 +1,5 @@
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
+import { sendClientLog } from '../utils/clientLogger';
 
 function levelToSettings(level: number) {
   const clamped = Math.max(1, Math.min(10, level));
@@ -9,19 +10,15 @@ function levelToSettings(level: number) {
   };
 }
 
-export type BotEngineStatus = 'idle' | 'loading' | 'ready' | 'error';
-export type BotDebugInfo = { status: BotEngineStatus; lastCall: string | null; lastResult: string | null; error: string | null };
-
 export function useBotEngine(gameId: string | undefined, botLevel: number | null, isActive: boolean) {
   const workerRef = useRef<Worker | null>(null);
   const readyRef = useRef(false);
   const levelRef = useRef(botLevel);
   levelRef.current = botLevel;
-  const [debug, setDebug] = useState<BotDebugInfo>({ status: 'idle', lastCall: null, lastResult: null, error: null });
 
   useEffect(() => {
-    if (!isActive || botLevel == null) { setDebug((d) => ({ ...d, status: 'idle' })); return; }
-    setDebug({ status: 'loading', lastCall: null, lastResult: null, error: null });
+    if (!isActive || botLevel == null) return;
+    sendClientLog('bot', `worker start: game=${gameId?.slice(0, 8)} level=${botLevel}`);
 
     const worker = new Worker('/stockfish/stockfish-18-single.js');
     workerRef.current = worker;
@@ -36,10 +33,12 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
       }
       if (typeof e.data === 'string' && e.data.includes('readyok')) {
         readyRef.current = true;
-        setDebug((d) => ({ ...d, status: 'ready' }));
+        sendClientLog('bot', `worker ready: game=${gameId?.slice(0, 8)}`);
       }
     };
-    const onError = () => { setDebug((d) => ({ ...d, status: 'error', error: 'Worker error' })); };
+    const onError = (ev: ErrorEvent) => {
+      sendClientLog('bot-error', `worker error: game=${gameId?.slice(0, 8)} msg=${ev.message ?? 'unknown'}`);
+    };
     worker.addEventListener('message', onMessage);
     worker.addEventListener('error', onError);
     worker.postMessage('uci');
@@ -54,11 +53,12 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
   }, [gameId, botLevel, isActive]);
 
   const getBotMove = useCallback((fen: string): Promise<string> => {
-    setDebug((d) => ({ ...d, lastCall: fen.split(' ')[0].slice(0, 20), lastResult: null, error: null }));
+    const fenShort = fen.split(' ')[0].slice(0, 20);
+    sendClientLog('bot', `getBotMove: fen=${fenShort}`);
     return new Promise((resolve, reject) => {
       const worker = workerRef.current;
       if (!worker) {
-        setDebug((d) => ({ ...d, error: 'Engine not ready' }));
+        sendClientLog('bot-error', `getBotMove: engine not ready`);
         reject(new Error('Engine not ready'));
         return;
       }
@@ -66,7 +66,7 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
       const level = levelRef.current ?? 5;
       const s = levelToSettings(level);
       const timer = setTimeout(() => {
-        setDebug((d) => ({ ...d, error: 'Timeout' }));
+        sendClientLog('bot-error', `getBotMove: timeout after ${s.movetime}ms`);
         reject(new Error('Engine timeout'));
       }, s.movetime + 5000);
 
@@ -76,7 +76,7 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
         if (match) {
           clearTimeout(timer);
           worker.removeEventListener('message', handler);
-          setDebug((d) => ({ ...d, lastResult: match[1] }));
+          sendClientLog('bot', `getBotMove: result=${match[1]}`);
           resolve(match[1]);
         }
       };
@@ -87,5 +87,5 @@ export function useBotEngine(gameId: string | undefined, botLevel: number | null
     });
   }, []);
 
-  return { getBotMove, debug };
+  return { getBotMove };
 }
