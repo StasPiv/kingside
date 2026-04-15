@@ -402,6 +402,7 @@ export type WsGameStatePayload = {
   players?: { white: string; black: string };
   isBot?: boolean;
   botLevel?: number | null;
+  botClientSide?: boolean;
 };
 
 export type WsMoveFlags = {

@@ -110,6 +110,7 @@ export class GameService {
     players: { white: string; black: string };
     isBot: boolean;
     botLevel: number | null;
+    botClientSide: boolean;
   }> {
     const raw = await this.redis.hgetall(this.stateKey(gameId));
 
@@ -130,7 +131,7 @@ export class GameService {
       };
       const clocks = await this.clockService.getClocks(gameId);
       const players = { white: game.white.username ?? '', black: game.black.username ?? '' };
-      return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players, isBot: game.isBot, botLevel: game.botLevel };
+      return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players, isBot: game.isBot, botLevel: game.botLevel, botClientSide: game.botClientSide };
     }
 
     const game = await this.prisma.game.findUniqueOrThrow({
@@ -140,6 +141,7 @@ export class GameService {
         blackId: true,
         isBot: true,
         botLevel: true,
+        botClientSide: true,
         white: { select: { username: true } },
         black: { select: { username: true } },
       },
@@ -155,7 +157,7 @@ export class GameService {
     const clocks = await this.clockService.getClocks(gameId, activeColor);
 
     const players = { white: game.white.username ?? '', black: game.black.username ?? '' };
-    return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players, isBot: game.isBot, botLevel: game.botLevel };
+    return { state, clocks, whiteId: game.whiteId, blackId: game.blackId, players, isBot: game.isBot, botLevel: game.botLevel, botClientSide: game.botClientSide };
   }
 
   async makeMove(gameId: string, userId: string, uci: string): Promise<MoveResult> {

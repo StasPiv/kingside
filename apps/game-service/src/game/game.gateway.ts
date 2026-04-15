@@ -152,7 +152,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`handleJoinGame[1]: user=${client.data.user?.username} game=${data.gameId.slice(0, 8)} joined room`);
 
     try {
-      const { state, clocks, whiteId, blackId, players, isBot, botLevel } = await this.gameService.getGameState(data.gameId);
+      const { state, clocks, whiteId, blackId, players, isBot, botLevel, botClientSide } = await this.gameService.getGameState(data.gameId);
       this.logger.log(`handleJoinGame[2]: getGameState OK status=${state.status} fen=${state.fen.slice(0, 20)}`);
 
       const color = userId === whiteId ? 'white' : userId === blackId ? 'black' : undefined;
@@ -166,6 +166,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
         players,
         isBot,
         botLevel,
+        botClientSide,
       };
       client.emit(GameEvents.STATE, statePayload);
       this.logger.log(`handleJoinGame[3]: emitted game:state to ${client.data.user?.username}`);
