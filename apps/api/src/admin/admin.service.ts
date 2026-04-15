@@ -172,4 +172,50 @@ export class AdminService implements OnModuleInit {
     this.logger.log(`Cleanup bots: deleted ${ids.length} users and related data`);
     return { deletedUsers: ids.length };
   }
+
+  async listChatConversations(limit = 50, offset = 0) {
+    const [data, total] = await Promise.all([
+      this.prisma.chatConversation.findMany({
+        orderBy: { updatedAt: 'desc' },
+        take: Math.min(100, limit),
+        skip: offset,
+        include: {
+          user: { select: { id: true, username: true } },
+          _count: { select: { messages: true } },
+        },
+      }),
+      this.prisma.chatConversation.count(),
+    ]);
+
+    return {
+      data: data.map((c) => ({
+        id: c.id,
+        userId: c.userId,
+        username: c.user.username,
+        title: c.title,
+        messageCount: c._count.messages,
+        createdAt: c.createdAt.toISOString(),
+        updatedAt: c.updatedAt.toISOString(),
+      })),
+      total,
+    };
+  }
+
+  async getChatMessages(conversationId: string) {
+    const conv = await this.prisma.chatConversation.findUnique({ where: { id: conversationId } });
+    if (!conv) throw new NotFoundException('Conversation not found');
+
+    const messages = await this.prisma.chatAssistantMessage.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, role: true, content: true, createdAt: true },
+    });
+
+    return messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt.toISOString(),
+    }));
+  }
 }

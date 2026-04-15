@@ -59,4 +59,17 @@ export class AdminController {
   ) {
     return this.adminService.deleteComment(commentId, feedbackId);
   }
+
+  @Get('chat/conversations')
+  listChatConversations(
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit?: number,
+    @Query('offset', new DefaultValuePipe(0), ParseIntPipe) offset?: number,
+  ) {
+    return this.adminService.listChatConversations(limit, offset);
+  }
+
+  @Get('chat/conversations/:id/messages')
+  getChatMessages(@Param('id', ParseUUIDPipe) id: string) {
+    return this.adminService.getChatMessages(id);
+  }
 }
