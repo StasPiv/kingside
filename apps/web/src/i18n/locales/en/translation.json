@@ -1066,5 +1066,9 @@
     "anonymous": "Anonymous",
     "addComment": "Add a comment...",
     "supportBadge": "Kingside Team"
+  },
+  "chat": {
+    "rateLimited": "Limit reached. Try again in {{seconds}}s",
+    "rateLimitedShort": "Limit reached"
   }
 }

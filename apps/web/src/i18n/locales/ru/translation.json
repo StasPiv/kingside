@@ -1066,5 +1066,9 @@
     "anonymous": "Аноним",
     "addComment": "Добавить комментарий...",
     "supportBadge": "Команда Kingside"
+  },
+  "chat": {
+    "rateLimited": "Лимит исчерпан. Повторите через {{seconds}} сек.",
+    "rateLimitedShort": "Лимит исчерпан"
   }
 }
