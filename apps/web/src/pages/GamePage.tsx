@@ -26,6 +26,7 @@ import { useChallenge } from '../hooks/useChallenge';
 import { HelpButton } from '../components/HelpButton';
 import { socket, messagesSocket } from '../socket';
 import { useLazySocket } from '../hooks/useLazySocket';
+import { useBotEngine } from '../hooks/useBotEngine';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -76,6 +77,10 @@ export function GamePage() {
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [whiteBerserk, setWhiteBerserk] = useState(false);
   const [blackBerserk, setBlackBerserk] = useState(false);
+  const [botClientSide, setBotClientSide] = useState(false);
+  const { getBotMove } = useBotEngine(gameId, botLevel, isBot && botClientSide);
+  const getBotMoveRef = useRef(getBotMove);
+  getBotMoveRef.current = getBotMove;
   const [showResultModal, setShowResultModal] = useState(false);
   const [gameMeta, setGameMeta] = useState<{ opponentId: string; timeInitial: number; increment: number } | null>(null);
   const { sendChallenge, state: challengeState } = useChallenge();
@@ -201,9 +206,18 @@ export function GamePage() {
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
       if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
+      if ((state as unknown as { botClientSide?: boolean }).botClientSide) setBotClientSide(true);
       updateFromState(state);
       if (isFirstState && state.status === 'active') {
         playSound('game-start');
+        // If bot plays first (player is black), trigger initial bot move
+        const isBotClientSide = (state as unknown as { botClientSide?: boolean }).botClientSide;
+        if (state.isBot && isBotClientSide && gameId && state.moves.length === 0 && state.color === 'black') {
+          const fen = new Chess().fen(); // starting position
+          getBotMoveRef.current(fen).then((uci) => {
+            socket.emit('game:bot-move', { gameId, uci });
+          }).catch((err) => console.error('[Bot] initial getBotMove error:', err));
+        }
       }
     };
 
@@ -215,6 +229,12 @@ export function GamePage() {
       // to avoid a redundant re-render that causes piece flicker.
       if (game.fen() === data.fen) {
         setClocks(msToSeconds(data.clocks));
+        // Trigger bot move if it's bot's turn after player's move echo
+        if (isBot && botClientSide && gameId) {
+          getBotMoveRef.current(data.fen).then((uci) => {
+            socket.emit('game:bot-move', { gameId, uci });
+          }).catch((err) => console.error('[Bot] getBotMove error:', err));
+        }
         return;
       }
 
