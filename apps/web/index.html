@@ -7,9 +7,43 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#1a1a2e" />
+    <meta name="description" content="Play chess online for free. Analyze games, solve puzzles, compete in tournaments. No registration required." />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Kingside — Play Chess Online" />
+    <meta property="og:description" content="Play chess online for free. Analyze games with Stockfish, solve puzzles, compete in tournaments." />
+    <meta property="og:image" content="https://kingside.site/og-image.png" />
+    <meta property="og:url" content="https://kingside.site" />
+    <meta property="og:site_name" content="Kingside" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Kingside — Play Chess Online" />
+    <meta name="twitter:description" content="Play chess online for free. Analyze games, solve puzzles, compete in tournaments." />
+    <meta name="twitter:image" content="https://kingside.site/og-image.png" />
+
     <title>Kingside</title>
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+
+    <!-- JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Kingside",
+      "url": "https://kingside.site",
+      "description": "Free online chess platform. Play, analyze, solve puzzles, compete in tournaments.",
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Web",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      }
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
