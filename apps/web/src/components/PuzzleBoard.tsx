@@ -17,7 +17,7 @@ interface PuzzleBoardProps {
   lastMoveUci?: string | null;
   suppressAnimation?: boolean;
   boardKey?: string | number;
-  status?: 'thinking' | 'correct' | 'incorrect' | null;
+  status?: 'thinking' | 'checking' | 'correct' | 'incorrect' | null;
   children?: ReactNode;
 }
 

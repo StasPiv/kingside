@@ -13,6 +13,7 @@ export type PuzzleNextParams = {
 export type PuzzleAttemptRequest = {
   result: PuzzleAttemptResult;
   timeMs: number;
+  userMoves?: string;
 };
 
 export type DailyPuzzleResponse = {
