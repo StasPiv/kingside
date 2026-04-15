@@ -2,6 +2,7 @@ const GA4_ID = import.meta.env.VITE_GA4_ID;
 
 let initialized = false;
 
+/* eslint-disable prefer-rest-params */
 export function initGA4() {
   if (initialized || !GA4_ID) return;
   initialized = true;
@@ -11,14 +12,13 @@ export function initGA4() {
   script.async = true;
   document.head.appendChild(script);
 
-  (window as unknown as { dataLayer: unknown[] }).dataLayer = (window as unknown as { dataLayer: unknown[] }).dataLayer || [];
-  function gtag(...args: unknown[]) {
-    (window as unknown as { dataLayer: unknown[] }).dataLayer.push(args);
-  }
-  gtag('js', new Date());
-  gtag('config', GA4_ID);
-
-  (window as unknown as { gtag: typeof gtag }).gtag = gtag;
+  const w = window as unknown as { dataLayer: IArguments[]; gtag: (...args: unknown[]) => void };
+  w.dataLayer = w.dataLayer || [];
+  // Standard Google gtag snippet — must use `arguments` object, not rest params
+  function gtag() { w.dataLayer.push(arguments as unknown as IArguments); }
+  w.gtag = gtag as unknown as typeof w.gtag;
+  gtag.call(null, 'js', new Date());
+  gtag.call(null, 'config', GA4_ID);
 }
 
 export function trackEvent(name: string, params?: Record<string, unknown>) {
