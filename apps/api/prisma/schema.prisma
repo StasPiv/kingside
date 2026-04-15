@@ -603,15 +603,32 @@ model ArenaTournament {
   currentRound    Int       @default(0) @map("current_round")
   startsAt        DateTime  @map("starts_at")
   finishesAt      DateTime  @map("finishes_at")
+  visibility      String    @default("public") // public, unlisted, private
+  inviteCode      String?   @unique @map("invite_code")
   createdAt       DateTime  @default(now()) @map("created_at")
 
   entries  ArenaTournamentEntry[]
   games    Game[]
   rounds   TournamentRound[]
+  invites  TournamentInvite[]
 
   @@index([status])
   @@index([startsAt])
   @@map("arena_tournaments")
+}
+
+model TournamentInvite {
+  id           String   @id @default(uuid()) @db.Uuid
+  tournamentId String   @map("tournament_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  invitedBy    String   @map("invited_by") @db.Uuid
+  status       String   @default("pending") // pending, accepted, declined
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  tournament ArenaTournament @relation(fields: [tournamentId], references: [id])
+
+  @@unique([tournamentId, userId])
+  @@map("tournament_invites")
 }
 
 model ArenaTournamentEntry {

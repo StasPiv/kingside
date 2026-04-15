@@ -32,6 +32,7 @@ export class ArenaController {
       pointsDraw?: number;
       pointsLoss?: number;
       startsAt: string;
+      visibility?: string;
     },
   ) {
     return this.arena.create(req.user.id, body);
@@ -54,8 +55,12 @@ export class ArenaController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/join')
-  join(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
-    return this.arena.join(id, req.user.id);
+  join(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body?: { inviteCode?: string },
+  ) {
+    return this.arena.join(id, req.user.id, body?.inviteCode);
   }
 
   @Get(':id/rounds')
@@ -100,5 +105,38 @@ export class ArenaController {
   @Delete(':id')
   delete(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
     return this.arena.delete(id, req.user.id);
+  }
+
+  // --- Invite API ---
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/invite')
+  invite(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { userId: string },
+  ) {
+    return this.arena.invitePlayer(id, body.userId, req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/invites')
+  getInvites(@Request() req: AuthenticatedRequest, @Param('id', ParseUUIDPipe) id: string) {
+    return this.arena.getInvites(id, req.user.id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id/invite/:userId')
+  removeInvite(
+    @Request() req: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ) {
+    return this.arena.removeInvite(id, userId, req.user.id);
+  }
+
+  @Get('invite/:code')
+  findByInviteCode(@Param('code') code: string) {
+    return this.arena.findByInviteCode(code);
   }
 }

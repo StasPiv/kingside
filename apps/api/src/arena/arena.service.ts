@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
@@ -29,6 +30,7 @@ export class ArenaService {
     pointsDraw?: number;
     pointsLoss?: number;
     startsAt: string;
+    visibility?: string;
   }) {
     if (data.durationMin < 1 || data.durationMin > 180) {
       throw new BadRequestException('Duration must be 1-180 minutes');
@@ -50,6 +52,8 @@ export class ArenaService {
     const timeControlType = classifyTimeControl(data.timeInitialSec, data.timeIncrementSec);
 
     const tournamentType = data.type ?? 'arena';
+    const visibility = data.visibility ?? 'public';
+    const inviteCode = visibility === 'unlisted' ? randomBytes(4).toString('hex') : null;
 
     return this.prisma.arenaTournament.create({
       data: {
@@ -66,6 +70,8 @@ export class ArenaService {
         ...(data.pointsWin != null ? { pointsWin: data.pointsWin } : {}),
         ...(data.pointsDraw != null ? { pointsDraw: data.pointsDraw } : {}),
         ...(data.pointsLoss != null ? { pointsLoss: data.pointsLoss } : {}),
+        visibility,
+        inviteCode,
         startsAt,
         finishesAt,
       },
@@ -73,7 +79,7 @@ export class ArenaService {
   }
 
   async findAll(status?: string) {
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { visibility: 'public' };
     if (status) where.status = status;
 
     return this.prisma.arenaTournament.findMany({
@@ -92,10 +98,26 @@ export class ArenaService {
     return t;
   }
 
-  async join(tournamentId: string, userId: string) {
+  async join(tournamentId: string, userId: string, inviteCode?: string) {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) throw new NotFoundException('Tournament not found');
     if (t.status === 'finished') throw new BadRequestException('Tournament already finished');
+
+    // Visibility checks
+    if (t.visibility === 'unlisted') {
+      if (t.inviteCode && inviteCode !== t.inviteCode && t.createdBy !== userId) {
+        throw new ForbiddenException('Invalid invite code');
+      }
+    } else if (t.visibility === 'private') {
+      if (t.createdBy !== userId) {
+        const invite = await this.prisma.tournamentInvite.findUnique({
+          where: { tournamentId_userId: { tournamentId, userId } },
+        });
+        if (!invite || invite.status === 'declined') {
+          throw new ForbiddenException('You are not invited to this tournament');
+        }
+      }
+    }
 
     return this.prisma.arenaTournamentEntry.upsert({
       where: { tournamentId_userId: { tournamentId, userId } },
@@ -804,5 +826,48 @@ export class ArenaService {
       this.logger.log(`Tournament ${t.id} "${t.name}" finished`);
     }
     return active.map((t) => t.id);
+  }
+
+  // --- Invite API ---
+
+  async invitePlayer(tournamentId: string, userId: string, invitedBy: string) {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) throw new NotFoundException('Tournament not found');
+    if (t.createdBy !== invitedBy) throw new ForbiddenException('Only creator can invite');
+
+    return this.prisma.tournamentInvite.upsert({
+      where: { tournamentId_userId: { tournamentId, userId } },
+      update: { status: 'pending', invitedBy },
+      create: { tournamentId, userId, invitedBy },
+    });
+  }
+
+  async getInvites(tournamentId: string, requesterId: string) {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) throw new NotFoundException('Tournament not found');
+    if (t.createdBy !== requesterId) throw new ForbiddenException('Only creator can view invites');
+
+    return this.prisma.tournamentInvite.findMany({
+      where: { tournamentId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async removeInvite(tournamentId: string, userId: string, requesterId: string) {
+    const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
+    if (!t) throw new NotFoundException('Tournament not found');
+    if (t.createdBy !== requesterId) throw new ForbiddenException('Only creator can remove invites');
+
+    await this.prisma.tournamentInvite.deleteMany({ where: { tournamentId, userId } });
+    return { deleted: true };
+  }
+
+  async findByInviteCode(code: string) {
+    const t = await this.prisma.arenaTournament.findUnique({
+      where: { inviteCode: code },
+      include: { _count: { select: { entries: true } } },
+    });
+    if (!t) throw new NotFoundException('Tournament not found');
+    return t;
   }
 }
