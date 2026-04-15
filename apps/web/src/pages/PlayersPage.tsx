@@ -320,6 +320,7 @@ export function PlayersPage() {
                         <Link to={`/player/${p.username}`} className="players-link">
                           {p.username}
                         </Link>
+                        {(p as unknown as { isBot?: boolean }).isBot && <span className="bot-badge">BOT</span>}
                       </td>
                       <td className="players-rating">{p.ratingBullet}</td>
                       <td className="players-rating">{p.ratingBlitz}</td>
@@ -376,6 +377,7 @@ export function PlayersPage() {
                       <Link to={`/player/${p.username}`} className="players-link">
                         {p.username}
                       </Link>
+                      {(p as unknown as { isBot?: boolean }).isBot && <span className="bot-badge">BOT</span>}
                     </td>
                     <td className="players-rating">{p.ratingBullet}</td>
                     <td className="players-rating">{p.ratingBlitz}</td>
