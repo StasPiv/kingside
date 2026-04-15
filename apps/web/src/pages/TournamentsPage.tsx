@@ -15,7 +15,8 @@ type Tournament = {
   timeIncrementSec: number;
   durationMin: number;
   startsAt: string;
-  creatorId: string;
+  creatorId?: string;
+  createdBy?: string;
   creatorUsername?: string;
   visibility?: 'public' | 'unlisted' | 'private';
   _count?: { entries: number };
@@ -27,6 +28,7 @@ export function TournamentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [myTournaments, setMyTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
@@ -51,7 +53,16 @@ export function TournamentsPage() {
     finally { setLoading(false); }
   }, []);
 
+  const fetchMyTournaments = useCallback(async () => {
+    if (!user) return;
+    try {
+      const data = await api.get<Tournament[]>('/api/arena/my');
+      setMyTournaments(data);
+    } catch { setMyTournaments([]); }
+  }, [user]);
+
   useEffect(() => { fetchTournaments(); }, [fetchTournaments]);
+  useEffect(() => { fetchMyTournaments(); }, [fetchMyTournaments]);
 
   const filtered = tournaments.filter((t) => {
     if (t.status !== statusFilter) return false;
@@ -77,6 +88,39 @@ export function TournamentsPage() {
           </button>
         )}
       </div>
+
+      {/* My Tournaments */}
+      {user && myTournaments.length > 0 && (
+        <div className="tnr-my-section">
+          <h2 className="tnr-my-section__title">{t('tournaments.myTournaments', 'My Tournaments')}</h2>
+          <div className="tournaments-list">
+            {myTournaments.map((tnr) => {
+              const isCreator = (tnr.createdBy ?? tnr.creatorId) === user.id;
+              const badgeKey = isCreator ? 'creator' : 'joined';
+              return (
+                <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tnr-card">
+                  <div className="tnr-card__row1">
+                    <span className={`tnr-card__dot tnr-card__dot--${tnr.status}`} />
+                    <span className="tnr-card__name">
+                      {tnr.name}
+                      {tnr.visibility && tnr.visibility !== 'public' && <span className="tnr-visibility-badge">🔒</span>}
+                    </span>
+                    <span className={`tnr-my-badge tnr-my-badge--${badgeKey}`}>
+                      {t(`tournaments.badge_${badgeKey}`, badgeKey)}
+                    </span>
+                    <span className="tnr-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
+                  </div>
+                  <div className="tnr-card__row2">
+                    <span>{t(`tournaments.type_${tnr.type}`, tnr.type)}</span>
+                    <span className={`tnr-card__status tnr-card__status--${tnr.status}`}>{t(`tournaments.status_${tnr.status}`, tnr.status)}</span>
+                    <span>{tnr._count?.entries ?? 0} {t('tournaments.players', 'players')}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="tnr-filters">
@@ -151,7 +195,7 @@ export function TournamentsPage() {
       )}
 
       {showCreate && (
-        <CreateTournamentModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); fetchTournaments(); }} />
+        <CreateTournamentModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); fetchTournaments(); fetchMyTournaments(); }} />
       )}
     </div>
   );

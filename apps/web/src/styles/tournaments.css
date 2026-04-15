@@ -1097,3 +1097,144 @@
   }
 }
 
+/* My Tournaments section */
+.tnr-my-section {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #2a2a3e;
+}
+.tnr-my-section__title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 12px;
+  color: #e0e0e0;
+}
+
+/* My tournament badges */
+.tnr-my-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.tnr-my-badge--creator {
+  background: rgba(124, 131, 255, 0.2);
+  color: #7c83ff;
+}
+.tnr-my-badge--joined {
+  background: rgba(76, 175, 80, 0.2);
+  color: #4caf50;
+}
+.tnr-my-badge--invited {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+}
+
+/* Manage Invites */
+.manage-invites {
+  margin-top: 12px;
+  padding: 12px;
+  background: #1a1a2e;
+  border-radius: 8px;
+  border: 1px solid #2a2a3e;
+}
+.manage-invites h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 10px;
+  color: #e0e0e0;
+}
+.manage-invites__form {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.manage-invites__form input {
+  flex: 1;
+  background: #0f0f1a;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.manage-invites__form button {
+  background: #7c83ff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.manage-invites__form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.manage-invites__error {
+  color: #ef5350;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+.manage-invites__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.manage-invites__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #222;
+  font-size: 13px;
+}
+.manage-invites__item:last-child {
+  border-bottom: none;
+}
+.manage-invites__user {
+  flex: 1;
+  color: #ccc;
+}
+.manage-invites__status {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  text-transform: capitalize;
+}
+.manage-invites__status--pending {
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+}
+.manage-invites__status--accepted {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+}
+.manage-invites__status--declined {
+  background: rgba(239, 83, 80, 0.15);
+  color: #ef5350;
+}
+.manage-invites__remove {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+}
+.manage-invites__remove:hover {
+  color: #ef5350;
+}
+
+.tnr-card__status {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.tnr-card__status--active { color: #4caf50; }
+.tnr-card__status--upcoming { color: #ffc107; }
+.tnr-card__status--finished { color: #888; }
+

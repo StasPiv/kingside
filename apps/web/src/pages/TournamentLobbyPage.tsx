@@ -29,6 +29,15 @@ type Tournament = {
   pointsLoss: number;
   visibility?: 'public' | 'unlisted' | 'private';
   inviteCode?: string;
+  createdBy?: string;
+};
+
+type TournamentInvite = {
+  id: string;
+  userId: string;
+  status: string;
+  createdAt: string;
+  username?: string; // resolved client-side
 };
 
 type RoundData = {
@@ -90,6 +99,10 @@ export function TournamentLobbyPage() {
   const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
   const [crossTableRefresh, setCrossTableRefresh] = useState(0);
   const [inviteCopied, setInviteCopied] = useState(false);
+  const [invites, setInvites] = useState<TournamentInvite[]>([]);
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
   const serverBusy = useServerBusy(tournamentSocket);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -144,6 +157,37 @@ export function TournamentLobbyPage() {
     } catch { /* ignore */ }
   }, [id]);
 
+  const fetchInvites = useCallback(async () => {
+    if (!id) return;
+    try {
+      const data = await api.get<TournamentInvite[]>(`/api/arena/${id}/invites`);
+      setInvites(data);
+    } catch { /* ignore — only creator can fetch */ }
+  }, [id]);
+
+  const handleInvite = async () => {
+    if (!id || !inviteUsername.trim()) return;
+    setInviting(true);
+    setInviteError(null);
+    try {
+      await api.post(`/api/arena/${id}/invite`, { username: inviteUsername.trim() });
+      setInviteUsername('');
+      fetchInvites();
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : 'Failed');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleRemoveInvite = async (userId: string) => {
+    if (!id) return;
+    try {
+      await api.delete(`/api/arena/${id}/invite/${userId}`);
+      setInvites((prev) => prev.filter((inv) => inv.userId !== userId));
+    } catch { /* ignore */ }
+  };
+
   fetchTournamentRef.current = fetchTournament;
   fetchStandingsRef.current = fetchStandings;
   fetchRoundsRef.current = fetchRounds;
@@ -153,6 +197,13 @@ export function TournamentLobbyPage() {
     fetchStandings();
     fetchRounds();
   }, [fetchTournament, fetchStandings, fetchRounds]);
+
+  // Fetch invites for creator of private/unlisted tournament
+  useEffect(() => {
+    if (tournament && user && tournament.createdBy === user.id && tournament.visibility !== 'public') {
+      fetchInvites();
+    }
+  }, [tournament?.id, tournament?.createdBy, tournament?.visibility, user?.id, fetchInvites]);
 
   // Timer logic
   useEffect(() => {
@@ -541,6 +592,37 @@ export function TournamentLobbyPage() {
             }}>
               {inviteCopied ? '✓' : t('common.copy', 'Copy')}
             </button>
+          </div>
+        )}
+
+        {/* Manage Invites panel — only for creator of private tournaments */}
+        {user && tournament.createdBy === user.id && tournament.visibility === 'private' && (
+          <div className="manage-invites">
+            <h3>{t('tournaments.manageInvites', 'Manage Invites')}</h3>
+            <div className="manage-invites__form">
+              <input
+                type="text"
+                value={inviteUsername}
+                onChange={(e) => setInviteUsername(e.target.value)}
+                placeholder={t('tournaments.inviteUsernamePlaceholder', 'Username')}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleInvite(); }}
+              />
+              <button onClick={handleInvite} disabled={inviting || !inviteUsername.trim()}>
+                {t('tournaments.inviteBtn', 'Invite')}
+              </button>
+            </div>
+            {inviteError && <div className="manage-invites__error">{inviteError}</div>}
+            {invites.length > 0 && (
+              <ul className="manage-invites__list">
+                {invites.map((inv) => (
+                  <li key={inv.id} className="manage-invites__item">
+                    <span className="manage-invites__user">{inv.userId.slice(0, 8)}…</span>
+                    <span className={`manage-invites__status manage-invites__status--${inv.status}`}>{inv.status}</span>
+                    <button className="manage-invites__remove" onClick={() => handleRemoveInvite(inv.userId)} title={t('common.remove', 'Remove')}>✕</button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>
