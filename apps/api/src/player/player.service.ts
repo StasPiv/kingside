@@ -171,6 +171,7 @@ export class PlayerService {
       select: {
         id: true,
         username: true,
+        isBot: true,
         ratingBullet: true,
         ratingBlitz: true,
         ratingRapid: true,
@@ -267,6 +268,7 @@ export class PlayerService {
     return {
       id: user.id,
       username: user.username!,
+      isBot: user.isBot || undefined,
       ratings: {
         bullet: user.ratingBullet,
         blitz: user.ratingBlitz,

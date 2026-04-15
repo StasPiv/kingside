@@ -720,6 +720,7 @@ export type SearchPlayersResponse = {
 export type PlayerProfileResponse = {
   id: string;
   username: string;
+  isBot?: boolean;
   ratings: {
     bullet: number;
     blitz: number;

@@ -1,7 +1,9 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { PrismaService } from '../prisma/prisma.service';
-import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
+import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME, MATCHMAKING_BOTS } from '@kingside/shared';
+
+/** All bot user IDs (Stockfish + matchmaking bots) */
+const ALL_BOT_IDS = new Set([STOCKFISH_BOT_ID, ...MATCHMAKING_BOTS.map((b) => b.id)]);
 
 @Injectable()
 export class BotGameService implements OnModuleInit {
@@ -12,36 +14,50 @@ export class BotGameService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    await this.ensureBotUser();
+    await this.ensureBotUsers();
   }
 
-  private async ensureBotUser(): Promise<void> {
+  private async ensureBotUsers(): Promise<void> {
+    // Ensure Stockfish Bot (for direct play-vs-bot)
+    await this.upsertBot(STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME, 'stockfish-bot@kingside.local', 1500);
+
+    // Ensure matchmaking bots
+    for (const bot of MATCHMAKING_BOTS) {
+      await this.upsertBot(bot.id, bot.username, `${bot.username.toLowerCase()}@bot.kingside.local`, bot.rating);
+    }
+
+    this.logger.log(`Bot users ensured: 1 Stockfish + ${MATCHMAKING_BOTS.length} matchmaking bots`);
+  }
+
+  private async upsertBot(id: string, username: string, email: string, rating: number): Promise<void> {
     try {
       await this.prisma.user.upsert({
-        where: { id: STOCKFISH_BOT_ID },
-        update: {},
+        where: { id },
+        update: { username, isBot: true, ratingBullet: rating, ratingBlitz: rating, ratingRapid: rating, ratingClassical: rating },
         create: {
-          id: STOCKFISH_BOT_ID,
-          username: STOCKFISH_BOT_USERNAME,
-          email: 'stockfish-bot@kingside.local',
-          passwordHash: '',
+          id, username, email, passwordHash: '', isBot: true,
+          ratingBullet: rating, ratingBlitz: rating, ratingRapid: rating, ratingClassical: rating,
         },
       });
     } catch (err: unknown) {
-      if (err instanceof PrismaClientKnownRequestError && err.code === 'P2002') {
-        this.logger.warn('Bot user conflict (P2002), updating existing record by email');
-        await this.prisma.user.update({
-          where: { email: 'stockfish-bot@kingside.local' },
-          data: { id: STOCKFISH_BOT_ID, username: STOCKFISH_BOT_USERNAME },
-        });
-      } else {
-        throw err;
-      }
+      this.logger.warn(`Bot upsert failed for ${username}: ${(err as Error).message}`);
     }
-    this.logger.log('Stockfish Bot system user ensured');
   }
 
   isBotPlayer(userId: string): boolean {
-    return userId === STOCKFISH_BOT_ID;
+    return ALL_BOT_IDS.has(userId);
+  }
+
+  /**
+   * Pick a random matchmaking bot closest to the given rating.
+   * Returns { id, username, botLevel } or null if no bots available.
+   */
+  pickBotForRating(playerRating: number): { id: string; username: string; botLevel: number; rating: number } {
+    // Sort by rating distance, pick from top 3 closest
+    const sorted = [...MATCHMAKING_BOTS].sort((a, b) =>
+      Math.abs(a.rating - playerRating) - Math.abs(b.rating - playerRating),
+    );
+    const candidates = sorted.slice(0, 3);
+    return candidates[Math.floor(Math.random() * candidates.length)];
   }
 }

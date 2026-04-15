@@ -19,7 +19,6 @@ import { JwtPayload } from '../auth/jwt.strategy';
 import {
   GameEvents,
   SpectatorEvents,
-  STOCKFISH_BOT_ID,
   type WsGameJoinPayload,
   type WsGameMovePayload,
   type WsGameResignPayload,
@@ -518,8 +517,8 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // Determine bot player ID
-      const botPlayerId = dbGame.whiteId === STOCKFISH_BOT_ID ? dbGame.whiteId
-        : dbGame.blackId === STOCKFISH_BOT_ID ? dbGame.blackId : null;
+      const botPlayerId = this.botGameService.isBotPlayer(dbGame.whiteId) ? dbGame.whiteId
+        : this.botGameService.isBotPlayer(dbGame.blackId) ? dbGame.blackId : null;
       if (!botPlayerId) {
         client.emit(GameEvents.ERROR, { code: 'BOT_MOVE_ERROR', message: 'No bot player found' });
         return;

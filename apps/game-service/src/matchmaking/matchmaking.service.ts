@@ -3,10 +3,10 @@ import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   classifyTimeControl,
-  STOCKFISH_BOT_ID,
   type TimeControlCategory,
   type RatingFilter,
 } from '@kingside/shared';
+import { BotGameService } from '../game/bot-game.service';
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const MATCHMAKER_FOUND_CHANNEL = 'matchmaker:found';
@@ -37,6 +37,7 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly redis: RedisService,
     private readonly prisma: PrismaService,
+    private readonly botGameService: BotGameService,
   ) {}
 
   onModuleInit() {
@@ -249,9 +250,9 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async createBotGame(entry: QueueEntry, category: TimeControlCategory): Promise<void> {
-    const botLevel = this.ratingToBotLevel(entry.rating);
-    const whiteId = Math.random() < 0.5 ? entry.userId : STOCKFISH_BOT_ID;
-    const blackId = whiteId === entry.userId ? STOCKFISH_BOT_ID : entry.userId;
+    const bot = this.botGameService.pickBotForRating(entry.rating);
+    const whiteId = Math.random() < 0.5 ? entry.userId : bot.id;
+    const blackId = whiteId === entry.userId ? bot.id : entry.userId;
 
     const game = await this.prisma.game.create({
       data: {
@@ -260,7 +261,7 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
         timeInitialSec: entry.timeInitialSec,
         timeIncrementSec: entry.timeIncrementSec,
         isBot: true,
-        botLevel,
+        botLevel: bot.botLevel,
         startedAt: new Date(),
       },
     });
@@ -277,29 +278,18 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
     });
 
     const user = await this.prisma.user.findUnique({ where: { id: entry.userId }, select: { username: true } });
-    const ratingField = this.ratingFieldForCategory(category);
     const playerData = { id: entry.userId, username: user?.username ?? '', rating: entry.rating };
-    const botData = { id: STOCKFISH_BOT_ID, username: 'Stockfish', rating: entry.rating };
+    const botData = { id: bot.id, username: bot.username, rating: bot.rating };
 
     await this.redis.publish(MATCHMAKER_FOUND_CHANNEL, JSON.stringify({
       gameId: game.id, category,
       timeInitial: entry.timeInitialSec, increment: entry.timeIncrementSec,
       white: whiteId === entry.userId ? playerData : botData,
       black: blackId === entry.userId ? playerData : botData,
-      isBot: true, botLevel,
+      isBot: true, botLevel: bot.botLevel,
     }));
 
-    this.logger.log(`Bot fallback: ${entry.userId.slice(0, 8)} vs Stockfish(${botLevel}) game=${game.id.slice(0, 8)} ${category}`);
+    this.logger.log(`Bot fallback: ${entry.userId.slice(0, 8)} vs ${bot.username}(${bot.botLevel}) game=${game.id.slice(0, 8)} ${category}`);
   }
 
-  private ratingToBotLevel(rating: number): number {
-    if (rating < 800) return 1;
-    if (rating < 1000) return 2;
-    if (rating < 1200) return 3;
-    if (rating < 1400) return 4;
-    if (rating < 1600) return 5;
-    if (rating < 1800) return 6;
-    if (rating < 2000) return 7;
-    return 8;
-  }
 }
