@@ -125,7 +125,8 @@ export class PlayerService {
     const safeLimit = Math.min(limit, 100);
     const threshold = new Date(Date.now() - ONLINE_THRESHOLD_MS);
 
-    const [users, total] = await Promise.all([
+    // Fetch real online users + bot accounts (always online)
+    const [users, bots, realTotal] = await Promise.all([
       this.prisma.user.findMany({
         where: {
           username: { not: null },
@@ -136,14 +137,21 @@ export class PlayerService {
         take: safeLimit,
         skip: offset,
         select: {
-          id: true,
-          username: true,
-          ratingBullet: true,
-          ratingBlitz: true,
-          ratingRapid: true,
-          ratingClassical: true,
+          id: true, username: true, isBot: true,
+          ratingBullet: true, ratingBlitz: true, ratingRapid: true, ratingClassical: true,
         },
       }),
+      // Bots are always online — only fetch on first page
+      offset === 0
+        ? this.prisma.user.findMany({
+            where: { isBot: true, username: { not: null } },
+            orderBy: { ratingBlitz: 'desc' },
+            select: {
+              id: true, username: true, isBot: true,
+              ratingBullet: true, ratingBlitz: true, ratingRapid: true, ratingClassical: true,
+            },
+          })
+        : Promise.resolve([]),
       this.prisma.user.count({
         where: {
           username: { not: null },
@@ -153,14 +161,19 @@ export class PlayerService {
       }),
     ]);
 
-    const data = users.map((user) => ({
+    const format = (user: typeof users[0]) => ({
       id: user.id,
       username: user.username!,
       ratingBullet: user.ratingBullet,
       ratingBlitz: user.ratingBlitz,
       ratingRapid: user.ratingRapid,
       ratingClassical: user.ratingClassical,
-    }));
+      isBot: user.isBot || undefined,
+    });
+
+    // Bots first (on page 1), then real users
+    const data = [...bots.map(format), ...users.map(format)];
+    const total = realTotal + bots.length;
 
     return { data, total };
   }

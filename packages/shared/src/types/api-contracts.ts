@@ -690,6 +690,7 @@ export type OnlinePlayerItem = {
   ratingBlitz: number;
   ratingRapid: number;
   ratingClassical: number;
+  isBot?: boolean;
 };
 
 export type OnlinePlayersResponse = {
