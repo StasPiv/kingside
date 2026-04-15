@@ -1258,16 +1258,7 @@ LOGS_HTML = """<!DOCTYPE html>
 <div id="status">connected</div>
 <div id="log"></div>
 <div id="input-bar">
-  <select id="agent-select">
-    <option value="coordinator">coordinator</option>
-    <option value="backend">backend</option>
-    <option value="frontend">frontend</option>
-    <option value="layout">layout</option>
-    <option value="devops">devops</option>
-    <option value="architect">architect</option>
-    <option value="chess-expert">chess-expert</option>
-    <option value="marketing">marketing</option>
-  </select>
+  <select id="agent-select">{{AGENT_OPTIONS}}</select>
   <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1" autofocus></textarea>
   <button id="mic-btn" title="Голосовой ввод">🎤</button><span id="mic-status"></span>
   <button id="send-btn">Send</button>
@@ -1747,10 +1738,16 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/logs":
+            agents = sorted(get_valid_agents())
+            if "coordinator" in agents:
+                agents.remove("coordinator")
+                agents.insert(0, "coordinator")
+            options = "".join(f'<option value="{a}">{a}</option>' for a in agents)
+            html = LOGS_HTML.replace("{{AGENT_OPTIONS}}", options)
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
-            self.wfile.write(LOGS_HTML.encode())
+            self.wfile.write(html.encode())
             return
 
         if path == "/logs/stream":
