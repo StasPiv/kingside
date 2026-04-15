@@ -77,8 +77,7 @@ export function GamePage() {
   const [ratingChange, setRatingChange] = useState<WsGameEndPayload['ratingChange']>(undefined);
   const [whiteBerserk, setWhiteBerserk] = useState(false);
   const [blackBerserk, setBlackBerserk] = useState(false);
-  const [botClientSide, setBotClientSide] = useState(false);
-  const { getBotMove } = useBotEngine(gameId, botLevel, isBot && botClientSide);
+  const { getBotMove } = useBotEngine(gameId, botLevel, isBot);
   const getBotMoveRef = useRef(getBotMove);
   getBotMoveRef.current = getBotMove;
   const [showResultModal, setShowResultModal] = useState(false);
@@ -206,13 +205,11 @@ export function GamePage() {
       if (state.players) setPlayers(state.players);
       if (state.isBot !== undefined) setIsBot(state.isBot);
       if (state.botLevel !== undefined) setBotLevel(state.botLevel ?? null);
-      if ((state as unknown as { botClientSide?: boolean }).botClientSide) setBotClientSide(true);
       updateFromState(state);
       if (isFirstState && state.status === 'active') {
         playSound('game-start');
         // If bot plays first (player is black), trigger initial bot move
-        const isBotClientSide = (state as unknown as { botClientSide?: boolean }).botClientSide;
-        if (state.isBot && isBotClientSide && gameId && state.moves.length === 0 && state.color === 'black') {
+        if (state.isBot && gameId && state.moves.length === 0 && state.color === 'black') {
           const fen = new Chess().fen(); // starting position
           getBotMoveRef.current(fen).then((uci) => {
             socket.emit('game:bot-move', { gameId, uci });
@@ -230,7 +227,7 @@ export function GamePage() {
       if (game.fen() === data.fen) {
         setClocks(msToSeconds(data.clocks));
         // Trigger bot move if it's bot's turn after player's move echo
-        if (isBot && botClientSide && gameId) {
+        if (isBot && gameId) {
           getBotMoveRef.current(data.fen).then((uci) => {
             socket.emit('game:bot-move', { gameId, uci });
           }).catch((err) => console.error('[Bot] getBotMove error:', err));
