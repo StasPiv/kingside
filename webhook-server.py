@@ -1265,6 +1265,8 @@ LOGS_HTML = """<!DOCTYPE html>
     <option value="layout">layout</option>
     <option value="devops">devops</option>
     <option value="architect">architect</option>
+    <option value="chess-expert">chess-expert</option>
+    <option value="marketing">marketing</option>
   </select>
   <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1" autofocus></textarea>
   <button id="mic-btn" title="Голосовой ввод">🎤</button><span id="mic-status"></span>
