@@ -1957,6 +1957,44 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
             return
 
+        if path == "/api-start":
+            log("API start запрошен")
+            try:
+                # Проверяем не запущен ли уже
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    s.connect(("127.0.0.1", 3001))
+                    s.close()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "already_running"}).encode())
+                    return
+                except ConnectionRefusedError:
+                    s.close()
+
+                env = os.environ.copy()
+                subprocess.Popen(
+                    ["npm", "run", "dev"],
+                    cwd=PROJECT_DIR, env=env,
+                    stdout=open(os.path.join(LOG_DIR, "api-stdout.log"), "a"),
+                    stderr=open(os.path.join(LOG_DIR, "api-stderr.log"), "a"),
+                    start_new_session=True,
+                )
+                log("API запущен")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "started"}).encode())
+            except Exception as e:
+                log(f"API start ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
         if path == "/deploy":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
