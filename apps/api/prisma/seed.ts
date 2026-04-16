@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient } from '../src/generated/prisma/client';
+import { PrismaClient } from '@kingside/db';
 import * as bcrypt from 'bcrypt';
 import {
   STOCKFISH_BOT_ID,

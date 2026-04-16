@@ -14,7 +14,7 @@
  *   # Scan with custom concurrency (default 15):
  *   node dist/broadcast/chess-results/scan-chess-results.js --from 2023-09-01 --to 2023-09-30 --concurrency 20
  */
-import { PrismaClient } from '../../generated/prisma/client';
+import { PrismaClient } from '@kingside/db';
 import { ChessResultsService, ChessResultsTournament } from './chess-results.service';
 import { LivechesscloudService } from './livechesscloud.service';
 
