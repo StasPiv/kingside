@@ -787,18 +787,8 @@ def _chat_daemon_cleanup_loop():
             log(f"ChatDaemon cleanup: removed {len(to_remove)} idle daemons")
 
 
-def _evict_oldest_chat_daemon() -> None:
-    """Убивает daemon с самой старой последней активностью. Вызывать под chat_daemons_lock."""
-    if not chat_daemons:
-        return
-    oldest_uid = min(chat_daemons, key=lambda uid: chat_daemons[uid]._last_activity)
-    daemon = chat_daemons.pop(oldest_uid)
-    log(f"ChatDaemon evict: {oldest_uid[:8]} (last_activity={daemon._last_activity:.0f})")
-    daemon.stop()
-
-
-def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str) -> ChatDaemon:
-    """Возвращает существующий daemon или создаёт новый."""
+def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str) -> ChatDaemon | None:
+    """Возвращает существующий daemon или создаёт новый. None если лимит достигнут."""
     with chat_daemons_lock:
         daemon = chat_daemons.get(user_id)
         if daemon and daemon.is_alive():
@@ -811,9 +801,10 @@ def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str
         dead = [uid for uid, d in chat_daemons.items() if not d.is_alive()]
         for uid in dead:
             chat_daemons.pop(uid).stop()
-        # Вытесняем самый неактивный если лимит достигнут
-        while len(chat_daemons) >= MAX_CHAT_DAEMONS:
-            _evict_oldest_chat_daemon()
+        # Отказ если лимит достигнут
+        if len(chat_daemons) >= MAX_CHAT_DAEMONS:
+            log(f"ChatDaemon limit reached ({MAX_CHAT_DAEMONS}), rejecting {user_id[:8]}")
+            return None
         # Создаём новый
         daemon = ChatDaemon(user_id, user_token)
         daemon.start(system_prompt)
@@ -857,6 +848,15 @@ def handle_ai_chat(handler):
 
     try:
         daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt)
+        if daemon is None:
+            handler.send_response(429)
+            handler.send_header("Content-Type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({
+                "error": "Все слоты AI-ассистента заняты, попробуйте позже"
+            }).encode())
+            return
+
         response_text = daemon.send_and_wait(message, timeout=AI_CHAT_TIMEOUT)
 
         if response_text is None:
@@ -867,6 +867,14 @@ def handle_ai_chat(handler):
                 if old:
                     old.stop()
             daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt)
+            if daemon is None:
+                handler.send_response(429)
+                handler.send_header("Content-Type", "application/json")
+                handler.end_headers()
+                handler.wfile.write(json.dumps({
+                    "error": "Все слоты AI-ассистента заняты, попробуйте позже"
+                }).encode())
+                return
             response_text = daemon.send_and_wait(message, timeout=AI_CHAT_TIMEOUT)
 
         if response_text is None:
