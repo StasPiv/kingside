@@ -176,8 +176,9 @@ tunnel:
 
 # Stop webhook server + SSH tunnel
 webhook-stop:
+    #!/usr/bin/env bash
     docker ps --filter "name=agent-" --filter "name=chat-" -q | xargs -r docker stop 2>/dev/null || true
-    pkill -f "python3.*webhook-server.py" 2>/dev/null || true
-    pkill -f "python3.*tools/tracker/main.py" 2>/dev/null || true
+    pgrep -f "python3 webhook-server.py" | xargs -r kill 2>/dev/null || true
+    pgrep -f "python3 tools/tracker/main.py" | xargs -r kill 2>/dev/null || true
     pkill -f "ssh.*kamatera-chess.*9877" 2>/dev/null || true
     echo "Webhook, трекер, туннель и контейнеры остановлены"
