@@ -40,7 +40,7 @@ _COMMON = [
     f"{_P}/.claude:/project/.claude:ro",
     f"{_P}/node_modules:/project/node_modules:ro",
     f"{_P}/package.json:/project/package.json:ro",
-    f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
+    f"{_P}/tsconfig.base.json:/project/tsconfig.base.json:ro",
     f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
     f"{_SHARED_TMP}:/tmp",
 ]
@@ -59,12 +59,12 @@ AGENT_VOLUMES = {
         f"{_P}/apps/game-service:/project/apps/game-service",
         f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker",
         f"{_P}/apps/matchmaker:/project/apps/matchmaker",
-        f"{_P}/packages/shared:/project/packages/shared",
+        f"{_P}/packages:/project/packages",
         f"{_P}/apps/api/node_modules:/project/apps/api/node_modules:ro",
     ],
     "frontend": _COMMON + [
         f"{_P}/apps/web:/project/apps/web",
-        f"{_P}/packages/shared:/project/packages/shared",
+        f"{_P}/packages/shared:/project/packages/shared:ro",
         f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
         f"{_P}/scripts:/project/scripts:ro",
     ],

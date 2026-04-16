@@ -103,7 +103,7 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 |-------|---------------------|-------------|
 | coordinator | Управление задачами, ревью | Ничего (ro) |
 | backend | Backend-код, БД, миграции | apps/api, apps/game-service, apps/broadcast-worker, apps/matchmaker, packages/shared |
-| frontend | UI, страницы, хуки | apps/web, packages/shared |
+| frontend | UI, страницы, хуки | apps/web (packages/shared — read-only) |
 | layout | Только CSS/стили | apps/web/src (только стили) |
 | devops | Деплой, инфраструктура | scripts/ |
 | architect | Архитектура, ADR | docs/ (только документация, НЕ код) |
