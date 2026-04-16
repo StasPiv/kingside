@@ -42,6 +42,7 @@ _COMMON = [
     f"{_P}/node_modules:/project/node_modules:ro",
     f"{_P}/package.json:/project/package.json:ro",
     f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
+    f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
 ]
 AGENT_VOLUMES = {
     "coordinator": [
