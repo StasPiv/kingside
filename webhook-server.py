@@ -34,6 +34,8 @@ AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 # Volume mounts per agent — изоляция доступа к файлам проекта
 _P = PROJECT_DIR
 _W = os.path.join(_P, ".worktrees")
+_SHARED_TMP = os.path.join(_P, ".agent-tmp")
+os.makedirs(_SHARED_TMP, exist_ok=True)
 _COMMON = [
     f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
     f"{_P}/.claude:/project/.claude:ro",
@@ -43,11 +45,13 @@ _COMMON = [
     f"{_P}/package.json:/project/package.json:ro",
     f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
     f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
+    f"{_SHARED_TMP}:/tmp",
 ]
 AGENT_VOLUMES = {
     "coordinator": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
+        f"{_SHARED_TMP}:/tmp:ro",
     ],
     "backend": _COMMON + [
         f"{_P}/apps/api:/project/apps/api",
@@ -74,6 +78,7 @@ AGENT_VOLUMES = {
     ],
     "qa": [
         f"{_P}:/project:ro",
+        f"{_SHARED_TMP}:/tmp:ro",
     ],
     "chess-expert": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
