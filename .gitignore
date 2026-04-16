@@ -50,3 +50,4 @@ apps/web/public/version.json
 tools/tracker/tracker.db
 .deploy-commit-aws
 node_modules
+.agent-tmp/
