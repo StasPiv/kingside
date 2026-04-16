@@ -70,8 +70,12 @@ AGENT_VOLUMES = {
     "devops": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/scripts:/project/scripts:ro",
+        f"{_P}/.git:/project/.git",
+        f"{_W}:/project/.worktrees",
+        f"{_P}/scripts:/project/scripts",
+        f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro",
         f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
+        f"{_SHARED_TMP}:/tmp",
     ],
     "architect": [
         f"{_P}:/project:ro",
@@ -1002,9 +1006,9 @@ def launch_agent(key, summary, agent, prompt=None):
         prompt = (
             f"Ты работаешь над задачей {key}: {summary}\n"
             f"Общайся и думай на русском языке.\n"
-            f"Твоя рабочая директория: /opt/kingside/.worktrees/{key}\n"
-            f"ПЕРВОЕ действие: cd /opt/kingside/.worktrees/{key}\n"
-            f"ЗАПРЕЩЕНО менять файлы в /opt/kingside напрямую.\n"
+            f"Твоя рабочая директория: /project/.worktrees/{key}\n"
+            f"ПЕРВОЕ действие: cd /project/.worktrees/{key}\n"
+            f"ЗАПРЕЩЕНО менять файлы в /project напрямую.\n"
             f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
             f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
             f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
@@ -2098,9 +2102,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     prompt = (
                         f"Задача {key}: {summary}\n"
                         f"Общайся и думай на русском языке.\n"
-                        f"Твоя рабочая директория: /opt/kingside/.worktrees/{key}\n"
-                        f"ПЕРВОЕ действие: cd /opt/kingside/.worktrees/{key}\n"
-                        f"ЗАПРЕЩЕНО менять файлы в /opt/kingside напрямую.\n"
+                        f"Твоя рабочая директория: /project/.worktrees/{key}\n"
+                        f"ПЕРВОЕ действие: cd /project/.worktrees/{key}\n"
+                        f"ЗАПРЕЩЕНО менять файлы в /project напрямую.\n"
                         f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
                         f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n"
                         f"{context}\n"

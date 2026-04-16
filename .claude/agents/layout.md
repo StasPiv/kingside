@@ -43,19 +43,19 @@ curl -s "http://localhost:8090/api/issues?assignee=layout&status=todo"
 
 ## Рабочая директория
 ```
-cd /opt/kingside/.worktrees/KS-XX
+cd /project/.worktrees/KS-XX
 ```
 
 ## Готовые команды
 ```bash
 # ESLint
-/opt/kingside/node_modules/.bin/eslint apps/web/src
+/project/node_modules/.bin/eslint apps/web/src
 
 # TypeScript
-/opt/kingside/node_modules/.bin/tsc --noEmit
+/project/node_modules/.bin/tsc --noEmit
 
 # Dev-сервер из worktree (для скриншотов)
-/opt/kingside/node_modules/.bin/vite apps/web --port 5174
+/project/node_modules/.bin/vite apps/web --port 5174
 
 # Playwright — установлен ГЛОБАЛЬНО, вызывай напрямую:
 playwright screenshot <url> <file.png>
@@ -77,8 +77,8 @@ playwright screenshot <url> <file.png>
 ## Git
 - Ветка: `feature/KS-XX`
 - Коммит: `KS-XX: описание` (макс. 72 символа)
-- Мердж: `git -C /opt/kingside merge feature/KS-XX`
-- После merge в main: `bash /opt/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
+- Мердж: `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
+- После merge в main: `bash /project/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - `packages/shared`: `dist/` в gitignore — не коммить
 
 ## Ограничения
@@ -89,7 +89,7 @@ playwright screenshot <url> <file.png>
 ## Видеозапись действий (для верификации багфиксов)
 Для задач где нужно показать последовательность действий (а не просто статический скриншот), используй скрипт записи:
 ```bash
-node /opt/kingside/scripts/record-verification.js \
+node /project/scripts/record-verification.js \
   --url "http://localhost:5174/page?dev_bypass=secret" \
   --actions "click:.selector" "wait:2000" "reload" "wait:2000" \
   --output /tmp/KS-XX/verification.gif \

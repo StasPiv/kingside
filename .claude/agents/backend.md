@@ -37,8 +37,8 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 ```
 
 ## Структура проекта
-- Корень проекта: `/opt/kingside` — только для справки, НЕ работай там
-- Твоя рабочая директория: `/opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Корень проекта: `/project` — только для справки, НЕ работай там
+- Твоя рабочая директория: `/project/.worktrees/KS-XX` (XX — номер задачи)
 - Backend-код: `apps/api/` (относительно рабочей директории)
 
 ## Правила
@@ -57,25 +57,25 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 - ЗАПРЕЩЕНО изменять файлы в .claude/agents/
 
 ## Git Workflow
-- Ты работаешь в git worktree: `/opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
-- ЗАПРЕЩЕНО делать `cd /opt/kingside` — это основной репозиторий, не твой worktree
-- **ПЕРВОЕ действие** при старте: `cd /opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Ты работаешь в git worktree: `/project/.worktrees/KS-XX` (XX — номер задачи)
+- ЗАПРЕЩЕНО делать `cd /project` — это основной репозиторий, не твой worktree
+- **ПЕРВОЕ действие** при старте: `cd /project/.worktrees/KS-XX` (XX — номер задачи)
 - Все git-команды и изменения файлов выполняй только в своём worktree
 - 🔴 **ЗАПРЕЩЕНО убивать процессы на основном main** (port 3001). Тестируй в worktree. Если случайно убил — сообщи координатору.
 - 🔴 **После локального тестирования с ботами — завершай турниры.** UPDATE arena_tournaments SET status = 'finished' WHERE status = 'active';
 - 🔴 **Перед мержем в main — nest build должен проходить без ошибок.** Для game-service: cd apps/game-service && npx nest build. Для api: cd apps/api && npx nest build. Не мержи с TS ошибками.
 - 🔴 **ЗАПРЕЩЕНО использовать sleep для ожидания.** Не ждать логов, не ждать деплоя, не ждать sync. Если нужен результат — поллить или проверять сразу.
 - 🔴 **ЗАПРЕЩЕНО запускать `npm install` в worktree.** node_modules — symlink на основной репозиторий. `npm install` в worktree удалит/пересоздаст корневой node_modules и сломает окружение для всех. Если node_modules отсутствуют — сообщи координатору, не чини сам.
-- **node_modules находятся в основном репозитории** `/opt/kingside`. Запуск инструментов качества:
-  - TypeScript: `/opt/kingside/node_modules/.bin/tsc --noEmit`
-  - ESLint: `/opt/kingside/node_modules/.bin/eslint apps/api/src`
-  - Или: `npx --prefix /opt/kingside eslint apps/api/src`
+- **node_modules находятся в основном репозитории** `/project`. Запуск инструментов качества:
+  - TypeScript: `/project/node_modules/.bin/tsc --noEmit`
+  - ESLint: `/project/node_modules/.bin/eslint apps/api/src`
+  - Или: `npx --prefix /project eslint apps/api/src`
   - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
-- **`packages/shared`**: `dist/` в gitignore — не коммить, не отлаживать проблемы сборки dist. Если менял типы — пересобери В ОСНОВНОМ РЕПО: `npx --prefix /opt/kingside tsc --build packages/shared`
+- **`packages/shared`**: `dist/` в gitignore — не коммить, не отлаживать проблемы сборки dist. Если менял типы — пересобери В ОСНОВНОМ РЕПО: `npx --prefix /project tsc --build packages/shared`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
-- После завершения: смержи ветку в main командой `git -C /opt/kingside merge feature/KS-XX`
-- После merge в main: `bash /opt/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
+- После завершения: смержи ветку в main командой `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
+- После merge в main: `bash /project/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - НЕ пушить изменения на remote (git push запрещён)
 - При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода (например, операция с БД, конфигурация) — коммит не нужен
