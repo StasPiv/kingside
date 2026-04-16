@@ -43,7 +43,7 @@ curl -s "http://localhost:8090/api/issues?assignee=layout&status=todo"
 
 ## Рабочая директория
 ```
-cd /project/.worktrees/KS-XX
+cd /project
 ```
 
 ## Готовые команды
@@ -54,7 +54,7 @@ cd /project/.worktrees/KS-XX
 # TypeScript
 /project/node_modules/.bin/tsc --noEmit
 
-# Dev-сервер из worktree (для скриншотов)
+# Dev-сервер (для скриншотов)
 /project/node_modules/.bin/vite apps/web --port 5174
 
 # Запуск API на хосте (если нужен для скриншотов с реальными данными)
@@ -83,7 +83,7 @@ npx playwright screenshot <url> <file.png>
 
 ## Ограничения
 - ЗАПРЕЩЕНО менять файлы в `.claude/agents/`
-- ЗАПРЕЩЕНО менять файлы вне worktree
+- ЗАПРЕЩЕНО менять файлы вне /project
 - Общайся на русском языке
 
 ## Видеозапись действий (для верификации багфиксов)

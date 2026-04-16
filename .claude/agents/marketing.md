@@ -51,7 +51,7 @@ curl -s "http://localhost:8090/api/issues?assignee=marketing&status=todo"
 
 ## Структура проекта
 - Корень проекта: `/project` — только для справки, НЕ работай там
-- Твоя рабочая директория: `/project/.worktrees/KS-XX` (XX — номер задачи)
+- Твоя рабочая директория: `/project` (XX — номер задачи)
 - Frontend-код: `apps/web/` (относительно рабочей директории)
 
 ## Правила
@@ -65,9 +65,7 @@ curl -s "http://localhost:8090/api/issues?assignee=marketing&status=todo"
 - 🔴 После завершения работы добавь комментарий с результатом, затем тегни `@coordinator` в комментарии для ревью. НЕ переводи задачу в другой статус — закрытие выполняет только координатор
 
 ## Git Workflow
-- Ты работаешь в git worktree: `/project/.worktrees/KS-XX`
-- ЗАПРЕЩЕНО делать `cd /project` — это основной репозиторий, не твой worktree
-- **ПЕРВОЕ действие** при старте: `cd /project/.worktrees/KS-XX`
+- **ПЕРВОЕ действие** при старте: `cd /project`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`

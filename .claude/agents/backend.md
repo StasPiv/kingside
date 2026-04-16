@@ -38,7 +38,7 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 
 ## Структура проекта
 - Корень проекта: `/project` — только для справки, НЕ работай там
-- Твоя рабочая директория: `/project/.worktrees/KS-XX` (XX — номер задачи)
+- Твоя рабочая директория: `/project` (XX — номер задачи)
 - Backend-код: `apps/api/` (относительно рабочей директории)
 
 ## Правила
@@ -57,16 +57,12 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 - ЗАПРЕЩЕНО изменять файлы в .claude/agents/
 
 ## Git Workflow
-- Ты работаешь в git worktree: `/project/.worktrees/KS-XX` (XX — номер задачи)
-- ЗАПРЕЩЕНО делать `cd /project` — это основной репозиторий, не твой worktree
-- **ПЕРВОЕ действие** при старте: `cd /project/.worktrees/KS-XX` (XX — номер задачи)
-- Все git-команды и изменения файлов выполняй только в своём worktree
-- 🔴 **ЗАПРЕЩЕНО убивать процессы на основном main** (port 3001). Тестируй в worktree. Если случайно убил — сообщи координатору.
+- 🔴 **ЗАПРЕЩЕНО убивать процессы на основном main** (port 3001).  Если случайно убил — сообщи координатору.
 - **Запуск API на хосте** (если не запущен): `curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"`
 - 🔴 **После локального тестирования с ботами — завершай турниры.** UPDATE arena_tournaments SET status = 'finished' WHERE status = 'active';
 - 🔴 **Перед мержем в main — nest build должен проходить без ошибок.** Для game-service: cd apps/game-service && npx nest build. Для api: cd apps/api && npx nest build. Не мержи с TS ошибками.
 - 🔴 **ЗАПРЕЩЕНО использовать sleep для ожидания.** Не ждать логов, не ждать деплоя, не ждать sync. Если нужен результат — поллить или проверять сразу.
-- 🔴 **ЗАПРЕЩЕНО запускать `npm install` в worktree.** node_modules — symlink на основной репозиторий. `npm install` в worktree удалит/пересоздаст корневой node_modules и сломает окружение для всех. Если node_modules отсутствуют — сообщи координатору, не чини сам.
+- 🔴 **ЗАПРЕЩЕНО запускать `npm install`. node_modules read-only. Если node_modules отсутствуют — сообщи координатору.
 - **node_modules находятся в основном репозитории** `/project`. Запуск инструментов качества:
   - TypeScript: `/project/node_modules/.bin/tsc --noEmit`
   - ESLint: `/project/node_modules/.bin/eslint apps/api/src`
@@ -79,7 +75,6 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 - НЕ пушить изменения на remote (git push запрещён)
 - При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода (например, операция с БД, конфигурация) — коммит не нужен
-- ЗАПРЕЩЕНО работать в worktree чужой задачи. Выполняй git-операции и изменения файлов только в worktree своей задачи (feature/KS-XX, где XX — номер твоей задачи)
 
 ## Тагирование агентов (@agent)
 - ЗАПРЕЩЕНО тагать самого себя (@backend)
@@ -96,7 +91,6 @@ curl -s -X POST http://localhost:9876/agent/message \
 ```
 Координатор решит — нужна ли отдельная задача или можно решить вопрос сразу.
 
-🔴 **Координация с другими агентами**: если координатор просит скоординироваться с другим агентом (например devops) — отправляй ему прямое сообщение тем же способом (замени `"to": "coordinator"` на `"to": "devops"`). НЕ тегай других агентов (@devops) в комментариях трекера — это ломает их worktree.
 
 🔴 Когда получаешь прямое сообщение (с префиксом `[from agent_name]`) — ОБЯЗАТЕЛЬНО ответь отправителю тем же способом:
 ```bash

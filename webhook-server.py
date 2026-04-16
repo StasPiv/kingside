@@ -33,14 +33,12 @@ AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
 # Volume mounts per agent — изоляция доступа к файлам проекта
 _P = PROJECT_DIR
-_W = os.path.join(_P, ".worktrees")
 _SHARED_TMP = os.path.join(_P, ".agent-tmp")
 os.makedirs(_SHARED_TMP, exist_ok=True)
 _COMMON = [
     f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
     f"{_P}/.claude:/project/.claude:ro",
     f"{_P}/.git:/project/.git",
-    f"{_W}:/project/.worktrees",
     f"{_P}/node_modules:/project/node_modules:ro",
     f"{_P}/package.json:/project/package.json:ro",
     f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
@@ -73,7 +71,6 @@ AGENT_VOLUMES = {
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
         f"{_P}/.git:/project/.git",
-        f"{_W}:/project/.worktrees",
         f"{_P}/scripts:/project/scripts",
         f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro",
         f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
@@ -446,73 +443,6 @@ def _get_issue_status_category(key: str) -> str:
         return ""
 
 
-# ---------------------------------------------------------------------------
-# Worktree management
-# ---------------------------------------------------------------------------
-
-def setup_worktree(key):
-    """Создаёт git worktree для задачи, возвращает путь."""
-    branch = f"feature/{key}"
-    worktree_path = os.path.join(PROJECT_DIR, ".worktrees", key)
-    if os.path.isdir(worktree_path):
-        return worktree_path
-    os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
-    subprocess.run(["git", "branch", "-f", branch, "main"], cwd=PROJECT_DIR, capture_output=True)
-    result = subprocess.run(
-        ["git", "worktree", "add", worktree_path, branch],
-        cwd=PROJECT_DIR, capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        log(f"Ошибка worktree для {key}: {result.stderr.strip()}")
-        return PROJECT_DIR
-    log(f"Worktree создан: {worktree_path} ({branch})")
-
-    # Относительные симлинки — работают и на хосте, и в Docker-контейнере
-    for subdir in ["", "apps/web", "apps/api"]:
-        src_abs = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
-        dst = os.path.join(worktree_path, subdir, "node_modules") if subdir else os.path.join(worktree_path, "node_modules")
-        if os.path.isdir(src_abs) and not os.path.exists(dst):
-            if subdir:
-                os.makedirs(os.path.join(worktree_path, subdir), exist_ok=True)
-            rel = os.path.relpath(src_abs, os.path.dirname(dst))
-            os.symlink(rel, dst)
-            log(f"Симлинк: {dst} -> {rel}")
-
-    return worktree_path
-
-
-def cleanup_worktree(key: str):
-    """Удаляет git worktree задачи."""
-    worktree_path = os.path.join(PROJECT_DIR, ".worktrees", key)
-    if not os.path.isdir(worktree_path):
-        return
-    result = subprocess.run(
-        ["git", "worktree", "remove", "--force", worktree_path],
-        cwd=PROJECT_DIR, capture_output=True, text=True,
-    )
-    if result.returncode == 0:
-        log(f"Worktree удалён: {worktree_path}")
-    else:
-        log(f"Ошибка удаления worktree {worktree_path}: {result.stderr.strip()}")
-
-
-def cleanup_stale_worktrees():
-    """Фоновый цикл: чистит worktrees задач, перешедших в Done."""
-    worktrees_dir = os.path.join(PROJECT_DIR, ".worktrees")
-    while True:
-        time.sleep(300)  # каждые 5 минут
-        if not os.path.isdir(worktrees_dir):
-            continue
-        for name in os.listdir(worktrees_dir):
-            if not name.startswith("KS-"):
-                continue
-            path = os.path.join(worktrees_dir, name)
-            if not os.path.isdir(path):
-                continue
-            sc = _get_issue_status_category(name)
-            if sc == "done":
-                log(f"Worktree cleanup: {name} в статусе Done")
-                cleanup_worktree(name)
 
 
 # ---------------------------------------------------------------------------
@@ -996,23 +926,16 @@ def launch_agent(key, summary, agent, prompt=None):
         prompt = (
             f"Ты работаешь над задачей {key}: {summary}\n"
             f"Общайся и думай на русском языке.\n"
-            f"Твоя рабочая директория: /project/.worktrees/{key}\n"
-            f"ПЕРВОЕ действие: cd /project/.worktrees/{key}\n"
-            f"ЗАПРЕЩЕНО менять файлы в /project напрямую.\n"
+            f"Рабочая директория: /project\n"
             f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
             f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
             f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
             f"2. Прочитай описание задачи\n"
             f"3. Выполни задачу\n"
-            f"4. Коммитни изменения в ветку feature/{key}\n"
-            f"5. Смержи ветку в main: curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H 'Authorization: Bearer '\"$WEBHOOK_AUTH_TOKEN\" -d '{{\"branch\":\"feature/{key}\"}}'\n"
-            f"6. Добавь комментарий с результатом\n"
-            f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
+            f"4. Коммитни изменения\n"
+            f"5. Добавь комментарий с результатом\n"
+            f"6. Переведи задачу в статус 'Done' (transitionId: 41)"
         )
-
-    # Для coding-агентов — создаём worktree перед отправкой
-    if agent != "coordinator":
-        setup_worktree(key)
 
     log_file = os.path.join(LOG_DIR, "agents.log")
     with open(log_file, "a") as lf:
@@ -2130,17 +2053,15 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     prompt = (
                         f"Задача {key}: {summary}\n"
                         f"Общайся и думай на русском языке.\n"
-                        f"Твоя рабочая директория: /project/.worktrees/{key}\n"
-                        f"ПЕРВОЕ действие: cd /project/.worktrees/{key}\n"
-                        f"ЗАПРЕЩЕНО менять файлы в /project напрямую.\n"
+                        f"Рабочая директория: /project\n"
                         f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
                         f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n"
                         f"{context}\n"
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
-                        f"3. Добавь комментарий с результатом\n"
-                        f"4. Смержи ветку в main: curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H 'Authorization: Bearer '\"$WEBHOOK_AUTH_TOKEN\" -d '{{\"branch\":\"feature/{key}\"}}'\n"
+                        f"3. Коммитни изменения\n"
+                        f"4. Добавь комментарий с результатом\n"
                         f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
                     )
                 else:
@@ -2162,9 +2083,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
         if event == "issue_transitioned":
             transition_id = payload.get("transition_id")
-            # Переход в Done (transition_id 41) — чистим worktree
-            if issue_status == "done" and key:
-                threading.Thread(target=cleanup_worktree, args=(key,), daemon=True).start()
 
             # in_review (transition_id 31) — пока не поддерживается в трекере
             if transition_id == 31 and key:
@@ -2274,10 +2192,6 @@ if __name__ == "__main__":
     # Telegram polling
     poll_thread = threading.Thread(target=telegram_poll_loop, daemon=True)
     poll_thread.start()
-
-    # Фоновая очистка worktrees закрытых задач
-    cleanup_thread = threading.Thread(target=cleanup_stale_worktrees, daemon=True)
-    cleanup_thread.start()
 
     # Фоновая очистка idle chat daemons
     chat_cleanup_thread = threading.Thread(target=_chat_daemon_cleanup_loop, daemon=True)
