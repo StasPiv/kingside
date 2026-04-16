@@ -62,6 +62,7 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 - **ПЕРВОЕ действие** при старте: `cd /project/.worktrees/KS-XX` (XX — номер задачи)
 - Все git-команды и изменения файлов выполняй только в своём worktree
 - 🔴 **ЗАПРЕЩЕНО убивать процессы на основном main** (port 3001). Тестируй в worktree. Если случайно убил — сообщи координатору.
+- **Запуск API на хосте** (если не запущен): `curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"`
 - 🔴 **После локального тестирования с ботами — завершай турниры.** UPDATE arena_tournaments SET status = 'finished' WHERE status = 'active';
 - 🔴 **Перед мержем в main — nest build должен проходить без ошибок.** Для game-service: cd apps/game-service && npx nest build. Для api: cd apps/api && npx nest build. Не мержи с TS ошибками.
 - 🔴 **ЗАПРЕЩЕНО использовать sleep для ожидания.** Не ждать логов, не ждать деплоя, не ждать sync. Если нужен результат — поллить или проверять сразу.
