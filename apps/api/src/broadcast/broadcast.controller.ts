@@ -7,17 +7,21 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
-type BroadcastItem = {
+type BroadcastSummary = {
   id: string;
   lichessId: string;
   title: string;
-  description: string | null;
-  url: string | null;
-  isActive: boolean;
-  createdAt: string;
+  status: 'active' | 'finished';
+  startDate: string | null;
+  roundCount: number;
 };
 
-type BroadcastListResponse = { data: BroadcastItem[] };
+type BroadcastListResponse = {
+  data: BroadcastSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
 
 type BroadcastRoundItem = {
   id: string;
@@ -46,32 +50,52 @@ type BroadcastGamesResponse = { data: BroadcastGameItem[] };
 export class BroadcastController {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** GET /api/broadcasts — список активных трансляций */
+  /** GET /api/broadcasts — список трансляций (summary + пагинация) */
   @Get()
   async getActiveBroadcasts(
-    @Query('take') take?: string,
-    @Query('skip') skip?: string,
+    @Query('limit') limitParam?: string,
+    @Query('offset') offsetParam?: string,
   ): Promise<BroadcastListResponse> {
-    const takeNum = take ? parseInt(take, 10) : undefined;
-    const skipNum = skip ? parseInt(skip, 10) : undefined;
-    const broadcasts = await this.prisma.broadcast.findMany({
-      where: { isActive: true },
-      orderBy: { updatedAt: 'desc' },
-      ...(takeNum ? { take: takeNum } : {}),
-      ...(skipNum ? { skip: skipNum } : {}),
-    });
+    const MAX_LIMIT = 100;
+    const DEFAULT_LIMIT = 20;
 
-    const data: BroadcastItem[] = broadcasts.map((b) => ({
+    let limit = limitParam ? parseInt(limitParam, 10) : DEFAULT_LIMIT;
+    if (isNaN(limit) || limit < 1) limit = DEFAULT_LIMIT;
+    if (limit > MAX_LIMIT) limit = MAX_LIMIT;
+
+    let offset = offsetParam ? parseInt(offsetParam, 10) : 0;
+    if (isNaN(offset) || offset < 0) offset = 0;
+
+    const where = { isActive: true };
+
+    const [broadcasts, total] = await Promise.all([
+      this.prisma.broadcast.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        take: limit,
+        skip: offset,
+        select: {
+          id: true,
+          lichessId: true,
+          title: true,
+          isActive: true,
+          startDate: true,
+          _count: { select: { rounds: true } },
+        },
+      }),
+      this.prisma.broadcast.count({ where }),
+    ]);
+
+    const data: BroadcastSummary[] = broadcasts.map((b) => ({
       id: b.id,
       lichessId: b.lichessId,
       title: b.title,
-      description: b.description,
-      url: b.url,
-      isActive: b.isActive,
-      createdAt: b.createdAt.toISOString(),
+      status: b.isActive ? 'active' as const : 'finished' as const,
+      startDate: b.startDate?.toISOString() ?? null,
+      roundCount: b._count.rounds,
     }));
 
-    return { data };
+    return { data, total, limit, offset };
   }
 
   /** GET /api/broadcasts/:id — метаданные трансляции */
