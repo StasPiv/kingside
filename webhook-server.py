@@ -557,6 +557,7 @@ def handle_feedback_notify(handler):
 
 AI_CHAT_TIMEOUT = 45
 AI_CHAT_IDLE_TTL = 600  # 10 minutes
+MAX_CHAT_DAEMONS = 10
 MCP_SERVER_PATH = os.path.join(PROJECT_DIR, "tools", "mcp-kingside.mjs")
 
 MCP_ALLOWED_TOOLS = [
@@ -786,6 +787,16 @@ def _chat_daemon_cleanup_loop():
             log(f"ChatDaemon cleanup: removed {len(to_remove)} idle daemons")
 
 
+def _evict_oldest_chat_daemon() -> None:
+    """Убивает daemon с самой старой последней активностью. Вызывать под chat_daemons_lock."""
+    if not chat_daemons:
+        return
+    oldest_uid = min(chat_daemons, key=lambda uid: chat_daemons[uid]._last_activity)
+    daemon = chat_daemons.pop(oldest_uid)
+    log(f"ChatDaemon evict: {oldest_uid[:8]} (last_activity={daemon._last_activity:.0f})")
+    daemon.stop()
+
+
 def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str) -> ChatDaemon:
     """Возвращает существующий daemon или создаёт новый."""
     with chat_daemons_lock:
@@ -795,6 +806,14 @@ def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str
         # Убираем мёртвый daemon
         if daemon:
             daemon.stop()
+            del chat_daemons[user_id]
+        # Очищаем мёртвые daemons перед проверкой лимита
+        dead = [uid for uid, d in chat_daemons.items() if not d.is_alive()]
+        for uid in dead:
+            chat_daemons.pop(uid).stop()
+        # Вытесняем самый неактивный если лимит достигнут
+        while len(chat_daemons) >= MAX_CHAT_DAEMONS:
+            _evict_oldest_chat_daemon()
         # Создаём новый
         daemon = ChatDaemon(user_id, user_token)
         daemon.start(system_prompt)
