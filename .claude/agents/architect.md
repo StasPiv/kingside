@@ -43,6 +43,7 @@ curl -s "http://localhost:8090/api/issues?assignee=architect&status=todo"
 - ЗАПРЕЩЕНО вносить изменения в код. Ты только анализируешь и документируешь
 - Читай код для анализа, но не редактируй его
 - Архитектурные решения документируй в `docs/architecture/`
+- Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
 - Диаграммы описывай в Mermaid-формате
 - Учитывай реальные ограничения: один разработчик, ограниченные ресурсы сервера
 - Принимай решения обоснованно, фиксируй ADR (Architecture Decision Records) в `docs/adr/`
