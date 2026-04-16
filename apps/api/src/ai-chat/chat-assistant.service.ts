@@ -16,6 +16,7 @@ export class ChatAssistantService {
   private readonly model: string;
   private readonly maxTokens: number;
   private readonly webhookUrl: string;
+  private readonly webhookSecret: string;
   readonly rateLimitPerMin: number;
   readonly rateLimitPerDay: number;
   readonly globalDailyLimit: number;
@@ -31,6 +32,7 @@ export class ChatAssistantService {
     this.model = this.config.get<string>('CHAT_MODEL', 'claude-sonnet-4-20250514');
     this.maxTokens = parseInt(this.config.get<string>('CHAT_MAX_TOKENS', '1024'), 10);
     this.webhookUrl = this.config.get<string>('AI_CHAT_WEBHOOK_URL', '');
+    this.webhookSecret = this.config.get<string>('WEBHOOK_AUTH_TOKEN', '');
     this.rateLimitPerMin = parseInt(this.config.get<string>('CHAT_RATE_LIMIT_PER_MIN', '10'), 10);
     this.rateLimitPerDay = parseInt(this.config.get<string>('CHAT_RATE_LIMIT_PER_DAY', '100'), 10);
     this.globalDailyLimit = parseInt(this.config.get<string>('CHAT_GLOBAL_DAILY_LIMIT', '1000'), 10);
@@ -272,10 +274,10 @@ export class ChatAssistantService {
     const timer = setTimeout(() => controller.abort(), 45_000);
     let responseText: string;
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (this.webhookSecret) headers['Authorization'] = `Bearer ${this.webhookSecret}`;
       const res = await fetch(this.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
+        method: 'POST', headers, signal: controller.signal,
         body: JSON.stringify({ message, systemPrompt, history: messages }),
       });
       if (!res.ok) {
