@@ -51,7 +51,7 @@ AGENT_VOLUMES = {
     "coordinator": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
-        f"{_SHARED_TMP}:/tmp:ro",
+        f"{_SHARED_TMP}:/tmp",
     ],
     "backend": _COMMON + [
         f"{_P}/apps/api:/project/apps/api",
@@ -78,7 +78,7 @@ AGENT_VOLUMES = {
     ],
     "qa": [
         f"{_P}:/project:ro",
-        f"{_SHARED_TMP}:/tmp:ro",
+        f"{_SHARED_TMP}:/tmp",
     ],
     "chess-expert": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
