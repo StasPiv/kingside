@@ -48,6 +48,7 @@ AGENT_VOLUMES = {
     "coordinator": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
+        f"{_P}/.git:/project/.git:ro",
         f"{_P}/apps:/project/apps:ro",
         f"{_P}/packages:/project/packages:ro",
         f"{_P}/docs:/project/docs:ro",

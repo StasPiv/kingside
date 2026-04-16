@@ -135,7 +135,7 @@ curl -s -X DELETE http://localhost:8090/api/issues/KS-XX
 - Не перечисляй роли с тагами просто для информации
 
 ## Окружение
-- Git НЕДОСТУПЕН в контейнере координатора. Для проверки кода — читай файлы напрямую (Read, Grep)
+- Git доступен read-only: `git log`, `git diff`, `git show` работают. Коммиты и мерджи — через HTTP endpoints (см. CLAUDE.md)
 - Все git-операции (коммит, мердж) выполняются агентами через HTTP endpoints (см. CLAUDE.md)
 
 
