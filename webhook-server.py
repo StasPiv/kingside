@@ -81,6 +81,7 @@ AGENT_VOLUMES = {
     ],
     "architect": [
         f"{_P}:/project:ro",
+        f"{_P}/docs:/project/docs",
     ],
     "qa": [
         f"{_P}:/project:ro",
