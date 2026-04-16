@@ -76,9 +76,7 @@ npx playwright screenshot <url> <file.png>
 6. Коммит, мердж, добавь комментарий с результатом и тегни `@coordinator`: `Задача выполнена. Скриншоты сохранены в /tmp/KS-XX/. @coordinator`. НЕ переводи задачу в другой статус — закрытие выполняет только координатор
 
 ## Git
-- Ветка: `feature/KS-XX`
-- Коммит: `KS-XX: описание` (макс. 72 символа)
-- Мердж: `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
+- Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
 - `packages/shared`: `dist/` в gitignore — не коммить
 
 ## Ограничения

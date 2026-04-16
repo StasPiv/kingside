@@ -44,7 +44,6 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - Рабочая директория: /project
 - **ПЕРВОЕ действие** при старте: `cd /project`
 - **НИКОГДА** не выполняй git-операции и не меняй файлы в `/project` напрямую
-- Мержить в main: `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
 
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`
@@ -60,8 +59,7 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - 🔴 После завершения работы добавь комментарий с результатом, затем тегни `@coordinator` в комментарии для ревью. НЕ переводи задачу в другой статус — закрытие выполняет только координатор
 
 ## Git Workflow
-- Каждая задача — отдельная ветка: `feature/KS-XX`
-- Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
+- Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
 - Проверку результатов выполняй на ветке main после мерджа
 - НЕ пушить изменения на remote (git push запрещён)
 - При конфликте merge — резолви самостоятельно

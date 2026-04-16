@@ -38,7 +38,6 @@ os.makedirs(_SHARED_TMP, exist_ok=True)
 _COMMON = [
     f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
     f"{_P}/.claude:/project/.claude:ro",
-    f"{_P}/.git:/project/.git",
     f"{_P}/node_modules:/project/node_modules:ro",
     f"{_P}/package.json:/project/package.json:ro",
     f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
@@ -47,7 +46,11 @@ _COMMON = [
 ]
 AGENT_VOLUMES = {
     "coordinator": [
-        f"{_P}:/project:ro",
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+        f"{_P}/apps:/project/apps:ro",
+        f"{_P}/packages:/project/packages:ro",
+        f"{_P}/docs:/project/docs:ro",
         f"{_SHARED_TMP}:/tmp",
     ],
     "backend": _COMMON + [
@@ -72,7 +75,6 @@ AGENT_VOLUMES = {
     "devops": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/.git:/project/.git",
         f"{_P}/scripts:/project/scripts",
         f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro",
         f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
@@ -1837,6 +1839,55 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
         if path == "/ai-chat":
             handle_ai_chat(self)
+            return
+
+        if path == "/commit":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            message = payload.get("message", "")
+            files = payload.get("files", [])
+            if not message:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
+                return
+            log(f"Commit: {message[:72]}, files={len(files)}")
+            try:
+                if files:
+                    subprocess.run(
+                        ["git", "add"] + files,
+                        cwd=PROJECT_DIR, capture_output=True, text=True, timeout=30,
+                    )
+                else:
+                    subprocess.run(
+                        ["git", "add", "-A"],
+                        cwd=PROJECT_DIR, capture_output=True, text=True, timeout=30,
+                    )
+                result = subprocess.run(
+                    ["git", "commit", "-m", message],
+                    cwd=PROJECT_DIR, capture_output=True, text=True, timeout=60,
+                )
+                ok = result.returncode == 0
+                log(f"Commit завершён: rc={result.returncode}")
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "stdout": result.stdout[-1000:],
+                    "stderr": result.stderr[-1000:],
+                }).encode())
+            except Exception as e:
+                log(f"Commit ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
             return
 
         if path == "/merge":
