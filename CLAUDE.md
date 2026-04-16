@@ -92,7 +92,29 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 Переменные окружения из `.env` (пример в `.env.example`).
 
 Порты:
-- Frontend (Vite): `5173` (dev), `5174` (worktree)
+- Frontend (Vite): `5173` (dev)
 - API (NestJS): `3001`
 - PostgreSQL: `5432`
-- Playwright установлен глобально: `playwright screenshot <url> <file.png>`
+- Playwright: `npx playwright screenshot <url> <file.png>`
+
+## Agent Endpoints (webhook-server, localhost:9876)
+
+Агенты работают в изолированных Docker-контейнерах без доступа к git. Все операции с репозиторием — через HTTP endpoints:
+
+```bash
+# Коммит
+curl -s -X POST http://localhost:9876/commit \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
+  -d '{"message":"KS-XX: описание", "files":["apps/web/src/file.ts"]}'
+
+# Деплой
+curl -s -X POST http://localhost:9876/deploy \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
+  -d '{"scope":"frontend"}'
+
+# Запуск API на хосте
+curl -s -X POST http://localhost:9876/api-start \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
+```
