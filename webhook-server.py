@@ -941,7 +941,7 @@ def launch_agent(key, summary, agent, prompt=None):
             f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
             f"2. Прочитай описание задачи\n"
             f"3. Выполни задачу\n"
-            f"4. Коммитни изменения\n"
+            f"4. Коммитни изменения через /commit endpoint\n"
             f"5. Добавь комментарий с результатом\n"
             f"6. Переведи задачу в статус 'Done' (transitionId: 41)"
         )
@@ -2118,7 +2118,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"Получен новый комментарий:\n{comment_text}\n\n"
                         f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
-                        f"3. Коммитни изменения\n"
+                        f"3. Коммитни изменения через /commit endpoint\n"
                         f"4. Добавь комментарий с результатом\n"
                         f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
                     )
