@@ -37,6 +37,7 @@ _W = os.path.join(_P, ".worktrees")
 _COMMON = [
     f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
     f"{_P}/.claude:/project/.claude:ro",
+    f"{_P}/.git:/project/.git",
     f"{_W}:/project/.worktrees",
     f"{_P}/node_modules:/project/node_modules:ro",
     f"{_P}/package.json:/project/package.json:ro",
