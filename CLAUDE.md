@@ -97,6 +97,25 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 - PostgreSQL: `5432`
 - Playwright: `npx playwright screenshot <url> <file.png>`
 
+## Agent Roles & Ownership
+
+| Агент | Зона ответственности | Может менять |
+|-------|---------------------|-------------|
+| coordinator | Управление задачами, ревью | Ничего (ro) |
+| backend | Backend-код, БД, миграции | apps/api, apps/game-service, apps/broadcast-worker, apps/matchmaker, packages/shared |
+| frontend | UI, страницы, хуки | apps/web, packages/shared |
+| layout | Только CSS/стили | apps/web/src (только стили) |
+| devops | Деплой, инфраструктура | scripts/ |
+| architect | Архитектура, ADR | docs/ (только документация, НЕ код) |
+| qa | Проверка задач | Ничего (ro) |
+| chess-expert | Шахматные консультации | Ничего |
+| marketing | SEO, аналитика, лендинги | apps/web (SEO/аналитика) |
+
+**Правила ownership:**
+- Миграции Prisma, изменения схемы БД — ТОЛЬКО backend
+- packages/shared — backend или frontend (по контексту задачи)
+- Архитектор НЕ меняет код, НЕ делает миграции — только анализ и документация в docs/
+
 ## Agent Endpoints (webhook-server, localhost:9876)
 
 Агенты работают в изолированных Docker-контейнерах без доступа к git. Все операции с репозиторием — через HTTP endpoints:
