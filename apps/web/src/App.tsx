@@ -32,7 +32,6 @@ import { DevBypassPage } from './pages/DevBypassPage';
 import { PlayPage } from './pages/PlayPage';
 import { FeedbackBoardPage } from './pages/FeedbackBoardPage';
 import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
-import { BotPage } from './pages/BotPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 
@@ -156,7 +155,6 @@ export function App() {
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<Suspense fallback={<LazyFallback />}><BroadcastGamePage /></Suspense>} />
-        <Route path="/bot" element={<BotPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

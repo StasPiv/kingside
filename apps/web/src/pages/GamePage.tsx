@@ -27,6 +27,7 @@ import { HelpButton } from '../components/HelpButton';
 import { socket, messagesSocket } from '../socket';
 import { useLazySocket } from '../hooks/useLazySocket';
 import { useBotEngine } from '../hooks/useBotEngine';
+import { sendClientLog } from '../utils/clientLogger';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
@@ -82,6 +83,36 @@ export function GamePage() {
   const { getBotMove } = useBotEngine(gameId, botLevel, isBot);
   const getBotMoveRef = useRef(getBotMove);
   getBotMoveRef.current = getBotMove;
+
+  /**
+   * Request a bot move for the given FEN and emit it to the server.
+   * Retries on transient engine failures so the first move after matchmaking
+   * doesn't get lost when Stockfish is still initializing.
+   * Errors are logged (not silently swallowed); the server-side fallback
+   * kicks in after 5s if the client still fails.
+   */
+  const triggerBotMove = useCallback(async (fen: string) => {
+    if (!gameId) return;
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const uci = await getBotMoveRef.current(fen);
+        socket.emit('game:bot-move', { gameId, uci });
+        return;
+      } catch (err: any) {
+        const msg = err?.message ?? String(err);
+        sendClientLog('bot-error', `triggerBotMove attempt ${attempt}/${maxAttempts} failed: ${msg}`);
+        if (attempt === maxAttempts) {
+          console.error('[bot] all retries failed, server fallback will take over', err);
+          return;
+        }
+        // Back off a bit before retrying so the engine has time to come up.
+        await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
+  }, [gameId]);
+  const triggerBotMoveRef = useRef(triggerBotMove);
+  triggerBotMoveRef.current = triggerBotMove;
   const [showResultModal, setShowResultModal] = useState(false);
   const [gameMeta, setGameMeta] = useState<{ opponentId: string; timeInitial: number; increment: number } | null>(null);
   const { sendChallenge, state: challengeState } = useChallenge();
@@ -213,9 +244,7 @@ export function GamePage() {
         // If bot plays first (player is black), trigger initial bot move
         if (state.isBot && gameId && state.moves.length === 0 && state.color === 'black') {
           const fen = new Chess().fen(); // starting position
-          getBotMoveRef.current(fen).then((uci) => {
-            socket.emit('game:bot-move', { gameId, uci });
-          }).catch(() => {});
+          triggerBotMoveRef.current(fen);
         }
       }
     };
@@ -230,9 +259,7 @@ export function GamePage() {
         setClocks(msToSeconds(data.clocks));
         // Trigger bot move if it's bot's turn after player's move echo
         if (isBotRef.current && gameId) {
-          getBotMoveRef.current(data.fen).then((uci) => {
-            socket.emit('game:bot-move', { gameId, uci });
-          }).catch(() => {});
+          triggerBotMoveRef.current(data.fen);
         }
         return;
       }
