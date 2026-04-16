@@ -1,5 +1,6 @@
 import { Injectable, Logger, HttpException, HttpStatus, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { ContextCollectorService } from './context-collector.service';
@@ -26,6 +27,7 @@ export class ChatAssistantService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
+    private readonly jwtService: JwtService,
     private readonly contextCollector: ContextCollectorService,
   ) {
     this.apiKey = this.config.get<string>('ANTHROPIC_API_KEY', '');
@@ -278,7 +280,7 @@ export class ChatAssistantService {
       if (this.webhookSecret) headers['Authorization'] = `Bearer ${this.webhookSecret}`;
       const res = await fetch(this.webhookUrl, {
         method: 'POST', headers, signal: controller.signal,
-        body: JSON.stringify({ message, systemPrompt, history: messages, userId }),
+        body: JSON.stringify({ message, systemPrompt, history: messages, userId, userToken: this.jwtService.sign({ sub: userId }, { expiresIn: '2m' }) }),
       });
       if (!res.ok) {
         this.logger.warn(`AI webhook failed: ${res.status}`);

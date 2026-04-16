@@ -566,10 +566,9 @@ AI_CHAT_TIMEOUT = 55
 MCP_SERVER_PATH = os.path.join(PROJECT_DIR, "tools", "mcp-kingside.mjs")
 
 
-def _build_mcp_config(user_id):
+def _build_mcp_config(user_id, user_token=""):
     """Build temporary MCP config JSON for Claude CLI with user-specific env."""
     api_url = os.environ.get("KINGSIDE_API_URL", "http://localhost:3001/api")
-    api_key = os.environ.get("ADMIN_API_KEY", "")
     return {
         "mcpServers": {
             "kingside": {
@@ -577,8 +576,8 @@ def _build_mcp_config(user_id):
                 "args": [MCP_SERVER_PATH],
                 "env": {
                     "KINGSIDE_USER_ID": user_id,
+                    "KINGSIDE_USER_TOKEN": user_token,
                     "KINGSIDE_API_URL": api_url,
-                    "KINGSIDE_API_KEY": api_key,
                 },
             }
         }
@@ -602,6 +601,7 @@ def handle_ai_chat(handler):
     system_prompt = payload.get("systemPrompt", "").strip()
     history = payload.get("history", [])
     user_id = payload.get("userId", "")
+    user_token = payload.get("userToken", "")
 
     if not message:
         handler.send_response(400)
@@ -625,7 +625,7 @@ def handle_ai_chat(handler):
     # Write temporary MCP config if userId is provided
     mcp_config_path = None
     if user_id:
-        mcp_config = _build_mcp_config(user_id)
+        mcp_config = _build_mcp_config(user_id, user_token)
         mcp_config_path = f"/tmp/mcp-chat-{os.getpid()}-{id(handler)}.json"
         with open(mcp_config_path, "w") as f:
             json.dump(mcp_config, f)
