@@ -69,6 +69,7 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
   - Или через npx из worktree: `npx --prefix /project eslint apps/web/src`
   - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
 - **Dev-сервер из worktree**: `/project/node_modules/.bin/vite apps/web --port 5174`. НЕ используй порт 5173 — там основной репо.
+- **Запуск API на хосте** (если нужен для проверки): `curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"`
 - **Playwright** — установлен ГЛОБАЛЬНО, вызывай напрямую: `playwright screenshot <url> <file.png>`. НЕ ищи в node_modules, НЕ используй npx/which/find. Для доступа без логина: `http://localhost:5174/?dev_bypass=secret`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)

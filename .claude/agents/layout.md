@@ -57,6 +57,9 @@ cd /project/.worktrees/KS-XX
 # Dev-сервер из worktree (для скриншотов)
 /project/node_modules/.bin/vite apps/web --port 5174
 
+# Запуск API на хосте (если нужен для скриншотов с реальными данными)
+curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
+
 # Playwright — установлен ГЛОБАЛЬНО, вызывай напрямую:
 playwright screenshot <url> <file.png>
 # НЕ ищи playwright в node_modules, НЕ используй npx, НЕ используй which/find
