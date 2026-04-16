@@ -6,7 +6,7 @@ import { RedisService } from '../redis/redis.service';
 import { GameClockService, ClockState } from './game-clock.service';
 import { RatingService } from './rating.service';
 import { INITIAL_FEN, MAX_ACTIVE_BOT_GAMES, STOCKFISH_BOT_ID, DEFAULT_CATEGORY_TC, classifyTimeControl } from '@kingside/shared';
-import { GameResult, Termination } from '@kingside/db';
+import { GameResult, Termination } from '../generated/prisma/enums';
 
 interface GameState {
   fen: string;
