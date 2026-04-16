@@ -638,6 +638,15 @@ def handle_ai_chat(handler):
     ]
     if mcp_config_path:
         cmd.extend(["--mcp-config", mcp_config_path])
+        cmd.extend([
+            "--allowedTools",
+            "mcp__kingside__get_user_analyses",
+            "mcp__kingside__get_game_details",
+            "mcp__kingside__get_user_tournaments",
+            "mcp__kingside__search_games",
+            "mcp__kingside__get_puzzle_stats_by_theme",
+            "mcp__kingside__navigate",
+        ])
     if system_prompt:
         cmd.extend(["--system-prompt", system_prompt])
     cmd.append(full_prompt)
