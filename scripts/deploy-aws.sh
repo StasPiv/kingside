@@ -17,13 +17,11 @@ REGION="${AWS_DEFAULT_REGION:-eu-central-1}"
 ACCOUNT_ID="342946498289"
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
 ECR_URI_BROADCAST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-worker"
-ECR_URI_MATCHMAKER="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-matchmaker"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
 ECS_SERVICE="kingside-api"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
-ECS_SERVICE_MATCHMAKER="kingside-matchmaker"
 PROD_API_URL="${VITE_API_URL:-https://kingside.site}"
 PROD_GAME_URL="${VITE_GAME_URL:-wss://game.kingside.site}"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
@@ -98,7 +96,6 @@ detect_deploy_scope() {
     local has_frontend=false
     local has_api=false
     local has_broadcast=false
-    local has_matchmaker=false
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
@@ -109,13 +106,10 @@ detect_deploy_scope() {
                 has_api=true ;;
             apps/broadcast-worker/*)
                 has_broadcast=true ;;
-            apps/matchmaker/*)
-                has_matchmaker=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
-                has_broadcast=true
-                has_matchmaker=true ;;
+                has_broadcast=true ;;
         esac
     done <<< "$changed_files"
 
@@ -127,8 +121,6 @@ detect_deploy_scope() {
         echo "api"
     elif $has_broadcast; then
         echo "broadcast-worker"
-    elif $has_matchmaker; then
-        echo "matchmaker"
     else
         echo "none"
     fi
@@ -156,15 +148,13 @@ fi
 DEPLOY_FRONTEND=false
 DEPLOY_API=false
 DEPLOY_BROADCAST=false
-DEPLOY_MATCHMAKER=false
 
 case "$SCOPE" in
     frontend)         DEPLOY_FRONTEND=true ;;
     api)              DEPLOY_API=true ;;
     broadcast-worker) DEPLOY_BROADCAST=true ;;
-    matchmaker)       DEPLOY_MATCHMAKER=true ;;
-    workers)          DEPLOY_BROADCAST=true; DEPLOY_MATCHMAKER=true ;;
-    all)              DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_BROADCAST=true; DEPLOY_MATCHMAKER=true ;;
+    workers)          DEPLOY_BROADCAST=true ;;
+    all)              DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_BROADCAST=true ;;
     *)                echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
@@ -240,25 +230,6 @@ if $DEPLOY_BROADCAST; then
 
     echo "[broadcast-worker] Updating ECS service..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST" \
-        --force-new-deployment --query 'service.deployments[0].status' --output text
-    echo "  ECS service update initiated."
-fi
-
-# --- Matchmaker: docker build → ECR push → ECS update ---
-if $DEPLOY_MATCHMAKER; then
-    echo "[matchmaker] Logging in to ECR..."
-    aws ecr get-login-password --region "$REGION" | \
-        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
-
-    echo "[matchmaker] Building Docker image..."
-    docker build -t kingside-matchmaker:latest -f "$REPO_DIR/apps/matchmaker/Dockerfile" "$REPO_DIR"
-
-    echo "[matchmaker] Pushing to ECR..."
-    docker tag kingside-matchmaker:latest "${ECR_URI_MATCHMAKER}:latest"
-    docker push "${ECR_URI_MATCHMAKER}:latest" 2>&1 | tail -3
-
-    echo "[matchmaker] Updating ECS service..."
-    aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_MATCHMAKER" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
 fi
