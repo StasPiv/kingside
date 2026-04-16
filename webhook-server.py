@@ -1857,18 +1857,18 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
                 return
-            log(f"Commit: {message[:72]}, files={len(files)}")
+            if not files:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "missing 'files' — explicit file list required"}).encode())
+                return
+            log(f"Commit: {message[:72]}, files={files}")
             try:
-                if files:
-                    subprocess.run(
-                        ["git", "add"] + files,
-                        cwd=PROJECT_DIR, capture_output=True, text=True, timeout=30,
-                    )
-                else:
-                    subprocess.run(
-                        ["git", "add", "-A"],
-                        cwd=PROJECT_DIR, capture_output=True, text=True, timeout=30,
-                    )
+                subprocess.run(
+                    ["git", "add"] + files,
+                    cwd=PROJECT_DIR, capture_output=True, text=True, timeout=30,
+                )
                 result = subprocess.run(
                     ["git", "commit", "-m", message],
                     cwd=PROJECT_DIR, capture_output=True, text=True, timeout=60,
