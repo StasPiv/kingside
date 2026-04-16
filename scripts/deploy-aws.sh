@@ -27,6 +27,7 @@ ECS_SERVICE_GAME="kingside-game-service"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
 PROD_API_URL="${VITE_API_URL:-https://kingside.site}"
 PROD_GAME_URL="${VITE_GAME_URL:-wss://game.kingside.site}"
+PROD_GA4_ID="${VITE_GA4_ID:-G-9HF8RVMK8K}"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
 
 # Load .env
@@ -112,7 +113,8 @@ detect_deploy_scope() {
             packages/shared/*)
                 has_frontend=true
                 has_api=true
-                has_game=true ;;
+                has_game=true
+                has_broadcast=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
@@ -182,8 +184,8 @@ echo ""
 
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 if $DEPLOY_FRONTEND; then
-    echo "[frontend] Building (VITE_API_URL=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL)..."
-    VITE_API_URL="$PROD_API_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" npm run build --prefix "$REPO_DIR" --workspace=apps/web
+    echo "[frontend] Building (VITE_API_URL=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
+    VITE_API_URL="$PROD_API_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
 
     echo "[frontend] Syncing to S3..."
