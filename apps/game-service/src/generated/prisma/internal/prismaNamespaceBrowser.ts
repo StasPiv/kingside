@@ -151,6 +151,7 @@ export const GameScalarFieldEnum = {
   blackBerserk: 'blackBerserk',
   isBot: 'isBot',
   botLevel: 'botLevel',
+  botClientSide: 'botClientSide',
   createdAt: 'createdAt',
   startedAt: 'startedAt',
   finishedAt: 'finishedAt',

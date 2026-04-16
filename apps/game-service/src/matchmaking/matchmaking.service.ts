@@ -262,6 +262,7 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
         timeIncrementSec: entry.timeIncrementSec,
         isBot: true,
         botLevel: bot.botLevel,
+        botClientSide: true,
         startedAt: new Date(),
       },
     });

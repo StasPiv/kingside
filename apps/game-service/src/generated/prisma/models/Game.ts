@@ -67,6 +67,7 @@ export type GameMinAggregateOutputType = {
   blackBerserk: boolean | null
   isBot: boolean | null
   botLevel: number | null
+  botClientSide: boolean | null
   createdAt: Date | null
   startedAt: Date | null
   finishedAt: Date | null
@@ -94,6 +95,7 @@ export type GameMaxAggregateOutputType = {
   blackBerserk: boolean | null
   isBot: boolean | null
   botLevel: number | null
+  botClientSide: boolean | null
   createdAt: Date | null
   startedAt: Date | null
   finishedAt: Date | null
@@ -121,6 +123,7 @@ export type GameCountAggregateOutputType = {
   blackBerserk: number
   isBot: number
   botLevel: number
+  botClientSide: number
   createdAt: number
   startedAt: number
   finishedAt: number
@@ -170,6 +173,7 @@ export type GameMinAggregateInputType = {
   blackBerserk?: true
   isBot?: true
   botLevel?: true
+  botClientSide?: true
   createdAt?: true
   startedAt?: true
   finishedAt?: true
@@ -197,6 +201,7 @@ export type GameMaxAggregateInputType = {
   blackBerserk?: true
   isBot?: true
   botLevel?: true
+  botClientSide?: true
   createdAt?: true
   startedAt?: true
   finishedAt?: true
@@ -224,6 +229,7 @@ export type GameCountAggregateInputType = {
   blackBerserk?: true
   isBot?: true
   botLevel?: true
+  botClientSide?: true
   createdAt?: true
   startedAt?: true
   finishedAt?: true
@@ -338,6 +344,7 @@ export type GameGroupByOutputType = {
   blackBerserk: boolean
   isBot: boolean
   botLevel: number | null
+  botClientSide: boolean
   createdAt: Date
   startedAt: Date | null
   finishedAt: Date | null
@@ -388,6 +395,7 @@ export type GameWhereInput = {
   blackBerserk?: Prisma.BoolFilter<"Game"> | boolean
   isBot?: Prisma.BoolFilter<"Game"> | boolean
   botLevel?: Prisma.IntNullableFilter<"Game"> | number | null
+  botClientSide?: Prisma.BoolFilter<"Game"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Game"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Game"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Game"> | Date | string | null
@@ -422,6 +430,7 @@ export type GameOrderByWithRelationInput = {
   blackBerserk?: Prisma.SortOrder
   isBot?: Prisma.SortOrder
   botLevel?: Prisma.SortOrderInput | Prisma.SortOrder
+  botClientSide?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -459,6 +468,7 @@ export type GameWhereUniqueInput = Prisma.AtLeast<{
   blackBerserk?: Prisma.BoolFilter<"Game"> | boolean
   isBot?: Prisma.BoolFilter<"Game"> | boolean
   botLevel?: Prisma.IntNullableFilter<"Game"> | number | null
+  botClientSide?: Prisma.BoolFilter<"Game"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Game"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Game"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Game"> | Date | string | null
@@ -493,6 +503,7 @@ export type GameOrderByWithAggregationInput = {
   blackBerserk?: Prisma.SortOrder
   isBot?: Prisma.SortOrder
   botLevel?: Prisma.SortOrderInput | Prisma.SortOrder
+  botClientSide?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   finishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -528,6 +539,7 @@ export type GameScalarWhereWithAggregatesInput = {
   blackBerserk?: Prisma.BoolWithAggregatesFilter<"Game"> | boolean
   isBot?: Prisma.BoolWithAggregatesFilter<"Game"> | boolean
   botLevel?: Prisma.IntNullableWithAggregatesFilter<"Game"> | number | null
+  botClientSide?: Prisma.BoolWithAggregatesFilter<"Game"> | boolean
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Game"> | Date | string
   startedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Game"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Game"> | Date | string | null
@@ -553,6 +565,7 @@ export type GameCreateInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -586,6 +599,7 @@ export type GameUncheckedCreateInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -615,6 +629,7 @@ export type GameUpdateInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -648,6 +663,7 @@ export type GameUncheckedUpdateInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -679,6 +695,7 @@ export type GameCreateManyInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -704,6 +721,7 @@ export type GameUpdateManyMutationInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -730,6 +748,7 @@ export type GameUncheckedUpdateManyInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -767,6 +786,7 @@ export type GameCountOrderByAggregateInput = {
   blackBerserk?: Prisma.SortOrder
   isBot?: Prisma.SortOrder
   botLevel?: Prisma.SortOrder
+  botClientSide?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -804,6 +824,7 @@ export type GameMaxOrderByAggregateInput = {
   blackBerserk?: Prisma.SortOrder
   isBot?: Prisma.SortOrder
   botLevel?: Prisma.SortOrder
+  botClientSide?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -831,6 +852,7 @@ export type GameMinOrderByAggregateInput = {
   blackBerserk?: Prisma.SortOrder
   isBot?: Prisma.SortOrder
   botLevel?: Prisma.SortOrder
+  botClientSide?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   startedAt?: Prisma.SortOrder
   finishedAt?: Prisma.SortOrder
@@ -1081,6 +1103,7 @@ export type GameCreateWithoutWhiteInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1112,6 +1135,7 @@ export type GameUncheckedCreateWithoutWhiteInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1151,6 +1175,7 @@ export type GameCreateWithoutBlackInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1182,6 +1207,7 @@ export type GameUncheckedCreateWithoutBlackInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1242,6 +1268,7 @@ export type GameScalarWhereInput = {
   blackBerserk?: Prisma.BoolFilter<"Game"> | boolean
   isBot?: Prisma.BoolFilter<"Game"> | boolean
   botLevel?: Prisma.IntNullableFilter<"Game"> | number | null
+  botClientSide?: Prisma.BoolFilter<"Game"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Game"> | Date | string
   startedAt?: Prisma.DateTimeNullableFilter<"Game"> | Date | string | null
   finishedAt?: Prisma.DateTimeNullableFilter<"Game"> | Date | string | null
@@ -1283,6 +1310,7 @@ export type GameCreateWithoutMovesInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1315,6 +1343,7 @@ export type GameUncheckedCreateWithoutMovesInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1359,6 +1388,7 @@ export type GameUpdateWithoutMovesInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1391,6 +1421,7 @@ export type GameUncheckedUpdateWithoutMovesInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1419,6 +1450,7 @@ export type GameCreateWithoutChatMessagesInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1451,6 +1483,7 @@ export type GameUncheckedCreateWithoutChatMessagesInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1495,6 +1528,7 @@ export type GameUpdateWithoutChatMessagesInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1527,6 +1561,7 @@ export type GameUncheckedUpdateWithoutChatMessagesInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1555,6 +1590,7 @@ export type GameCreateWithoutAnalysesInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1587,6 +1623,7 @@ export type GameUncheckedCreateWithoutAnalysesInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1631,6 +1668,7 @@ export type GameUpdateWithoutAnalysesInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1663,6 +1701,7 @@ export type GameUncheckedUpdateWithoutAnalysesInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1691,6 +1730,7 @@ export type GameCreateWithoutReportInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1723,6 +1763,7 @@ export type GameUncheckedCreateWithoutReportInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1767,6 +1808,7 @@ export type GameUpdateWithoutReportInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1799,6 +1841,7 @@ export type GameUncheckedUpdateWithoutReportInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1827,6 +1870,7 @@ export type GameCreateWithoutTournamentInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1859,6 +1903,7 @@ export type GameUncheckedCreateWithoutTournamentInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1914,6 +1959,7 @@ export type GameCreateManyWhiteInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1940,6 +1986,7 @@ export type GameCreateManyBlackInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -1965,6 +2012,7 @@ export type GameUpdateWithoutWhiteInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -1996,6 +2044,7 @@ export type GameUncheckedUpdateWithoutWhiteInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2026,6 +2075,7 @@ export type GameUncheckedUpdateManyWithoutWhiteInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2051,6 +2101,7 @@ export type GameUpdateWithoutBlackInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2082,6 +2133,7 @@ export type GameUncheckedUpdateWithoutBlackInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2112,6 +2164,7 @@ export type GameUncheckedUpdateManyWithoutBlackInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2139,6 +2192,7 @@ export type GameCreateManyTournamentInput = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: number | null
+  botClientSide?: boolean
   createdAt?: Date | string
   startedAt?: Date | string | null
   finishedAt?: Date | string | null
@@ -2163,6 +2217,7 @@ export type GameUpdateWithoutTournamentInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2195,6 +2250,7 @@ export type GameUncheckedUpdateWithoutTournamentInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2225,6 +2281,7 @@ export type GameUncheckedUpdateManyWithoutTournamentInput = {
   blackBerserk?: Prisma.BoolFieldUpdateOperationsInput | boolean
   isBot?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botLevel?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  botClientSide?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   startedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   finishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -2300,6 +2357,7 @@ export type GameSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: boolean
+  botClientSide?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
@@ -2335,6 +2393,7 @@ export type GameSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: boolean
+  botClientSide?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
@@ -2365,6 +2424,7 @@ export type GameSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: boolean
+  botClientSide?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
@@ -2395,13 +2455,14 @@ export type GameSelectScalar = {
   blackBerserk?: boolean
   isBot?: boolean
   botLevel?: boolean
+  botClientSide?: boolean
   createdAt?: boolean
   startedAt?: boolean
   finishedAt?: boolean
   tournamentId?: boolean
 }
 
-export type GameOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "whiteId" | "blackId" | "status" | "result" | "termination" | "timeControlType" | "timeInitialSec" | "timeIncrementSec" | "pgn" | "eco" | "finalFen" | "whiteRatingBefore" | "blackRatingBefore" | "whiteRatingAfter" | "blackRatingAfter" | "whiteBerserk" | "blackBerserk" | "isBot" | "botLevel" | "createdAt" | "startedAt" | "finishedAt" | "tournamentId", ExtArgs["result"]["game"]>
+export type GameOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "whiteId" | "blackId" | "status" | "result" | "termination" | "timeControlType" | "timeInitialSec" | "timeIncrementSec" | "pgn" | "eco" | "finalFen" | "whiteRatingBefore" | "blackRatingBefore" | "whiteRatingAfter" | "blackRatingAfter" | "whiteBerserk" | "blackBerserk" | "isBot" | "botLevel" | "botClientSide" | "createdAt" | "startedAt" | "finishedAt" | "tournamentId", ExtArgs["result"]["game"]>
 export type GameInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   white?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   black?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -2455,6 +2516,7 @@ export type $GamePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     blackBerserk: boolean
     isBot: boolean
     botLevel: number | null
+    botClientSide: boolean
     createdAt: Date
     startedAt: Date | null
     finishedAt: Date | null
@@ -2909,6 +2971,7 @@ export interface GameFieldRefs {
   readonly blackBerserk: Prisma.FieldRef<"Game", 'Boolean'>
   readonly isBot: Prisma.FieldRef<"Game", 'Boolean'>
   readonly botLevel: Prisma.FieldRef<"Game", 'Int'>
+  readonly botClientSide: Prisma.FieldRef<"Game", 'Boolean'>
   readonly createdAt: Prisma.FieldRef<"Game", 'DateTime'>
   readonly startedAt: Prisma.FieldRef<"Game", 'DateTime'>
   readonly finishedAt: Prisma.FieldRef<"Game", 'DateTime'>
