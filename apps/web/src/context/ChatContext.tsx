@@ -74,7 +74,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const res = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({ message: text, conversationId }),
+        body: JSON.stringify({ message: text, conversationId, currentPage: window.location.pathname }),
         signal: controller.signal,
       });
 

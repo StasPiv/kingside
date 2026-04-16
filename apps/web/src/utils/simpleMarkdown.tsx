@@ -32,7 +32,8 @@ function renderInline(text: string): string {
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, url) => makeLink(url, label))
-    .replace(/(^|[^"=])(https?:\/\/[^\s<]+)/g, (_, pre, url) => pre + makeLink(url, url));
+    .replace(/(^|[^"=])(https?:\/\/[^\s<]+)/g, (_, pre, url) => pre + makeLink(url, url))
+    .replace(/(^|[\s(])(?:&lt;)?(\/[a-zA-Z][a-zA-Z0-9/_-]*(?:\?[^\s<]*)?)(?:&gt;)?(?=[\s),.]|$)/g, (_, pre, path) => pre + makeLink(path, path));
 }
 
 export function renderMarkdown(md: string): string {
