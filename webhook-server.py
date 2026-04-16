@@ -33,41 +33,35 @@ AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
 # Volume mounts per agent — изоляция доступа к файлам проекта
 _P = PROJECT_DIR
+_W = os.path.join(_P, ".worktrees")
+_COMMON = [
+    f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+    f"{_P}/.claude:/project/.claude:ro",
+    f"{_W}:/project/.worktrees",
+    f"{_P}/node_modules:/project/node_modules:ro",
+    f"{_P}/package.json:/project/package.json:ro",
+    f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
+]
 AGENT_VOLUMES = {
     "coordinator": [
-        # Только CLAUDE.md и агентские инструкции, без кода
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
     ],
-    "backend": [
+    "backend": _COMMON + [
         f"{_P}/apps/api:/project/apps/api",
         f"{_P}/packages/shared:/project/packages/shared",
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/package.json:/project/package.json:ro",
-        f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
-        f"{_P}/node_modules:/project/node_modules:ro",
     ],
-    "frontend": [
+    "frontend": _COMMON + [
         f"{_P}/apps/web:/project/apps/web",
         f"{_P}/packages/shared:/project/packages/shared",
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/package.json:/project/package.json:ro",
-        f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
-        f"{_P}/node_modules:/project/node_modules:ro",
     ],
-    "layout": [
+    "layout": _COMMON + [
         f"{_P}/apps/web/src:/project/apps/web/src",
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/package.json:/project/package.json:ro",
-        f"{_P}/node_modules:/project/node_modules:ro",
     ],
     "devops": [
-        f"{_P}/scripts:/project/scripts:ro",
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
         f"{_P}/.claude:/project/.claude:ro",
+        f"{_P}/scripts:/project/scripts:ro",
         f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
     ],
     "architect": [
