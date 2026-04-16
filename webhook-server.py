@@ -74,10 +74,8 @@ class AgentDaemon:
             "--verbose",
             "--agent", self.name,
             "--dangerously-skip-permissions",
+            "--strict-mcp-config",
         ]
-        if self.session_id:
-            cmd.extend(["--resume", self.session_id])
-            log(f"Daemon {self.name}: resume сессии {self.session_id}")
         return cmd
 
     def ensure_running(self):
