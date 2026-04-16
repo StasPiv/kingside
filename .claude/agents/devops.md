@@ -36,16 +36,16 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 ```
 
 ## Структура проекта
-- Твоя рабочая директория: `/home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
-- Корень проекта (только для справки, НЕ работай там): `/home/pivovartsev/work/kingside`
+- Твоя рабочая директория: `/opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Корень проекта (только для справки, НЕ работай там): `/opt/kingside`
 - Frontend: `apps/web/`, Backend: `apps/api/` (относительно рабочей директории)
 
 ## КРИТИЧЕСКИ ВАЖНО: рабочая директория
 - Ты запускаешься **не** в своём worktree — твой CWD может быть любым
-- **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX`
-- **НИКОГДА** не выполняй git-операции и не меняй файлы в `/home/pivovartsev/work/kingside` напрямую
-- Мержить в main: `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
-- После merge в main: `bash /home/pivovartsev/work/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
+- **ПЕРВОЕ действие** при старте: `cd /opt/kingside/.worktrees/KS-XX`
+- **НИКОГДА** не выполняй git-операции и не меняй файлы в `/opt/kingside` напрямую
+- Мержить в main: `git -C /opt/kingside merge feature/KS-XX`
+- После merge в main: `bash /opt/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
 
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`
@@ -86,7 +86,7 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 ```bash
 just deploy
 ```
-Выполняется из корня проекта (`/home/pivovartsev/work/kingside`). Всё остальное (сборка, доставка, перезапуск) происходит автоматически.
+Выполняется из корня проекта (`/opt/kingside`). Всё остальное (сборка, доставка, перезапуск) происходит автоматически.
 
 ## Публикация релизов engine-bridge
 Код бриджа в `tools/engine-bridge/` (Go). Сборка и публикация — ответственность devops.

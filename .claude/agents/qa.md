@@ -26,9 +26,9 @@ curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
 ```
 
 ## Git / Рабочая директория
-- **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- **ПЕРВОЕ действие** при старте: `cd /opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - Используй этот worktree только для чтения кода (grep, read). Ничего не коммить.
-- node_modules находятся в основном репозитории `/home/pivovartsev/work/kingside`
+- node_modules находятся в основном репозитории `/opt/kingside`
 
 ## Алгоритм проверки
 
@@ -43,7 +43,7 @@ curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
   - Проверяй как мобильный, так и десктопный скриншот если оба приложены
 
 ### 3. Если скриншотов нет — код-ревью
-- Найди изменённые файлы в worktree (`git -C /home/pivovartsev/work/kingside/.worktrees/KS-XX diff main...HEAD --name-only`)
+- Найди изменённые файлы в worktree (`git -C /opt/kingside/.worktrees/KS-XX diff main...HEAD --name-only`)
 - Прочитай изменения (`git diff main...HEAD`)
 - Оцени корректность изменений относительно задачи
 

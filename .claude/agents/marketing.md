@@ -50,8 +50,8 @@ curl -s "http://localhost:8090/api/issues?assignee=marketing&status=todo"
 ```
 
 ## Структура проекта
-- Корень проекта: `/home/pivovartsev/work/kingside` — только для справки, НЕ работай там
-- Твоя рабочая директория: `/home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Корень проекта: `/opt/kingside` — только для справки, НЕ работай там
+- Твоя рабочая директория: `/opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - Frontend-код: `apps/web/` (относительно рабочей директории)
 
 ## Правила
@@ -65,13 +65,13 @@ curl -s "http://localhost:8090/api/issues?assignee=marketing&status=todo"
 - 🔴 После завершения работы добавь комментарий с результатом, затем тегни `@coordinator` в комментарии для ревью. НЕ переводи задачу в другой статус — закрытие выполняет только координатор
 
 ## Git Workflow
-- Ты работаешь в git worktree: `/home/pivovartsev/work/kingside/.worktrees/KS-XX`
-- ЗАПРЕЩЕНО делать `cd /home/pivovartsev/work/kingside` — это основной репозиторий, не твой worktree
-- **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX`
+- Ты работаешь в git worktree: `/opt/kingside/.worktrees/KS-XX`
+- ЗАПРЕЩЕНО делать `cd /opt/kingside` — это основной репозиторий, не твой worktree
+- **ПЕРВОЕ действие** при старте: `cd /opt/kingside/.worktrees/KS-XX`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
-- После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
-- После merge в main: `bash /home/pivovartsev/work/kingside/scripts/post-merge-restart.sh`
+- После завершения: смержи ветку в main командой `git -C /opt/kingside merge feature/KS-XX`
+- После merge в main: `bash /opt/kingside/scripts/post-merge-restart.sh`
 - НЕ пушить изменения на remote (git push запрещён)
 - Коммить только если есть реальные изменения в файлах. Если задача — только план/документ в комментарии трекера, коммит не нужен
 

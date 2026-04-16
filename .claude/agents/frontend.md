@@ -37,8 +37,8 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
 ```
 
 ## Структура проекта
-- Корень проекта: `/home/pivovartsev/work/kingside` — только для справки, НЕ работай там
-- Твоя рабочая директория: `/home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Корень проекта: `/opt/kingside` — только для справки, НЕ работай там
+- Твоя рабочая директория: `/opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - Frontend-код: `apps/web/` (относительно рабочей директории)
 
 ## Правила
@@ -58,22 +58,22 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
 - 🔴 После завершения работы добавь комментарий с результатом, затем тегни `@coordinator` в комментарии для ревью. НЕ переводи задачу в другой статус — закрытие выполняет только координатор
 
 ## Git Workflow
-- Ты работаешь в git worktree: `/home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
-- ЗАПРЕЩЕНО делать `cd /home/pivovartsev/work/kingside` — это основной репозиторий, не твой worktree
-- **ПЕРВОЕ действие** при старте: `cd /home/pivovartsev/work/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- Ты работаешь в git worktree: `/opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
+- ЗАПРЕЩЕНО делать `cd /opt/kingside` — это основной репозиторий, не твой worktree
+- **ПЕРВОЕ действие** при старте: `cd /opt/kingside/.worktrees/KS-XX` (XX — номер задачи)
 - Все git-команды и изменения файлов выполняй только в своём worktree
-- **node_modules находятся в основном репозитории** `/home/pivovartsev/work/kingside`, а не в worktree. Это нормально — worktree разделяет файловую систему с основным репо через symlink. Команды `npm run dev`, `vite build` и т.д. запускай из своего worktree — они найдут node_modules автоматически.
+- **node_modules находятся в основном репозитории** `/opt/kingside`, а не в worktree. Это нормально — worktree разделяет файловую систему с основным репо через symlink. Команды `npm run dev`, `vite build` и т.д. запускай из своего worktree — они найдут node_modules автоматически.
 - **Запуск инструментов качества в worktree** — используй полный путь к бинарям:
-  - ESLint: `/home/pivovartsev/work/kingside/node_modules/.bin/eslint apps/web/src`
-  - TypeScript: `/home/pivovartsev/work/kingside/node_modules/.bin/tsc --noEmit`
-  - Или через npx из worktree: `npx --prefix /home/pivovartsev/work/kingside eslint apps/web/src`
+  - ESLint: `/opt/kingside/node_modules/.bin/eslint apps/web/src`
+  - TypeScript: `/opt/kingside/node_modules/.bin/tsc --noEmit`
+  - Или через npx из worktree: `npx --prefix /opt/kingside eslint apps/web/src`
   - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
-- **Dev-сервер из worktree**: `/home/pivovartsev/work/kingside/node_modules/.bin/vite apps/web --port 5174`. НЕ используй порт 5173 — там основной репо.
+- **Dev-сервер из worktree**: `/opt/kingside/node_modules/.bin/vite apps/web --port 5174`. НЕ используй порт 5173 — там основной репо.
 - **Playwright** — установлен ГЛОБАЛЬНО, вызывай напрямую: `playwright screenshot <url> <file.png>`. НЕ ищи в node_modules, НЕ используй npx/which/find. Для доступа без логина: `http://localhost:5174/?dev_bypass=secret`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
-- После завершения: смержи ветку в main командой `git -C /home/pivovartsev/work/kingside merge feature/KS-XX`
-- После merge в main: `bash /home/pivovartsev/work/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
+- После завершения: смержи ветку в main командой `git -C /opt/kingside merge feature/KS-XX`
+- После merge в main: `bash /opt/kingside/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - НЕ пушить изменения на remote (git push запрещён)
 - При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода — коммит не нужен
@@ -91,7 +91,7 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
 ## Видеозапись действий (для верификации багфиксов)
 Для задач где нужно показать последовательность действий (а не просто статический скриншот), используй скрипт записи:
 ```bash
-node /home/pivovartsev/work/kingside/scripts/record-verification.js \
+node /opt/kingside/scripts/record-verification.js \
   --url "http://localhost:5174/page?dev_bypass=secret" \
   --actions "click:.selector" "wait:2000" "reload" "wait:2000" \
   --output /tmp/KS-XX/verification.gif \

@@ -16,6 +16,7 @@ from socketserver import ThreadingMixIn
 from datetime import datetime
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+AGENT_PROJECT_DIR = "/opt/kingside"
 LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -55,7 +56,8 @@ class AgentDaemon:
 
     def _build_cmd(self) -> list[str]:
         cmd = [
-            "claude", "-p",
+            "sudo", "-u", "kingside-agent",
+            "/home/kingside-agent/node_modules/.bin/claude", "-p",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
@@ -84,7 +86,7 @@ class AgentDaemon:
 
         with open(log_file, "a") as lf:
             self.proc = subprocess.Popen(
-                cmd, cwd=PROJECT_DIR, env=env,
+                cmd, cwd=AGENT_PROJECT_DIR, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf,
                 start_new_session=True, text=True, bufsize=1,
             )
@@ -402,13 +404,6 @@ def setup_worktree(key):
         return PROJECT_DIR
     log(f"Worktree создан: {worktree_path} ({branch})")
 
-    env_src = os.path.join(PROJECT_DIR, ".env")
-    env_dst = os.path.join(worktree_path, ".env")
-    if os.path.isfile(env_src) and not os.path.exists(env_dst):
-        import shutil
-        shutil.copy2(env_src, env_dst)
-        log(f".env скопирован в {worktree_path}")
-
     for subdir in ["", "apps/web", "apps/api"]:
         src = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
         dst = os.path.join(worktree_path, subdir, "node_modules") if subdir else os.path.join(worktree_path, "node_modules")
@@ -664,16 +659,16 @@ def launch_agent(key, summary, agent, prompt=None):
         prompt = (
             f"Ты работаешь над задачей {key}: {summary}\n"
             f"Общайся и думай на русском языке.\n"
-            f"Твоя рабочая директория: /home/pivovartsev/work/kingside/.worktrees/{key}\n"
-            f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
-            f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n"
+            f"Твоя рабочая директория: /opt/kingside/.worktrees/{key}\n"
+            f"ПЕРВОЕ действие: cd /opt/kingside/.worktrees/{key}\n"
+            f"ЗАПРЕЩЕНО менять файлы в /opt/kingside напрямую.\n"
             f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
             f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n\n"
             f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
             f"2. Прочитай описание задачи\n"
             f"3. Выполни задачу\n"
             f"4. Коммитни изменения в ветку feature/{key}\n"
-            f"5. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
+            f"5. Смержи ветку в main: git -C /opt/kingside merge feature/{key}\n"
             f"6. Добавь комментарий с результатом\n"
             f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
         )
@@ -1433,7 +1428,7 @@ if (SpeechRecognition) {
 
 class WebhookHandler(BaseHTTPRequestHandler):
     def _check_auth(self) -> bool:
-        """Проверяет Bearer-токен. Возвращает True если авторизован."""
+        """Проверяет Bearer-токен."""
         if not WEBHOOK_AUTH_TOKEN:
             return True
         auth = self.headers.get("Authorization", "")
@@ -1679,9 +1674,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
                     prompt = (
                         f"Задача {key}: {summary}\n"
                         f"Общайся и думай на русском языке.\n"
-                        f"Твоя рабочая директория: /home/pivovartsev/work/kingside/.worktrees/{key}\n"
-                        f"ПЕРВОЕ действие: cd /home/pivovartsev/work/kingside/.worktrees/{key}\n"
-                        f"ЗАПРЕЩЕНО менять файлы в /home/pivovartsev/work/kingside напрямую.\n"
+                        f"Твоя рабочая директория: /opt/kingside/.worktrees/{key}\n"
+                        f"ПЕРВОЕ действие: cd /opt/kingside/.worktrees/{key}\n"
+                        f"ЗАПРЕЩЕНО менять файлы в /opt/kingside напрямую.\n"
                         f"ЕСЛИ ОКРУЖЕНИЕ НЕ РАБОТАЕТ (dev-сервер, API, CORS, auth, модули) — НЕМЕДЛЕННО ПРЕКРАТИ РАБОТУ. "
                         f"Добавь комментарий 'Окружение не готово: <проблема>. @coordinator' и ЗАВЕРШИ. Не пытайся чинить.\n"
                         f"{context}\n"
@@ -1689,7 +1684,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
                         f"3. Добавь комментарий с результатом\n"
-                        f"4. Смержи ветку в main: git -C /home/pivovartsev/work/kingside merge feature/{key}\n"
+                        f"4. Смержи ветку в main: git -C /opt/kingside merge feature/{key}\n"
                         f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
                     )
                 else:

@@ -36,7 +36,7 @@ curl -s "http://localhost:8090/api/issues?assignee=architect&status=todo"
 ```
 
 ## Структура проекта
-- Корень проекта: `/home/pivovartsev/work/kingside`
+- Корень проекта: `/opt/kingside`
 - Frontend: `apps/web/`, Backend: `apps/api/`
 
 ## Правила
