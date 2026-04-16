@@ -17,6 +17,8 @@ from datetime import datetime
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROJECT_DIR = "/opt/kingside"
+AGENT_CLAUDE_DIR = os.path.expanduser("~/.claude")
+AGENT_CLAUDE_JSON = os.path.expanduser("~/.claude.json")
 LOG_DIR = os.path.join(PROJECT_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -56,8 +58,17 @@ class AgentDaemon:
 
     def _build_cmd(self) -> list[str]:
         cmd = [
-            "sudo", "-u", "kingside-agent",
-            "/home/kingside-agent/node_modules/.bin/claude", "-p",
+            "docker", "run", "--rm", "-i",
+            "--name", f"agent-{self.name}",
+            "--network", "host",
+            "-v", f"{PROJECT_DIR}:/project",
+            "-v", f"{AGENT_CLAUDE_DIR}:/home/agent/.claude",
+            "-v", f"{AGENT_CLAUDE_JSON}:/home/agent/.claude.json",
+            "-v", f"{LOG_DIR}:/project/logs",
+            "-e", f"WEBHOOK_AUTH_TOKEN={WEBHOOK_AUTH_TOKEN}",
+            "-v", f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
+            "kingside-agent",
+            "-p",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--verbose",
@@ -214,45 +225,36 @@ class AgentDaemon:
         log(f"Daemon {self.name}: сообщение в очереди (размер: {len(self._queue)})")
 
     def get_rss_mb(self) -> float | None:
-        """Возвращает RSS памяти процесса в MB, или None."""
-        if not self.proc or self.proc.poll() is not None:
-            return None
+        """Возвращает RSS памяти контейнера в MB, или None."""
         try:
-            with open(f"/proc/{self.proc.pid}/status") as f:
-                for line in f:
-                    if line.startswith("VmRSS:"):
-                        return int(line.split()[1]) / 1024
-        except (FileNotFoundError, ValueError, ProcessLookupError):
-            return None
+            result = subprocess.run(
+                ["docker", "stats", "--no-stream", "--format", "{{.MemUsage}}", f"agent-{self.name}"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                mem = result.stdout.strip().split("/")[0].strip()
+                if "GiB" in mem:
+                    return float(mem.replace("GiB", "").strip()) * 1024
+                if "MiB" in mem:
+                    return float(mem.replace("MiB", "").strip())
+        except Exception:
+            pass
+        return None
 
     def interrupt(self):
-        """Прерывает текущую операцию агента (SIGINT дочернему bash-процессу)."""
+        """Прерывает текущую операцию агента (SIGINT дочернему bash внутри контейнера)."""
         with self.lock:
             if not self.proc or self.proc.poll() is not None:
                 return False
-            pid = self.proc.pid
-        # Ищем дочерний bash-процесс (tool use)
-        try:
-            children = [
-                int(p) for p in os.listdir("/proc")
-                if p.isdigit() and os.path.isfile(f"/proc/{p}/stat")
-            ]
-            for cpid in children:
-                try:
-                    with open(f"/proc/{cpid}/stat") as f:
-                        stat = f.read().split()
-                        ppid = int(stat[3])
-                        comm = stat[1].strip("()")
-                    if ppid == pid and comm == "bash":
-                        os.kill(cpid, signal.SIGINT)
-                        log(f"Daemon {self.name}: SIGINT -> bash child PID {cpid}")
-                        return True
-                except (FileNotFoundError, ProcessLookupError, ValueError, IndexError):
-                    continue
-        except Exception as e:
-            log(f"Daemon {self.name}: ошибка поиска child: {e}")
-        log(f"Daemon {self.name}: дочерний bash-процесс не найден")
-        return False
+        # Находим bash-процесс внутри контейнера и шлём ему SIGINT
+        result = subprocess.run(
+            ["docker", "exec", f"agent-{self.name}", "bash", "-c",
+             "kill -INT $(pgrep -P $(pgrep -x claude) bash) 2>/dev/null"],
+            capture_output=True, timeout=5,
+        )
+        ok = result.returncode == 0
+        log(f"Daemon {self.name}: SIGINT -> bash in container {'ok' if ok else 'failed'}")
+        return ok
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -266,17 +268,18 @@ class AgentDaemon:
                 self.proc.stdin.close()
             except Exception:
                 pass
-            try:
-                os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            # Останавливаем docker-контейнер
+            subprocess.run(
+                ["docker", "stop", f"agent-{self.name}"],
+                capture_output=True, timeout=15,
+            )
             try:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(self.proc.pid), signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                subprocess.run(
+                    ["docker", "kill", f"agent-{self.name}"],
+                    capture_output=True, timeout=5,
+                )
                 self.proc.wait()
             log(f"Daemon {self.name} остановлен (session_id={self.session_id} сохранён для resume)")
             self.proc = None
