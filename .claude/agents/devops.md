@@ -82,11 +82,14 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - 🔴 ЗАПРЕЩЕНО править application-код (backend: apps/api/src/, frontend: apps/web/src/). Если проблема деплоя вызвана ошибкой в коде приложения — сообщи координатору с описанием ошибки и укажи какой агент (backend/frontend) должен исправить. Devops правит ТОЛЬКО: Dockerfile, docker-compose, justfile, scripts/, .github/, конфиги (nginx, CI/CD), git hooks
 
 ## Деплой на продакшен
-Единственная команда для деплоя:
+Деплой выполняется через webhook-сервер (docker недоступен внутри контейнера агента):
 ```bash
-just deploy
+curl -s -X POST http://localhost:9876/deploy \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
+  -d '{"scope": ""}'
 ```
-Выполняется из корня проекта (`/opt/kingside`). Всё остальное (сборка, доставка, перезапуск) происходит автоматически.
+Допустимые scope: `""` (auto-detect), `"frontend"`, `"api"`, `"all"`. Деплой запускается асинхронно на хосте.
 
 ## Публикация релизов engine-bridge
 Код бриджа в `tools/engine-bridge/` (Go). Сборка и публикация — ответственность devops.

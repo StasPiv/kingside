@@ -1612,6 +1612,49 @@ class WebhookHandler(BaseHTTPRequestHandler):
             handle_ai_chat(self)
             return
 
+        if path == "/deploy":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            scope = payload.get("scope", "")
+            cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/deploy-aws.sh")]
+            if scope:
+                cmd.append(scope)
+            log(f"Deploy запущен: {' '.join(cmd)}")
+            try:
+                env = os.environ.copy()
+                result = subprocess.run(
+                    cmd, cwd=PROJECT_DIR, env=env,
+                    capture_output=True, text=True, timeout=600,
+                )
+                log(f"Deploy завершён: rc={result.returncode}")
+                ok = result.returncode == 0
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "returncode": result.returncode,
+                    "stdout": result.stdout[-2000:],
+                    "stderr": result.stderr[-2000:],
+                }).encode())
+            except subprocess.TimeoutExpired:
+                log("Deploy таймаут (600s)")
+                self.send_response(504)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "timeout"}).encode())
+            except Exception as e:
+                log(f"Deploy ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
         if path != "/webhook/tracker":
             self.send_response(404)
             self.end_headers()
