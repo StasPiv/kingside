@@ -133,6 +133,10 @@ curl -s -X POST http://localhost:9876/deploy \
   -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
   -d '{"scope":"frontend"}'
 
+# npm install на хосте (после создания нового пакета)
+curl -s -X POST http://localhost:9876/npm-install \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
+
 # Запуск API на хосте
 curl -s -X POST http://localhost:9876/api-start \
   -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"

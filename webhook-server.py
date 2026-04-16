@@ -1929,6 +1929,31 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
             return
 
+        if path == "/npm-install":
+            log("npm install запущен")
+            try:
+                result = subprocess.run(
+                    ["npm", "install"],
+                    cwd=PROJECT_DIR, capture_output=True, text=True, timeout=120,
+                )
+                ok = result.returncode == 0
+                log(f"npm install завершён: rc={result.returncode}")
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "stdout": result.stdout[-1000:],
+                    "stderr": result.stderr[-1000:],
+                }).encode())
+            except Exception as e:
+                log(f"npm install ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
         if path == "/api-start":
             log("API start запрошен")
             try:
