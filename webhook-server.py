@@ -627,13 +627,25 @@ class ChatDaemon:
 
     def _build_cmd(self, system_prompt: str = "") -> list[str]:
         cmd = [
-            "claude", "-p",
+            "docker", "run", "--rm", "-i",
+            "--name", f"chat-{self.user_id[:8]}",
+            "--network", "host",
+            "-v", f"{AGENT_CLAUDE_DIR}:/home/agent/.claude",
+            "-v", f"{AGENT_CLAUDE_JSON}:/home/agent/.claude.json",
+        ]
+        if self._mcp_config_path:
+            cmd.extend(["-v", f"{self._mcp_config_path}:{self._mcp_config_path}:ro"])
+            cmd.extend(["-v", f"{MCP_SERVER_PATH}:{MCP_SERVER_PATH}:ro"])
+        cmd.extend([
+            "kingside-agent",
+            "-p",
             "--model", "sonnet",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--no-session-persistence",
             "--verbose",
-        ]
+            "--strict-mcp-config",
+        ])
         if self._mcp_config_path:
             cmd.extend(["--mcp-config", self._mcp_config_path])
             cmd.extend(["--allowedTools"] + MCP_ALLOWED_TOOLS)
@@ -656,7 +668,7 @@ class ChatDaemon:
         log_file = os.path.join(LOG_DIR, "agents.log")
         with open(log_file, "a") as lf:
             self.proc = subprocess.Popen(
-                cmd, cwd="/tmp", env=env,
+                cmd, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf,
                 start_new_session=True, text=True, bufsize=1,
             )
@@ -754,14 +766,17 @@ class ChatDaemon:
                 self.proc.stdin.close()
             except Exception:
                 pass
+            subprocess.run(
+                ["docker", "stop", f"chat-{self.user_id[:8]}"],
+                capture_output=True, timeout=10,
+            )
             try:
-                self.proc.terminate()
                 self.proc.wait(timeout=5)
             except Exception:
-                try:
-                    self.proc.kill()
-                except Exception:
-                    pass
+                subprocess.run(
+                    ["docker", "kill", f"chat-{self.user_id[:8]}"],
+                    capture_output=True, timeout=5,
+                )
             self.proc = None
         if self._mcp_config_path:
             try:
