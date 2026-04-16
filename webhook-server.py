@@ -131,6 +131,9 @@ class AgentDaemon:
             "--dangerously-skip-permissions",
             "--strict-mcp-config",
         ])
+        if self.session_id:
+            cmd.extend(["--resume", self.session_id])
+            log(f"Daemon {self.name}: resume сессии {self.session_id}")
         return cmd
 
     def ensure_running(self):
@@ -195,7 +198,7 @@ class AgentDaemon:
 
                 # Захватываем session_id
                 sid = data.get("session_id")
-                if sid and not self.session_id:
+                if sid and sid != self.session_id:
                     self.session_id = sid
                     log(f"Daemon {self.name}: session_id={sid}")
                     _save_session(self.name, sid)
@@ -370,10 +373,15 @@ def _save_session(agent: str, session_id: str):
 
 
 def get_daemon(agent: str) -> AgentDaemon:
-    """Возвращает (или создаёт) daemon для агента."""
+    """Возвращает (или создаёт) daemon для агента, подгружая session_id из файла."""
     with agent_daemons_lock:
         if agent not in agent_daemons:
-            agent_daemons[agent] = AgentDaemon(agent)
+            daemon = AgentDaemon(agent)
+            saved_sid = _load_sessions().get(agent)
+            if saved_sid:
+                daemon.session_id = saved_sid
+                log(f"Daemon {agent}: загружен session_id={saved_sid} из sessions.json")
+            agent_daemons[agent] = daemon
         return agent_daemons[agent]
 
 
