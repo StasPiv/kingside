@@ -518,6 +518,7 @@ def handle_telegram_send(handler, payload):
 
 
 FEEDBACK_WEBHOOK_SECRET = os.environ.get("FEEDBACK_WEBHOOK_SECRET", "")
+WEBHOOK_AUTH_TOKEN = os.environ.get("WEBHOOK_AUTH_TOKEN", "")
 
 
 def handle_feedback_notify(handler):
@@ -1276,7 +1277,12 @@ window.addEventListener('scroll', () => {
   autoScroll = (window.innerHeight + window.scrollY) >= document.body.scrollHeight - 100;
 });
 
-const es = new EventSource('/logs/stream');
+const urlParams = new URLSearchParams(window.location.search);
+const authToken = urlParams.get('token') || '';
+const authHeader = authToken ? {'Authorization': 'Bearer ' + authToken} : {};
+const tokenQS = authToken ? '?token=' + encodeURIComponent(authToken) : '';
+
+const es = new EventSource('/logs/stream' + tokenQS);
 es.onmessage = (e) => {
   const ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
   const div = document.createElement('div');
@@ -1305,7 +1311,7 @@ async function sendPrompt() {
   try {
     const res = await fetch('/prompt', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', ...authHeader},
       body: JSON.stringify({agent, text}),
     });
     if (res.ok) {
@@ -1325,7 +1331,7 @@ async function killAgent() {
   const agent = agentSel.value;
   const res = await fetch('/agent/kill', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: {'Content-Type': 'application/json', ...authHeader},
     body: JSON.stringify({agent}),
   });
   if (res.ok) {
@@ -1426,8 +1432,30 @@ if (SpeechRecognition) {
 
 
 class WebhookHandler(BaseHTTPRequestHandler):
+    def _check_auth(self) -> bool:
+        """Проверяет Bearer-токен. Возвращает True если авторизован."""
+        if not WEBHOOK_AUTH_TOKEN:
+            return True
+        auth = self.headers.get("Authorization", "")
+        if auth == f"Bearer {WEBHOOK_AUTH_TOKEN}":
+            return True
+        # Fallback: токен в query-параметре (для SSE/браузера)
+        from urllib.parse import urlparse, parse_qs
+        qs = parse_qs(urlparse(self.path).query)
+        if qs.get("token", [None])[0] == WEBHOOK_AUTH_TOKEN:
+            return True
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
+        return False
+
     def do_POST(self):
         path = self.path.split("?")[0]
+
+        # /feedback/notify использует свой секрет
+        if path != "/feedback/notify" and not self._check_auth():
+            return
 
         if path == "/prompt":
             content_length = int(self.headers.get("Content-Length", 0))
@@ -1718,6 +1746,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+
+        # /health без аутентификации
+        if path != "/health" and not self._check_auth():
+            return
 
         if path == "/health":
             status = {}

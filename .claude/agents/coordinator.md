@@ -162,6 +162,7 @@ curl -s -X DELETE http://localhost:8090/api/issues/KS-XX
 ```bash
 curl -s -X POST http://localhost:9876/agent/message \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
   -d '{"from": "coordinator", "to": "agent_name", "message": "текст команды"}'
 ```
 🔴 НЕ создавай задачу в трекере если можно просто отправить прямое сообщение агенту. Задача нужна только когда работа требует трекинга, отчётности или состоит из нескольких шагов.
@@ -171,6 +172,7 @@ curl -s -X POST http://localhost:9876/agent/message \
 ```bash
 curl -s -X POST http://localhost:9876/agent/kill \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
   -d '{"agent": "agent_name"}'
 ```
 Отличия от `/agent/stop` (который шлёт SIGINT и прерывает только текущий tool use): `/agent/kill` полностью завершает процесс claude (SIGTERM→SIGKILL).
@@ -183,6 +185,7 @@ curl -s -X POST http://localhost:9876/agent/kill \
 ```bash
 curl -s -X POST http://localhost:9876/telegram/send \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
   -d '{"message": "текст ответа"}'
 ```
 🔴 ЗАПРЕЩЕНО отвечать на Telegram-сообщения через комментарии в трекере. Пользователь их не увидит.

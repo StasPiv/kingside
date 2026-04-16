@@ -21,6 +21,7 @@ app = FastAPI(title="Kingside Tracker", version="0.1.0")
 CONFIG_PATH = Path(__file__).parent / "config.yaml"
 DB_PATH = os.environ.get("TRACKER_DB", str(Path(__file__).parent / "tracker.db"))
 WEBHOOK_URL = os.environ.get("TRACKER_WEBHOOK_URL", "")  # e.g. http://localhost:9876/tracker
+WEBHOOK_AUTH_TOKEN = os.environ.get("WEBHOOK_AUTH_TOKEN", "")
 PROJECT_PREFIX = os.environ.get("TRACKER_PREFIX", "KS")
 
 
@@ -107,10 +108,13 @@ def fire_webhook(event: str, data: dict):
     if not WEBHOOK_URL:
         return
     payload = json.dumps({"event": event, **data}).encode()
+    headers = {"Content-Type": "application/json"}
+    if WEBHOOK_AUTH_TOKEN:
+        headers["Authorization"] = f"Bearer {WEBHOOK_AUTH_TOKEN}"
     try:
         req = urllib.request.Request(
             WEBHOOK_URL, data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         urllib.request.urlopen(req, timeout=5)
     except Exception:

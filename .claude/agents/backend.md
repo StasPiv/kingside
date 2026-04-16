@@ -91,6 +91,7 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 ```bash
 curl -s -X POST http://localhost:9876/agent/message \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
   -d '{"from": "backend", "to": "coordinator", "message": "текст"}'
 ```
 Координатор решит — нужна ли отдельная задача или можно решить вопрос сразу.
@@ -101,6 +102,7 @@ curl -s -X POST http://localhost:9876/agent/message \
 ```bash
 curl -s -X POST http://localhost:9876/agent/message \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
   -d '{"from": "backend", "to": "отправитель", "message": "ответ"}'
 ```
 
@@ -108,6 +110,7 @@ curl -s -X POST http://localhost:9876/agent/message \
 ```bash
 curl -s -X POST http://localhost:9876/telegram/send \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
   -d '{"message": "ответ"}'
 ```
 
