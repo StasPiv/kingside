@@ -52,13 +52,16 @@ AGENT_VOLUMES = {
     "backend": _COMMON + [
         f"{_P}/apps/api:/project/apps/api",
         f"{_P}/packages/shared:/project/packages/shared",
+        f"{_P}/apps/api/node_modules:/project/apps/api/node_modules:ro",
     ],
     "frontend": _COMMON + [
         f"{_P}/apps/web:/project/apps/web",
         f"{_P}/packages/shared:/project/packages/shared",
+        f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
     ],
     "layout": _COMMON + [
         f"{_P}/apps/web/src:/project/apps/web/src",
+        f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
     ],
     "devops": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
@@ -465,14 +468,16 @@ def setup_worktree(key):
         return PROJECT_DIR
     log(f"Worktree создан: {worktree_path} ({branch})")
 
+    # Относительные симлинки — работают и на хосте, и в Docker-контейнере
     for subdir in ["", "apps/web", "apps/api"]:
-        src = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
+        src_abs = os.path.join(PROJECT_DIR, subdir, "node_modules") if subdir else os.path.join(PROJECT_DIR, "node_modules")
         dst = os.path.join(worktree_path, subdir, "node_modules") if subdir else os.path.join(worktree_path, "node_modules")
-        if os.path.isdir(src) and not os.path.exists(dst):
+        if os.path.isdir(src_abs) and not os.path.exists(dst):
             if subdir:
                 os.makedirs(os.path.join(worktree_path, subdir), exist_ok=True)
-            os.symlink(src, dst)
-            log(f"Симлинк: {dst} -> {src}")
+            rel = os.path.relpath(src_abs, os.path.dirname(dst))
+            os.symlink(rel, dst)
+            log(f"Симлинк: {dst} -> {rel}")
 
     return worktree_path
 
@@ -1001,7 +1006,7 @@ def launch_agent(key, summary, agent, prompt=None):
             f"2. Прочитай описание задачи\n"
             f"3. Выполни задачу\n"
             f"4. Коммитни изменения в ветку feature/{key}\n"
-            f"5. Смержи ветку в main: git -C /opt/kingside merge feature/{key}\n"
+            f"5. Смержи ветку в main: curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H 'Authorization: Bearer '\"$WEBHOOK_AUTH_TOKEN\" -d '{{\"branch\":\"feature/{key}\"}}'\n"
             f"6. Добавь комментарий с результатом\n"
             f"7. Переведи задачу в статус 'Done' (transitionId: 41)"
         )
@@ -1905,6 +1910,44 @@ class WebhookHandler(BaseHTTPRequestHandler):
             handle_ai_chat(self)
             return
 
+        if path == "/merge":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            branch = payload.get("branch", "")
+            if not branch:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "missing 'branch'"}).encode())
+                return
+            log(f"Merge запущен: {branch} -> main")
+            try:
+                result = subprocess.run(
+                    ["git", "merge", branch],
+                    cwd=PROJECT_DIR, capture_output=True, text=True, timeout=60,
+                )
+                ok = result.returncode == 0
+                log(f"Merge завершён: rc={result.returncode}")
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "stdout": result.stdout[-1000:],
+                    "stderr": result.stderr[-1000:],
+                }).encode())
+            except Exception as e:
+                log(f"Merge ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
         if path == "/deploy":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
@@ -2060,7 +2103,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"1. Переведи задачу в статус 'In Progress' (transitionId: 21)\n"
                         f"2. Прочитай комментарий и выполни то, что в нём написано\n"
                         f"3. Добавь комментарий с результатом\n"
-                        f"4. Смержи ветку в main: git -C /opt/kingside merge feature/{key}\n"
+                        f"4. Смержи ветку в main: curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H 'Authorization: Bearer '\"$WEBHOOK_AUTH_TOKEN\" -d '{{\"branch\":\"feature/{key}\"}}'\n"
                         f"5. Переведи задачу в статус 'Done' (transitionId: 41)"
                     )
                 else:
