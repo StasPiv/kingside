@@ -51,3 +51,6 @@ tools/tracker/tracker.db
 .deploy-commit-aws
 node_modules
 .agent-tmp/
+__pycache__/
+tools/tracker/tracker.db-shm
+tools/tracker/tracker.db-wal
