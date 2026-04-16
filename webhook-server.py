@@ -31,6 +31,64 @@ TRACKER_URL = os.environ.get("TRACKER_URL", "http://localhost:8090")
 
 AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 
+# Volume mounts per agent — изоляция доступа к файлам проекта
+_P = PROJECT_DIR
+AGENT_VOLUMES = {
+    "coordinator": [
+        # Только CLAUDE.md и агентские инструкции, без кода
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+    ],
+    "backend": [
+        f"{_P}/apps/api:/project/apps/api",
+        f"{_P}/packages/shared:/project/packages/shared",
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+        f"{_P}/package.json:/project/package.json:ro",
+        f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
+        f"{_P}/node_modules:/project/node_modules:ro",
+    ],
+    "frontend": [
+        f"{_P}/apps/web:/project/apps/web",
+        f"{_P}/packages/shared:/project/packages/shared",
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+        f"{_P}/package.json:/project/package.json:ro",
+        f"{_P}/tsconfig.json:/project/tsconfig.json:ro",
+        f"{_P}/node_modules:/project/node_modules:ro",
+    ],
+    "layout": [
+        f"{_P}/apps/web/src:/project/apps/web/src",
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+        f"{_P}/package.json:/project/package.json:ro",
+        f"{_P}/node_modules:/project/node_modules:ro",
+    ],
+    "devops": [
+        f"{_P}/scripts:/project/scripts:ro",
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+        f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
+    ],
+    "architect": [
+        f"{_P}:/project:ro",
+    ],
+    "qa": [
+        f"{_P}:/project:ro",
+    ],
+    "chess-expert": [
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+    ],
+    "marketing": [
+        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
+        f"{_P}/.claude:/project/.claude:ro",
+    ],
+    "_default": [
+        f"{_P}:/project",
+    ],
+}
+
 
 # ---------------------------------------------------------------------------
 # AgentDaemon — долгоживущий процесс claude с stream-json I/O
@@ -57,17 +115,20 @@ class AgentDaemon:
         self._message_count: int = 0
 
     def _build_cmd(self) -> list[str]:
+        volumes = AGENT_VOLUMES.get(self.name, AGENT_VOLUMES.get("_default", []))
         cmd = [
             "docker", "run", "--rm", "-i",
             "--name", f"agent-{self.name}",
             "--network", "host",
-            "-v", f"{PROJECT_DIR}:/project",
             "-v", f"{AGENT_CLAUDE_DIR}:/home/agent/.claude",
             "-v", f"{AGENT_CLAUDE_JSON}:/home/agent/.claude.json",
             "-v", f"{LOG_DIR}:/project/logs",
             "-e", f"WEBHOOK_AUTH_TOKEN={WEBHOOK_AUTH_TOKEN}",
-            "-v", f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
-            "kingside-agent",
+        ]
+        for v in volumes:
+            cmd.extend(["-v", v])
+        cmd.append("kingside-agent")
+        cmd.extend([
             "-p",
             "--input-format", "stream-json",
             "--output-format", "stream-json",
@@ -75,7 +136,7 @@ class AgentDaemon:
             "--agent", self.name,
             "--dangerously-skip-permissions",
             "--strict-mcp-config",
-        ]
+        ])
         return cmd
 
     def ensure_running(self):
