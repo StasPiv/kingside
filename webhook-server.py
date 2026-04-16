@@ -47,8 +47,7 @@ _COMMON = [
 ]
 AGENT_VOLUMES = {
     "coordinator": [
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
+        f"{_P}:/project:ro",
         f"{_SHARED_TMP}:/tmp",
     ],
     "backend": _COMMON + [
