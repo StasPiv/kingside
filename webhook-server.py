@@ -562,12 +562,31 @@ def handle_feedback_notify(handler):
     handler.wfile.write(json.dumps({"ok": True}).encode())
 
 
-AI_CHAT_TIMEOUT = 30
+AI_CHAT_TIMEOUT = 55
+MCP_SERVER_PATH = os.path.join(PROJECT_DIR, "tools", "mcp-kingside.mjs")
 
+
+def _build_mcp_config(user_id):
+    """Build temporary MCP config JSON for Claude CLI with user-specific env."""
+    api_url = os.environ.get("KINGSIDE_API_URL", "http://localhost:3001/api")
+    api_key = os.environ.get("ADMIN_API_KEY", "")
+    return {
+        "mcpServers": {
+            "kingside": {
+                "command": "node",
+                "args": [MCP_SERVER_PATH],
+                "env": {
+                    "KINGSIDE_USER_ID": user_id,
+                    "KINGSIDE_API_URL": api_url,
+                    "KINGSIDE_API_KEY": api_key,
+                },
+            }
+        }
+    }
 
 
 def handle_ai_chat(handler):
-    """Обрабатывает POST /ai-chat — однократный вызов Claude CLI."""
+    """Обрабатывает POST /ai-chat — вызов Claude CLI с MCP tools."""
     content_length = int(handler.headers.get("Content-Length", 0))
     body = handler.rfile.read(content_length)
     try:
@@ -582,6 +601,7 @@ def handle_ai_chat(handler):
     message = payload.get("message", "").strip()
     system_prompt = payload.get("systemPrompt", "").strip()
     history = payload.get("history", [])
+    user_id = payload.get("userId", "")
 
     if not message:
         handler.send_response(400)
@@ -602,17 +622,27 @@ def handle_ai_chat(handler):
     prompt_parts.append(f"User: {message}")
     full_prompt = "\n\n".join(prompt_parts)
 
+    # Write temporary MCP config if userId is provided
+    mcp_config_path = None
+    if user_id:
+        mcp_config = _build_mcp_config(user_id)
+        mcp_config_path = f"/tmp/mcp-chat-{os.getpid()}-{id(handler)}.json"
+        with open(mcp_config_path, "w") as f:
+            json.dump(mcp_config, f)
+
     cmd = [
         "claude", "-p",
         "--model", "sonnet",
         "--output-format", "text",
         "--no-session-persistence",
     ]
+    if mcp_config_path:
+        cmd.extend(["--mcp-config", mcp_config_path])
     if system_prompt:
         cmd.extend(["--system-prompt", system_prompt])
     cmd.append(full_prompt)
 
-    log(f"AI chat: msg={message[:80]}, history={len(history)} turns")
+    log(f"AI chat: msg={message[:80]}, history={len(history)} turns, userId={user_id[:8] if user_id else '-'}, mcp={'yes' if mcp_config_path else 'no'}")
 
     env = os.environ.copy()
 
@@ -653,6 +683,13 @@ def handle_ai_chat(handler):
         handler.send_header("Content-Type", "application/json")
         handler.end_headers()
         handler.wfile.write(json.dumps({"error": str(e)}).encode())
+
+    finally:
+        if mcp_config_path:
+            try:
+                os.unlink(mcp_config_path)
+            except OSError:
+                pass
 
 
 def launch_agent(key, summary, agent, prompt=None):

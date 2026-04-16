@@ -278,7 +278,7 @@ export class ChatAssistantService {
       if (this.webhookSecret) headers['Authorization'] = `Bearer ${this.webhookSecret}`;
       const res = await fetch(this.webhookUrl, {
         method: 'POST', headers, signal: controller.signal,
-        body: JSON.stringify({ message, systemPrompt, history: messages }),
+        body: JSON.stringify({ message, systemPrompt, history: messages, userId }),
       });
       if (!res.ok) {
         this.logger.warn(`AI webhook failed: ${res.status}`);
