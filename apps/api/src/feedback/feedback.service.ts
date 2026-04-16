@@ -177,7 +177,10 @@ export class FeedbackService {
   private async notifyWebhook(payload: Record<string, unknown>) {
     if (!this.webhookUrl) return;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (this.webhookSecret) headers['X-Feedback-Secret'] = this.webhookSecret;
+    if (this.webhookSecret) {
+      headers['X-Feedback-Secret'] = this.webhookSecret;
+      headers['Authorization'] = `Bearer ${this.webhookSecret}`;
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8_000);
     try {
