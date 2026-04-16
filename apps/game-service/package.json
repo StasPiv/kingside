@@ -3,13 +3,13 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "prisma generate && nest build",
-    "dev": "prisma generate && nest start --watch",
+    "build": "nest build",
+    "dev": "nest start --watch",
     "start": "node dist/main.js",
-    "test": "jest",
-    "prisma:generate": "prisma generate"
+    "test": "jest"
   },
   "dependencies": {
+    "@kingside/db": "*",
     "@kingside/shared": "*",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",

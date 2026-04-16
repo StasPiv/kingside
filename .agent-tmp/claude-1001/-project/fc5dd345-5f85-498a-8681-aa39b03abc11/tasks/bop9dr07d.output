@@ -1,0 +1,967 @@
+On branch main
+Your branch is ahead of 'origin/main' by 2543 commits.
+  (use "git push" to publish your local commits)
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	deleted:    .dockerignore
+	deleted:    .env.example
+	deleted:    .env.production.example
+	deleted:    .github/workflows/e2e.yml
+	deleted:    .gitignore
+	deleted:    CONTRIBUTING.md
+	deleted:    Dockerfile.agent
+	deleted:    README.md
+	deleted:    __pycache__/webhook-server.cpython-312.pyc
+	deleted:    apps/api/.dockerignore
+	deleted:    apps/api/.gitignore
+	deleted:    apps/api/Dockerfile
+	deleted:    apps/api/data/opening-book.bin
+	deleted:    apps/api/docker-entrypoint.sh
+	deleted:    apps/api/jest.config.ts
+	deleted:    apps/api/nest-cli.json
+	deleted:    apps/api/package.json
+	deleted:    apps/api/prisma.config.ts
+	deleted:    apps/api/prisma/migrations/20260307095936_init/migration.sql
+	deleted:    apps/api/prisma/migrations/20260307133640_add_user_locale/migration.sql
+	deleted:    apps/api/prisma/migrations/20260307153117_add_missing_models/migration.sql
+	deleted:    apps/api/prisma/migrations/20260307210000_add_bot_fields_and_user_time_controls/migration.sql
+	deleted:    apps/api/prisma/migrations/20260308120451_add_puzzle_models/migration.sql
+	deleted:    apps/api/prisma/migrations/20260308140000_add_daily_puzzle/migration.sql
+	deleted:    apps/api/prisma/migrations/20260308150000_add_user_is_bot/migration.sql
+	deleted:    apps/api/prisma/migrations/20260308200000_add_puzzle_rush_leaderboard_indexes/migration.sql
+	deleted:    apps/api/prisma/migrations/20260309120000_add_game_is_bot_and_abandon/migration.sql
+	deleted:    apps/api/prisma/migrations/20260309130000_add_games_played_provisional/migration.sql
+	deleted:    apps/api/prisma/migrations/20260309150000_add_game_eco/migration.sql
+	deleted:    apps/api/prisma/migrations/20260310100000_add_user_visual_settings/migration.sql
+	deleted:    apps/api/prisma/migrations/20260310130000_fix_user_settings_defaults/migration.sql
+	deleted:    apps/api/prisma/migrations/20260310200000_add_game_analysis/migration.sql
+	deleted:    apps/api/prisma/migrations/20260311100000_add_puzzle_rush_session_puzzles/migration.sql
+	deleted:    apps/api/prisma/migrations/20260314100000_add_analysis_model/migration.sql
+	deleted:    apps/api/prisma/migrations/20260314200000_add_pgn_imports/migration.sql
+	deleted:    apps/api/prisma/migrations/20260314210000_add_broadcast_tables/migration.sql
+	deleted:    apps/api/prisma/migrations/20260315100000_add_oauth_fields/migration.sql
+	deleted:    apps/api/prisma/migrations/20260316100000_add_requires_username_setup/migration.sql
+	deleted:    apps/api/prisma/migrations/20260316110000_add_telegram_id/migration.sql
+	deleted:    apps/api/prisma/migrations/20260317130000_add_direct_messages/migration.sql
+	deleted:    apps/api/prisma/migrations/20260319100000_add_live_tournaments/migration.sql
+	deleted:    apps/api/prisma/migrations/20260319110000_add_tournament_metadata/migration.sql
+	deleted:    apps/api/prisma/migrations/20260320200000_add_tournament_status/migration.sql
+	deleted:    apps/api/prisma/migrations/20260321120000_add_analysis_current_position/migration.sql
+	deleted:    apps/api/prisma/migrations/20260322150000_add_friendships/migration.sql
+	deleted:    apps/api/prisma/migrations/20260322160000_add_blocked_users/migration.sql
+	deleted:    apps/api/prisma/migrations/20260323100000_add_game_reports/migration.sql
+	deleted:    apps/api/prisma/migrations/20260324120000_add_rating_history/migration.sql
+	deleted:    apps/api/prisma/migrations/20260324130000_add_notifications/migration.sql
+	deleted:    apps/api/prisma/migrations/20260326090000_add_generated_puzzles/migration.sql
+	deleted:    apps/api/prisma/migrations/20260326100000_add_source_metadata/migration.sql
+	deleted:    apps/api/prisma/migrations/20260328090000_add_generated_puzzle_attempts/migration.sql
+	deleted:    apps/api/prisma/migrations/20260329090000_add_is_public_to_generated_puzzles/migration.sql
+	deleted:    apps/api/prisma/migrations/20260329100000_add_category_to_analyses/migration.sql
+	deleted:    apps/api/prisma/migrations/20260329110000_add_tags_to_analyses/migration.sql
+	deleted:    apps/api/prisma/migrations/20260329120000_add_external_usernames/migration.sql
+	deleted:    apps/api/prisma/migrations/20260329130000_add_accepted_moves/migration.sql
+	deleted:    apps/api/prisma/migrations/20260330090000_add_arena_tournaments/migration.sql
+	deleted:    apps/api/prisma/migrations/20260330100000_add_swiss_rr_tournaments/migration.sql
+	deleted:    apps/api/prisma/migrations/20260330110000_add_entry_withdrawn/migration.sql
+	deleted:    apps/api/prisma/migrations/20260330130000_add_tournament_points/migration.sql
+	deleted:    apps/api/prisma/migrations/20260330190000_add_broadcast_info_fields/migration.sql
+	deleted:    apps/api/prisma/migrations/20260405120000_add_analysis_headline/migration.sql
+	deleted:    apps/api/prisma/migrations/20260405123000_add_analysis_event/migration.sql
+	deleted:    apps/api/prisma/migrations/20260405130000_add_saved_filters/migration.sql
+	deleted:    apps/api/prisma/migrations/20260405133000_add_analysis_metadata_fields/migration.sql
+	deleted:    apps/api/prisma/migrations/20260406164000_add_berserk_to_game/migration.sql
+	deleted:    apps/api/prisma/migrations/20260407124000_add_cycles_to_arena_tournament/migration.sql
+	deleted:    apps/api/prisma/migrations/20260407170000_fix_tournament_rounds_fk/migration.sql
+	deleted:    apps/api/prisma/migrations/20260407171000_drop_tournament_id_from_pairings/migration.sql
+	deleted:    apps/api/prisma/migrations/20260407172000_nullable_black_id_pairings/migration.sql
+	deleted:    apps/api/prisma/migrations/20260415060000_add_bot_client_side/migration.sql
+	deleted:    apps/api/prisma/migrations/20260415120000_tournament_visibility/migration.sql
+	deleted:    apps/api/prisma/migrations/migration_lock.toml
+	deleted:    apps/api/prisma/schema.prisma
+	deleted:    apps/api/prisma/seed.ts
+	deleted:    apps/api/src/.gitkeep
+	deleted:    apps/api/src/__mocks__/prisma-client.mock.ts
+	deleted:    apps/api/src/admin/admin-api-key.guard.ts
+	deleted:    apps/api/src/admin/admin.controller.ts
+	deleted:    apps/api/src/admin/admin.module.ts
+	deleted:    apps/api/src/admin/admin.service.ts
+	deleted:    apps/api/src/ai-chat/ai-chat.module.ts
+	deleted:    apps/api/src/ai-chat/chat-assistant.service.ts
+	deleted:    apps/api/src/ai-chat/chat.controller.ts
+	deleted:    apps/api/src/ai-chat/context-collector.service.ts
+	deleted:    apps/api/src/ai-chat/system-prompt.ts
+	deleted:    apps/api/src/analysis/analysis.controller.ts
+	deleted:    apps/api/src/analysis/analysis.module.ts
+	deleted:    apps/api/src/analysis/analysis.service.spec.ts
+	deleted:    apps/api/src/analysis/analysis.service.ts
+	deleted:    apps/api/src/analysis/dto/create-analysis.dto.ts
+	deleted:    apps/api/src/analysis/dto/create-saved-filter.dto.ts
+	deleted:    apps/api/src/analysis/dto/update-analysis.dto.ts
+	deleted:    apps/api/src/analysis/dto/update-saved-filter.dto.ts
+	deleted:    apps/api/src/analysis/saved-filter.service.ts
+	deleted:    apps/api/src/app.module.ts
+	deleted:    apps/api/src/arena/arena-scheduler.service.ts
+	deleted:    apps/api/src/arena/arena.controller.ts
+	deleted:    apps/api/src/arena/arena.gateway.ts
+	deleted:    apps/api/src/arena/arena.module.ts
+	deleted:    apps/api/src/arena/arena.service.spec.ts
+	deleted:    apps/api/src/arena/arena.service.ts
+	deleted:    apps/api/src/arena/round-manager.service.ts
+	deleted:    apps/api/src/arena/round-robin-pairing.service.spec.ts
+	deleted:    apps/api/src/arena/round-robin-pairing.service.ts
+	deleted:    apps/api/src/arena/swiss-pairing.service.spec.ts
+	deleted:    apps/api/src/arena/swiss-pairing.service.ts
+	deleted:    apps/api/src/auth/auth.controller.ts
+	deleted:    apps/api/src/auth/auth.module.ts
+	deleted:    apps/api/src/auth/auth.service.spec.ts
+	deleted:    apps/api/src/auth/auth.service.ts
+	deleted:    apps/api/src/auth/dto/login.dto.spec.ts
+	deleted:    apps/api/src/auth/dto/login.dto.ts
+	deleted:    apps/api/src/auth/dto/register.dto.spec.ts
+	deleted:    apps/api/src/auth/dto/register.dto.ts
+	deleted:    apps/api/src/auth/dto/telegram-auth.dto.ts
+	deleted:    apps/api/src/auth/facebook.strategy.ts
+	deleted:    apps/api/src/auth/google.strategy.ts
+	deleted:    apps/api/src/auth/jwt-auth.guard.ts
+	deleted:    apps/api/src/auth/jwt.strategy.ts
+	deleted:    apps/api/src/auth/last-seen.middleware.spec.ts
+	deleted:    apps/api/src/auth/last-seen.middleware.ts
+	deleted:    apps/api/src/auth/oauth-auth.guard.ts
+	deleted:    apps/api/src/auth/optional-jwt.guard.ts
+	deleted:    apps/api/src/auth/telegram-auth.service.spec.ts
+	deleted:    apps/api/src/broadcast/broadcast.controller.ts
+	deleted:    apps/api/src/broadcast/broadcast.gateway.ts
+	deleted:    apps/api/src/broadcast/broadcast.module.ts
+	deleted:    apps/api/src/broadcast/chess-results/chess-results.service.spec.ts
+	deleted:    apps/api/src/broadcast/chess-results/chess-results.service.ts
+	deleted:    apps/api/src/broadcast/chess-results/livechesscloud.service.spec.ts
+	deleted:    apps/api/src/broadcast/chess-results/livechesscloud.service.ts
+	deleted:    apps/api/src/broadcast/chess-results/scan-chess-results.ts
+	deleted:    apps/api/src/broadcast/dto/broadcast.dto.ts
+	deleted:    apps/api/src/client-logs/client-logs.controller.ts
+	deleted:    apps/api/src/client-logs/client-logs.module.ts
+	deleted:    apps/api/src/client-logs/dto/client-log-event.dto.ts
+	deleted:    apps/api/src/client-logs/dto/create-client-logs.dto.ts
+	deleted:    apps/api/src/client-logs/ip-rate-limit.guard.ts
+	deleted:    apps/api/src/common/all-exceptions.filter.ts
+	deleted:    apps/api/src/common/authenticated-request.ts
+	deleted:    apps/api/src/common/cache.service.spec.ts
+	deleted:    apps/api/src/common/cache.service.ts
+	deleted:    apps/api/src/common/overload-guard.service.ts
+	deleted:    apps/api/src/common/pagination.dto.ts
+	deleted:    apps/api/src/common/redis-io.adapter.ts
+	deleted:    apps/api/src/common/redis-rate-limit.guard.spec.ts
+	deleted:    apps/api/src/common/redis-rate-limit.guard.ts
+	deleted:    apps/api/src/common/scaling.service.ts
+	deleted:    apps/api/src/dgt/dgt.controller.ts
+	deleted:    apps/api/src/dgt/dgt.module.ts
+	deleted:    apps/api/src/dgt/dgt.service.spec.ts
+	deleted:    apps/api/src/dgt/dgt.service.ts
+	deleted:    apps/api/src/engine/opening-book.service.ts
+	deleted:    apps/api/src/engine/polyglot-keys.json
+	deleted:    apps/api/src/engine/polyglot-reader.ts
+	deleted:    apps/api/src/engine/stockfish.service.spec.ts
+	deleted:    apps/api/src/engine/stockfish.service.ts
+	deleted:    apps/api/src/feedback/dto/create-feedback.dto.ts
+	deleted:    apps/api/src/feedback/feedback.controller.ts
+	deleted:    apps/api/src/feedback/feedback.module.ts
+	deleted:    apps/api/src/feedback/feedback.service.ts
+	deleted:    apps/api/src/friend/friend.controller.ts
+	deleted:    apps/api/src/friend/friend.module.ts
+	deleted:    apps/api/src/friend/friend.service.spec.ts
+	deleted:    apps/api/src/friend/friend.service.ts
+	deleted:    apps/api/src/game/dto/game.dto.spec.ts
+	deleted:    apps/api/src/game/dto/game.dto.ts
+	deleted:    apps/api/src/game/dto/live-games.dto.ts
+	deleted:    apps/api/src/game/eco.service.ts
+	deleted:    apps/api/src/game/game-clock.service.spec.ts
+	deleted:    apps/api/src/game/game-clock.service.ts
+	deleted:    apps/api/src/game/game-report.service.spec.ts
+	deleted:    apps/api/src/game/game-report.service.ts
+	deleted:    apps/api/src/game/game.controller.ts
+	deleted:    apps/api/src/game/game.module.ts
+	deleted:    apps/api/src/game/game.service.e2e.spec.ts
+	deleted:    apps/api/src/game/game.service.spec.ts
+	deleted:    apps/api/src/game/game.service.ts
+	deleted:    apps/api/src/game/live-game.service.spec.ts
+	deleted:    apps/api/src/game/live-game.service.ts
+	deleted:    apps/api/src/game/rating-protection.service.spec.ts
+	deleted:    apps/api/src/game/rating-protection.service.ts
+	deleted:    apps/api/src/game/rating.service.spec.ts
+	deleted:    apps/api/src/game/rating.service.ts
+	deleted:    apps/api/src/health.controller.spec.ts
+	deleted:    apps/api/src/health.controller.ts
+	deleted:    apps/api/src/i18n/en/messages.json
+	deleted:    apps/api/src/i18n/ru/messages.json
+	deleted:    apps/api/src/main.ts
+	deleted:    apps/api/src/message/dto/message-history.dto.ts
+	deleted:    apps/api/src/message/dto/send-message.dto.ts
+	deleted:    apps/api/src/message/message.controller.ts
+	deleted:    apps/api/src/message/message.gateway.ts
+	deleted:    apps/api/src/message/message.module.ts
+	deleted:    apps/api/src/message/message.service.spec.ts
+	deleted:    apps/api/src/message/message.service.ts
+	deleted:    apps/api/src/notification/notification.controller.ts
+	deleted:    apps/api/src/notification/notification.module.ts
+	deleted:    apps/api/src/notification/notification.service.spec.ts
+	deleted:    apps/api/src/notification/notification.service.ts
+	deleted:    apps/api/src/player/dto/online-players.dto.ts
+	deleted:    apps/api/src/player/dto/search-players.dto.ts
+	deleted:    apps/api/src/player/dto/top-players.dto.ts
+	deleted:    apps/api/src/player/player.controller.ts
+	deleted:    apps/api/src/player/player.module.ts
+	deleted:    apps/api/src/player/player.service.spec.ts
+	deleted:    apps/api/src/player/player.service.ts
+	deleted:    apps/api/src/prisma/prisma.module.ts
+	deleted:    apps/api/src/prisma/prisma.service.ts
+	deleted:    apps/api/src/puzzle-generator/glicko-rating.service.spec.ts
+	deleted:    apps/api/src/puzzle-generator/glicko-rating.service.ts
+	deleted:    apps/api/src/puzzle-generator/puzzle-generator.controller.ts
+	deleted:    apps/api/src/puzzle-generator/puzzle-generator.module.ts
+	deleted:    apps/api/src/puzzle-generator/puzzle-generator.service.spec.ts
+	deleted:    apps/api/src/puzzle-generator/puzzle-generator.service.ts
+	deleted:    apps/api/src/puzzle-rush/dto/puzzle-rush.dto.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush-auth-fix.e2e.spec.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush-ks238-verify.e2e.spec.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush-leaderboard.e2e.spec.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush-redirect-verify.e2e.spec.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush-routing.e2e.spec.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush.controller.e2e.spec.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush.controller.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush.module.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush.service.spec.ts
+	deleted:    apps/api/src/puzzle-rush/puzzle-rush.service.ts
+	deleted:    apps/api/src/puzzle/daily-puzzle.controller.ts
+	deleted:    apps/api/src/puzzle/daily-puzzle.service.spec.ts
+	deleted:    apps/api/src/puzzle/daily-puzzle.service.ts
+	deleted:    apps/api/src/puzzle/dto/find-puzzles.dto.ts
+	deleted:    apps/api/src/puzzle/dto/puzzle.dto.ts
+	deleted:    apps/api/src/puzzle/dto/submit-attempt.dto.ts
+	deleted:    apps/api/src/puzzle/import-puzzles.spec.ts
+	deleted:    apps/api/src/puzzle/import-puzzles.ts
+	deleted:    apps/api/src/puzzle/parse-puzzle-csv.ts
+	deleted:    apps/api/src/puzzle/puzzle-rating.service.spec.ts
+	deleted:    apps/api/src/puzzle/puzzle-rating.service.ts
+	deleted:    apps/api/src/puzzle/puzzle.controller.ts
+	deleted:    apps/api/src/puzzle/puzzle.module.ts
+	deleted:    apps/api/src/puzzle/puzzle.service.spec.ts
+	deleted:    apps/api/src/puzzle/puzzle.service.ts
+	deleted:    apps/api/src/redis/redis.module.ts
+	deleted:    apps/api/src/redis/redis.service.ts
+	deleted:    apps/api/src/tournament/tournament.controller.ts
+	deleted:    apps/api/src/tournament/tournament.module.ts
+	deleted:    apps/api/src/tournament/tournament.service.spec.ts
+	deleted:    apps/api/src/tournament/tournament.service.ts
+	deleted:    apps/api/src/user/block.service.spec.ts
+	deleted:    apps/api/src/user/block.service.ts
+	deleted:    apps/api/src/user/dto/change-password.dto.ts
+	deleted:    apps/api/src/user/dto/create-time-control.dto.ts
+	deleted:    apps/api/src/user/dto/search-games.dto.ts
+	deleted:    apps/api/src/user/dto/set-username.dto.ts
+	deleted:    apps/api/src/user/dto/update-settings.dto.ts
+	deleted:    apps/api/src/user/user-puzzle-rush-stats.e2e.spec.ts
+	deleted:    apps/api/src/user/user-time-control.controller.ts
+	deleted:    apps/api/src/user/user-time-control.service.spec.ts
+	deleted:    apps/api/src/user/user-time-control.service.ts
+	deleted:    apps/api/src/user/user.controller.ts
+	deleted:    apps/api/src/user/user.module.ts
+	deleted:    apps/api/src/user/user.service.spec.ts
+	deleted:    apps/api/src/user/user.service.ts
+	deleted:    apps/api/src/workshop/external-chess.service.ts
+	deleted:    apps/api/src/workshop/pgn.parser.ts
+	deleted:    apps/api/src/workshop/workshop.controller.ts
+	deleted:    apps/api/src/workshop/workshop.module.ts
+	deleted:    apps/api/src/workshop/workshop.service.spec.ts
+	deleted:    apps/api/src/workshop/workshop.service.ts
+	deleted:    apps/api/tsconfig.json
+	deleted:    apps/broadcast-worker/.gitignore
+	deleted:    apps/broadcast-worker/Dockerfile
+	deleted:    apps/broadcast-worker/package.json
+	deleted:    apps/broadcast-worker/prisma/schema.prisma
+	deleted:    apps/broadcast-worker/src/index.ts
+	deleted:    apps/broadcast-worker/src/worker.ts
+	deleted:    apps/broadcast-worker/tsconfig.json
+	deleted:    apps/e2e/fixtures/auth.fixture.ts
+	deleted:    apps/e2e/fixtures/test-data.ts
+	deleted:    apps/e2e/package.json
+	deleted:    apps/e2e/playwright.config.ts
+	deleted:    apps/e2e/screenshots/01-puzzle-rush-start.png
+	deleted:    apps/e2e/screenshots/02-puzzle-rush-game.png
+	deleted:    apps/e2e/screenshots/03-puzzle-rush-leaderboard.png
+	deleted:    apps/e2e/screenshots/04-puzzle-rush-nav-link.png
+	deleted:    apps/e2e/screenshots/05-profile-records.png
+	deleted:    apps/e2e/screenshots/KS-250/01-start-page-desktop.png
+	deleted:    apps/e2e/screenshots/KS-250/01b-start-page-5min-mode.png
+	deleted:    apps/e2e/screenshots/KS-250/02-gameplay-board-timer-lives.png
+	deleted:    apps/e2e/screenshots/KS-250/02b-gameplay-timer-running.png
+	deleted:    apps/e2e/screenshots/KS-250/02c-gameplay-score-lives.png
+	deleted:    apps/e2e/screenshots/KS-250/02d-gameplay-hint.png
+	deleted:    apps/e2e/screenshots/KS-250/02e-gameplay-chessboard.png
+	deleted:    apps/e2e/screenshots/KS-250/03-game-state-after-solve.png
+	deleted:    apps/e2e/screenshots/KS-250/03b-start-error.png
+	deleted:    apps/e2e/screenshots/KS-250/05-nav-link-visible.png
+	deleted:    apps/e2e/screenshots/KS-250/05b-auth-redirect.png
+	deleted:    apps/e2e/screenshots/KS-250/05c-5min-mode-started.png
+	deleted:    apps/e2e/screenshots/KS-250/06-mobile-start-page.png
+	deleted:    apps/e2e/screenshots/KS-250/06-nav-link-visible.png
+	deleted:    apps/e2e/screenshots/KS-250/06b-mobile-gameplay.png
+	deleted:    apps/e2e/screenshots/KS-250/06c-tablet-start-page.png
+	deleted:    apps/e2e/screenshots/KS-250/06d-auth-redirect.png
+	deleted:    apps/e2e/screenshots/KS-250/07-mobile-start-page.png
+	deleted:    apps/e2e/screenshots/KS-250/07-unauth-redirect-login.png
+	deleted:    apps/e2e/screenshots/KS-250/07b-mobile-gameplay.png
+	deleted:    apps/e2e/screenshots/KS-525-mobile/android-full-viewport.png
+	deleted:    apps/e2e/screenshots/KS-525-mobile/iphone-14-full-viewport.png
+	deleted:    apps/e2e/screenshots/KS-525-mobile/iphone-se-full-viewport.png
+	deleted:    apps/e2e/screenshots/KS-525/01-analysis-sidebar-full-height.png
+	deleted:    apps/e2e/screenshots/KS-525/02-notation-panel-scroll.png
+	deleted:    apps/e2e/screenshots/ks-279/.gitkeep
+	deleted:    apps/e2e/tests/auth.spec.ts
+	deleted:    apps/e2e/tests/drag-drop-verify-ks270.spec.ts
+	deleted:    apps/e2e/tests/fast-drag.spec.ts
+	deleted:    apps/e2e/tests/game-review-stockfish-nav.spec.ts
+	deleted:    apps/e2e/tests/game-review.spec.ts
+	deleted:    apps/e2e/tests/game.spec.ts
+	deleted:    apps/e2e/tests/ks-271-drag-verification.spec.ts
+	deleted:    apps/e2e/tests/ks-273-drag-verification.spec.ts
+	deleted:    apps/e2e/tests/ks-275-sw-cache-verification.spec.ts
+	deleted:    apps/e2e/tests/ks-276-chrome-drag-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-279-drag-screenshots.spec.ts
+	deleted:    apps/e2e/tests/ks-280-verify-ghost-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-281-e2e-verify-dnd-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-283-e2e-verify-dnd-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-284-verify-snapback-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-288-verify-snap-to-square.spec.ts
+	deleted:    apps/e2e/tests/ks-289-verify-opacity-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-293-verify-opponent-drag.spec.ts
+	deleted:    apps/e2e/tests/ks-295-verify-own-piece-stuck.spec.ts
+	deleted:    apps/e2e/tests/ks-297-verify-deferred-drop.spec.ts
+	deleted:    apps/e2e/tests/ks-298-e2e-verify-dnd-ks296.spec.ts
+	deleted:    apps/e2e/tests/ks-302-verify-render-optimization.spec.ts
+	deleted:    apps/e2e/tests/ks-304-verify-puzzle-rush-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-312-analysis-page-verification.spec.ts
+	deleted:    apps/e2e/tests/ks-313-stockfish-analysis-e2e.spec.ts
+	deleted:    apps/e2e/tests/ks-314-verify-move-navigation-fix.spec.ts
+	deleted:    apps/e2e/tests/ks-316-stockfish-fix-verification.spec.ts
+	deleted:    apps/e2e/tests/ks-321-stockfish-stop-start-verify.spec.ts
+	deleted:    apps/e2e/tests/ks-525-notation-height-mobile-screenshots.spec.ts
+	deleted:    apps/e2e/tests/ks-525-notation-height-screenshots.spec.ts
+	deleted:    apps/e2e/tests/lobby.spec.ts
+	deleted:    apps/e2e/tests/multiplayer.spec.ts
+	deleted:    apps/e2e/tests/nav-mobile-verify.spec.ts
+	deleted:    apps/e2e/tests/profile-i18n.spec.ts
+	deleted:    apps/e2e/tests/profile-redirect-verify.spec.ts
+	deleted:    apps/e2e/tests/profile.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-full-verification.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-full-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-leaderboard-e2e-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-leaderboard-ks238-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-leaderboard-link-ks266-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-leaderboard-link-ks269-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-leaderboard-public.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-leaderboard-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-leaderboard.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-mobile-ks254-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-mobile-layout.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-mocked.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-reverify-ks263.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-routing-fix-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-routing-ks252-verify.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush-screenshots.spec.ts
+	deleted:    apps/e2e/tests/puzzle-rush.spec.ts
+	deleted:    apps/e2e/tests/websocket.spec.ts
+	deleted:    apps/e2e/tsconfig.json
+	deleted:    apps/game-service/Dockerfile
+	deleted:    apps/game-service/data/opening-book.bin
+	deleted:    apps/game-service/jest.config.ts
+	deleted:    apps/game-service/nest-cli.json
+	deleted:    apps/game-service/package.json
+	deleted:    apps/game-service/prisma/schema.prisma
+	deleted:    apps/game-service/src/app.module.ts
+	deleted:    apps/game-service/src/arena/arena-scheduler.service.ts
+	deleted:    apps/game-service/src/arena/arena.controller.ts
+	deleted:    apps/game-service/src/arena/arena.gateway.ts
+	deleted:    apps/game-service/src/arena/arena.module.ts
+	deleted:    apps/game-service/src/arena/arena.service.spec.ts
+	deleted:    apps/game-service/src/arena/arena.service.ts
+	deleted:    apps/game-service/src/arena/round-manager.service.ts
+	deleted:    apps/game-service/src/arena/round-robin-pairing.service.spec.ts
+	deleted:    apps/game-service/src/arena/round-robin-pairing.service.ts
+	deleted:    apps/game-service/src/arena/swiss-pairing.service.spec.ts
+	deleted:    apps/game-service/src/arena/swiss-pairing.service.ts
+	deleted:    apps/game-service/src/auth/auth.module.ts
+	deleted:    apps/game-service/src/auth/jwt-auth.guard.ts
+	deleted:    apps/game-service/src/auth/jwt.strategy.ts
+	deleted:    apps/game-service/src/chat/chat.module.ts
+	deleted:    apps/game-service/src/chat/chat.service.spec.ts
+	deleted:    apps/game-service/src/chat/chat.service.ts
+	deleted:    apps/game-service/src/common/all-exceptions.filter.ts
+	deleted:    apps/game-service/src/common/authenticated-request.ts
+	deleted:    apps/game-service/src/common/cache.service.spec.ts
+	deleted:    apps/game-service/src/common/cache.service.ts
+	deleted:    apps/game-service/src/common/overload-guard.service.ts
+	deleted:    apps/game-service/src/common/pagination.dto.ts
+	deleted:    apps/game-service/src/common/redis-io.adapter.ts
+	deleted:    apps/game-service/src/common/redis-rate-limit.guard.spec.ts
+	deleted:    apps/game-service/src/common/redis-rate-limit.guard.ts
+	deleted:    apps/game-service/src/common/scaling.service.ts
+	deleted:    apps/game-service/src/engine/polyglot-keys.json
+	deleted:    apps/game-service/src/engine/polyglot-reader.ts
+	deleted:    apps/game-service/src/game/bot-cleanup.service.ts
+	deleted:    apps/game-service/src/game/bot-game.service.spec.ts
+	deleted:    apps/game-service/src/game/bot-game.service.ts
+	deleted:    apps/game-service/src/game/bot-move.service.spec.ts
+	deleted:    apps/game-service/src/game/bot-move.service.ts
+	deleted:    apps/game-service/src/game/dto/game.dto.spec.ts
+	deleted:    apps/game-service/src/game/dto/game.dto.ts
+	deleted:    apps/game-service/src/game/dto/live-games.dto.ts
+	deleted:    apps/game-service/src/game/eco.service.ts
+	deleted:    apps/game-service/src/game/game-clock.service.spec.ts
+	deleted:    apps/game-service/src/game/game-clock.service.ts
+	deleted:    apps/game-service/src/game/game-report.service.spec.ts
+	deleted:    apps/game-service/src/game/game-report.service.ts
+	deleted:    apps/game-service/src/game/game.controller.ts
+	deleted:    apps/game-service/src/game/game.gateway.spec.ts
+	deleted:    apps/game-service/src/game/game.gateway.ts
+	deleted:    apps/game-service/src/game/game.module.ts
+	deleted:    apps/game-service/src/game/game.service.e2e.spec.ts
+	deleted:    apps/game-service/src/game/game.service.spec.ts
+	deleted:    apps/game-service/src/game/game.service.ts
+	deleted:    apps/game-service/src/game/guards/ws-jwt.guard.ts
+	deleted:    apps/game-service/src/game/live-game.service.spec.ts
+	deleted:    apps/game-service/src/game/live-game.service.ts
+	deleted:    apps/game-service/src/game/rating-protection.service.spec.ts
+	deleted:    apps/game-service/src/game/rating-protection.service.ts
+	deleted:    apps/game-service/src/game/rating.service.spec.ts
+	deleted:    apps/game-service/src/game/rating.service.ts
+	deleted:    apps/game-service/src/game/timeout-checker.service.ts
+	deleted:    apps/game-service/src/generated/prisma/browser.ts
+	deleted:    apps/game-service/src/generated/prisma/client.ts
+	deleted:    apps/game-service/src/generated/prisma/commonInputTypes.ts
+	deleted:    apps/game-service/src/generated/prisma/enums.ts
+	deleted:    apps/game-service/src/generated/prisma/internal/class.ts
+	deleted:    apps/game-service/src/generated/prisma/internal/prismaNamespace.ts
+	deleted:    apps/game-service/src/generated/prisma/internal/prismaNamespaceBrowser.ts
+	deleted:    apps/game-service/src/generated/prisma/libquery_engine-debian-openssl-3.0.x.so.node
+	deleted:    apps/game-service/src/generated/prisma/models.ts
+	deleted:    apps/game-service/src/generated/prisma/models/Analysis.ts
+	deleted:    apps/game-service/src/generated/prisma/models/ArenaTournament.ts
+	deleted:    apps/game-service/src/generated/prisma/models/ArenaTournamentEntry.ts
+	deleted:    apps/game-service/src/generated/prisma/models/BlockedUser.ts
+	deleted:    apps/game-service/src/generated/prisma/models/Broadcast.ts
+	deleted:    apps/game-service/src/generated/prisma/models/BroadcastGame.ts
+	deleted:    apps/game-service/src/generated/prisma/models/BroadcastRound.ts
+	deleted:    apps/game-service/src/generated/prisma/models/ChatMessage.ts
+	deleted:    apps/game-service/src/generated/prisma/models/DailyPuzzle.ts
+	deleted:    apps/game-service/src/generated/prisma/models/DirectMessage.ts
+	deleted:    apps/game-service/src/generated/prisma/models/Friendship.ts
+	deleted:    apps/game-service/src/generated/prisma/models/Game.ts
+	deleted:    apps/game-service/src/generated/prisma/models/GameAnalysis.ts
+	deleted:    apps/game-service/src/generated/prisma/models/GameReport.ts
+	deleted:    apps/game-service/src/generated/prisma/models/GeneratedPuzzle.ts
+	deleted:    apps/game-service/src/generated/prisma/models/GeneratedPuzzleAttempt.ts
+	deleted:    apps/game-service/src/generated/prisma/models/LiveTournament.ts
+	deleted:    apps/game-service/src/generated/prisma/models/Move.ts
+	deleted:    apps/game-service/src/generated/prisma/models/Notification.ts
+	deleted:    apps/game-service/src/generated/prisma/models/PgnImport.ts
+	deleted:    apps/game-service/src/generated/prisma/models/PgnImportGame.ts
+	deleted:    apps/game-service/src/generated/prisma/models/Puzzle.ts
+	deleted:    apps/game-service/src/generated/prisma/models/PuzzleAttempt.ts
+	deleted:    apps/game-service/src/generated/prisma/models/PuzzleRushScore.ts
+	deleted:    apps/game-service/src/generated/prisma/models/PuzzleRushSessionPuzzle.ts
+	deleted:    apps/game-service/src/generated/prisma/models/RatingHistory.ts
+	deleted:    apps/game-service/src/generated/prisma/models/SavedFilter.ts
+	deleted:    apps/game-service/src/generated/prisma/models/TournamentPairing.ts
+	deleted:    apps/game-service/src/generated/prisma/models/TournamentRound.ts
+	deleted:    apps/game-service/src/generated/prisma/models/User.ts
+	deleted:    apps/game-service/src/generated/prisma/models/UserTimeControl.ts
+	deleted:    apps/game-service/src/health.controller.ts
+	deleted:    apps/game-service/src/i18n/en/messages.json
+	deleted:    apps/game-service/src/i18n/ru/messages.json
+	deleted:    apps/game-service/src/instance-logger.ts
+	deleted:    apps/game-service/src/main.ts
+	deleted:    apps/game-service/src/matchmaker-worker/matchmaker-worker.module.ts
+	deleted:    apps/game-service/src/matchmaker-worker/matchmaker-worker.service.ts
+	deleted:    apps/game-service/src/matchmaking/dto/join-queue.dto.ts
+	deleted:    apps/game-service/src/matchmaking/matchmaking.gateway.ts
+	deleted:    apps/game-service/src/matchmaking/matchmaking.module.ts
+	deleted:    apps/game-service/src/matchmaking/matchmaking.service.spec.ts
+	deleted:    apps/game-service/src/matchmaking/matchmaking.service.ts
+	deleted:    apps/game-service/src/prisma/prisma.module.ts
+	deleted:    apps/game-service/src/prisma/prisma.service.ts
+	deleted:    apps/game-service/src/redis/redis.module.ts
+	deleted:    apps/game-service/src/redis/redis.service.ts
+	deleted:    apps/game-service/src/user/block.service.ts
+	deleted:    apps/game-service/src/user/dto/change-password.dto.ts
+	deleted:    apps/game-service/src/user/dto/update-settings.dto.ts
+	deleted:    apps/game-service/src/user/user.module.ts
+	deleted:    apps/game-service/src/user/user.service.ts
+	deleted:    apps/game-service/tsconfig.build.json
+	deleted:    apps/game-service/tsconfig.json
+	deleted:    apps/puzzle-worker/Dockerfile
+	deleted:    apps/puzzle-worker/package.json
+	deleted:    apps/puzzle-worker/prisma/schema.prisma
+	deleted:    apps/puzzle-worker/src/index.ts
+	deleted:    apps/puzzle-worker/src/worker.ts
+	deleted:    apps/puzzle-worker/tsconfig.json
+	deleted:    client_secret_421555943956-tu3keu6vdm8opc3b7pk4m940ud40a5ol.apps.googleusercontent.com.json
+	deleted:    dispatcher.sh
+	deleted:    docker-compose.yml
+	deleted:    docs/adr/001-tech-stack.md
+	deleted:    docs/adr/002-project-structure.md
+	deleted:    docs/adr/003-database-schema.md
+	deleted:    docs/adr/004-api-and-websocket.md
+	deleted:    docs/adr/005-game-page-responsive-layout.md
+	deleted:    docs/adr/005-i18n.md
+	deleted:    docs/adr/005-settings-and-i18n.md
+	deleted:    docs/adr/006-agent-coordination.md
+	deleted:    docs/adr/007-anti-duplication-enforcement.md
+	deleted:    docs/adr/007-logical-conflict-prevention.md
+	deleted:    docs/adr/008-game-analysis-persistence.md
+	deleted:    docs/adr/009-profile-action-buttons-redesign.md
+	deleted:    docs/adr/010-stockfish-browser-plugin-research.md
+	deleted:    docs/adr/011-workshop-page-redesign.md
+	deleted:    docs/architecture/KS-1127-nag-and-comments.md
+	deleted:    docs/architecture/KS-1132-sidebar-on-all-pages.md
+	deleted:    docs/architecture/KS-1135-play-page.md
+	deleted:    docs/architecture/KS-364-plan-puzzles-rating.md
+	deleted:    docs/architecture/KS-365-epic-KS55-decomposition.md
+	deleted:    docs/architecture/KS-402-game-analysis-persistence.md
+	deleted:    docs/architecture/KS-411-profile-desktop-layout.md
+	deleted:    docs/architecture/KS-418-lobby-redesign.md
+	deleted:    docs/architecture/KS-467-workshop-redesign.md
+	deleted:    docs/architecture/KS-484-broadcast-sources-research.md
+	deleted:    docs/architecture/agent-coordination.md
+	deleted:    docs/architecture/game-page-redesign.md
+	deleted:    docs/architecture/logical-conflict-prevention.md
+	deleted:    docs/architecture/settings-and-i18n.md
+	deleted:    docs/architecture/shared-code-procedure.md
+	deleted:    docs/architecture/system-overview.md
+	deleted:    docs/devops/auto-deploy-git-hooks.md
+	deleted:    docs/devops/autodeploy-pipeline.md
+	deleted:    docs/devops/centralized-logging.md
+	deleted:    docs/devops/deploy-readiness-report.md
+	deleted:    docs/devops/deployment-chess-analyze-online.md
+	deleted:    docs/devops/disk-cleanup-candidates.md
+	deleted:    docs/devops/disk-cleanup-log.md
+	deleted:    docs/devops/kamatera-deploy-guide.md
+	deleted:    docs/devops/production-logs.md
+	deleted:    docs/devops/server-capacity-assessment.md
+	deleted:    docs/devops/telegram-notifications.md
+	deleted:    engines/1.1.0/kingside-engine-bridge-linux-amd64
+	deleted:    engines/1.2.0/config.yaml
+	deleted:    engines/1.2.0/config8.yaml
+	deleted:    engines/1.2.0/kingside-engine-bridge-linux-amd64
+	deleted:    engines/1.3.0/config.yaml
+	deleted:    engines/1.3.0/kingside-engine-bridge-linux-amd64
+	deleted:    engines/1.4.0/config.yaml
+	deleted:    engines/1.4.0/kingside-engine-bridge-linux-amd64
+	deleted:    engines/1.5.0/config.yaml
+	deleted:    engines/1.5.0/kingside-engine-bridge-linux-amd64
+	deleted:    engines/1.6.0/config.yaml
+	deleted:    engines/1.6.0/kingside-engine-bridge-linux-amd64
+	deleted:    engines/1.7.0/config.yaml
+	deleted:    engines/1.7.0/kingside-engine-bridge-linux-amd64
+	deleted:    engines/config.yaml
+	deleted:    engines/kingside-engine-bridge-linux-amd64
+	deleted:    engines/stockfish-ubuntu-x86-64-avx2.tar
+	deleted:    engines/stockfish/AUTHORS
+	deleted:    engines/stockfish/CITATION.cff
+	deleted:    engines/stockfish/CONTRIBUTING.md
+	deleted:    engines/stockfish/Copying.txt
+	deleted:    engines/stockfish/README.md
+	deleted:    engines/stockfish/Top CPU Contributors.txt
+	deleted:    engines/stockfish/scripts/get_native_properties.sh
+	deleted:    engines/stockfish/scripts/net.sh
+	deleted:    engines/stockfish/src/Makefile
+	deleted:    engines/stockfish/src/benchmark.cpp
+	deleted:    engines/stockfish/src/benchmark.h
+	deleted:    engines/stockfish/src/bitboard.cpp
+	deleted:    engines/stockfish/src/bitboard.h
+	deleted:    engines/stockfish/src/engine.cpp
+	deleted:    engines/stockfish/src/engine.h
+	deleted:    engines/stockfish/src/evaluate.cpp
+	deleted:    engines/stockfish/src/evaluate.h
+	deleted:    engines/stockfish/src/history.h
+	deleted:    engines/stockfish/src/incbin/UNLICENCE
+	deleted:    engines/stockfish/src/incbin/incbin.h
+	deleted:    engines/stockfish/src/main.cpp
+	deleted:    engines/stockfish/src/memory.cpp
+	deleted:    engines/stockfish/src/memory.h
+	deleted:    engines/stockfish/src/misc.cpp
+	deleted:    engines/stockfish/src/misc.h
+	deleted:    engines/stockfish/src/movegen.cpp
+	deleted:    engines/stockfish/src/movegen.h
+	deleted:    engines/stockfish/src/movepick.cpp
+	deleted:    engines/stockfish/src/movepick.h
+	deleted:    engines/stockfish/src/nnue/features/full_threats.cpp
+	deleted:    engines/stockfish/src/nnue/features/full_threats.h
+	deleted:    engines/stockfish/src/nnue/features/half_ka_v2_hm.cpp
+	deleted:    engines/stockfish/src/nnue/features/half_ka_v2_hm.h
+	deleted:    engines/stockfish/src/nnue/layers/affine_transform.h
+	deleted:    engines/stockfish/src/nnue/layers/affine_transform_sparse_input.h
+	deleted:    engines/stockfish/src/nnue/layers/clipped_relu.h
+	deleted:    engines/stockfish/src/nnue/layers/sqr_clipped_relu.h
+	deleted:    engines/stockfish/src/nnue/network.cpp
+	deleted:    engines/stockfish/src/nnue/network.h
+	deleted:    engines/stockfish/src/nnue/nnue_accumulator.cpp
+	deleted:    engines/stockfish/src/nnue/nnue_accumulator.h
+	deleted:    engines/stockfish/src/nnue/nnue_architecture.h
+	deleted:    engines/stockfish/src/nnue/nnue_common.h
+	deleted:    engines/stockfish/src/nnue/nnue_feature_transformer.h
+	deleted:    engines/stockfish/src/nnue/nnue_misc.cpp
+	deleted:    engines/stockfish/src/nnue/nnue_misc.h
+	deleted:    engines/stockfish/src/nnue/simd.h
+	deleted:    engines/stockfish/src/numa.h
+	deleted:    engines/stockfish/src/perft.h
+	deleted:    engines/stockfish/src/position.cpp
+	deleted:    engines/stockfish/src/position.h
+	deleted:    engines/stockfish/src/score.cpp
+	deleted:    engines/stockfish/src/score.h
+	deleted:    engines/stockfish/src/search.cpp
+	deleted:    engines/stockfish/src/search.h
+	deleted:    engines/stockfish/src/shm.h
+	deleted:    engines/stockfish/src/shm_linux.h
+	deleted:    engines/stockfish/src/syzygy/tbprobe.cpp
+	deleted:    engines/stockfish/src/syzygy/tbprobe.h
+	deleted:    engines/stockfish/src/thread.cpp
+	deleted:    engines/stockfish/src/thread.h
+	deleted:    engines/stockfish/src/thread_win32_osx.h
+	deleted:    engines/stockfish/src/timeman.cpp
+	deleted:    engines/stockfish/src/timeman.h
+	deleted:    engines/stockfish/src/tt.cpp
+	deleted:    engines/stockfish/src/tt.h
+	deleted:    engines/stockfish/src/tune.cpp
+	deleted:    engines/stockfish/src/tune.h
+	deleted:    engines/stockfish/src/types.h
+	deleted:    engines/stockfish/src/uci.cpp
+	deleted:    engines/stockfish/src/uci.h
+	deleted:    engines/stockfish/src/ucioption.cpp
+	deleted:    engines/stockfish/src/ucioption.h
+	deleted:    engines/stockfish/stockfish-ubuntu-x86-64-avx2
+	deleted:    engines/stockfish/wiki/Advanced-topics.md
+	deleted:    engines/stockfish/wiki/Compiling-from-source.md
+	deleted:    engines/stockfish/wiki/Developers.md
+	deleted:    engines/stockfish/wiki/Download-and-usage.md
+	deleted:    engines/stockfish/wiki/Governance-and-responsibilities.md
+	deleted:    engines/stockfish/wiki/Home.md
+	deleted:    engines/stockfish/wiki/Regression-Tests.md
+	deleted:    engines/stockfish/wiki/Stockfish-FAQ.md
+	deleted:    engines/stockfish/wiki/Terminology.md
+	deleted:    engines/stockfish/wiki/UCI-&-Commands.md
+	deleted:    engines/stockfish/wiki/Useful-data.md
+	deleted:    engines/stockfish/wiki/_Footer.md
+	deleted:    eslint.config.mjs
+	deleted:    follow.sh
+	deleted:    infra/aws/.gitignore
+	deleted:    infra/aws/ecs-task-execution-role-trust.json
+	deleted:    infra/aws/ecs-task-role-policy.json
+	deleted:    infra/aws/ecs-task-role-trust.json
+	deleted:    infra/aws/kingside-ci-policy.json
+	deleted:    infra/aws/lambda-prewarm/index.py
+	deleted:    infra/aws/migrate-db.sh
+	deleted:    infra/aws/setup-acm-dns.sh
+	deleted:    infra/aws/setup-alb.sh
+	deleted:    infra/aws/setup-cloudfront.sh
+	deleted:    infra/aws/setup-connections-scaling.sh.REMOVED
+	deleted:    infra/aws/setup-ecr.sh
+	deleted:    infra/aws/setup-ecs-cluster.sh
+	deleted:    infra/aws/setup-ecs-service.sh
+	deleted:    infra/aws/setup-elasticache.sh
+	deleted:    infra/aws/setup-iam.sh
+	deleted:    infra/aws/setup-prewarm-lambda.sh
+	deleted:    infra/aws/setup-rds.sh
+	deleted:    infra/aws/setup-s3-frontend.sh
+	deleted:    infra/aws/setup-task-definition.sh
+	deleted:    infra/aws/setup-vpc.sh
+	deleted:    infra/aws/setup-worker-task-definitions.sh
+	deleted:    infra/grafana/provisioning/datasources/loki.yml
+	deleted:    infra/loki/loki-config.yml
+	deleted:    infra/nginx/kingside-upstream.conf
+	deleted:    infra/nginx/kingside.conf
+	deleted:    infra/promtail/promtail-config.yml
+	deleted:    justfile
+	deleted:    k6/01-auth-rest.js
+	deleted:    k6/02-matchmaking-game.js
+	deleted:    k6/03-spectators.js
+	deleted:    k6/04-broadcasts.js
+	deleted:    k6/05-combined.js
+	deleted:    k6/06-concurrent-games.js
+	deleted:    k6/config.js
+	deleted:    k6/helpers.js
+	deleted:    k6/seed-users.sh
+	deleted:    load-bots/package.json
+	deleted:    load-bots/src/arena-worker.ts
+	deleted:    load-bots/src/bot-user.ts
+	deleted:    load-bots/src/chess-brain.ts
+	deleted:    load-bots/src/config.ts
+	deleted:    load-bots/src/index.ts
+	deleted:    load-bots/src/metrics.ts
+	deleted:    load-bots/src/run-arena-workers.ts
+	deleted:    load-bots/src/run-arena.ts
+	deleted:    load-bots/src/run-matchmaking.ts
+	deleted:    load-bots/src/run-puzzles.ts
+	deleted:    load-bots/src/run-round-robin.ts
+	deleted:    load-bots/src/run-spectator.ts
+	deleted:    load-bots/src/run-swiss.ts
+	deleted:    load-bots/src/run.ts
+	deleted:    load-bots/src/scenarios/arena.ts
+	deleted:    load-bots/src/scenarios/broadcast.ts
+	deleted:    load-bots/src/scenarios/matchmaking-game.ts
+	deleted:    load-bots/src/scenarios/puzzle.ts
+	deleted:    load-bots/src/scenarios/round-robin.ts
+	deleted:    load-bots/src/scenarios/spectator.ts
+	deleted:    load-bots/src/scenarios/swiss.ts
+	deleted:    load-bots/tsconfig.json
+	deleted:    package-lock.json
+	deleted:    qa/reports/KS-170-just-up-migration.md
+	deleted:    qa/reports/KS-252-253-254-reverification.md
+	deleted:    qa/reports/KS-265-puzzle-rush-mobile-verification.md
+	deleted:    qa/reports/KS-281-reverification.md
+	deleted:    tests/__pycache__/test_split_message.cpython-312.pyc
+	deleted:    tests/__pycache__/test_telegram_message_split.cpython-312.pyc
+	deleted:    tests/test_split_message.py
+	deleted:    tests/test_telegram_message_split.py
+	deleted:    tools/engine-bridge/.gitignore
+	deleted:    tools/engine-bridge/config.example.yaml
+	deleted:    tools/engine-bridge/config.go
+	deleted:    tools/engine-bridge/config_test.go
+	deleted:    tools/engine-bridge/engine.go
+	deleted:    tools/engine-bridge/go.mod
+	deleted:    tools/engine-bridge/go.sum
+	deleted:    tools/engine-bridge/main.go
+	deleted:    tools/engine-bridge/protocol.go
+	deleted:    tools/engine-bridge/protocol_test.go
+	deleted:    tools/engine-bridge/server.go
+	deleted:    tools/engine-bridge/tls.go
+	deleted:    tools/mcp-kingside.mjs
+	deleted:    tools/tracker/config.yaml
+	deleted:    tools/tracker/import_jira.py
+	deleted:    tools/tracker/main.py
+	deleted:    tools/tracker/requirements.txt
+	deleted:    tsconfig.base.json
+	deleted:    tunnel.sh
+	deleted:    turbo.json
+	deleted:    webhook-server.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.claude/settings.local.json
+	apps/web/.turbo/
+	apps/web/dist/
+	apps/web/node_modules/
+	apps/web/public/version.json
+	logs/KS-12_backend.log
+	logs/KS-13_backend.log
+	logs/KS-14_backend.log
+	logs/KS-15_backend.log
+	logs/KS-16_frontend.log
+	logs/KS-17_qa.log
+	logs/KS-5_architect.log
+	logs/KS-8_backend.log
+	logs/KS-9_frontend.log
+	logs/agents.log
+	logs/agents_20260315_114930.log
+	logs/agents_20260315_124151.log
+	logs/agents_20260315_132211.log
+	logs/agents_20260315_200909.log
+	logs/agents_20260316_075712.log
+	logs/agents_20260316_081513.log
+	logs/agents_20260316_082003.log
+	logs/agents_20260316_100647.log
+	logs/agents_20260316_103219.log
+	logs/agents_20260316_155542.log
+	logs/agents_20260316_164319.log
+	logs/agents_20260316_184653.log
+	logs/agents_20260316_192828.log
+	logs/agents_20260316_200045.log
+	logs/agents_20260317_070223.log
+	logs/agents_20260317_091438.log
+	logs/agents_20260317_093022.log
+	logs/agents_20260317_120836.log
+	logs/agents_20260317_194212.log
+	logs/agents_20260318_113136.log
+	logs/agents_20260318_192201.log
+	logs/agents_20260318_204310.log
+	logs/agents_20260319_065801.log
+	logs/agents_20260319_084545.log
+	logs/agents_20260319_090308.log
+	logs/agents_20260320_200054.log
+	logs/agents_20260320_203759.log
+	logs/agents_20260321_074548.log
+	logs/agents_20260321_143244.log
+	logs/agents_20260321_153218.log
+	logs/agents_20260321_174332.log
+	logs/agents_20260321_205426.log
+	logs/agents_20260322_115426.log
+	logs/agents_20260324_115410.log
+	logs/agents_20260325_170150.log
+	logs/agents_20260325_221753.log
+	logs/agents_20260325_222431.log
+	logs/agents_20260325_222845.log
+	logs/agents_20260325_223237.log
+	logs/agents_20260325_223537.log
+	logs/agents_20260325_223751.log
+	logs/agents_20260325_224154.log
+	logs/agents_20260326_070508.log
+	logs/agents_20260326_070946.log
+	logs/agents_20260326_071323.log
+	logs/agents_20260326_071650.log
+	logs/agents_20260326_071830.log
+	logs/agents_20260326_072155.log
+	logs/agents_20260326_072732.log
+	logs/agents_20260326_073004.log
+	logs/agents_20260326_073255.log
+	logs/agents_20260326_073634.log
+	logs/agents_20260326_075945.log
+	logs/agents_20260326_085448.log
+	logs/agents_20260327_112537.log
+	logs/agents_20260328_071012.log
+	logs/agents_20260329_095952.log
+	logs/agents_20260330_065922.log
+	logs/agents_20260331_065918.log
+	logs/agents_20260331_075558.log
+	logs/agents_20260331_075932.log
+	logs/agents_20260331_080140.log
+	logs/agents_20260331_081048.log
+	logs/agents_20260331_103537.log
+	logs/agents_20260331_215012.log
+	logs/agents_20260405_112026.log
+	logs/agents_20260406_070230.log
+	logs/agents_20260406_071127.log
+	logs/agents_20260407_104824.log
+	logs/agents_20260408_091039.log
+	logs/agents_20260408_140909.log
+	logs/agents_20260408_142059.log
+	logs/agents_20260409_070551.log
+	logs/agents_20260410_094412.log
+	logs/agents_20260411_065504.log
+	logs/agents_20260411_071643.log
+	logs/agents_20260411_071722.log
+	logs/agents_20260411_071739.log
+	logs/agents_20260411_071916.log
+	logs/agents_20260411_073030.log
+	logs/agents_20260412_085915.log
+	logs/agents_20260412_090951.log
+	logs/agents_20260412_095247.log
+	logs/agents_20260412_095529.log
+	logs/agents_20260413_091016.log
+	logs/agents_20260413_111932.log
+	logs/agents_20260414_070112.log
+	logs/agents_20260414_162507.log
+	logs/agents_20260414_162533.log
+	logs/agents_20260414_164141.log
+	logs/agents_20260414_164813.log
+	logs/agents_20260414_172943.log
+	logs/agents_20260414_173402.log
+	logs/agents_20260414_184458.log
+	logs/agents_20260414_184609.log
+	logs/agents_20260414_192053.log
+	logs/agents_20260414_192257.log
+	logs/agents_20260414_192610.log
+	logs/agents_20260414_192806.log
+	logs/agents_20260414_194321.log
+	logs/agents_20260414_200532.log
+	logs/agents_20260415_071914.log
+	logs/agents_20260415_073325.log
+	logs/agents_20260415_103309.log
+	logs/agents_20260416_090815.log
+	logs/agents_20260416_101631.log
+	logs/agents_20260416_102008.log
+	logs/agents_20260416_103023.log
+	logs/agents_20260416_103145.log
+	logs/agents_20260416_103420.log
+	logs/agents_20260416_103621.log
+	logs/agents_20260416_104402.log
+	logs/agents_20260416_104918.log
+	logs/agents_20260416_105401.log
+	logs/agents_20260416_113830.log
+	logs/agents_20260416_114319.log
+	logs/agents_20260416_114755.log
+	logs/agents_20260416_132440.log
+	logs/agents_20260416_132820.log
+	logs/agents_20260416_140324.log
+	logs/agents_20260416_142157.log
+	logs/agents_20260416_142341.log
+	logs/agents_20260416_142515.log
+	logs/agents_20260416_144837.log
+	logs/agents_20260416_145101.log
+	logs/agents_20260416_145513.log
+	logs/agents_20260416_154401.log
+	logs/agents_20260416_155638.log
+	logs/agents_20260416_180558.log
+	logs/agents_20260416_181227.log
+	logs/agents_20260416_182422.log
+	logs/agents_20260416_182600.log
+	logs/agents_20260416_182859.log
+	logs/agents_20260416_185853.log
+	logs/agents_20260416_191148.log
+	logs/agents_20260416_192803.log
+	logs/api-dev.log
+	logs/api-stderr.log
+	logs/api-stdout.log
+	logs/arena-100-nodelay.log
+	logs/arena-100-nolimit.log
+	logs/arena-100-opt.log
+	logs/arena-100.log
+	logs/arena-200-1inst.log
+	logs/arena-200-2inst.log
+	logs/arena-200-4inst.log
+	logs/arena-200-autoscale.log
+	logs/arena-200-autoscale2.log
+	logs/arena-200-nodelay.log
+	logs/arena-200-nolimit.log
+	logs/arena-200-opt.log
+	logs/arena-200-timing.log
+	logs/arena-200.log
+	logs/arena-400-1vcpu.log
+	logs/arena-400-2inst.log
+	logs/arena-400-2x05vcpu.log
+	logs/arena-400-noblock.log
+	logs/arena-400-nodelay.log
+	logs/arena-400-opt.log
+	logs/arena-400-opt2.log
+	logs/arena-400-think.log
+	logs/dispatcher.log
+	logs/ecs-100-nodelay.log
+	logs/ecs-100-nolimit.log
+	logs/ecs-100-opt.log
+	logs/ecs-100.log
+	logs/ecs-200-1inst.log
+	logs/ecs-200-2inst.log
+	logs/ecs-200-4inst.log
+	logs/ecs-200-autoscale.log
+	logs/ecs-200-autoscale2.log
+	logs/ecs-200-nodelay.log
+	logs/ecs-200-nolimit.log
+	logs/ecs-200-opt.log
+	logs/ecs-200-timing.log
+	logs/ecs-200.log
+	logs/ecs-400-1vcpu.log
+	logs/ecs-400-2inst.log
+	logs/ecs-400-2x05vcpu.log
+	logs/ecs-400-noblock.log
+	logs/ecs-400-nodelay.log
+	logs/ecs-400-opt.log
+	logs/ecs-400-opt2.log
+	logs/launched.json
+	logs/sessions.json
+	logs/tracker-stdout.log
+	logs/tunnel.log
+	logs/webhook-dump.json
+	logs/webhook-stdout.log
+	logs/webhook.log
+	node_modules/
+	packages/shared/.turbo/
+	packages/shared/dist/
+	scripts/prevent-worktree-install.sh
+	scripts/watch-node-modules.sh
+
+no changes added to commit (use "git add" and/or "git commit -a")
+67e215a9 internal: remove worktrees, agents work in /project
+f7778073 internal: disable session resume, agents get context from tracker
+33733385 internal: remove duplicate agent_init log entry
+c272af0b internal: fix playwright npx, remove post-merge-restart, add scripts volume
+3d14de90 internal: document /api-start for frontend and layout

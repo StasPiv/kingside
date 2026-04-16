@@ -13,7 +13,7 @@
 
 import * as fs from 'fs';
 import * as readline from 'readline';
-import { PrismaClient, Prisma } from '../generated/prisma/client';
+import { PrismaClient, Prisma } from '@kingside/db';
 import { parseLine } from './parse-puzzle-csv';
 
 const prisma = new PrismaClient();

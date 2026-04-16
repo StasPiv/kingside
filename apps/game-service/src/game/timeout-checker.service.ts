@@ -3,7 +3,7 @@ import { RedisService } from '../redis/redis.service';
 import { GameService } from './game.service';
 import { GameGateway } from './game.gateway';
 import { DEADLINES_KEY } from './game-clock.service';
-import { GameResult } from '../generated/prisma/enums';
+import { GameResult } from '@kingside/db';
 
 /** Check for timed-out games every 5 seconds */
 const CHECK_INTERVAL_MS = 5_000;
