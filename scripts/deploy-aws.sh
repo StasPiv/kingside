@@ -5,6 +5,7 @@
 #   bash scripts/deploy-aws.sh            — auto-detect scope
 #   bash scripts/deploy-aws.sh frontend   — force frontend only
 #   bash scripts/deploy-aws.sh api        — force API only
+#   bash scripts/deploy-aws.sh game-service — force game-service only
 #   bash scripts/deploy-aws.sh all        — force full deploy
 
 set -euo pipefail
@@ -16,11 +17,13 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REGION="${AWS_DEFAULT_REGION:-eu-central-1}"
 ACCOUNT_ID="342946498289"
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
+ECR_URI_GAME="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-game-service"
 ECR_URI_BROADCAST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-worker"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
 ECS_SERVICE="kingside-api"
+ECS_SERVICE_GAME="kingside-game-service"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
 PROD_API_URL="${VITE_API_URL:-https://kingside.site}"
 PROD_GAME_URL="${VITE_GAME_URL:-wss://game.kingside.site}"
@@ -34,9 +37,6 @@ if [ -f "$REPO_DIR/.env" ]; then
     set +a
 fi
 
-# Export AWS credentials from .env
-export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY:-}"
-export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-}"
 export AWS_DEFAULT_REGION="$REGION"
 
 # --- Helpers ---
@@ -95,30 +95,47 @@ detect_deploy_scope() {
 
     local has_frontend=false
     local has_api=false
+    local has_game=false
     local has_broadcast=false
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
         case "$file" in
-            apps/web/*|packages/shared/*)
+            apps/web/*)
                 has_frontend=true ;;
-            apps/api/*|docker-compose.yml|Dockerfile|prisma/*|packages/shared/*)
+            apps/api/*)
                 has_api=true ;;
+            apps/game-service/*)
+                has_game=true ;;
             apps/broadcast-worker/*)
                 has_broadcast=true ;;
+            packages/shared/*)
+                has_frontend=true
+                has_api=true
+                has_game=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
+                has_game=true
                 has_broadcast=true ;;
         esac
     done <<< "$changed_files"
 
-    if $has_frontend && $has_api; then
+    # Multiple services changed → deploy all
+    local count=0
+    $has_frontend && count=$((count + 1))
+    $has_api && count=$((count + 1))
+    $has_game && count=$((count + 1))
+    $has_broadcast && count=$((count + 1))
+
+    if [ "$count" -gt 1 ]; then
         echo "all"
     elif $has_frontend; then
         echo "frontend"
     elif $has_api; then
         echo "api"
+    elif $has_game; then
+        echo "game-service"
     elif $has_broadcast; then
         echo "broadcast-worker"
     else
@@ -147,14 +164,15 @@ fi
 
 DEPLOY_FRONTEND=false
 DEPLOY_API=false
+DEPLOY_GAME=false
 DEPLOY_BROADCAST=false
 
 case "$SCOPE" in
     frontend)         DEPLOY_FRONTEND=true ;;
     api)              DEPLOY_API=true ;;
+    game-service)     DEPLOY_GAME=true ;;
     broadcast-worker) DEPLOY_BROADCAST=true ;;
-    workers)          DEPLOY_BROADCAST=true ;;
-    all)              DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_BROADCAST=true ;;
+    all)              DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true ;;
     *)                echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
@@ -211,6 +229,25 @@ if $DEPLOY_API; then
 
     echo "[api] Updating ECS service..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+        --force-new-deployment --query 'service.deployments[0].status' --output text
+    echo "  ECS service update initiated."
+fi
+
+# --- Game Service: docker build → ECR push → ECS update ---
+if $DEPLOY_GAME; then
+    echo "[game-service] Logging in to ECR..."
+    aws ecr get-login-password --region "$REGION" | \
+        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+
+    echo "[game-service] Building Docker image..."
+    docker build -t kingside-game-service:latest -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR"
+
+    echo "[game-service] Pushing to ECR..."
+    docker tag kingside-game-service:latest "${ECR_URI_GAME}:latest"
+    docker push "${ECR_URI_GAME}:latest" 2>&1 | tail -3
+
+    echo "[game-service] Updating ECS service..."
+    aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_GAME" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
 fi
