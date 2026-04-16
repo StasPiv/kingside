@@ -562,8 +562,31 @@ def handle_feedback_notify(handler):
     handler.wfile.write(json.dumps({"ok": True}).encode())
 
 
-AI_CHAT_TIMEOUT = 55
+AI_CHAT_TIMEOUT = 45
+AI_CHAT_IDLE_TTL = 600  # 10 minutes
 MCP_SERVER_PATH = os.path.join(PROJECT_DIR, "tools", "mcp-kingside.mjs")
+
+MCP_ALLOWED_TOOLS = [
+    "mcp__kingside__get_user_analyses",
+    "mcp__kingside__get_game_details",
+    "mcp__kingside__get_user_tournaments",
+    "mcp__kingside__search_games",
+    "mcp__kingside__get_puzzle_stats_by_theme",
+    "mcp__kingside__get_user_profile",
+    "mcp__kingside__get_player_profile",
+    "mcp__kingside__get_friends",
+    "mcp__kingside__get_online_players",
+    "mcp__kingside__get_daily_puzzle",
+    "mcp__kingside__get_puzzle_rush_leaderboard",
+    "mcp__kingside__get_puzzle_rating_history",
+    "mcp__kingside__get_broadcasts",
+    "mcp__kingside__get_workshop_files",
+    "mcp__kingside__get_feedback_list",
+    "mcp__kingside__get_user_settings",
+    "mcp__kingside__get_game_history",
+    "mcp__kingside__get_active_games",
+    "mcp__kingside__navigate",
+]
 
 
 def _build_mcp_config(user_id, user_token=""):
@@ -584,8 +607,210 @@ def _build_mcp_config(user_id, user_token=""):
     }
 
 
+# ---------------------------------------------------------------------------
+# ChatDaemon — долгоживущий процесс claude для AI-чата (один на пользователя)
+# ---------------------------------------------------------------------------
+
+chat_daemons: dict[str, "ChatDaemon"] = {}
+chat_daemons_lock = threading.Lock()
+
+
+class ChatDaemon:
+    """Daemon claude CLI для одного пользователя чата."""
+
+    def __init__(self, user_id: str, user_token: str = ""):
+        self.user_id = user_id
+        self.user_token = user_token
+        self.proc: subprocess.Popen | None = None
+        self.lock = threading.Lock()
+        self._reader_thread: threading.Thread | None = None
+        self._last_activity = time.time()
+        self._mcp_config_path: str | None = None
+        # Для синхронного ожидания ответа
+        self._response_text = ""
+        self._response_ready = threading.Event()
+        self._collecting = False
+
+    def _build_cmd(self, system_prompt: str = "") -> list[str]:
+        cmd = [
+            "claude", "-p",
+            "--model", "sonnet",
+            "--input-format", "stream-json",
+            "--output-format", "stream-json",
+            "--no-session-persistence",
+            "--verbose",
+        ]
+        if self._mcp_config_path:
+            cmd.extend(["--mcp-config", self._mcp_config_path])
+            cmd.extend(["--allowedTools"] + MCP_ALLOWED_TOOLS)
+        if system_prompt:
+            cmd.extend(["--system-prompt", system_prompt])
+        return cmd
+
+    def start(self, system_prompt: str = ""):
+        """Запускает daemon-процесс claude."""
+        # Создаём MCP config
+        mcp_config = _build_mcp_config(self.user_id, self.user_token)
+        self._mcp_config_path = f"/tmp/mcp-chat-{self.user_id[:8]}.json"
+        with open(self._mcp_config_path, "w") as f:
+            json.dump(mcp_config, f)
+
+        env = os.environ.copy()
+        env.pop("CLAUDECODE", None)
+        cmd = self._build_cmd(system_prompt)
+
+        log_file = os.path.join(LOG_DIR, "agents.log")
+        with open(log_file, "a") as lf:
+            self.proc = subprocess.Popen(
+                cmd, cwd="/tmp", env=env,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=lf,
+                start_new_session=True, text=True, bufsize=1,
+            )
+
+        self._last_activity = time.time()
+        log(f"ChatDaemon {self.user_id[:8]}: started (PID: {self.proc.pid})")
+
+        self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
+        self._reader_thread.start()
+
+    def _read_stdout(self):
+        """Читает stream-json stdout, собирает текстовый ответ."""
+        proc = self.proc
+        try:
+            for line in iter(proc.stdout.readline, ""):
+                line_s = line.strip()
+                if not line_s:
+                    continue
+                try:
+                    data = json.loads(line_s)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+
+                msg_type = data.get("type", "")
+
+                # Собираем текстовые блоки ответа
+                if msg_type == "assistant" and self._collecting:
+                    message = data.get("message", {})
+                    for block in message.get("content", []):
+                        if block.get("type") == "text":
+                            self._response_text += block.get("text", "")
+
+                # result означает конец обработки
+                if msg_type == "result":
+                    result_text = data.get("result", "")
+                    if result_text and not self._response_text:
+                        self._response_text = result_text
+                    cost = data.get("total_cost_usd", 0)
+                    log(f"ChatDaemon {self.user_id[:8]}: result (${cost:.4f}), len={len(self._response_text)}")
+                    self._collecting = False
+                    self._response_ready.set()
+
+        except Exception as e:
+            log(f"ChatDaemon {self.user_id[:8]}: reader error: {e}")
+        finally:
+            if proc.stdout:
+                proc.stdout.close()
+            log(f"ChatDaemon {self.user_id[:8]}: reader done")
+            # Signal waiting callers
+            self._response_ready.set()
+
+    def send_and_wait(self, message: str, timeout: float = AI_CHAT_TIMEOUT) -> str | None:
+        """Отправляет сообщение и ждёт ответа. Возвращает текст или None при таймауте."""
+        if not self.proc or self.proc.poll() is not None:
+            return None
+
+        self._response_text = ""
+        self._response_ready.clear()
+        self._collecting = True
+        self._last_activity = time.time()
+
+        msg_json = json.dumps({
+            "type": "user",
+            "message": {"role": "user", "content": message},
+        })
+
+        try:
+            self.proc.stdin.write(msg_json + "\n")
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            log(f"ChatDaemon {self.user_id[:8]}: write error: {e}")
+            self._collecting = False
+            return None
+
+        if self._response_ready.wait(timeout=timeout):
+            self._last_activity = time.time()
+            return self._response_text
+        else:
+            log(f"ChatDaemon {self.user_id[:8]}: timeout ({timeout}s)")
+            self._collecting = False
+            return None
+
+    def is_alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+    def is_idle(self) -> bool:
+        return time.time() - self._last_activity > AI_CHAT_IDLE_TTL
+
+    def stop(self):
+        """Останавливает daemon."""
+        with self.lock:
+            if not self.proc:
+                return
+            try:
+                self.proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                self.proc.terminate()
+                self.proc.wait(timeout=5)
+            except Exception:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+            self.proc = None
+        if self._mcp_config_path:
+            try:
+                os.unlink(self._mcp_config_path)
+            except Exception:
+                pass
+        log(f"ChatDaemon {self.user_id[:8]}: stopped")
+
+
+def _chat_daemon_cleanup_loop():
+    """Фоновый поток: убивает idle chat daemons каждые 60 сек."""
+    while True:
+        time.sleep(60)
+        to_remove = []
+        with chat_daemons_lock:
+            for uid, daemon in chat_daemons.items():
+                if not daemon.is_alive() or daemon.is_idle():
+                    to_remove.append(uid)
+            for uid in to_remove:
+                daemon = chat_daemons.pop(uid)
+                daemon.stop()
+        if to_remove:
+            log(f"ChatDaemon cleanup: removed {len(to_remove)} idle daemons")
+
+
+def _get_or_create_chat_daemon(user_id: str, user_token: str, system_prompt: str) -> ChatDaemon:
+    """Возвращает существующий daemon или создаёт новый."""
+    with chat_daemons_lock:
+        daemon = chat_daemons.get(user_id)
+        if daemon and daemon.is_alive():
+            return daemon
+        # Убираем мёртвый daemon
+        if daemon:
+            daemon.stop()
+        # Создаём новый
+        daemon = ChatDaemon(user_id, user_token)
+        daemon.start(system_prompt)
+        chat_daemons[user_id] = daemon
+        return daemon
+
+
 def handle_ai_chat(handler):
-    """Обрабатывает POST /ai-chat — вызов Claude CLI с MCP tools."""
+    """Обрабатывает POST /ai-chat — daemon на каждого пользователя."""
     content_length = int(handler.headers.get("Content-Length", 0))
     body = handler.rfile.read(content_length)
     try:
@@ -599,7 +824,6 @@ def handle_ai_chat(handler):
 
     message = payload.get("message", "").strip()
     system_prompt = payload.get("systemPrompt", "").strip()
-    history = payload.get("history", [])
     user_id = payload.get("userId", "")
     user_token = payload.get("userToken", "")
 
@@ -610,80 +834,34 @@ def handle_ai_chat(handler):
         handler.wfile.write(json.dumps({"error": "missing message"}).encode())
         return
 
-    # Формируем промпт: history + текущее сообщение
-    prompt_parts = []
-    for entry in history:
-        role = entry.get("role", "user")
-        content = entry.get("content", "")
-        if role == "user":
-            prompt_parts.append(f"User: {content}")
-        elif role == "assistant":
-            prompt_parts.append(f"Assistant: {content}")
-    prompt_parts.append(f"User: {message}")
-    full_prompt = "\n\n".join(prompt_parts)
+    if not user_id:
+        handler.send_response(400)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({"error": "missing userId"}).encode())
+        return
 
-    # Write temporary MCP config if userId is provided
-    mcp_config_path = None
-    if user_id:
-        mcp_config = _build_mcp_config(user_id, user_token)
-        mcp_config_path = f"/tmp/mcp-chat-{os.getpid()}-{id(handler)}.json"
-        with open(mcp_config_path, "w") as f:
-            json.dump(mcp_config, f)
-
-    cmd = [
-        "claude", "-p",
-        "--model", "sonnet",
-        "--output-format", "text",
-        "--no-session-persistence",
-    ]
-    if mcp_config_path:
-        cmd.extend(["--mcp-config", mcp_config_path])
-        cmd.extend([
-            "--allowedTools",
-            "mcp__kingside__get_user_analyses",
-            "mcp__kingside__get_game_details",
-            "mcp__kingside__get_user_tournaments",
-            "mcp__kingside__search_games",
-            "mcp__kingside__get_puzzle_stats_by_theme",
-            "mcp__kingside__get_user_profile",
-            "mcp__kingside__get_player_profile",
-            "mcp__kingside__get_friends",
-            "mcp__kingside__get_online_players",
-            "mcp__kingside__get_daily_puzzle",
-            "mcp__kingside__get_puzzle_rush_leaderboard",
-            "mcp__kingside__get_puzzle_rating_history",
-            "mcp__kingside__get_broadcasts",
-            "mcp__kingside__get_workshop_files",
-            "mcp__kingside__get_feedback_list",
-            "mcp__kingside__get_user_settings",
-            "mcp__kingside__get_game_history",
-            "mcp__kingside__get_active_games",
-            "mcp__kingside__navigate",
-        ])
-    if system_prompt:
-        cmd.extend(["--system-prompt", system_prompt])
-    cmd.append(full_prompt)
-
-    log(f"AI chat: msg={message[:80]}, history={len(history)} turns, userId={user_id[:8] if user_id else '-'}, mcp={'yes' if mcp_config_path else 'no'}")
-
-    env = os.environ.copy()
+    log(f"AI chat: msg={message[:80]}, userId={user_id[:8]}")
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=AI_CHAT_TIMEOUT,
-            cwd="/tmp",
-            env=env,
-        )
-        response_text = result.stdout.strip()
-        if result.returncode != 0:
-            log(f"AI chat error: rc={result.returncode}, stderr={result.stderr[:200]}")
-            handler.send_response(500)
+        daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt)
+        response_text = daemon.send_and_wait(message, timeout=AI_CHAT_TIMEOUT)
+
+        if response_text is None:
+            # Daemon died or timeout — kill and retry once
+            log(f"AI chat: daemon failed for {user_id[:8]}, retrying")
+            with chat_daemons_lock:
+                old = chat_daemons.pop(user_id, None)
+                if old:
+                    old.stop()
+            daemon = _get_or_create_chat_daemon(user_id, user_token, system_prompt)
+            response_text = daemon.send_and_wait(message, timeout=AI_CHAT_TIMEOUT)
+
+        if response_text is None:
+            handler.send_response(504)
             handler.send_header("Content-Type", "application/json")
             handler.end_headers()
-            handler.wfile.write(json.dumps({"error": "claude error", "detail": result.stderr[:500]}).encode())
+            handler.wfile.write(json.dumps({"error": "timeout"}).encode())
             return
 
         log(f"AI chat response: {response_text[:100]}")
@@ -691,13 +869,6 @@ def handle_ai_chat(handler):
         handler.send_header("Content-Type", "application/json")
         handler.end_headers()
         handler.wfile.write(json.dumps({"response": response_text}).encode())
-
-    except subprocess.TimeoutExpired:
-        log("AI chat timeout")
-        handler.send_response(504)
-        handler.send_header("Content-Type", "application/json")
-        handler.end_headers()
-        handler.wfile.write(json.dumps({"error": "timeout"}).encode())
 
     except Exception as e:
         log(f"AI chat exception: {e}")
@@ -1927,6 +2098,10 @@ if __name__ == "__main__":
     # Фоновая очистка worktrees закрытых задач
     cleanup_thread = threading.Thread(target=cleanup_stale_worktrees, daemon=True)
     cleanup_thread.start()
+
+    # Фоновая очистка idle chat daemons
+    chat_cleanup_thread = threading.Thread(target=_chat_daemon_cleanup_loop, daemon=True)
+    chat_cleanup_thread.start()
 
     class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         daemon_threads = True
