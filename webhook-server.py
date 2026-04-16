@@ -53,6 +53,9 @@ AGENT_VOLUMES = {
     ],
     "backend": _COMMON + [
         f"{_P}/apps/api:/project/apps/api",
+        f"{_P}/apps/game-service:/project/apps/game-service",
+        f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker",
+        f"{_P}/apps/matchmaker:/project/apps/matchmaker",
         f"{_P}/packages/shared:/project/packages/shared",
         f"{_P}/apps/api/node_modules:/project/apps/api/node_modules:ro",
     ],
