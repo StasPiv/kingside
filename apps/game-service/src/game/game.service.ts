@@ -216,7 +216,15 @@ export class GameService {
     }
 
     // --- CPU: chess.js validation ---
-    const chess = new Chess(raw.fen);
+    // Reconstruct chess.js from move history (required for isThreefoldRepetition)
+    const moves = JSON.parse(raw.moves || '[]') as { uci: string; san: string }[];
+    const chess = new Chess();
+    for (const m of moves) {
+      const hFrom = m.uci.substring(0, 2);
+      const hTo = m.uci.substring(2, 4);
+      const hPromotion = m.uci.length > 4 ? m.uci[4] : undefined;
+      chess.move({ from: hFrom, to: hTo, promotion: hPromotion });
+    }
 
     const from = uci.substring(0, 2);
     const to = uci.substring(2, 4);
@@ -244,7 +252,6 @@ export class GameService {
     };
 
     const newFen = chess.fen();
-    const moves = JSON.parse(raw.moves || '[]');
     moves.push({ uci: normalizedUci, san: move.san });
     const nextColor = activeColor === 'white' ? 'black' : 'white';
 
@@ -354,7 +361,15 @@ export class GameService {
       };
     }
 
-    const chess = new Chess(raw.fen);
+    // Reconstruct chess.js from move history (required for isThreefoldRepetition)
+    const moves = JSON.parse(raw.moves || '[]') as { uci: string; san: string }[];
+    const chess = new Chess();
+    for (const m of moves) {
+      const hFrom = m.uci.substring(0, 2);
+      const hTo = m.uci.substring(2, 4);
+      const hPromotion = m.uci.length > 4 ? m.uci[4] : undefined;
+      chess.move({ from: hFrom, to: hTo, promotion: hPromotion });
+    }
     const from = uci.substring(0, 2);
     const to = uci.substring(2, 4);
     let promotion = uci.length > 4 ? uci[4] : undefined;
@@ -378,7 +393,6 @@ export class GameService {
     };
 
     const newFen = chess.fen();
-    const moves = JSON.parse(raw.moves || '[]');
     moves.push({ uci: normalizedUci, san: move.san });
     const nextColor = activeColor === 'white' ? 'black' : 'white';
 
