@@ -70,11 +70,10 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
   - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
 - **Dev-сервер из worktree**: `/project/node_modules/.bin/vite apps/web --port 5174`. НЕ используй порт 5173 — там основной репо.
 - **Запуск API на хосте** (если нужен для проверки): `curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"`
-- **Playwright** — установлен ГЛОБАЛЬНО, вызывай напрямую: `playwright screenshot <url> <file.png>`. НЕ ищи в node_modules, НЕ используй npx/which/find. Для доступа без логина: `http://localhost:5174/?dev_bypass=secret`
+- **Playwright**: `npx playwright screenshot <url> <file.png>`. Для доступа без логина: `http://localhost:5174/?dev_bypass=secret`
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
-- После merge в main: `bash /project/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - НЕ пушить изменения на remote (git push запрещён)
 - При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода — коммит не нужен

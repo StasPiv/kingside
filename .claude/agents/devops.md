@@ -45,7 +45,6 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - **ПЕРВОЕ действие** при старте: `cd /project/.worktrees/KS-XX`
 - **НИКОГДА** не выполняй git-операции и не меняй файлы в `/project` напрямую
 - Мержить в main: `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
-- После merge в main: `bash /project/scripts/post-merge-restart.sh` (перезапускает dev watch)
 
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`

@@ -62,10 +62,12 @@ AGENT_VOLUMES = {
         f"{_P}/apps/web:/project/apps/web",
         f"{_P}/packages/shared:/project/packages/shared",
         f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
+        f"{_P}/scripts:/project/scripts:ro",
     ],
     "layout": _COMMON + [
         f"{_P}/apps/web/src:/project/apps/web/src",
         f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
+        f"{_P}/scripts:/project/scripts:ro",
     ],
     "devops": [
         f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",

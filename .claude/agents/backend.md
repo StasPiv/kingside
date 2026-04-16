@@ -76,7 +76,6 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 - Каждая задача — отдельная ветка: `feature/KS-XX`
 - Коммит-сообщения: `KS-XX: описание` (макс. 72 символа)
 - После завершения: смержи ветку в main командой `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
-- После merge в main: `bash /project/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - НЕ пушить изменения на remote (git push запрещён)
 - При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода (например, операция с БД, конфигурация) — коммит не нужен

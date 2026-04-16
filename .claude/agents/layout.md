@@ -60,10 +60,8 @@ cd /project/.worktrees/KS-XX
 # Запуск API на хосте (если нужен для скриншотов с реальными данными)
 curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
 
-# Playwright — установлен ГЛОБАЛЬНО, вызывай напрямую:
-playwright screenshot <url> <file.png>
-# НЕ ищи playwright в node_modules, НЕ используй npx, НЕ используй which/find
-# Просто вызывай команду playwright напрямую
+# Playwright
+npx playwright screenshot <url> <file.png>
 
 # Playwright доступ без логина
 # http://localhost:5174/?dev_bypass=secret
@@ -81,7 +79,6 @@ playwright screenshot <url> <file.png>
 - Ветка: `feature/KS-XX`
 - Коммит: `KS-XX: описание` (макс. 72 символа)
 - Мердж: `curl -s -X POST http://localhost:9876/merge -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"branch":"feature/KS-XX"}'`
-- После merge в main: `bash /project/scripts/post-merge-restart.sh` (перезапускает dev watch)
 - `packages/shared`: `dist/` в gitignore — не коммить
 
 ## Ограничения
