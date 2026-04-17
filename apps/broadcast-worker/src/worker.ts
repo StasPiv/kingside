@@ -1,4 +1,4 @@
-import { PrismaClient } from './generated/prisma/client.js';
+import { PrismaClient } from '@kingside/db';
 import Redis from 'ioredis';
 import { createHash } from 'crypto';
 import { Chess } from 'chess.js';
