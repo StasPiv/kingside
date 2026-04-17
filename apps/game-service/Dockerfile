@@ -42,7 +42,7 @@ RUN cd apps/game-service && DATABASE_URL="postgresql://dummy:dummy@localhost:543
 ENV STOCKFISH_PATH=/usr/games/stockfish
 ENV STOCKFISH_MAX_INSTANCES=4
 ENV NODE_ENV=production
-ENV PORT=3002
+ENV GAME_SERVICE_PORT=3002
 
 EXPOSE 3002
 

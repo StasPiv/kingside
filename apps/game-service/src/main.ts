@@ -40,7 +40,9 @@ async function bootstrap() {
     }
   }
 
-  const port = process.env.PORT || 3002;
+  // Используем собственную переменную, чтобы не конфликтовать с PORT API (3001)
+  // когда оба сервиса запускаются одним окружением (turbo run dev через justfile).
+  const port = process.env.GAME_SERVICE_PORT || 3002;
   await app.listen(port, '0.0.0.0');
   logger.log(`Game Service running on http://0.0.0.0:${port} [${INSTANCE_ID}]`);
 }
