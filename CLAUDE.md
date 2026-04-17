@@ -145,4 +145,8 @@ curl -s -X POST http://localhost:9876/npm-install \
 # Запуск API на хосте
 curl -s -X POST http://localhost:9876/api-start \
   -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
+
+# Полный запуск проекта (just up — infra + deps + migrate + dev)
+curl -s -X POST http://localhost:9876/up \
+  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
 ```

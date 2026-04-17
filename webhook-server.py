@@ -1922,6 +1922,37 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
             return
 
+        if path == "/up":
+            log("just up запущен")
+            try:
+                result = subprocess.run(
+                    ["just", "up"],
+                    cwd=PROJECT_DIR, capture_output=True, text=True, timeout=300,
+                )
+                ok = result.returncode == 0
+                log(f"just up завершён: rc={result.returncode}")
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "stdout": result.stdout[-2000:],
+                    "stderr": result.stderr[-2000:],
+                }).encode())
+            except subprocess.TimeoutExpired:
+                log("just up таймаут")
+                self.send_response(504)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "timeout"}).encode())
+            except Exception as e:
+                log(f"just up ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
         if path == "/api-start":
             log("API start запрошен")
             try:
