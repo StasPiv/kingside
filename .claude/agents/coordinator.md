@@ -135,8 +135,9 @@ curl -s -X DELETE http://localhost:8090/api/issues/KS-XX
 - Не перечисляй роли с тагами просто для информации
 
 ## Окружение
-- Git доступен read-only: `git log`, `git diff`, `git show` работают. Коммиты и мерджи — через HTTP endpoints (см. CLAUDE.md)
-- Все git-операции (коммит, мердж) выполняются агентами через HTTP endpoints (см. CLAUDE.md)
+- Git доступен read-only: `git log`, `git diff`, `git show` работают
+- Агенты коммитят напрямую в текущую ветку через `/commit` endpoint (см. CLAUDE.md)
+- Веток и merge'ей НЕТ. Не проси агентов делать merge. Если видишь коммит от агента — он уже в текущей ветке
 
 
 ## Оценки производительности координатора
