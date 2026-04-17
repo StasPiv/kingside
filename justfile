@@ -1,7 +1,7 @@
 # Kingside - chess platform
 
 # Start the entire project
-up: _env _infra _deps _migrate _build-shared _dev
+up: _env _infra _deps _migrate _build-shared _clean-vite-cache _dev
 
 # Deploy to AWS (auto-detect scope: frontend/api/all)
 deploy:
@@ -116,6 +116,23 @@ _migrate:
 # Build shared package
 _build-shared:
     npx tsc --build packages/shared
+
+# Drop Vite pre-bundle cache (apps/web/node_modules/.vite).
+# После npm install кеш оптимизации depов может стать невалидным, что
+# приводит к 504 "Outdated Optimize Dep" при открытии http://localhost:5173.
+# Полное удаление заставит Vite пересобрать кеш при старте dev-сервера.
+_clean-vite-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for dir in apps/web/node_modules/.vite node_modules/.vite; do
+        if [ -d "$dir" ]; then
+            rm -rf "$dir"
+            echo "Removed Vite cache: $dir"
+        fi
+    done
+
+# Manual cleanup: drop Vite cache without restarting anything
+clean-vite-cache: _clean-vite-cache
 
 # Start dev servers
 _dev:
