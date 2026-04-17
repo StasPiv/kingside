@@ -1,1 +1,0 @@
-ALTER TABLE "arena_tournaments" ADD COLUMN "cycles" INTEGER NOT NULL DEFAULT 1;

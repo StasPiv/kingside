@@ -1,2 +1,0 @@
--- Fix user settings defaults (applied via db push, no SQL needed)
--- This migration exists to maintain consistency with _prisma_migrations table
