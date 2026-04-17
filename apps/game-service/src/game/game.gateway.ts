@@ -1,4 +1,5 @@
 import { Logger, UseGuards } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   ConnectedSocket,
   MessageBody,
@@ -37,7 +38,9 @@ import {
   type GameStatus,
   type GameResult,
 } from '@kingside/shared';
-import { LiveGameService } from './live-game.service';
+
+/** Default spectator delay in milliseconds (дублируем вместо мёртвого LiveGameService). */
+const DEFAULT_SPECTATOR_DELAY_MS = 5000;
 
 @WebSocketGateway({ namespace: '/game', cors: { origin: '*' }, transports: ['websocket'], pingInterval: 300000, pingTimeout: 300000, connectTimeout: 60000 })
 export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -51,6 +54,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private static readonly BOT_MOVE_FALLBACK_MS = 5_000;
   private readonly botDisconnectTimers = new Map<string, NodeJS.Timeout>();
   private readonly botMoveFallbackTimers = new Map<string, NodeJS.Timeout>();
+  private readonly spectatorDelayMs: number;
 
   constructor(
     private readonly gameService: GameService,
@@ -58,10 +62,13 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly botMoveService: BotMoveService,
     private readonly jwtService: JwtService,
     private readonly chatService: ChatService,
-    private readonly liveGameService: LiveGameService,
+    private readonly config: ConfigService,
     private readonly clockService: GameClockService,
     private readonly redis: RedisService,
-  ) {}
+  ) {
+    const delaySec = this.config.get<number>('SPECTATOR_DELAY_SEC');
+    this.spectatorDelayMs = delaySec ? delaySec * 1000 : DEFAULT_SPECTATOR_DELAY_MS;
+  }
 
   private readonly instanceId = require('../instance-logger').INSTANCE_ID;
 
@@ -486,7 +493,7 @@ export class GameGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   /** Emit a move to spectators with configured delay */
   private emitToSpectatorsDelayed(gameId: string, event: string, payload: unknown): void {
-    const delay = this.liveGameService.spectatorDelayMs;
+    const delay = this.spectatorDelayMs;
     setTimeout(() => {
       this.server.to(`spectate:${gameId}`).emit(event, payload);
     }, delay);

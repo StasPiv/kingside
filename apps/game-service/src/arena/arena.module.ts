@@ -4,7 +4,6 @@ import { GameModule } from '../game/game.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { GameService } from '../game/game.service';
-import { ArenaController } from './arena.controller';
 import { ArenaService } from './arena.service';
 import { ArenaGateway } from './arena.gateway';
 import { ArenaSchedulerService } from './arena-scheduler.service';
@@ -15,7 +14,6 @@ import { MatchmakerWorkerModule } from '../matchmaker-worker/matchmaker-worker.m
 
 @Module({
   imports: [AuthModule, GameModule, MatchmakerWorkerModule],
-  controllers: [ArenaController],
   providers: [ArenaService, ArenaGateway, ArenaSchedulerService, RoundManagerService, SwissPairingService, RoundRobinPairingService],
   exports: [ArenaService, ArenaGateway, RoundManagerService],
 })
