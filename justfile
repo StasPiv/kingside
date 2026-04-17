@@ -1,7 +1,7 @@
 # Kingside - chess platform
 
 # Start the entire project
-up: _env _infra _deps _migrate _build-shared _clean-vite-cache _dev
+up: _env _infra _deps _migrate _build-shared _clean-vite-cache _prebundle-vite _dev
 
 # Deploy to AWS (auto-detect scope: frontend/api/all)
 deploy:
@@ -133,6 +133,25 @@ _clean-vite-cache:
 
 # Manual cleanup: drop Vite cache without restarting anything
 clean-vite-cache: _clean-vite-cache
+
+# Pre-bundle Vite dependencies before starting dev server.
+# Vite по умолчанию оптимизирует depы лениво — при первом запросе к /.
+# Если браузер откроет страницу раньше, чем Vite закончит discovery,
+# он получит 504 "Outdated Optimize Dep" на уже запрошенные URL с
+# устаревшими ?v= хешами. `vite optimize --force` выполняет scan + esbuild
+# синхронно до старта dev-сервера, заполняя apps/web/node_modules/.vite/deps
+# валидным кешем. После этого dev-сервер стартует с готовым кешем и
+# не пере-оптимизирует на лету.
+_prebundle-vite:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd apps/web
+    echo "Pre-bundling Vite dependencies..."
+    npx vite optimize --force
+    echo "Vite deps pre-bundled."
+
+# Manual prebundle: force Vite to rebuild deps cache without starting dev server
+prebundle-vite: _prebundle-vite
 
 # Start dev servers
 _dev:
