@@ -52,6 +52,9 @@ AGENT_VOLUMES = {
         f"{_P}/apps:/project/apps:ro",
         f"{_P}/packages:/project/packages:ro",
         f"{_P}/docs:/project/docs:ro",
+        f"{_P}/node_modules:/project/node_modules:ro",
+        f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
+        f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
         f"{_SHARED_TMP}:/tmp",
     ],
     "backend": _COMMON + [
