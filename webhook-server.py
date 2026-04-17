@@ -35,6 +35,28 @@ AGENTS_DIR = os.path.join(PROJECT_DIR, ".claude", "agents")
 _P = PROJECT_DIR
 _SHARED_TMP = os.path.join(_P, ".agent-tmp")
 os.makedirs(_SHARED_TMP, exist_ok=True)
+_LOCKS_DIR = os.path.join(_SHARED_TMP, "locks")
+os.makedirs(_LOCKS_DIR, exist_ok=True)
+
+
+def _set_busy(agent: str, task: str = ""):
+    """Создаёт lock-файл — агент занят."""
+    path = os.path.join(_LOCKS_DIR, f"{agent}.lock")
+    with open(path, "w") as f:
+        f.write(task or "busy")
+
+
+def _set_idle(agent: str):
+    """Удаляет lock-файл — агент свободен."""
+    path = os.path.join(_LOCKS_DIR, f"{agent}.lock")
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _is_busy(agent: str) -> bool:
+    return os.path.isfile(os.path.join(_LOCKS_DIR, f"{agent}.lock"))
 _COMMON = [
     f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
     f"{_P}/.claude:/project/.claude:ro",
@@ -237,6 +259,7 @@ class AgentDaemon:
                     self._message_count += 1
                     log(f"Daemon {self.name}: result (${cost:.4f}, total=${self._total_cost:.4f}, msgs={self._message_count})")
                     self._idle.set()
+                    _set_idle(self.name)
 
         except Exception as e:
             log(f"Daemon {self.name}: ошибка чтения stdout: {e}")
@@ -274,12 +297,14 @@ class AgentDaemon:
                 proc = self.proc
 
         self._idle.clear()
+        _set_busy(self.name)
         try:
             proc.stdin.write(message_json + "\n")
             proc.stdin.flush()
         except (BrokenPipeError, OSError) as e:
             log(f"Daemon {self.name}: ошибка записи в stdin: {e}, перезапуск")
             self._idle.set()
+            _set_idle(self.name)
             with self.lock:
                 self.proc = None
             self.ensure_running()
@@ -287,12 +312,14 @@ class AgentDaemon:
             with self.lock:
                 proc = self.proc
             self._idle.clear()
+            _set_busy(self.name)
             try:
                 proc.stdin.write(message_json + "\n")
                 proc.stdin.flush()
             except Exception as e2:
                 log(f"Daemon {self.name}: повторная ошибка записи: {e2}")
                 self._idle.set()
+                _set_idle(self.name)
 
     def send_message(self, text: str):
         """Ставит сообщение в очередь агента."""
@@ -363,6 +390,7 @@ class AgentDaemon:
                 self.proc.wait()
             log(f"Daemon {self.name} остановлен (session_id={self.session_id} сохранён для resume)")
             self.proc = None
+            _set_idle(self.name)
 
 
 # ---------------------------------------------------------------------------
@@ -480,6 +508,7 @@ def handle_agent_message(handler, payload):
     sender = payload.get("from", "")
     target = payload.get("to", "")
     message = payload.get("message", "")
+    force = payload.get("force", False)
 
     if not target or not message:
         handler.send_response(400)
@@ -494,9 +523,20 @@ def handle_agent_message(handler, payload):
         handler.wfile.write(json.dumps({"error": f"unknown agent '{target}'"}).encode())
         return
 
+    # Проверка: target занят другой работой — отказ (если не force)
+    if _is_busy(target) and not force:
+        handler.send_response(409)
+        handler.send_header("Content-Type", "application/json")
+        handler.end_headers()
+        handler.wfile.write(json.dumps({
+            "error": f"agent '{target}' is busy",
+            "hint": "retry later, or pass force=true (coordinator only, kill first)"
+        }).encode())
+        return
+
     prefix = f"[from {sender}] " if sender else ""
     send_to_agent(target, f"{prefix}{message}")
-    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars)")
+    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars){' [force]' if force else ''}")
 
     handler.send_response(200)
     handler.end_headers()
