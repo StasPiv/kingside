@@ -1894,44 +1894,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
             return
 
-        if path == "/merge":
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            try:
-                payload = json.loads(body) if body else {}
-            except json.JSONDecodeError:
-                payload = {}
-            branch = payload.get("branch", "")
-            if not branch:
-                self.send_response(400)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"error": "missing 'branch'"}).encode())
-                return
-            log(f"Merge запущен: {branch} -> main")
-            try:
-                result = subprocess.run(
-                    ["git", "merge", branch],
-                    cwd=PROJECT_DIR, capture_output=True, text=True, timeout=60,
-                )
-                ok = result.returncode == 0
-                log(f"Merge завершён: rc={result.returncode}")
-                self.send_response(200 if ok else 500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({
-                    "status": "success" if ok else "failed",
-                    "stdout": result.stdout[-1000:],
-                    "stderr": result.stderr[-1000:],
-                }).encode())
-            except Exception as e:
-                log(f"Merge ошибка: {e}")
-                self.send_response(500)
-                self.send_header("Content-Type", "application/json")
-                self.end_headers()
-                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
-            return
-
         if path == "/npm-install":
             log("npm install запущен")
             try:

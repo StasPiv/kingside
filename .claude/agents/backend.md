@@ -71,7 +71,6 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 - **`packages/shared`**: `dist/` в gitignore — не коммить, не отлаживать проблемы сборки dist. Если менял типы — пересобери В ОСНОВНОМ РЕПО: `npx --prefix /project tsc --build packages/shared`
 - Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
 - НЕ пушить изменения на remote (git push запрещён)
-- При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода (например, операция с БД, конфигурация) — коммит не нужен
 
 ## Тагирование агентов (@agent)

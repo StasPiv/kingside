@@ -116,6 +116,11 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 - packages/shared — backend или frontend (по контексту задачи)
 - Архитектор НЕ меняет код, НЕ делает миграции — только анализ и документация в docs/
 
+**Git workflow:**
+- Работаем ВСЕГДА в main. НЕТ feature-веток, НЕТ merge'ей
+- Все коммиты идут напрямую в main через `/commit` endpoint
+- ЗАПРЕЩЕНО создавать ветки, ЗАПРЕЩЕНО делать merge
+
 ## Agent Endpoints (webhook-server, localhost:9876)
 
 Агенты работают в изолированных Docker-контейнерах без доступа к git. Все операции с репозиторием — через HTTP endpoints:

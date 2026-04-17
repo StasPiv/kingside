@@ -68,7 +68,6 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
 - **Playwright**: `npx playwright screenshot <url> <file.png>`. Для доступа без логина: `http://localhost:5174/?dev_bypass=secret`
 - Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
 - НЕ пушить изменения на remote (git push запрещён)
-- При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода — коммит не нужен
 
 ## Тагирование агентов (@agent)

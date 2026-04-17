@@ -62,7 +62,6 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
 - Проверку результатов выполняй на ветке main после мерджа
 - НЕ пушить изменения на remote (git push запрещён)
-- При конфликте merge — резолви самостоятельно
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода — коммит не нужен
 
 ## Тагирование агентов (@agent)
