@@ -80,7 +80,7 @@ AGENT_VOLUMES = {
         f"{_P}/docs:/project/docs:ro",
         f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro",
         f"{_P}/package.json:/project/package.json:ro",
-        f"{_P}/justfile:/project/justfile:ro",
+        f"{_P}/justfile:/project/justfile",
         f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
         f"{_SHARED_TMP}:/tmp",
     ],
