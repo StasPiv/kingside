@@ -2,6 +2,9 @@
   "name": "kingside",
   "private": true,
   "packageManager": "npm@8.5.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
