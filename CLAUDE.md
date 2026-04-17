@@ -95,7 +95,7 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 - Frontend (Vite): `5173` (dev)
 - API (NestJS): `3001`
 - PostgreSQL: `5432`
-- Playwright: `npx playwright screenshot <url> <file.png>`
+- Playwright: `/project/node_modules/.bin/playwright screenshot <url> <file.png>` (НЕ используй `npx playwright` — он ставит другую версию)
 
 ## Agent Roles & Ownership
 

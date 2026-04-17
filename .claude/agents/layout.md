@@ -61,7 +61,7 @@ cd /project
 curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
 
 # Playwright
-npx playwright screenshot <url> <file.png>
+/project/node_modules/.bin/playwright screenshot <url> <file.png>
 
 # Playwright доступ без логина
 # http://localhost:5174/?dev_bypass=secret
