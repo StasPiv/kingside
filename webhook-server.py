@@ -85,6 +85,7 @@ AGENT_VOLUMES = {
         f"{_P}/apps/matchmaker:/project/apps/matchmaker",
         f"{_P}/packages:/project/packages",
         f"{_P}/package.json:/project/package.json",
+        f"{_P}/package-lock.json:/project/package-lock.json",
         f"{_P}/apps/api/node_modules:/project/apps/api/node_modules:ro",
     ],
     "frontend": _COMMON + [
@@ -523,16 +524,21 @@ def handle_agent_message(handler, payload):
         handler.wfile.write(json.dumps({"error": f"unknown agent '{target}'"}).encode())
         return
 
-    # Проверка: target занят другой работой — отказ (если не force)
-    if _is_busy(target) and not force:
-        handler.send_response(409)
-        handler.send_header("Content-Type", "application/json")
-        handler.end_headers()
-        handler.wfile.write(json.dumps({
-            "error": f"agent '{target}' is busy",
-            "hint": "retry later, or pass force=true (coordinator only, kill first)"
-        }).encode())
-        return
+    # Проверка: target занят другой работой — отказ
+    if _is_busy(target):
+        # force=true требует чтобы target был мёртв (убит через /agent/kill)
+        with agent_daemons_lock:
+            target_daemon = agent_daemons.get(target)
+        target_alive = target_daemon and target_daemon.is_alive()
+        if not force or target_alive:
+            handler.send_response(409)
+            handler.send_header("Content-Type", "application/json")
+            handler.end_headers()
+            handler.wfile.write(json.dumps({
+                "error": f"agent '{target}' is busy",
+                "hint": "retry later, or call /agent/kill first then retry with force=true"
+            }).encode())
+            return
 
     prefix = f"[from {sender}] " if sender else ""
     send_to_agent(target, f"{prefix}{message}")
