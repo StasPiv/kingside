@@ -1,6 +1,8 @@
 import { ChildProcess, spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import { Chess } from 'chess.js';
 import Redis from 'ioredis';
+import { PrismaClient } from '@kingside/db';
 
 const QUEUE_KEY = 'puzzle-gen:queue';
 const STOCKFISH_PATH = process.env.STOCKFISH_PATH || '/usr/games/stockfish';
@@ -20,18 +22,18 @@ interface PVLine { pv: string; score: Score; bestMove: string }
 
 export class PuzzleWorker {
   private redis!: Redis;
-  private prisma: any; // PrismaClient — imported dynamically
+  private prisma: PrismaClient;
   private engine: ChildProcess | null = null;
   private stopped = false;
+
+  constructor() {
+    this.prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+  }
 
   async start(): Promise<void> {
     const redisHost = process.env.REDIS_HOST || 'localhost';
     const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
     this.redis = new Redis({ host: redisHost, port: redisPort });
-
-    // Dynamic import for Prisma (ESM)
-    const { PrismaClient } = await import('./generated/prisma/client.js');
-    this.prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
 
     console.log(`[puzzle-worker] Starting... Redis=${redisHost}:${redisPort} depth=${ANALYSIS_DEPTH}`);
     console.log(`[puzzle-worker] Stockfish: ${STOCKFISH_PATH}`);
@@ -286,13 +288,15 @@ export class PuzzleWorker {
       const rating = this.estimateRating(avgRating, evalDrop, moveCount);
       const themes = this.classifyThemes(pos.fenAfter, solutionMoves);
 
-      await this.prisma.generatedPuzzle.create({
+      await this.prisma.puzzle.create({
         data: {
+          id: randomUUID(),
           fen: pos.fenAfter,
           moves: solutionMoves,
           rating,
           gap: spread,
           themes: themes.join(' '),
+          source: 'generated',
           sourceType: 'game',
           sourceId: gameId,
           sourceMoveNum: pos.moveNum,
@@ -393,13 +397,15 @@ export class PuzzleWorker {
       const rating = this.estimateRating(avgRating, evalDrop, moveCount);
       const themes = this.classifyThemes(pos.fenAfter, solutionMoves);
 
-      await this.prisma.generatedPuzzle.create({
+      await this.prisma.puzzle.create({
         data: {
+          id: randomUUID(),
           fen: pos.fenAfter,
           moves: solutionMoves,
           rating,
           gap: spread,
           themes: themes.join(' '),
+          source: 'generated',
           sourceType: 'pgn',
           sourceMoveNum: pos.moveNum,
           depth: ANALYSIS_DEPTH,

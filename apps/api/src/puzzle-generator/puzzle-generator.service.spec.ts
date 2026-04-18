@@ -5,7 +5,7 @@ describe('PuzzleGeneratorService', () => {
   let prisma: {
     game: { findUnique: jest.Mock };
     move: { findMany: jest.Mock };
-    generatedPuzzle: { create: jest.Mock };
+    puzzle: { create: jest.Mock };
   };
   let redis: { get: jest.Mock; set: jest.Mock };
   let stockfish: { analyzeMultiPV: jest.Mock; analyze: jest.Mock };
@@ -14,7 +14,7 @@ describe('PuzzleGeneratorService', () => {
     prisma = {
       game: { findUnique: jest.fn() },
       move: { findMany: jest.fn() },
-      generatedPuzzle: { create: jest.fn() },
+      puzzle: { create: jest.fn() },
     };
     redis = { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue('OK') };
     stockfish = {
@@ -70,11 +70,11 @@ describe('PuzzleGeneratorService', () => {
     // For building solution line
     stockfish.analyze.mockResolvedValue({ bestMove: 'd7d5', score: { type: 'cp', value: -10 } });
 
-    prisma.generatedPuzzle.create.mockResolvedValue({});
+    prisma.puzzle.create.mockResolvedValue({});
 
     const result = await service.generateFromGame('g1');
     expect(result.puzzlesCreated).toBe(1);
-    expect(prisma.generatedPuzzle.create).toHaveBeenCalledTimes(1);
+    expect(prisma.puzzle.create).toHaveBeenCalledTimes(1);
   });
 
   it('should use Redis cache when available', async () => {
