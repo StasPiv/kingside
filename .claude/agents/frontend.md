@@ -36,10 +36,31 @@ curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
 curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
 ```
 
-## Структура проекта
-- Корень проекта: `/project` — только для справки, НЕ работай там
-- Твоя рабочая директория: `/project` (XX — номер задачи)
-- Frontend-код: `apps/web/` (относительно рабочей директории)
+## Окружение (Docker-контейнер)
+Ты работаешь в изолированном контейнере. Рабочая директория: `/project`.
+
+**Доступ к файлам:**
+- `apps/web/` — rw (твой код)
+- `packages/shared/` — **ro** (контракты меняет backend)
+- `apps/web/node_modules/`, `node_modules/` — ro
+- `scripts/` — ro
+- `CLAUDE.md`, `.claude/` — ro
+- `package.json`, `tsconfig.base.json` — ro
+- `/tmp/` — rw (для скриншотов Playwright)
+
+**НЕ доступно:**
+- `.git/` — используй `/commit` endpoint для коммитов
+- `apps/api/`, `apps/game-service/` и остальной backend-код
+- `docs/` — документирует архитектор
+- Hosts scripts, системные пакеты
+
+**Ключевые команды** (пути внутри контейнера):
+- TypeScript: `/project/node_modules/.bin/tsc --noEmit`
+- ESLint: `/project/node_modules/.bin/eslint apps/web/src`
+- Vite: `/project/node_modules/.bin/vite apps/web --port 5173`
+- Playwright: `/project/node_modules/.bin/playwright screenshot <url> <file.png>`
+
+**Dev-bypass** для Playwright без логина: `http://localhost:5173/?dev_bypass=secret`
 
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`
@@ -63,9 +84,9 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
   - TypeScript: `/project/node_modules/.bin/tsc --noEmit`
   - Или через npx: `npx --prefix /project eslint apps/web/src`
   - Если команда не работает — сообщи координатору (см. правило выше), не трать время на поиск бинарей.
-- **Dev-сервер**: `/project/node_modules/.bin/vite apps/web --port 5174`. НЕ используй порт 5173 — там основной репо.
+- **Dev-сервер**: `/project/node_modules/.bin/vite apps/web --port 5173`. 
 - **Запуск API на хосте** (если нужен для проверки): `curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"`
-- **Playwright**: `/project/node_modules/.bin/playwright screenshot <url> <file.png>`. Для доступа без логина: `http://localhost:5174/?dev_bypass=secret`
+- **Playwright**: `/project/node_modules/.bin/playwright screenshot <url> <file.png>`. Для доступа без логина: `http://localhost:5173/?dev_bypass=secret`
 - Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
 - НЕ пушить изменения на remote (git push запрещён)
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода — коммит не нужен
@@ -84,7 +105,7 @@ curl -s "http://localhost:8090/api/issues?assignee=frontend&status=todo"
 Для задач где нужно показать последовательность действий (а не просто статический скриншот), используй скрипт записи:
 ```bash
 node /project/scripts/record-verification.js \
-  --url "http://localhost:5174/page?dev_bypass=secret" \
+  --url "http://localhost:5173/page?dev_bypass=secret" \
   --actions "click:.selector" "wait:2000" "reload" "wait:2000" \
   --output /tmp/KS-XX/verification.gif \
   --viewport 1280x720

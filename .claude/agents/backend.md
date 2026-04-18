@@ -36,10 +36,33 @@ curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
 curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 ```
 
-## Структура проекта
-- Корень проекта: `/project` — только для справки, НЕ работай там
-- Твоя рабочая директория: `/project` (XX — номер задачи)
-- Backend-код: `apps/api/` (относительно рабочей директории)
+## Окружение (Docker-контейнер)
+Ты работаешь в изолированном контейнере. Рабочая директория: `/project`.
+
+**Доступ к файлам:**
+- `apps/api/`, `apps/game-service/`, `apps/broadcast-worker/`, `apps/matchmaker/` — rw (backend-код)
+- `packages/` — rw (в т.ч. `packages/shared` — контракты)
+- `package.json` — rw (можно добавлять зависимости)
+- `node_modules/`, `apps/api/node_modules/` — ro
+- `CLAUDE.md`, `.claude/`, `tsconfig.base.json` — ro
+- `/tmp/` — rw
+
+**НЕ доступно:**
+- `.git/` — используй `/commit` endpoint для коммитов
+- `apps/web/` — код frontend
+- `docs/`, `scripts/` — не твоя зона
+- Системные пакеты, sudo, docker
+
+**Ключевые команды:**
+- TypeScript: `/project/node_modules/.bin/tsc --noEmit`
+- ESLint: `/project/node_modules/.bin/eslint apps/api/src`
+- Prisma: `/project/node_modules/.bin/prisma` (в `apps/api`)
+- nest build: `cd apps/api && /project/node_modules/.bin/nest build`
+
+**Endpoints webhook-сервера** (см. CLAUDE.md):
+- `/commit` — коммит (единственный способ)
+- `/npm-install` — после изменения `package.json`
+- `/api-start` — запуск API на хосте
 
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`

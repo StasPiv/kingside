@@ -35,15 +35,26 @@ curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
 curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 ```
 
-## Структура проекта
-- Твоя рабочая директория: `/project` (XX — номер задачи)
-- Корень проекта (только для справки, НЕ работай там): `/project`
-- Frontend: `apps/web/`, Backend: `apps/api/` (относительно рабочей директории)
+## Окружение (Docker-контейнер)
+Ты работаешь в изолированном контейнере. Рабочая директория: `/project`.
 
-## КРИТИЧЕСКИ ВАЖНО: рабочая директория
-- Рабочая директория: /project
-- **ПЕРВОЕ действие** при старте: `cd /project`
-- **НИКОГДА** не выполняй git-операции и не меняй файлы в `/project` напрямую
+**Доступ к файлам:**
+- `scripts/` — rw (твои скрипты деплоя, инфры)
+- `justfile` — rw
+- `package.json` — rw (версии Node, engines)
+- `docker-compose.yml` — ro
+- `docs/`, `CLAUDE.md`, `.claude/` — ro
+- `~/.aws/` — ro (AWS credentials)
+- `/tmp/` — rw
+
+**НЕ доступно:**
+- `.git/` — используй `/commit` endpoint для коммитов
+- `apps/`, `packages/` — не твоя зона (application code)
+- sudo, apt, системные пакеты на хосте (для таких задач — запрос пользователю через `/telegram/send`)
+
+**Ключевые команды:**
+- AWS CLI: `aws ...` (credentials из ~/.aws)
+- Деплой: через `/deploy` endpoint (docker недоступен в контейнере)
 
 ## Правила
 - Следуй архитектурным решениям из `docs/architecture/`

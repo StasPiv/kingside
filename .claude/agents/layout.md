@@ -41,31 +41,29 @@ curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
 curl -s "http://localhost:8090/api/issues?assignee=layout&status=todo"
 ```
 
-## Рабочая директория
-```
-cd /project
-```
+## Окружение (Docker-контейнер)
+Рабочая директория: `/project`.
 
-## Готовые команды
-```bash
-# ESLint
-/project/node_modules/.bin/eslint apps/web/src
+**Доступ к файлам:**
+- `apps/web/src/` — rw (только стили: CSS, inline styles в .tsx)
+- `node_modules/`, `apps/web/node_modules/` — ro
+- `scripts/` — ro
+- `CLAUDE.md`, `.claude/`, `package.json` — ro
+- `/tmp/` — rw (для скриншотов)
 
-# TypeScript
-/project/node_modules/.bin/tsc --noEmit
+**НЕ доступно:**
+- `.git/` — используй `/commit` endpoint
+- `apps/api/`, `apps/web/` кроме src
+- `docs/`, `packages/`
 
-# Dev-сервер (для скриншотов)
-/project/node_modules/.bin/vite apps/web --port 5174
+**Ключевые команды:**
+- ESLint: `/project/node_modules/.bin/eslint apps/web/src`
+- TypeScript: `/project/node_modules/.bin/tsc --noEmit`
+- Vite: `/project/node_modules/.bin/vite apps/web --port 5173`
+- Playwright: `/project/node_modules/.bin/playwright screenshot <url> <file.png>`
+- API на хосте: `curl -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"`
 
-# Запуск API на хосте (если нужен для скриншотов с реальными данными)
-curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
-
-# Playwright
-/project/node_modules/.bin/playwright screenshot <url> <file.png>
-
-# Playwright доступ без логина
-# http://localhost:5174/?dev_bypass=secret
-```
+Dev-bypass: `http://localhost:5173/?dev_bypass=secret`
 
 ## Как работать
 1. Прочитай задачу
@@ -88,7 +86,7 @@ curl -s -X POST http://localhost:9876/api-start -H "Authorization: Bearer $WEBHO
 Для задач где нужно показать последовательность действий (а не просто статический скриншот), используй скрипт записи:
 ```bash
 node /project/scripts/record-verification.js \
-  --url "http://localhost:5174/page?dev_bypass=secret" \
+  --url "http://localhost:5173/page?dev_bypass=secret" \
   --actions "click:.selector" "wait:2000" "reload" "wait:2000" \
   --output /tmp/KS-XX/verification.gif \
   --viewport 1280x720
