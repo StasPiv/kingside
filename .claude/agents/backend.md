@@ -40,7 +40,7 @@ curl -s "http://localhost:8090/api/issues?assignee=backend&status=todo"
 Ты работаешь в изолированном контейнере. Рабочая директория: `/project`.
 
 **Доступ к файлам:**
-- `apps/api/`, `apps/game-service/`, `apps/broadcast-worker/`, `apps/matchmaker/` — rw (backend-код)
+- `apps/api/`, `apps/game-service/`, `apps/broadcast-worker/`, `apps/matchmaker/`, `apps/puzzle-worker/` — rw (backend-код)
 - `packages/` — rw (в т.ч. `packages/shared` — контракты)
 - `package.json` — rw (можно добавлять зависимости)
 - `node_modules/`, `apps/api/node_modules/` — ro

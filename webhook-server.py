@@ -83,6 +83,7 @@ AGENT_VOLUMES = {
         f"{_P}/apps/game-service:/project/apps/game-service",
         f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker",
         f"{_P}/apps/matchmaker:/project/apps/matchmaker",
+        f"{_P}/apps/puzzle-worker:/project/apps/puzzle-worker",
         f"{_P}/packages:/project/packages",
         f"{_P}/package.json:/project/package.json",
         f"{_P}/package-lock.json:/project/package-lock.json",
