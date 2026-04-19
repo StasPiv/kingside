@@ -435,18 +435,47 @@ apps/archive-importer/
 
 ---
 
-### 8. Оценка объёмов и производительности (сводка)
+### 8. Оценка объёмов и производительности
 
-| Метрика                      | Год 1     | Год 3     | Стратегия |
-| ---------------------------- | --------- | --------- | --------- |
-| `archive_games` строк        | 250k      | 750k      | без партиционирования до ~5M; затем range по `playedAt` |
-| `archive_games` PGN          | ~1.2 GB   | ~3.6 GB   | TOAST-сжатие включено в PG by default |
-| `position_stats` строк       | ~5-10M    | ~15-30M   | bucket index, можно vacuum + reindex раз в квартал |
-| `archive_game_positions`     | (deferred)|           | таблица только в фазе 2 |
-| Импорт TWIC (1 issue)        | ~30-90s   | то же     | вне API процесса |
-| `GET /api/archive/tree`      | <50ms cold| <5ms warm | Redis TTL 1h |
+#### 8.1 Базовые допущения для расчётов
 
-Хранилище +5GB/год. PostgreSQL на текущем сервере справляется. Backup стратегия не меняется (одна общая БД).
+- Средняя партия мастеров: 80 полу-ходов, индексируем первые 40 (см. §1.4).
+- Уникальность позиций: дебютные ходы переиспользуются массово (1.e4 — миллионы партий, одна строка), на 15-20 ply почти каждая позиция уникальна. Эмпирически из открытых источников (Lichess masters DB ~3.5M партий → ~30M уникальных переходов): **отношение partий к уникальным переходам ≈ 1:8** в дебютной фазе.
+- Размер строки `position_stats` с tuple-header и alignment ≈ 125 B; индекс `(position_key, bucket, total DESC)` ≈ 40 B. Итого ~165 B на запись с одним основным индексом.
+- Размер строки `archive_games` без PGN ≈ 250 B (включая два `whiteName/blackName`), PGN в TOAST со сжатием LZ4 ≈ 1.5 KB вместо сырых 3 KB.
+
+#### 8.2 Сводная таблица для 5 уровней масштаба
+
+| Сценарий | Партии | `position_stats` строк | Размер `archive_games` (вкл. TOAST) | Размер `position_stats` (вкл. индексы) | SELECT top-12 (cold) | UPSERT-нагрузка backfill | Дизайн |
+| -------- | ------ | ---------------------- | ----------------------------------- | -------------------------------------- | -------------------- | ------------------------ | ------ |
+| **MVP**           | 250k    | ~2M       | ~0.4 GB | ~0.4 GB | <2 ms  | 1-2 ч.    | текущий PG-monolithic |
+| **Год 3 TWIC**    | 750k    | ~6M       | ~1.2 GB | ~1.2 GB | <3 ms  | 4-6 ч.    | текущий + ежеквартальный VACUUM FULL |
+| **Phase B**       | 5M      | ~40M      | ~7 GB   | ~7 GB   | <5 ms  | 24-36 ч.  | партиционирование + staging table + COPY (см. §10.B) |
+| **Phase C**       | 10M     | ~80M      | ~15 GB  | ~15 GB  | 5-10 ms (PG) / <1 ms (CH) | 36-72 ч. (PG) / 4-8 ч. (CH) | ClickHouse как secondary для `position_stats` |
+| **Phase D**       | 50M     | ~400M     | ~75 GB  | ~75 GB  | >50 ms (PG) / 1-3 ms (CH) | недели (PG) / 1-2 суток (CH) | ClickHouse как primary для аналитики, PG только source-of-truth |
+
+Цифры по UPSERT — для одного потока с `INSERT ... ON CONFLICT DO UPDATE` на SSD-узле с `shared_buffers ≥ 4GB`; реальные могут отличаться в 2-3× от настройки `wal_compression`, `checkpoint_timeout`, `maintenance_work_mem`. Запросы — после `VACUUM ANALYZE`, при условии что нужный индекс целиком умещается в кэше.
+
+#### 8.3 Конкретно по запросам
+
+**`GET /api/archive/tree` для популярной позиции** (например, после 1.e4 e5 — топ-100 ходов, total 1M+):
+- индекс `(position_key, bucket, total DESC)` — index range scan, прыгает на нужный лист B-tree за `log(N)` (на 400M строк это ~6 уровней дерева ≈ ~50 µs cold).
+- читается top-12 → 12 tuples → ~1 KB.
+- даже на 50M партий cold-чтение ≤ 10 ms на NVMe, при условии что лист дерева и tuple-страницы есть в page cache.
+- для редких позиций (далеко в дереве, total<10) — то же.
+- **Узкое место не SELECT, а количество одновременных запросов и latency Redis-кэша**. При 100 RPS на горячих позициях кэш-hit > 99%.
+
+**Сборка SAN из UCI на бэке** (chess.js): `new Chess(fen).move({from, to})` ≈ 0.1 ms × 12 ходов = 1.5 ms. Это часть response latency, можно кэшировать SAN в `position_stats` в фазе C если станет дорого (трейд-офф против размера таблицы).
+
+#### 8.4 Хранилище
+
+| Уровень | `archive_games` PGN | `position_stats` | Backup (gzip) | Replication lag |
+| ------- | ------------------- | ---------------- | ------------- | --------------- |
+| 250k    | 0.4 GB              | 0.4 GB           | ~0.3 GB       | n/a             |
+| 5M      | 7 GB                | 7 GB             | ~5 GB         | без проблем     |
+| 50M     | 75 GB               | 75 GB            | ~40 GB        | требуется streaming, pg_basebackup много часов |
+
+На 50M+ partій pg_dump перестаёт быть приемлемым; backup стратегия должна меняться на streaming WAL + физические снэпшоты (см. §10.D).
 
 ---
 
@@ -464,12 +493,188 @@ apps/archive-importer/
 
 ---
 
-## Альтернативы, которые рассмотрены и отвергнуты
+## Альтернативы, которые рассмотрены
 
 - **Использовать Lichess Explorer API напрямую с фронта** — нет контроля над расписанием, привязка к доступности, нельзя добавить свои фильтры. Может быть как fallback в будущем.
 - **Хранить позиции отдельной таблицей `archive_positions`** (PK — Zobrist) и через many-to-many → `archive_games`. На 1M игр × 80 ходов это 80M связей и таблица позиций под 10M строк. Сложнее, медленнее, не даёт ничего сверх `position_stats`.
-- **Использовать ClickHouse / DuckDB для статистики** — overhead на ещё одну БД и дублирование данных. PostgreSQL справляется на нашем масштабе.
 - **GraphQL для дерева** — не используется в проекте, REST + типы из shared дают тот же DX.
+
+#### ClickHouse / DuckDB как primary-store с самого начала — отдельный анализ
+
+Изначально я отверг это одной строкой, что было поверхностно. Расширенный разбор (см. также §10):
+
+- **DuckDB**: embedded, single-writer. Не подходит как primary для конкурентной записи импортера + чтения API. Может быть полезен как локальный аналитический инструмент или для batch-агрегации в pipeline, но не как замена PG.
+- **ClickHouse**: колоночный store, MergeTree-движок с кодеками Delta+ZSTD даёт сжатие 5-10× для статистики. На 50M partій (~400M строк `position_stats`) ожидаемый размер 8-15 GB вместо 75 GB в PG. SELECT top-12 — единицы ms даже без warm cache. UPSERT: ClickHouse не имеет UPDATE — нужен `ReplacingMergeTree` с фоновым merge'ом, либо staging-приём через `INSERT INTO new SELECT FROM (new UNION old)`.
+- **Цена внедрения сразу**:
+  - +1 production-сервис в docker-compose, +1 в supervisord, +1 в мониторинге;
+  - дублирование `archive_games` (источник правды должен оставаться где-то транзакционным — иначе нельзя гарантировать дедуп);
+  - изменение пути миграций: миграции CH несовместимы с Prisma, нужен отдельный инструмент (clickhouse-migrations / golang-migrate);
+  - eventual consistency между CH и PG (после INSERT в PG агрегаты в CH появятся через секунды-минуты);
+  - один разработчик — overhead на изучение/эксплуатацию ощутимый.
+- **Вердикт**: ClickHouse оправдан с **~10M+ partій** (Phase C, см. §10). До этого PostgreSQL даёт меньше движущихся частей при сопоставимой производительности на запросах дерева. Но контракт API проектируется так, чтобы реализация ArchiveService могла быть переключена с PG на CH без изменения фронта (см. §10.C.4).
+
+#### Lichess Polyglot books (.bin) как формат хранения
+
+`.bin` — стандартный формат для openings book (zobrist + move + weight). Плюсы: компактно (~50 MB на масштабе мастеров), быстрое чтение через mmap. Минусы:
+- weight без разбивки на win/draw/loss;
+- нет avgElo, lastSeenAt, фильтров;
+- иммутабельный, пересборка на каждый импорт = full rebuild.
+
+Подходит как side-channel для подсветки книжных ходов в движке, но не заменяет `position_stats`.
+
+---
+
+## 10. Масштабирование и эволюция (ответ на вопросы координатора)
+
+### 10.0 Что значит «наш масштаб» в исходной редакции ADR
+
+В первой редакции под «нашим масштабом» подразумевалось 250k-750k partій (TWIC за 1-3 года). Это не закладка предельной ёмкости, а оценка ожидаемой нагрузки от единственного сконфигурированного источника MVP. Текущий дизайн **без архитектурных изменений** работает до **~5M partій** (≈ ~40M строк в `position_stats`); дальше нужно вмешательство — последовательно по фазам, описанным ниже. Это уточнение прямо вписано в §8.2 и в дальнейшие подразделы §10.
+
+### 10.A Пределы текущего MVP-дизайна
+
+Без партиционирования и без COPY-pipeline:
+- **Чтение** (top-12 из позиции) — линейно по log(N), упирается не в SELECT, а в page cache. До 50M строк `position_stats` чтение горячей позиции остаётся <10 ms на NVMe; для холодной позиции с большим хвостом продолжений может вырасти до 50-100 ms (см. §8.3). Кэш Redis убирает это с user-perceived latency.
+- **Запись** (UPSERT) — линейно по числу партий × 40 ply. На single-thread `INSERT ON CONFLICT` ≈ 5-15k op/s. **Это узкое место**, оно ломается раньше чтения.
+- **Operational**: VACUUM FULL на таблице >50 GB занимает часы, требует exclusive lock; pg_dump >50 GB перестаёт быть приемлемым.
+
+Триггеры перехода на следующую фазу:
+- `position_stats` > 30M строк ИЛИ
+- среднее время UPSERT-batch > 10 минут на TWIC issue ИЛИ
+- появилась задача backfill > 1M partій.
+
+### 10.B Phase B: 1-10M partій — оптимизация PostgreSQL
+
+Что меняется (без новых сервисов):
+
+1. **Партиционирование `archive_games` по `playedAt`** (RANGE, 1 год = 1 партиция). Включается через `pg_partman` или ручными миграциями. Старые годы можно вынести на дешёвое хранилище (`ALTER TABLE ... SET TABLESPACE archive_cold`).
+2. **Партиционирование `position_stats` HASH по `position_key`** (16-64 партиции). Это работает: запросы всегда фильтруют по `position_key`, поэтому планировщик уйдёт в одну партицию (`partition pruning`). Каждая партиция вмещает 5-25M строк, индексы кэшируются по отдельности → меньше дисковых seek'ов.
+3. **Импорт через staging table + COPY**, а не INSERT ON CONFLICT:
+   - воркер парсит PGN → кладёт переходы в `position_stats_staging` через `COPY FROM STDIN` (binary). Скорость COPY: ~100-300k строк/сек, в 20-30× быстрее UPSERT;
+   - после загрузки batch'а — один SQL: `INSERT INTO position_stats (...) SELECT key, uci, bucket, SUM(...), ... FROM position_stats_staging GROUP BY key, uci, bucket ON CONFLICT DO UPDATE SET total = position_stats.total + EXCLUDED.total, ...`;
+   - даёт ~5-10× выигрыш на batch-нагрузке по сравнению с per-row UPSERT.
+4. **`UNLOGGED` staging table** + ручной commit раз в N тысяч строк → меньше WAL.
+5. **`fillfactor = 70` на `position_stats`** — UPDATE-heavy таблица; с 70% оставляем место для HOT-update'ов, реже срабатывает page-split, реже нужен VACUUM.
+
+Эффект:
+- Backfill 5M partій (200M переходов) уложится в 6-10 часов вместо 24-36.
+- VACUUM/REINDEX можно делать пер-партиции, без exclusive lock на всю таблицу.
+- Работает до ~10M partій с приемлемыми операционными окнами.
+
+Триггер перехода на Phase C:
+- `position_stats` > 100M строк ИЛИ
+- запросы по широким фильтрам (avg Elo + since + bucket) деградируют до >50 ms ИЛИ
+- начинаем импортировать Lichess monthly dumps (десятки миллионов партий/месяц).
+
+### 10.C Phase C: 10M+ partій — ClickHouse как secondary
+
+PostgreSQL **остаётся** source-of-truth для `archive_games`, `archive_sources`, `archive_imports`. Это нужно для:
+- транзакционного `contentHash` UNIQUE дедупа;
+- админских операций (soft-delete источника, ручной импорт);
+- интеграции с Prisma в основном API.
+
+ClickHouse получает **зеркало `position_stats` + (опционально) денормализованную проекцию `archive_games_flat` для аналитики**. Схема:
+
+```sql
+CREATE TABLE position_stats (
+  position_key  FixedString(16),
+  next_move_uci LowCardinality(String),
+  bucket        LowCardinality(String),
+  ply           UInt8,
+  white_wins    UInt32,
+  draws         UInt32,
+  black_wins    UInt32,
+  total         UInt32,
+  avg_elo       Nullable(UInt16),
+  last_seen_at  DateTime,
+  PROJECTION p_pop (SELECT * ORDER BY position_key, bucket, total DESC)
+) ENGINE = SummingMergeTree
+  PARTITION BY bucket
+  ORDER BY (position_key, bucket, next_move_uci);
+```
+
+Поток данных:
+1. `archive-importer` пишет PGN в PG как и раньше, плюс пишет переходы в `position_stats_staging` (PG).
+2. Отдельный шаг (после успешного COPY) — `INSERT INTO clickhouse.position_stats SELECT * FROM staging` через `clickhouse-client` или Kafka-bridge. Альтернатива — нативный `MaterializedPostgreSQL` engine в CH (CDC из PG WAL).
+3. `SummingMergeTree` фоновым merge'ом аккумулирует `total/wins/draws` по совпадающему PK — это и есть «UPSERT» на стороне CH.
+4. `archive-games` мигрируется в CH батч-джобой раз в день для аналитики (топ-игроки, динамика дебютов и т.п.); для UI-запросов из окна анализа этого не нужно.
+
+ArchiveService (`apps/api/src/archive/`) получает интерфейс:
+```ts
+interface ArchiveStatsRepository {
+  getTree(posKey: Buffer, opts: TreeOpts): Promise<ArchiveTreeResponse>;
+}
+```
+и две реализации: `PostgresArchiveStatsRepository` (Phase A/B) и `ClickHouseArchiveStatsRepository` (Phase C+). Фактическая реализация выбирается через env-переменную. Фронт не знает разницы. **Это закладывается на этапе KS-1581 явно**, чтобы не переделывать сервис при миграции.
+
+Эффект:
+- Размер `position_stats` в CH в 5-8× меньше (8-15 GB вместо 75 GB на 50M partій).
+- SELECT top-12 — единицы ms на любых масштабах.
+- Backfill 10M partій — 4-8 часов на CH, против 36-72 часов на PG (см. §8.2).
+
+### 10.D Phase D: 50M+ partій — ClickHouse как primary для аналитики
+
+То же, что Phase C, плюс:
+- `archive_games_flat` в CH становится primary для пользовательских поисков (фильтр по игроку, ELO, дате);
+- PG хранит только канонический PGN и метаданные дедупа; запросы на список партий идут в CH;
+- бэкап PG — pg_basebackup + WAL streaming на отдельный сервер;
+- CH бэкап через `BACKUP TABLE ... TO Disk('s3', ...)` (нативный S3-backup).
+
+Этого не делаем превентивно: миграция Phase C → Phase D — добавление новых таблиц в CH и переключение endpoint'а в `ArchiveService`, контракт API не меняется.
+
+### 10.E План backfill TWIC (~4.5M партий)
+
+Прямой UPSERT на single-thread = 24-48 часов даунтайма импортера и тонна WAL. Не делаем так. Стратегия в фазе B:
+
+1. **Сегментирование** по TWIC issue: есть ~1500 issues, каждый ~3k партий. Импорт идёт chronologically, по 50-100 issues за окно (ночь). Это ~150k-300k партий за окно ≈ 1-2 часа COPY + GROUP BY.
+2. **Pre-aggregation в файлах**: воркер парсит N issues в Parquet/CSV, считает агрегаты переходов локально, и одной командой COPY заливает в `position_stats_staging`. Затем GROUP-BY-UPSERT в основную таблицу.
+3. **Идемпотентность**: каждый issue имеет уникальный `cursor` в `archive_sources`; повторная загрузка одного issue не двигает счётчики (защищает `contentHash UNIQUE` для `archive_games` + `position_stats_staging` пересоздаётся `TRUNCATE` перед каждой пачкой).
+4. **Пользовательский трафик не страдает**: импорт пишет в staging table (не блокирует чтение из основной), финальный INSERT-MERGE короткий (минуты), запросы к API идут по полностью построенной части дерева.
+5. **MVP-стратегия**: грузим только последние 100 issues (~300k partій, ~3 часа суммарно). Остальные 1400 — отдельной фоновой джобой с low-priority, растянутой на 2-3 недели по ночам. Эта джоба = той же `archive-importer`, но в режиме `BACKFILL_MODE=true` с малым `BATCH_SIZE` и cooldown 30 минут между issues.
+
+Документируется отдельной задачей **KS-1587 (backend, Phase B):** «Backfill historical TWIC archive», запускается уже после стабилизации MVP.
+
+### 10.F Контрольные точки и метрики, которые надо снимать с MVP
+
+Чтобы решение о переходе на Phase B/C/D принималось на данных, а не на ощущениях, в `archive-importer` и `ArchiveService` сразу заложить метрики:
+- `archive_import_duration_seconds{source}` (histogram);
+- `archive_import_games_total{source, status}`;
+- `position_stats_upsert_duration_seconds`;
+- `archive_tree_query_duration_seconds` (histogram, label=cache_hit);
+- `archive_tree_cache_hit_ratio`;
+- `archive_games_table_size_bytes`, `position_stats_table_size_bytes` (раз в час, через `pg_total_relation_size`).
+
+Триггеры алёртов = триггеры перехода на следующую фазу из §10.B/§10.C.
+
+### 10.G Сводка путей эволюции
+
+```
+[MVP, ≤1M партий]
+    PostgreSQL monolithic, INSERT ON CONFLICT, без партиций
+                |
+                | trigger: position_stats > 30M строк или backfill > 1M
+                v
+[Phase B, 1-10M партий]
+    + партиционирование archive_games по году
+    + партиционирование position_stats HASH(position_key)
+    + COPY-staging-pipeline вместо UPSERT
+    + per-partition VACUUM
+                |
+                | trigger: position_stats > 100M или Lichess-импорт
+                v
+[Phase C, 10-50M партий]
+    + ClickHouse SummingMergeTree для position_stats
+    + ArchiveStatsRepository — переключаемая реализация
+    PostgreSQL остаётся source-of-truth для archive_games
+                |
+                | trigger: пользовательские запросы partій > 100 RPS или 50M
+                v
+[Phase D, 50M+ партий]
+    + ClickHouse archive_games_flat для UI-поиска partій
+    + S3-бэкап CH, streaming WAL для PG
+    PostgreSQL — только канонический PGN + метаданные дедупа
+```
+
+Контракт API, миграции Prisma и внутренний интерфейс `ArchiveStatsRepository` остаются стабильными между фазами; меняется только реализация.
 
 ---
 
@@ -478,3 +683,4 @@ apps/archive-importer/
 1. Нужно ли пользователям видеть PGN/просмотр конкретной партии из архива? (Если да — нужен `ArchiveGamePage`.)
 2. Нужна ли фильтрация по конкретному игроку? (Тогда нужны индексы по `whiteName/blackName` LOWER + дедуп имён, что нетривиально.)
 3. Импорт собственных партий пользователя из chesscom/lichess в `archive_games` (bucket=user) — отдельная фича.
+4. С какого реального трафика принимать решение о переходе Phase A → Phase B? Нужно собрать метрики §10.F хотя бы за месяц после запуска MVP.
