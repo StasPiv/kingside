@@ -137,17 +137,15 @@ AGENT_VOLUMES = {
 }
 
 
-def _build_scope_prompt(agent: str) -> str:
-    """Строит текстовое описание scope агента на основе AGENT_VOLUMES."""
+def _scope_summary(agent: str) -> tuple[list[str], list[str]]:
+    """Возвращает (rw, ro) списки путей для агента."""
     volumes = AGENT_VOLUMES.get(agent, AGENT_VOLUMES.get("_default", []))
-    rw = []
-    ro = []
+    rw, ro = [], []
     for v in volumes:
         parts = v.split(":")
         if len(parts) < 2:
             continue
-        host_path, container_path = parts[0], parts[1]
-        # Относительный путь внутри /project
+        container_path = parts[1]
         display = container_path.replace("/project/", "").replace("/home/agent/", "~/")
         if display == "/project":
             display = "(весь /project)"
@@ -158,10 +156,27 @@ def _build_scope_prompt(agent: str) -> str:
             ro.append(display)
         else:
             rw.append(display)
+    return sorted(set(rw)), sorted(set(ro))
+
+
+def _build_scope_prompt(agent: str) -> str:
+    """Строит текстовое описание scope агента на основе AGENT_VOLUMES."""
+    rw, ro = _scope_summary(agent)
     lines = ["## Твой scope в контейнере (автогенерация)"]
-    lines.append(f"**RW (можно менять):** {', '.join(sorted(set(rw))) or '—'}")
-    lines.append(f"**RO (только читать):** {', '.join(sorted(set(ro))) or '—'}")
+    lines.append(f"**RW (можно менять):** {', '.join(rw) or '—'}")
+    lines.append(f"**RO (только читать):** {', '.join(ro) or '—'}")
     lines.append("Остальные файлы в /project недоступны. НЕ пытайся читать/писать за пределами scope — сразу сообщи координатору.")
+
+    # Координатор дополнительно видит scope всех остальных агентов
+    if agent == "coordinator":
+        lines.append("")
+        lines.append("## Scope других агентов (учитывай при назначении задач)")
+        for other in sorted(AGENT_VOLUMES):
+            if other in ("coordinator", "_default"):
+                continue
+            other_rw, other_ro = _scope_summary(other)
+            lines.append(f"- **{other}** RW: {', '.join(other_rw) or '—'}")
+
     return "\n".join(lines)
 
 
