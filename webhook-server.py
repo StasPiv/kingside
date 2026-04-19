@@ -167,15 +167,18 @@ def _build_scope_prompt(agent: str) -> str:
     lines.append(f"**RO (только читать):** {', '.join(ro) or '—'}")
     lines.append("Остальные файлы в /project недоступны. НЕ пытайся читать/писать за пределами scope — сразу сообщи координатору.")
 
-    # Координатор дополнительно видит scope всех остальных агентов
+    # Координатор дополнительно видит scope и роли всех остальных агентов
     if agent == "coordinator":
         lines.append("")
-        lines.append("## Scope других агентов (учитывай при назначении задач)")
+        lines.append("## Агенты: scope и роли (учитывай при назначении задач)")
         for other in sorted(AGENT_VOLUMES):
             if other in ("coordinator", "_default"):
                 continue
-            other_rw, other_ro = _scope_summary(other)
-            lines.append(f"- **{other}** RW: {', '.join(other_rw) or '—'}")
+            other_rw, _ = _scope_summary(other)
+            other_roles = AGENT_ROLES.get(other, [])
+            lines.append(f"- **{other}**")
+            lines.append(f"  - RW: {', '.join(other_rw) or '—'}")
+            lines.append(f"  - Roles: {', '.join(other_roles) or '—'}")
 
     return "\n".join(lines)
 
