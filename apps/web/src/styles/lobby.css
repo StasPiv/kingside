@@ -30,22 +30,50 @@
 
 .lobby-teaser {
   background: #16213e;
+  border: 1px solid transparent;
   border-radius: 16px;
   padding: 28px 20px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: transform 0.15s, box-shadow 0.15s, background 0.15s, border-color 0.15s;
+  /* KS-1575: защищаемся от глобального a:hover underline на случай,
+     если карточку в будущем завернут в <a>. */
+  text-decoration: none;
+  color: inherit;
 }
 
 .lobby-teaser--clickable {
   cursor: pointer;
 }
 
-.lobby-teaser:hover {
+/* KS-1575: hover на всю карточку — явный визуальный отклик:
+   подсветка фона + лёгкая рамка + подъём + тень. */
+.lobby-teaser--clickable:hover {
   transform: translateY(-3px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  background: #1b2a4e;
+  border-color: rgba(124, 131, 255, 0.35);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.lobby-teaser--clickable:focus-visible {
+  outline: none;
+  border-color: #7c83ff;
+  box-shadow: 0 0 0 3px rgba(124, 131, 255, 0.35);
+}
+
+/* KS-1575: никаких underline на дочерних элементах при hover/focus карточки. */
+.lobby-teaser:hover,
+.lobby-teaser:focus,
+.lobby-teaser:focus-visible,
+.lobby-teaser:hover .lobby-teaser__title,
+.lobby-teaser:hover .lobby-teaser__desc,
+.lobby-teaser:hover .lobby-teaser__image,
+.lobby-teaser:focus .lobby-teaser__title,
+.lobby-teaser:focus .lobby-teaser__desc,
+.lobby-teaser:focus .lobby-teaser__image {
+  text-decoration: none;
 }
 
 .lobby-teaser__image {
