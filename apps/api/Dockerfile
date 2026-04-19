@@ -16,12 +16,15 @@ COPY apps/broadcast-worker/package.json apps/broadcast-worker/
 COPY apps/game-service/package.json apps/game-service/
 COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
+COPY packages/db/package.json packages/db/
 RUN npm ci --ignore-scripts
 COPY packages/shared ./packages/shared
+COPY packages/db ./packages/db
 COPY apps/api ./apps/api
 COPY tsconfig.base.json ./
 RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
+RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 
 FROM base AS production
@@ -30,11 +33,11 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/data ./apps/api/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
-COPY --from=build /app/apps/api/prisma ./apps/api/prisma
+COPY --from=build /app/packages/db ./packages/db
 COPY --from=build /app/apps/api/prisma.config.ts ./apps/api/prisma.config.ts
 COPY apps/api/package.json ./apps/api/
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
-RUN cd apps/api && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
+RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
 
 ENV STOCKFISH_PATH=/usr/games/stockfish
 ENV STOCKFISH_MAX_INSTANCES=4
