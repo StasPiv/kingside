@@ -41,6 +41,21 @@ async function main() {
   });
 
   console.log('Seeded DEV user');
+
+  await prisma.archiveSource.upsert({
+    where: { code: 'twic' },
+    update: {},
+    create: {
+      code: 'twic',
+      name: 'The Week In Chess',
+      kind: 'twic_zip',
+      url: 'https://theweekinchess.com',
+      enabled: true,
+      schedule: '0 8 * * 5',
+    },
+  });
+
+  console.log('Seeded TWIC archive source');
 }
 
 main()

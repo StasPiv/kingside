@@ -763,3 +763,99 @@ model FeedbackVote {
   @@unique([feedbackId, userId])
   @@map("feedback_votes")
 }
+
+model ArchiveSource {
+  id             String    @id @default(uuid()) @db.Uuid
+  code           String    @unique
+  name           String
+  kind           String
+  url            String?
+  enabled        Boolean   @default(true)
+  schedule       String?
+  cursor         String?
+  lastRunAt      DateTime? @map("last_run_at")
+  lastSuccessAt  DateTime? @map("last_success_at")
+  lastError      String?   @map("last_error") @db.Text
+  totalGames     Int       @default(0) @map("total_games")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  imports ArchiveImport[]
+  games   ArchiveGame[]
+
+  @@map("archive_sources")
+}
+
+model ArchiveImport {
+  id             String    @id @default(uuid()) @db.Uuid
+  sourceId       String    @map("source_id") @db.Uuid
+  status         String    @default("pending") // pending, running, success, failed
+  fileName       String?   @map("file_name")
+  cursorBefore   String?   @map("cursor_before")
+  cursorAfter    String?   @map("cursor_after")
+  gamesParsed    Int       @default(0) @map("games_parsed")
+  gamesAdded     Int       @default(0) @map("games_added")
+  gamesSkipped   Int       @default(0) @map("games_skipped")
+  error          String?   @db.Text
+  startedAt      DateTime  @default(now()) @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+
+  source ArchiveSource @relation(fields: [sourceId], references: [id])
+  games  ArchiveGame[]
+
+  @@index([sourceId])
+  @@index([status])
+  @@map("archive_imports")
+}
+
+model ArchiveGame {
+  id           String    @id @default(uuid()) @db.Uuid
+  sourceId     String    @map("source_id") @db.Uuid
+  importId     String?   @map("import_id") @db.Uuid
+  contentHash  Bytes     @unique @map("content_hash")
+  event        String?
+  site         String?
+  round        String?
+  date         String?
+  playedAt     DateTime? @map("played_at")
+  whiteName    String?   @map("white_name")
+  blackName    String?   @map("black_name")
+  whiteElo     Int?      @map("white_elo")
+  blackElo     Int?      @map("black_elo")
+  whiteTitle   String?   @map("white_title")
+  blackTitle   String?   @map("black_title")
+  result       String?
+  eco          String?
+  opening      String?
+  plyCount     Int?      @map("ply_count")
+  pgn          String    @db.Text
+  finalFen     String?   @map("final_fen")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  source ArchiveSource  @relation(fields: [sourceId], references: [id])
+  import ArchiveImport? @relation(fields: [importId], references: [id])
+
+  @@index([eco, playedAt(sort: Desc)])
+  @@index([whiteName, blackName])
+  @@index([playedAt(sort: Desc)])
+  @@index([sourceId, playedAt(sort: Desc)])
+  @@map("archive_games")
+}
+
+model PositionStats {
+  positionKey Bytes     @map("position_key")
+  nextMoveUci String    @map("next_move_uci")
+  bucket      String    @default("master")
+  whiteWins   Int       @default(0) @map("white_wins")
+  draws       Int       @default(0)
+  blackWins   Int       @default(0) @map("black_wins")
+  total       Int       @default(0)
+  avgElo      Int?      @map("avg_elo")
+  lastSeenAt  DateTime? @map("last_seen_at")
+  ply         Int?
+
+  @@id([positionKey, nextMoveUci, bucket])
+  @@index([positionKey, bucket, total(sort: Desc)])
+  @@index([ply])
+  @@map("position_stats")
+}
