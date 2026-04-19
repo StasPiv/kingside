@@ -213,7 +213,7 @@ class AgentDaemon:
             "-v", f"{AGENT_CLAUDE_DIR}:/home/agent/.claude",
             "-v", f"{AGENT_CLAUDE_JSON}:/home/agent/.claude.json",
             "-v", f"{LOG_DIR}:/project/logs",
-            "-e", f"WEBHOOK_AUTH_TOKEN={WEBHOOK_AUTH_TOKEN}",
+            "-e", f"WEBHOOK_AUTH_TOKEN={_get_agent_token(self.name)}",
         ]
         for v in volumes:
             cmd.extend(["-v", v])
@@ -616,6 +616,67 @@ def handle_telegram_send(handler, payload):
 
 FEEDBACK_WEBHOOK_SECRET = os.environ.get("FEEDBACK_WEBHOOK_SECRET", "")
 WEBHOOK_AUTH_TOKEN = os.environ.get("WEBHOOK_AUTH_TOKEN", "")
+
+import hmac as _hmac
+import hashlib as _hashlib
+
+
+def _sign_token(roles: list[str]) -> str:
+    """Формат токена: <ROLE1,ROLE2,...>.<hmac16>. Подпись — HMAC-SHA256 секретом WEBHOOK_AUTH_TOKEN."""
+    payload = ",".join(sorted(roles))
+    sig = _hmac.new(WEBHOOK_AUTH_TOKEN.encode(), payload.encode(), _hashlib.sha256).hexdigest()[:16]
+    return f"{payload}.{sig}"
+
+
+def _parse_token(token: str) -> list[str] | None:
+    """Возвращает список ролей если подпись валидна, иначе None."""
+    if not token or "." not in token:
+        return None
+    payload, sig = token.rsplit(".", 1)
+    expected = _hmac.new(WEBHOOK_AUTH_TOKEN.encode(), payload.encode(), _hashlib.sha256).hexdigest()[:16]
+    if not _hmac.compare_digest(sig, expected):
+        return None
+    return [r for r in payload.split(",") if r]
+
+
+# Роли агентов (ROLE_*, UPPERCASE)
+AGENT_ROLES: dict[str, list[str]] = {
+    "backend":     ["ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_API_START"],
+    "frontend":    ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START"],
+    "layout":      ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START"],
+    "devops":      ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_API_START", "ROLE_UP"],
+    "architect":   ["ROLE_COMMIT"],
+    "marketing":   ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND"],
+    "coordinator": [],
+    "chess-expert": [],
+    "qa":          [],
+}
+
+# Все роли — для главного токена пользователя
+_ALL_ROLES = sorted({r for roles in AGENT_ROLES.values() for r in roles})
+
+
+def _get_agent_token(agent: str) -> str:
+    """Возвращает токен с ролями агента."""
+    return _sign_token(AGENT_ROLES.get(agent, []))
+
+
+# Какая роль нужна для endpoint (scope -> role)
+ENDPOINT_ROLE: dict[str, object] = {
+    "/commit": "ROLE_COMMIT",
+    "/npm-install": "ROLE_NPM_INSTALL",
+    "/api-start": "ROLE_API_START",
+    "/up": "ROLE_UP",
+    "/deploy": {
+        "frontend": "ROLE_DEPLOY_FRONTEND",
+        "api": "ROLE_DEPLOY_API",
+        "workers": "ROLE_DEPLOY_WORKERS",
+        "broadcast-worker": "ROLE_DEPLOY_WORKERS",
+        "matchmaker": "ROLE_DEPLOY_WORKERS",
+        "all": "ROLE_DEPLOY_ALL",
+        "": "ROLE_DEPLOY_ALL",
+    },
+}
 
 
 def handle_feedback_notify(handler):
@@ -1794,22 +1855,54 @@ if (SpeechRecognition) {
 
 
 class WebhookHandler(BaseHTTPRequestHandler):
-    def _check_auth(self) -> bool:
-        """Проверяет Bearer-токен."""
+    def _get_roles(self) -> list[str] | None:
+        """Возвращает список ролей из токена. None если токен невалидный."""
         if not WEBHOOK_AUTH_TOKEN:
-            return True
+            return _ALL_ROLES
         auth = self.headers.get("Authorization", "")
-        if auth == f"Bearer {WEBHOOK_AUTH_TOKEN}":
-            return True
-        # Fallback: токен в query-параметре (для SSE/браузера)
-        from urllib.parse import urlparse, parse_qs
-        qs = parse_qs(urlparse(self.path).query)
-        if qs.get("token", [None])[0] == WEBHOOK_AUTH_TOKEN:
+        token = auth.replace("Bearer ", "", 1) if auth.startswith("Bearer ") else ""
+        if not token:
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            token = qs.get("token", [""])[0]
+        if not token:
+            return None
+        # Пользовательский (главный) токен — все роли
+        if token == WEBHOOK_AUTH_TOKEN:
+            return _ALL_ROLES
+        return _parse_token(token)
+
+    def _check_auth(self) -> bool:
+        """Проверяет токен. Сохраняет roles в self._roles."""
+        roles = self._get_roles()
+        if roles is not None:
+            self._roles = roles
             return True
         self.send_response(401)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps({"error": "unauthorized"}).encode())
+        return False
+
+    def _check_role(self, endpoint: str, scope: str = None) -> bool:
+        """Проверяет что токен содержит роль необходимую для endpoint."""
+        roles = getattr(self, "_roles", None) or []
+        spec = ENDPOINT_ROLE.get(endpoint)
+        if spec is None:
+            return True  # endpoint без ролевых ограничений
+        if isinstance(spec, dict):
+            required = spec.get(scope or "", None)
+        else:
+            required = spec
+        if required and required in roles:
+            return True
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({
+            "error": f"forbidden: missing role {required} for {endpoint}" + (f" scope='{scope}'" if scope else ""),
+            "token_roles": roles,
+        }).encode())
         return False
 
     def do_POST(self):
@@ -1940,6 +2033,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/commit":
+            if not self._check_role("/commit"):
+                return
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
             try:
@@ -1989,6 +2084,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/npm-install":
+            if not self._check_role("/npm-install"):
+                return
             log("npm install запущен")
             try:
                 result = subprocess.run(
@@ -2014,6 +2111,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/up":
+            if not self._check_role("/up"):
+                return
             log("just up запущен")
             try:
                 result = subprocess.run(
@@ -2045,6 +2144,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/api-start":
+            if not self._check_role("/api-start"):
+                return
             log("API start запрошен")
             try:
                 # Проверяем не запущен ли уже
@@ -2090,6 +2191,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 payload = {}
             scope = payload.get("scope", "")
+            if not self._check_role("/deploy", scope):
+                return
             cmd = ["bash", os.path.join(PROJECT_DIR, "scripts/deploy-aws.sh")]
             if scope:
                 cmd.append(scope)
