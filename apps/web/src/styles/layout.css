@@ -507,29 +507,29 @@ body.has-analysis-page .main {
   overflow-y: auto;
 }
 
-/* Sidebar (KS-1111/KS-1487) */
+/* Sidebar (KS-1111/KS-1487/KS-1572) */
 .sidebar {
-  width: 64px;
+  width: 88px;
   background: #0f0f1e;
   border-right: 1px solid #2a2a4e;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 0;
-  gap: 6px;
+  padding: 16px 0;
+  gap: 10px;
   flex-shrink: 0;
 }
 
 .sidebar-item {
-  width: 48px;
-  height: 48px;
+  width: 60px;
+  height: 60px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: 12px;
   text-decoration: none;
   color: #9e9e9e;
-  font-size: 22px;
+  font-size: 28px;
   position: relative;
   transition: background 0.15s, color 0.15s;
 }
@@ -566,24 +566,24 @@ body.has-analysis-page .main {
 .sidebar-item--active::before {
   content: '';
   position: absolute;
-  left: -8px;
-  top: 8px;
-  bottom: 8px;
+  left: -14px;
+  top: 10px;
+  bottom: 10px;
   width: 3px;
   background: #7c83ff;
   border-radius: 0 2px 2px 0;
 }
 
 .sidebar-icon {
-  font-size: 22px;
+  font-size: 28px;
   line-height: 1;
 }
 
 .sidebar-divider {
-  width: 32px;
+  width: 44px;
   height: 1px;
   background: #2a2a4e;
-  margin: 8px 0;
+  margin: 10px 0;
 }
 
 @media (max-width: 768px) {
