@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { Chess } from 'chess.js';
 import type { Square } from 'chess.js';
 
@@ -48,13 +48,24 @@ export function useBoardHighlights({
   enabled = true,
   onMove,
 }: UseBoardHighlightsOptions): UseBoardHighlightsResult {
-  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const [selectedSquare, setSelectedSquareState] = useState<Square | null>(null);
   const [lastMove, setLastMoveState] = useState<{ from: Square; to: Square } | null>(null);
+  // Synchronous mirror of selectedSquare. React state updates are async, so when
+  // react-chessboard fires onSquareClick AND onPieceClick for a single click on
+  // a piece, both handlers run before the state re-render — without a sync ref
+  // the second handler still sees the "old" selectedSquare and triggers the
+  // move a second time, producing a duplicate entry in the move list (KS-1566).
+  const selectedSquareRef = useRef<Square | null>(null);
+
+  const setSelectedSquare = useCallback((value: Square | null) => {
+    selectedSquareRef.current = value;
+    setSelectedSquareState(value);
+  }, []);
 
   const setLastMove = useCallback((from: Square, to: Square) => {
     setLastMoveState({ from, to });
     setSelectedSquare(null);
-  }, []);
+  }, [setSelectedSquare]);
 
   const clearLastMove = useCallback(() => {
     setLastMoveState(null);
@@ -62,23 +73,30 @@ export function useBoardHighlights({
 
   const clearSelection = useCallback(() => {
     setSelectedSquare(null);
-  }, []);
+  }, [setSelectedSquare]);
 
   const onSquareClick = useCallback(
     (square: Square) => {
       if (!enabled || !game) return;
 
+      const currentSelected = selectedSquareRef.current;
+
       // Two-click move mode: if a piece is selected and user clicks a legal target
-      if (onMove && selectedSquare && selectedSquare !== square) {
-        const legalMoves = game.moves({ square: selectedSquare, verbose: true });
+      if (onMove && currentSelected && currentSelected !== square) {
+        const legalMoves = game.moves({ square: currentSelected, verbose: true });
         const isLegalTarget = legalMoves.some((m) => m.to === square);
 
         if (isLegalTarget) {
-          const moved = onMove(selectedSquare, square);
+          // Clear selection BEFORE dispatching onMove so any follow-up
+          // synchronous onSquareClick/onPieceClick for the same target square
+          // cannot re-enter this branch and dispatch a duplicate move.
+          setSelectedSquare(null);
+          const moved = onMove(currentSelected, square);
           if (moved) {
             // setLastMove / clearSelection will be called by the move handler
             return;
           }
+          // Move was rejected — fall through to normal click handling
         }
       }
 
@@ -96,7 +114,7 @@ export function useBoardHighlights({
       // If clicking elsewhere — deselect
       setSelectedSquare(null);
     },
-    [enabled, game, playerColor, onMove, selectedSquare],
+    [enabled, game, playerColor, onMove, setSelectedSquare],
   );
 
   const squareStyles = useMemo(() => {
