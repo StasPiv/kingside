@@ -25,6 +25,7 @@ import { useAuth } from '../context/AuthContext';
 import { useReviewState } from '../review/useReviewState';
 import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
+import { VariationChooser } from '../components/VariationChooser';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
@@ -141,6 +142,10 @@ export function AnalysisPage() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(analysisTitle);
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
+  // KS-1576: Variation chooser state — открывается при ArrowRight если у следующего хода есть альтернативы
+  const [variationChooser, setVariationChooser] = useState<
+    { mainLine: ChessMove; variations: ChessMove[][] } | null
+  >(null);
 
   useEffect(() => {
     if (!gameId && localIdRef.current && !analysisId) {
@@ -491,17 +496,48 @@ export function AnalysisPage() {
     return () => clearTimeout(timer);
   }, [currentFen, isReady, evaluate, analysisEnabled, ec.engineSource]);
 
+  // KS-1576: helper — вычисляет следующий ход основной линии и альтернативные ветки
+  const getNextOptions = useCallback((): { mainLine: ChessMove; variations: ChessMove[][] } | null => {
+    let mainLine: ChessMove | null = null;
+    if (currentMove === null) {
+      if (history.length === 0) return null;
+      mainLine = history[0] as ChessMove;
+    } else {
+      if (!currentMove.next) return null;
+      mainLine = currentMove.next as ChessMove;
+    }
+    const variations = (mainLine.variations ?? []) as ChessMove[][];
+    return { mainLine, variations };
+  }, [currentMove, history]);
+
+  const handleArrowRight = useCallback(() => {
+    // Если окошко выбора уже открыто — ничего не делаем (сценарий: повторное нажатие не открывает второе)
+    if (variationChooser) return;
+    const options = getNextOptions();
+    if (!options) {
+      gotoNext();
+      return;
+    }
+    if (options.variations.length > 0) {
+      setVariationChooser(options);
+      return;
+    }
+    gotoNext();
+  }, [variationChooser, getNextOptions, gotoNext]);
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Пока открыт variation chooser — он сам управляет клавиатурой
+      if (variationChooser) return;
       if (e.key === 'ArrowLeft') { e.preventDefault(); gotoPrevious(); }
-      else if (e.key === 'ArrowRight') { e.preventDefault(); gotoNext(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); handleArrowRight(); }
       else if (e.key === 'Home') { e.preventDefault(); gotoFirst(); }
       else if (e.key === 'End') { e.preventDefault(); gotoLast(); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gotoPrevious, gotoNext, gotoFirst, gotoLast]);
+  }, [gotoPrevious, handleArrowRight, gotoFirst, gotoLast, variationChooser]);
 
   // Close overflow menu on click outside
   useEffect(() => {
@@ -780,10 +816,22 @@ export function AnalysisPage() {
             </div>
           </div>
 
+          {variationChooser && (
+            <VariationChooser
+              mainLine={variationChooser.mainLine}
+              variations={variationChooser.variations}
+              onSelect={(move) => {
+                setVariationChooser(null);
+                gotoMove(move);
+              }}
+              onClose={() => setVariationChooser(null)}
+            />
+          )}
+
           <div className="analysis-board-controls">
             <button onClick={gotoFirst} disabled={isAtStart} title={t('review.toStart')}>&#x21E4;</button>
             <button onClick={gotoPrevious} disabled={isAtStart} title={t('review.back')}>&#x2190;</button>
-            <button onClick={gotoNext} disabled={isAtEnd} title={t('review.forward')}>&#x2192;</button>
+            <button onClick={handleArrowRight} disabled={isAtEnd} title={t('review.forward')}>&#x2192;</button>
             <button onClick={gotoLast} disabled={isAtEnd} title={t('review.toEnd')}>&#x21E5;</button>
             <button
               className="analysis-flip-btn"

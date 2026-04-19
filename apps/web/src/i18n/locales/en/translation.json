@@ -447,7 +447,13 @@
     "promote": "Promote",
     "truncate": "Truncate",
     "delete": "Delete",
-    "moves": "Moves"
+    "moves": "Moves",
+    "variationChooser": {
+      "title": "Choose continuation",
+      "mainLine": "Main line",
+      "variation": "Variation",
+      "hint": "↑/↓ or 1–9 · Enter to choose · Esc to cancel"
+    }
   },
   "analysis": {
     "depth": "Depth",
