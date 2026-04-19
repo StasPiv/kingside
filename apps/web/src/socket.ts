@@ -1,7 +1,61 @@
 import { io, type Socket } from 'socket.io-client';
 
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
-const GAME_URL = import.meta.env.VITE_GAME_URL ?? API_URL;
+const DEV_API_URL = 'http://localhost:3001';
+
+function isLocalHostUrl(url: string): boolean {
+  return /^(wss?|https?):\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(url);
+}
+
+function pageIsOnLocalhost(): boolean {
+  if (typeof window === 'undefined') return true;
+  const h = window.location.hostname;
+  return h === 'localhost' || h === '127.0.0.1';
+}
+
+/**
+ * Resolve a websocket/HTTP service URL from Vite env, guarding against
+ * misconfigured production builds that accidentally baked in localhost.
+ *
+ * Root cause history (KS-1570): deploy-aws.sh inherits VITE_GAME_URL from
+ * the shell; if the operator's shell exported VITE_GAME_URL=ws://localhost:3002
+ * (typical for local dev) the prod bundle ended up with that hardcoded,
+ * breaking game creation on kingside.site.
+ *
+ * Rule: if the page is served from a non-localhost origin we refuse to
+ * return a localhost URL — we fall back to the page origin and log a loud
+ * error so the broken deploy is visible.
+ */
+function resolveServiceUrl(
+  envValue: string | undefined,
+  devFallback: string,
+  varName: string,
+): string {
+  const isProdOrigin = !pageIsOnLocalhost();
+
+  if (envValue) {
+    if (isProdOrigin && isLocalHostUrl(envValue)) {
+      const derived = typeof window !== 'undefined' ? window.location.origin : devFallback;
+      // eslint-disable-next-line no-console
+      console.error(
+        `[socket] ${varName}="${envValue}" points to localhost but the page is served from ${
+          typeof window !== 'undefined' ? window.location.origin : '(non-browser)'
+        }. Ignoring env and falling back to ${derived}. Fix the build pipeline (scripts/deploy-aws.sh must pass a public ${varName}).`,
+      );
+      return derived;
+    }
+    return envValue;
+  }
+
+  // No env value provided — in prod derive from the page origin instead of
+  // leaking the dev default into the production bundle.
+  if (isProdOrigin && typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return devFallback;
+}
+
+const API_URL = resolveServiceUrl(import.meta.env.VITE_API_URL, DEV_API_URL, 'VITE_API_URL');
+const GAME_URL = resolveServiceUrl(import.meta.env.VITE_GAME_URL, API_URL, 'VITE_GAME_URL');
 
 const SOCKET_OPTS = {
   autoConnect: false,
