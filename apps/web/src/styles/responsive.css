@@ -250,6 +250,8 @@
 
   .main {
     padding: 16px;
+    /* KS-1585: shorthand resets padding-bottom from layout.css; keep room for MobileBottomBar (56px) + safe area */
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
   }
 
   .analysis-page,
@@ -497,6 +499,8 @@
 
   .main {
     padding: 8px;
+    /* KS-1585: shorthand resets padding-bottom; keep room for MobileBottomBar (56px) + safe area */
+    padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
     overflow-x: hidden;
   }
 
