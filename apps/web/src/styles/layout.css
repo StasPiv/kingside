@@ -553,9 +553,19 @@ body.has-analysis-page .main {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
-.sidebar-item:hover {
+.sidebar-item:hover,
+.sidebar-item:focus,
+.sidebar-item:focus-visible {
   background: rgba(124,131,255,0.1);
   color: #e0e0e0;
+  /* KS-1573: перекрываем глобальное a:hover { text-decoration: underline }
+     — emoji-иконкам подчёркивание не к лицу. */
+  text-decoration: none;
+}
+
+.sidebar-item:hover .sidebar-icon,
+.sidebar-item:focus .sidebar-icon {
+  text-decoration: none;
 }
 
 .sidebar-item--active {
