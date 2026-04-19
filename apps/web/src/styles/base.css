@@ -1,3 +1,9 @@
+/* KS-1572: подключаем emoji-шрифт через Google Fonts,
+   чтобы emoji-иконки в UI (sidebar, lobby-cards и т.д.) гарантированно
+   отображались в окружениях без системного emoji-шрифта (напр. Linux
+   Chromium без noto-color-emoji). */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');
+
 *,
 *::before,
 *::after {
@@ -13,6 +19,21 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: hidden;
+}
+
+/* KS-1572: emoji-шрифт применяется только к элементам, где иконка —
+   это чистый emoji-символ. Так обычный текст (цифры, буквы) продолжает
+   рендериться sans-serif'ом, а emoji подхватывает Noto Color Emoji
+   (из @import выше) в окружениях без системного emoji-шрифта. */
+.emoji-icon,
+.sidebar-icon,
+.lobby-teaser__image,
+.lobby-feedback-teaser__icon,
+.dash-action-icon,
+.mobile-bar-icon,
+.chat-widget-btn {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
+    'Noto Color Emoji', sans-serif;
 }
 
 .guest-banner {
@@ -62,6 +83,7 @@ button {
   background: #7c83ff;
   color: #fff;
   transition: background 0.2s;
+  font-family: inherit;
 }
 
 button:hover {
