@@ -16,13 +16,15 @@ COPY apps/web/package.json apps/web/
 COPY apps/broadcast-worker/package.json apps/broadcast-worker/
 COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
+COPY packages/db/package.json packages/db/
 RUN npm ci --ignore-scripts
 COPY packages/shared ./packages/shared
+COPY packages/db ./packages/db
 COPY apps/game-service ./apps/game-service
 COPY tsconfig.base.json ./
 RUN rm -f packages/shared/tsconfig.tsbuildinfo
 RUN npx tsc --build packages/shared
-RUN cd apps/game-service && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
+RUN cd packages/db && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npm run build
 RUN cd apps/game-service && npx nest build 2>&1 || true
 RUN cp -r apps/game-service/src/engine/*.json apps/game-service/dist/engine/ 2>/dev/null || true
 RUN cp -r apps/game-service/src/i18n apps/game-service/dist/i18n 2>/dev/null || true
@@ -34,10 +36,10 @@ COPY --from=build /app/apps/game-service/dist ./apps/game-service/dist
 COPY apps/game-service/data ./apps/game-service/data
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages/shared ./packages/shared
-COPY --from=build /app/apps/game-service/prisma ./apps/game-service/prisma
+COPY --from=build /app/packages/db ./packages/db
 COPY apps/game-service/package.json ./apps/game-service/
 RUN rm -rf node_modules/@kingside/shared && ln -s ../../packages/shared node_modules/@kingside/shared
-RUN cd apps/game-service && DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" npx prisma generate
+RUN rm -rf node_modules/@kingside/db && ln -s ../../packages/db node_modules/@kingside/db
 
 ENV STOCKFISH_PATH=/usr/games/stockfish
 ENV STOCKFISH_MAX_INSTANCES=4
