@@ -772,9 +772,31 @@
 .schedule-result--loss { color: #f44336; }
 .schedule-result--draw { color: #9e9e9e; }
 
-/* Tournament Header (KS-1089) */
+/*
+ * KS-1586: let the tournament page scroll inside the viewport (not .main).
+ * .main has overflow-y:auto (and overflow-x:hidden on mobile), which establishes
+ * a scroll container; but because the app chain lacks a bounded height, .main
+ * grows to fit its content and never actually scrolls — which also breaks
+ * position:sticky for descendants (they have nowhere to stick).
+ * overflow:clip hides overflow WITHOUT establishing a scroll container, so the
+ * nearest sticky scrollport becomes the viewport and sticky works as expected.
+ */
+.main:has(.tournament-lobby-page) {
+  overflow: clip;
+}
+
+/* Tournament Header (KS-1089, sticky in KS-1586) */
 .tournament-header {
+  /* Sticky so the tournament name stays visible while scrolling long standings */
+  position: sticky;
+  top: 48px; /* just below the fixed global site header (height 48px) */
+  z-index: 20;
+  background: #1a1a2e;
+  padding-top: 8px;
+  padding-bottom: 8px;
   margin-bottom: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px -8px rgba(0, 0, 0, 0.6);
 }
 
 .tournament-header__top {
