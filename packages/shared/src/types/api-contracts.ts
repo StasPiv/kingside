@@ -14,6 +14,8 @@ import type { PuzzleDto, PuzzleAttemptResult, PuzzleTheme } from './puzzle.js';
 import type { Locale, User } from './user.js';
 import type { BoardTheme, PieceSet } from '../constants.js';
 
+export * from './archive.js';
+
 // ─── Auth ────────────────────────────────────────────────────────────
 
 export type LoginRequest = {
