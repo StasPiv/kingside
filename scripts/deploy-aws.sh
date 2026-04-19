@@ -25,9 +25,12 @@ ECS_CLUSTER="kingside"
 ECS_SERVICE="kingside-api"
 ECS_SERVICE_GAME="kingside-game-service"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
-PROD_API_URL="${VITE_API_URL:-https://kingside.site}"
-PROD_GAME_URL="${VITE_GAME_URL:-wss://game.kingside.site}"
-PROD_GA4_ID="${VITE_GA4_ID:-G-9HF8RVMK8K}"
+# Prod values hardcoded — DO NOT use ${VITE_*:-default}:
+# локальные VITE_* (dev: ws://localhost:3002) в env webhook-server/хоста
+# перебивали дефолты и попадали в prod-бандл. См. KS-1570.
+PROD_API_URL="https://kingside.site"
+PROD_GAME_URL="wss://game.kingside.site"
+PROD_GA4_ID="G-9HF8RVMK8K"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
 
 # Load .env
