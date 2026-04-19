@@ -39,6 +39,10 @@
   transition: transform 0.15s, box-shadow 0.15s;
 }
 
+.lobby-teaser--clickable {
+  cursor: pointer;
+}
+
 .lobby-teaser:hover {
   transform: translateY(-3px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);

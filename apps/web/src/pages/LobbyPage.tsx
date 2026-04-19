@@ -598,19 +598,44 @@ export function LobbyPage() {
       </Link>
 
       <div className="lobby-teasers">
-        {teasers.map((teaser) => (
-          <div key={teaser.id} className="lobby-teaser">
-            <div className="lobby-teaser__image">{teaser.icon}</div>
-            <h2 className="lobby-teaser__title">{t(teaser.titleKey)}</h2>
-            <p className="lobby-teaser__desc">{t(teaser.descKey)}</p>
-            <button
-              className="lobby-teaser__btn"
-              onClick={() => teaser.to ? navigate(teaser.to) : openModal(teaser.id)}
+        {teasers.map((teaser) => {
+          const handleActivate = () => {
+            if (teaser.to) {
+              navigate(teaser.to);
+            } else {
+              openModal(teaser.id);
+            }
+          };
+          return (
+            <div
+              key={teaser.id}
+              className="lobby-teaser lobby-teaser--clickable"
+              role="button"
+              tabIndex={0}
+              onClick={handleActivate}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleActivate();
+                }
+              }}
             >
-              {t(teaser.ctaKey)}
-            </button>
-          </div>
-        ))}
+              <div className="lobby-teaser__image">{teaser.icon}</div>
+              <h2 className="lobby-teaser__title">{t(teaser.titleKey)}</h2>
+              <p className="lobby-teaser__desc">{t(teaser.descKey)}</p>
+              <button
+                className="lobby-teaser__btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleActivate();
+                }}
+                tabIndex={-1}
+              >
+                {t(teaser.ctaKey)}
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {activeModal && (
