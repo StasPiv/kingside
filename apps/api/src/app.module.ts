@@ -23,7 +23,6 @@ import { PlayerModule } from './player/player.module';
 import { MessageModule } from './message/message.module';
 import { FriendModule } from './friend/friend.module';
 import { NotificationModule } from './notification/notification.module';
-import { PuzzleGeneratorModule } from './puzzle-generator/puzzle-generator.module';
 import { ArenaModule } from './arena/arena.module';
 import { AiChatModule } from './ai-chat/ai-chat.module';
 import { FeedbackModule } from './feedback/feedback.module';
@@ -54,7 +53,6 @@ import { HealthController } from './health.controller';
     UserModule,
     GameModule,
     PuzzleRushModule,
-    PuzzleGeneratorModule,
     ArenaModule,
     PuzzleModule,
     TournamentModule,

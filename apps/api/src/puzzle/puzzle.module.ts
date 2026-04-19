@@ -4,7 +4,7 @@ import { DailyPuzzleService } from './daily-puzzle.service';
 import { PuzzleController } from './puzzle.controller';
 import { PuzzleService } from './puzzle.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
-import { GlickoRatingService } from '../puzzle-generator/glicko-rating.service';
+import { GlickoRatingService } from './glicko-rating.service';
 
 @Module({
   controllers: [DailyPuzzleController, PuzzleController],

@@ -3,7 +3,7 @@ jest.mock('../prisma/prisma.service', () => ({
 }));
 
 import { PuzzleRatingService } from './puzzle-rating.service';
-import { GlickoRatingService } from '../puzzle-generator/glicko-rating.service';
+import { GlickoRatingService } from './glicko-rating.service';
 
 describe('PuzzleRatingService', () => {
   let service: PuzzleRatingService;

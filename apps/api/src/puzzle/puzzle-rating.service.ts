@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { GlickoRatingService } from '../puzzle-generator/glicko-rating.service';
+import { GlickoRatingService } from './glicko-rating.service';
 
 export interface RatingChange {
   userRatingBefore: number;
