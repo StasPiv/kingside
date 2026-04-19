@@ -137,6 +137,34 @@ AGENT_VOLUMES = {
 }
 
 
+def _build_scope_prompt(agent: str) -> str:
+    """Строит текстовое описание scope агента на основе AGENT_VOLUMES."""
+    volumes = AGENT_VOLUMES.get(agent, AGENT_VOLUMES.get("_default", []))
+    rw = []
+    ro = []
+    for v in volumes:
+        parts = v.split(":")
+        if len(parts) < 2:
+            continue
+        host_path, container_path = parts[0], parts[1]
+        # Относительный путь внутри /project
+        display = container_path.replace("/project/", "").replace("/home/agent/", "~/")
+        if display == "/project":
+            display = "(весь /project)"
+        if display == "/tmp":
+            rw.append("/tmp")
+            continue
+        if len(parts) >= 3 and parts[2] == "ro":
+            ro.append(display)
+        else:
+            rw.append(display)
+    lines = ["## Твой scope в контейнере (автогенерация)"]
+    lines.append(f"**RW (можно менять):** {', '.join(sorted(set(rw))) or '—'}")
+    lines.append(f"**RO (только читать):** {', '.join(sorted(set(ro))) or '—'}")
+    lines.append("Остальные файлы в /project недоступны. НЕ пытайся читать/писать за пределами scope — сразу сообщи координатору.")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # AgentDaemon — долгоживущий процесс claude с stream-json I/O
 # ---------------------------------------------------------------------------
@@ -183,6 +211,7 @@ class AgentDaemon:
             "--agent", self.name,
             "--dangerously-skip-permissions",
             "--strict-mcp-config",
+            "--append-system-prompt", _build_scope_prompt(self.name),
         ])
         return cmd
 
