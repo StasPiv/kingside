@@ -22,12 +22,14 @@
  */
 
 import { PrismaClient } from '@kingside/db';
+import Redis from 'ioredis';
 import { parseGame, type ParsedGame } from './pgn-utils.js';
 import { PositionIndexer } from './position-indexer.js';
 
 const BATCH_SIZE = 2000;
 const SOURCE_CODE = 'rebuild';
 const PROGRESS_TAG = '[rebuild-position-stats]';
+const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
 
 interface DbGameRow {
   id: string;
@@ -88,8 +90,14 @@ export async function rebuildPositionStats(): Promise<void> {
   const indexer = new PositionIndexer(prisma, SOURCE_CODE);
 
   try {
-    const total = await prisma.archiveGame.count();
-    console.log(`${PROGRESS_TAG} archive_games count=${total}; batch=${BATCH_SIZE}`);
+    // KS-1629: пересчёт только по классическим партиям (ADR-015 §3.5).
+    // Не-классика сюда не попадает — см. `archive:cleanup-positions` и
+    // `classify-existing` для зачистки старых данных.
+    const total = await prisma.archiveGame.count({ where: { isClassical: true } });
+    const totalAll = await prisma.archiveGame.count();
+    console.log(
+      `${PROGRESS_TAG} archive_games is_classical=${total} (of ${totalAll}); batch=${BATCH_SIZE}`,
+    );
 
     console.log(`${PROGRESS_TAG} TRUNCATE position_stats ...`);
     await prisma.$executeRawUnsafe('TRUNCATE TABLE position_stats');
@@ -102,7 +110,10 @@ export async function rebuildPositionStats(): Promise<void> {
 
     while (true) {
       const games = (await prisma.archiveGame.findMany({
-        where: cursor ? { id: { gt: cursor } } : {},
+        where: {
+          isClassical: true,
+          ...(cursor ? { id: { gt: cursor } } : {}),
+        },
         orderBy: { id: 'asc' },
         take: BATCH_SIZE,
         select: {
@@ -170,8 +181,43 @@ export async function rebuildPositionStats(): Promise<void> {
     console.log(
       `${PROGRESS_TAG} DONE processed=${processed} parseFailed=${parseFailed} elapsed=${formatEta(elapsed)}`,
     );
+
+    // KS-1629/KS-1623: публикуем событие, чтобы API инвалидировал
+    // `arch:tree:*` и `arch:games:*` в Redis. Подписчик —
+    // `ArchiveService.invalidateArchiveCache()` (apps/api).
+    await publishArchiveImported();
   } finally {
     await prisma.$disconnect().catch(() => {});
+  }
+}
+
+async function publishArchiveImported(): Promise<void> {
+  const host = process.env.REDIS_HOST || 'localhost';
+  const port = parseInt(process.env.REDIS_PORT || '6380', 10);
+  const password = process.env.REDIS_PASSWORD;
+
+  const redis = new Redis({
+    host,
+    port,
+    password,
+    // Не висеть вечно, если Redis недоступен: быстрый fail после одной
+    // попытки — rebuild свою работу уже сделал, инвалидация cache-only.
+    maxRetriesPerRequest: 1,
+    lazyConnect: false,
+  });
+
+  try {
+    const n = await redis.publish(ARCHIVE_IMPORTED_CHANNEL, 'rebuild');
+    console.log(
+      `${PROGRESS_TAG} PUBLISH ${ARCHIVE_IMPORTED_CHANNEL} → ${n} subscriber(s)`,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(
+      `${PROGRESS_TAG} redis publish failed (cache will TTL-expire): ${msg}`,
+    );
+  } finally {
+    await redis.quit().catch(() => {});
   }
 }
 
