@@ -37,6 +37,7 @@ import { searchInHistory, findGlobalIndexByFen } from '../review/utils/ChessHist
 import { useSavedAnalyses, getDefaultTitle, parsePgnHeaders } from '../hooks/useSavedAnalyses';
 import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
 import { HelpButton } from '../components/HelpButton';
+import { ArchiveTreePanel } from '../components/analysis/ArchiveTreePanel';
 
 type GameData = {
   id: string;
@@ -107,7 +108,7 @@ export function AnalysisPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
-  type MobileTabId = 'moves' | 'engine' | 'report';
+  type MobileTabId = 'moves' | 'engine' | 'tree' | 'report';
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
@@ -604,10 +605,33 @@ export function AnalysisPage() {
     [makeVariantMove, isPromotionMove, currentFen],
   );
 
-  const { squareStyles, setLastMove, onSquareClick } = useBoardHighlights({
+  const { squareStyles, arrows, setLastMove, onSquareClick, setSuggestedArrow } = useBoardHighlights({
     game, playerColor: null, enabled: true,
     onMove: onClickMove,
   });
+
+  // --- Archive tree handlers ---
+  const handleTreeMove = useCallback(
+    (uci: string) => {
+      if (uci.length < 4) return;
+      const from = uci.slice(0, 2);
+      const to = uci.slice(2, 4);
+      const promotion = uci.length > 4 ? uci[4] : undefined;
+      makeVariantMove(from, to, promotion);
+    },
+    [makeVariantMove],
+  );
+
+  const handleTreeHover = useCallback(
+    (uci: string | null) => {
+      if (!uci || uci.length < 4) {
+        setSuggestedArrow(null, null);
+        return;
+      }
+      setSuggestedArrow(uci.slice(0, 2) as Square, uci.slice(2, 4) as Square);
+    },
+    [setSuggestedArrow],
+  );
 
   useEffect(() => {
     if (currentMove) setLastMove(currentMove.from as Square, currentMove.to as Square);
@@ -670,13 +694,28 @@ export function AnalysisPage() {
       allowDragging: false,
       showNotation: true,
       squareStyles,
+      arrows,
       onSquareClick: handleSquareClick,
       onPieceClick: handlePieceClick,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, handleSquareClick, handlePieceClick],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, arrows, handleSquareClick, handlePieceClick],
   );
+
+  // SAN path from the root to the currently viewed position (follows variations).
+  // Used for the Database panel's opening heading — must reflect the active branch.
+  // NOTE: must live above the early returns below — hooks cannot be conditional.
+  const currentSanPath = useMemo(() => {
+    if (!currentMove) return [];
+    const path: string[] = [];
+    let cur: ChessMove | null | undefined = currentMove;
+    while (cur) {
+      path.push(cur.san);
+      cur = cur.previous ?? null;
+    }
+    return path.reverse();
+  }, [currentMove]);
 
   // --- Computed values ---
   const isBlackTurn = currentFen.split(' ')[1] === 'b';
@@ -693,6 +732,7 @@ export function AnalysisPage() {
     : undefined;
 
   const openingName = classifyOpening(history.map((m) => m.san));
+  const treeOpeningName = classifyOpening(currentSanPath);
 
   const gameInfo: GameMetaInfo | undefined = gameData
     ? {
@@ -1021,6 +1061,16 @@ export function AnalysisPage() {
           )}
         </div>
 
+        {/* Desktop: Archive tree panel (Database) */}
+        <div className="analysis-desktop-only">
+          <ArchiveTreePanel
+            currentFen={currentFen}
+            opening={treeOpeningName || null}
+            onSelectMove={handleTreeMove}
+            onHoverMove={handleTreeHover}
+          />
+        </div>
+
         {/* Desktop: Moves panel (collapsible) */}
         <div className="analysis-panel analysis-panel--flex analysis-desktop-only">
           <div className="analysis-panel-header" onClick={() => togglePanel('moves')}>
@@ -1058,6 +1108,9 @@ export function AnalysisPage() {
             <button className={`analysis-mobile-tab${mobileTab === 'engine' ? ' active' : ''}`} onClick={() => setMobileTab('engine')}>
               {t('analysis.engine', 'Engine')}
             </button>
+            <button className={`analysis-mobile-tab${mobileTab === 'tree' ? ' active' : ''}`} onClick={() => setMobileTab('tree')}>
+              {t('archive.tree', 'Tree')}
+            </button>
             {gameId && (
               <button className={`analysis-mobile-tab${mobileTab === 'report' ? ' active' : ''}`} onClick={() => setMobileTab('report')}>
                 {t('analysis.report', 'Report')}
@@ -1065,7 +1118,7 @@ export function AnalysisPage() {
             )}
           </div>
           <div className="analysis-mobile-panel__content">
-            <div className={`analysis-mobile-section analysis-mobile-section--engine${mobileTab !== 'report' ? ' active' : ''}`}>
+            <div className={`analysis-mobile-section analysis-mobile-section--engine${mobileTab !== 'report' && mobileTab !== 'tree' ? ' active' : ''}`}>
               <div className="analysis-mobile-engine-controls">
                 <span className="engine-multipv-controls">
                   <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
@@ -1097,7 +1150,7 @@ export function AnalysisPage() {
                 </div>
               </div>
             </div>
-            <div className={`analysis-mobile-section analysis-mobile-section--moves${mobileTab !== 'report' ? ' active' : ''}`}>
+            <div className={`analysis-mobile-section analysis-mobile-section--moves${mobileTab !== 'report' && mobileTab !== 'tree' ? ' active' : ''}`}>
               <div className="analysis-panel-body analysis-panel-body--scroll">
                 <ReviewMoveList
                   history={history}
@@ -1109,6 +1162,16 @@ export function AnalysisPage() {
                 />
               </div>
             </div>
+            {mobileTab === 'tree' && (
+              <div className="analysis-mobile-section analysis-mobile-section--tree active">
+                <ArchiveTreePanel
+                  currentFen={currentFen}
+                  opening={treeOpeningName || null}
+                  onSelectMove={handleTreeMove}
+                  onHoverMove={handleTreeHover}
+                />
+              </div>
+            )}
             {mobileTab === 'report' && gameId && (
               <div className="analysis-mobile-section analysis-mobile-section--report active">
                 {gameReport && gameReport.status === 'complete' && (

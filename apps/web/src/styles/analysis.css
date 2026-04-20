@@ -1975,10 +1975,8 @@
     box-sizing: border-box;
   }
 
-  /* KS-1182: Hide tabs, show both engine + moves simultaneously */
-  .analysis-mobile-panel__tabs {
-    display: none !important;
-  }
+  /* KS-1182: раньше табы скрывали, чтобы показывать engine+moves одновременно.
+     KS-1582 вернул табы — без них недоступны Tree и Report. */
 
   .analysis-mobile-section {
     display: none;
