@@ -46,6 +46,8 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} } },
   { name: 'api_start', description: 'Запустить API на хосте если не запущен.',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'vite_start', description: 'Перезапустить vite dev-сервер на 5173 (убивает старый процесс перед стартом). Нужно после изменения .env или пересборки зависимостей.',
+    inputSchema: { type: 'object', properties: {} } },
   { name: 'docker_compose', description: 'Выполнить docker compose <command> <args...> на хосте. Whitelist: build, up, down, logs, ps, config, restart. Требует роль ROLE_DOCKER_COMPOSE (только devops).',
     inputSchema: { type: 'object', properties: {
       command: { type: 'string', enum: ['build', 'up', 'down', 'logs', 'ps', 'config', 'restart'] },
@@ -163,6 +165,8 @@ async function call(name, args) {
       return webhookPost('/npm-install', {});
     case 'api_start':
       return webhookPost('/api-start', {});
+    case 'vite_start':
+      return webhookPost('/vite-start', {});
     case 'docker_compose':
       return webhookPost('/docker-compose', { command: args.command, args: args.args || [] });
     case 'npm_run':

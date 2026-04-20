@@ -713,6 +713,7 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/up": "ROLE_UP",
     "/docker-compose": "ROLE_DOCKER_COMPOSE",
     "/npm-run": "ROLE_NPM_RUN",
+    "/vite-start": "ROLE_API_START",
     "/deploy": {
         "frontend": "ROLE_DEPLOY_FRONTEND",
         "api": "ROLE_DEPLOY_API",
@@ -2290,6 +2291,77 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
+        if path == "/vite-start":
+            if not self._check_role("/vite-start"):
+                return
+            log("Vite start запрошен")
+            import socket
+
+            def _port_up(port: int) -> bool:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.5)
+                try:
+                    s.connect(("127.0.0.1", port))
+                    s.close()
+                    return True
+                except (ConnectionRefusedError, socket.timeout, OSError):
+                    return False
+
+            def _tail(path, n=80):
+                try:
+                    with open(path) as f:
+                        return "".join(f.readlines()[-n:])
+                except FileNotFoundError:
+                    return ""
+
+            stdout_path = os.path.join(LOG_DIR, "vite-stdout.log")
+            stderr_path = os.path.join(LOG_DIR, "vite-stderr.log")
+
+            # Убиваем процесс на 5173 всегда — чтобы перезапустить
+            subprocess.run(["fuser", "-k", "5173/tcp"], capture_output=True, timeout=5)
+            time.sleep(1)
+
+            try:
+                env = os.environ.copy()
+                proc = subprocess.Popen(
+                    ["npm", "run", "dev"],
+                    cwd=os.path.join(PROJECT_DIR, "apps/web"), env=env,
+                    stdout=open(stdout_path, "w"),
+                    stderr=open(stderr_path, "w"),
+                    start_new_session=True,
+                )
+                deadline = time.time() + 30
+                started = False
+                while time.time() < deadline:
+                    if _port_up(5173):
+                        started = True
+                        break
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(1)
+
+                body = {
+                    "status": "started" if started else "failed",
+                    "pid": proc.pid,
+                    "stdout": _tail(stdout_path),
+                    "stderr": _tail(stderr_path),
+                }
+                self.send_response(200 if started else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(body).encode())
+                log(f"Vite start завершён: started={started} pid={proc.pid}")
+            except Exception as e:
+                log(f"Vite start ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "error", "detail": str(e),
+                    "stdout": _tail(stdout_path), "stderr": _tail(stderr_path),
+                }).encode())
             return
 
         if path == "/api-start":
