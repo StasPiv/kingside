@@ -48,6 +48,10 @@ function mkGame(overrides: Partial<ParsedGame>): ParsedGame {
     finalFen: STARTING_FEN,
     contentHash: Buffer.alloc(20),
     raw: '',
+    timeControl: null,
+    category: 'classical-legacy',
+    isClassical: true,
+    classificationReason: 'legacy_otb',
     ...overrides,
   };
 }

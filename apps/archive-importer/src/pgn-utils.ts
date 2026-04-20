@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import iconv from 'iconv-lite';
 import { Chess } from 'chess.js';
+import { classifyGame, type GameCategory, type GameClassification } from './classify.js';
 
 /**
  * Ply-хоп партии: UCI-ход и FEN после него.
@@ -36,6 +37,14 @@ export interface ParsedGame {
   finalFen: string;
   contentHash: Buffer;
   raw: string;
+  /** Сырой TimeControl-тег из PGN (например `5400+30`, `-`, или null). */
+  timeControl: string | null;
+  /** Категория по ADR-015 §1 — выставляется в `parseGame` через `classifyGame`. */
+  category: GameCategory;
+  /** Быстрый bool-флаг: category ∈ {classical, classical-legacy}. */
+  isClassical: boolean;
+  /** Причина отсева/принятия, для метрик. */
+  classificationReason: GameClassification['reason'];
 }
 
 export interface ParseResult {
@@ -177,6 +186,10 @@ export function parseGame(rawPgn: string): ParsedGame | null {
   const black = extractHeader(rawPgn, 'Black');
   const date = extractHeader(rawPgn, 'Date');
   const round = extractHeader(rawPgn, 'Round');
+  const event = extractHeader(rawPgn, 'Event');
+  const site = extractHeader(rawPgn, 'Site');
+  const timeControl = extractHeader(rawPgn, 'TimeControl');
+  const classification = classifyGame({ timeControl, site, event });
 
   return {
     white,
@@ -185,8 +198,8 @@ export function parseGame(rawPgn: string): ParsedGame | null {
     blackElo: parseElo(extractHeader(rawPgn, 'BlackElo')),
     whiteTitle: extractHeader(rawPgn, 'WhiteTitle'),
     blackTitle: extractHeader(rawPgn, 'BlackTitle'),
-    event: extractHeader(rawPgn, 'Event'),
-    site: extractHeader(rawPgn, 'Site'),
+    event,
+    site,
     round,
     date,
     playedAt: parsePlayedAt(date),
@@ -198,6 +211,10 @@ export function parseGame(rawPgn: string): ParsedGame | null {
     finalFen: chess.fen(),
     contentHash: computeContentHash(white, black, date, round, moves.map((m) => m.uci)),
     raw: rawPgn,
+    timeControl,
+    category: classification.category,
+    isClassical: classification.isClassical,
+    classificationReason: classification.reason,
   };
 }
 

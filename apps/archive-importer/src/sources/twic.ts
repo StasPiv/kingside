@@ -8,7 +8,13 @@ import {
   type PositionRow,
 } from '../position-row-builder.js';
 import { filterAlreadyImported } from '../dedup.js';
-import { archiveImportGamesTotal } from '../metrics.js';
+import {
+  archiveClassicalRatio,
+  archiveGamesByCategoryTotal,
+  archiveImportGamesTotal,
+  archiveImportedNonClassicalTotal,
+  archiveRejectedUnknownReasonTotal,
+} from '../metrics.js';
 
 const DEFAULT_BUCKET = 'master';
 
@@ -215,15 +221,30 @@ export class TwicImporter {
             plyCount: game.plyCount,
             pgn: game.raw,
             finalFen: game.finalFen,
+            timeControl: game.timeControl,
+            category: game.category,
+            isClassical: game.isClassical,
           },
           select: { id: true },
         });
         added++;
         addedGames.push(game);
-        // Собираем строки по позициям (ply ≤ POSITION_PLY_LIMIT, дедуп per-game).
-        // Пишем позже одним батчем через COPY — быстрее createMany.
-        for (const row of buildPositionRowsForGame(created.id, game, DEFAULT_BUCKET)) {
-          positionRows.push(row);
+        // KS-1626: метрики классификации.
+        archiveGamesByCategoryTotal.inc({
+          source: this.source.code,
+          category: game.category,
+        });
+        archiveRejectedUnknownReasonTotal.inc({
+          source: this.source.code,
+          rule: game.classificationReason,
+        });
+        if (!game.isClassical) {
+          archiveImportedNonClassicalTotal.inc({ source: this.source.code });
+        } else {
+          // В агрегаты/индекс позиций только классика.
+          for (const row of buildPositionRowsForGame(created.id, game, DEFAULT_BUCKET)) {
+            positionRows.push(row);
+          }
         }
       } catch (err: unknown) {
         // P2002 — UNIQUE violation по content_hash → дубликат, это ОК.
@@ -237,15 +258,25 @@ export class TwicImporter {
       }
     }
 
-    // Позиционный индекс обновляем только по новым партиям.
-    if (addedGames.length > 0) {
+    // Позиционный индекс обновляем только по новым КЛАССИЧЕСКИМ партиям
+    // (ADR-015 §2.4: non-classical не попадают в position_stats / дерево).
+    const classicalGames = addedGames.filter((g) => g.isClassical);
+    if (classicalGames.length > 0) {
       try {
-        await this.indexer.index(addedGames);
+        await this.indexer.index(classicalGames);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[archive-importer][twic] position-indexer failed: ${msg}`);
         // Партии вставлены — оставляем как есть, индексацию можно догнать backfill-процедурой.
       }
+    }
+
+    // Gauge: доля классических в последнем импорте источника.
+    if (addedGames.length > 0) {
+      archiveClassicalRatio.set(
+        { source: this.source.code },
+        classicalGames.length / addedGames.length,
+      );
     }
 
     // COPY в archive_game_positions — отдельный путь (staging + ON CONFLICT DO NOTHING).

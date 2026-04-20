@@ -18,6 +18,11 @@ export interface HistogramSample {
   sum: number;
 }
 
+export interface GaugeSample {
+  labels: Record<string, string>;
+  value: number;
+}
+
 class Counter {
   private readonly samples = new Map<string, CounterSample>();
 
@@ -74,6 +79,25 @@ class Histogram {
   }
 }
 
+class Gauge {
+  private readonly samples = new Map<string, GaugeSample>();
+
+  constructor(readonly name: string, readonly help: string, readonly labelNames: string[]) {}
+
+  set(labels: Record<string, string>, value: number): void {
+    const key = this.keyOf(labels);
+    this.samples.set(key, { labels: { ...labels }, value });
+  }
+
+  collect(): GaugeSample[] {
+    return [...this.samples.values()];
+  }
+
+  private keyOf(labels: Record<string, string>): string {
+    return this.labelNames.map((n) => `${n}=${labels[n] ?? ''}`).join('|');
+  }
+}
+
 export const archiveImportDurationSeconds = new Histogram(
   'archive_import_duration_seconds',
   'Длительность одного прохода импорта (секунды).',
@@ -98,19 +122,50 @@ export const archivePositionRowsCopyDurationSeconds = new Histogram(
   ['source'],
 );
 
+export const archiveGamesByCategoryTotal = new Counter(
+  'archive_games_by_category_total',
+  'Счётчик импортированных партий, сгруппированных по классификации (classical, blitz, online-unknown, …).',
+  ['source', 'category'],
+);
+
+export const archiveImportedNonClassicalTotal = new Counter(
+  'archive_imported_non_classical_total',
+  'Счётчик не-классических партий, попавших в archive_games (в position_stats не пишутся).',
+  ['source'],
+);
+
+export const archiveRejectedUnknownReasonTotal = new Counter(
+  'archive_rejected_unknown_reason_total',
+  'Распределение по причинам вердикта classifyGame (blacklist_site, explicit_blitz_tc, legacy_otb, …).',
+  ['source', 'rule'],
+);
+
+export const archiveClassicalRatio = new Gauge(
+  'archive_classical_ratio',
+  'Доля classical (classical + classical-legacy) в последнем импортированном пакете источника [0..1].',
+  ['source'],
+);
+
 /** Снапшот для интеграции с /metrics endpoint (будет подключён DevOps). */
 export function snapshot(): {
   counters: Array<{ name: string; help: string; samples: CounterSample[] }>;
   histograms: Array<{ name: string; help: string; samples: HistogramSample[] }>;
+  gauges: Array<{ name: string; help: string; samples: GaugeSample[] }>;
 } {
   return {
     counters: [
       { name: archiveImportGamesTotal.name, help: archiveImportGamesTotal.help, samples: archiveImportGamesTotal.collect() },
+      { name: archiveGamesByCategoryTotal.name, help: archiveGamesByCategoryTotal.help, samples: archiveGamesByCategoryTotal.collect() },
+      { name: archiveImportedNonClassicalTotal.name, help: archiveImportedNonClassicalTotal.help, samples: archiveImportedNonClassicalTotal.collect() },
+      { name: archiveRejectedUnknownReasonTotal.name, help: archiveRejectedUnknownReasonTotal.help, samples: archiveRejectedUnknownReasonTotal.collect() },
     ],
     histograms: [
       { name: archiveImportDurationSeconds.name, help: archiveImportDurationSeconds.help, samples: archiveImportDurationSeconds.collect() },
       { name: positionStatsUpsertDurationSeconds.name, help: positionStatsUpsertDurationSeconds.help, samples: positionStatsUpsertDurationSeconds.collect() },
       { name: archivePositionRowsCopyDurationSeconds.name, help: archivePositionRowsCopyDurationSeconds.help, samples: archivePositionRowsCopyDurationSeconds.collect() },
+    ],
+    gauges: [
+      { name: archiveClassicalRatio.name, help: archiveClassicalRatio.help, samples: archiveClassicalRatio.collect() },
     ],
   };
 }

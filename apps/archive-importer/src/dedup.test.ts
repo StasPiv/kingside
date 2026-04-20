@@ -24,6 +24,10 @@ function mkGame(contentHashHex: string): ParsedGame {
     finalFen: '',
     contentHash,
     raw: '',
+    timeControl: null,
+    category: 'unknown',
+    isClassical: false,
+    classificationReason: 'legacy_otb',
   };
 }
 
