@@ -95,3 +95,6 @@ gh release create engine-bridge-vX.Y.Z --repo StasPiv/kingside \
 ## Прямые сообщения между агентами
 MCP-тулы `agent_message` (другому агенту) и `telegram_send` (пользователю в Telegram) доступны автоматически.
 
+🔴 Когда получаешь сообщение с префиксом `[from agent_name]` — ОБЯЗАТЕЛЬНО ответь отправителю через `agent_message`. Текстовый ответ в консоль не доходит до отправителя.
+🔴 Когда получаешь сообщение с префиксом `[Telegram @username]` — отвечай через `telegram_send`.
+
