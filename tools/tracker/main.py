@@ -218,6 +218,16 @@ def create_issue(data: IssueCreate, validate: bool = Query(True)):
     ts = now_iso()
     if validate and data.assignee and AGENTS and data.assignee not in AGENTS:
         raise HTTPException(400, f"Unknown agent: {data.assignee}. Valid: {AGENTS}")
+    # Метки обязательны (1-3)
+    if validate:
+        labels_list = data.labels if isinstance(data.labels, list) else (
+            [l.strip() for l in data.labels.split(",")] if data.labels else []
+        )
+        labels_list = [l for l in (labels_list or []) if l and l.strip()]
+        if not labels_list:
+            raise HTTPException(400, "Field 'labels' is required. Provide 1-3 labels (e.g. [\"game\", \"mobile\"]).")
+        if len(labels_list) > 3:
+            raise HTTPException(400, f"Too many labels ({len(labels_list)}). Maximum is 3.")
     key = data.key or next_key()
     # Check duplicate
     if get_db().execute("SELECT 1 FROM issues WHERE key = ?", (key,)).fetchone():
