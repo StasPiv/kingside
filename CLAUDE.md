@@ -121,6 +121,11 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 - Все коммиты идут напрямую в main через `/commit` endpoint
 - ЗАПРЕЩЕНО создавать ветки, ЗАПРЕЩЕНО делать merge
 
+**Метки задач (labels):**
+Компоненты: `game`, `puzzle`, `tournament`, `analysis`, `broadcast`, `stockfish`, `chat`, `profile`, `friends`, `feedback`, `auth`, `prisma`, `redis`, `infra`, `matchmaking`, `lobby`, `mobile`, `seo`, `i18n`, `onboarding`, `telegram`, `performance`, `security`, `tests`
+
+При создании задачи в трекере передавай поле `labels: ["game", "mobile"]` (1-3 метки).
+
 **🔴 Запрещено агентам:**
 - Редактировать `webhook-server.py`, `Dockerfile.agent`, `.claude/agents/*.md`, `CLAUDE.md` — это инфраструктура управления агентами, её меняет ТОЛЬКО пользователь
 - Ссылаться на эти файлы в задачах. Если нужны изменения в инфре агентов — задача пользователю через `/telegram/send`, НЕ создавай тикет агенту
