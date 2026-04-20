@@ -7,6 +7,7 @@ import {
   buildPositionRowsForGame,
   type PositionRow,
 } from '../position-row-builder.js';
+import { filterAlreadyImported } from '../dedup.js';
 import { archiveImportGamesTotal } from '../metrics.js';
 
 const DEFAULT_BUCKET = 'master';
@@ -162,6 +163,13 @@ export class TwicImporter {
     const { games, failed } = parseBatch(content);
     console.log(`[archive-importer][twic] issue ${nextIssue}: parsed=${games.length} failed=${failed}`);
 
+    // KS-1621: idempotent index. Отфильтровываем одним SELECT'ом уже
+    // сохранённые content_hash — чтобы retry того же TWIC-пакета не
+    // инкрементировал `position_stats` второй раз. Cycle insert ниже
+    // остаётся защищённым catch'ем P2002 на случай race'а.
+    const freshGames = await filterAlreadyImported(this.prisma, games);
+    const preSkipped = games.length - freshGames.length;
+
     // Запись в archive_imports с `status=running` и полученный id привязан к каждой партии.
     const importRow = await this.prisma.archiveImport.create({
       data: {
@@ -173,13 +181,13 @@ export class TwicImporter {
     });
 
     let added = 0;
-    let skipped = failed; // битые партии идут сразу в skipped
+    let skipped = failed + preSkipped; // битые + уже в БД
     const addedGames: ParsedGame[] = [];
     const positionRows: PositionRow[] = [];
 
-    // Вставляем по одной: пропускаем дубликаты по UNIQUE(content_hash),
-    // и точно знаем, какие партии НОВЫЕ (чтобы индексировать только их).
-    for (const game of games) {
+    // Вставляем только неизвестные content_hash'и. Доп. catch на P2002 —
+    // защита от race'а между pre-SELECT и INSERT (параллельный запуск).
+    for (const game of freshGames) {
       // Копируем хэш в Uint8Array с собственным ArrayBuffer — Prisma не принимает
       // Buffer/SharedArrayBuffer-backed views в качестве входа `Bytes`.
       const hashBytes = new Uint8Array(game.contentHash.length);

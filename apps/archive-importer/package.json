@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "archive:backfill": "tsx src/backfill.ts",
+    "archive:rebuild-position-stats": "tsx src/rebuild-position-stats.ts",
     "test": "vitest run"
   },
   "dependencies": {
