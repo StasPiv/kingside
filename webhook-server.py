@@ -11,9 +11,13 @@ import time
 import threading
 import urllib.request
 import urllib.parse
+import redis
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from datetime import datetime
+
+# Redis для персистентных очередей агентов
+_REDIS = redis.Redis(host="localhost", port=6381, db=0, decode_responses=True)
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROJECT_DIR = "/opt/kingside"
@@ -173,9 +177,8 @@ class AgentDaemon:
         # Событие: агент закончил обработку текущего сообщения
         self._idle = threading.Event()
         self._idle.set()
-        # Очередь сообщений для последовательной отправки
-        self._queue: list[str] = []
-        self._queue_lock = threading.Lock()
+        # Redis ключ для FIFO-очереди сообщений (переживает рестарт webhook)
+        self._queue_key = f"agent:queue:{name}"
         self._worker_thread: threading.Thread | None = None
         # Статистика сессии
         self._total_cost: float = 0.0
@@ -290,15 +293,18 @@ class AgentDaemon:
             log(f"Daemon {self.name}: stdout reader завершён")
 
     def _worker_loop(self):
-        """Последовательно отправляет сообщения из очереди."""
+        """Последовательно отправляет сообщения из Redis-очереди."""
         while True:
-            # Ждём пока появится сообщение в очереди
-            while True:
-                with self._queue_lock:
-                    if self._queue:
-                        msg = self._queue.pop(0)
-                        break
-                time.sleep(0.5)
+            # Блокирующий pop справа (FIFO: LPUSH слева, BRPOP справа)
+            try:
+                result = _REDIS.brpop(self._queue_key, timeout=0)
+            except redis.RedisError as e:
+                log(f"Daemon {self.name}: Redis error: {e}, retry in 5s")
+                time.sleep(5)
+                continue
+            if not result:
+                continue
+            _, msg = result
 
             # Ждём пока агент освободится
             self._idle.wait(timeout=600)
@@ -343,14 +349,14 @@ class AgentDaemon:
                 _set_idle(self.name)
 
     def send_message(self, text: str):
-        """Ставит сообщение в очередь агента."""
+        """Ставит сообщение в Redis-очередь агента (LPUSH слева, BRPOP справа = FIFO)."""
         msg = json.dumps({
             "type": "user",
             "message": {"role": "user", "content": text},
         })
-        with self._queue_lock:
-            self._queue.append(msg)
-        log(f"Daemon {self.name}: сообщение в очереди (размер: {len(self._queue)})")
+        _REDIS.lpush(self._queue_key, msg)
+        size = _REDIS.llen(self._queue_key)
+        log(f"Daemon {self.name}: сообщение в очереди (размер: {size})")
 
     def get_rss_mb(self) -> float | None:
         """Возвращает RSS памяти контейнера в MB, или None."""
@@ -2418,7 +2424,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         "alive": daemon.is_alive(),
                         "pid": daemon.proc.pid if daemon.proc else None,
                         "session_id": daemon.session_id,
-                        "queue_size": len(daemon._queue),
+                        "queue_size": _REDIS.llen(daemon._queue_key),
                         "total_cost_usd": round(daemon._total_cost, 4),
                         "message_count": daemon._message_count,
                         "rss_mb": daemon.get_rss_mb(),

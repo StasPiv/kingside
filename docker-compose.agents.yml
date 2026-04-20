@@ -1,0 +1,13 @@
+services:
+  agents-redis:
+    image: redis:7-alpine
+    container_name: agents-redis
+    ports:
+      - "6381:6379"
+    restart: unless-stopped
+    volumes:
+      - agents-redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+
+volumes:
+  agents-redis-data:
