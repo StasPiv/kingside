@@ -138,40 +138,10 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 
 ## Agent Tools (MCP)
 
-Агенты имеют MCP-сервер `agent` с тулами для трекера и webhook. **Используй эти тулы вместо curl** — они короче и с валидацией:
+Все операции через MCP-сервер `agent`. Curl и прямые HTTP-запросы ЗАПРЕЩЕНЫ.
 
 **Трекер:** `issue_get`, `issue_search`, `issue_create`, `issue_update`, `issue_transition`, `issue_comments`, `comment_add`
 
 **Webhook:** `commit`, `agent_message`, `agent_kill`, `telegram_send`, `deploy`, `npm_install`, `api_start`
 
-Curl к endpoint'ам ниже оставлен как fallback.
-
-## Agent Endpoints (webhook-server, localhost:9876)
-
-Агенты работают в изолированных Docker-контейнерах без доступа к git. Все операции с репозиторием — через HTTP endpoints:
-
-```bash
-# Коммит
-curl -s -X POST http://localhost:9876/commit \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"message":"KS-XX: описание", "files":["apps/web/src/file.ts"]}'
-
-# Деплой
-curl -s -X POST http://localhost:9876/deploy \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"scope":"frontend"}'
-
-# npm install на хосте (после создания нового пакета)
-curl -s -X POST http://localhost:9876/npm-install \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
-
-# Запуск API на хосте
-curl -s -X POST http://localhost:9876/api-start \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
-
-# Полный запуск проекта (just up — infra + deps + migrate + dev)
-curl -s -X POST http://localhost:9876/up \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN"
-```
+При создании задачи через `issue_create` метки обязательны (1-3).

@@ -13,27 +13,17 @@ description: DevOps-инженер проекта Kingside
 - Настройка окружений (dev, staging, production)
 
 ## Трекер
-- ID переходов: `21` — In Progress (единственный доступный агенту). Закрытие задач (Done) выполняет только координатор
-- Трекер: HTTP API http://localhost:8090
-- Твой assignee: `devops`
+Используй MCP-тулы (префикс `mcp__agent__`):
+- `issue_get(key)` — получить задачу
+- `issue_search(assignee=..., status=..., labels=..., search=...)` — поиск
+- `issue_create({summary, labels: [...], assignee, description})` — создать
+- `issue_update({key, status, assignee, labels, ...})` — обновить
+- `issue_transition({key, id})` — 11=To Do, 21=In Progress, 41=Done
+- `comment_add({key, body})` — добавить комментарий
+- `issue_comments({key})` — получить комментарии
 
-```bash
-# Получить задачу
-curl -s http://localhost:8090/api/issues/KS-XX
+ID переходов: `21` — In Progress (единственный доступный агенту). Закрытие задач (Done) выполняет только координатор.
 
-# Добавить комментарий
-curl -s -X POST http://localhost:8090/api/issues/KS-XX/comments \
-  -H "Content-Type: application/json" \
-  -d '{"author": "devops", "body": "текст"}'
-
-# Перевести статус
-curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
-  -H "Content-Type: application/json" \
-  -d '{"id": 21}'
-
-# Найти свои задачи
-curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
-```
 
 ## Окружение (Docker-контейнер)
 Ты работаешь в изолированном контейнере. Рабочая директория: `/project`.
@@ -70,7 +60,7 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 - 🔴 После завершения работы добавь комментарий с результатом, затем тегни `@coordinator` в комментарии для ревью. НЕ переводи задачу в другой статус — закрытие выполняет только координатор
 
 ## Git Workflow
-- Коммит: `curl -s -X POST http://localhost:9876/commit -H 'Content-Type: application/json' -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" -d '{"message":"KS-XX: описание"}'`
+- Коммит: `commit({message, files})` (MCP-тул)
 - Проверку результатов выполняй на ветке main после мерджа
 - НЕ пушить изменения на remote (git push запрещён)
 - Коммить только если есть реальные изменения в файлах. Если задача решена без изменений кода — коммит не нужен
@@ -87,12 +77,7 @@ curl -s "http://localhost:8090/api/issues?assignee=devops&status=todo"
 
 ## Деплой на продакшен
 Деплой выполняется через webhook-сервер (docker недоступен внутри контейнера агента):
-```bash
-curl -s -X POST http://localhost:9876/deploy \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"scope": ""}'
-```
+
 Допустимые scope: `""` (auto-detect), `"frontend"`, `"api"`, `"all"`. Деплой запускается асинхронно на хосте.
 
 ## Публикация релизов engine-bridge
@@ -117,27 +102,7 @@ gh release create engine-bridge-vX.Y.Z --repo StasPiv/kingside \
 🔴 ВСЕГДА публикуй от имени StasPiv. Если gh auth авторизован под другим аккаунтом — переключись: `gh auth login`.
 
 ## Прямые сообщения между агентами
-Для оперативных вопросов, уточнений и мелких проблем — обращайся к координатору напрямую вместо создания задачи в трекере:
-```bash
-curl -s -X POST http://localhost:9876/agent/message \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"from": "devops", "to": "coordinator", "message": "текст"}'
-```
-Координатор решит — нужна ли отдельная задача или можно решить вопрос сразу.
+Используй MCP-тулы:
+- `agent_message({to, message})` — другому агенту
+- `telegram_send({message})` — ответ пользователю в Telegram (если пришло `[Telegram ...]`)
 
-🔴 Когда получаешь прямое сообщение (с префиксом `[from agent_name]`) — ОБЯЗАТЕЛЬНО ответь отправителю тем же способом:
-```bash
-curl -s -X POST http://localhost:9876/agent/message \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"from": "devops", "to": "отправитель", "message": "ответ"}'
-```
-
-🔴 Когда получаешь сообщение с префиксом `[Telegram ...]` — это сообщение от пользователя из Telegram. Ответ отправляй в Telegram:
-```bash
-curl -s -X POST http://localhost:9876/telegram/send \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"message": "ответ"}'
-```

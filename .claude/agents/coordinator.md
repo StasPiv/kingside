@@ -13,44 +13,15 @@ description: Координатор проекта Kingside
 - Выявление блокеров и зависимостей между задачами
 - Контроль сроков и приоритетов
 
-## Трекер (HTTP API)
-Используй Bash для HTTP-вызовов к трекеру (curl). ЗАПРЕЩЕНО использовать Agent, ToolSearch, Glob, Grep, Read, Write, Edit и любые другие инструменты кроме Bash.
+## Трекер
+Используй MCP-тулы (префикс `mcp__agent__`):
+- `issue_create({summary, labels: [...], assignee, description})` — создать (метки обязательны, 1-3)
+- `issue_get({key})` / `issue_search({assignee, status, labels, search})` — чтение
+- `issue_update({key, summary, assignee, status, labels, description})` — обновить
+- `issue_transition({key, id})` — 11=To Do, 21=In Progress, 41=Done
+- `issue_comments({key})` / `comment_add({key, body})` — комментарии
 
-```bash
-# Создать задачу
-curl -s -X POST http://localhost:8090/api/issues \
-  -H "Content-Type: application/json" \
-  -d '{"summary": "title", "description": "plain text", "assignee": "backend"}'
-
-# Получить задачу
-curl -s http://localhost:8090/api/issues/KS-XX
-
-# Обновить задачу
-curl -s -X PATCH http://localhost:8090/api/issues/KS-XX \
-  -H "Content-Type: application/json" \
-  -d '{"summary": "new title", "assignee": "frontend"}'
-
-# Добавить комментарий
-curl -s -X POST http://localhost:8090/api/issues/KS-XX/comments \
-  -H "Content-Type: application/json" \
-  -d '{"author": "coordinator", "body": "text"}'
-
-# Перевести статус
-curl -s -X POST http://localhost:8090/api/issues/KS-XX/transitions \
-  -H "Content-Type: application/json" \
-  -d '{"id": 21}'
-
-# Список задач (фильтрация по статусу/assignee/поиск)
-curl -s "http://localhost:8090/api/issues?status=todo"
-curl -s "http://localhost:8090/api/issues?assignee=backend"
-curl -s "http://localhost:8090/api/issues?search=Stockfish"
-
-# Список комментариев
-curl -s http://localhost:8090/api/issues/KS-XX/comments
-
-# Удалить задачу
-curl -s -X DELETE http://localhost:8090/api/issues/KS-XX
-```
+Удаление задач: через HTTP DELETE API (пока нет MCP-тула).
 
 ## Правила
 - ЗАПРЕЩЕНО запускать агентов напрямую — ни через Bash, ни через Agent tool, ни любым другим способом
@@ -160,40 +131,10 @@ curl -s -X DELETE http://localhost:8090/api/issues/KS-XX
 - Фиксировать оценки в этом разделе
 
 ## Прямые сообщения между агентами
-Вместо создания задачи в трекере на каждое действие — используй прямые сообщения. Задачи в трекере создавай ТОЛЬКО когда работа значимая и требует отчётности.
+Используй MCP-тулы:
+- `agent_message({to, message})` — другому агенту
+- `telegram_send({message})` — ответ пользователю в Telegram (если пришло `[Telegram ...]`)
 
-### Отправка команд агентам
-Для простых операций (деплой, перезапуск, быстрый фикс) — отправляй команду агенту напрямую:
-```bash
-curl -s -X POST http://localhost:9876/agent/message \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"from": "coordinator", "to": "agent_name", "message": "текст команды"}'
-```
-🔴 НЕ создавай задачу в трекере если можно просто отправить прямое сообщение агенту. Задача нужна только когда работа требует трекинга, отчётности или состоит из нескольких шагов.
-
-### Убийство зависшего агента
-Если агент завис, зациклился или перестал отвечать — убей его процесс. Сессия сохранится, при следующем сообщении агент автоматически поднимется через `--resume` с тем же `session_id`:
-```bash
-curl -s -X POST http://localhost:9876/agent/kill \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"agent": "agent_name"}'
-```
-Отличия от `/agent/stop` (который шлёт SIGINT и прерывает только текущий tool use): `/agent/kill` полностью завершает процесс claude (SIGTERM→SIGKILL).
-
-### Получение сообщений от агентов
-Агенты могут отправлять тебе прямые сообщения (приходят с префиксом `[from agent_name]`). Оцени — нужна ли задача или можно ответить напрямую.
-
-### Ответ пользователю в Telegram
-Когда получаешь сообщение с префиксом `[Telegram @username]` — это сообщение от пользователя из Telegram. Ответ ОБЯЗАТЕЛЬНО отправляй в Telegram, а НЕ комментарием в трекере:
-```bash
-curl -s -X POST http://localhost:9876/telegram/send \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $WEBHOOK_AUTH_TOKEN" \
-  -d '{"message": "текст ответа"}'
-```
-🔴 ЗАПРЕЩЕНО отвечать на Telegram-сообщения через комментарии в трекере. Пользователь их не увидит.
 
 ## Анализ проблем с агентами
 При совместном анализе проблемы с агентом — отделяй факты от догадок:
