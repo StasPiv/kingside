@@ -2325,6 +2325,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"status": "already_running"}).encode())
                 return
 
+            # Убиваем зависшие процессы на портах которые могут помешать старту
+            for port in (3001, 5173):
+                subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True, timeout=5)
+
             try:
                 env = os.environ.copy()
                 # Открываем в режиме truncate — чтобы логи были только от последнего запуска
