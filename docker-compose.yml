@@ -127,6 +127,29 @@ services:
     profiles:
       - deploy
 
+  archive-importer:
+    build:
+      context: .
+      dockerfile: apps/archive-importer/Dockerfile
+    restart: unless-stopped
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+        tag: "kingside-archive-importer"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: ${NODE_ENV:-production}
+      TWIC_BASE_URL: ${TWIC_BASE_URL:-https://theweekinchess.com/zips}
+    depends_on:
+      - postgres
+      - redis
+
   loki:
     image: grafana/loki:3.4.2
     restart: unless-stopped
