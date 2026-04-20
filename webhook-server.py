@@ -2296,40 +2296,80 @@ class WebhookHandler(BaseHTTPRequestHandler):
             if not self._check_role("/api-start"):
                 return
             log("API start запрошен")
-            try:
-                # Проверяем не запущен ли уже
-                import socket
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                try:
-                    s.connect(("127.0.0.1", 3001))
-                    s.close()
-                    self.send_response(200)
-                    self.send_header("Content-Type", "application/json")
-                    self.end_headers()
-                    self.wfile.write(json.dumps({"status": "already_running"}).encode())
-                    return
-                except ConnectionRefusedError:
-                    s.close()
+            import socket
 
-                env = os.environ.copy()
-                subprocess.Popen(
-                    ["npm", "run", "dev"],
-                    cwd=PROJECT_DIR, env=env,
-                    stdout=open(os.path.join(LOG_DIR, "api-stdout.log"), "a"),
-                    stderr=open(os.path.join(LOG_DIR, "api-stderr.log"), "a"),
-                    start_new_session=True,
-                )
-                log("API запущен")
+            def _port_up(port: int) -> bool:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.5)
+                try:
+                    s.connect(("127.0.0.1", port))
+                    s.close()
+                    return True
+                except (ConnectionRefusedError, socket.timeout, OSError):
+                    return False
+
+            def _tail(path, n=80):
+                try:
+                    with open(path) as f:
+                        return "".join(f.readlines()[-n:])
+                except FileNotFoundError:
+                    return ""
+
+            stdout_path = os.path.join(LOG_DIR, "api-stdout.log")
+            stderr_path = os.path.join(LOG_DIR, "api-stderr.log")
+
+            if _port_up(3001):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"status": "started"}).encode())
+                self.wfile.write(json.dumps({"status": "already_running"}).encode())
+                return
+
+            try:
+                env = os.environ.copy()
+                # Открываем в режиме truncate — чтобы логи были только от последнего запуска
+                proc = subprocess.Popen(
+                    ["npm", "run", "dev"],
+                    cwd=PROJECT_DIR, env=env,
+                    stdout=open(stdout_path, "w"),
+                    stderr=open(stderr_path, "w"),
+                    start_new_session=True,
+                )
+                # Ждём пока порт поднимется (макс 60с)
+                deadline = time.time() + 60
+                started = False
+                while time.time() < deadline:
+                    if _port_up(3001):
+                        started = True
+                        break
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(1)
+
+                body = {
+                    "status": "started" if started else "failed",
+                    "pid": proc.pid,
+                    "stdout": _tail(stdout_path),
+                    "stderr": _tail(stderr_path),
+                }
+                if not started:
+                    body["hint"] = "API не поднялся за 60с. См. stdout/stderr."
+                self.send_response(200 if started else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps(body).encode())
+                log(f"API start завершён: started={started} pid={proc.pid}")
             except Exception as e:
                 log(f"API start ошибка: {e}")
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+                self.wfile.write(json.dumps({
+                    "status": "error",
+                    "detail": str(e),
+                    "stdout": _tail(stdout_path),
+                    "stderr": _tail(stderr_path),
+                }).encode())
             return
 
         if path == "/deploy":
