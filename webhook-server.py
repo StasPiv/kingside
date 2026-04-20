@@ -647,7 +647,7 @@ def _parse_token(token: str) -> list[str] | None:
 AGENT_ROLES: dict[str, list[str]] = {
     "backend": [
         # действия
-        "ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_API_START",
+        "ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
         "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_MATCHMAKER",
@@ -657,14 +657,14 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_APPS_API_NODE_MODULES",
     ],
     "frontend": [
-        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START",
+        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_RUN", "ROLE_API_START",
         "ROLE_WRITE_APPS_WEB", "ROLE_READ_PACKAGES_SHARED",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
         "ROLE_READ_SCRIPTS",
     ],
     "layout": [
-        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START",
+        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_RUN", "ROLE_API_START",
         "ROLE_WRITE_APPS_WEB_SRC",
         "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
@@ -672,7 +672,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     ],
     "devops": [
         "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS",
-        "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_API_START", "ROLE_UP",
+        "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START", "ROLE_UP",
         "ROLE_DOCKER_COMPOSE",
         "ROLE_WRITE_SCRIPTS", "ROLE_READ_DOCS", "ROLE_WRITE_DOCKER_COMPOSE",
         "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_JUSTFILE", "ROLE_READ_AWS",
@@ -710,6 +710,7 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/api-start": "ROLE_API_START",
     "/up": "ROLE_UP",
     "/docker-compose": "ROLE_DOCKER_COMPOSE",
+    "/npm-run": "ROLE_NPM_RUN",
     "/deploy": {
         "frontend": "ROLE_DEPLOY_FRONTEND",
         "api": "ROLE_DEPLOY_API",
@@ -722,6 +723,7 @@ ENDPOINT_ROLE: dict[str, object] = {
 }
 
 DOCKER_COMPOSE_ALLOWED = {"build", "up", "down", "logs", "ps", "config", "restart"}
+NPM_RUN_ALLOWED = {"build", "test", "lint", "dev", "start", "prisma:generate", "prisma:migrate"}
 
 
 def handle_feedback_notify(handler):
@@ -2149,6 +2151,54 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 }).encode())
             except Exception as e:
                 log(f"npm install ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
+        if path == "/npm-run":
+            if not self._check_role("/npm-run"):
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            script = payload.get("script", "")
+            if script not in NPM_RUN_ALLOWED:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"script must be one of {sorted(NPM_RUN_ALLOWED)}"}).encode())
+                return
+            workspace = payload.get("workspace", "")
+            cmd = ["npm", "run", script]
+            if workspace:
+                cmd.extend(["--workspace", workspace])
+            log(f"npm-run: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(
+                    cmd, cwd=PROJECT_DIR, capture_output=True, text=True, timeout=600,
+                )
+                ok = result.returncode == 0
+                log(f"npm-run завершён: rc={result.returncode}")
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "returncode": result.returncode,
+                    "stdout": result.stdout[-3000:],
+                    "stderr": result.stderr[-3000:],
+                }).encode())
+            except subprocess.TimeoutExpired:
+                self.send_response(504)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "timeout"}).encode())
+            except Exception as e:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()

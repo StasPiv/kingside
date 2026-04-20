@@ -51,6 +51,11 @@ const TOOLS = [
       command: { type: 'string', enum: ['build', 'up', 'down', 'logs', 'ps', 'config', 'restart'] },
       args: { type: 'array', items: { type: 'string' }, description: 'Дополнительные аргументы, например ["archive-importer"] или ["--build", "archive-importer"]' },
     }, required: ['command'] } },
+  { name: 'npm_run', description: 'Выполнить npm run <script> на хосте (запускает в корне репозитория). Whitelist: build, test, lint, dev, start, prisma:generate, prisma:migrate. Опциональный workspace.',
+    inputSchema: { type: 'object', properties: {
+      script: { type: 'string', enum: ['build', 'test', 'lint', 'dev', 'start', 'prisma:generate', 'prisma:migrate'] },
+      workspace: { type: 'string', description: 'Опционально: имя workspace, например "@kingside/archive-importer"' },
+    }, required: ['script'] } },
 
   // --- Playwright ---
   { name: 'screenshot', description: 'Скриншот страницы localhost:5173 через Playwright с dev_bypass (без логина). Сохраняет в /tmp/<task>/<name>.png.',
@@ -160,6 +165,8 @@ async function call(name, args) {
       return webhookPost('/api-start', {});
     case 'docker_compose':
       return webhookPost('/docker-compose', { command: args.command, args: args.args || [] });
+    case 'npm_run':
+      return webhookPost('/npm-run', { script: args.script, workspace: args.workspace || '' });
 
     case 'screenshot': {
       if (!args.task || !args.path || !args.name) return { error: 'task, path, name required' };
