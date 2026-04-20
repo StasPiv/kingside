@@ -517,9 +517,8 @@ def _get_issue_status_category(key: str) -> str:
 # ---------------------------------------------------------------------------
 
 def send_to_agent(agent: str, prompt: str):
-    """Отправляет сообщение daemon-агенту. Сначала прерывает текущую работу."""
+    """Отправляет сообщение daemon-агенту. Добавляет в очередь — не прерывает текущее."""
     daemon = get_daemon(agent)
-    daemon.interrupt()
     daemon.ensure_running()
     daemon.send_message(prompt)
 
