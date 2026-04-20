@@ -1,8 +1,8 @@
 /**
  * Position key for the archive explorer.
  *
- * Re-exported from `@kingside/shared` so the REST API and the archive import
- * worker share a single source of truth. See `packages/shared/src/utils/
- * position-key.ts` for the algorithm description.
+ * Re-exported from `@kingside/shared` (subpath — `position-key` нельзя тащить
+ * в публичный index, иначе бандлер web тянет `node:crypto` и падает, см.
+ * KS-1597). Алгоритм — в `packages/shared/src/utils/position-key.ts`.
  */
-export { positionKey, positionKeyHex } from '@kingside/shared';
+export { positionKey, positionKeyHex } from '@kingside/shared/dist/utils/position-key';

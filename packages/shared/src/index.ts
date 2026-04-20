@@ -5,4 +5,6 @@ export * from './types/api-contracts.js';
 export * from './constants.js';
 export * from './utils/time-control.js';
 export * from './utils/fen-key.js';
-export * from './utils/position-key.js';
+// NB: `./utils/position-key.js` намеренно НЕ реэкспортируется — он тянет `node:crypto`
+// и ломает браузерный бандл. Backend (apps/api, apps/archive-importer) импортирует
+// функцию напрямую: `@kingside/shared/dist/utils/position-key`.

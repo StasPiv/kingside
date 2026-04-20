@@ -1,5 +1,7 @@
 import { PrismaClient, Prisma } from '@kingside/db';
-import { positionKey } from '@kingside/shared';
+// Прямой subpath-импорт — из `@kingside/shared` publicly этот символ больше не
+// экспортируется, чтобы не тянуть `node:crypto` в браузерный бандл (KS-1597).
+import { positionKey } from '@kingside/shared/dist/utils/position-key.js';
 import type { ParsedGame } from './pgn-utils.js';
 import { positionStatsUpsertDurationSeconds } from './metrics.js';
 
