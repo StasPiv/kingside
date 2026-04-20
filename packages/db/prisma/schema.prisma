@@ -861,3 +861,20 @@ model PositionStats {
   @@index([ply])
   @@map("position_stats")
 }
+
+model ArchiveGamePosition {
+  positionKey Bytes     @map("position_key")
+  bucket      String
+  gameId      String    @map("game_id") @db.Uuid
+  ply         Int       @db.SmallInt
+  moveUci     String?   @map("move_uci")
+  sideToMove  String    @map("side_to_move") @db.Char(1)
+  playedAt    DateTime? @map("played_at")
+  avgElo      Int?      @map("avg_elo") @db.SmallInt
+  result      String?   @db.Char(1)
+
+  @@id([positionKey, bucket, gameId])
+  @@index([positionKey, bucket, playedAt(sort: Desc), gameId(sort: Desc)], name: "archive_game_positions_recent")
+  @@index([positionKey, bucket, avgElo(sort: Desc), gameId(sort: Desc)], name: "archive_game_positions_top_elo")
+  @@map("archive_game_positions")
+}
