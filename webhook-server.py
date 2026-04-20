@@ -673,6 +673,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     "devops": [
         "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS",
         "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_API_START", "ROLE_UP",
+        "ROLE_DOCKER_COMPOSE",
         "ROLE_WRITE_SCRIPTS", "ROLE_READ_DOCS", "ROLE_WRITE_DOCKER_COMPOSE",
         "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_JUSTFILE", "ROLE_READ_AWS",
     ],
@@ -708,6 +709,7 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/npm-install": "ROLE_NPM_INSTALL",
     "/api-start": "ROLE_API_START",
     "/up": "ROLE_UP",
+    "/docker-compose": "ROLE_DOCKER_COMPOSE",
     "/deploy": {
         "frontend": "ROLE_DEPLOY_FRONTEND",
         "api": "ROLE_DEPLOY_API",
@@ -718,6 +720,8 @@ ENDPOINT_ROLE: dict[str, object] = {
         "": "ROLE_DEPLOY_ALL",
     },
 }
+
+DOCKER_COMPOSE_ALLOWED = {"build", "up", "down", "logs", "ps", "config", "restart"}
 
 
 def handle_feedback_notify(handler):
@@ -2145,6 +2149,58 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 }).encode())
             except Exception as e:
                 log(f"npm install ошибка: {e}")
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "detail": str(e)}).encode())
+            return
+
+        if path == "/docker-compose":
+            if not self._check_role("/docker-compose"):
+                return
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            command = payload.get("command", "")
+            if command not in DOCKER_COMPOSE_ALLOWED:
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"command must be one of {sorted(DOCKER_COMPOSE_ALLOWED)}"}).encode())
+                return
+            extra_args = payload.get("args", [])
+            if not isinstance(extra_args, list) or not all(isinstance(a, str) for a in extra_args):
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "args must be list of strings"}).encode())
+                return
+            cmd = ["docker", "compose", command] + extra_args
+            log(f"docker-compose: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(
+                    cmd, cwd=PROJECT_DIR, capture_output=True, text=True, timeout=600,
+                )
+                ok = result.returncode == 0
+                log(f"docker-compose завершён: rc={result.returncode}")
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "status": "success" if ok else "failed",
+                    "returncode": result.returncode,
+                    "stdout": result.stdout[-3000:],
+                    "stderr": result.stderr[-3000:],
+                }).encode())
+            except subprocess.TimeoutExpired:
+                self.send_response(504)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "timeout"}).encode())
+            except Exception as e:
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
