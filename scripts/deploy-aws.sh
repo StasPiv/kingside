@@ -19,12 +19,14 @@ ACCOUNT_ID="342946498289"
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
 ECR_URI_GAME="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-game-service"
 ECR_URI_BROADCAST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-worker"
+ECR_URI_ARCHIVE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-importer"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
 ECS_SERVICE="kingside-api"
 ECS_SERVICE_GAME="kingside-game-service"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
+ECS_SERVICE_ARCHIVE="kingside-archive-importer"
 # Prod values hardcoded — DO NOT use ${VITE_*:-default}:
 # локальные VITE_* (dev: ws://localhost:3002) в env webhook-server/хоста
 # перебивали дефолты и попадали в prod-бандл. См. KS-1570.
@@ -101,6 +103,7 @@ detect_deploy_scope() {
     local has_api=false
     local has_game=false
     local has_broadcast=false
+    local has_archive=false
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
@@ -113,16 +116,20 @@ detect_deploy_scope() {
                 has_game=true ;;
             apps/broadcast-worker/*)
                 has_broadcast=true ;;
+            apps/archive-importer/*)
+                has_archive=true ;;
             packages/shared/*)
                 has_frontend=true
                 has_api=true
                 has_game=true
-                has_broadcast=true ;;
+                has_broadcast=true
+                has_archive=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
                 has_game=true
-                has_broadcast=true ;;
+                has_broadcast=true
+                has_archive=true ;;
         esac
     done <<< "$changed_files"
 
@@ -132,6 +139,7 @@ detect_deploy_scope() {
     $has_api && count=$((count + 1))
     $has_game && count=$((count + 1))
     $has_broadcast && count=$((count + 1))
+    $has_archive && count=$((count + 1))
 
     if [ "$count" -gt 1 ]; then
         echo "all"
@@ -143,6 +151,8 @@ detect_deploy_scope() {
         echo "game-service"
     elif $has_broadcast; then
         echo "broadcast-worker"
+    elif $has_archive; then
+        echo "archive-importer"
     else
         echo "none"
     fi
@@ -171,14 +181,17 @@ DEPLOY_FRONTEND=false
 DEPLOY_API=false
 DEPLOY_GAME=false
 DEPLOY_BROADCAST=false
+DEPLOY_ARCHIVE=false
 
 case "$SCOPE" in
-    frontend)         DEPLOY_FRONTEND=true ;;
-    api)              DEPLOY_API=true ;;
-    game-service)     DEPLOY_GAME=true ;;
-    broadcast-worker) DEPLOY_BROADCAST=true ;;
-    all)              DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true ;;
-    *)                echo "Unknown scope: $SCOPE"; exit 1 ;;
+    frontend)          DEPLOY_FRONTEND=true ;;
+    api)               DEPLOY_API=true ;;
+    game-service)      DEPLOY_GAME=true ;;
+    broadcast-worker)  DEPLOY_BROADCAST=true ;;
+    archive-importer)  DEPLOY_ARCHIVE=true ;;
+    workers)           DEPLOY_BROADCAST=true; DEPLOY_ARCHIVE=true ;;
+    all)               DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true; DEPLOY_ARCHIVE=true ;;
+    *)                 echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
 echo ""
@@ -272,6 +285,26 @@ if $DEPLOY_BROADCAST; then
 
     echo "[broadcast-worker] Updating ECS service..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST" \
+        --force-new-deployment --query 'service.deployments[0].status' --output text
+    echo "  ECS service update initiated."
+fi
+
+# --- Archive Importer: docker build → ECR push → ECS update ---
+# Воркер читает расписание из БД (archive_sources.schedule) — cron на уровне ОС/ECS не нужен.
+if $DEPLOY_ARCHIVE; then
+    echo "[archive-importer] Logging in to ECR..."
+    aws ecr get-login-password --region "$REGION" | \
+        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+
+    echo "[archive-importer] Building Docker image..."
+    docker build -t kingside-archive-importer:latest -f "$REPO_DIR/apps/archive-importer/Dockerfile" "$REPO_DIR"
+
+    echo "[archive-importer] Pushing to ECR..."
+    docker tag kingside-archive-importer:latest "${ECR_URI_ARCHIVE}:latest"
+    docker push "${ECR_URI_ARCHIVE}:latest" 2>&1 | tail -3
+
+    echo "[archive-importer] Updating ECS service..."
+    aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_ARCHIVE" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
 fi

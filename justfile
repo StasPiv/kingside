@@ -31,6 +31,22 @@ deploy-broadcast:
 deploy-matchmaker:
     bash scripts/deploy-aws.sh matchmaker
 
+# Deploy only archive-importer (TWIC + position indexer)
+deploy-archive-importer:
+    bash scripts/deploy-aws.sh archive-importer
+
+# Run archive-importer worker in dev mode (uses local .env)
+dev-archive-importer:
+    npm run dev --workspace=apps/archive-importer
+
+# Start archive-importer worker (prod mode) — assumes built dist/
+start-archive-importer:
+    npm run start --workspace=apps/archive-importer
+
+# View archive-importer logs (last N lines). Usage: just logs-archive-importer [lines]
+logs-archive-importer lines="100":
+    docker compose logs archive-importer --tail {{lines}} --timestamps
+
 # Deploy to Kamatera (legacy)
 deploy-kamatera:
     bash scripts/deploy-local.sh
