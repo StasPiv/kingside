@@ -54,9 +54,13 @@ type LichessBroadcast = {
   id: string;
   lichessId: string;
   title: string;
-  url: string;
-  isActive: boolean;
-  createdAt: string;
+  status?: string;
+  startDate?: string | null;
+  roundCount?: number;
+  // legacy fields (kept for back-compat with older API responses)
+  url?: string;
+  isActive?: boolean;
+  createdAt?: string;
 };
 
 // Keywords that mark a broadcast as featured (shown at top with LIVE)
@@ -65,6 +69,11 @@ const FEATURED_KEYWORDS = ['candidates', 'world championship', 'olympiad'];
 function isFeatured(title: string): boolean {
   const lower = title.toLowerCase();
   return FEATURED_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+function isBroadcastActive(b: LichessBroadcast): boolean {
+  if (typeof b.isActive === 'boolean') return b.isActive;
+  return b.status === 'active';
 }
 
 export function BroadcastsPage() {
@@ -84,18 +93,18 @@ export function BroadcastsPage() {
       .catch(() => {})
       .finally(() => setTournamentsLoading(false));
 
-    api.get<{ data: LichessBroadcast[] }>('/api/broadcasts?take=100')
+    api.get<{ data: LichessBroadcast[] }>('/api/broadcasts?limit=100')
       .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, []);
 
   const featuredBroadcasts = useMemo(
-    () => lichessBroadcasts.filter((b) => isFeatured(b.title) && b.isActive),
+    () => lichessBroadcasts.filter((b) => isFeatured(b.title) && isBroadcastActive(b)),
     [lichessBroadcasts],
   );
 
   const otherBroadcasts = useMemo(
-    () => lichessBroadcasts.filter((b) => !isFeatured(b.title) || !b.isActive),
+    () => lichessBroadcasts.filter((b) => !isFeatured(b.title) || !isBroadcastActive(b)),
     [lichessBroadcasts],
   );
 
@@ -151,18 +160,21 @@ export function BroadcastsPage() {
         <div className="broadcasts-lichess-section">
           <h2>{t('broadcasts.lichessTitle', 'Lichess Broadcasts')}</h2>
           <div className="broadcasts-lichess-grid">
-            {otherBroadcasts.slice(0, 20).map((b) => (
-              <Link
-                key={b.id}
-                to={`/broadcasts/${b.id}`}
-                className="broadcast-lichess-card"
-              >
-                <h4 className="broadcast-lichess-title">{b.title}</h4>
-                <span className={`broadcast-lichess-status${b.isActive ? ' broadcast-lichess-status--active' : ''}`}>
-                  {b.isActive ? 'LIVE' : t('liveTournaments.archived', 'Archived')}
-                </span>
-              </Link>
-            ))}
+            {otherBroadcasts.slice(0, 20).map((b) => {
+              const active = isBroadcastActive(b);
+              return (
+                <Link
+                  key={b.id}
+                  to={`/broadcasts/${b.id}`}
+                  className="broadcast-lichess-card"
+                >
+                  <h4 className="broadcast-lichess-title">{b.title}</h4>
+                  <span className={`broadcast-lichess-status${active ? ' broadcast-lichess-status--active' : ''}`}>
+                    {active ? 'LIVE' : t('liveTournaments.archived', 'Archived')}
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}
