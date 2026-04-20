@@ -67,7 +67,24 @@ _BASE_VOLUMES = [
     f"{_P}/.claude:/project/.claude:ro",
     f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
     f"{_SHARED_TMP}:/tmp",
+    f"{_P}/tools/mcp-agent.mjs:/project/tools/mcp-agent.mjs:ro",
 ]
+
+# Генерируем MCP config для агентов (один на всех, создаётся при старте webhook)
+_MCP_CONFIG_PATH = os.path.join(_SHARED_TMP, "mcp-agent.json")
+def _write_mcp_config():
+    cfg = {
+        "mcpServers": {
+            "agent": {
+                "command": "node",
+                "args": ["/project/tools/mcp-agent.mjs"],
+            }
+        }
+    }
+    with open(_MCP_CONFIG_PATH, "w") as f:
+        json.dump(cfg, f)
+
+_write_mcp_config()
 
 # Мапинг filesystem-ролей в volume mounts
 ROLE_VOLUMES: dict[str, list[str]] = {
@@ -194,6 +211,7 @@ class AgentDaemon:
             "-v", f"{AGENT_CLAUDE_JSON}:/home/agent/.claude.json",
             "-v", f"{LOG_DIR}:/project/logs",
             "-e", f"WEBHOOK_AUTH_TOKEN={_get_agent_token(self.name)}",
+            "-e", f"AGENT_NAME={self.name}",
         ]
         for v in volumes:
             cmd.extend(["-v", v])
@@ -206,6 +224,7 @@ class AgentDaemon:
             "--agent", self.name,
             "--dangerously-skip-permissions",
             "--strict-mcp-config",
+            "--mcp-config", "/tmp/mcp-agent.json",
             "--append-system-prompt", _build_scope_prompt(self.name),
         ])
         return cmd
