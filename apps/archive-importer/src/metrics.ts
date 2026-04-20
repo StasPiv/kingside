@@ -92,6 +92,12 @@ export const positionStatsUpsertDurationSeconds = new Histogram(
   ['source'],
 );
 
+export const archivePositionRowsCopyDurationSeconds = new Histogram(
+  'archive_importer_position_rows_copy_duration_seconds',
+  'Длительность batch COPY в archive_game_positions (секунды).',
+  ['source'],
+);
+
 /** Снапшот для интеграции с /metrics endpoint (будет подключён DevOps). */
 export function snapshot(): {
   counters: Array<{ name: string; help: string; samples: CounterSample[] }>;
@@ -104,6 +110,7 @@ export function snapshot(): {
     histograms: [
       { name: archiveImportDurationSeconds.name, help: archiveImportDurationSeconds.help, samples: archiveImportDurationSeconds.collect() },
       { name: positionStatsUpsertDurationSeconds.name, help: positionStatsUpsertDurationSeconds.help, samples: positionStatsUpsertDurationSeconds.collect() },
+      { name: archivePositionRowsCopyDurationSeconds.name, help: archivePositionRowsCopyDurationSeconds.help, samples: archivePositionRowsCopyDurationSeconds.collect() },
     ],
   };
 }

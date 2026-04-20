@@ -2,7 +2,14 @@ import AdmZip from 'adm-zip';
 import type { PrismaClient } from '@kingside/db';
 import { decodePgnBuffer, parseBatch, type ParsedGame } from '../pgn-utils.js';
 import { PositionIndexer } from '../position-indexer.js';
+import { ArchivePositionWriter } from '../archive-position-writer.js';
+import {
+  buildPositionRowsForGame,
+  type PositionRow,
+} from '../position-row-builder.js';
 import { archiveImportGamesTotal } from '../metrics.js';
+
+const DEFAULT_BUCKET = 'master';
 
 /**
  * TWIC (The Week In Chess) — еженедельный архив партий, выпуски нумерованы
@@ -35,12 +42,17 @@ interface ArchiveSourceRow {
 
 export class TwicImporter {
   private readonly indexer: PositionIndexer;
+  private readonly positionWriter: ArchivePositionWriter | null;
 
   constructor(
     private readonly prisma: PrismaClient,
     private readonly source: ArchiveSourceRow,
+    positionWriter?: ArchivePositionWriter,
   ) {
     this.indexer = new PositionIndexer(prisma, source.code);
+    // Writer общий на воркер — ждём его снаружи; в CLI/тесте допустим null,
+    // тогда пропускаем запись в archive_game_positions.
+    this.positionWriter = positionWriter ?? null;
   }
 
   /** Формирует URL для указанного номера выпуска. */
@@ -163,6 +175,7 @@ export class TwicImporter {
     let added = 0;
     let skipped = failed; // битые партии идут сразу в skipped
     const addedGames: ParsedGame[] = [];
+    const positionRows: PositionRow[] = [];
 
     // Вставляем по одной: пропускаем дубликаты по UNIQUE(content_hash),
     // и точно знаем, какие партии НОВЫЕ (чтобы индексировать только их).
@@ -172,7 +185,7 @@ export class TwicImporter {
       const hashBytes = new Uint8Array(game.contentHash.length);
       hashBytes.set(game.contentHash);
       try {
-        await this.prisma.archiveGame.create({
+        const created = await this.prisma.archiveGame.create({
           data: {
             sourceId: this.source.id,
             importId: importRow.id,
@@ -195,9 +208,15 @@ export class TwicImporter {
             pgn: game.raw,
             finalFen: game.finalFen,
           },
+          select: { id: true },
         });
         added++;
         addedGames.push(game);
+        // Собираем строки по позициям (ply ≤ POSITION_PLY_LIMIT, дедуп per-game).
+        // Пишем позже одним батчем через COPY — быстрее createMany.
+        for (const row of buildPositionRowsForGame(created.id, game, DEFAULT_BUCKET)) {
+          positionRows.push(row);
+        }
       } catch (err: unknown) {
         // P2002 — UNIQUE violation по content_hash → дубликат, это ОК.
         if (isUniqueViolation(err)) {
@@ -218,6 +237,17 @@ export class TwicImporter {
         const msg = err instanceof Error ? err.message : String(err);
         console.error(`[archive-importer][twic] position-indexer failed: ${msg}`);
         // Партии вставлены — оставляем как есть, индексацию можно догнать backfill-процедурой.
+      }
+    }
+
+    // COPY в archive_game_positions — отдельный путь (staging + ON CONFLICT DO NOTHING).
+    // Падение не откатывает archive_games — индекс по позициям догоним backfill'ом.
+    if (this.positionWriter && positionRows.length > 0) {
+      try {
+        await this.positionWriter.write(positionRows, this.source.code);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[archive-importer][twic] position-writer failed: ${msg}`);
       }
     }
 

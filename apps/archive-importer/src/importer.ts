@@ -1,6 +1,7 @@
 import { PrismaClient } from '@kingside/db';
 import Redis from 'ioredis';
 import { TwicImporter } from './sources/twic.js';
+import { ArchivePositionWriter } from './archive-position-writer.js';
 import { archiveImportDurationSeconds } from './metrics.js';
 
 /**
@@ -33,6 +34,7 @@ interface SourceRow {
 export class ArchiveImporter {
   private readonly prisma: PrismaClient;
   private readonly redis: Redis;
+  private readonly positionWriter: ArchivePositionWriter;
   private tickTimer: NodeJS.Timeout | null = null;
   private running = false;
   private stopped = false;
@@ -42,6 +44,7 @@ export class ArchiveImporter {
     const host = process.env.REDIS_HOST || 'localhost';
     const port = parseInt(process.env.REDIS_PORT || '6380', 10);
     this.redis = new Redis({ host, port, lazyConnect: false });
+    this.positionWriter = new ArchivePositionWriter(process.env.DATABASE_URL ?? '');
   }
 
   async start(): Promise<void> {
@@ -71,6 +74,7 @@ export class ArchiveImporter {
     this.stopped = true;
     if (this.tickTimer) clearInterval(this.tickTimer);
     await this.redis.quit().catch(() => {});
+    await this.positionWriter.close().catch(() => {});
     await this.prisma.$disconnect();
     console.log('[archive-importer] Stopped');
   }
@@ -122,7 +126,7 @@ export class ArchiveImporter {
     try {
       await archiveImportDurationSeconds.time({ source: source.code }, async () => {
         if ((source.kind as SourceKind) === 'twic') {
-          const importer = new TwicImporter(this.prisma, source);
+          const importer = new TwicImporter(this.prisma, source, this.positionWriter);
           const result = await importer.run();
           console.log(
             `[archive-importer] ${source.code}: status=${result.status} parsed=${result.gamesParsed} added=${result.gamesAdded} skipped=${result.gamesSkipped} cursor=${result.cursorBefore}→${result.cursorAfter}`,
