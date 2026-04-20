@@ -883,6 +883,7 @@
     "status_active": "Active",
     "status_upcoming": "Upcoming",
     "status_finished": "Finished",
+    "status_my": "My",
     "typeDesc_arena": "Continuous pairing. Play game after game. Points for wins, streak bonus.",
     "typeDesc_swiss": "Rounds with score-based pairing. Optimal for 10-100 players.",
     "typeDesc_round-robin": "Everyone plays everyone. For 4-16 players.",

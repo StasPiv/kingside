@@ -24,7 +24,7 @@ type Tournament = {
 
 export function TournamentsPage() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
@@ -32,17 +32,32 @@ export function TournamentsPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'active');
+  const DEFAULT_TAB = 'active';
+  const KNOWN_TABS = ['active', 'upcoming', 'finished', 'my'] as const;
+  const initialTab = KNOWN_TABS.includes((searchParams.get('status') || DEFAULT_TAB) as typeof KNOWN_TABS[number])
+    ? (searchParams.get('status') || DEFAULT_TAB)
+    : DEFAULT_TAB;
+  const [statusFilter, setStatusFilter] = useState(initialTab);
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
   const [tcFilter, setTcFilter] = useState(searchParams.get('tc') || 'all');
 
   const updateUrl = (status: string, type: string, tc: string) => {
     const p: Record<string, string> = {};
-    if (status !== 'active') p.status = status;
+    if (status !== DEFAULT_TAB) p.status = status;
     if (type !== 'all') p.type = type;
     if (tc !== 'all') p.tc = tc;
     setSearchParams(p, { replace: true });
   };
+
+  // Если гость попал на таб «Мои» через URL — переключаем на дефолтный
+  // Ждём завершения загрузки auth, иначе можно случайно сбросить таб у авторизованного пользователя
+  useEffect(() => {
+    if (!authLoading && !user && statusFilter === 'my') {
+      setStatusFilter(DEFAULT_TAB);
+      updateUrl(DEFAULT_TAB, typeFilter, tcFilter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, authLoading, statusFilter]);
 
   const fetchTournaments = useCallback(async () => {
     setLoading(true);
@@ -64,12 +79,16 @@ export function TournamentsPage() {
   useEffect(() => { fetchTournaments(); }, [fetchTournaments]);
   useEffect(() => { fetchMyTournaments(); }, [fetchMyTournaments]);
 
-  const filtered = tournaments.filter((t) => {
-    if (t.status !== statusFilter) return false;
+  const applyTypeTcFilters = (list: Tournament[]) => list.filter((t) => {
     if (typeFilter !== 'all' && t.type !== typeFilter) return false;
     if (tcFilter !== 'all' && t.timeControlType !== tcFilter) return false;
     return true;
   });
+
+  const isMyTab = statusFilter === 'my';
+  const filtered = isMyTab
+    ? applyTypeTcFilters(myTournaments)
+    : applyTypeTcFilters(tournaments.filter((t) => t.status === statusFilter));
 
   const formatTc = (init: number, inc: number) => inc > 0 ? `${Math.floor(init / 60)}+${inc}` : `${Math.floor(init / 60)} min`;
 
@@ -89,44 +108,11 @@ export function TournamentsPage() {
         )}
       </div>
 
-      {/* My Tournaments */}
-      {user && myTournaments.length > 0 && (
-        <div className="tnr-my-section">
-          <h2 className="tnr-my-section__title">{t('tournaments.myTournaments', 'My Tournaments')}</h2>
-          <div className="tournaments-list">
-            {myTournaments.map((tnr) => {
-              const isCreator = (tnr.createdBy ?? tnr.creatorId) === user.id;
-              const badgeKey = isCreator ? 'creator' : 'joined';
-              return (
-                <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tnr-card">
-                  <div className="tnr-card__row1">
-                    <span className={`tnr-card__dot tnr-card__dot--${tnr.status}`} />
-                    <span className="tnr-card__name">
-                      {tnr.name}
-                      {tnr.visibility && tnr.visibility !== 'public' && <span className="tnr-visibility-badge">🔒</span>}
-                    </span>
-                    <span className={`tnr-my-badge tnr-my-badge--${badgeKey}`}>
-                      {t(`tournaments.badge_${badgeKey}`, badgeKey)}
-                    </span>
-                    <span className="tnr-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
-                  </div>
-                  <div className="tnr-card__row2">
-                    <span>{t(`tournaments.type_${tnr.type}`, tnr.type)}</span>
-                    <span className={`tnr-card__status tnr-card__status--${tnr.status}`}>{t(`tournaments.status_${tnr.status}`, tnr.status)}</span>
-                    <span>{tnr._count?.entries ?? 0} {t('tournaments.players', 'players')}</span>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {/* Filters */}
       <div className="tnr-filters">
         {/* Status tabs */}
         <div className="tnr-status-tabs">
-          {['active', 'upcoming', 'finished'].map((s) => (
+          {[...['active', 'upcoming', 'finished'], ...(user ? ['my'] : [])].map((s) => (
             <button
               key={s}
               className={`tnr-status-tab${statusFilter === s ? ' active' : ''}`}
@@ -169,28 +155,41 @@ export function TournamentsPage() {
         <p className="tournaments-empty">{t('tournaments.empty', 'No tournaments')}</p>
       ) : (
         <div className="tournaments-list">
-          {filtered.map((tnr) => (
-            <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tnr-card">
-              <div className="tnr-card__row1">
-                <span className={`tnr-card__dot tnr-card__dot--${tnr.status}`} />
-                <span className="tnr-card__name">
-                  {tnr.name}
-                  {tnr.visibility && tnr.visibility !== 'public' && <span className="tnr-visibility-badge">🔒</span>}
-                </span>
-                <span className="tnr-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
-              </div>
-              <div className="tnr-card__row2">
-                <span>{t(`tournaments.type_${tnr.type}`, tnr.type)}</span>
-                <span>{t(`lobby.${tnr.timeControlType}`, tnr.timeControlType)}</span>
-                <span>{tnr._count?.entries ?? 0} {t('tournaments.players', 'players')}</span>
-                <span>{tnr.durationMin} {t('tournaments.min', 'min')}</span>
-              </div>
-              <div className="tnr-card__row3">
-                {tnr.creatorUsername && <span>{tnr.creatorUsername}</span>}
-                <span>{formatTime(tnr.startsAt)}</span>
-              </div>
-            </Link>
-          ))}
+          {filtered.map((tnr) => {
+            const isCreator = !!user && (tnr.createdBy ?? tnr.creatorId) === user.id;
+            const myBadgeKey = isMyTab ? (isCreator ? 'creator' : 'joined') : null;
+            return (
+              <Link key={tnr.id} to={`/tournaments/${tnr.id}`} className="tnr-card">
+                <div className="tnr-card__row1">
+                  <span className={`tnr-card__dot tnr-card__dot--${tnr.status}`} />
+                  <span className="tnr-card__name">
+                    {tnr.name}
+                    {tnr.visibility && tnr.visibility !== 'public' && <span className="tnr-visibility-badge">🔒</span>}
+                  </span>
+                  {myBadgeKey && (
+                    <span className={`tnr-my-badge tnr-my-badge--${myBadgeKey}`}>
+                      {t(`tournaments.badge_${myBadgeKey}`, myBadgeKey)}
+                    </span>
+                  )}
+                  <span className="tnr-card__tc">{formatTc(tnr.timeInitialSec, tnr.timeIncrementSec)}</span>
+                </div>
+                <div className="tnr-card__row2">
+                  <span>{t(`tournaments.type_${tnr.type}`, tnr.type)}</span>
+                  {isMyTab ? (
+                    <span className={`tnr-card__status tnr-card__status--${tnr.status}`}>{t(`tournaments.status_${tnr.status}`, tnr.status)}</span>
+                  ) : (
+                    <span>{t(`lobby.${tnr.timeControlType}`, tnr.timeControlType)}</span>
+                  )}
+                  <span>{tnr._count?.entries ?? 0} {t('tournaments.players', 'players')}</span>
+                  {!isMyTab && <span>{tnr.durationMin} {t('tournaments.min', 'min')}</span>}
+                </div>
+                <div className="tnr-card__row3">
+                  {tnr.creatorUsername && <span>{tnr.creatorUsername}</span>}
+                  <span>{formatTime(tnr.startsAt)}</span>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       )}
 
