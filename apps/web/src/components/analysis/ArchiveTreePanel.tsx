@@ -5,8 +5,6 @@ import { useArchiveTree, type UseArchiveTreeFilters } from '../../hooks/useArchi
 import { BucketSelect, type BucketValue } from './BucketSelect';
 import { WinDrawLossBar } from './WinDrawLossBar';
 
-const GAMES_LIST_ENABLED = import.meta.env.VITE_ARCHIVE_GAMES_LIST_ENABLED === 'true';
-
 interface ArchiveTreePanelProps {
   currentFen: string;
   /** Opening name resolved on the client (ECO classifier). Rendered in the heading when present. */
@@ -140,35 +138,20 @@ export function ArchiveTreePanel({
               </table>
 
               <div className="archive-tree-panel__footer">
-                {GAMES_LIST_ENABLED ? (
-                  <Link
-                    className="archive-tree-panel__view-games"
-                    to={(() => {
-                      const params = new URLSearchParams({ fen: currentFen, sort: 'topElo' });
-                      if (bucket !== 'all') params.set('bucket', bucket);
-                      return `/archive/games?${params.toString()}`;
-                    })()}
-                    data-testid="archive-tree-view-games"
-                  >
-                    {t('archive.viewGames', {
-                      defaultValue: 'View {{count}} games \u2192',
-                      count: totalGames,
-                    })}
-                  </Link>
-                ) : (
-                  <button
-                    type="button"
-                    className="archive-tree-panel__view-games"
-                    disabled
-                    title={t('archive.viewGamesSoon', 'Games list is coming soon')}
-                    data-testid="archive-tree-view-games"
-                  >
-                    {t('archive.viewGames', {
-                      defaultValue: 'View {{count}} games \u2192',
-                      count: totalGames,
-                    })}
-                  </button>
-                )}
+                <Link
+                  className="archive-tree-panel__view-games"
+                  to={(() => {
+                    const params = new URLSearchParams({ fen: currentFen, sort: 'topElo' });
+                    if (bucket !== 'all') params.set('bucket', bucket);
+                    return `/archive/games?${params.toString()}`;
+                  })()}
+                  data-testid="archive-tree-view-games"
+                >
+                  {t('archive.viewGames', {
+                    defaultValue: 'View {{count}} games \u2192',
+                    count: totalGames,
+                  })}
+                </Link>
               </div>
             </>
           )}
