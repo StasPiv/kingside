@@ -4,7 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { HelpButton } from '../components/HelpButton';
 import type { DgtTournamentResult } from '../dgt.types';
-import type { LiveTournamentsResponse, LiveTournamentItem } from '@kingside/shared';
+import type {
+  LiveTournamentsResponse,
+  LiveTournamentItem,
+  BroadcastSummary,
+  BroadcastListResponse,
+} from '@kingside/shared';
 
 function TournamentCard({ tnr, t }: { tnr: LiveTournamentItem; t: (key: string) => string }) {
   const isLive = tnr.status === 'live';
@@ -50,26 +55,13 @@ function TournamentCard({ tnr, t }: { tnr: LiveTournamentItem; t: (key: string) 
   );
 }
 
-type LichessBroadcast = {
-  id: string;
-  lichessId: string;
-  title: string;
-  status?: string;
-  startDate?: string | null;
-  roundCount?: number;
-  // legacy fields (kept for back-compat with older API responses)
-  url?: string;
-  isActive?: boolean;
-  createdAt?: string;
-};
-
-// Keywords that mark a broadcast as featured (shown at top with LIVE)
-const FEATURED_KEYWORDS = ['candidates', 'world championship', 'olympiad'];
-
-function isFeatured(title: string): boolean {
-  const lower = title.toLowerCase();
-  return FEATURED_KEYWORDS.some((kw) => lower.includes(kw));
-}
+// Narrow wrapper around shared BroadcastSummary to tolerate older API responses
+// that may still be cached (legacy `isActive`). `isPinned`/`avgElo` are optional
+// only as a defensive fallback — the production API always returns them.
+type LichessBroadcast = Partial<BroadcastSummary> &
+  Pick<BroadcastSummary, 'id' | 'lichessId' | 'title'> & {
+    isActive?: boolean;
+  };
 
 function isBroadcastActive(b: LichessBroadcast): boolean {
   if (typeof b.isActive === 'boolean') return b.isActive;
@@ -93,18 +85,18 @@ export function BroadcastsPage() {
       .catch(() => {})
       .finally(() => setTournamentsLoading(false));
 
-    api.get<{ data: LichessBroadcast[] }>('/api/broadcasts?limit=100')
+    api.get<BroadcastListResponse>('/api/broadcasts?limit=100')
       .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, []);
 
   const featuredBroadcasts = useMemo(
-    () => lichessBroadcasts.filter((b) => isFeatured(b.title) && isBroadcastActive(b)),
+    () => lichessBroadcasts.filter((b) => b.isPinned === true),
     [lichessBroadcasts],
   );
 
   const otherBroadcasts = useMemo(
-    () => lichessBroadcasts.filter((b) => !isFeatured(b.title) || !isBroadcastActive(b)),
+    () => lichessBroadcasts.filter((b) => b.isPinned !== true),
     [lichessBroadcasts],
   );
 
@@ -138,7 +130,7 @@ export function BroadcastsPage() {
     <div className="broadcasts-page">
       <h1>{t('broadcasts.title')}<HelpButton section="broadcasts" /></h1>
 
-      {/* Featured Lichess Broadcasts (Candidates, WC, etc.) */}
+      {/* Featured Lichess Broadcasts — pinned on backend (avg Elo >= threshold) */}
       {featuredBroadcasts.length > 0 && (
         <div className="broadcasts-featured-section">
           {featuredBroadcasts.map((b) => (
@@ -149,7 +141,12 @@ export function BroadcastsPage() {
             >
               <div className="broadcast-featured-badge">LIVE</div>
               <h3 className="broadcast-featured-title">{b.title}</h3>
-              <span className="broadcast-featured-source">lichess.org</span>
+              <div className="broadcast-featured-meta">
+                {typeof b.avgElo === 'number' && (
+                  <span className="broadcast-featured-elo">Avg: {b.avgElo}</span>
+                )}
+                <span className="broadcast-featured-source">lichess.org</span>
+              </div>
             </Link>
           ))}
         </div>

@@ -838,6 +838,20 @@
   flex-shrink: 0;
 }
 
+.broadcast-featured-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.broadcast-featured-elo {
+  color: #ffb74d;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 /* Lichess broadcasts grid (KS-1116) */
 .broadcasts-lichess-section {
   margin-bottom: 24px;
