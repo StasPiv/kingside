@@ -7,6 +7,7 @@
  */
 
 import { createInterface } from 'readline';
+import { spawn } from 'child_process';
 
 const TOKEN = process.env.WEBHOOK_AUTH_TOKEN || '';
 const AGENT = process.env.AGENT_NAME || '';
@@ -45,6 +46,16 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} } },
   { name: 'api_start', description: 'Запустить API на хосте если не запущен.',
     inputSchema: { type: 'object', properties: {} } },
+
+  // --- Playwright ---
+  { name: 'screenshot', description: 'Скриншот страницы localhost:5173 через Playwright с dev_bypass (без логина). Сохраняет в /tmp/<task>/<name>.png. Возвращает путь.',
+    inputSchema: { type: 'object', properties: {
+      task: { type: 'string', description: 'Ключ задачи, например "KS-1592" — определяет папку /tmp/KS-1592/' },
+      path: { type: 'string', description: 'Относительный путь страницы, например "/broadcasts" или "/puzzle". Dev-bypass подставляется автоматически.' },
+      name: { type: 'string', description: 'Имя файла без расширения, например "desktop" или "mobile". Итог: /tmp/<task>/<name>.png' },
+      viewport: { type: 'string', description: '"desktop" (1280x720, по умолчанию) или "mobile" (390x844)' },
+      waitFor: { type: 'number', description: 'Пауза в мс перед скриншотом (для динамики)' },
+    }, required: ['task', 'path', 'name'] } },
 ];
 
 async function http(url, opts = {}) {
@@ -118,6 +129,34 @@ async function call(name, args) {
       return webhookPost('/npm-install', {});
     case 'api_start':
       return webhookPost('/api-start', {});
+
+    case 'screenshot': {
+      if (!args.task || !args.path || !args.name) return { error: 'task, path, name required' };
+      const outputDir = `/tmp/${args.task}`;
+      const output = `${outputDir}/${args.name}.png`;
+      // URL собирается автоматически из пути + dev_bypass
+      const sep = args.path.includes('?') ? '&' : '?';
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const viewport = args.viewport === 'mobile' ? '390,844' : '1280,720';
+      const cliArgs = ['screenshot', '--viewport-size', viewport];
+      if (args.waitFor) cliArgs.push('--wait-for-timeout', String(args.waitFor));
+      cliArgs.push(url, output);
+      await new Promise((resolve) => {
+        const mk = spawn('mkdir', ['-p', outputDir]);
+        mk.on('close', resolve);
+      });
+      return new Promise((resolve) => {
+        const proc = spawn('/project/node_modules/.bin/playwright', cliArgs);
+        let stderr = '';
+        proc.stderr.on('data', (d) => { stderr += d.toString(); });
+        proc.on('close', (code) => {
+          if (code === 0) resolve({ status: 'ok', output });
+          else resolve({ error: `playwright exit ${code}`, stderr: stderr.slice(-500) });
+        });
+        proc.on('error', (e) => resolve({ error: e.message }));
+      });
+    }
+
     default:
       return { error: `Unknown tool: ${name}` };
   }
