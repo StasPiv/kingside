@@ -57,6 +57,10 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
 
   const handleCreate = async () => {
     if (!name.trim()) return;
+    if (type === 'round-robin' && (!Number.isFinite(cycles) || cycles < 1)) {
+      setError(t('tournaments.cyclesInvalid', 'Number of cycles must be at least 1'));
+      return;
+    }
     setCreating(true);
     setError(null);
     try {
@@ -182,11 +186,13 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
                 {type === 'round-robin' ? (
                   <div className="tcm-field">
                     <label>{t('tournaments.cycles', 'Number of cycles')}</label>
-                    <select className="ks-select" value={cycles} onChange={(e) => setCycles(Number(e.target.value))}>
-                      <option value={1}>1</option>
-                      <option value={2}>2</option>
-                      <option value={3}>3</option>
-                    </select>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={cycles}
+                      onChange={(e) => setCycles(Number(e.target.value))}
+                    />
                   </div>
                 ) : (
                   <div className="tcm-field">
