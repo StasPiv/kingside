@@ -11,6 +11,7 @@ import { spawn } from 'child_process';
 
 const TOKEN = process.env.WEBHOOK_AUTH_TOKEN || '';
 const AGENT = process.env.AGENT_NAME || '';
+const DEV_BYPASS = process.env.VITE_DEV_BYPASS_SECRET || 'secret';
 const TRACKER = 'http://localhost:8090';
 const WEBHOOK = 'http://localhost:9876';
 
@@ -177,7 +178,7 @@ async function call(name, args) {
       const outputDir = `/tmp/${args.task}`;
       const output = `${outputDir}/${args.name}.png`;
       const sep = args.path.includes('?') ? '&' : '?';
-      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=${DEV_BYPASS}`;
       const viewport = args.viewport === 'mobile' ? '390,844' : '1280,720';
       const cliArgs = ['screenshot', '--viewport-size', viewport];
       if (args.waitFor) cliArgs.push('--wait-for-timeout', String(args.waitFor));
@@ -204,7 +205,7 @@ async function call(name, args) {
       const outputDir = `/tmp/${args.task}`;
       const output = `${outputDir}/${args.name}.png`;
       const sep = args.path.includes('?') ? '&' : '?';
-      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=${DEV_BYPASS}`;
       const [w, h] = args.viewport === 'mobile' ? [390, 844] : [1280, 720];
       await new Promise((r) => spawn('mkdir', ['-p', outputDir]).on('close', r));
       const browser = await chromium.launch();
@@ -222,7 +223,7 @@ async function call(name, args) {
             await page.fill(sel, text.join(':'));
           }
           else if (type === 'reload') await page.reload();
-          else if (type === 'goto') await page.goto(`http://localhost:5173${arg}${arg.includes('?') ? '&' : '?'}dev_bypass=secret`);
+          else if (type === 'goto') await page.goto(`http://localhost:5173${arg}${arg.includes('?') ? '&' : '?'}dev_bypass=${DEV_BYPASS}`);
           else throw new Error(`Unknown action: ${type}`);
           log.push(`ok: ${a}`);
         }
@@ -240,7 +241,7 @@ async function call(name, args) {
       const outputDir = `/tmp/${args.task}`;
       const output = `${outputDir}/${args.name}.gif`;
       const sep = args.path.includes('?') ? '&' : '?';
-      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=${DEV_BYPASS}`;
       const viewport = args.viewport === 'mobile' ? '390x844' : '1280x720';
       await new Promise((r) => spawn('mkdir', ['-p', outputDir]).on('close', r));
       const cliArgs = ['/project/scripts/record-verification.js', '--url', url, '--output', output, '--viewport', viewport, '--actions', ...args.actions];
@@ -260,7 +261,7 @@ async function call(name, args) {
       if (!args.path) return { error: 'path required' };
       const { chromium } = await import('/project/node_modules/playwright/index.mjs');
       const sep = args.path.includes('?') ? '&' : '?';
-      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=${DEV_BYPASS}`;
       const browser = await chromium.launch();
       const page = await browser.newPage();
       const consoleMsgs = [];
