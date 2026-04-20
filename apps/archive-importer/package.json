@@ -10,6 +10,7 @@
     "archive:backfill": "tsx src/backfill.ts",
     "archive:rebuild-position-stats": "tsx src/rebuild-position-stats.ts",
     "archive:classify-existing": "tsx src/classify-existing.ts",
+    "archive:cleanup-positions": "tsx src/cleanup-positions.ts",
     "test": "vitest run"
   },
   "dependencies": {
