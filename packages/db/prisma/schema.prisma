@@ -832,6 +832,9 @@ model ArchiveGame {
   plyCount     Int?      @map("ply_count")
   pgn          String    @db.Text
   finalFen     String?   @map("final_fen")
+  timeControl  String?   @map("time_control")
+  category     String    @default("unknown")
+  isClassical  Boolean   @default(false) @map("is_classical")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   source ArchiveSource  @relation(fields: [sourceId], references: [id])
