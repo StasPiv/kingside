@@ -13,8 +13,11 @@ import type {
   ArchiveGameDetail,
   ArchiveGameResult,
   ArchiveGameSummary,
+  ArchiveGamesByPositionRequest,
+  ArchiveGamesByPositionResponse,
   ArchiveGamesRequest,
   ArchiveGamesResponse,
+  ArchiveGamesSort,
   ArchiveTreeRequest,
   ArchiveTreeResponse,
 } from '@kingside/shared';
@@ -23,15 +26,31 @@ import { RedisService } from '../redis/redis.service';
 import {
   ARCHIVE_STATS_REPOSITORY,
   ArchiveStatsRepository,
+  GamesByPositionOpts,
+  RawGamePositionRow,
   TreeOpts,
 } from './archive-stats.repository';
 import { ArchiveMetricsService } from './archive-metrics.service';
 import { positionKey, positionKeyHex } from './position-key';
+import { resultFilterToStorage } from './result-format';
+import {
+  ArchiveCursor,
+  decodeCursor,
+  encodeCursor,
+  isRecentCursor,
+  isTopEloCursor,
+} from './cursor-codec';
+import { STATIC_PREWARM_POSITIONS } from './prewarm-positions';
 
 const DEFAULT_TREE_LIMIT = 12;
 const DEFAULT_GAMES_LIMIT = 50;
 const MAX_GAMES_LIMIT = 200;
+const DEFAULT_GAMES_BY_POSITION_LIMIT = 20;
+const MAX_GAMES_BY_POSITION_LIMIT = 50;
 const TREE_CACHE_TTL_SEC = 3600;
+const GAMES_BY_POSITION_CACHE_TTL_SEC = 600; // 10 min, ADR-014 §7
+const PREWARM_INTERVAL_MS = 15 * 60 * 1000; // 15 min, ADR-014 §7
+const PREWARM_TOP_N = 30;
 export const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
 
 /**
@@ -44,6 +63,7 @@ export const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
 export class ArchiveService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ArchiveService.name);
   private subRedis: Redis | null = null;
+  private prewarmTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -61,7 +81,7 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       await this.subRedis.subscribe(ARCHIVE_IMPORTED_CHANNEL);
       this.subRedis.on('message', (channel, _message) => {
         if (channel === ARCHIVE_IMPORTED_CHANNEL) {
-          void this.invalidateTreeCache();
+          void this.invalidateArchiveCache();
         }
       });
       this.logger.log(
@@ -72,9 +92,23 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
         `Failed to subscribe to ${ARCHIVE_IMPORTED_CHANNEL}: ${(err as Error).message}`,
       );
     }
+
+    // Pre-warm cron (ADR-014 §7). Runs every 15 min; first tick scheduled
+    // to not block startup. Tests opt out via ARCHIVE_PREWARM_DISABLE=1.
+    if (process.env.ARCHIVE_PREWARM_DISABLE !== '1') {
+      this.prewarmTimer = setInterval(() => {
+        void this.prewarmTopPositions();
+      }, PREWARM_INTERVAL_MS);
+      // First run slightly after boot so DB pool is ready.
+      setTimeout(() => void this.prewarmTopPositions(), 30_000).unref();
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
+    if (this.prewarmTimer) {
+      clearInterval(this.prewarmTimer);
+      this.prewarmTimer = null;
+    }
     if (this.subRedis) {
       await this.subRedis.unsubscribe().catch(() => {});
       await this.subRedis.quit().catch(() => {});
@@ -164,6 +198,130 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // ─── Games by position ───────────────────────────────────────────
+
+  async getGamesByPosition(
+    req: ArchiveGamesByPositionRequest,
+  ): Promise<ArchiveGamesByPositionResponse> {
+    const bucket: ArchiveBucket = req.bucket ?? 'master';
+    const sort: ArchiveGamesSort = req.sort ?? 'recent';
+    const limit = this.clampLimit(
+      req.limit,
+      DEFAULT_GAMES_BY_POSITION_LIMIT,
+      MAX_GAMES_BY_POSITION_LIMIT,
+    );
+
+    const cursor = decodeCursor(req.cursor ?? null);
+    // Cursor shape must match the requested sort — otherwise ignore it.
+    const validCursor =
+      cursor == null ||
+      (sort === 'recent' ? isRecentCursor(cursor) : isTopEloCursor(cursor))
+        ? cursor
+        : null;
+
+    const key = positionKey(req.fen);
+    const keyHex = positionKeyHex(key);
+
+    const filterHash = this.hashGamesByPositionFilters(req, limit);
+    const cacheKey = `arch:games:${keyHex}:${bucket}:${sort}:${filterHash}:${req.cursor ?? ''}`;
+
+    const startNs = process.hrtime.bigint();
+    const cached = await this.safeGetGamesCached(cacheKey);
+    if (cached) {
+      this.metrics.recordTreeQuery(true, this.elapsedSec(startNs));
+      // Echo back the fen the caller passed — cached value may have been
+      // populated by a different fen that normalizes to the same key.
+      return { ...cached, fen: req.fen };
+    }
+
+    const sideToMove = this.deriveSideToMove(req);
+
+    const opts: GamesByPositionOpts = {
+      bucket,
+      sort,
+      cursor: validCursor ?? null,
+      limit,
+      minElo: req.minElo,
+      since: req.since ? new Date(req.since) : undefined,
+      result: resultFilterToStorage(req.result),
+      sideToMove,
+      move: req.move,
+      player: req.player,
+      eco: req.eco,
+    };
+
+    const [page, totalApprox] = await Promise.all([
+      this.stats.getGamesByPosition(key, opts),
+      this.stats.countApprox(key, bucket),
+    ]);
+
+    const hasMore = page.overflow !== null;
+    const nextCursor = hasMore
+      ? encodeCursor(buildCursor(sort, page.overflow as RawGamePositionRow))
+      : null;
+
+    const response: ArchiveGamesByPositionResponse = {
+      fen: req.fen,
+      positionKey: keyHex,
+      bucket,
+      sort,
+      items: page.items,
+      nextCursor,
+      hasMore,
+      totalApprox,
+    };
+
+    await this.safeSetGamesCached(cacheKey, response);
+    this.metrics.recordTreeQuery(false, this.elapsedSec(startNs));
+
+    return response;
+  }
+
+  /** Internal: used by pre-warm with a FEN already known to be canonical. */
+  private async prewarmOne(
+    fen: string,
+    bucket: ArchiveBucket,
+    sort: ArchiveGamesSort,
+  ): Promise<void> {
+    await this.getGamesByPosition({
+      fen,
+      bucket,
+      sort,
+      limit: DEFAULT_GAMES_BY_POSITION_LIMIT,
+    });
+  }
+
+  /**
+   * Warms Redis for the static top-N opening positions (ADR-014 §7).
+   *
+   * MVP uses a hand-picked list in `prewarm-positions.ts`. A dynamic
+   * top-N query over `position_stats` is possible (see
+   * {@link ArchiveStatsRepository.listTopPositions}) but requires a
+   * reverse lookup from `position_key` → FEN, which we don't store
+   * today. Tracked as a follow-up.
+   */
+  async prewarmTopPositions(): Promise<void> {
+    const positions = STATIC_PREWARM_POSITIONS.slice(0, PREWARM_TOP_N);
+    let ok = 0;
+    let failed = 0;
+    for (const fen of positions) {
+      for (const sort of ['recent', 'topElo'] as const) {
+        try {
+          await this.prewarmOne(fen, 'master', sort);
+          ok++;
+        } catch (err) {
+          failed++;
+          this.logger.warn(
+            `prewarm failed for fen=${fen} sort=${sort}: ${(err as Error).message}`,
+          );
+        }
+      }
+    }
+    if (ok > 0 || failed > 0) {
+      this.logger.log(`prewarm: ok=${ok} failed=${failed}`);
+    }
+  }
+
   async getGameById(id: string): Promise<ArchiveGameDetail> {
     const game = await this.prisma.archiveGame.findUnique({ where: { id } });
     if (!game) {
@@ -249,6 +407,41 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     return createHash('sha1').update(canon).digest('hex').slice(0, 12);
   }
 
+  private hashGamesByPositionFilters(
+    req: ArchiveGamesByPositionRequest,
+    limit: number,
+  ): string {
+    const canon = JSON.stringify({
+      minElo: req.minElo ?? null,
+      since: req.since ?? null,
+      result: req.result ?? null,
+      color: req.color ?? null,
+      move: req.move ?? null,
+      player: req.player ?? null,
+      eco: req.eco ?? null,
+      limit,
+    });
+    return createHash('sha1').update(canon).digest('hex').slice(0, 12);
+  }
+
+  /**
+   * `color` resolution (MVP):
+   *   - `white`/`black` → side_to_move filter on the position.
+   *   - `any` / undefined → no filter (matches both sides).
+   *
+   * The intent of `color` interacts with `player` (e.g. "Carlsen as
+   * white") — that combo is handled inside the repository via the
+   * `player` filter, which spans both white/black names. Once the UI
+   * requires strict "player-on-side", the player filter in the
+   * repository must split into white-only / black-only paths.
+   */
+  private deriveSideToMove(
+    req: ArchiveGamesByPositionRequest,
+  ): 'w' | 'b' | undefined {
+    if (!req.color || req.color === 'any') return undefined;
+    return req.color === 'white' ? 'w' : 'b';
+  }
+
   private async safeGetCached(key: string): Promise<ArchiveTreeResponse | null> {
     try {
       const raw = await this.redis.get(key);
@@ -283,8 +476,87 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Invalidates both tree and games-by-position caches on import events.
+   * Called in response to the `archive:imported` Redis pub/sub channel
+   * (ADR-014 §7). A single SCAN would be faster, but `KEYS` is fine for
+   * the MVP cache size and mirrors the existing tree-invalidation path.
+   */
+  private async invalidateArchiveCache(): Promise<void> {
+    await Promise.all([
+      this.invalidateTreeCache(),
+      this.invalidateGamesByPositionCache(),
+    ]);
+  }
+
+  private async invalidateGamesByPositionCache(): Promise<void> {
+    try {
+      const keys = await this.redis.keys('arch:games:*');
+      if (keys.length > 0) {
+        await this.redis.del(...keys);
+        this.logger.log(
+          `Invalidated ${keys.length} games-by-position cache entries after import`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `games-by-position cache invalidation failed: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  private async safeGetGamesCached(
+    key: string,
+  ): Promise<ArchiveGamesByPositionResponse | null> {
+    try {
+      const raw = await this.redis.get(key);
+      return raw ? (JSON.parse(raw) as ArchiveGamesByPositionResponse) : null;
+    } catch (err) {
+      this.logger.warn(`cache read failed (${key}): ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  private async safeSetGamesCached(
+    key: string,
+    value: ArchiveGamesByPositionResponse,
+  ): Promise<void> {
+    try {
+      await this.redis.set(
+        key,
+        JSON.stringify(value),
+        'EX',
+        GAMES_BY_POSITION_CACHE_TTL_SEC,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `cache write failed (${key}): ${(err as Error).message}`,
+      );
+    }
+  }
+
   private elapsedSec(startNs: bigint): number {
     const deltaNs = process.hrtime.bigint() - startNs;
     return Number(deltaNs) / 1e9;
   }
+}
+
+/**
+ * Builds a cursor from the N+1 overflow row used to mark `hasMore=true`.
+ * Matches the ORDER BY clauses in `KeysetSqlBuilder`.
+ */
+function buildCursor(
+  sort: ArchiveGamesSort,
+  row: RawGamePositionRow,
+): ArchiveCursor {
+  if (sort === 'topElo') {
+    return {
+      e: row.avg_elo == null ? null : Number(row.avg_elo),
+      g: row.game_id,
+    };
+  }
+  return {
+    t: row.played_at ? row.played_at.toISOString() : null,
+    g: row.game_id,
+  };
 }

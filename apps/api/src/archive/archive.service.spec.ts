@@ -1,9 +1,11 @@
-import type { ArchiveTreeResponse } from '@kingside/shared';
+import type { ArchiveBucket, ArchiveTreeResponse } from '@kingside/shared';
 import { ArchiveService } from './archive.service';
 import { ArchiveController } from './archive.controller';
 import { ArchiveMetricsService } from './archive-metrics.service';
 import {
   ArchiveStatsRepository,
+  GamesByPositionOpts,
+  GamesByPositionPage,
   TreeOpts,
 } from './archive-stats.repository';
 
@@ -57,6 +59,24 @@ class MockStatsRepository implements ArchiveStatsRepository {
   async getTree(posKey: Buffer, opts: TreeOpts): Promise<ArchiveTreeResponse> {
     this.calls.push({ posKey, opts });
     return { ...this.response, fen: opts.fen };
+  }
+
+  // Stubs for the new surface — not exercised by the tree-path tests
+  // below; a dedicated spec (or future integration test) will cover them.
+  async getGamesByPosition(
+    _posKey: Buffer,
+    _opts: GamesByPositionOpts,
+  ): Promise<GamesByPositionPage> {
+    return { items: [], overflow: null };
+  }
+  async countApprox(_posKey: Buffer, _bucket: ArchiveBucket): Promise<number> {
+    return 0;
+  }
+  async listTopPositions(
+    _bucket: ArchiveBucket,
+    _limit: number,
+  ): Promise<Array<{ positionKey: Buffer; total: number }>> {
+    return [];
   }
 }
 
