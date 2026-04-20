@@ -136,6 +136,16 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 - Webhook вернёт HTTP 409 если агент занят
 - Только координатор может форсировать (`force=true`), но сначала должен вызвать `/agent/kill` целевого агента
 
+## Agent Tools (MCP)
+
+Агенты имеют MCP-сервер `agent` с тулами для трекера и webhook. **Используй эти тулы вместо curl** — они короче и с валидацией:
+
+**Трекер:** `issue_get`, `issue_search`, `issue_create`, `issue_update`, `issue_transition`, `issue_comments`, `comment_add`
+
+**Webhook:** `commit`, `agent_message`, `agent_kill`, `telegram_send`, `deploy`, `npm_install`, `api_start`
+
+Curl к endpoint'ам ниже оставлен как fallback.
+
 ## Agent Endpoints (webhook-server, localhost:9876)
 
 Агенты работают в изолированных Docker-контейнерах без доступа к git. Все операции с репозиторием — через HTTP endpoints:
