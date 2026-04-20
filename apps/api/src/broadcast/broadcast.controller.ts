@@ -14,6 +14,8 @@ type BroadcastSummary = {
   status: 'active' | 'finished';
   startDate: string | null;
   roundCount: number;
+  isPinned: boolean;
+  avgElo: number | null;
 };
 
 type BroadcastListResponse = {
@@ -86,16 +88,120 @@ export class BroadcastController {
       this.prisma.broadcast.count({ where }),
     ]);
 
-    const data: BroadcastSummary[] = broadcasts.map((b) => ({
-      id: b.id,
-      lichessId: b.lichessId,
-      title: b.title,
-      status: b.isActive ? 'active' as const : 'finished' as const,
-      startDate: b.startDate?.toISOString() ?? null,
-      roundCount: b._count.rounds,
-    }));
+    const pinnedMap = await this.computePinnedStats(broadcasts.map((b) => b.id), broadcasts.map((b) => b.lichessId));
+
+    const data: BroadcastSummary[] = broadcasts.map((b) => {
+      const stats = pinnedMap.get(b.id);
+      return {
+        id: b.id,
+        lichessId: b.lichessId,
+        title: b.title,
+        status: b.isActive ? 'active' as const : 'finished' as const,
+        startDate: b.startDate?.toISOString() ?? null,
+        roundCount: b._count.rounds,
+        isPinned: stats?.isPinned ?? false,
+        avgElo: stats?.avgElo ?? null,
+      };
+    });
 
     return { data, total, limit, offset };
+  }
+
+  /**
+   * Вычисляет isPinned и avgElo для набора broadcast_id.
+   *
+   * Критерий pinned:
+   *  1. Есть активный раунд — status='ongoing' ИЛИ (status='pending' AND starts_at в окне [-1h; +PINNED_UPCOMING_WINDOW_HOURS]).
+   *  2. avg(Elo) по всем играм всех раундов трансляции >= BROADCAST_PINNED_MIN_ELO (default 2600).
+   *  3. Количество игр с обоими валидными Elo >= BROADCAST_PINNED_MIN_GAMES (default 4).
+   *
+   * Override: если lichess_id есть в ENV LICHESS_BROADCAST_IDS — пункты 2,3 игнорируются,
+   * но активный раунд (пункт 1) обязателен, чтобы закрытые турниры не залипали в featured.
+   */
+  private async computePinnedStats(
+    broadcastIds: string[],
+    lichessIds: string[],
+  ): Promise<Map<string, { isPinned: boolean; avgElo: number | null }>> {
+    const result = new Map<string, { isPinned: boolean; avgElo: number | null }>();
+    if (broadcastIds.length === 0) return result;
+
+    const minElo = parseInt(process.env.BROADCAST_PINNED_MIN_ELO ?? '2600', 10);
+    const minGames = parseInt(process.env.BROADCAST_PINNED_MIN_GAMES ?? '4', 10);
+    const upcomingWindowHours = parseInt(process.env.BROADCAST_PINNED_UPCOMING_HOURS ?? '48', 10);
+    const overrideIds = (process.env.LICHESS_BROADCAST_IDS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    type Row = {
+      id: string;
+      lichess_id: string;
+      has_active: boolean;
+      avg_elo: number | null;
+      elo_games_count: number | string;
+    };
+
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      SELECT b.id::text as id,
+        b.lichess_id,
+        EXISTS (
+          SELECT 1 FROM broadcast_rounds r
+          WHERE r.broadcast_id = b.id
+            AND (
+              r.status = 'ongoing'
+              OR (
+                r.status = 'pending'
+                AND r.starts_at IS NOT NULL
+                AND r.starts_at >= NOW() - INTERVAL '1 hour'
+                AND r.starts_at <= NOW() + make_interval(hours => ${upcomingWindowHours}::int)
+              )
+            )
+        ) AS has_active,
+        (
+          SELECT AVG(elo_val)::float
+          FROM (
+            SELECT g.white_elo AS elo_val
+              FROM broadcast_games g
+              JOIN broadcast_rounds r ON g.round_id = r.id
+             WHERE r.broadcast_id = b.id AND g.white_elo IS NOT NULL AND g.white_elo > 0
+            UNION ALL
+            SELECT g.black_elo
+              FROM broadcast_games g
+              JOIN broadcast_rounds r ON g.round_id = r.id
+             WHERE r.broadcast_id = b.id AND g.black_elo IS NOT NULL AND g.black_elo > 0
+          ) t
+        ) AS avg_elo,
+        (
+          SELECT COUNT(*)::int
+            FROM broadcast_games g
+            JOIN broadcast_rounds r ON g.round_id = r.id
+           WHERE r.broadcast_id = b.id
+             AND g.white_elo IS NOT NULL AND g.white_elo > 0
+             AND g.black_elo IS NOT NULL AND g.black_elo > 0
+        ) AS elo_games_count
+      FROM broadcasts b
+      WHERE b.id::text = ANY(${broadcastIds}::text[])
+    `;
+
+    const overrideSet = new Set(overrideIds);
+
+    for (const row of rows) {
+      const avgElo = row.avg_elo !== null && row.avg_elo !== undefined ? Math.round(row.avg_elo) : null;
+      const eloGamesCount = Number(row.elo_games_count);
+      const isOverride = overrideSet.has(row.lichess_id);
+      const strongField = avgElo !== null && avgElo >= minElo && eloGamesCount >= minGames;
+      const isPinned = row.has_active && (isOverride || strongField);
+      result.set(row.id, { isPinned, avgElo });
+    }
+
+    // Защита: если row не вернулся (не должно случиться) — дефолт
+    for (const id of broadcastIds) {
+      if (!result.has(id)) result.set(id, { isPinned: false, avgElo: null });
+    }
+
+    // lichessIds не используется ниже — параметр сохранён для будущих расширений
+    void lichessIds;
+    return result;
   }
 
   /** GET /api/broadcasts/:id — метаданные трансляции */

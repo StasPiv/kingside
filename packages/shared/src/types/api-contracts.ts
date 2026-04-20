@@ -547,6 +547,27 @@ export type BroadcastItem = {
   createdAt: string;
 };
 
+/**
+ * Элемент списка `GET /api/broadcasts`.
+ *
+ * `isPinned` — автоматически вычисляемый флаг для featured-секции.
+ * Условия: есть активный раунд (ongoing или pending в ближайшие 48ч) И
+ * средний Elo участников >= BROADCAST_PINNED_MIN_ELO (default 2600) на >= BROADCAST_PINNED_MIN_GAMES (default 4) играх.
+ * Override: broadcast с `lichessId` из ENV `LICHESS_BROADCAST_IDS` автоматически получает `isPinned=true` при наличии активного раунда.
+ *
+ * `avgElo` — округлённое до целого среднее значение Elo по валидным данным; null если недостаточно данных.
+ */
+export type BroadcastSummary = {
+  id: string;
+  lichessId: string;
+  title: string;
+  status: 'active' | 'finished';
+  startDate: string | null;
+  roundCount: number;
+  isPinned: boolean;
+  avgElo: number | null;
+};
+
 export type BroadcastRoundItem = {
   id: string;
   lichessRoundId: string;
@@ -556,7 +577,10 @@ export type BroadcastRoundItem = {
 };
 
 export type BroadcastListResponse = {
-  data: BroadcastItem[];
+  data: BroadcastSummary[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type BroadcastRoundsResponse = {

@@ -34,7 +34,7 @@ interface LichessRound {
 }
 
 interface ParsedGame {
-  index: number; white: string; black: string; result: string; fen: string; uci: string; pgn: string; lichessGameId: string | null;
+  index: number; white: string; black: string; whiteElo: number | null; blackElo: number | null; result: string; fen: string; uci: string; pgn: string; lichessGameId: string | null;
 }
 
 export class BroadcastWorker {
@@ -524,11 +524,29 @@ export class BroadcastWorker {
           const newFen = wouldRegress ? existing.currentFen! : game.fen;
           await this.prisma.broadcastGame.update({
             where: { id: existing.id },
-            data: { whitePlayer: game.white, blackPlayer: game.black, result: game.result || null, pgn: game.pgn, currentFen: newFen },
+            data: {
+              whitePlayer: game.white,
+              blackPlayer: game.black,
+              whiteElo: game.whiteElo ?? existing.whiteElo,
+              blackElo: game.blackElo ?? existing.blackElo,
+              result: game.result || null,
+              pgn: game.pgn,
+              currentFen: newFen,
+            },
           });
         } else {
           await this.prisma.broadcastGame.create({
-            data: { roundId: round.id, lichessGameId: game.lichessGameId, whitePlayer: game.white, blackPlayer: game.black, result: game.result || null, pgn: game.pgn, currentFen: game.fen },
+            data: {
+              roundId: round.id,
+              lichessGameId: game.lichessGameId,
+              whitePlayer: game.white,
+              blackPlayer: game.black,
+              whiteElo: game.whiteElo,
+              blackElo: game.blackElo,
+              result: game.result || null,
+              pgn: game.pgn,
+              currentFen: game.fen,
+            },
           });
         }
       }
@@ -570,6 +588,8 @@ export class BroadcastWorker {
       const fenValue = headerMap['FEN'] ?? '';
       const white = headerMap['White'] ?? 'Unknown';
       const black = headerMap['Black'] ?? 'Unknown';
+      const whiteElo = this.parseElo(headerMap['WhiteElo']);
+      const blackElo = this.parseElo(headerMap['BlackElo']);
       const result = headerMap['Result'] ?? '';
       const lastMove = headerMap['LastMove'] ?? '';
       const site = headerMap['Site'] ?? '';
@@ -579,10 +599,19 @@ export class BroadcastWorker {
       const fen = fenValue || computedFen || STARTING_FEN;
       const uci = lastMove || lastUci;
 
-      games.push({ index, white, black, result, fen, uci, pgn: section.trim(), lichessGameId: lichessGameId || null });
+      games.push({ index, white, black, whiteElo, blackElo, result, fen, uci, pgn: section.trim(), lichessGameId: lichessGameId || null });
       index++;
     }
     return games;
+  }
+
+  private parseElo(raw: string | undefined): number | null {
+    if (!raw) return null;
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === '?' || trimmed === '-') return null;
+    const n = parseInt(trimmed, 10);
+    if (isNaN(n) || n <= 0 || n > 4000) return null;
+    return n;
   }
 
   private computeFenAndLastUci(pgnText: string): { fen: string | null; lastUci: string } {

@@ -457,6 +457,8 @@ model BroadcastGame {
   lichessGameId String?   @map("lichess_game_id")
   whitePlayer   String?   @map("white_player")
   blackPlayer   String?   @map("black_player")
+  whiteElo      Int?      @map("white_elo")
+  blackElo      Int?      @map("black_elo")
   result        String?
   pgn           String?   @db.Text
   currentFen    String?   @map("current_fen")
