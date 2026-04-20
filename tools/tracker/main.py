@@ -366,6 +366,9 @@ header h1 { font-size: 18px; color: #58a6ff; }
 .card-key { font-size: 12px; color: #8b949e; margin-bottom: 4px; }
 .card-summary { font-size: 14px; margin-bottom: 6px; }
 .card-assignee { font-size: 11px; color: #8b949e; }
+.label-chip { display: inline-block; background: #1f6feb33; color: #79c0ff; font-size: 10px; padding: 1px 6px; border-radius: 8px; margin-right: 3px; margin-top: 2px; }
+.label-chip.removable { cursor: pointer; }
+.label-chip.removable:hover { background: #da363333; color: #f85149; }
 /* Modal */
 .modal-bg { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; justify-content: center; align-items: flex-start; padding-top: 80px; }
 .modal-bg.open { display: flex; }
@@ -417,6 +420,8 @@ header h1 { font-size: 18px; color: #58a6ff; }
             <textarea id="cDesc" placeholder="Details..."></textarea>
             <label>Assignee</label>
             <select id="cAssignee"><option value="">— unassigned —</option></select>
+            <label>Labels (comma-separated)</label>
+            <input id="cLabels" placeholder="bug, backend, urgent">
         </div>
         <div class="modal-footer">
             <button class="btn" onclick="closeCreate()">Cancel</button>
@@ -438,6 +443,9 @@ header h1 { font-size: 18px; color: #58a6ff; }
             <div id="dSummary" style="font-size:15px;font-weight:600;margin-top:4px"></div>
             <label>Description</label>
             <div class="description" id="dDesc"></div>
+            <label>Labels</label>
+            <div id="dLabels" style="margin-top:4px"></div>
+            <input id="dLabelsEdit" placeholder="bug, backend (Enter to save)" style="margin-top:6px;font-size:13px">
             <div class="actions" id="dActions"></div>
             <label style="margin-top:16px">Comments</label>
             <div class="comments-list" id="dComments"></div>
@@ -480,6 +488,7 @@ async function loadBoard() {
                     <div class="card-key">${i.key}</div>
                     <div class="card-summary">${esc(i.summary)}</div>
                     ${i.assignee ? `<div class="card-assignee">${esc(i.assignee)}</div>` : ''}
+                    ${i.labels ? `<div>${i.labels.split(',').map(l => `<span class="label-chip">${esc(l)}</span>`).join('')}</div>` : ''}
                 </div>
             `).join('')}</div>
         </div>
@@ -494,14 +503,18 @@ function closeCreate() { document.getElementById('createModal').classList.remove
 async function submitCreate() {
     const summary = document.getElementById('cSummary').value.trim();
     if (!summary) return;
+    const labelsStr = document.getElementById('cLabels').value.trim();
+    const labels = labelsStr ? labelsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
     await api('/issues', { method: 'POST', body: {
         summary,
         description: document.getElementById('cDesc').value,
         assignee: document.getElementById('cAssignee').value.trim(),
+        labels,
     }});
     document.getElementById('cSummary').value = '';
     document.getElementById('cDesc').value = '';
     document.getElementById('cAssignee').value = '';
+    document.getElementById('cLabels').value = '';
     closeCreate();
     loadBoard();
 }
@@ -519,6 +532,13 @@ async function openDetail(key) {
     const s = document.getElementById('dStatus');
     s.textContent = { todo: 'To Do', in_progress: 'In Progress', done: 'Done' }[issue.status];
     s.className = `detail-status status-${issue.status}`;
+
+    const labelsDiv = document.getElementById('dLabels');
+    const labels = issue.labels ? issue.labels.split(',') : [];
+    labelsDiv.innerHTML = labels.length
+        ? labels.map(l => `<span class="label-chip removable" onclick="removeLabel('${key}','${esc(l)}')" title="click to remove">${esc(l)} &times;</span>`).join('')
+        : '<span style="color:#484f58;font-size:12px">no labels</span>';
+    document.getElementById('dLabelsEdit').value = '';
 
     let btns = '';
     if (issue.status === 'todo') btns += `<button class="btn" onclick="transition('${key}',21)">Start</button>`;
@@ -553,6 +573,26 @@ async function deleteIssue(key) {
     loadBoard();
 }
 
+async function saveLabels(key, labels) {
+    await api(`/issues/${key}`, { method: 'PATCH', body: { labels } });
+    loadBoard();
+    openDetail(key);
+}
+
+async function removeLabel(key, label) {
+    const issue = await api(`/issues/${key}`);
+    const labels = (issue.labels ? issue.labels.split(',') : []).filter(l => l !== label);
+    await saveLabels(key, labels);
+}
+
+async function addLabels(key, input) {
+    const issue = await api(`/issues/${key}`);
+    const existing = issue.labels ? issue.labels.split(',') : [];
+    const toAdd = input.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const merged = [...new Set([...existing, ...toAdd])];
+    await saveLabels(key, merged);
+}
+
 async function addComment() {
     const body = document.getElementById('commentBody').value.trim();
     if (!body || !currentKey) return;
@@ -566,6 +606,13 @@ async function addComment() {
 
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeCreate(); closeDetail(); }
+});
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.id === 'dLabelsEdit' && currentKey) {
+        const val = e.target.value.trim();
+        if (val) addLabels(currentKey, val);
+    }
 });
 
 async function loadAgents() {
