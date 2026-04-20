@@ -72,6 +72,7 @@ def init_db():
                 description TEXT DEFAULT '',
                 status TEXT DEFAULT 'todo',
                 assignee TEXT DEFAULT '',
+                labels TEXT DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -85,6 +86,26 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_comments_issue ON comments(issue_key);
             CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
         """)
+        # Миграция: добавить labels в существующие issues
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(issues)").fetchall()]
+        if "labels" not in cols:
+            conn.execute("ALTER TABLE issues ADD COLUMN labels TEXT DEFAULT ''")
+
+
+def _normalize_labels(labels) -> str:
+    """Нормализует labels: list|str → 'lab1,lab2,lab3' (без дубликатов, lowercase)."""
+    if not labels:
+        return ""
+    if isinstance(labels, str):
+        parts = labels.split(",")
+    else:
+        parts = list(labels)
+    seen = []
+    for p in parts:
+        p = p.strip().lower()
+        if p and p not in seen:
+            seen.append(p)
+    return ",".join(seen)
 
 
 def next_key() -> str:
@@ -131,6 +152,7 @@ class IssueCreate(BaseModel):
     summary: str
     description: str = ""
     assignee: str = ""
+    labels: Optional[list] = None
     key: Optional[str] = None  # explicit key for import
 
 class IssueUpdate(BaseModel):
@@ -138,6 +160,7 @@ class IssueUpdate(BaseModel):
     description: Optional[str] = None
     assignee: Optional[str] = None
     status: Optional[str] = None
+    labels: Optional[list] = None
 
 class TransitionRequest(BaseModel):
     id: int  # 21=in_progress, 41=done
@@ -160,7 +183,12 @@ def list_agents():
 
 
 @app.get("/api/issues")
-def list_issues(status: Optional[str] = Query(None), assignee: Optional[str] = Query(None), q: Optional[str] = Query(None, alias="search")):
+def list_issues(
+    status: Optional[str] = Query(None),
+    assignee: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, alias="search"),
+    labels: Optional[str] = Query(None, description="CSV меток — задача должна содержать ВСЕ указанные"),
+):
     conn = get_db()
     sql = "SELECT * FROM issues WHERE 1=1"
     params = []
@@ -174,6 +202,12 @@ def list_issues(status: Optional[str] = Query(None), assignee: Optional[str] = Q
         sql += " AND (summary LIKE ? OR description LIKE ? OR key LIKE ?)"
         term = f"%{q}%"
         params.extend([term, term, term])
+    if labels:
+        for label in labels.split(","):
+            label = label.strip().lower()
+            if label:
+                sql += " AND (',' || labels || ',') LIKE ?"
+                params.append(f"%,{label},%")
     sql += " ORDER BY id DESC"
     rows = conn.execute(sql, params).fetchall()
     return [row_to_dict(r) for r in rows]
@@ -188,10 +222,11 @@ def create_issue(data: IssueCreate, validate: bool = Query(True)):
     # Check duplicate
     if get_db().execute("SELECT 1 FROM issues WHERE key = ?", (key,)).fetchone():
         raise HTTPException(409, f"Issue {key} already exists")
+    labels = _normalize_labels(data.labels)
     with db() as conn:
         conn.execute(
-            "INSERT INTO issues (key, summary, description, status, assignee, created_at, updated_at) VALUES (?, ?, ?, 'todo', ?, ?, ?)",
-            (key, data.summary, data.description, data.assignee, ts, ts),
+            "INSERT INTO issues (key, summary, description, status, assignee, labels, created_at, updated_at) VALUES (?, ?, ?, 'todo', ?, ?, ?, ?)",
+            (key, data.summary, data.description, data.assignee, labels, ts, ts),
         )
     issue = row_to_dict(get_db().execute("SELECT * FROM issues WHERE key = ?", (key,)).fetchone())
     fire_webhook("issue_created", {"issue": issue})
@@ -226,6 +261,8 @@ def update_issue(key: str, data: IssueUpdate):
         if data.status not in STATUSES:
             raise HTTPException(400, f"Invalid status: {data.status}")
         updates["status"] = data.status
+    if data.labels is not None:
+        updates["labels"] = _normalize_labels(data.labels)
 
     if not updates:
         return row_to_dict(row)
