@@ -105,6 +105,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_PACKAGE_JSON":         [f"{_P}/package.json:/project/package.json"],
     "ROLE_READ_PACKAGE_JSON":          [f"{_P}/package.json:/project/package.json:ro"],
     "ROLE_WRITE_PACKAGE_LOCK":         [f"{_P}/package-lock.json:/project/package-lock.json"],
+    "ROLE_READ_PACKAGE_LOCK":          [f"{_P}/package-lock.json:/project/package-lock.json:ro"],
     "ROLE_READ_TSCONFIG_BASE":         [f"{_P}/tsconfig.base.json:/project/tsconfig.base.json:ro"],
     "ROLE_WRITE_JUSTFILE":             [f"{_P}/justfile:/project/justfile"],
     "ROLE_READ_DOCKER_COMPOSE":        [f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro"],
@@ -687,6 +688,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     "coordinator": [
         "ROLE_READ_APPS", "ROLE_READ_PACKAGES", "ROLE_READ_DOCS",
         "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
+        "ROLE_READ_PACKAGE_JSON", "ROLE_READ_PACKAGE_LOCK", "ROLE_READ_TSCONFIG_BASE",
     ],
     "qa": [
         "ROLE_READ_PROJECT",
