@@ -2215,3 +2215,356 @@
   text-align: center;
 }
 
+/* ==========================================================================
+   ArchiveTreePanel — opening tree / database panel in Analysis sidebar
+   (KS-1583, components from KS-1582). Visually matches Engine & Moves panels.
+   ========================================================================== */
+
+.archive-tree-panel {
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  margin-bottom: 8px;
+}
+
+.archive-tree-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  height: 40px;
+  background: #111827;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.archive-tree-panel__header:hover {
+  background: #1a2436;
+}
+
+.archive-tree-panel__header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.archive-tree-panel__icon {
+  font-size: 14px;
+  color: #7c83ff;
+  flex-shrink: 0;
+}
+
+.archive-tree-panel__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #c0c0d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.archive-tree-panel__chevron {
+  font-size: 12px;
+  color: #6b7280;
+  flex-shrink: 0;
+}
+
+.archive-tree-panel__body {
+  padding: 10px 12px;
+  background: #0f172a;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* Bucket select (Masters / Lichess 2000+ / All) — compact pill */
+.bucket-select {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 4px;
+  color: #d0d0e0;
+  font-size: 11px;
+  padding: 3px 6px;
+  cursor: pointer;
+  max-width: 140px;
+  flex-shrink: 0;
+}
+
+.bucket-select:hover {
+  border-color: #3a3a6e;
+  color: #fff;
+}
+
+.bucket-select:focus {
+  outline: none;
+  border-color: #7c83ff;
+}
+
+/* Opening line (e.g. "B90 — Sicilian, Najdorf") */
+.archive-tree-panel__opening {
+  font-size: 12px;
+  font-weight: 500;
+  color: #c0c0d0;
+  line-height: 1.4;
+}
+
+/* "based on N games" subtext */
+.archive-tree-panel__stats {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: -2px;
+}
+
+/* Main moves table */
+.archive-tree-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: #c0c0d0;
+  table-layout: auto;
+}
+
+.archive-tree-panel__table thead th {
+  text-align: left;
+  font-weight: 500;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  padding: 4px 6px;
+  border-bottom: 1px solid #1f2937;
+  white-space: nowrap;
+}
+
+.archive-tree-panel__table tbody tr {
+  border-bottom: 1px solid rgba(31, 41, 55, 0.5);
+  cursor: pointer;
+  transition: background-color 0.1s ease;
+}
+
+.archive-tree-panel__table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.archive-tree-panel__table tbody tr:hover {
+  background: rgba(124, 131, 255, 0.1);
+}
+
+.archive-tree-panel__table td {
+  padding: 4px 6px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.archive-tree-panel__san {
+  font-weight: 600;
+  color: #e0e0ff;
+  min-width: 44px;
+}
+
+.archive-tree-panel__total,
+.archive-tree-panel__avg-elo,
+.archive-tree-panel__last-seen {
+  font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 11px;
+  color: #a0a0c0;
+  text-align: right;
+}
+
+.archive-tree-panel__wdl {
+  width: 1%;
+  padding-right: 4px;
+  padding-left: 4px;
+}
+
+/* Footer with "View N games" button */
+.archive-tree-panel__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.archive-tree-panel__view-games {
+  background: transparent;
+  border: 1px solid #2a2a4e;
+  border-radius: 4px;
+  color: #7c83ff;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.archive-tree-panel__view-games:hover:not(:disabled) {
+  background: rgba(124, 131, 255, 0.1);
+  border-color: #7c83ff;
+}
+
+.archive-tree-panel__view-games:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Empty / error / retry */
+.archive-tree-panel__empty {
+  padding: 14px 4px;
+  font-size: 12px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.archive-tree-panel__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px;
+  font-size: 12px;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 4px;
+}
+
+.archive-tree-panel__retry {
+  background: transparent;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  border-radius: 4px;
+  color: #fca5a5;
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.archive-tree-panel__retry:hover {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fff;
+}
+
+/* Skeleton loader — 6 rows with shimmer */
+.archive-tree-panel__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.archive-tree-panel__skeleton-row {
+  height: 18px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    rgba(31, 41, 55, 0.6) 0%,
+    rgba(55, 65, 81, 0.7) 50%,
+    rgba(31, 41, 55, 0.6) 100%
+  );
+  background-size: 200% 100%;
+  animation: archive-tree-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes archive-tree-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---------- WinDrawLossBar (wdl-bar) ---------- */
+.wdl-bar {
+  display: flex;
+  width: 88px;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: #1f2937;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.wdl-bar__segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  transition: width 0.15s ease;
+}
+
+.wdl-bar__segment--white {
+  background: #f1f1f1;
+  color: #111827;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.wdl-bar__segment--draw {
+  background: #9ca3af;
+  color: #0f172a;
+}
+
+.wdl-bar__segment--black {
+  background: #111827;
+  color: #f1f1f1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.wdl-bar__label {
+  font-size: 8px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* ---------- Mobile (≤768px): full-width panel inside Tree tab ---------- */
+@media (max-width: 768px) {
+  .archive-tree-panel {
+    border-radius: 4px;
+    margin-bottom: 6px;
+  }
+
+  .archive-tree-panel__header {
+    padding: 0 10px;
+    height: 36px;
+  }
+
+  .archive-tree-panel__body {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .archive-tree-panel__table {
+    font-size: 11px;
+  }
+
+  .archive-tree-panel__table thead th,
+  .archive-tree-panel__table td {
+    padding: 3px 4px;
+  }
+
+  /* On very narrow screens avgElo column takes most space — keep it readable */
+  .archive-tree-panel__total,
+  .archive-tree-panel__avg-elo,
+  .archive-tree-panel__last-seen {
+    font-size: 10px;
+  }
+
+  .wdl-bar {
+    width: 72px;
+    height: 9px;
+  }
+
+  .bucket-select {
+    font-size: 11px;
+    max-width: 120px;
+  }
+}
+
