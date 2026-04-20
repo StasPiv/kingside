@@ -1,0 +1,271 @@
+import AdmZip from 'adm-zip';
+import type { PrismaClient } from '@kingside/db';
+import { decodePgnBuffer, parseBatch, type ParsedGame } from '../pgn-utils.js';
+import { PositionIndexer } from '../position-indexer.js';
+import { archiveImportGamesTotal } from '../metrics.js';
+
+/**
+ * TWIC (The Week In Chess) — еженедельный архив партий, выпуски нумерованы
+ * монотонно. URL: `https://theweekinchess.com/zips/twic{N}g.zip`.
+ *
+ * Воркер хранит текущий `cursor` в `archive_sources` — последний успешно
+ * обработанный номер выпуска. На каждый импорт пробует `cursor + 1`.
+ */
+
+const TWIC_URL_TEMPLATE = 'https://theweekinchess.com/zips/twic{N}g.zip';
+const USER_AGENT = 'Kingside/1.0 (https://kingside.app)';
+const FETCH_TIMEOUT_MS = 60_000;
+
+export interface ImportResult {
+  status: 'ok' | 'partial' | 'noop' | 'failed';
+  cursorBefore: string | null;
+  cursorAfter: string | null;
+  fileName: string | null;
+  gamesParsed: number;
+  gamesAdded: number;
+  gamesSkipped: number;
+  error?: string;
+}
+
+interface ArchiveSourceRow {
+  id: string;
+  code: string;
+  cursor: string | null;
+}
+
+export class TwicImporter {
+  private readonly indexer: PositionIndexer;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly source: ArchiveSourceRow,
+  ) {
+    this.indexer = new PositionIndexer(prisma, source.code);
+  }
+
+  /** Формирует URL для указанного номера выпуска. */
+  private static urlFor(issue: number): string {
+    return TWIC_URL_TEMPLATE.replace('{N}', issue.toString());
+  }
+
+  /** Скачивает zip-файл. Возвращает null на 404 (нет ещё такого выпуска). */
+  private async downloadZip(issue: number): Promise<Buffer | null> {
+    const url = TwicImporter.urlFor(issue);
+    console.log(`[archive-importer][twic] GET ${url}`);
+    const res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT, Accept: 'application/zip' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (res.status === 404) {
+      console.log(`[archive-importer][twic] issue ${issue} not yet published (404)`);
+      return null;
+    }
+    if (!res.ok) {
+      throw new Error(`TWIC fetch failed: HTTP ${res.status} for issue ${issue}`);
+    }
+    const ab = await res.arrayBuffer();
+    return Buffer.from(ab);
+  }
+
+  /** Распаковывает zip и возвращает содержимое первого .pgn в декодированном виде. */
+  private extractPgn(buffer: Buffer): { content: string; fileName: string } {
+    const zip = new AdmZip(buffer);
+    const entries = zip.getEntries().filter((e) => !e.isDirectory && e.entryName.toLowerCase().endsWith('.pgn'));
+    if (entries.length === 0) {
+      throw new Error('TWIC zip contains no .pgn entries');
+    }
+    const entry = entries[0];
+    const raw = entry.getData();
+    const content = decodePgnBuffer(raw);
+    return { content, fileName: entry.entryName };
+  }
+
+  /**
+   * Выполняет один проход импорта. Возвращает структуру для `archive_imports`.
+   * Метод идемпотентен: дубликаты отсекаются через UNIQUE `content_hash`.
+   */
+  async run(): Promise<ImportResult> {
+    const cursorBefore = this.source.cursor;
+    const nextIssue = (cursorBefore != null ? parseInt(cursorBefore, 10) : 0) + 1;
+    if (!Number.isFinite(nextIssue) || nextIssue <= 0) {
+      return {
+        status: 'failed',
+        cursorBefore,
+        cursorAfter: cursorBefore,
+        fileName: null,
+        gamesParsed: 0,
+        gamesAdded: 0,
+        gamesSkipped: 0,
+        error: `invalid cursor: ${cursorBefore}`,
+      };
+    }
+
+    let zipBuffer: Buffer | null;
+    try {
+      zipBuffer = await this.downloadZip(nextIssue);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        status: 'failed',
+        cursorBefore,
+        cursorAfter: cursorBefore,
+        fileName: null,
+        gamesParsed: 0,
+        gamesAdded: 0,
+        gamesSkipped: 0,
+        error: msg,
+      };
+    }
+
+    if (!zipBuffer) {
+      return {
+        status: 'noop',
+        cursorBefore,
+        cursorAfter: cursorBefore,
+        fileName: null,
+        gamesParsed: 0,
+        gamesAdded: 0,
+        gamesSkipped: 0,
+      };
+    }
+
+    let content: string;
+    let fileName: string;
+    try {
+      ({ content, fileName } = this.extractPgn(zipBuffer));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        status: 'failed',
+        cursorBefore,
+        cursorAfter: cursorBefore,
+        fileName: null,
+        gamesParsed: 0,
+        gamesAdded: 0,
+        gamesSkipped: 0,
+        error: `unzip: ${msg}`,
+      };
+    }
+
+    const { games, failed } = parseBatch(content);
+    console.log(`[archive-importer][twic] issue ${nextIssue}: parsed=${games.length} failed=${failed}`);
+
+    // Запись в archive_imports с `status=running` и полученный id привязан к каждой партии.
+    const importRow = await this.prisma.archiveImport.create({
+      data: {
+        sourceId: this.source.id,
+        status: 'running',
+        fileName,
+        cursorBefore: cursorBefore,
+      },
+    });
+
+    let added = 0;
+    let skipped = failed; // битые партии идут сразу в skipped
+    const addedGames: ParsedGame[] = [];
+
+    // Вставляем по одной: пропускаем дубликаты по UNIQUE(content_hash),
+    // и точно знаем, какие партии НОВЫЕ (чтобы индексировать только их).
+    for (const game of games) {
+      // Копируем хэш в Uint8Array с собственным ArrayBuffer — Prisma не принимает
+      // Buffer/SharedArrayBuffer-backed views в качестве входа `Bytes`.
+      const hashBytes = new Uint8Array(game.contentHash.length);
+      hashBytes.set(game.contentHash);
+      try {
+        await this.prisma.archiveGame.create({
+          data: {
+            sourceId: this.source.id,
+            importId: importRow.id,
+            contentHash: hashBytes,
+            event: game.event,
+            site: game.site,
+            round: game.round,
+            date: game.date,
+            playedAt: game.playedAt,
+            whiteName: game.white,
+            blackName: game.black,
+            whiteElo: game.whiteElo,
+            blackElo: game.blackElo,
+            whiteTitle: game.whiteTitle,
+            blackTitle: game.blackTitle,
+            result: game.result,
+            eco: game.eco,
+            opening: game.opening,
+            plyCount: game.plyCount,
+            pgn: game.raw,
+            finalFen: game.finalFen,
+          },
+        });
+        added++;
+        addedGames.push(game);
+      } catch (err: unknown) {
+        // P2002 — UNIQUE violation по content_hash → дубликат, это ОК.
+        if (isUniqueViolation(err)) {
+          skipped++;
+        } else {
+          skipped++;
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn(`[archive-importer][twic] game insert failed: ${msg}`);
+        }
+      }
+    }
+
+    // Позиционный индекс обновляем только по новым партиям.
+    if (addedGames.length > 0) {
+      try {
+        await this.indexer.index(addedGames);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`[archive-importer][twic] position-indexer failed: ${msg}`);
+        // Партии вставлены — оставляем как есть, индексацию можно догнать backfill-процедурой.
+      }
+    }
+
+    const status: ImportResult['status'] =
+      failed > 0 ? 'partial' : 'ok';
+
+    const cursorAfter = String(nextIssue);
+    await this.prisma.archiveImport.update({
+      where: { id: importRow.id },
+      data: {
+        status,
+        cursorAfter,
+        gamesParsed: games.length + failed,
+        gamesAdded: added,
+        gamesSkipped: skipped,
+        finishedAt: new Date(),
+      },
+    });
+
+    await this.prisma.archiveSource.update({
+      where: { id: this.source.id },
+      data: {
+        cursor: cursorAfter,
+        lastRunAt: new Date(),
+        lastSuccessAt: new Date(),
+        lastError: null,
+        totalGames: { increment: added },
+      },
+    });
+
+    archiveImportGamesTotal.inc({ source: this.source.code, status: 'added' }, added);
+    archiveImportGamesTotal.inc({ source: this.source.code, status: 'skipped' }, skipped);
+    archiveImportGamesTotal.inc({ source: this.source.code, status: 'failed' }, failed);
+
+    return {
+      status,
+      cursorBefore,
+      cursorAfter,
+      fileName,
+      gamesParsed: games.length + failed,
+      gamesAdded: added,
+      gamesSkipped: skipped,
+    };
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as { code?: unknown }).code;
+  return code === 'P2002';
+}
