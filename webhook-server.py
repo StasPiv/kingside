@@ -108,6 +108,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_READ_TSCONFIG_BASE":         [f"{_P}/tsconfig.base.json:/project/tsconfig.base.json:ro"],
     "ROLE_WRITE_JUSTFILE":             [f"{_P}/justfile:/project/justfile"],
     "ROLE_READ_DOCKER_COMPOSE":        [f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro"],
+    "ROLE_WRITE_DOCKER_COMPOSE":       [f"{_P}/docker-compose.yml:/project/docker-compose.yml"],
     # Scripts/docs
     "ROLE_WRITE_SCRIPTS":              [f"{_P}/scripts:/project/scripts"],
     "ROLE_READ_SCRIPTS":               [f"{_P}/scripts:/project/scripts:ro"],
@@ -672,7 +673,7 @@ AGENT_ROLES: dict[str, list[str]] = {
     "devops": [
         "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS",
         "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_API_START", "ROLE_UP",
-        "ROLE_WRITE_SCRIPTS", "ROLE_READ_DOCS", "ROLE_READ_DOCKER_COMPOSE",
+        "ROLE_WRITE_SCRIPTS", "ROLE_READ_DOCS", "ROLE_WRITE_DOCKER_COMPOSE",
         "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_JUSTFILE", "ROLE_READ_AWS",
     ],
     "architect": [
