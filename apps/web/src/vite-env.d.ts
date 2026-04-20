@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_TEST_MODE?: string;
   readonly VITE_AI_CHAT_ENABLED?: string;
   readonly VITE_GA4_ID?: string;
+  readonly VITE_ARCHIVE_GAMES_LIST_ENABLED?: string;
 }
 
 interface ImportMeta {

@@ -39,6 +39,9 @@ import { api } from './api';
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 const BroadcastGamePage = lazy(() => import('./pages/BroadcastGamePage').then(m => ({ default: m.BroadcastGamePage })));
 const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ default: m.PuzzleRushPage })));
+const ArchiveGamesByPositionPage = lazy(() =>
+  import('./pages/ArchiveGamesByPositionPage').then(m => ({ default: m.ArchiveGamesByPositionPage })),
+);
 
 function LazyFallback() {
   const { t } = useTranslation();
@@ -150,6 +153,14 @@ export function App() {
         <Route path="/tournaments/:id" element={<TournamentLobbyPage />} />
         <Route path="/arena/:id" element={<TournamentLobbyPage />} />
         <Route path="/t/:code" element={<ProtectedRoute><InviteRedirect /></ProtectedRoute>} />
+        <Route
+          path="/archive/games"
+          element={
+            <Suspense fallback={<LazyFallback />}>
+              <ArchiveGamesByPositionPage />
+            </Suspense>
+          }
+        />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
