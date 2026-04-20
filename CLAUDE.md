@@ -138,10 +138,4 @@ Stockfish установлен системно (путь `/usr/games/stockfish`
 
 ## Agent Tools (MCP)
 
-Все операции через MCP-сервер `agent`. Curl и прямые HTTP-запросы ЗАПРЕЩЕНЫ.
-
-**Трекер:** `issue_get`, `issue_search`, `issue_create`, `issue_update`, `issue_transition`, `issue_comments`, `comment_add`
-
-**Webhook:** `commit`, `agent_message`, `agent_kill`, `telegram_send`, `deploy`, `npm_install`, `api_start`
-
-При создании задачи через `issue_create` метки обязательны (1-3).
+Все операции через MCP-сервер `agent` (тулы доступны автоматически). Curl и прямые HTTP-запросы к трекеру/webhook ЗАПРЕЩЕНЫ. При создании задачи метки обязательны (1-3).

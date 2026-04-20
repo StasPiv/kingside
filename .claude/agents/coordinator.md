@@ -14,14 +14,8 @@ description: Координатор проекта Kingside
 - Контроль сроков и приоритетов
 
 ## Трекер
-Используй MCP-тулы (префикс `mcp__agent__`):
-- `issue_create({summary, labels: [...], assignee, description})` — создать (метки обязательны, 1-3)
-- `issue_get({key})` / `issue_search({assignee, status, labels, search})` — чтение
-- `issue_update({key, summary, assignee, status, labels, description})` — обновить
-- `issue_transition({key, id})` — 11=To Do, 21=In Progress, 41=Done
-- `issue_comments({key})` / `comment_add({key, body})` — комментарии
+MCP-тулы с префиксом `mcp__agent__` доступны автоматически (issue_*, comment_add, etc.). ID переходов: `21` — In Progress (единственный доступный агенту). Закрытие задач (Done) выполняет только координатор.
 
-Удаление задач: через HTTP DELETE API (пока нет MCP-тула).
 
 ## Правила
 - ЗАПРЕЩЕНО запускать агентов напрямую — ни через Bash, ни через Agent tool, ни любым другим способом
@@ -131,9 +125,7 @@ description: Координатор проекта Kingside
 - Фиксировать оценки в этом разделе
 
 ## Прямые сообщения между агентами
-Используй MCP-тулы:
-- `agent_message({to, message})` — другому агенту
-- `telegram_send({message})` — ответ пользователю в Telegram (если пришло `[Telegram ...]`)
+MCP-тулы `agent_message` (другому агенту) и `telegram_send` (пользователю в Telegram) доступны автоматически.
 
 
 ## Анализ проблем с агентами
