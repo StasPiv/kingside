@@ -57,89 +57,63 @@ def _set_idle(agent: str):
 
 def _is_busy(agent: str) -> bool:
     return os.path.isfile(os.path.join(_LOCKS_DIR, f"{agent}.lock"))
-_COMMON = [
+# Базовые volumes — есть у всех агентов
+_BASE_VOLUMES = [
     f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
     f"{_P}/.claude:/project/.claude:ro",
-    f"{_P}/node_modules:/project/node_modules:ro",
-    f"{_P}/tsconfig.base.json:/project/tsconfig.base.json:ro",
     f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
     f"{_SHARED_TMP}:/tmp",
 ]
-AGENT_VOLUMES = {
-    "coordinator": [
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/apps:/project/apps:ro",
-        f"{_P}/packages:/project/packages:ro",
-        f"{_P}/docs:/project/docs:ro",
-        f"{_P}/node_modules:/project/node_modules:ro",
-        f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
-        f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
-        f"{_SHARED_TMP}:/tmp",
-    ],
-    "backend": _COMMON + [
-        f"{_P}/apps/api:/project/apps/api",
-        f"{_P}/apps/game-service:/project/apps/game-service",
-        f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker",
-        f"{_P}/apps/matchmaker:/project/apps/matchmaker",
-        f"{_P}/packages:/project/packages",
-        f"{_P}/package.json:/project/package.json",
-        f"{_P}/package-lock.json:/project/package-lock.json",
-        f"{_P}/apps/api/node_modules:/project/apps/api/node_modules:ro",
-    ],
-    "frontend": _COMMON + [
-        f"{_P}/apps/web:/project/apps/web",
-        f"{_P}/packages/shared:/project/packages/shared:ro",
-        f"{_P}/package.json:/project/package.json:ro",
-        f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
-        f"{_P}/scripts:/project/scripts:ro",
-    ],
-    "layout": _COMMON + [
-        f"{_P}/apps/web/src:/project/apps/web/src",
-        f"{_P}/package.json:/project/package.json:ro",
-        f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro",
-        f"{_P}/scripts:/project/scripts:ro",
-    ],
-    "devops": [
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/scripts:/project/scripts",
-        f"{_P}/docs:/project/docs:ro",
-        f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro",
-        f"{_P}/package.json:/project/package.json",
-        f"{_P}/justfile:/project/justfile",
-        f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro",
-        f"{_SHARED_TMP}:/tmp",
-    ],
-    "architect": [
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-        f"{_P}/apps:/project/apps:ro",
-        f"{_P}/packages:/project/packages:ro",
-        f"{_P}/docs:/project/docs",
-        f"{_SHARED_TMP}:/tmp",
-    ],
-    "qa": [
-        f"{_P}:/project:ro",
-        f"{_SHARED_TMP}:/tmp",
-    ],
-    "chess-expert": [
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-    ],
-    "marketing": [
-        f"{_P}/CLAUDE.md:/project/CLAUDE.md:ro",
-        f"{_P}/.claude:/project/.claude:ro",
-    ],
-    "_default": [
-        f"{_P}:/project",
-    ],
+
+# Мапинг filesystem-ролей в volume mounts
+ROLE_VOLUMES: dict[str, list[str]] = {
+    # Backend-код
+    "ROLE_WRITE_APPS_API":             [f"{_P}/apps/api:/project/apps/api"],
+    "ROLE_WRITE_APPS_GAME_SERVICE":    [f"{_P}/apps/game-service:/project/apps/game-service"],
+    "ROLE_WRITE_APPS_BROADCAST_WORKER":[f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker"],
+    "ROLE_WRITE_APPS_MATCHMAKER":      [f"{_P}/apps/matchmaker:/project/apps/matchmaker"],
+    # Frontend-код
+    "ROLE_WRITE_APPS_WEB":             [f"{_P}/apps/web:/project/apps/web"],
+    "ROLE_WRITE_APPS_WEB_SRC":         [f"{_P}/apps/web/src:/project/apps/web/src"],
+    # Packages
+    "ROLE_WRITE_PACKAGES":             [f"{_P}/packages:/project/packages"],
+    "ROLE_READ_PACKAGES":              [f"{_P}/packages:/project/packages:ro"],
+    "ROLE_READ_PACKAGES_SHARED":       [f"{_P}/packages/shared:/project/packages/shared:ro"],
+    # Root-файлы
+    "ROLE_WRITE_PACKAGE_JSON":         [f"{_P}/package.json:/project/package.json"],
+    "ROLE_READ_PACKAGE_JSON":          [f"{_P}/package.json:/project/package.json:ro"],
+    "ROLE_WRITE_PACKAGE_LOCK":         [f"{_P}/package-lock.json:/project/package-lock.json"],
+    "ROLE_READ_TSCONFIG_BASE":         [f"{_P}/tsconfig.base.json:/project/tsconfig.base.json:ro"],
+    "ROLE_WRITE_JUSTFILE":             [f"{_P}/justfile:/project/justfile"],
+    "ROLE_READ_DOCKER_COMPOSE":        [f"{_P}/docker-compose.yml:/project/docker-compose.yml:ro"],
+    # Scripts/docs
+    "ROLE_WRITE_SCRIPTS":              [f"{_P}/scripts:/project/scripts"],
+    "ROLE_READ_SCRIPTS":               [f"{_P}/scripts:/project/scripts:ro"],
+    "ROLE_WRITE_DOCS":                 [f"{_P}/docs:/project/docs"],
+    "ROLE_READ_DOCS":                  [f"{_P}/docs:/project/docs:ro"],
+    # node_modules (ro)
+    "ROLE_READ_NODE_MODULES":          [f"{_P}/node_modules:/project/node_modules:ro"],
+    "ROLE_READ_APPS_API_NODE_MODULES": [f"{_P}/apps/api/node_modules:/project/apps/api/node_modules:ro"],
+    "ROLE_READ_APPS_WEB_NODE_MODULES": [f"{_P}/apps/web/node_modules:/project/apps/web/node_modules:ro"],
+    # Read-only all apps / весь проект (для координатора, qa, architect)
+    "ROLE_READ_APPS":                  [f"{_P}/apps:/project/apps:ro"],
+    "ROLE_READ_PROJECT":               [f"{_P}:/project:ro"],
+    # Внешние
+    "ROLE_READ_AWS":                   [f"{os.path.expanduser('~/.aws')}:/home/agent/.aws:ro"],
 }
+
+
+def _get_agent_volumes(agent: str) -> list[str]:
+    """Собирает volumes для агента: базовые + из ролей."""
+    volumes = list(_BASE_VOLUMES)
+    for role in AGENT_ROLES.get(agent, []):
+        volumes.extend(ROLE_VOLUMES.get(role, []))
+    return volumes
 
 
 def _scope_summary(agent: str) -> tuple[list[str], list[str]]:
     """Возвращает (rw, ro) списки путей для агента."""
-    volumes = AGENT_VOLUMES.get(agent, AGENT_VOLUMES.get("_default", []))
+    volumes = _get_agent_volumes(agent)
     rw, ro = [], []
     for v in volumes:
         parts = v.split(":")
@@ -171,8 +145,8 @@ def _build_scope_prompt(agent: str) -> str:
     if agent == "coordinator":
         lines.append("")
         lines.append("## Агенты: scope и роли (учитывай при назначении задач)")
-        for other in sorted(AGENT_VOLUMES):
-            if other in ("coordinator", "_default"):
+        for other in sorted(AGENT_ROLES):
+            if other == "coordinator":
                 continue
             other_rw, _ = _scope_summary(other)
             other_roles = AGENT_ROLES.get(other, [])
@@ -208,7 +182,7 @@ class AgentDaemon:
         self._message_count: int = 0
 
     def _build_cmd(self) -> list[str]:
-        volumes = AGENT_VOLUMES.get(self.name, AGENT_VOLUMES.get("_default", []))
+        volumes = _get_agent_volumes(self.name)
         cmd = [
             "docker", "run", "--rm", "-i",
             "--name", f"agent-{self.name}",
@@ -642,17 +616,54 @@ def _parse_token(token: str) -> list[str] | None:
     return [r for r in payload.split(",") if r]
 
 
-# Роли агентов (ROLE_*, UPPERCASE)
+# Роли агентов (ROLE_*, UPPERCASE).
+# Роли бывают двух видов: действия (COMMIT, DEPLOY_*, NPM_INSTALL, API_START, UP) и файловые (READ_*/WRITE_*).
 AGENT_ROLES: dict[str, list[str]] = {
-    "backend":     ["ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_API_START"],
-    "frontend":    ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START"],
-    "layout":      ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START"],
-    "devops":      ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_API_START", "ROLE_UP"],
-    "architect":   ["ROLE_COMMIT"],
-    "marketing":   ["ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND"],
-    "coordinator": [],
+    "backend": [
+        # действия
+        "ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_API_START",
+        # файлы
+        "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
+        "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_MATCHMAKER",
+        "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
+        "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
+        "ROLE_READ_APPS_API_NODE_MODULES",
+    ],
+    "frontend": [
+        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START",
+        "ROLE_WRITE_APPS_WEB", "ROLE_READ_PACKAGES_SHARED",
+        "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
+        "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
+        "ROLE_READ_SCRIPTS",
+    ],
+    "layout": [
+        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_API_START",
+        "ROLE_WRITE_APPS_WEB_SRC",
+        "ROLE_READ_PACKAGE_JSON", "ROLE_READ_TSCONFIG_BASE",
+        "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
+        "ROLE_READ_SCRIPTS",
+    ],
+    "devops": [
+        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS",
+        "ROLE_DEPLOY_ALL", "ROLE_NPM_INSTALL", "ROLE_API_START", "ROLE_UP",
+        "ROLE_WRITE_SCRIPTS", "ROLE_READ_DOCS", "ROLE_READ_DOCKER_COMPOSE",
+        "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_JUSTFILE", "ROLE_READ_AWS",
+    ],
+    "architect": [
+        "ROLE_COMMIT",
+        "ROLE_READ_APPS", "ROLE_READ_PACKAGES", "ROLE_WRITE_DOCS",
+    ],
+    "marketing": [
+        "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND",
+    ],
+    "coordinator": [
+        "ROLE_READ_APPS", "ROLE_READ_PACKAGES", "ROLE_READ_DOCS",
+        "ROLE_READ_NODE_MODULES", "ROLE_READ_APPS_WEB_NODE_MODULES",
+    ],
+    "qa": [
+        "ROLE_READ_PROJECT",
+    ],
     "chess-expert": [],
-    "qa":          [],
 }
 
 # Все роли — для главного токена пользователя
