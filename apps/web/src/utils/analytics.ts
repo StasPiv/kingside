@@ -17,8 +17,9 @@ export function initGA4() {
   // Standard Google gtag snippet — must use `arguments` object, not rest params
   function gtag() { w.dataLayer.push(arguments as unknown as IArguments); }
   w.gtag = gtag as unknown as typeof w.gtag;
-  gtag.call(null, 'js', new Date());
-  gtag.call(null, 'config', GA4_ID);
+  // Invoke via the typed alias so TS accepts the variadic arguments.
+  w.gtag('js', new Date());
+  w.gtag('config', GA4_ID);
 }
 
 export function trackEvent(name: string, params?: Record<string, unknown>) {
