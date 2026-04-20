@@ -1,0 +1,700 @@
+/* ==========================================================================
+   Archive Games by Position (KS-1614)
+   Styles for /archive/games page — layout, header, filters, list, rows.
+   Palette aligned with analysis.css / workshop.css / tournaments.css.
+   ========================================================================== */
+
+.archive-games-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  color: #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.archive-games-page--missing-fen {
+  max-width: 640px;
+  padding: 48px 20px;
+  text-align: center;
+  color: #a0a0c0;
+}
+
+/* ---------- Header: mini-board + info ---------- */
+
+.archive-games-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+  padding: 16px;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+}
+
+.archive-games-header__board {
+  width: 180px;
+  height: 180px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #1a1a2e;
+}
+
+.archive-games-header__info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+
+.archive-games-header__opening {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: #c0c0d0;
+}
+
+.archive-games-header__eco {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid #2a2a4e;
+  border-radius: 3px;
+  background: rgba(124, 131, 255, 0.08);
+  color: #7c83ff;
+  font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.archive-games-header__opening-name {
+  font-weight: 500;
+  color: #e0e0e0;
+}
+
+.archive-games-header__fen {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #808090;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.archive-games-header__fen-label {
+  color: #6b7280;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.archive-games-header__fen code {
+  display: inline-block;
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #a0a0c0;
+  font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+.archive-games-header__total {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 4px 12px;
+  background: rgba(124, 131, 255, 0.15);
+  border: 1px solid rgba(124, 131, 255, 0.3);
+  border-radius: 4px;
+  color: #7c83ff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- Filters panel ---------- */
+
+.archive-games-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 16px;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+}
+
+.archive-games-filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.archive-games-filters__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  font-weight: 600;
+}
+
+.archive-games-filters__select,
+.archive-games-filters__input {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 13px;
+  padding: 6px 8px;
+  height: 32px;
+  min-width: 130px;
+  transition: border-color 0.15s;
+}
+
+.archive-games-filters__select {
+  cursor: pointer;
+}
+
+.archive-games-filters__select:hover,
+.archive-games-filters__input:hover {
+  border-color: #3a3a6e;
+}
+
+.archive-games-filters__select:focus,
+.archive-games-filters__input:focus {
+  outline: none;
+  border-color: #7c83ff;
+}
+
+.archive-games-filters__input::placeholder {
+  color: #6b7280;
+}
+
+.archive-games-filters__input--eco {
+  min-width: 80px;
+  max-width: 90px;
+  text-transform: uppercase;
+  font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+.archive-games-filters__presets {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.archive-games-filters__preset {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4e;
+  border-radius: 4px;
+  color: #a0a0c0;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 10px;
+  height: 32px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.archive-games-filters__preset:hover {
+  border-color: #3a3a6e;
+  color: #fff;
+}
+
+.archive-games-filters__preset.is-active {
+  background: rgba(124, 131, 255, 0.18);
+  border-color: #7c83ff;
+  color: #fff;
+}
+
+/* ---------- List wrapper ---------- */
+
+.archive-games-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.archive-games-list__rows {
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ---------- Single row (desktop = table row, mobile = card) ---------- */
+
+.archive-game-row {
+  display: grid;
+  grid-template-columns:
+    64px                 /* result */
+    minmax(0, 2fr)       /* players */
+    60px                 /* eco */
+    60px                 /* date */
+    minmax(0, 1.4fr)     /* event */
+    140px                /* reached */
+    90px;                /* next move */
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.6);
+  color: #e0e0e0;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  width: 100%;
+  transition: background-color 0.12s ease;
+  font-family: inherit;
+}
+
+.archive-game-row:last-child {
+  border-bottom: none;
+}
+
+.archive-game-row:hover {
+  background: rgba(124, 131, 255, 0.08);
+}
+
+.archive-game-row:focus-visible {
+  outline: 2px solid #7c83ff;
+  outline-offset: -2px;
+}
+
+/* Result badge — consistent with WinDrawLossBar palette */
+.archive-game-row__result {
+  justify-self: center;
+  padding: 4px 6px;
+  border-radius: 3px;
+  font-weight: 700;
+  font-size: 11px;
+  min-width: 56px;
+  text-align: center;
+  letter-spacing: 0.02em;
+  font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+.archive-game-row__result--white {
+  background: #f1f1f1;
+  color: #111827;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.08);
+}
+
+.archive-game-row__result--black {
+  background: #111827;
+  color: #f1f1f1;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+.archive-game-row__result--draw {
+  background: #9ca3af;
+  color: #0f172a;
+}
+
+.archive-game-row__result--unknown {
+  background: transparent;
+  color: #6b7280;
+  box-shadow: inset 0 0 0 1px #2a2a4e;
+}
+
+/* Players */
+.archive-game-row__players {
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.archive-game-row__player {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.archive-game-row__elo {
+  color: #808090;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.archive-game-row__vs {
+  color: #6b7280;
+  margin: 0 2px;
+  font-weight: 400;
+}
+
+/* Meta columns */
+.archive-game-row__eco {
+  color: #a0a0c0;
+  font-size: 11px;
+  font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  padding: 2px 6px;
+  background: rgba(124, 131, 255, 0.08);
+  border-radius: 3px;
+  text-align: center;
+  justify-self: start;
+  font-weight: 600;
+}
+
+.archive-game-row__date {
+  color: #808090;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-game-row__event {
+  color: #808090;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.archive-game-row__reached {
+  color: #6b7280;
+  font-size: 11px;
+  text-align: right;
+  font-style: italic;
+}
+
+.archive-game-row__next-move {
+  color: #7c83ff;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: right;
+  font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  white-space: nowrap;
+}
+
+/* ---------- Loading skeleton ---------- */
+
+.archive-games-list--loading {
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.archive-games-list__skeleton-row {
+  height: 48px;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.6);
+  background: linear-gradient(
+    90deg,
+    rgba(31, 41, 55, 0.6) 0%,
+    rgba(55, 65, 81, 0.7) 50%,
+    rgba(31, 41, 55, 0.6) 100%
+  );
+  background-size: 200% 100%;
+  animation: archive-games-shimmer 1.4s ease-in-out infinite;
+}
+
+.archive-games-list__skeleton-row:last-child {
+  border-bottom: none;
+}
+
+@keyframes archive-games-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---------- Empty state ---------- */
+
+.archive-games-list--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 56px 20px;
+  background: #0f172a;
+  border: 1px dashed #2a2a4e;
+  border-radius: 8px;
+  color: #a0a0c0;
+  text-align: center;
+  font-size: 14px;
+}
+
+.archive-games-list__reset-filters {
+  background: transparent;
+  border: 1px solid #2a2a4e;
+  color: #7c83ff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.archive-games-list__reset-filters:hover {
+  background: rgba(124, 131, 255, 0.1);
+  border-color: #7c83ff;
+  color: #fff;
+}
+
+/* ---------- Error states ---------- */
+
+.archive-games-list--error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 8px;
+  color: #f87171;
+  font-size: 14px;
+}
+
+.archive-games-list__inline-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.archive-games-list__retry {
+  background: transparent;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.archive-games-list__retry:hover {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fff;
+}
+
+/* ---------- Infinite scroll sentinel + load-more fallback ---------- */
+
+.archive-games-list__sentinel {
+  height: 1px;
+  width: 100%;
+}
+
+.archive-games-list__load-more {
+  background: transparent;
+  border: 1px solid #2a2a4e;
+  border-radius: 6px;
+  color: #7c83ff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 24px;
+  align-self: center;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.archive-games-list__load-more:hover:not(:disabled) {
+  background: rgba(124, 131, 255, 0.1);
+  border-color: #7c83ff;
+  color: #fff;
+}
+
+.archive-games-list__load-more:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---------- Tablet breakpoint (<=1024px): collapse event column ---------- */
+
+@media (max-width: 1024px) {
+  .archive-games-page {
+    padding: 20px 16px 40px;
+  }
+
+  .archive-game-row {
+    grid-template-columns:
+      60px            /* result */
+      minmax(0, 2fr)  /* players */
+      54px            /* eco */
+      60px            /* date */
+      120px           /* reached */
+      90px;           /* next move */
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .archive-game-row__event {
+    display: none;
+  }
+}
+
+/* ---------- Mobile (<=768px): cards ---------- */
+
+@media (max-width: 768px) {
+  .archive-games-page {
+    padding: 14px 12px 32px;
+    gap: 14px;
+  }
+
+  /* Header: stack board on top */
+  .archive-games-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    padding: 12px;
+  }
+
+  .archive-games-header__board {
+    width: 100%;
+    max-width: 260px;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    align-self: center;
+  }
+
+  .archive-games-header__fen code {
+    font-size: 11px;
+  }
+
+  /* Filters: full-width rows, inputs stretch */
+  .archive-games-filters {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .archive-games-filters__field {
+    flex: 1 1 140px;
+  }
+
+  .archive-games-filters__select,
+  .archive-games-filters__input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .archive-games-filters__input--eco {
+    max-width: none;
+  }
+
+  .archive-games-filters__presets {
+    gap: 6px;
+  }
+
+  /* List: cards instead of table */
+  .archive-games-list__rows {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    overflow: visible;
+    gap: 8px;
+  }
+
+  .archive-game-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto auto auto;
+    gap: 6px 10px;
+    padding: 12px 14px;
+    background: #0f172a;
+    border: 1px solid #1f2937;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+
+  .archive-game-row:hover {
+    background: #16213e;
+  }
+
+  /* row 1: players (left), result (right) */
+  .archive-game-row__players {
+    grid-column: 1;
+    grid-row: 1;
+    white-space: normal;
+  }
+
+  .archive-game-row__result {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    align-self: start;
+    min-width: 52px;
+    padding: 4px 8px;
+  }
+
+  /* row 2: eco (left), date (right) */
+  .archive-game-row__eco {
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
+    align-self: center;
+  }
+
+  .archive-game-row__date {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    align-self: center;
+  }
+
+  /* row 3: event across both columns */
+  .archive-game-row__event {
+    display: block;
+    grid-column: 1 / -1;
+    grid-row: 3;
+  }
+
+  /* row 4: reached (left), next move (right) */
+  .archive-game-row__reached {
+    grid-column: 1;
+    grid-row: 4;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .archive-game-row__next-move {
+    grid-column: 2;
+    grid-row: 4;
+    justify-self: end;
+  }
+
+  /* Empty/error states: reduce padding */
+  .archive-games-list--empty {
+    padding: 40px 16px;
+  }
+
+  .archive-games-list--error,
+  .archive-games-list__inline-error {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------- Narrow mobile (<=380px): minor compaction ---------- */
+
+@media (max-width: 380px) {
+  .archive-game-row {
+    padding: 10px 12px;
+    gap: 4px 8px;
+  }
+
+  .archive-game-row__players {
+    font-size: 13px;
+  }
+}
