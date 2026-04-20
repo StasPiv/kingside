@@ -725,7 +725,7 @@ ENDPOINT_ROLE: dict[str, object] = {
 }
 
 DOCKER_COMPOSE_ALLOWED = {"build", "up", "down", "logs", "ps", "config", "restart"}
-NPM_RUN_ALLOWED = {"build", "test", "lint", "dev", "start", "prisma:generate", "prisma:migrate"}
+NPM_RUN_ALLOWED = {"build", "test", "lint", "prisma:generate", "prisma:migrate"}
 
 
 def handle_feedback_notify(handler):

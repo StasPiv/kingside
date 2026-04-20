@@ -51,9 +51,9 @@ const TOOLS = [
       command: { type: 'string', enum: ['build', 'up', 'down', 'logs', 'ps', 'config', 'restart'] },
       args: { type: 'array', items: { type: 'string' }, description: 'Дополнительные аргументы, например ["archive-importer"] или ["--build", "archive-importer"]' },
     }, required: ['command'] } },
-  { name: 'npm_run', description: 'Выполнить npm run <script> на хосте (запускает в корне репозитория). Whitelist: build, test, lint, dev, start, prisma:generate, prisma:migrate. Опциональный workspace.',
+  { name: 'npm_run', description: 'Выполнить npm run <script> на хосте. Whitelist: build, test, lint, prisma:generate, prisma:migrate. Long-running скрипты (dev/start) НЕ поддерживаются — используй /api-start или /up endpoints.',
     inputSchema: { type: 'object', properties: {
-      script: { type: 'string', enum: ['build', 'test', 'lint', 'dev', 'start', 'prisma:generate', 'prisma:migrate'] },
+      script: { type: 'string', enum: ['build', 'test', 'lint', 'prisma:generate', 'prisma:migrate'] },
       workspace: { type: 'string', description: 'Опционально: имя workspace, например "@kingside/archive-importer"' },
     }, required: ['script'] } },
 
