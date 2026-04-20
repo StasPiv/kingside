@@ -48,14 +48,38 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} } },
 
   // --- Playwright ---
-  { name: 'screenshot', description: 'Скриншот страницы localhost:5173 через Playwright с dev_bypass (без логина). Сохраняет в /tmp/<task>/<name>.png. Возвращает путь.',
+  { name: 'screenshot', description: 'Скриншот страницы localhost:5173 через Playwright с dev_bypass (без логина). Сохраняет в /tmp/<task>/<name>.png.',
     inputSchema: { type: 'object', properties: {
-      task: { type: 'string', description: 'Ключ задачи, например "KS-1592" — определяет папку /tmp/KS-1592/' },
-      path: { type: 'string', description: 'Относительный путь страницы, например "/broadcasts" или "/puzzle". Dev-bypass подставляется автоматически.' },
-      name: { type: 'string', description: 'Имя файла без расширения, например "desktop" или "mobile". Итог: /tmp/<task>/<name>.png' },
-      viewport: { type: 'string', description: '"desktop" (1280x720, по умолчанию) или "mobile" (390x844)' },
-      waitFor: { type: 'number', description: 'Пауза в мс перед скриншотом (для динамики)' },
+      task: { type: 'string', description: 'Ключ задачи, например "KS-1592"' },
+      path: { type: 'string', description: 'Относительный путь страницы, например "/broadcasts"' },
+      name: { type: 'string', description: 'Имя файла без расширения' },
+      viewport: { type: 'string', description: '"desktop" (1280x720) или "mobile" (390x844)' },
+      waitFor: { type: 'number', description: 'Пауза в мс перед скриншотом' },
     }, required: ['task', 'path', 'name'] } },
+
+  { name: 'interact', description: 'Выполнить последовательность действий на странице и сделать финальный скриншот. Действия: click:<selector>, type:<selector>:<text>, wait:<ms>, reload, goto:<path>.',
+    inputSchema: { type: 'object', properties: {
+      task: { type: 'string' },
+      path: { type: 'string', description: 'Стартовый путь, например "/puzzle-rush"' },
+      name: { type: 'string', description: 'Имя финального скриншота' },
+      actions: { type: 'array', items: { type: 'string' }, description: 'Массив действий, напр. ["click:button:has-text(\'Start\')", "wait:2000", "type:#input:hello"]' },
+      viewport: { type: 'string', description: '"desktop" или "mobile"' },
+    }, required: ['task', 'path', 'name', 'actions'] } },
+
+  { name: 'record_gif', description: 'Записать GIF последовательности действий на странице через scripts/record-verification.js.',
+    inputSchema: { type: 'object', properties: {
+      task: { type: 'string' },
+      path: { type: 'string' },
+      name: { type: 'string', description: 'Имя GIF файла без расширения' },
+      actions: { type: 'array', items: { type: 'string' } },
+      viewport: { type: 'string' },
+    }, required: ['task', 'path', 'name', 'actions'] } },
+
+  { name: 'inspect', description: 'Открыть URL и вернуть текст body + список console errors и pageerror. Для диагностики белых страниц и JS-ошибок.',
+    inputSchema: { type: 'object', properties: {
+      path: { type: 'string', description: 'Относительный путь, например "/"' },
+      waitFor: { type: 'number', description: 'Пауза в мс перед снятием состояния' },
+    }, required: ['path'] } },
 ];
 
 async function http(url, opts = {}) {
@@ -134,7 +158,6 @@ async function call(name, args) {
       if (!args.task || !args.path || !args.name) return { error: 'task, path, name required' };
       const outputDir = `/tmp/${args.task}`;
       const output = `${outputDir}/${args.name}.png`;
-      // URL собирается автоматически из пути + dev_bypass
       const sep = args.path.includes('?') ? '&' : '?';
       const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
       const viewport = args.viewport === 'mobile' ? '390,844' : '1280,720';
@@ -155,6 +178,87 @@ async function call(name, args) {
         });
         proc.on('error', (e) => resolve({ error: e.message }));
       });
+    }
+
+    case 'interact': {
+      if (!args.task || !args.path || !args.name || !args.actions) return { error: 'task, path, name, actions required' };
+      const { chromium } = await import('/project/node_modules/playwright/index.mjs');
+      const outputDir = `/tmp/${args.task}`;
+      const output = `${outputDir}/${args.name}.png`;
+      const sep = args.path.includes('?') ? '&' : '?';
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const [w, h] = args.viewport === 'mobile' ? [390, 844] : [1280, 720];
+      await new Promise((r) => spawn('mkdir', ['-p', outputDir]).on('close', r));
+      const browser = await chromium.launch();
+      const page = await browser.newPage({ viewport: { width: w, height: h } });
+      const log = [];
+      try {
+        await page.goto(url);
+        for (const a of args.actions) {
+          const [type, ...rest] = a.split(':');
+          const arg = rest.join(':');
+          if (type === 'click') await page.click(arg, { timeout: 10000 });
+          else if (type === 'wait') await page.waitForTimeout(parseInt(arg, 10));
+          else if (type === 'type') {
+            const [sel, ...text] = arg.split(':');
+            await page.fill(sel, text.join(':'));
+          }
+          else if (type === 'reload') await page.reload();
+          else if (type === 'goto') await page.goto(`http://localhost:5173${arg}${arg.includes('?') ? '&' : '?'}dev_bypass=secret`);
+          else throw new Error(`Unknown action: ${type}`);
+          log.push(`ok: ${a}`);
+        }
+        await page.screenshot({ path: output });
+        return { status: 'ok', output, log };
+      } catch (e) {
+        return { error: e.message, log };
+      } finally {
+        await browser.close();
+      }
+    }
+
+    case 'record_gif': {
+      if (!args.task || !args.path || !args.name || !args.actions) return { error: 'task, path, name, actions required' };
+      const outputDir = `/tmp/${args.task}`;
+      const output = `${outputDir}/${args.name}.gif`;
+      const sep = args.path.includes('?') ? '&' : '?';
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const viewport = args.viewport === 'mobile' ? '390x844' : '1280x720';
+      await new Promise((r) => spawn('mkdir', ['-p', outputDir]).on('close', r));
+      const cliArgs = ['/project/scripts/record-verification.js', '--url', url, '--output', output, '--viewport', viewport, '--actions', ...args.actions];
+      return new Promise((resolve) => {
+        const proc = spawn('node', cliArgs);
+        let stderr = '';
+        proc.stderr.on('data', (d) => { stderr += d.toString(); });
+        proc.on('close', (code) => {
+          if (code === 0) resolve({ status: 'ok', output });
+          else resolve({ error: `record exit ${code}`, stderr: stderr.slice(-500) });
+        });
+        proc.on('error', (e) => resolve({ error: e.message }));
+      });
+    }
+
+    case 'inspect': {
+      if (!args.path) return { error: 'path required' };
+      const { chromium } = await import('/project/node_modules/playwright/index.mjs');
+      const sep = args.path.includes('?') ? '&' : '?';
+      const url = `http://localhost:5173${args.path}${sep}dev_bypass=secret`;
+      const browser = await chromium.launch();
+      const page = await browser.newPage();
+      const consoleMsgs = [];
+      const errors = [];
+      page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') consoleMsgs.push(`${m.type()}: ${m.text()}`); });
+      page.on('pageerror', (e) => { errors.push(e.message); });
+      try {
+        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        if (args.waitFor) await page.waitForTimeout(args.waitFor);
+        const body = await page.evaluate(() => document.body ? document.body.innerText.slice(0, 2000) : '');
+        return { status: 'ok', body, consoleMsgs, errors };
+      } catch (e) {
+        return { error: e.message, consoleMsgs, errors };
+      } finally {
+        await browser.close();
+      }
     }
 
     default:
