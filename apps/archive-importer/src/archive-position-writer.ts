@@ -8,7 +8,7 @@
  * пул небольшой (max 4). `close()` вызывается на остановке воркера.
  */
 
-import { Pool, type PoolClient } from 'pg';
+import { Pool, type PoolClient, type PoolConfig } from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -17,6 +17,48 @@ import {
   type PositionRow,
 } from './position-row-builder.js';
 import { archivePositionRowsCopyDurationSeconds } from './metrics.js';
+
+/**
+ * Определяет нужен ли SSL для `pg.Pool`, покрывая три входа:
+ *   1. `sslmode=...` в самом connection string (AWS RDS URL и прочий cloud).
+ *   2. Env `PGSSLMODE` — совместимо с libpq.
+ *   3. Env `ARCHIVE_IMPORTER_PG_SSL` — явный override для этого воркера.
+ *
+ * На локальном docker-compose ни один из трёх путей не активен → SSL
+ * выключен, соединение идёт plain-текстом как раньше (KS-1619 Scenario 2).
+ *
+ * `rejectUnauthorized: false` — RDS presents a CA-bundle, которого нет
+ * в системных корнях Node runtime'а; так же ведёт себя `sslmode=require`
+ * у libpq. Если понадобится строгая проверка — добавить путь к CA через
+ * отдельный env (ADR-013 §10.D) — отложено до прод-сертификат-стори.
+ *
+ * Экспортируется для unit-тестов.
+ */
+export function resolveSslConfig(
+  connectionString: string,
+  env: NodeJS.ProcessEnv = process.env,
+): PoolConfig['ssl'] {
+  const urlMode = extractSslMode(connectionString);
+  const envMode = (env.PGSSLMODE ?? '').toLowerCase();
+  const explicit = (env.ARCHIVE_IMPORTER_PG_SSL ?? '').toLowerCase();
+
+  // Явное "нет" имеет высший приоритет.
+  if (explicit === '0' || explicit === 'false' || explicit === 'off') return false;
+  if (urlMode === 'disable' || envMode === 'disable') return false;
+
+  // Любой из трёх сигналов включает SSL.
+  if (urlMode) return { rejectUnauthorized: false };
+  if (envMode) return { rejectUnauthorized: false };
+  if (explicit) return { rejectUnauthorized: false };
+
+  // Локальный dev без настроек — без SSL.
+  return false;
+}
+
+function extractSslMode(connectionString: string): string | null {
+  const m = connectionString.toLowerCase().match(/[?&]sslmode=([a-z_-]+)/);
+  return m ? m[1] : null;
+}
 
 /** Имя временной staging-таблицы. Уникально на соединение — изолировано. */
 const STAGE_TABLE = '_agp_stage';
@@ -59,6 +101,9 @@ export class ArchivePositionWriter {
       connectionString,
       max: 4,
       application_name: 'archive-importer',
+      // KS-1619: без этого pg.Pool не включает SSL в облаке (Prisma тянет
+      // SSL по дефолту сам, pg — нет), и RDS отбивает запрос на pg_hba.
+      ssl: resolveSslConfig(connectionString),
     });
   }
 
