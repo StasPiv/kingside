@@ -53,7 +53,7 @@ export interface ParseResult {
 }
 
 /** Считываем один PGN-заголовок типа `[Tag "value"]`. */
-function extractHeader(pgn: string, tag: string): string | null {
+export function extractHeader(pgn: string, tag: string): string | null {
   const re = new RegExp(`\\[${tag}\\s+"([^"]*)"\\]`);
   const m = pgn.match(re);
   return m ? m[1] || null : null;

@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "archive:backfill": "tsx src/backfill.ts",
     "archive:rebuild-position-stats": "tsx src/rebuild-position-stats.ts",
+    "archive:classify-existing": "tsx src/classify-existing.ts",
     "test": "vitest run"
   },
   "dependencies": {
