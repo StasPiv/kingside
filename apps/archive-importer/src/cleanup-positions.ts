@@ -11,11 +11,11 @@
  *     кандидатов → 0 DELETE'ов.
  *
  * Запуск:
- *   DATABASE_URL=... npm run archive:cleanup-positions \
+ *   ARCHIVE_DATABASE_URL=... npm run archive:cleanup-positions \
  *     --workspace=apps/archive-importer
  */
 
-import { PrismaClient } from '@kingside/db';
+import { PrismaClient } from '@kingside/archive-db';
 
 const BATCH_SIZE = 10_000;
 const PROGRESS_TAG = '[cleanup-positions]';
@@ -40,8 +40,8 @@ async function countToDelete(prisma: PrismaClient): Promise<number> {
 }
 
 export async function cleanupPositions(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error('DATABASE_URL is not set');
+  const databaseUrl = process.env.ARCHIVE_DATABASE_URL;
+  if (!databaseUrl) throw new Error('ARCHIVE_DATABASE_URL is not set');
 
   const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
 

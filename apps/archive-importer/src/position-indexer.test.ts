@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Chess } from 'chess.js';
-import type { PrismaClient } from '@kingside/db';
+import type { PrismaClient } from '@kingside/archive-db';
 import { PositionIndexer } from './position-indexer.js';
 import type { ParsedGame, GameMoveStep } from './pgn-utils.js';
 

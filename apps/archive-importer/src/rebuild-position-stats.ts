@@ -17,11 +17,11 @@
  * лучше делать в staging-таблицу + SWAP (см. ADR-014, отложено).
  *
  * Запуск:
- *   DATABASE_URL=... npm run archive:rebuild-position-stats \
+ *   ARCHIVE_DATABASE_URL=... npm run archive:rebuild-position-stats \
  *     --workspace=apps/archive-importer
  */
 
-import { PrismaClient } from '@kingside/db';
+import { PrismaClient } from '@kingside/archive-db';
 import Redis from 'ioredis';
 import { parseGame, type ParsedGame } from './pgn-utils.js';
 import { PositionIndexer } from './position-indexer.js';
@@ -83,8 +83,8 @@ function formatEta(seconds: number): string {
 }
 
 export async function rebuildPositionStats(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error('DATABASE_URL is not set');
+  const databaseUrl = process.env.ARCHIVE_DATABASE_URL;
+  if (!databaseUrl) throw new Error('ARCHIVE_DATABASE_URL is not set');
 
   const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
   const indexer = new PositionIndexer(prisma, SOURCE_CODE);

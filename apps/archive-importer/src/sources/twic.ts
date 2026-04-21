@@ -1,5 +1,5 @@
 import AdmZip from 'adm-zip';
-import type { PrismaClient } from '@kingside/db';
+import type { PrismaClient } from '@kingside/archive-db';
 import { decodePgnBuffer, parseBatch, type ParsedGame } from '../pgn-utils.js';
 import { PositionIndexer } from '../position-indexer.js';
 import { ArchivePositionWriter } from '../archive-position-writer.js';

@@ -13,11 +13,11 @@
  *   - Прогресс каждый батч: processed/total, rate, ETA.
  *
  * Запуск:
- *   DATABASE_URL=... npm run archive:classify-existing \
+ *   ARCHIVE_DATABASE_URL=... npm run archive:classify-existing \
  *     --workspace=apps/archive-importer
  */
 
-import { PrismaClient } from '@kingside/db';
+import { PrismaClient } from '@kingside/archive-db';
 import { classifyGame } from './classify.js';
 import { extractHeader } from './pgn-utils.js';
 
@@ -38,8 +38,8 @@ function formatEta(seconds: number): string {
 }
 
 export async function classifyExisting(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) throw new Error('DATABASE_URL is not set');
+  const databaseUrl = process.env.ARCHIVE_DATABASE_URL;
+  if (!databaseUrl) throw new Error('ARCHIVE_DATABASE_URL is not set');
 
   const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
 

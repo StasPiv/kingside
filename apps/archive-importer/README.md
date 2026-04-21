@@ -16,7 +16,7 @@
 npm run dev -w @kingside/archive-importer
 ```
 
-Воркер подхватит `DATABASE_URL` и `REDIS_URL` из переменных окружения (см. `.env` в корне).
+Воркер подхватит `ARCHIVE_DATABASE_URL` (подключение к archive-БД, см. `packages/archive-db`), `REDIS_HOST` и `REDIS_PORT` из переменных окружения (см. `.env` в корне). До ADR-018 использовался общий `DATABASE_URL` — больше не читается.
 
 ## Запуск в docker-compose
 

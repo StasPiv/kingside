@@ -1,4 +1,4 @@
-import { PrismaClient } from '@kingside/db';
+import { PrismaClient } from '@kingside/archive-db';
 import Redis from 'ioredis';
 import { TwicImporter } from './sources/twic.js';
 import { ArchivePositionWriter } from './archive-position-writer.js';
@@ -40,17 +40,17 @@ export class ArchiveImporter {
   private stopped = false;
 
   constructor() {
-    this.prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+    this.prisma = new PrismaClient({ datasourceUrl: process.env.ARCHIVE_DATABASE_URL });
     const host = process.env.REDIS_HOST || 'localhost';
     const port = parseInt(process.env.REDIS_PORT || '6380', 10);
     this.redis = new Redis({ host, port, lazyConnect: false });
-    this.positionWriter = new ArchivePositionWriter(process.env.DATABASE_URL ?? '');
+    this.positionWriter = new ArchivePositionWriter(process.env.ARCHIVE_DATABASE_URL ?? '');
   }
 
   async start(): Promise<void> {
     console.log('[archive-importer] Starting...');
-    const dbUrl = (process.env.DATABASE_URL || '').replace(/\/\/[^@]*@/, '//***@');
-    console.log(`[archive-importer] DATABASE_URL=${dbUrl}`);
+    const dbUrl = (process.env.ARCHIVE_DATABASE_URL || '').replace(/\/\/[^@]*@/, '//***@');
+    console.log(`[archive-importer] ARCHIVE_DATABASE_URL=${dbUrl}`);
     try {
       await this.prisma.$queryRawUnsafe('SELECT 1');
       console.log('[archive-importer] DB reachable');

@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@kingside/db';
+import { PrismaClient, Prisma } from '@kingside/archive-db';
 import { ARCHIVE_PLY_LIMIT } from '@kingside/shared';
 // Прямой subpath-импорт — из `@kingside/shared` publicly этот символ больше не
 // экспортируется, чтобы не тянуть `node:crypto` в браузерный бандл (KS-1597).

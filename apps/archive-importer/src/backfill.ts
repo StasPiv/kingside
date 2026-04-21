@@ -35,7 +35,7 @@
  *   npm run archive:backfill:extend   --workspace=apps/archive-importer
  */
 
-import { PrismaClient } from '@kingside/db';
+import { PrismaClient } from '@kingside/archive-db';
 import { parseGame, type ParsedGame } from './pgn-utils.js';
 import {
   buildPositionRowsForGame,
@@ -356,9 +356,9 @@ export async function backfillLoop(
 }
 
 export async function runBackfill(options: BackfillOptions): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = process.env.ARCHIVE_DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL is not set');
+    throw new Error('ARCHIVE_DATABASE_URL is not set');
   }
 
   const prisma = new PrismaClient({ datasourceUrl: databaseUrl });

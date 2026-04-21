@@ -34,7 +34,7 @@ import { archivePositionRowsCopyDurationSeconds } from './metrics.js';
  *        `{ rejectUnauthorized: false }`.
  *
  * Раньше (до KS-1640) по умолчанию SSL было off — и на RDS без явного
- * `sslmode=require` в DATABASE_URL прод валился с `no pg_hba.conf entry`,
+ * `sslmode=require` в ARCHIVE_DATABASE_URL прод валился с `no pg_hba.conf entry`,
  * что замалчивалось silent-fail'ом в backfill.ts (тоже фикс этой задачи).
  *
  * `rejectUnauthorized: false` — RDS presents a CA-bundle, которого нет
@@ -83,7 +83,7 @@ const LOCAL_HOSTS = new Set([
 
 /**
  * true если хост в URL — локальный. Используется как fallback для secure-
- * by-default SSL: если DATABASE_URL без `sslmode`, но указывает на RDS/
+ * by-default SSL: если ARCHIVE_DATABASE_URL без `sslmode`, но указывает на RDS/
  * managed-PG, SSL всё равно включится. Плюс явный `sslmode=disable`
  * остаётся уважаемым override'ом для диагностики.
  *
