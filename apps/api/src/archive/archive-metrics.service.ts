@@ -1,18 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import type { ArchiveBucket } from '@kingside/shared';
+import { MetricsService } from '../metrics/metrics.service';
 
 /**
  * In-memory counters for archive tree queries.
  *
- * This is a lightweight placeholder until a real Prometheus collector
- * (prom-client) lands in the project. The public surface mirrors what
- * a future exporter would consume:
- *   - archive_tree_query_duration_seconds{cache_hit="true|false"}
- *   - archive_tree_cache_hit_ratio
- *   - archive_tree_list_mismatch_total{bucket}
+ * Делает две вещи одновременно:
+ *   1. Держит локальный snapshot (`cacheHits`, `cacheMisses`,
+ *      `listMismatchByBucket`, ...) — используется в существующих unit-тестах
+ *      и может сохраниться для быстрых `/archive/...` админ-дашбордов без
+ *      похода в Prometheus.
+ *   2. Если в DI доступен `MetricsService` (prom-client registry,
+ *      KS-1637) — пробрасывает те же события в глобальные
+ *      counter/histogram/gauge, чтобы `/api/metrics` экспонировал их.
  *
- * When prom-client is introduced, this service swaps to real Histograms
- * without changing its callers in {@link ArchiveService}.
+ * `MetricsService` помечен `@Optional()`: тесты (`archive.service.spec`,
+ * `archive-metrics.service.spec`) собирают сервис вручную без глобального
+ * модуля — и тогда prom-client просто не тикает, а snapshot'ы работают.
  */
 @Injectable()
 export class ArchiveMetricsService {
@@ -34,6 +38,10 @@ export class ArchiveMetricsService {
     user: 0,
   };
 
+  constructor(
+    @Optional() private readonly prom: MetricsService | null = null,
+  ) {}
+
   recordTreeQuery(cacheHit: boolean, durationSec: number): void {
     const label = cacheHit ? 'true' : 'false';
     this.durationSumByHit[label] += durationSec;
@@ -42,6 +50,14 @@ export class ArchiveMetricsService {
       this.cacheHits += 1;
     } else {
       this.cacheMisses += 1;
+    }
+
+    if (this.prom) {
+      this.prom.observeTreeQueryDuration(cacheHit, durationSec);
+      const total = this.cacheHits + this.cacheMisses;
+      if (total > 0) {
+        this.prom.setTreeCacheHitRatio(this.cacheHits / total);
+      }
     }
   }
 
@@ -52,6 +68,7 @@ export class ArchiveMetricsService {
    */
   recordListMismatch(bucket: ArchiveBucket): void {
     this.listMismatchByBucket[bucket] += 1;
+    this.prom?.incListMismatch(bucket);
   }
 
   /** Snapshot of current counters — used in tests and future /metrics exporter. */
