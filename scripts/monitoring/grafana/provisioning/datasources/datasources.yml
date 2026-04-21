@@ -22,12 +22,15 @@ datasources:
     uid: postgres
     type: postgres
     access: proxy
-    url: postgres:5432
+    # Для dev (docker-compose local) — `postgres:5432`.
+    # Для self-hosted EC2 (KS-1638) — RDS endpoint из .env (POSTGRES_HOST=kingside-db.xxx.rds.amazonaws.com).
+    url: ${POSTGRES_HOST:-postgres}:5432
     database: ${POSTGRES_DB:-kingside}
     user: ${POSTGRES_USER:-kingside}
     secureJsonData:
       password: ${POSTGRES_PASSWORD:-kingside}
     jsonData:
-      sslmode: disable
+      # dev → disable; RDS → require
+      sslmode: ${POSTGRES_SSLMODE:-disable}
       postgresVersion: 1600
       timescaledb: false

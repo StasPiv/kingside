@@ -19,19 +19,38 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
-  # API — экспонирует счётчики (в т.ч. archive_tree_list_mismatch_total)
-  # Требование: backend должен отдавать метрики в prometheus text-формате на /api/metrics.
-  # На момент деплоя этого стека endpoint должен быть реализован (см. KS-1634/отдельная задача).
+  # API — ECS Service Discovery через sidecar `ecs-discovery`, который каждые
+  # 60 секунд пишет /etc/prometheus/targets/kingside-api.json.
+  # Важно (KS-1638 co-ordinator note): публичный ALB скрейпить нельзя —
+  # counters prom-client работают per-process, ALB балансирует /api/metrics
+  # между инстансами и отдаёт случайные слайсы. Поэтому скрейпим напрямую
+  # по внутренним IP ENI ECS task'ов (VPC-internal, SG разрешает
+  # monitoring-sg → api-sg:3001).
   - job_name: kingside-api
+    scheme: http
     metrics_path: /api/metrics
-    static_configs:
-      - targets: ["api:3001"]
-        labels:
-          service: api
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/kingside-api.json
+        refresh_interval: 30s
+    relabel_configs:
+      # Извлекаем короткий task_id из ARN для удобства в графиках.
+      - source_labels: [task_arn]
+        regex: .*/([^/]+)$
+        target_label: task_id
+        replacement: $1
+      - source_labels: [ecs_health]
+        target_label: health
 
-  # postgres-exporter — для размера таблиц, n_live_tup, n_tup_ins и т.д.
+  # postgres-exporter — коннектится к RDS по POSTGRES_EXPORTER_DATA_SOURCE_NAME (.env).
   - job_name: postgres
     static_configs:
       - targets: ["postgres-exporter:9187"]
         labels:
           service: postgres
+          db: kingside
+
+  # alertmanager self-scrape — чтобы видеть его up/down.
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]

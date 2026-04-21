@@ -1,0 +1,156 @@
+# Self-hosted monitoring stack (KS-1638).
+# Запускается на отдельной EC2 VM, не на том же хосте, что API.
+# Отличия от docker-compose.yml:
+#   - нет postgres/redis/api (это внешние RDS/ECS);
+#   - scrape config использует file_sd_config (targets генерируются ecs-discovery sidecar);
+#   - postgres-exporter подключается к RDS по POSTGRES_EXPORTER_DATA_SOURCE_NAME из .env.
+#
+# Запуск:
+#   cd /opt/kingside-monitoring
+#   docker compose -f compose.monitoring.yml up -d
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    mem_limit: 768m
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_targets:/etc/prometheus/targets:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    depends_on:
+      - postgres-exporter
+      - ecs-discovery
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "9093:9093"
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
+    volumes:
+      - ./alertmanager:/etc/alertmanager:ro
+      - alertmanager_data:/alertmanager
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        sed \
+          -e "s|__TELEGRAM_BOT_TOKEN__|${TELEGRAM_BOT_TOKEN:-}|g" \
+          -e "s|__TELEGRAM_CHAT_ID__|${TELEGRAM_CHAT_ID:-0}|g" \
+          /etc/alertmanager/alertmanager.yml.tpl > /tmp/alertmanager.yml
+        exec /bin/alertmanager \
+          --config.file=/tmp/alertmanager.yml \
+          --storage.path=/alertmanager \
+          --web.listen-address=:9093
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "9187:9187"
+    environment:
+      # Full connection string к RDS (включая ?sslmode=require). Передаётся через .env.
+      DATA_SOURCE_NAME: "${POSTGRES_EXPORTER_DATA_SOURCE_NAME}"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yaml
+      # Отключаем default-метрики по всем БД, оставляем только custom + server-level.
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+      PG_EXPORTER_EXCLUDE_DATABASES: "rdsadmin"
+    volumes:
+      - ./postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Sidecar: каждые 60 секунд читает ECS API, формирует targets/*.json
+  # для Prometheus file_sd_config. Работает под IAM-ролью EC2 (ECS:ListTasks,
+  # ECS:DescribeTasks, EC2:DescribeNetworkInterfaces).
+  # Образ amazon/aws-cli:2.x не содержит jq из коробки — ставим его на старте.
+  ecs-discovery:
+    image: amazon/aws-cli:2.17.37
+    restart: unless-stopped
+    mem_limit: 128m
+    environment:
+      AWS_DEFAULT_REGION: ${AWS_REGION:-eu-central-1}
+      ECS_CLUSTER: ${ECS_CLUSTER:-kingside}
+      ECS_SERVICE: ${ECS_SERVICE:-kingside-api}
+      TARGET_PORT: "3001"
+      TARGET_JOB: "kingside-api"
+      TARGET_METRICS_PATH: "/api/metrics"
+    volumes:
+      - prometheus_targets:/targets
+      - ./ecs-discovery/discover.sh:/discover.sh:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        if ! command -v jq >/dev/null 2>&1; then
+          if command -v microdnf >/dev/null 2>&1; then microdnf install -y jq;
+          elif command -v dnf >/dev/null 2>&1; then dnf install -y jq;
+          elif command -v yum >/dev/null 2>&1; then yum install -y jq;
+          elif command -v apk >/dev/null 2>&1; then apk add --no-cache jq;
+          else echo "FATAL: no package manager found, cannot install jq" >&2; exit 1; fi
+        fi
+        exec /bin/bash /discover.sh
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    restart: unless-stopped
+    mem_limit: 256m
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-kingside-monitoring}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: ${GRAFANA_ROOT_URL:-}
+      # Для Postgres-datasource подменяем default-подключение на RDS.
+      POSTGRES_DB: ${POSTGRES_DB:-kingside}
+      POSTGRES_USER: ${POSTGRES_USER:-kingside}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_HOST: ${POSTGRES_HOST:-}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data:/var/lib/grafana
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  prometheus_data:
+  prometheus_targets:
+  alertmanager_data:
+  grafana_data:
