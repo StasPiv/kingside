@@ -19,7 +19,7 @@ deploy-frontend:
 deploy-api:
     bash scripts/deploy-aws.sh api
 
-# Deploy only workers (broadcast-worker + archive-importer)
+# Deploy only workers (broadcast-worker + archive-service → HTTP и importer)
 deploy-workers:
     bash scripts/deploy-aws.sh workers
 
@@ -27,19 +27,13 @@ deploy-workers:
 deploy-broadcast:
     bash scripts/deploy-aws.sh broadcast-worker
 
-# Deploy only archive-importer (TWIC + position indexer)
-deploy-archive-importer:
-    bash scripts/deploy-aws.sh archive-importer
-
-# Run archive-importer worker in dev mode (uses local .env)
-dev-archive-importer:
-    npm run dev --workspace=apps/archive-importer
-
-# Start archive-importer worker (prod mode) — assumes built dist/
-start-archive-importer:
-    npm run start --workspace=apps/archive-importer
+# Deploy archive-service (rebuild образ, force-new-deployment archive-service + archive-importer)
+deploy-archive-service:
+    bash scripts/deploy-aws.sh archive-service
 
 # View archive-importer logs (last N lines). Usage: just logs-archive-importer [lines]
+# ADR-019 / KS-1674: сервис `archive-importer` в compose — это importer-entrypoint
+# того же образа, что и archive-service (node dist/importer-main.js).
 logs-archive-importer lines="100":
     docker compose logs archive-importer --tail {{lines}} --timestamps
 

@@ -128,8 +128,8 @@ services:
       - deploy
 
   archive-importer:
-    # ADR-019 / KS-1674: importer теперь единый образ с archive-service.
-    # Dockerfile apps/archive-importer/Dockerfile НЕ удаляем (KS-M04, soak 7–14 дней).
+    # ADR-019 / KS-1674/1676/1677: importer — второй CMD единого образа archive-service.
+    # Сервис называется archive-importer по историческим причинам (ECS service name = kingside-archive-importer).
     build:
       context: .
       dockerfile: apps/archive-service/Dockerfile
