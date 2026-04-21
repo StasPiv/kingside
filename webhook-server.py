@@ -603,7 +603,7 @@ def _escape_html(text: str) -> str:
 
 
 def handle_telegram_send(handler, payload):
-    """Обрабатывает POST /telegram/send — агент отправляет сообщение в Telegram."""
+    """Обрабатывает POST /telegram/send — агент отправляет сообщение в Telegram (Markdown)."""
     message = payload.get("message", "")
     if not message:
         handler.send_response(400)
@@ -611,7 +611,8 @@ def handle_telegram_send(handler, payload):
         handler.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
         return
 
-    send_telegram(_escape_html(message))
+    # Агенты пишут в обычном Markdown (**bold**, `code`, ```blocks```)
+    send_telegram(message, parse_mode="Markdown")
     log(f"Telegram send: {message[:80]}")
 
     handler.send_response(200)
@@ -1193,8 +1194,8 @@ def _split_message(text, max_len=4096):
     return parts
 
 
-def send_telegram(text):
-    """Отправляет сообщение в Telegram."""
+def send_telegram(text, parse_mode="HTML"):
+    """Отправляет сообщение в Telegram. parse_mode: HTML | Markdown | MarkdownV2."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -1202,7 +1203,7 @@ def send_telegram(text):
         data = urllib.parse.urlencode({
             "chat_id": TELEGRAM_CHAT_ID,
             "text": part,
-            "parse_mode": "HTML",
+            "parse_mode": parse_mode,
             "disable_web_page_preview": "true",
         }).encode()
         try:
