@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { ArchiveBucket } from '@kingside/shared';
 import { MetricsService } from '../metrics/metrics.service';
 
@@ -38,8 +38,19 @@ export class ArchiveMetricsService {
     user: 0,
   };
 
+  /**
+   * KS-1639: ОБЯЗАТЕЛЬНО явно указать токен через `@Inject(MetricsService)`.
+   * TypeScript `emitDecoratorMetadata` для union-типа (`MetricsService | null`)
+   * сериализует runtime-metadata как `Object` — Nest DI не распознаёт токен,
+   * и `@Optional()` подставляет `undefined` / default `null`. Итог: на проде
+   * `this.prom === null` всегда, все `recordTreeQuery`/`recordListMismatch`
+   * вызовы prom-client становятся no-op, метрики не инкрементятся.
+   * См. https://github.com/nestjs/nest/issues/1083 — известная ловушка.
+   */
   constructor(
-    @Optional() private readonly prom: MetricsService | null = null,
+    @Optional()
+    @Inject(MetricsService)
+    private readonly prom: MetricsService | null = null,
   ) {}
 
   recordTreeQuery(cacheHit: boolean, durationSec: number): void {
