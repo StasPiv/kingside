@@ -5,6 +5,19 @@ import { act } from '@testing-library/react';
 
 // --- Mocks ---
 
+// AnalysisPage reads `useAuth()` at render time; the test harness does not
+// mount AuthProvider, so provide a stub that returns an unauthenticated user.
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({
+    user: null,
+    loading: false,
+    token: null,
+    login: vi.fn(),
+    register: vi.fn(),
+    logout: vi.fn(),
+  }),
+}));
+
 const mockEvaluate = vi.fn();
 const mockStop = vi.fn();
 const mockInit = vi.fn();
@@ -73,6 +86,29 @@ vi.mock('../hooks/useEngineConfig', () => ({
 
 vi.mock('../hooks/useContainerSize', () => ({
   useContainerSize: () => ({ width: 400, height: 400 }),
+}));
+
+vi.mock('../hooks/useGameReport', () => ({
+  useGameReport: () => ({
+    report: null,
+    loading: false,
+    analyzing: false,
+    error: null,
+    fetchReport: vi.fn(),
+    analyze: vi.fn(),
+  }),
+}));
+
+vi.mock('../hooks/useSavedAnalyses', () => ({
+  useSavedAnalyses: () => ({
+    create: vi.fn().mockResolvedValue({ id: 'saved-1' }),
+    update: vi.fn().mockResolvedValue({ id: 'saved-1' }),
+    getById: vi.fn().mockResolvedValue(null),
+    list: vi.fn().mockResolvedValue([]),
+    remove: vi.fn().mockResolvedValue(undefined),
+  }),
+  getDefaultTitle: () => 'Untitled Analysis',
+  parsePgnHeaders: () => ({}),
 }));
 
 vi.mock('react-chessboard', () => ({

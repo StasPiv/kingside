@@ -7,6 +7,52 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: (...args: unknown[]) => mockUseAuth(...args),
 }));
 
+// ChatWidget depends on ChatProvider (not mounted in this test harness) and
+// keeps an open SSE stream / setInterval that leaks past teardown.
+vi.mock('../components/ChatWidget', () => ({
+  ChatWidget: () => null,
+}));
+
+// Prevent MainLayout's polling `useEffect`s (`fetch('/version.json')`,
+// `fetch('/api/players/online')`, `api.get('/api/messages/unread-count')`) from
+// leaving pending requests that happy-dom will abort on teardown.
+vi.mock('../api', () => ({
+  api: {
+    get: vi.fn().mockResolvedValue({ count: 0 }),
+    post: vi.fn().mockResolvedValue({}),
+    put: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+  },
+}));
+
+vi.mock('../hooks/useChallenge', () => ({
+  useChallenge: () => ({ incoming: null, acceptChallenge: vi.fn(), declineChallenge: vi.fn() }),
+}));
+
+vi.mock('../hooks/useNotifications', () => ({
+  useNotifications: () => ({
+    notifications: [],
+    unreadCount: 0,
+    loading: false,
+    fetchNotifications: vi.fn(),
+    markAsRead: vi.fn(),
+    markAllAsRead: vi.fn(),
+  }),
+}));
+
+vi.mock('../hooks/useActiveGame', () => ({
+  useActiveGame: () => ({ activeGame: null }),
+}));
+
+beforeEach(() => {
+  globalThis.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({}),
+    text: async () => '',
+  }) as unknown as typeof fetch;
+});
+
 describe('KS-633: навигация — убрать Train, Login/Register, добавить соцсети', () => {
   describe('неавторизованный пользователь', () => {
     beforeEach(() => {

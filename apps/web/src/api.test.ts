@@ -2,11 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { api } from './api';
 
 const mockFetch = vi.fn();
-globalThis.fetch = mockFetch;
 
 beforeEach(() => {
   localStorage.clear();
   mockFetch.mockReset();
+  // Install the local mockFetch after the global setup's `vi.stubGlobal('fetch', ...)`
+  // so this file's expectations (mockResolvedValueOnce / toHaveBeenCalledWith) hit
+  // the correct mock function.
+  globalThis.fetch = mockFetch;
 });
 
 afterEach(() => {
