@@ -5,8 +5,45 @@ import { RedisService } from '../redis/redis.service';
 import { ArchivePositionWriterService } from './archive-position-writer.service';
 import { PositionIndexerService } from './position-indexer.service';
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
-import { TwicImporter, type ArchiveSourceRow } from './sources/twic.importer';
+import {
+  TwicImporter,
+  type ArchiveSourceRow,
+  type ImportResult,
+} from './sources/twic.importer';
 import { intervalFromSchedule } from './interval-schedule';
+
+/**
+ * Результат запуска одного источника в рамках tickOnce (KS-1681).
+ *
+ * Содержит полный `ImportResult` импортёра (если запуск состоялся),
+ * длительность (для EMF `ImportDurationSeconds`) и знание, был ли
+ * источник вообще due + была ли успешная публикация ранее
+ * (для EMF `LastSuccessAgeSeconds`).
+ */
+export interface TickSourceResult {
+  sourceCode: string;
+  /** due==false → источник не настал, runSource не вызывался. */
+  due: boolean;
+  /** lockHeld==true → другой worker держит lock, runSource пропущен. */
+  lockHeld: boolean;
+  /** Результат импортёра; null, если source был не-due/lockHeld/unknown-kind. */
+  result: ImportResult | null;
+  /** Длительность одного runSource в секундах (для EMF). */
+  durationSec: number;
+  /**
+   * lastSuccessAt на момент старта runSource — даже для не-due источника
+   * это значение публикуется как `LastSuccessAgeSeconds`, чтобы CloudWatch
+   * alarm «14 дней без успехов» срабатывал независимо от due-окна.
+   */
+  lastSuccessAt: Date | null;
+  /** Сообщение ошибки (если была выброшена, а не обёрнута в ImportResult.failed). */
+  error?: string;
+}
+
+export interface TickResult {
+  runs: TickSourceResult[];
+  totalGamesAdded: number;
+}
 
 /**
  * Оркестратор импорта.
@@ -38,6 +75,7 @@ interface SourceRow {
   schedule: string | null;
   cursor: string | null;
   lastRunAt: Date | null;
+  lastSuccessAt: Date | null;
 }
 
 @Injectable()
@@ -67,6 +105,14 @@ export class ArchiveImportService implements OnModuleInit {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(`DB UNREACHABLE: ${msg}`);
       // Не бросаем — importer-main умеет подняться c degraded health.
+      return;
+    }
+    // KS-1681: в one-shot режиме (EventBridge) initial tick не нужен —
+    // tickOnce() вызовет importer-once.ts сам, явно. Иначе произошёл бы
+    // двойной запуск (onModuleInit.tick() + tickOnce()), при котором
+    // tickOnce попал бы в `this.running === true` и вернул пустой результат.
+    if (process.env.IMPORTER_ONE_SHOT === '1') {
+      this.logger.log('ArchiveImportService started in one-shot mode (initial tick skipped)');
       return;
     }
     // Первый tick — сразу, не ждём минуту.
@@ -102,6 +148,7 @@ export class ArchiveImportService implements OnModuleInit {
           schedule: source.schedule ?? null,
           cursor: source.cursor ?? null,
           lastRunAt: source.lastRunAt ?? null,
+          lastSuccessAt: source.lastSuccessAt ?? null,
         });
       }
     } finally {
@@ -110,22 +157,111 @@ export class ArchiveImportService implements OnModuleInit {
   }
 
   /**
+   * One-shot вариант tick для EventBridge ECS RunTask (KS-1681, ADR-020 §0).
+   *
+   * Отличия от `tick()`:
+   *   - не зависит от `@Interval` декоратора и `this.running` флага
+   *     (short-lived процесс выполняет ровно один tick);
+   *   - возвращает детальный `TickResult` с per-source результатом и
+   *     длительностью — `importer-once.ts` публикует это в EMF (CloudWatch);
+   *   - `LastSuccessAgeSeconds` надо публиковать и для не-due/lockHeld
+   *     источников, поэтому tickOnce собирает `TickSourceResult` по всем
+   *     enabled-источникам, а не только по due.
+   *
+   * Идемпотентность и lock-поведение — идентичны `tick()`: каждый
+   * `runSource()` сам берёт Redis-lock `archive:import:lock:{code}`
+   * (30 мин TTL), поэтому параллельный long-lived `importer-main` и
+   * one-shot task не столкнутся.
+   */
+  async tickOnce(): Promise<TickResult> {
+    const sources = await this.prisma.archiveSource.findMany({
+      where: { enabled: true },
+    });
+    const runs: TickSourceResult[] = [];
+    let totalGamesAdded = 0;
+    for (const source of sources) {
+      const row: SourceRow = {
+        id: source.id,
+        code: source.code,
+        kind: source.kind,
+        enabled: source.enabled,
+        schedule: source.schedule ?? null,
+        cursor: source.cursor ?? null,
+        lastRunAt: source.lastRunAt ?? null,
+        lastSuccessAt: source.lastSuccessAt ?? null,
+      };
+      const due = this.isDue(row);
+      if (!due) {
+        runs.push({
+          sourceCode: row.code,
+          due: false,
+          lockHeld: false,
+          result: null,
+          durationSec: 0,
+          lastSuccessAt: row.lastSuccessAt,
+        });
+        continue;
+      }
+      const started = process.hrtime.bigint();
+      let runOutcome: { result: ImportResult | null; lockHeld: boolean; error?: string };
+      try {
+        runOutcome = await this.runSource(row);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        runOutcome = { result: null, lockHeld: false, error: msg };
+      }
+      const durationSec =
+        Number(process.hrtime.bigint() - started) / 1_000_000_000;
+      runs.push({
+        sourceCode: row.code,
+        due: true,
+        lockHeld: runOutcome.lockHeld,
+        result: runOutcome.result,
+        durationSec,
+        lastSuccessAt: row.lastSuccessAt,
+        error: runOutcome.error,
+      });
+      if (runOutcome.result) {
+        totalGamesAdded += runOutcome.result.gamesAdded;
+      }
+    }
+    return { runs, totalGamesAdded };
+  }
+
+  /**
    * Запуск импорта одного источника: Redis-lock → импортёр → отпуск lock.
    * Повторяется безопасно — вторая копия воркера не запустит тот же импорт.
+   *
+   * Возвращает (KS-1681): `{ result, lockHeld, error? }`.
+   *   - `result` — `ImportResult` импортёра (или null, если не стартовал
+   *     из-за lock/unknown-kind);
+   *   - `lockHeld=true` — другой worker держит lock (для tickOnce — это
+   *     не ошибка, просто ничего не сделали);
+   *   - `error` — неожиданный throw (не обёрнутый в ImportResult.failed);
+   *     tickOnce попадает сюда крайне редко, т.к. TwicImporter сам ловит
+   *     и оборачивает ошибки.
    */
-  async runSource(source: SourceRow): Promise<void> {
+  async runSource(
+    source: SourceRow,
+  ): Promise<{
+    result: ImportResult | null;
+    lockHeld: boolean;
+    error?: string;
+  }> {
     const lockKey = `${LOCK_KEY_PREFIX}:${source.code}`;
     const acquired = await this.redis
       .set(lockKey, `${process.pid}:${Date.now()}`, 'EX', LOCK_TTL_SEC, 'NX')
       .catch(() => null);
     if (acquired !== 'OK') {
       this.logger.log(`${source.code}: lock held, skipping`);
-      return;
+      return { result: null, lockHeld: true };
     }
 
     this.logger.log(
       `${source.code}: starting import (kind=${source.kind}, cursor=${source.cursor})`,
     );
+    let capturedResult: ImportResult | null = null;
+    let capturedError: string | undefined;
     try {
       await this.metrics.timeImport(source.code, async () => {
         if ((source.kind as SourceKind) === 'twic') {
@@ -137,6 +273,7 @@ export class ArchiveImportService implements OnModuleInit {
             this.metrics,
           );
           const result = await importer.run();
+          capturedResult = result;
           this.logger.log(
             `${source.code}: status=${result.status} parsed=${result.gamesParsed} added=${result.gamesAdded} skipped=${result.gamesSkipped} cursor=${result.cursorBefore}→${result.cursorAfter}`,
           );
@@ -152,6 +289,7 @@ export class ArchiveImportService implements OnModuleInit {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      capturedError = msg;
       this.logger.error(`${source.code}: import failed: ${msg}`);
       await this.prisma.archiveSource
         .update({
@@ -162,6 +300,7 @@ export class ArchiveImportService implements OnModuleInit {
     } finally {
       await this.redis.del(lockKey).catch(() => {});
     }
+    return { result: capturedResult, lockHeld: false, error: capturedError };
   }
 
   /**
