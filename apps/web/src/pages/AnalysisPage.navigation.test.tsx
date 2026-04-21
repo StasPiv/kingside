@@ -54,8 +54,11 @@ vi.mock('../hooks/useEngine', () => ({
   saveEngineConfigs: vi.fn(),
 }));
 
-vi.mock('../hooks/useEngineConfig', () => ({
-  useEngineConfig: () => ({
+// Stable function identities inside the factory (see comment in
+// AnalysisPage.test.tsx) — prevents an infinite render loop when deps arrays
+// in AnalysisPage reference these callbacks.
+vi.mock('../hooks/useEngineConfig', () => {
+  const config = {
     engineSource: 'wasm' as const,
     setEngineSource: vi.fn(),
     externalConfig: null,
@@ -81,35 +84,40 @@ vi.mock('../hooks/useEngineConfig', () => ({
     handleDeleteConfig: vi.fn(),
     handleSelectSavedConfig: vi.fn(),
     handleSwitchToWasm: vi.fn(),
-  }),
-}));
+  };
+  return { useEngineConfig: () => config };
+});
 
 vi.mock('../hooks/useContainerSize', () => ({
   useContainerSize: () => ({ width: 400, height: 400 }),
 }));
 
-vi.mock('../hooks/useGameReport', () => ({
-  useGameReport: () => ({
+vi.mock('../hooks/useGameReport', () => {
+  const api = {
     report: null,
     loading: false,
     analyzing: false,
     error: null,
     fetchReport: vi.fn(),
     analyze: vi.fn(),
-  }),
-}));
+  };
+  return { useGameReport: () => api };
+});
 
-vi.mock('../hooks/useSavedAnalyses', () => ({
-  useSavedAnalyses: () => ({
+vi.mock('../hooks/useSavedAnalyses', () => {
+  const api = {
     create: vi.fn().mockResolvedValue({ id: 'saved-1' }),
     update: vi.fn().mockResolvedValue({ id: 'saved-1' }),
     getById: vi.fn().mockResolvedValue(null),
     list: vi.fn().mockResolvedValue([]),
     remove: vi.fn().mockResolvedValue(undefined),
-  }),
-  getDefaultTitle: () => 'Untitled Analysis',
-  parsePgnHeaders: () => ({}),
-}));
+  };
+  return {
+    useSavedAnalyses: () => api,
+    getDefaultTitle: () => 'Untitled Analysis',
+    parsePgnHeaders: () => ({}),
+  };
+});
 
 vi.mock('react-chessboard', () => ({
   Chessboard: () => <div data-testid="chessboard" />,
@@ -155,6 +163,11 @@ vi.mock('react-router-dom', async () => {
 describe('KS-311: Верификация навигации по ходам на странице анализа', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // AnalysisPage gates the `evaluate()` useEffect behind `analysisEnabled`,
+    // whose initial value reads `localStorage.analysisRunning === 'true'`.
+    // Without this, navigation keys re-compute `currentFen` but the engine
+    // evaluator never fires, so `mockEvaluate` assertions never pass.
+    localStorage.setItem('analysisRunning', 'true');
     mockParams = { gameId: 'game-1' };
   });
 

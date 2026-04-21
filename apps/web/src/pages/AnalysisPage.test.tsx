@@ -64,8 +64,13 @@ vi.mock('../hooks/useEngine', () => ({
   saveEngineConfigs: vi.fn(),
 }));
 
-vi.mock('../hooks/useEngineConfig', () => ({
-  useEngineConfig: () => ({
+// Instantiate stable vi.fn() refs once inside the factory. Creating them per
+// call would mean every render of AnalysisPage sees new identity for these
+// functions; any hook that has them in a deps array would re-run, and the
+// persistence `useEffect` for the saved-analysis auto-save triggers setState,
+// producing an infinite render loop ("Maximum update depth exceeded").
+vi.mock('../hooks/useEngineConfig', () => {
+  const config = {
     engineSource: 'wasm' as const,
     setEngineSource: vi.fn(),
     externalConfig: null,
@@ -91,8 +96,9 @@ vi.mock('../hooks/useEngineConfig', () => ({
     handleDeleteConfig: vi.fn(),
     handleSelectSavedConfig: vi.fn(),
     handleSwitchToWasm: vi.fn(),
-  }),
-}));
+  };
+  return { useEngineConfig: () => config };
+});
 
 vi.mock('../hooks/useContainerSize', () => ({
   useContainerSize: () => ({ width: 400, height: 400 }),
@@ -102,28 +108,32 @@ vi.mock('../hooks/useContainerSize', () => ({
 // mock below, ends up with a truthy `report` whose shape does not match
 // GameReportPanel's expectation (no `moves`). Stub it with safe defaults so
 // rendering does not crash.
-vi.mock('../hooks/useGameReport', () => ({
-  useGameReport: () => ({
+vi.mock('../hooks/useGameReport', () => {
+  const api = {
     report: null,
     loading: false,
     analyzing: false,
     error: null,
     fetchReport: vi.fn(),
     analyze: vi.fn(),
-  }),
-}));
+  };
+  return { useGameReport: () => api };
+});
 
-vi.mock('../hooks/useSavedAnalyses', () => ({
-  useSavedAnalyses: () => ({
+vi.mock('../hooks/useSavedAnalyses', () => {
+  const api = {
     create: vi.fn().mockResolvedValue({ id: 'saved-1' }),
     update: vi.fn().mockResolvedValue({ id: 'saved-1' }),
     getById: vi.fn().mockResolvedValue(null),
     list: vi.fn().mockResolvedValue([]),
     remove: vi.fn().mockResolvedValue(undefined),
-  }),
-  getDefaultTitle: () => 'Untitled Analysis',
-  parsePgnHeaders: () => ({}),
-}));
+  };
+  return {
+    useSavedAnalyses: () => api,
+    getDefaultTitle: () => 'Untitled Analysis',
+    parsePgnHeaders: () => ({}),
+  };
+});
 
 vi.mock('react-chessboard', () => ({
   Chessboard: () => <div data-testid="chessboard" />,
@@ -167,6 +177,10 @@ vi.mock('react-router-dom', async () => {
 describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // AnalysisPage gates the `evaluate()` useEffect behind `analysisEnabled`,
+    // whose initial value reads `localStorage.analysisRunning === 'true'`.
+    // Without this the auto-analysis never fires and evaluate assertions hang.
+    localStorage.setItem('analysisRunning', 'true');
     stockfishState = 'ready';
     stockfishLines = [];
   });
@@ -218,7 +232,11 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
   });
 
   /**
-   * Сценарий 2: Отображаются 3 лучшие линии (multiPV) с глубиной 18
+   * Сценарий 2: Отображаются 3 лучшие линии (multiPV)
+   *
+   * NOTE: the standalone "Depth N" progress indicator was removed from the
+   * engine panel; depth is now only embedded within each line's formatted PV
+   * (not as a distinct label), so we no longer assert on it.
    */
   it('отображает 3 линии анализа с глубиной', async () => {
     stockfishState = 'analyzing';
@@ -234,12 +252,19 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
       expect(screen.getAllByText('+0.50').length).toBeGreaterThanOrEqual(1);
     });
 
-    // Все 3 линии отображаются с уникальными оценками (toFixed(2))
-    expect(screen.getByText('+2.00')).toBeInTheDocument();
-    expect(screen.getByText('+1.00')).toBeInTheDocument();
+    // The top line eval (+0.50) also shows in the eval bar, so the other two
+    // lines (+2.00, +1.00) can legitimately appear once (in .stockfish-line)
+    // or more (if also surfaced in other panels). Use `getAllByText` to tolerate
+    // either.
+    expect(screen.getAllByText('+2.00').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('+1.00').length).toBeGreaterThanOrEqual(1);
 
-    // Глубина отображается в progress
-    expect(screen.getByText(/Depth 18/)).toBeInTheDocument();
+    // AnalysisPage duplicates the engine panel (one for desktop layout, one
+    // for the mobile tab), so each of the 3 lines renders twice. Assert that
+    // both panels consistently contain all 3 lines.
+    const lineEls = document.querySelectorAll('.stockfish-line');
+    expect(lineEls.length).toBe(6);
+    expect(document.querySelectorAll('.stockfish-lines').length).toBe(2);
   });
 
   /**
