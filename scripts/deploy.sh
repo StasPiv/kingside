@@ -55,11 +55,11 @@ docker compose pull postgres redis 2>/dev/null || true
 docker compose build api
 docker compose up -d postgres redis api
 
-# Ждём готовности API (global prefix = /api)
+# Ждём готовности API
 echo "  Ожидание готовности API..."
 API_READY=0
 for i in $(seq 1 30); do
-    if curl -sf http://localhost:3001/api/health &>/dev/null; then
+    if curl -sf http://localhost:3001/health &>/dev/null; then
         echo "  API готов."
         API_READY=1
         break

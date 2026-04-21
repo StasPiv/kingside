@@ -6,7 +6,7 @@
 # 1. Статус API контейнера
 # 2. Логи контейнера
 # 3. Свободное место на диске
-# 4. Доступность /api/health
+# 4. Доступность /health
 # При необходимости — чистит диск и перезапускает API
 
 set -euo pipefail
@@ -37,7 +37,7 @@ echo ""
 
 # 3. Проверка доступности API
 echo "[3] Проверка API health endpoint:"
-if curl -sf http://localhost:3001/api/health &>/dev/null; then
+if curl -sf http://localhost:3001/health &>/dev/null; then
     echo "  API отвечает (HTTP 200). Причина 502 — nginx?"
     echo "  Проверяем nginx:"
     sudo nginx -t && sudo systemctl reload nginx
@@ -61,7 +61,7 @@ docker compose up -d --force-recreate api
 echo "  Ожидание готовности API..."
 API_READY=0
 for i in $(seq 1 30); do
-    if curl -sf http://localhost:3001/api/health &>/dev/null; then
+    if curl -sf http://localhost:3001/health &>/dev/null; then
         echo "  API готов (попытка $i)."
         API_READY=1
         break

@@ -7,7 +7,7 @@ LOG="/tmp/kingside-dev-watchdog.log"
 TS="$(date '+%Y-%m-%d %H:%M:%S')"
 
 # 1. Backend (nest)
-if ! curl -sf http://localhost:3001/api/health > /dev/null 2>&1; then
+if ! curl -sf http://localhost:3001/health > /dev/null 2>&1; then
     if pgrep -f "nest start" > /dev/null 2>&1; then
         exit 0  # nest запущен, просто ещё стартует
     fi

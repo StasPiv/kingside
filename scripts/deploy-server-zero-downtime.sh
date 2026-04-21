@@ -32,7 +32,7 @@ wait_for_health() {
     local label="$2"
     echo "--- Waiting for ${label} healthcheck on port ${port}..."
     for i in $(seq 1 "$HEALTHCHECK_TIMEOUT"); do
-        if curl -sf "http://localhost:${port}/api/health" &>/dev/null; then
+        if curl -sf "http://localhost:${port}/health" &>/dev/null; then
             echo "  ${label} ready."
             return 0
         fi
