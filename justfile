@@ -19,17 +19,13 @@ deploy-frontend:
 deploy-api:
     bash scripts/deploy-aws.sh api
 
-# Deploy only workers (broadcast-worker + matchmaker)
+# Deploy only workers (broadcast-worker + archive-importer)
 deploy-workers:
     bash scripts/deploy-aws.sh workers
 
 # Deploy only broadcast-worker
 deploy-broadcast:
     bash scripts/deploy-aws.sh broadcast-worker
-
-# Deploy only matchmaker
-deploy-matchmaker:
-    bash scripts/deploy-aws.sh matchmaker
 
 # Deploy only archive-importer (TWIC + position indexer)
 deploy-archive-importer:
