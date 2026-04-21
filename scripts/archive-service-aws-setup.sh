@@ -234,3 +234,323 @@ fi
 log "done. service ARN:"
 aws_cli ecs describe-services --cluster "${CLUSTER}" --services "${SERVICE_NAME}" \
     --query 'services[0].serviceArn' --output text
+
+# =============================================================================
+# KS-1682 / ADR-020: archive-importer oneshot (EventBridge Scheduler + daily RunTask).
+# Отдельный importer крутился постоянным service'ом (task-def kingside-archive-importer:v1..v6)
+# и раз в сутки через внутренний cron запускал import. После ADR-020 переводим его
+# на EventBridge Scheduler + разовый ECS RunTask (cron(0 20 ? * * *) UTC).
+# Блок идемпотентный: повторные запуски безопасны.
+# =============================================================================
+
+IMPORTER_FAMILY="kingside-archive-importer-oneshot"
+IMPORTER_LOG_GROUP="/kingside/archive-importer-oneshot"
+IMPORTER_ECS_EVENTS_LOG_GROUP="/kingside/archive-importer-ecs-events"
+IMPORTER_DLQ_NAME="kingside-archive-importer-dlq"
+IMPORTER_DLQ_ARN="arn:aws:sqs:${REGION}:${ACCOUNT_ID}:${IMPORTER_DLQ_NAME}"
+IMPORTER_SCHED_ROLE_NAME="kingside-archive-importer-scheduler-role"
+IMPORTER_SCHED_ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/${IMPORTER_SCHED_ROLE_NAME}"
+IMPORTER_SCHED_NAME="kingside-archive-importer-daily"
+IMPORTER_EVENT_RULE_NAME="kingside-archive-importer-ecs-task-state-change"
+IMPORTER_ALERT_SNS_ARN="${IMPORTER_ALERT_SNS_ARN:-arn:aws:sns:${REGION}:${ACCOUNT_ID}:kingside-alerts}"
+IMPORTER_METRIC_NAMESPACE="Kingside/ArchiveImporter"
+
+# --- 7. Log groups для oneshot-importer ---
+for LG in "${IMPORTER_LOG_GROUP}" "${IMPORTER_ECS_EVENTS_LOG_GROUP}"; do
+    LG_EXISTS=$(aws_cli logs describe-log-groups --log-group-name-prefix "${LG}" \
+        --query "logGroups[?logGroupName=='${LG}'] | [0].logGroupName" --output text)
+    if [ -z "${LG_EXISTS}" ] || [ "${LG_EXISTS}" = "None" ]; then
+        log "creating log group ${LG}"
+        aws_cli logs create-log-group --log-group-name "${LG}"
+    else
+        log "log group ${LG} exists"
+    fi
+done
+# Retention: 90 дней для oneshot, 30 для ecs-events.
+# ВАЖНО: logs:PutRetentionPolicy не входит в базовый AWS managed-policy для CI-user.
+# В kingside-ci требуется inline policy с этим action (см. archive-importer-setup).
+aws_cli logs put-retention-policy --log-group-name "${IMPORTER_LOG_GROUP}" --retention-in-days 90 || \
+    log "WARN: PutRetentionPolicy на ${IMPORTER_LOG_GROUP} не удалось — проверь права kingside-ci"
+aws_cli logs put-retention-policy --log-group-name "${IMPORTER_ECS_EVENTS_LOG_GROUP}" --retention-in-days 30 || \
+    log "WARN: PutRetentionPolicy на ${IMPORTER_ECS_EVENTS_LOG_GROUP} не удалось"
+
+# --- 8. DLQ для EventBridge Scheduler ---
+set +e
+DLQ_URL=$(aws_cli sqs get-queue-url --queue-name "${IMPORTER_DLQ_NAME}" --query 'QueueUrl' --output text 2>/dev/null)
+DLQ_RC=$?
+set -e
+if [ ${DLQ_RC} -ne 0 ] || [ -z "${DLQ_URL}" ] || [ "${DLQ_URL}" = "None" ]; then
+    log "creating SQS DLQ ${IMPORTER_DLQ_NAME}"
+    aws_cli sqs create-queue --queue-name "${IMPORTER_DLQ_NAME}" \
+        --attributes "MessageRetentionPeriod=1209600" \
+        --query 'QueueUrl' --output text
+else
+    log "DLQ ${IMPORTER_DLQ_NAME} exists: ${DLQ_URL}"
+fi
+
+# --- 9. IAM role для EventBridge Scheduler → ECS RunTask ---
+set +e
+ROLE_CHECK=$(aws_cli iam get-role --role-name "${IMPORTER_SCHED_ROLE_NAME}" --query 'Role.Arn' --output text 2>/dev/null)
+ROLE_RC=$?
+set -e
+if [ ${ROLE_RC} -ne 0 ] || [ -z "${ROLE_CHECK}" ] || [ "${ROLE_CHECK}" = "None" ]; then
+    log "creating IAM role ${IMPORTER_SCHED_ROLE_NAME}"
+    TRUST_FILE="$(mktemp -t scheduler-trust.XXXXXX.json)"
+    cat > "${TRUST_FILE}" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "scheduler.amazonaws.com"},
+    "Action": "sts:AssumeRole",
+    "Condition": {"StringEquals": {"aws:SourceAccount": "${ACCOUNT_ID}"}}
+  }]
+}
+EOF
+    aws_cli iam create-role --role-name "${IMPORTER_SCHED_ROLE_NAME}" \
+        --assume-role-policy-document "file://${TRUST_FILE}" \
+        --description "EventBridge Scheduler role for kingside-archive-importer daily RunTask (KS-1682)" \
+        --query 'Role.Arn' --output text
+    rm -f "${TRUST_FILE}"
+else
+    log "IAM role ${IMPORTER_SCHED_ROLE_NAME} exists: ${ROLE_CHECK}"
+fi
+
+# Inline least-privilege policy (всегда перезаписываем — idempotent).
+POLICY_FILE="$(mktemp -t scheduler-policy.XXXXXX.json)"
+cat > "${POLICY_FILE}" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ECSRunTask",
+      "Effect": "Allow",
+      "Action": "ecs:RunTask",
+      "Resource": "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${IMPORTER_FAMILY}:*"
+    },
+    {
+      "Sid": "IAMPassRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole",
+        "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskRole"
+      ]
+    },
+    {
+      "Sid": "SQSDlq",
+      "Effect": "Allow",
+      "Action": "sqs:SendMessage",
+      "Resource": "${IMPORTER_DLQ_ARN}"
+    }
+  ]
+}
+EOF
+aws_cli iam put-role-policy --role-name "${IMPORTER_SCHED_ROLE_NAME}" \
+    --policy-name scheduler-runtask \
+    --policy-document "file://${POLICY_FILE}"
+rm -f "${POLICY_FILE}"
+log "IAM role policy scheduler-runtask attached"
+
+# --- 10. Task definition oneshot ---
+IMPORTER_TD_JSON=$(cat <<EOF
+{
+  "family": "${IMPORTER_FAMILY}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "${IMPORTER_FAMILY}",
+      "image": "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service:latest",
+      "essential": true,
+      "command": ["node", "dist/importer-once.js"],
+      "environment": [
+        {"name": "NODE_ENV", "value": "production"}
+      ],
+      "secrets": [
+        {"name": "ARCHIVE_DATABASE_URL", "valueFrom": "${ARCHIVE_SECRET_ARN}:ARCHIVE_DATABASE_URL::"},
+        {"name": "REDIS_URL",  "valueFrom": "${API_SECRET_ARN}:REDIS_URL::"},
+        {"name": "REDIS_HOST", "valueFrom": "${API_SECRET_ARN}:REDIS_HOST::"},
+        {"name": "REDIS_PORT", "valueFrom": "${API_SECRET_ARN}:REDIS_PORT::"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${IMPORTER_LOG_GROUP}",
+          "awslogs-region": "${REGION}",
+          "awslogs-stream-prefix": "ecs"
+        }
+      }
+    }
+  ]
+}
+EOF
+)
+IMPORTER_TD_FILE="$(mktemp -t importer-taskdef.XXXXXX.json)"
+printf '%s' "${IMPORTER_TD_JSON}" > "${IMPORTER_TD_FILE}"
+IMPORTER_TD_ARN=$(aws_cli ecs register-task-definition --cli-input-json "file://${IMPORTER_TD_FILE}" \
+    --query 'taskDefinition.taskDefinitionArn' --output text)
+rm -f "${IMPORTER_TD_FILE}"
+log "registered oneshot task-def: ${IMPORTER_TD_ARN}"
+
+# --- 11. EventBridge Scheduler (cron 0 20 ? * * * UTC, ENABLED) ---
+IMPORTER_SCHED_JSON=$(cat <<EOF
+{
+  "Name": "${IMPORTER_SCHED_NAME}",
+  "ScheduleExpression": "cron(0 20 ? * * *)",
+  "ScheduleExpressionTimezone": "UTC",
+  "State": "ENABLED",
+  "FlexibleTimeWindow": {"Mode": "OFF"},
+  "Description": "Daily archive-importer oneshot run at 20:00 UTC (ADR-020, KS-1682)",
+  "Target": {
+    "Arn": "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${CLUSTER}",
+    "RoleArn": "${IMPORTER_SCHED_ROLE_ARN}",
+    "EcsParameters": {
+      "TaskDefinitionArn": "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${IMPORTER_FAMILY}",
+      "LaunchType": "FARGATE",
+      "PlatformVersion": "LATEST",
+      "NetworkConfiguration": {
+        "awsvpcConfiguration": {
+          "Subnets": ["${SUBNETS/,/\",\"}"],
+          "SecurityGroups": ["${ECS_SG}"],
+          "AssignPublicIp": "ENABLED"
+        }
+      },
+      "TaskCount": 1
+    },
+    "RetryPolicy": {
+      "MaximumRetryAttempts": 2,
+      "MaximumEventAgeInSeconds": 3600
+    },
+    "DeadLetterConfig": {
+      "Arn": "${IMPORTER_DLQ_ARN}"
+    }
+  }
+}
+EOF
+)
+IMPORTER_SCHED_FILE="$(mktemp -t importer-sched.XXXXXX.json)"
+printf '%s' "${IMPORTER_SCHED_JSON}" > "${IMPORTER_SCHED_FILE}"
+set +e
+aws_cli scheduler get-schedule --name "${IMPORTER_SCHED_NAME}" --query 'Arn' --output text >/dev/null 2>&1
+SCHED_RC=$?
+set -e
+if [ ${SCHED_RC} -eq 0 ]; then
+    log "updating scheduler ${IMPORTER_SCHED_NAME}"
+    aws_cli scheduler update-schedule --cli-input-json "file://${IMPORTER_SCHED_FILE}" >/dev/null
+else
+    log "creating scheduler ${IMPORTER_SCHED_NAME}"
+    aws_cli scheduler create-schedule --cli-input-json "file://${IMPORTER_SCHED_FILE}" \
+        --query 'ScheduleArn' --output text
+fi
+rm -f "${IMPORTER_SCHED_FILE}"
+
+# --- 12. EventBridge rule: ECS Task State Change → CW Log group ---
+IMPORTER_EVENT_PATTERN=$(cat <<EOF
+{
+  "source": ["aws.ecs"],
+  "detail-type": ["ECS Task State Change"],
+  "detail": {
+    "clusterArn": ["arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${CLUSTER}"],
+    "lastStatus": ["STOPPED"],
+    "taskDefinitionArn": [{"prefix": "arn:aws:ecs:${REGION}:${ACCOUNT_ID}:task-definition/${IMPORTER_FAMILY}"}]
+  }
+}
+EOF
+)
+IMPORTER_EVENT_FILE="$(mktemp -t event-pattern.XXXXXX.json)"
+printf '%s' "${IMPORTER_EVENT_PATTERN}" > "${IMPORTER_EVENT_FILE}"
+aws_cli events put-rule --name "${IMPORTER_EVENT_RULE_NAME}" \
+    --event-pattern "file://${IMPORTER_EVENT_FILE}" \
+    --state ENABLED \
+    --description "ECS Task State Change events for archive-importer oneshot (KS-1682)" >/dev/null
+rm -f "${IMPORTER_EVENT_FILE}"
+
+IMPORTER_EVENTS_LOG_ARN="arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:${IMPORTER_ECS_EVENTS_LOG_GROUP}"
+aws_cli events put-targets --rule "${IMPORTER_EVENT_RULE_NAME}" \
+    --targets "Id=1,Arn=${IMPORTER_EVENTS_LOG_ARN}" >/dev/null
+log "EventBridge rule ${IMPORTER_EVENT_RULE_NAME} configured"
+
+# --- 13. CloudWatch metric filter на exit != 0 ---
+aws_cli logs put-metric-filter \
+    --log-group-name "${IMPORTER_ECS_EVENTS_LOG_GROUP}" \
+    --filter-name "archive-importer-ecs-exit-nonzero" \
+    --filter-pattern '{ $.detail.containers[0].exitCode != 0 }' \
+    --metric-transformations "metricName=ECSExitNonZero,metricNamespace=${IMPORTER_METRIC_NAMESPACE},metricValue=1,defaultValue=0"
+log "metric filter ECSExitNonZero configured"
+
+# --- 14. 5 CloudWatch Alarms → SNS kingside-alerts (ADR-020 §2.7) ---
+# 14.1 DLQ depth > 0 за 1 минуту
+aws_cli cloudwatch put-metric-alarm \
+    --alarm-name "archive-importer-dlq-depth" \
+    --alarm-description "KS-1682: archive-importer DLQ has messages (EventBridge retry failures)" \
+    --metric-name ApproximateNumberOfMessagesVisible \
+    --namespace AWS/SQS \
+    --statistic Maximum \
+    --dimensions "Name=QueueName,Value=${IMPORTER_DLQ_NAME}" \
+    --period 60 --evaluation-periods 1 --threshold 0 \
+    --comparison-operator GreaterThanThreshold \
+    --treat-missing-data notBreaching \
+    --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
+    --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
+
+# 14.2 ECS exit != 0
+aws_cli cloudwatch put-metric-alarm \
+    --alarm-name "archive-importer-ecs-exit-nonzero" \
+    --alarm-description "KS-1682: archive-importer oneshot task exited with non-zero code" \
+    --metric-name ECSExitNonZero \
+    --namespace "${IMPORTER_METRIC_NAMESPACE}" \
+    --statistic Sum \
+    --period 300 --evaluation-periods 1 --threshold 0 \
+    --comparison-operator GreaterThanThreshold \
+    --treat-missing-data notBreaching \
+    --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
+    --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
+
+# 14.3 EMF SourcesFailed > 0 за 1 час
+aws_cli cloudwatch put-metric-alarm \
+    --alarm-name "archive-importer-sources-failed" \
+    --alarm-description "KS-1682: archive-importer reported SourcesFailed > 0 (EMF)" \
+    --metric-name SourcesFailed \
+    --namespace "${IMPORTER_METRIC_NAMESPACE}" \
+    --statistic Sum \
+    --period 3600 --evaluation-periods 1 --threshold 0 \
+    --comparison-operator GreaterThanThreshold \
+    --treat-missing-data notBreaching \
+    --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
+    --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
+
+# 14.4 EMF LastSuccessAgeSeconds > 14 дней (1209600), 2×1h, breaching
+aws_cli cloudwatch put-metric-alarm \
+    --alarm-name "archive-importer-last-success-age" \
+    --alarm-description "KS-1682: LastSuccessAgeSeconds > 14 days (archive-importer stalled)" \
+    --metric-name LastSuccessAgeSeconds \
+    --namespace "${IMPORTER_METRIC_NAMESPACE}" \
+    --statistic Maximum \
+    --period 3600 --evaluation-periods 2 --threshold 1209600 \
+    --comparison-operator GreaterThanThreshold \
+    --treat-missing-data breaching \
+    --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
+    --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
+
+# 14.5 Scheduler invocations = 0 за 24 часа
+aws_cli cloudwatch put-metric-alarm \
+    --alarm-name "archive-importer-scheduler-no-invocations" \
+    --alarm-description "KS-1682: EventBridge Scheduler did not invoke archive-importer in 24h" \
+    --metric-name InvocationAttemptCount \
+    --namespace AWS/Scheduler \
+    --statistic Sum \
+    --dimensions "Name=ScheduleGroup,Value=default" "Name=ScheduleName,Value=${IMPORTER_SCHED_NAME}" \
+    --period 86400 --evaluation-periods 1 --threshold 1 \
+    --comparison-operator LessThanThreshold \
+    --treat-missing-data breaching \
+    --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
+    --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
+
+log "archive-importer oneshot infrastructure ready. Schedule: ${IMPORTER_SCHED_NAME}."
+log "NOTE: старый service kingside-archive-importer удаляется отдельно после первого"
+log "      успешного RunTask — см. шаг 7 из KS-1682 (aws ecs delete-service)."
