@@ -41,6 +41,11 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: { agent: { type: 'string' } }, required: ['agent'] } },
   { name: 'agent_status', description: 'Получить статус всех daemon-агентов: alive, busy, queue_size, message_count, total_cost. Без параметров возвращает всех.',
     inputSchema: { type: 'object', properties: {} } },
+  { name: 'agent_logs', description: 'Получить последние события из текущей сессии другого агента (text, tool_use, tool_result, result). Для диагностики — что делал агент, где застрял.',
+    inputSchema: { type: 'object', properties: {
+      agent: { type: 'string', description: 'Имя агента' },
+      limit: { type: 'number', description: 'Сколько последних событий (по умолчанию 30)' },
+    }, required: ['agent'] } },
   { name: 'telegram_send', description: 'Отправить сообщение пользователю в Telegram.',
     inputSchema: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'] } },
   { name: 'deploy', description: 'Запустить деплой на AWS. scope: frontend | api | workers | all | "" (auto).',
@@ -162,6 +167,8 @@ async function call(name, args) {
       return webhookPost('/agent/kill', { agent: args.agent });
     case 'agent_status':
       return http(`${WEBHOOK}/health`);
+    case 'agent_logs':
+      return webhookPost('/agent/logs', { agent: args.agent, limit: args.limit || 30 });
     case 'telegram_send':
       return webhookPost('/telegram/send', { message: args.message });
     case 'deploy':

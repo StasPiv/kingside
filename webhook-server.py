@@ -2059,6 +2059,67 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"status": "interrupted" if ok else "failed", "agent": agent}).encode())
             return
 
+        if path == "/agent/logs":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            try:
+                payload = json.loads(body) if body else {}
+            except json.JSONDecodeError:
+                payload = {}
+            agent = payload.get("agent", "").lower()
+            limit = int(payload.get("limit", 30))
+            valid = get_valid_agents()
+            if agent not in valid:
+                self.send_response(404)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": f"unknown agent '{agent}'"}).encode())
+                return
+            with agent_daemons_lock:
+                daemon = agent_daemons.get(agent)
+            sid = daemon.session_id if daemon else None
+            if not sid:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"agent": agent, "events": [], "note": "no active session"}).encode())
+                return
+            events = []
+            try:
+                with open(os.path.join(LOG_DIR, "agents.log")) as f:
+                    for line in f:
+                        if f'"session_id":"{sid}"' not in line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+                        t = data.get("type")
+                        if t == "assistant":
+                            for c in data.get("message", {}).get("content", []):
+                                ct = c.get("type")
+                                if ct == "text":
+                                    events.append({"kind": "text", "text": c.get("text", "")[:1000]})
+                                elif ct == "tool_use":
+                                    events.append({"kind": "tool_use", "name": c.get("name"), "input": c.get("input", {})})
+                        elif t == "user":
+                            for c in data.get("message", {}).get("content", []):
+                                if c.get("type") == "tool_result":
+                                    content = c.get("content", "")
+                                    if isinstance(content, list):
+                                        content = " ".join(x.get("text", "") for x in content if isinstance(x, dict))
+                                    events.append({"kind": "tool_result", "error": bool(c.get("is_error")), "content": str(content)[:500]})
+                        elif t == "result":
+                            events.append({"kind": "result", "cost": data.get("total_cost_usd", 0)})
+            except Exception as e:
+                log(f"/agent/logs error: {e}")
+            events = events[-limit:]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"agent": agent, "session_id": sid, "events": events}).encode())
+            return
+
         if path == "/agent/kill":
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
