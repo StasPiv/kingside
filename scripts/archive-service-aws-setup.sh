@@ -475,6 +475,33 @@ aws_cli events put-targets --rule "${IMPORTER_EVENT_RULE_NAME}" \
     --targets "Id=1,Arn=${IMPORTER_EVENTS_LOG_ARN}" >/dev/null
 log "EventBridge rule ${IMPORTER_EVENT_RULE_NAME} configured"
 
+# EventBridge → CloudWatch Logs требует resource-based policy на log group.
+# Console добавляет её автоматически, CLI — нет. Без этой policy events silently
+# не доставляются (no error, target метки стоят — но log stream не появляется).
+IMPORTER_LOGS_RESOURCE_POLICY=$(cat <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "EventBridgeToCWLogs",
+    "Effect": "Allow",
+    "Principal": {"Service": ["events.amazonaws.com", "delivery.logs.amazonaws.com"]},
+    "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+    "Resource": ["arn:aws:logs:${REGION}:${ACCOUNT_ID}:log-group:${IMPORTER_ECS_EVENTS_LOG_GROUP}:*"],
+    "Condition": {
+      "StringEquals": {"aws:SourceAccount": "${ACCOUNT_ID}"},
+      "ArnLike": {"aws:SourceArn": "arn:aws:events:${REGION}:${ACCOUNT_ID}:rule/*"}
+    }
+  }]
+}
+EOF
+)
+IMPORTER_LRP_FILE="$(mktemp -t logs-resource-policy.XXXXXX.json)"
+printf '%s' "${IMPORTER_LOGS_RESOURCE_POLICY}" > "${IMPORTER_LRP_FILE}"
+aws_cli logs put-resource-policy --policy-name ArchiveImporterEventsToLogs \
+    --policy-document "file://${IMPORTER_LRP_FILE}" >/dev/null
+rm -f "${IMPORTER_LRP_FILE}"
+log "logs resource policy ArchiveImporterEventsToLogs attached"
+
 # --- 13. CloudWatch metric filter на exit != 0 ---
 aws_cli logs put-metric-filter \
     --log-group-name "${IMPORTER_ECS_EVENTS_LOG_GROUP}" \
