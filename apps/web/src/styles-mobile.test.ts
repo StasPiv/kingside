@@ -1,6 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync, readdirSync } from 'fs';
+import { resolve, join } from 'path';
+
+/**
+ * Read every stylesheet under `src/styles/*.css` and concatenate them into a
+ * single string. `src/styles.css` used to be the aggregate; after the
+ * refactor it only contains `@import` directives, so the tests that assert on
+ * the CSS text need to read the source files directly.
+ *
+ * Files are sorted alphabetically and joined in that order. The mobile
+ * overrides live in `responsive.css`, which sorts after every other file
+ * that currently contains an `@media (max-width: 480px)` block
+ * (`chat.css`, `layout.css`, `lobby.css`, `play.css`). That keeps
+ * `css.lastIndexOf('@media (max-width: 480px)')` pointing at the block that
+ * owns the rules under test.
+ */
+function loadAggregatedCss(): string {
+  const stylesDir = resolve(__dirname, 'styles');
+  return readdirSync(stylesDir)
+    .filter((file) => file.endsWith('.css'))
+    .sort()
+    .map((file) => readFileSync(join(stylesDir, file), 'utf-8'))
+    .join('\n');
+}
 
 /**
  * KS-263: Реверификация фикса KS-254 — мобильная вёрстка Puzzle Rush
@@ -9,7 +31,7 @@ import { resolve } from 'path';
  * для корректного отображения на viewport 375px.
  */
 describe('KS-254: мобильная вёрстка CSS', () => {
-  const css = readFileSync(resolve(__dirname, 'styles.css'), 'utf-8');
+  const css = loadAggregatedCss();
 
   it('media query @media (max-width: 480px) существует', () => {
     expect(css).toContain('@media (max-width: 480px)');
@@ -60,7 +82,7 @@ describe('KS-254: мобильная вёрстка CSS', () => {
  * KS-388: Адаптивная вёрстка для мобильных устройств
  */
 describe('KS-388: мобильная вёрстка страниц', () => {
-  const css = readFileSync(resolve(__dirname, 'styles.css'), 'utf-8');
+  const css = loadAggregatedCss();
 
   it('game-actions button имеет min-height 44px на мобильных', () => {
     const mobileSection = css.slice(css.lastIndexOf('@media (max-width: 480px)'));
