@@ -75,7 +75,7 @@
 
 ### 2.4 Только в apps/game-service
 
-`game/game.gateway`, `game/bot-cleanup.service`, `game/timeout-checker.service`, `game/guards/ws-jwt.guard`, полные `matchmaking/*` (gateway + service + module + dto), `chat/*` (in-game чат из game gateway), `matchmaker-worker/*` (слушатель Redis pub/sub от `apps/matchmaker`), `instance-logger.ts`.
+`game/game.gateway`, `game/bot-cleanup.service`, `game/timeout-checker.service`, `game/guards/ws-jwt.guard`, полные `matchmaking/*` (gateway + service + module + dto), `chat/*` (in-game чат из game gateway), `matchmaker-worker/*` (внутренний слушатель Redis pub/sub очереди подбора; ранее слушал события от выделенного `apps/matchmaker`, сейчас подбор выполняется внутри самого `game-service`), `instance-logger.ts`.
 
 ## 3. Мёртвый / подозрительный код
 
