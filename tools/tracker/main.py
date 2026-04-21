@@ -329,9 +329,18 @@ def list_comments(key: str):
 @app.post("/api/issues/{key}/comments", status_code=201)
 def add_comment(key: str, data: CommentCreate):
     conn = get_db()
-    row = conn.execute("SELECT 1 FROM issues WHERE key = ?", (key,)).fetchone()
+    row = conn.execute("SELECT status FROM issues WHERE key = ?", (key,)).fetchone()
     if not row:
         raise HTTPException(404, f"Issue {key} not found")
+    # Если в комментарии есть @agent-упоминание — задача должна быть в To Do,
+    # иначе агент не возьмёт задачу в работу.
+    import re as _re
+    if _re.search(r"@(\w+)", data.body or "") and row["status"] != "todo":
+        raise HTTPException(
+            400,
+            f"Issue {key} is in status '{row['status']}'. Comments with @agent mentions "
+            f"require status 'todo'. Transition the task to To Do first (transitionId: 11).",
+        )
     ts = now_iso()
     with db() as c:
         c.execute(
