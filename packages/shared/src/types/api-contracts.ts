@@ -9,8 +9,8 @@
  * field sets MUST match the corresponding types defined below.
  */
 
-import type { PieceColor, GameStatus, GameResult, TimeControl } from './game.js';
-import type { PuzzleDto, PuzzleAttemptResult, PuzzleTheme } from './puzzle.js';
+import type { PieceColor, GameStatus, GameResult } from './game.js';
+import type { PuzzleDto, PuzzleAttemptResult } from './puzzle.js';
 import type { Locale, User } from './user.js';
 import type { BoardTheme, PieceSet } from '../constants.js';
 
