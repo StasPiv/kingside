@@ -15,7 +15,6 @@ import request from 'supertest';
 import type { Server } from 'http';
 import { MetricsController } from './metrics.controller';
 import { MetricsService } from './metrics.service';
-import { stripApiPrefix } from '../common/strip-api-prefix.middleware';
 
 describe('MetricsController E2E', () => {
   let app: INestApplication;
@@ -28,11 +27,8 @@ describe('MetricsController E2E', () => {
     }).compile();
 
     app = module.createNestApplication();
-    // KS-1664: `setGlobalPrefix('api')` заменён на dual-prefix middleware
-    // в `main.ts` — повторяем ту же семантику здесь, чтобы тест проверял
-    // фактический внешний путь `/api/metrics` (который middleware
-    // переписывает в `/metrics` до матчинга Nest'ом).
-    app.use(stripApiPrefix);
+    // KS-1666: dual-prefix middleware удалён после soak — контроллеры
+    // отвечают только на свой путь (`/metrics`).
     await app.init();
 
     metrics = module.get(MetricsService);
@@ -42,8 +38,8 @@ describe('MetricsController E2E', () => {
     await app.close();
   });
 
-  it('GET /api/metrics → 200 и корректный Content-Type', async () => {
-    const res = await request(app.getHttpServer() as Server).get('/api/metrics');
+  it('GET /metrics → 200 и корректный Content-Type', async () => {
+    const res = await request(app.getHttpServer() as Server).get('/metrics');
 
     expect(res.status).toBe(200);
     // prom-client может отдавать порядок параметров как
@@ -57,7 +53,7 @@ describe('MetricsController E2E', () => {
   });
 
   it('тело начинается с # HELP / # TYPE (Prometheus text format)', async () => {
-    const res = await request(app.getHttpServer() as Server).get('/api/metrics');
+    const res = await request(app.getHttpServer() as Server).get('/metrics');
 
     expect(res.text).toMatch(/^# HELP /m);
     expect(res.text).toMatch(/^# TYPE /m);
@@ -68,7 +64,7 @@ describe('MetricsController E2E', () => {
     metrics.incListMismatch('master');
     metrics.incListMismatch('user');
 
-    const res = await request(app.getHttpServer() as Server).get('/api/metrics');
+    const res = await request(app.getHttpServer() as Server).get('/metrics');
 
     expect(res.text).toContain('# TYPE archive_tree_list_mismatch_total counter');
     // В Prometheus text для counter печатается `name{labels} value`.
@@ -81,7 +77,7 @@ describe('MetricsController E2E', () => {
   });
 
   it('archive_games_list_position_not_indexed_total зарегистрирован', async () => {
-    const res = await request(app.getHttpServer() as Server).get('/api/metrics');
+    const res = await request(app.getHttpServer() as Server).get('/metrics');
     expect(res.text).toContain(
       '# TYPE archive_games_list_position_not_indexed_total counter',
     );
@@ -91,7 +87,7 @@ describe('MetricsController E2E', () => {
     metrics.observeTreeQueryDuration(true, 0.001);
     metrics.observeTreeQueryDuration(false, 0.15);
 
-    const res = await request(app.getHttpServer() as Server).get('/api/metrics');
+    const res = await request(app.getHttpServer() as Server).get('/metrics');
 
     expect(res.text).toContain(
       '# TYPE archive_tree_query_duration_seconds histogram',
@@ -105,7 +101,7 @@ describe('MetricsController E2E', () => {
   });
 
   it('process-метрики prom-client присутствуют (collectDefaultMetrics)', async () => {
-    const res = await request(app.getHttpServer() as Server).get('/api/metrics');
+    const res = await request(app.getHttpServer() as Server).get('/metrics');
     // `process_cpu_seconds_total` — один из всегда-present counter'ов из
     // collectDefaultMetrics. Наличие — индикатор что default metrics включены.
     expect(res.text).toContain('process_cpu_seconds_total');
