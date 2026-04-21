@@ -1,4 +1,10 @@
 import 'reflect-metadata';
+// КРИТИЧНО: импортируется side-effect-ом ДО `./importer-once.module` и
+// всего, что транзитивно тянет `aws-embedded-metrics`. Ставит
+// `AWS_EMF_ENVIRONMENT=Local`, иначе на Fargate без EMF Agent sidecar'а
+// `flush()` падает `ECONNREFUSED 0.0.0.0:25888`. См. комментарий в
+// `setup-emf-env.ts` и ADR-020 §2.5.
+import './setup-emf-env';
 import { Logger, INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ImporterOnceModule } from './importer-once.module';

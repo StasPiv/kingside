@@ -17,6 +17,15 @@ import type { TickResult, TickSourceResult } from './archive-import.service';
  *   - EMF пишет JSON-строки в stdout, CloudWatch Logs сам парсит и
  *     экстрактит метрики → нулевой overhead на TPS-лимит.
  *
+ * ‼️ Sink-режим (stdout vs TCP к EMF Agent `0.0.0.0:25888`) выбирается
+ * по env `AWS_EMF_ENVIRONMENT`. По умолчанию `aws-embedded-metrics`
+ * пытается подключиться к EMF Agent — на Fargate без sidecar'а это
+ * даёт `ECONNREFUSED` и метрики в CloudWatch не попадают. Для Fargate +
+ * awslogs driver нужен Local-режим (stdout); env выставляется в
+ * `src/setup-emf-env.ts` side-effect-ом ДО загрузки этой библиотеки.
+ * НЕ УДАЛЯЙ `./setup-emf-env` импорт из `importer-once.ts` — иначе
+ * ECS RunTask будет молча терять метрики (ADR-020 §2.5, KS-1682 блокер).
+ *
  * Namespace `Kingside/ArchiveImporter` (ADR-020 §2.5).
  *
  * Per-source метрики (dimension `source` = archive_sources.code):
