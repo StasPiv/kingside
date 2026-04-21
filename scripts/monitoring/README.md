@@ -1,6 +1,83 @@
 # Мониторинг — Prometheus / Alertmanager / Grafana
 
 Настроено по KS-1635 (ADR-016 §Этап 6) и ADR-014 §1.4.
+Self-hosted deployment — по KS-1638.
+
+## Prod-инстанс (self-hosted)
+
+Развёрнут на EC2 t3.small в том же VPC, что ECS/RDS.
+
+| Параметр           | Значение                                            |
+| ------------------ | --------------------------------------------------- |
+| Регион             | eu-central-1                                        |
+| VPC / Subnet       | kingside-vpc (vpc-0d0d9344db8d11e7e) / kingside-public-a |
+| Instance           | tag `Name=kingside-monitoring` (t3.small, AL2023)   |
+| IAM role           | `kingside-monitoring-ec2` (SSM + ECS read + Secrets + SSM param) |
+| SG                 | `kingside-monitoring-sg`                            |
+| Elastic IP         | tag `Name=kingside-monitoring-eip`                  |
+| Grafana URL        | `http://<EIP>:3000`                                 |
+| Prometheus URL     | `http://<EIP>:9090`                                 |
+| Alertmanager URL   | `http://<EIP>:9093`                                 |
+| Grafana admin pwd  | SSM parameter `/kingside/monitoring/grafana_admin_password` (SecureString) |
+| Systemd unit       | `kingside-monitoring.service` (автозапуск compose)  |
+
+**Как попасть в shell EC2** (без SSH, через SSM Session Manager):
+
+```bash
+aws ssm start-session --target <instance-id> --region eu-central-1
+```
+
+**Как проверить состояние:**
+
+```bash
+curl http://<EIP>:9090/-/healthy         # Prometheus
+curl http://<EIP>:9093/-/healthy         # Alertmanager
+curl http://<EIP>:3000/api/health        # Grafana
+curl http://<EIP>:9090/api/v1/targets    # все scrape targets
+```
+
+## Deploy / Redeploy
+
+```bash
+# Развернуть с нуля (идемпотентно — повторный запуск не создаёт дубликатов)
+bash scripts/monitoring/deploy-ec2.sh
+
+# Обновить конфиги после правки (без пересоздания EC2):
+#   1. Запакуй tarball и залей в S3
+bash scripts/monitoring/deploy-ec2.sh   # первые шаги обновят tarball в S3
+#   2. На EC2 скачай и перезапусти compose (через SSM):
+aws ssm send-command --region eu-central-1 \
+  --instance-ids <i-...> \
+  --document-name AWS-RunShellScript \
+  --parameters 'commands=["cd /opt/kingside-monitoring && aws s3 cp s3://kingside-frontend-342946498289/monitoring/configs.tar.gz /tmp/c.tar.gz --region eu-central-1 && tar -xzf /tmp/c.tar.gz -C /opt/kingside-monitoring && docker compose -f compose.monitoring.yml --env-file .env up -d"]'
+
+# Полностью удалить (terminate instance, release EIP; SG/IAM остаются)
+bash scripts/monitoring/deploy-ec2.sh --destroy
+```
+
+## Два режима compose
+
+- `docker-compose.yml` profile `monitoring` (dev/локально) — для разработки; все сервисы в одном Docker-хосте, Postgres внутренний.
+- `scripts/monitoring/compose.monitoring.yml` (prod self-hosted) — для EC2; подключается к внешнему RDS, использует ECS Service Discovery через sidecar `ecs-discovery`.
+
+## ECS Service Discovery
+
+Координатор в KS-1638 отметил: публичный ALB скрейпить **нельзя** — per-process counters prom-client балансируются между инстансами ECS и отдают случайные слайсы. Поэтому:
+
+1. Sidecar `ecs-discovery` (на базе `amazon/aws-cli:2.17.37` + `jq`) каждые 60 секунд читает ECS API (`ListTasks` + `DescribeTasks`).
+2. Генерирует файл `/etc/prometheus/targets/kingside-api.json` с массивом `{targets: ["10.0.2.124:3001"], labels: {task_arn, task_id, ecs_health}}`.
+3. Prometheus через `file_sd_config` (`refresh_interval: 30s`) подхватывает обновления — добавление/удаление тасок при rolling deploy обрабатывается без ручного вмешательства.
+
+Требования к IAM-роли EC2:
+- `ecs:ListTasks`, `ecs:DescribeTasks`, `ec2:DescribeNetworkInterfaces`.
+- `secretsmanager:GetSecretValue` на `kingside/api` (для bootstrap).
+- `s3:GetObject` на `kingside-frontend-<acct>/monitoring/*`.
+- `ssm:PutParameter`/`GetParameter` на `/kingside/monitoring/*`.
+- `AmazonSSMManagedInstanceCore` (для Session Manager).
+
+SG: `kingside-monitoring-sg` получает inbound к `kingside-ecs-sg:3001` и `rds-sg:5432` (прописано в `deploy-ec2.sh`).
+
+## Дев (docker-compose profile `monitoring`)
 
 ## Стек
 
