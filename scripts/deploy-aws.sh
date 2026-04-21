@@ -20,6 +20,7 @@ ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
 ECR_URI_GAME="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-game-service"
 ECR_URI_BROADCAST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-worker"
 ECR_URI_ARCHIVE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-importer"
+ECR_URI_ARCHIVE_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
@@ -27,6 +28,7 @@ ECS_SERVICE="kingside-api"
 ECS_SERVICE_GAME="kingside-game-service"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
 ECS_SERVICE_ARCHIVE="kingside-archive-importer"
+ECS_SERVICE_ARCHIVE_SERVICE="kingside-archive-service"
 # Prod values hardcoded — DO NOT use ${VITE_*:-default}:
 # локальные VITE_* (dev: ws://localhost:3002) в env webhook-server/хоста
 # перебивали дефолты и попадали в prod-бандл. См. KS-1570.
@@ -107,6 +109,7 @@ detect_deploy_scope() {
     local has_game=false
     local has_broadcast=false
     local has_archive=false
+    local has_archive_service=false
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
@@ -121,18 +124,25 @@ detect_deploy_scope() {
                 has_broadcast=true ;;
             apps/archive-importer/*)
                 has_archive=true ;;
+            apps/archive-service/*)
+                has_archive_service=true ;;
+            packages/archive-db/*)
+                has_archive=true
+                has_archive_service=true ;;
             packages/shared/*)
                 has_frontend=true
                 has_api=true
                 has_game=true
                 has_broadcast=true
-                has_archive=true ;;
+                has_archive=true
+                has_archive_service=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
                 has_game=true
                 has_broadcast=true
-                has_archive=true ;;
+                has_archive=true
+                has_archive_service=true ;;
         esac
     done <<< "$changed_files"
 
@@ -143,6 +153,7 @@ detect_deploy_scope() {
     $has_game && count=$((count + 1))
     $has_broadcast && count=$((count + 1))
     $has_archive && count=$((count + 1))
+    $has_archive_service && count=$((count + 1))
 
     if [ "$count" -gt 1 ]; then
         echo "all"
@@ -156,6 +167,8 @@ detect_deploy_scope() {
         echo "broadcast-worker"
     elif $has_archive; then
         echo "archive-importer"
+    elif $has_archive_service; then
+        echo "archive-service"
     else
         echo "none"
     fi
@@ -185,6 +198,7 @@ DEPLOY_API=false
 DEPLOY_GAME=false
 DEPLOY_BROADCAST=false
 DEPLOY_ARCHIVE=false
+DEPLOY_ARCHIVE_SERVICE=false
 
 case "$SCOPE" in
     frontend)          DEPLOY_FRONTEND=true ;;
@@ -192,8 +206,9 @@ case "$SCOPE" in
     game-service)      DEPLOY_GAME=true ;;
     broadcast-worker)  DEPLOY_BROADCAST=true ;;
     archive-importer)  DEPLOY_ARCHIVE=true ;;
+    archive-service)   DEPLOY_ARCHIVE_SERVICE=true ;;
     workers)           DEPLOY_BROADCAST=true; DEPLOY_ARCHIVE=true ;;
-    all)               DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true; DEPLOY_ARCHIVE=true ;;
+    all)               DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true; DEPLOY_ARCHIVE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
     *)                 echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
@@ -290,6 +305,38 @@ if $DEPLOY_BROADCAST; then
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
+fi
+
+# --- Archive Service (apps/archive-service): docker build → ECR push → ECS update ---
+# Service создаётся один раз через scripts/archive-service-aws-setup.sh
+# (task-def + service + autoscaling + TG health-check-path + SG ingress 3003).
+# Здесь — только регулярный rebuild: build, push :latest, force-new-deployment.
+# Если service ещё не создан, update-service будет пропущен (см. check ниже).
+if $DEPLOY_ARCHIVE_SERVICE; then
+    echo "[archive-service] Logging in to ECR..."
+    aws ecr get-login-password --region "$REGION" | \
+        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+
+    echo "[archive-service] Building Docker image..."
+    docker build -t kingside-archive-service:latest -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR"
+
+    echo "[archive-service] Pushing to ECR..."
+    docker tag kingside-archive-service:latest "${ECR_URI_ARCHIVE_SERVICE}:latest"
+    docker push "${ECR_URI_ARCHIVE_SERVICE}:latest" 2>&1 | tail -3
+
+    ARCHIVE_SERVICE_STATUS=$(aws ecs describe-services \
+        --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE" \
+        --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+
+    if [ "$ARCHIVE_SERVICE_STATUS" = "ACTIVE" ]; then
+        echo "[archive-service] Updating ECS service..."
+        aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_ARCHIVE_SERVICE" \
+            --force-new-deployment --query 'service.deployments[0].status' --output text
+        echo "  ECS service update initiated."
+    else
+        echo "[archive-service] ECS service '$ECS_SERVICE_ARCHIVE_SERVICE' not found (status=$ARCHIVE_SERVICE_STATUS)."
+        echo "  Skipping update-service. Run scripts/archive-service-aws-setup.sh to create service."
+    fi
 fi
 
 # --- Archive Importer: docker build → ECR push → ECS update ---
