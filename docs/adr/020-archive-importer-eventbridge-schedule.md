@@ -231,21 +231,85 @@ Fargate 256 CPU / 512 MiB on-demand (us-east-1) ≈ \$0.0122/vCPU-hour + \$0.001
 
 ### 2.4 Ad-hoc CLI `cli:import-twic-issue` (KS-1679)
 
-**Не трогаем.** Живёт в `apps/archive-service/src/cli/import-twic-issue.ts`, запускается отдельной ECS RunTask'ой вручную (devops или оператор-администратор):
+**Код не трогаем.** Живёт в `apps/archive-service/src/cli/import-twic-issue.ts`, запускается отдельной ECS RunTask'ой вручную (devops или оператор-администратор).
+
+**Corrigendum (KS-1683, 2026-04-21):** исходный черновик §2.4 предписывал переиспользовать `kingside-archive-importer-oneshot` task-def с `containerOverrides.command`. После фактического запроса на ретроспективный импорт (TWIC-1639 и потенциально несколько выпусков назад) решение пересмотрено — см. §2.4.1 ниже.
+
+#### 2.4.1 Инфраструктура ad-hoc запуска — отдельный task-def
+
+**Решение:** отдельная task-def family `kingside-archive-importer-adhoc`.
+
+| Критерий | `--overrides` на `oneshot` (исходный вариант) | Отдельный `adhoc` task-def (принято) |
+| - | - | - |
+| Log group | `/kingside/archive-importer-oneshot` (смешан с daily) | `/kingside/archive-importer-adhoc` (изолирован) |
+| Log retention | 90 дней (единая политика daily) | 30 дней достаточно — ad-hoc-аудит короче |
+| IaC (инфраструктурный скрипт) | Ad-hoc как эфемерная команда, не отражён в IaC | Task-def, log group и retention видны в `scripts/archive-service-aws-setup.sh` |
+| CloudWatch Logs Insights фильтр | По `[cli:import-twic-issue]` префиксу (работает, но хрупко) | По `logGroupName` — тривиально |
+| Alarm collision | EMF из daily и ad-hoc в одном namespace (см. §2.4.2) | Физически разделить проще |
+| Дополнительная работа devops | Никакой | Один task-def + один log group + один retention parameter |
+
+**Почему это важно:** KS-1683 подразумевает одиночный запуск TWIC-1639, но реальный план оператора — заливать выпуски 1638, 1637, … назад (ручной backward-walk архива) с проверкой метрик между итерациями. При двух-трёх десятках ad-hoc run'ов смешение с daily log-stream'ом делает пост-мортем-аудит трудоёмким. Стоимость «лишнего» task-def и log group'ы ≈ \$0/мес (billable только log ingest), девопс-работа — ~20 минут к `scripts/archive-service-aws-setup.sh`.
+
+**Конфигурация task-def `kingside-archive-importer-adhoc`:**
+- **Та же image URI**, что у `oneshot` (один ECR build на весь archive-service).
+- `containerDefinitions[0].command: ["node", "dist/cli/import-twic-issue.js"]`. Номер выпуска подаётся через `--overrides.containerOverrides.command[1]`, см. команду ниже.
+- Env: те же, что у `oneshot` (`ARCHIVE_DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `NODE_ENV=production`). **Исключение:** `AWS_EMF_*` переменные — не задаём (см. §2.4.2).
+- `logConfiguration.awslogs-group: /kingside/archive-importer-adhoc`, `retention: 30 days`.
+- `cpu=256, memory=512`, `stopTimeout: 120` — как у `oneshot`.
+
+**Команда запуска (пример, TWIC-1639):**
 
 ```bash
 aws ecs run-task \
   --cluster kingside \
-  --task-definition kingside-archive-importer-oneshot \
+  --task-definition kingside-archive-importer-adhoc \
   --launch-type FARGATE \
+  --network-configuration '{"awsvpcConfiguration":{"subnets":["subnet-..."],"securityGroups":["sg-..."],"assignPublicIp":"DISABLED"}}' \
   --overrides '{"containerOverrides":[{"name":"archive-importer","command":["node","dist/cli/import-twic-issue.js","1639"]}]}'
 ```
 
-**Взаимодействие с EventBridge Scheduler:**
-- Оба (scheduler-triggered `importer-once.js` и ad-hoc `cli:import-twic-issue.js`) берут **один и тот же Redis-lock** `archive:import:lock:twic` (ADR-019 §2.11). Если ad-hoc CLI работает — scheduler увидит `lock held, skipping` → TickResult содержит `status='locked'` для source='twic' → exit code 0 (не ошибка, ожидаемая backoff).
-- Обратное: ad-hoc CLI, запущенный в 20:00 UTC ± минуты с scheduler'ом — один из них возьмёт lock, второй получит busy. Low-probability, но терпимо.
+(Фактические subnet/SG/name берёт devops из `scripts/archive-service-aws-setup.sh` при регистрации task-def.)
 
-**Task definition переиспользуется:** `kingside-archive-importer-oneshot` с overriden command. Экономия — одна task-def семья, не две. Env переменные одинаковые.
+#### 2.4.2 EMF-метрики из ad-hoc CLI — НЕ публикуем
+
+**Решение:** ad-hoc CLI НЕ эмитит EMF. Ни исходный код, ни task-def не содержат EMF-publishing. Мониторинг ad-hoc — через CloudWatch Logs Insights поверх `PROGRESS_TAG='[cli:import-twic-issue]'`.
+
+**Обоснование:**
+1. `LastSuccessAgeSeconds` (§2.6) считается EMF-паблишером от `archive_sources.lastSuccessAt`. Ad-hoc, по §2.4.3, это поле НЕ обновляет. Если CLI опубликует EMF — метрика покажет корректное, но «старое» значение относительно ПОСЛЕДНЕГО scheduler-run'а, что исказит форму графика без полезного сигнала.
+2. `GamesAdded`/`ClassicalRatio` от ad-hoc попадут в тот же namespace `Kingside/ArchiveImporter{Source=twic}` — пики, которых не было в scheduler-рамке. Алёртам они не помешают (их thresholds грубее), но dashboard'ы daily-мониторинга станут шумнее.
+3. Если позже понадобится именно CloudWatch-дашборд ad-hoc-активности — заводим отдельный namespace `Kingside/ArchiveImporterAdhoc` с dimension `Source=twic`. Это ровно один `aws-embedded-metrics` config + `import './setup-emf-env'` в CLI. Делаем как follow-up, не сейчас — YAGNI.
+
+**Инвариант кода:** `import-twic-issue.ts` использует `ImporterModule` (а не `ImporterOnceModule`), поэтому `setup-emf-env` side-effect-модуль НЕ импортируется транзитивно — `AWS_EMF_ENVIRONMENT` не устанавливается, `aws-embedded-metrics` в Local-mode не инициализируется, stdout не получает EMF-JSON. Регрессия сломается, только если backend явно добавит EMF-publishing в CLI. Защитный тест: `import-twic-issue.spec.ts` должен проверить, что `setup-emf-env` не импортирован в dependency graph'е CLI (или что `console.log` CLI не содержит `_aws.CloudWatchMetrics` блок в stdout-фикстуре).
+
+**Следствие для task-def:** env-переменные `AWS_EMF_NAMESPACE` / `AWS_EMF_LOG_GROUP_NAME` в `kingside-archive-importer-adhoc` НЕ задаются — явная защита от случайного вовлечения EMF при будущей правке кода.
+
+#### 2.4.3 Инварианты runtime поведения ad-hoc (инфраструктурное + DB)
+
+Текущая реализация `TwicImporter.runAdHoc(issue)` и `cli/import-twic-issue.ts` уже удовлетворяет нижеперечисленному. Этот пункт фиксирует инварианты как ОБЯЗАТЕЛЬНЫЕ — любая будущая правка обязана сохранять поведение или обновлять этот ADR:
+
+1. **`archive_sources.cursor` НЕ меняется.** Scheduler продолжит идти с `cursor+1`, ретроспективный ad-hoc не «проглатывает» будущие выпуски.
+2. **`archive_sources.lastRunAt` / `lastSuccessAt` / `lastError` / `totalGames` НЕ меняются.** Alarm `LastSuccessAgeSeconds > 14 days` (§2.6) измеряет исключительно scheduler-pipeline. Ad-hoc-активность невидима для alarm'ов и не «маскирует» реальный сбой.
+3. **`archive_imports` строка создаётся с `cursorBefore = cursorAfter = source.cursor`** — это ad-hoc-маркер для SQL-аудита (`WHERE cursor_before = cursor_after`). Добавленные партии атрибутируются через `archive_imports.sourceId + finishedAt`.
+4. **Redis-lock `archive:import:lock:twic`, TTL 1800 сек (30 мин), NX.** Тот же ключ, что и у scheduler-tick (ADR-019 §2.11). Race между scheduler и ad-hoc разрешается в пользу того, кто взял lock первым; второй получает `lock held, skipping`:
+   - scheduler → `TickResult.runs[twic].status='locked'`, exit 0 (не ошибка).
+   - ad-hoc CLI → `throw` с текстом `lock "archive:import:lock:twic" is held`, exit 1 (fatal, оператор видит и ретраит через минуту).
+5. **TTL 30 мин достаточен.** Нормальный ad-hoc-импорт одного выпуска ≈ 30–120 сек (один zip 2–5 MiB, ~3000 партий, COPY + position-indexer). 30 мин — 15–60x safety-margin. Если CLI будет SIGKILL'нут извне (OOM, task stopped externally), lock повисит ≤ 30 мин; следующий scheduler-tick в это окно skip'нет — приемлемый blast radius.
+6. **Dedup (идемпотентность).** Повторный запуск CLI на уже импортированный выпуск:
+   - `filterAlreadyImported(prisma, games)` отбрасывает все `content_hash` из БД → `freshGames=[]` → цикл insert не выполняется → `gamesAdded=0`, `gamesSkipped=<all>`.
+   - `status='ok'` (не `'failed'`), exit code = 0.
+   - `PUBLISH archive:imported` НЕ вызывается (условие `gamesAdded > 0`).
+   - Контракт: `no-op idempotent`. Fail-fast / `--force` режимы НЕ вводятся (YAGNI — оператор различает повторный запуск по `gamesSkipped > 0 && gamesAdded == 0` в логе; перезаливка возможна только через ручной DELETE в `archive_games`).
+7. **`PUBLISH archive:imported` в Redis при `gamesAdded > 0`.** Подписчик — HTTP-процесс `archive-service:3003`, сбрасывает кеш `/tree` и `/games`. Если publish упал (Redis недоступен), CLI логирует warning и завершается exit 0 — кеш всё равно TTL-инвалидируется.
+
+**Тесты (backend, в рамках последующего тикета KS-E08-like):**
+- Integration-тест на `TwicImporter.runAdHoc` с fixture Prisma: проверяет что `archive_sources` row НЕ изменился после вызова (все 6 полей из инварианта #2 остались равны), а в `archive_imports` создана строка с `cursor_before = cursor_after`.
+- Integration-тест на повторный `runAdHoc(1639)` → второй вызов даёт `{gamesAdded:0, gamesSkipped=N, status:'ok'}`, `archive_sources` не тронут.
+- Unit-тест CLI (уже есть в `import-twic-issue.spec.ts:119`) проверяет `PUBLISH` не вызывается при `gamesAdded=0`.
+
+#### 2.4.4 Взаимодействие с EventBridge Scheduler
+
+- Оба (scheduler-triggered `importer-once.js` и ad-hoc `cli:import-twic-issue.js`) берут **один и тот же Redis-lock** `archive:import:lock:twic` (ADR-019 §2.11). Поведение при race описано в §2.4.3 #4.
+- Ad-hoc CLI, запущенный в 20:00 UTC ± минуты со scheduler'ом — один из них возьмёт lock, второй получит busy. Low-probability, но терпимо.
 
 ### 2.5 Мониторинг short-lived tasks
 
@@ -455,7 +519,7 @@ Rollback: `--desired-count 1` — мгновенно возвращает пос
 ## 3. Последствия
 
 - **Backend.** Малый PR (`importer-once.ts` + `importer-once.module.ts` + `tickOnce()` + `EmfMetricsPublisher` + `aws-embedded-metrics` dep + тесты). Не меняет существующий loop-режим. Не меняет публичный API archive-service HTTP.
-- **DevOps.** Новая EventBridge schedule, новая IAM role, новая task-def family, SQS DLQ, 5 CloudWatch alarms, SNS topic + Slack-webhook. Удаление ECS service `kingside-archive-importer` + Prometheus scrape target. Чистка `docker-compose.yml` (опционально).
+- **DevOps.** Новая EventBridge schedule, новая IAM role, **две новые task-def family** (`kingside-archive-importer-oneshot` для daily scheduler + `kingside-archive-importer-adhoc` для CLI ретроспективного импорта, §2.4.1), SQS DLQ, 5 CloudWatch alarms, SNS topic + Slack-webhook. Два отдельных log group'а: `/kingside/archive-importer-oneshot` (retention 90d) и `/kingside/archive-importer-adhoc` (retention 30d). Удаление ECS service `kingside-archive-importer` + Prometheus scrape target. Чистка `docker-compose.yml` (опционально).
 - **Biz-выгода.** Экономия \$10–15/мес (1 Fargate task 24/7 → weekly 2-мин task). Нематериально для MVP, но сам паттерн «event-driven serverless для нерегулярных задач» правильно зафиксировать.
 - **Мониторинг.** EMF метрики в CloudWatch (имена PascalCase, namespace `Kingside/ArchiveImporter`). Prometheus продолжает scrape HTTP-процесса (`archive-service:3003`); importer-процесс больше не source Prometheus metrics (CloudWatch EMF вместо этого).
 - **Grafana.** Если есть dashboard на `archive_import_*` prom-client метриках — он **перестанет обновляться** после Шаг 3. Задача devops: либо мигрировать на CloudWatch datasource + EMF metric names, либо оставить исторические графики «до 2026-05-XX». Решение в ADR не фиксируется — зона devops.
@@ -489,6 +553,9 @@ Rollback: `--desired-count 1` — мгновенно возвращает пос
 
 - **KS-E01 [backend]** — Шаг 0. Добавить `importer-once.ts`, `importer-once.module.ts`, метод `ArchiveImportService.tickOnce()` с `TickResult`. Добавить `EmfMetricsPublisher` в `MetricsModule`. Dep `aws-embedded-metrics`. Unit-тесты: `importer-once.spec.ts` (exit codes, mock tickOnce), `emf-metrics-publisher.spec.ts` (EMF JSON shape). Обновить `apps/archive-service/README.md` разделом one-shot mode. Не трогать existing `importer-main.ts`.
 - **KS-E02 [devops]** — Шаг 1. IAM role + ECS task-def `kingside-archive-importer-oneshot` + SQS DLQ + EventBridge schedule (DISABLED) + EventBridge rule для ECS Task State Change + SNS topic + 5 CloudWatch alarms. Smoke через `aws ecs run-task` вручную.
+- **KS-E02b [devops]** — (KS-1683 corrigendum, §2.4.1) ECS task-def `kingside-archive-importer-adhoc` + CloudWatch log group `/kingside/archive-importer-adhoc` retention 30d. Общие IAM/SG/subnet с `oneshot`. Обновить `scripts/archive-service-aws-setup.sh` так, чтобы оба task-def'а регистрировались IaC-скриптом.
+- **KS-E02c [backend]** — (KS-1683 corrigendum, §2.4.2/§2.4.3) Защитный unit-тест: CLI `cli/import-twic-issue.ts` не тянет `setup-emf-env` в dependency graph (EMF не должен инициализироваться). Integration-тесты на `TwicImporter.runAdHoc`: инварианты `archive_sources` immutable + `archive_imports.cursor_before == cursor_after` + идемпотентность повторного запуска.
+- **KS-E02d [devops]** — Финальный запуск ретроспективного импорта TWIC-1639 через `kingside-archive-importer-adhoc`, пост-проверка: `SELECT count(*) FROM archive_games ai JOIN archive_imports aim ON ai.import_id=aim.id WHERE aim.file_name='twic1639.pgn'` + `archive_sources.cursor` не изменился.
 - **KS-E03 [devops]** — Шаг 2. `State=ENABLED` на schedule. 7 дней soak, проверка EMF + alarm'ов.
 - **KS-E04 [devops]** — Шаг 3. `desired-count=0` на `kingside-archive-importer` service. 14 дней soak.
 - **KS-E05 [devops]** — Шаг 4. `delete-service`, удаление Prometheus scrape target, cleanup docker-compose.yml.
