@@ -111,18 +111,24 @@ export class ArchivePositionWriter {
    * Записывает `rows` через COPY в TEMP staging → `INSERT ... ON CONFLICT
    * DO NOTHING`. Пустой массив — no-op. Измеряется гистограмма
    * `archive_importer_position_rows_copy_duration_seconds`.
+   *
+   * Возвращает количество реально вставленных строк (rowCount от INSERT).
+   * В extend-mode backfill это значение != rows.length: часть строк попадает
+   * в ON CONFLICT DO NOTHING и не вставляется. Нужно для прогресс-лога и
+   * sanity-check (KS-1633).
    */
-  async write(rows: PositionRow[], source = 'unknown'): Promise<void> {
-    if (rows.length === 0) return;
+  async write(rows: PositionRow[], source = 'unknown'): Promise<number> {
+    if (rows.length === 0) return 0;
 
-    await archivePositionRowsCopyDurationSeconds.time({ source }, async () => {
+    return archivePositionRowsCopyDurationSeconds.time({ source }, async () => {
       const client = await this.pool.connect();
       try {
         await client.query('BEGIN');
         await client.query(STAGE_DDL);
         await this.copyRows(client, rows);
-        await client.query(INSERT_STMT);
+        const result = await client.query(INSERT_STMT);
         await client.query('COMMIT');
+        return result.rowCount ?? 0;
       } catch (err) {
         await client.query('ROLLBACK').catch(() => {});
         throw err;
