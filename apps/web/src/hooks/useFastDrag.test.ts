@@ -8,7 +8,52 @@ import { useFastDrag } from './useFastDrag';
  * Verifies the KS-270 regression fix:
  * - enabled check is performed at pointerdown time (not setup time)
  * - options.enabled in useEffect deps causes re-setup on change
+ *
+ * NOTE: the hook postpones ghost creation until the pointer has moved past
+ * `DRAG_THRESHOLD` (4px) — a plain `pointerdown` is treated as a potential
+ * click so that `onPieceClick` can still fire (KS-???). A test that wants to
+ * trigger the drag path must follow up with a `pointermove` beyond the
+ * threshold; see `simulateDragStart` below.
  */
+
+const DRAG_THRESHOLD = 4;
+
+/**
+ * Fire a pointerdown on the piece followed by a pointermove that crosses the
+ * drag threshold, so `useFastDrag` promotes the gesture to an active drag and
+ * creates the ghost element.
+ */
+function simulateDragStart(piece: Element, startX: number, startY: number): void {
+  piece.dispatchEvent(
+    new PointerEvent('pointerdown', {
+      clientX: startX,
+      clientY: startY,
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+    }),
+  );
+  // Move far enough past the threshold (10px is well over 4).
+  document.dispatchEvent(
+    new PointerEvent('pointermove', {
+      clientX: startX + DRAG_THRESHOLD + 10,
+      clientY: startY,
+      bubbles: true,
+    }),
+  );
+}
+
+/**
+ * Stub `setPointerCapture` / `releasePointerCapture` on the container. happy-dom
+ * supports them, but we never wire a real PointerEvent path-through, so without
+ * a stub the hook's `container.setPointerCapture(pointerId)` call throws and
+ * tears down the whole drag start.
+ */
+function stubPointerCapture(el: HTMLElement): void {
+  el.setPointerCapture = vi.fn();
+  el.releasePointerCapture = vi.fn();
+  el.hasPointerCapture = vi.fn(() => false);
+}
 
 function createMockContainer(): HTMLDivElement {
   const container = document.createElement('div');
@@ -56,6 +101,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
 
   beforeEach(() => {
     container = createMockContainer();
+    stubPointerCapture(container);
   });
 
   afterEach(() => {
@@ -76,16 +122,10 @@ describe('useFastDrag — enabled state (KS-273)', () => {
       }),
     );
 
-    // Simulate pointerdown on own piece
+    // Simulate a full drag gesture (pointerdown + pointermove > threshold) on
+    // own piece. The hook should ignore it because enabled=false.
     const piece = container.querySelector('[data-piece="wP"]')!;
-    piece.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        clientX: 225,
-        clientY: 225,
-        bubbles: true,
-        button: 0,
-      }),
-    );
+    simulateDragStart(piece, 225, 225);
 
     // No ghost should be created
     const ghosts = document.querySelectorAll('[style*="position: fixed"]');
@@ -119,15 +159,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
     );
 
     const piece = container.querySelector('[data-piece="wP"]')!;
-    piece.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        clientX: 225,
-        clientY: 225,
-        bubbles: true,
-        button: 0,
-        cancelable: true,
-      }),
-    );
+    simulateDragStart(piece, 225, 225);
 
     const ghosts = document.querySelectorAll('[style*="z-index: 9999"]');
     expect(ghosts.length).toBe(1);
@@ -170,17 +202,9 @@ describe('useFastDrag — enabled state (KS-273)', () => {
       { initialProps: { enabled: false } },
     );
 
-    // Pointerdown should be ignored when disabled
+    // Drag gesture should be ignored when disabled
     const piece = container.querySelector('[data-piece="wP"]')!;
-    piece.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        clientX: 225,
-        clientY: 225,
-        bubbles: true,
-        button: 0,
-        cancelable: true,
-      }),
-    );
+    simulateDragStart(piece, 225, 225);
 
     let ghosts = document.querySelectorAll('[style*="z-index: 9999"]');
     expect(ghosts.length).toBe(0);
@@ -188,16 +212,8 @@ describe('useFastDrag — enabled state (KS-273)', () => {
     // Switch to enabled=true (like transitioning to 'playing' screen)
     rerender({ enabled: true });
 
-    // Now pointerdown should work
-    piece.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        clientX: 225,
-        clientY: 225,
-        bubbles: true,
-        button: 0,
-        cancelable: true,
-      }),
-    );
+    // Now the drag gesture should work
+    simulateDragStart(piece, 225, 225);
 
     ghosts = document.querySelectorAll('[style*="z-index: 9999"]');
     expect(ghosts.length).toBe(1);
@@ -243,15 +259,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
     rerender({ enabled: false });
 
     const piece = container.querySelector('[data-piece="wP"]')!;
-    piece.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        clientX: 225,
-        clientY: 225,
-        bubbles: true,
-        button: 0,
-        cancelable: true,
-      }),
-    );
+    simulateDragStart(piece, 225, 225);
 
     const ghosts = document.querySelectorAll('[style*="z-index: 9999"]');
     expect(ghosts.length).toBe(0);
@@ -287,15 +295,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
     const piece = container.querySelector('[data-piece="wP"]')!;
 
     const tryDrag = (): number => {
-      piece.dispatchEvent(
-        new PointerEvent('pointerdown', {
-          clientX: 225,
-          clientY: 225,
-          bubbles: true,
-          button: 0,
-          cancelable: true,
-        }),
-      );
+      simulateDragStart(piece, 225, 225);
       const count = document.querySelectorAll('[style*="z-index: 9999"]').length;
       // Cleanup if ghost was created
       document.dispatchEvent(
@@ -349,15 +349,7 @@ describe('useFastDrag — enabled state (KS-273)', () => {
 
     // Try to drag opponent's (black) piece
     const opponentPiece = container.querySelector('[data-piece="bP"]')!;
-    opponentPiece.dispatchEvent(
-      new PointerEvent('pointerdown', {
-        clientX: 225,
-        clientY: 75,
-        bubbles: true,
-        button: 0,
-        cancelable: true,
-      }),
-    );
+    simulateDragStart(opponentPiece, 225, 75);
 
     const ghosts = document.querySelectorAll('[style*="z-index: 9999"]');
     expect(ghosts.length).toBe(0);
