@@ -59,6 +59,7 @@ jest.mock('aws-embedded-metrics', () => ({
   Unit: {
     Seconds: 'Seconds',
     Count: 'Count',
+    None: 'None',
   },
   Configuration: {
     namespace: '',
@@ -86,6 +87,7 @@ describe('EmfMetricsPublisher', () => {
         gamesParsed: 100,
         gamesAdded: 95,
         gamesSkipped: 5,
+        classicalRatio: 0.84,
       },
       durationSec: 12.34,
       lastSuccessAt: new Date('2026-04-20T00:00:00Z'),
@@ -93,7 +95,7 @@ describe('EmfMetricsPublisher', () => {
     };
   }
 
-  it('recordSourceRun публикует все 6 бизнес-метрик с dimension source', async () => {
+  it('recordSourceRun публикует все 7 бизнес-метрик с dimension source (включая ClassicalRatio)', async () => {
     const publisher = new EmfMetricsPublisher();
     const now = new Date('2026-04-21T00:00:00Z');
     publisher.recordSourceRun(makeRun(), now);
@@ -105,6 +107,7 @@ describe('EmfMetricsPublisher', () => {
 
     const names = l.__metrics.map((m) => m.name).sort();
     expect(names).toEqual([
+      'ClassicalRatio',
       'GamesAdded',
       'GamesParsed',
       'GamesSkipped',
@@ -122,6 +125,50 @@ describe('EmfMetricsPublisher', () => {
     expect(byName.SourcesFailed.value).toBe(0);
     // 24 часа между 2026-04-20 и 2026-04-21 = 86400s.
     expect(byName.LastSuccessAgeSeconds.value).toBe(86400);
+    expect(byName.ClassicalRatio.value).toBeCloseTo(0.84, 5);
+    expect(byName.ClassicalRatio.unit).toBe('None');
+  });
+
+  it('ClassicalRatio не публикуется, если ImportResult.classicalRatio=undefined (noop/failed/no-games)', () => {
+    const publisher = new EmfMetricsPublisher();
+    publisher.recordSourceRun(
+      makeRun({
+        result: {
+          status: 'ok',
+          cursorBefore: '1500',
+          cursorAfter: '1501',
+          fileName: 'twic1501.pgn',
+          gamesParsed: 0,
+          gamesAdded: 0,
+          gamesSkipped: 0,
+          // classicalRatio: undefined — нет добавленных партий
+        },
+      }),
+    );
+    const names = createdLoggers[0].__metrics.map((m) => m.name).sort();
+    expect(names).not.toContain('ClassicalRatio');
+  });
+
+  it('ClassicalRatio не публикуется для failed-run (result.classicalRatio undefined)', () => {
+    const publisher = new EmfMetricsPublisher();
+    publisher.recordSourceRun(
+      makeRun({
+        result: {
+          status: 'failed',
+          cursorBefore: '1500',
+          cursorAfter: '1500',
+          fileName: null,
+          gamesParsed: 0,
+          gamesAdded: 0,
+          gamesSkipped: 0,
+          error: 'HTTP 500',
+        },
+      }),
+    );
+    const byName = Object.fromEntries(
+      createdLoggers[0].__metrics.map((m) => [m.name, m]),
+    );
+    expect(byName.ClassicalRatio).toBeUndefined();
   });
 
   it('SourcesFailed=1 при ImportResult.status=failed', () => {
@@ -176,7 +223,7 @@ describe('EmfMetricsPublisher', () => {
     expect(byName.LastSuccessAgeSeconds.value).toBe(10 * 365 * 86400);
   });
 
-  it('no-op run (not due) публикует нули и LastSuccessAgeSeconds', () => {
+  it('no-op run (not due) публикует нули и LastSuccessAgeSeconds, без ClassicalRatio', () => {
     const publisher = new EmfMetricsPublisher();
     const now = new Date('2026-04-21T00:00:00Z');
     publisher.recordSourceRun(
@@ -196,29 +243,72 @@ describe('EmfMetricsPublisher', () => {
     expect(byName.ImportDurationSeconds.value).toBe(0);
     expect(byName.SourcesFailed.value).toBe(0);
     expect(byName.LastSuccessAgeSeconds.value).toBe(86400);
+    expect(byName.ClassicalRatio).toBeUndefined();
   });
 
-  it('recordTickSummary публикует агрегат без dimensions', () => {
+  it('recordTickSummary публикует агрегат SourcesChecked/Processed/Failed + TotalGamesAdded + ExitCode без dimensions', () => {
     const publisher = new EmfMetricsPublisher();
     const tick: TickResult = {
-      runs: [makeRun(), makeRun({ sourceCode: 'other', error: 'boom', result: null })],
+      runs: [
+        makeRun(),
+        makeRun({ sourceCode: 'other', error: 'boom', result: null }),
+        makeRun({ sourceCode: 'third', due: false, result: null }),
+      ],
       totalGamesAdded: 95,
     };
-    publisher.recordTickSummary(tick);
+    publisher.recordTickSummary(tick, 2);
     expect(createdLoggers).toHaveLength(1);
     const l = createdLoggers[0];
     expect(l.__dimensions).toEqual({});
+    const names = l.__metrics.map((m) => m.name).sort();
+    expect(names).toEqual([
+      'ExitCode',
+      'SourcesChecked',
+      'SourcesFailed',
+      'SourcesProcessed',
+      'TotalGamesAdded',
+    ]);
     const byName = Object.fromEntries(l.__metrics.map((m) => [m.name, m]));
-    expect(byName.TickTotalGamesAdded.value).toBe(95);
-    expect(byName.TickRunsTotal.value).toBe(2);
-    expect(byName.TickRunsFailed.value).toBe(1);
+    expect(byName.SourcesChecked.value).toBe(3); // все 3 run'а перебраны
+    expect(byName.SourcesProcessed.value).toBe(2); // due && !lockHeld (первый ok + второй с error, третий due=false не процессился)
+    expect(byName.SourcesFailed.value).toBe(1); // один с error
+    expect(byName.TotalGamesAdded.value).toBe(95);
+    expect(byName.ExitCode.value).toBe(2);
+    expect(byName.ExitCode.unit).toBe('None');
+  });
+
+  it('recordTickSummary: lockHeld не попадает в SourcesProcessed', () => {
+    const publisher = new EmfMetricsPublisher();
+    const tick: TickResult = {
+      runs: [
+        makeRun({ due: true, lockHeld: true, result: null }),
+        makeRun({ sourceCode: 'other', due: true, lockHeld: false }),
+      ],
+      totalGamesAdded: 95,
+    };
+    publisher.recordTickSummary(tick, 0);
+    const byName = Object.fromEntries(
+      createdLoggers[0].__metrics.map((m) => [m.name, m]),
+    );
+    expect(byName.SourcesProcessed.value).toBe(1); // только второй
+    expect(byName.SourcesFailed.value).toBe(0);
+    expect(byName.ExitCode.value).toBe(0);
+  });
+
+  it('recordTickSummary по умолчанию (без exitCode-аргумента) пишет ExitCode=0', () => {
+    const publisher = new EmfMetricsPublisher();
+    publisher.recordTickSummary({ runs: [], totalGamesAdded: 0 });
+    const byName = Object.fromEntries(
+      createdLoggers[0].__metrics.map((m) => [m.name, m]),
+    );
+    expect(byName.ExitCode.value).toBe(0);
   });
 
   it('flush вызывает flush на всех накопленных loggers и очищает pending', async () => {
     const publisher = new EmfMetricsPublisher();
     publisher.recordSourceRun(makeRun());
     publisher.recordSourceRun(makeRun({ sourceCode: 'other' }));
-    publisher.recordTickSummary({ runs: [], totalGamesAdded: 0 });
+    publisher.recordTickSummary({ runs: [], totalGamesAdded: 0 }, 0);
 
     expect(createdLoggers).toHaveLength(3);
     await publisher.flush();

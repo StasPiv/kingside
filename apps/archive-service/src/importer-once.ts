@@ -2,7 +2,11 @@ import 'reflect-metadata';
 import { Logger, INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { ImporterOnceModule } from './importer-once.module';
-import { ArchiveImportService } from './archive-import/archive-import.service';
+import {
+  ArchiveImportService,
+  TickTimeoutError,
+  type TickResult,
+} from './archive-import/archive-import.service';
 import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
 
 /**
@@ -16,20 +20,26 @@ import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
  *   2. Поднимается минимальный DI через `createApplicationContext`
  *      (PrismaModule, RedisModule, MetricsModule, ArchiveImportModule,
  *      EmfMetricsPublisher). HTTP НЕ поднимается.
- *   3. Глобальный timeout 8 минут (hard) — `process.exit(124)` на случай
- *      зависшей fetch-зависимости (TWIC HTTP, Redis, Postgres). ECS
- *      RunTask-таска не должна жить дольше запланированного окна.
+ *   3. Hard timeout 8 минут — внутри `tickOnce()` через `Promise.race`
+ *      (ADR-020 §2.2, §4.2). На таймауте бросается `TickTimeoutError` с
+ *      `partial` результатом — тут же публикуется EMF по тому, что успело
+ *      отработать, и делается flush → exit 124.
+ *      Дополнительно: hard backstop `setTimeout(process.exit(124))` на 10
+ *      минут — на случай, если даже timeout-ветка зависнет (EMF SDK,
+ *      Nest shutdown hooks). Backstop срабатывает только в аномалии,
+ *      штатный путь — exit через Promise.race.
  *   4. `ArchiveImportService.tickOnce()` — один проход по всем enabled-
  *      источникам, детальный результат.
- *   5. `EmfMetricsPublisher.recordSourceRun(...)` + `recordTickSummary(...)`
- *      + `await flush()` — публикует CloudWatch EMF до exit.
+ *   5. `EmfMetricsPublisher.recordSourceRun(...)` +
+ *      `recordTickSummary(tick, exitCode)` + `await flush()` — публикует
+ *      CloudWatch EMF до exit.
  *   6. `process.exit(code)`:
  *      - 0  → успех (включая no-op: source not due);
  *      - 1  → bootstrap/теоретический throw до вызова tickOnce;
  *      - 2  → tickOnce отработал, но хотя бы один run зафейлился
  *             (или throw'нул) — EventBridge/CloudWatch увидит non-zero
  *             exit, Alarm по SourcesFailed сработает;
- *      - 124 → глобальный timeout.
+ *      - 124 → таймаут (tickOnce Promise.race или backstop).
  *
  * Запуск локально:
  *   cd apps/archive-service
@@ -37,7 +47,7 @@ import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
  *     node dist/importer-once.js
  */
 
-const GLOBAL_TIMEOUT_MS = 8 * 60 * 1000;
+const BACKSTOP_TIMEOUT_MS = 10 * 60 * 1000; // 10 мин, на 2 мин больше tickOnce
 const EXIT_TIMEOUT_CODE = 124;
 const EXIT_RUN_FAILED_CODE = 2;
 const EXIT_BOOTSTRAP_CODE = 1;
@@ -47,6 +57,8 @@ export interface RunOutcome {
   runsTotal: number;
   runsFailed: number;
   totalGamesAdded: number;
+  /** true, если tickOnce упал по hard-таймауту (TickTimeoutError). */
+  timedOut: boolean;
 }
 
 /**
@@ -61,40 +73,61 @@ export async function runImporterOnce(
   const archiveImport = app.get(ArchiveImportService);
   const emf = app.get(EmfMetricsPublisher);
 
-  let tick: Awaited<ReturnType<ArchiveImportService['tickOnce']>>;
+  let tick: TickResult;
+  let timedOut = false;
+  let bootstrapFailed = false;
+
   try {
     tick = await archiveImport.tickOnce();
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error(`tickOnce failed: ${msg}`);
-    // Даже при throw в tickOnce — публикуем summary (пустой) и отдаём
-    // EMF, чтобы CloudWatch alarm видел событие.
-    emf.recordTickSummary({ runs: [], totalGamesAdded: 0 });
-    await emf.flush();
-    return { exitCode: EXIT_RUN_FAILED_CODE, runsTotal: 0, runsFailed: 1, totalGamesAdded: 0 };
+    if (err instanceof TickTimeoutError) {
+      const msg = err.message;
+      logger.error(`tickOnce timeout: ${msg}`);
+      // Partial runs — публикуем по ним EMF, чтобы CloudWatch видел какие
+      // источники успели отработать до отключения.
+      tick = err.partial;
+      timedOut = true;
+    } else {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`tickOnce failed: ${msg}`);
+      // Bootstrap/прерывание до накопления runs — пустой tick, EMF summary
+      // с exitCode=2 всё равно публикуется, CloudWatch alarm увидит событие.
+      tick = { runs: [], totalGamesAdded: 0 };
+      bootstrapFailed = true;
+    }
   }
 
   const now = new Date();
   for (const run of tick.runs) {
     emf.recordSourceRun(run, now);
   }
-  emf.recordTickSummary(tick);
-  await emf.flush();
 
   const runsFailed = tick.runs.filter(
     (r) => r.error != null || r.result?.status === 'failed',
   ).length;
-  const exitCode = runsFailed > 0 ? EXIT_RUN_FAILED_CODE : 0;
+
+  let exitCode: number;
+  if (timedOut) {
+    exitCode = EXIT_TIMEOUT_CODE;
+  } else if (bootstrapFailed || runsFailed > 0) {
+    exitCode = EXIT_RUN_FAILED_CODE;
+  } else {
+    exitCode = 0;
+  }
+
+  emf.recordTickSummary(tick, exitCode);
+  await emf.flush();
 
   logger.log(
     `tickOnce done: runs=${tick.runs.length} failed=${runsFailed} ` +
-      `gamesAdded=${tick.totalGamesAdded} exit=${exitCode}`,
+      `gamesAdded=${tick.totalGamesAdded} timedOut=${timedOut} exit=${exitCode}`,
   );
   return {
     exitCode,
     runsTotal: tick.runs.length,
-    runsFailed,
+    runsFailed: bootstrapFailed ? 1 : runsFailed,
     totalGamesAdded: tick.totalGamesAdded,
+    timedOut,
   };
 }
 
@@ -106,17 +139,20 @@ async function bootstrap(): Promise<number> {
 
   const logger = new Logger('ImporterOnce');
 
-  // Hard timeout — на случай зависшей fetch()/Redis-зависимости.
-  const timeoutHandle = setTimeout(() => {
+  // Hard backstop timeout — последняя линия защиты, если Promise.race
+  // внутри tickOnce не сработал (напр., EMF SDK.flush завис, Nest
+  // shutdown hooks зациклились). Штатный путь — exit через tickOnce
+  // Promise.race + EMF flush → return code.
+  const backstopHandle = setTimeout(() => {
     // eslint-disable-next-line no-console
     console.error(
-      `[importer-once] global timeout ${GLOBAL_TIMEOUT_MS}ms reached — killing process`,
+      `[importer-once] backstop timeout ${BACKSTOP_TIMEOUT_MS}ms reached — killing process`,
     );
     process.exit(EXIT_TIMEOUT_CODE);
-  }, GLOBAL_TIMEOUT_MS);
-  // unref: сам по себе таймер не держит process alive — если tickOnce
-  // завершится раньше, exit произойдёт штатно.
-  timeoutHandle.unref();
+  }, BACKSTOP_TIMEOUT_MS);
+  // unref: backstop сам по себе не держит process alive — если всё
+  // штатно, exit происходит через `return outcome.exitCode`.
+  backstopHandle.unref();
 
   let app: INestApplicationContext | null = null;
   try {
@@ -142,7 +178,7 @@ async function bootstrap(): Promise<number> {
         logger.warn(`app.close error: ${msg}`);
       }
     }
-    clearTimeout(timeoutHandle);
+    clearTimeout(backstopHandle);
   }
 }
 

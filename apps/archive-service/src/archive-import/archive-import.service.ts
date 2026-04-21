@@ -46,6 +46,37 @@ export interface TickResult {
 }
 
 /**
+ * Ошибка hard-таймаута `tickOnce()` (KS-1681, ADR-020 §2.2, §4.2).
+ *
+ * Бросается из `tickOnce`, когда обход источников превысил
+ * `TICK_ONCE_TIMEOUT_MS` (8 минут). Содержит `partial` — агрегированный
+ * результат тех источников, что успели отработать до таймаута, чтобы
+ * `importer-once.ts` смог опубликовать EMF-метрики для них и flush-нуть
+ * в CloudWatch перед exit-ом.
+ *
+ * Без этого вся info (какие источники стартовали, какие сработали) была бы
+ * потеряна в short-lived task.
+ */
+export class TickTimeoutError extends Error {
+  constructor(
+    message: string,
+    public readonly partial: TickResult,
+  ) {
+    super(message);
+    this.name = 'TickTimeoutError';
+  }
+}
+
+/**
+ * Hard timeout одного tickOnce (KS-1681, ADR-020 §2.2).
+ *
+ * ADR §4.2: нормальный TWIC tick занимает 30-120с, 8 мин — 4× safety
+ * margin. Меньше ECS `stopTimeout: 120`, чтобы ECS не успел вмешаться и
+ * убить task до EMF flush.
+ */
+export const TICK_ONCE_TIMEOUT_MS = 8 * 60 * 1000;
+
+/**
  * Оркестратор импорта.
  *
  * Раз в `TICK_INTERVAL_MS` обходит `archive_sources` с `enabled = true`,
@@ -167,65 +198,105 @@ export class ArchiveImportService implements OnModuleInit {
    *   - `LastSuccessAgeSeconds` надо публиковать и для не-due/lockHeld
    *     источников, поэтому tickOnce собирает `TickSourceResult` по всем
    *     enabled-источникам, а не только по due.
+   *   - ADR-020 §2.2 + §4.2: hard timeout через `Promise.race`. Если
+   *     обход превышает `TICK_ONCE_TIMEOUT_MS` (8 мин), бросается
+   *     `TickTimeoutError` с `partial` — теми runs, что успели собраться.
+   *     `importer-once.ts` ловит эту ошибку, публикует EMF для partial
+   *     runs и flush-ит до `process.exit(124)`. Это принципиально —
+   *     process-level `setTimeout(...process.exit)` на bootstrap-уровне
+   *     теряет EMF, hard-таймаут внутри tickOnce — нет.
    *
    * Идемпотентность и lock-поведение — идентичны `tick()`: каждый
    * `runSource()` сам берёт Redis-lock `archive:import:lock:{code}`
    * (30 мин TTL), поэтому параллельный long-lived `importer-main` и
    * one-shot task не столкнутся.
    */
-  async tickOnce(): Promise<TickResult> {
-    const sources = await this.prisma.archiveSource.findMany({
-      where: { enabled: true },
-    });
-    const runs: TickSourceResult[] = [];
-    let totalGamesAdded = 0;
-    for (const source of sources) {
-      const row: SourceRow = {
-        id: source.id,
-        code: source.code,
-        kind: source.kind,
-        enabled: source.enabled,
-        schedule: source.schedule ?? null,
-        cursor: source.cursor ?? null,
-        lastRunAt: source.lastRunAt ?? null,
-        lastSuccessAt: source.lastSuccessAt ?? null,
-      };
-      const due = this.isDue(row);
-      if (!due) {
-        runs.push({
-          sourceCode: row.code,
-          due: false,
-          lockHeld: false,
-          result: null,
-          durationSec: 0,
-          lastSuccessAt: row.lastSuccessAt,
-        });
-        continue;
-      }
-      const started = process.hrtime.bigint();
-      let runOutcome: { result: ImportResult | null; lockHeld: boolean; error?: string };
-      try {
-        runOutcome = await this.runSource(row);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        runOutcome = { result: null, lockHeld: false, error: msg };
-      }
-      const durationSec =
-        Number(process.hrtime.bigint() - started) / 1_000_000_000;
-      runs.push({
-        sourceCode: row.code,
-        due: true,
-        lockHeld: runOutcome.lockHeld,
-        result: runOutcome.result,
-        durationSec,
-        lastSuccessAt: row.lastSuccessAt,
-        error: runOutcome.error,
+  async tickOnce(
+    timeoutMs: number = TICK_ONCE_TIMEOUT_MS,
+  ): Promise<TickResult> {
+    // Накопитель — доступен и из processAll(), и из timeout-ветки, чтобы
+    // частичный результат попал в TickTimeoutError.partial.
+    const state: TickResult = { runs: [], totalGamesAdded: 0 };
+    let timedOut = false;
+
+    const processAll = async (): Promise<TickResult> => {
+      const sources = await this.prisma.archiveSource.findMany({
+        where: { enabled: true },
       });
-      if (runOutcome.result) {
-        totalGamesAdded += runOutcome.result.gamesAdded;
+      for (const source of sources) {
+        if (timedOut) break; // race проиграли, не начинаем следующий источник
+        const row: SourceRow = {
+          id: source.id,
+          code: source.code,
+          kind: source.kind,
+          enabled: source.enabled,
+          schedule: source.schedule ?? null,
+          cursor: source.cursor ?? null,
+          lastRunAt: source.lastRunAt ?? null,
+          lastSuccessAt: source.lastSuccessAt ?? null,
+        };
+        const due = this.isDue(row);
+        if (!due) {
+          state.runs.push({
+            sourceCode: row.code,
+            due: false,
+            lockHeld: false,
+            result: null,
+            durationSec: 0,
+            lastSuccessAt: row.lastSuccessAt,
+          });
+          continue;
+        }
+        const started = process.hrtime.bigint();
+        let runOutcome: {
+          result: ImportResult | null;
+          lockHeld: boolean;
+          error?: string;
+        };
+        try {
+          runOutcome = await this.runSource(row);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          runOutcome = { result: null, lockHeld: false, error: msg };
+        }
+        const durationSec =
+          Number(process.hrtime.bigint() - started) / 1_000_000_000;
+        state.runs.push({
+          sourceCode: row.code,
+          due: true,
+          lockHeld: runOutcome.lockHeld,
+          result: runOutcome.result,
+          durationSec,
+          lastSuccessAt: row.lastSuccessAt,
+          error: runOutcome.error,
+        });
+        if (runOutcome.result) {
+          state.totalGamesAdded += runOutcome.result.gamesAdded;
+        }
       }
+      return state;
+    };
+
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        timedOut = true;
+        reject(
+          new TickTimeoutError(
+            `tickOnce exceeded ${timeoutMs}ms; partial runs=${state.runs.length}`,
+            state,
+          ),
+        );
+      }, timeoutMs);
+      // unref: если tickOnce завершится раньше, таймер не держит process alive.
+      timeoutHandle.unref();
+    });
+
+    try {
+      return await Promise.race([processAll(), timeoutPromise]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
     }
-    return { runs, totalGamesAdded };
   }
 
   /**

@@ -1,6 +1,9 @@
 import type { INestApplicationContext } from '@nestjs/common';
 import { runImporterOnce } from './importer-once';
-import { ArchiveImportService } from './archive-import/archive-import.service';
+import {
+  ArchiveImportService,
+  TickTimeoutError,
+} from './archive-import/archive-import.service';
 import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
 import type {
   TickResult,
@@ -18,6 +21,11 @@ import type {
  * exit-код рассчитан корректно.
  */
 
+type EmfCall =
+  | { kind: 'run'; run: TickSourceResult }
+  | { kind: 'summary'; tick: TickResult; exitCode: number }
+  | { kind: 'flush' };
+
 interface MockContext {
   archive: {
     tickOnce: jest.Mock<Promise<TickResult>, []>;
@@ -26,13 +34,13 @@ interface MockContext {
     recordSourceRun: jest.Mock;
     recordTickSummary: jest.Mock;
     flush: jest.Mock<Promise<void>, []>;
-    calls: Array<{ kind: 'run'; run: TickSourceResult } | { kind: 'summary' } | { kind: 'flush' }>;
+    calls: EmfCall[];
   };
   app: INestApplicationContext;
 }
 
 function makeContext(tick: TickResult | Error): MockContext {
-  const emfCalls: MockContext['emf']['calls'] = [];
+  const emfCalls: EmfCall[] = [];
 
   const archive = {
     tickOnce: jest.fn<Promise<TickResult>, []>(() => {
@@ -44,8 +52,8 @@ function makeContext(tick: TickResult | Error): MockContext {
     recordSourceRun: jest.fn((run: TickSourceResult) => {
       emfCalls.push({ kind: 'run', run });
     }),
-    recordTickSummary: jest.fn(() => {
-      emfCalls.push({ kind: 'summary' });
+    recordTickSummary: jest.fn((t: TickResult, exitCode: number = 0) => {
+      emfCalls.push({ kind: 'summary', tick: t, exitCode });
     }),
     flush: jest.fn<Promise<void>, []>(() => {
       emfCalls.push({ kind: 'flush' });
@@ -79,6 +87,7 @@ function makeRun(overrides: Partial<TickSourceResult> = {}): TickSourceResult {
       gamesParsed: 100,
       gamesAdded: 95,
       gamesSkipped: 5,
+      classicalRatio: 0.84,
     },
     durationSec: 10,
     lastSuccessAt: new Date('2026-04-20T00:00:00Z'),
@@ -87,7 +96,7 @@ function makeRun(overrides: Partial<TickSourceResult> = {}): TickSourceResult {
 }
 
 describe('runImporterOnce', () => {
-  it('happy path: source due, importer.run() succeeded → exitCode=0, EMF flushed', async () => {
+  it('happy path: source due, importer.run() succeeded → exitCode=0, EMF flushed, summary получил exitCode=0', async () => {
     const tick: TickResult = {
       runs: [makeRun()],
       totalGamesAdded: 95,
@@ -99,17 +108,23 @@ describe('runImporterOnce', () => {
     expect(outcome.runsTotal).toBe(1);
     expect(outcome.runsFailed).toBe(0);
     expect(outcome.totalGamesAdded).toBe(95);
+    expect(outcome.timedOut).toBe(false);
 
     // Порядок: recordSourceRun → recordTickSummary → flush.
     const kinds = ctx.emf.calls.map((c) => c.kind);
     expect(kinds).toEqual(['run', 'summary', 'flush']);
+
+    // recordTickSummary должен получить exitCode=0.
+    const summaryCall = ctx.emf.calls.find((c) => c.kind === 'summary');
+    expect(summaryCall).toBeDefined();
+    if (summaryCall?.kind === 'summary') {
+      expect(summaryCall.exitCode).toBe(0);
+    }
   });
 
   it('no-op: source not due → runs=[{due:false,...}], exitCode=0, EMF всё равно записан', async () => {
     const tick: TickResult = {
-      runs: [
-        makeRun({ due: false, result: null, durationSec: 0 }),
-      ],
+      runs: [makeRun({ due: false, result: null, durationSec: 0 })],
       totalGamesAdded: 0,
     };
     const ctx = makeContext(tick);
@@ -120,13 +135,12 @@ describe('runImporterOnce', () => {
     expect(ctx.emf.recordSourceRun).toHaveBeenCalledTimes(1);
     expect(ctx.emf.recordTickSummary).toHaveBeenCalledTimes(1);
     expect(ctx.emf.flush).toHaveBeenCalledTimes(1);
+    expect(ctx.emf.recordTickSummary).toHaveBeenCalledWith(tick, 0);
   });
 
-  it('failure: run.error установлен → exitCode=2', async () => {
+  it('failure: run.error установлен → exitCode=2, summary получил exitCode=2', async () => {
     const tick: TickResult = {
-      runs: [
-        makeRun({ result: null, error: 'redis down' }),
-      ],
+      runs: [makeRun({ result: null, error: 'redis down' })],
       totalGamesAdded: 0,
     };
     const ctx = makeContext(tick);
@@ -135,6 +149,7 @@ describe('runImporterOnce', () => {
     expect(outcome.exitCode).toBe(2);
     expect(outcome.runsFailed).toBe(1);
     expect(ctx.emf.flush).toHaveBeenCalled();
+    expect(ctx.emf.recordTickSummary).toHaveBeenCalledWith(tick, 2);
   });
 
   it('failure: ImportResult.status=failed → exitCode=2', async () => {
@@ -179,18 +194,44 @@ describe('runImporterOnce', () => {
     expect(ctx.emf.recordSourceRun).toHaveBeenCalledTimes(2);
   });
 
-  it('tickOnce throw → exitCode=2, EMF summary+flush всё равно вызван', async () => {
+  it('tickOnce throw (не-timeout) → exitCode=2, EMF summary+flush всё равно вызван с пустым tick и exitCode=2', async () => {
     const ctx = makeContext(new Error('DB unreachable'));
     const outcome = await runImporterOnce(ctx.app);
 
     expect(outcome.exitCode).toBe(2);
     expect(outcome.runsTotal).toBe(0);
     expect(outcome.runsFailed).toBe(1);
+    expect(outcome.timedOut).toBe(false);
     // recordSourceRun не должен был быть вызван (нет runs), но
     // recordTickSummary и flush — обязательно.
     expect(ctx.emf.recordSourceRun).not.toHaveBeenCalled();
     expect(ctx.emf.recordTickSummary).toHaveBeenCalledTimes(1);
     expect(ctx.emf.flush).toHaveBeenCalledTimes(1);
+    expect(ctx.emf.recordTickSummary).toHaveBeenCalledWith(
+      { runs: [], totalGamesAdded: 0 },
+      2,
+    );
+  });
+
+  it('TickTimeoutError → exitCode=124, partial runs публикуются, summary получает exitCode=124', async () => {
+    const partial: TickResult = {
+      runs: [makeRun({ sourceCode: 'twic' })],
+      totalGamesAdded: 95,
+    };
+    const ctx = makeContext(
+      new TickTimeoutError('tickOnce exceeded 480000ms; partial runs=1', partial),
+    );
+    const outcome = await runImporterOnce(ctx.app);
+
+    expect(outcome.exitCode).toBe(124);
+    expect(outcome.timedOut).toBe(true);
+    expect(outcome.runsTotal).toBe(1); // partial run опубликован
+    expect(outcome.totalGamesAdded).toBe(95);
+
+    // EMF должен получить per-source по partial.runs + summary с exitCode=124 + flush
+    expect(ctx.emf.recordSourceRun).toHaveBeenCalledTimes(1);
+    expect(ctx.emf.recordTickSummary).toHaveBeenCalledWith(partial, 124);
+    expect(ctx.emf.flush).toHaveBeenCalled();
   });
 
   it('partial status — не считается failure, exitCode=0', async () => {
@@ -205,6 +246,7 @@ describe('runImporterOnce', () => {
             gamesParsed: 100,
             gamesAdded: 90,
             gamesSkipped: 10,
+            classicalRatio: 0.8,
           },
         }),
       ],

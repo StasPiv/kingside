@@ -38,6 +38,15 @@ export interface ImportResult {
   gamesParsed: number;
   gamesAdded: number;
   gamesSkipped: number;
+  /**
+   * Доля классических партий среди добавленных (`classical / added`).
+   * KS-1681 / ADR-020 §2.5: публикуется в CloudWatch EMF как
+   * `ClassicalRatio` per-source (dimension `source`). Имеет смысл только
+   * при `status in ('ok','partial')` и `gamesAdded > 0`; для
+   * `noop/failed` / `gamesAdded=0` — `undefined`, EMF-publisher
+   * пропускает метрику.
+   */
+  classicalRatio?: number;
   error?: string;
 }
 
@@ -332,10 +341,14 @@ export class TwicImporter {
     }
 
     // Gauge: доля классических в последнем импорте источника.
-    if (addedGames.length > 0) {
+    const classicalRatio =
+      addedGames.length > 0
+        ? classicalGames.length / addedGames.length
+        : undefined;
+    if (classicalRatio !== undefined) {
       this.metrics.archiveClassicalRatio.set(
         { source: this.source.code },
-        classicalGames.length / addedGames.length,
+        classicalRatio,
       );
     }
 
@@ -405,6 +418,7 @@ export class TwicImporter {
       gamesParsed: games.length + failed,
       gamesAdded: added,
       gamesSkipped: skipped,
+      classicalRatio,
     };
   }
 }
