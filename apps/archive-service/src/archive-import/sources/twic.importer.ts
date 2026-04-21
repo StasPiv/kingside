@@ -19,6 +19,11 @@ const DEFAULT_BUCKET = 'master';
  *
  * Воркер хранит текущий `cursor` в `archive_sources` — последний успешно
  * обработанный номер выпуска. На каждый импорт пробует `cursor + 1`.
+ *
+ * Для ad-hoc-импорта конкретного выпуска (KS-1679) — `runAdHoc(issue)`:
+ * скачивается `twic{issue}g.zip`, `archive_sources.cursor` НЕ изменяется,
+ * в `archive_imports` пишется строка с `cursorBefore = cursorAfter =
+ * source.cursor` (ad-hoc-маркер: cursor не сдвинулся).
  */
 
 const TWIC_URL_TEMPLATE = 'https://theweekinchess.com/zips/twic{N}g.zip';
@@ -44,8 +49,8 @@ export interface ArchiveSourceRow {
 
 /**
  * Plain класс (не `@Injectable()`): инстанцируется per-run внутри
- * `ArchiveImportService.runSource(...)` с конкретным `source` и
- * дёрнутым индексером/writer'ом из DI.
+ * `ArchiveImportService.runSource(...)` или ad-hoc-CLI
+ * `cli/import-twic-issue.ts`.
  */
 export class TwicImporter {
   private readonly logger = new Logger(TwicImporter.name);
@@ -96,8 +101,8 @@ export class TwicImporter {
   }
 
   /**
-   * Выполняет один проход импорта. Возвращает структуру для `archive_imports`.
-   * Метод идемпотентен: дубликаты отсекаются через UNIQUE `content_hash`.
+   * Scheduler-путь: считает следующий выпуск как `cursor + 1` и выполняет
+   * импорт с обновлением `archive_sources.cursor` при успехе.
    */
   async run(): Promise<ImportResult> {
     const cursorBefore = this.source.cursor;
@@ -114,10 +119,66 @@ export class TwicImporter {
         error: `invalid cursor: ${cursorBefore}`,
       };
     }
+    return this.runForIssue(nextIssue, { updateSourceCursor: true });
+  }
+
+  /**
+   * Ad-hoc-импорт конкретного выпуска (KS-1679).
+   *
+   * НЕ изменяет `archive_sources.cursor` (и `lastRunAt` / `lastSuccessAt` /
+   * `totalGames`) — scheduler продолжит работать от своего текущего cursor.
+   * В `archive_imports.cursor_before = cursor_after = source.cursor` — знак,
+   * что этот импорт курсор не двигал (ad-hoc-маркер).
+   *
+   * Использует тот же Redis-lock `archive:import:lock:twic`, что и
+   * scheduler (lock берётся снаружи, в CLI через `ArchiveImportService`
+   * или напрямую), поэтому параллельный scheduler-tick увидит `lock held,
+   * skipping` и корректно пропустит свой заход.
+   *
+   * Идемпотентность: если выпуск уже есть в БД, `filterAlreadyImported`
+   * отбросит все игры и `gamesAdded=0`, `gamesSkipped=<всё>`, status='ok'
+   * (failed=0).
+   */
+  async runAdHoc(issue: number): Promise<ImportResult> {
+    if (!Number.isFinite(issue) || issue <= 0) {
+      return {
+        status: 'failed',
+        cursorBefore: this.source.cursor,
+        cursorAfter: this.source.cursor,
+        fileName: null,
+        gamesParsed: 0,
+        gamesAdded: 0,
+        gamesSkipped: 0,
+        error: `invalid issue: ${issue}`,
+      };
+    }
+    return this.runForIssue(issue, { updateSourceCursor: false });
+  }
+
+  /**
+   * Общая реализация импорта одного выпуска.
+   *
+   * - `updateSourceCursor=true`  — scheduler-режим: по успеху пишет
+   *   `archive_sources.cursor=String(issue)`, `lastRunAt`,
+   *   `lastSuccessAt`, `totalGames += added`.
+   * - `updateSourceCursor=false` — ad-hoc: `archive_sources` вообще не
+   *   трогается; `archive_imports.cursor_after = source.cursor` (как
+   *   `cursor_before`), чтобы в таблице читалось «этот импорт курсор не
+   *   двигал».
+   *
+   * Путь fetch → extract → parse → dedup → insert → index → copy →
+   * update archive_imports — общий, метрики пишутся в оба режима
+   * одинаково (label `source="twic"`, имена 1:1 по ADR-019 §2.7).
+   */
+  private async runForIssue(
+    issue: number,
+    opts: { updateSourceCursor: boolean },
+  ): Promise<ImportResult> {
+    const cursorBefore = this.source.cursor;
 
     let zipBuffer: Buffer | null;
     try {
-      zipBuffer = await this.downloadZip(nextIssue);
+      zipBuffer = await this.downloadZip(issue);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return {
@@ -163,7 +224,7 @@ export class TwicImporter {
     }
 
     const { games, failed } = parseBatch(content);
-    this.logger.log(`[twic] issue ${nextIssue}: parsed=${games.length} failed=${failed}`);
+    this.logger.log(`[twic] issue ${issue}: parsed=${games.length} failed=${failed}`);
 
     // KS-1621: idempotent index. Отфильтровываем одним SELECT'ом уже
     // сохранённые content_hash — чтобы retry того же TWIC-пакета не
@@ -172,7 +233,10 @@ export class TwicImporter {
     const freshGames = await filterAlreadyImported(this.prisma, games);
     const preSkipped = games.length - freshGames.length;
 
-    // Запись в archive_imports с `status=running` и полученный id привязан к каждой партии.
+    // Запись в archive_imports с `status=running`. В ad-hoc-режиме
+    // `cursor_before` = текущий source.cursor; финальный `cursor_after`
+    // в scheduler-режиме станет `String(issue)`, в ad-hoc останется
+    // равным `cursor_before`.
     const importRow = await this.prisma.archiveImport.create({
       data: {
         sourceId: this.source.id,
@@ -289,7 +353,12 @@ export class TwicImporter {
     const status: ImportResult['status'] =
       failed > 0 ? 'partial' : 'ok';
 
-    const cursorAfter = String(nextIssue);
+    // В scheduler-режиме cursor двигается на processed issue; в ad-hoc
+    // он остаётся равным cursorBefore — маркер «ad-hoc-импорт не сдвинул
+    // source.cursor».
+    const cursorAfter = opts.updateSourceCursor
+      ? String(issue)
+      : cursorBefore;
     await this.prisma.archiveImport.update({
       where: { id: importRow.id },
       data: {
@@ -302,16 +371,18 @@ export class TwicImporter {
       },
     });
 
-    await this.prisma.archiveSource.update({
-      where: { id: this.source.id },
-      data: {
-        cursor: cursorAfter,
-        lastRunAt: new Date(),
-        lastSuccessAt: new Date(),
-        lastError: null,
-        totalGames: { increment: added },
-      },
-    });
+    if (opts.updateSourceCursor) {
+      await this.prisma.archiveSource.update({
+        where: { id: this.source.id },
+        data: {
+          cursor: cursorAfter,
+          lastRunAt: new Date(),
+          lastSuccessAt: new Date(),
+          lastError: null,
+          totalGames: { increment: added },
+        },
+      });
+    }
 
     this.metrics.archiveImportGamesTotal.inc(
       { source: this.source.code, status: 'added' },

@@ -11,6 +11,7 @@
     "cli:classify-existing": "node dist/cli/classify-existing.js",
     "cli:cleanup-positions": "node dist/cli/cleanup-positions.js",
     "cli:rebuild-position-stats": "node dist/cli/rebuild-position-stats.js",
+    "cli:import-twic-issue": "node dist/cli/import-twic-issue.js",
     "test": "jest"
   },
   "dependencies": {
