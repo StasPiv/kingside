@@ -551,12 +551,16 @@ aws_cli cloudwatch put-metric-alarm \
     --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
     --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
 
-# 14.4 EMF LastSuccessAgeSeconds > 14 дней (1209600), 2×1h, breaching
+# 14.4 EMF LastSuccessAgeSeconds > 14 дней (1209600), 2×1h, breaching.
+# Backend публикует LastSuccessAgeSeconds per source (dimension source=<code>).
+# На момент KS-1682 единственный активный source — twic; добавлять новые алармы
+# при появлении новых источников (lichess-elite/ccrl/…) — отдельной задачей.
 aws_cli cloudwatch put-metric-alarm \
     --alarm-name "archive-importer-last-success-age" \
-    --alarm-description "KS-1682: LastSuccessAgeSeconds > 14 days (archive-importer stalled)" \
+    --alarm-description "KS-1682: LastSuccessAgeSeconds > 14 days (archive-importer stalled) for source=twic" \
     --metric-name LastSuccessAgeSeconds \
     --namespace "${IMPORTER_METRIC_NAMESPACE}" \
+    --dimensions "Name=source,Value=twic" \
     --statistic Maximum \
     --period 3600 --evaluation-periods 2 --threshold 1209600 \
     --comparison-operator GreaterThanThreshold \
