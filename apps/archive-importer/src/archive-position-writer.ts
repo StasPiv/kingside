@@ -19,13 +19,23 @@ import {
 import { archivePositionRowsCopyDurationSeconds } from './metrics.js';
 
 /**
- * Определяет нужен ли SSL для `pg.Pool`, покрывая три входа:
- *   1. `sslmode=...` в самом connection string (AWS RDS URL и прочий cloud).
- *   2. Env `PGSSLMODE` — совместимо с libpq.
- *   3. Env `ARCHIVE_IMPORTER_PG_SSL` — явный override для этого воркера.
+ * Определяет нужен ли SSL для `pg.Pool`.
  *
- * На локальном docker-compose ни один из трёх путей не активен → SSL
- * выключен, соединение идёт plain-текстом как раньше (KS-1619 Scenario 2).
+ * Политика (secure-by-default, KS-1640):
+ *   1. Явное "нет" (`ARCHIVE_IMPORTER_PG_SSL=0|false|off`, `sslmode=disable`
+ *      в URL или `PGSSLMODE=disable`) — SSL выключен, даже если хост не
+ *      local. Полезно для диагностики.
+ *   2. Явное "да" (`sslmode=...` в URL != disable, `PGSSLMODE=...` != disable,
+ *      `ARCHIVE_IMPORTER_PG_SSL=1|true|...`) — SSL включён.
+ *   3. Ничего не задано → смотрим хост из URL:
+ *      - `localhost` / `127.0.0.1` / `::1` / `host.docker.internal` → SSL off
+ *        (локальный docker-compose, dev).
+ *      - любой другой (RDS, managed PG, remote) → SSL on с
+ *        `{ rejectUnauthorized: false }`.
+ *
+ * Раньше (до KS-1640) по умолчанию SSL было off — и на RDS без явного
+ * `sslmode=require` в DATABASE_URL прод валился с `no pg_hba.conf entry`,
+ * что замалчивалось silent-fail'ом в backfill.ts (тоже фикс этой задачи).
  *
  * `rejectUnauthorized: false` — RDS presents a CA-bundle, которого нет
  * в системных корнях Node runtime'а; так же ведёт себя `sslmode=require`
@@ -51,13 +61,51 @@ export function resolveSslConfig(
   if (envMode) return { rejectUnauthorized: false };
   if (explicit) return { rejectUnauthorized: false };
 
-  // Локальный dev без настроек — без SSL.
-  return false;
+  // Ничего не задано → смотрим хост. Удалённый хост (RDS, managed PG) —
+  // SSL on; локальный dev — off. Fallback при нераспознанном URL — off
+  // (сохраняет старое поведение, не ломает случайные кейсы без хоста).
+  return isLocalHost(connectionString)
+    ? false
+    : { rejectUnauthorized: false };
 }
 
 function extractSslMode(connectionString: string): string | null {
   const m = connectionString.toLowerCase().match(/[?&]sslmode=([a-z_-]+)/);
   return m ? m[1] : null;
+}
+
+const LOCAL_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  'host.docker.internal',
+]);
+
+/**
+ * true если хост в URL — локальный. Используется как fallback для secure-
+ * by-default SSL: если DATABASE_URL без `sslmode`, но указывает на RDS/
+ * managed-PG, SSL всё равно включится. Плюс явный `sslmode=disable`
+ * остаётся уважаемым override'ом для диагностики.
+ *
+ * Экспортируется для тестов.
+ */
+export function isLocalHost(connectionString: string): boolean {
+  try {
+    // URL не понимает `postgresql://` без ощутимого хоста в Node < 16 —
+    // вырезаем host вручную: `scheme://[user[:pass]@]host[:port][/...]`.
+    const stripped = connectionString.replace(/^[a-z]+:\/\//i, '');
+    const hostPart = stripped.split(/[/?#]/, 1)[0];
+    const afterAuth = hostPart.includes('@')
+      ? hostPart.slice(hostPart.lastIndexOf('@') + 1)
+      : hostPart;
+    // IPv6 в URL: `[::1]:5432` — вырезаем скобки.
+    const host = afterAuth.startsWith('[')
+      ? afterAuth.slice(1, afterAuth.indexOf(']'))
+      : afterAuth.split(':', 1)[0];
+    return LOCAL_HOSTS.has(host.toLowerCase());
+  } catch {
+    return false;
+  }
 }
 
 /** Имя временной staging-таблицы. Уникально на соединение — изолировано. */

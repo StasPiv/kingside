@@ -199,15 +199,46 @@ export function parseArgs(argv: readonly string[]): BackfillOptions {
   return { mode, batchSize, resumeFrom };
 }
 
-export async function runBackfill(options: BackfillOptions): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is not set');
-  }
+/**
+ * Минимальный интерфейс writer'а, чтобы тесты могли подсунуть mock. В
+ * проде — `ArchivePositionWriter` из `archive-position-writer.ts`.
+ */
+export interface BackfillWriter {
+  write(rows: PositionRow[], source?: string): Promise<number>;
+  close(): Promise<void>;
+}
 
-  const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
-  const writer = new ArchivePositionWriter(databaseUrl);
+/**
+ * Минимальный Prisma-surface, нужный backfill'у. Тесты подсовывают мок
+ * без подключения к БД.
+ */
+export interface BackfillPrisma {
+  archiveGame: {
+    count(): Promise<number>;
+    findMany(args: {
+      where: Record<string, unknown>;
+      orderBy: Record<string, 'asc' | 'desc'>;
+      take: number;
+      select: Record<string, boolean>;
+    }): Promise<unknown[]>;
+  };
+  $disconnect(): Promise<void>;
+}
 
+/**
+ * Ядро backfill: без создания подключений — принимает готовые prisma/writer.
+ * Экспортируется ТОЛЬКО для тестов. В проде вызывается из `runBackfill`.
+ *
+ * При `writer.write` throw — re-throws (больше не silent-fail, KS-1640).
+ * Вызывающая сторона должна ловить, закрывать ресурсы и делать
+ * `process.exit(1)`.
+ */
+export async function backfillLoop(
+  prisma: BackfillPrisma,
+  writer: BackfillWriter,
+  options: BackfillOptions,
+  fetchExisting: (ids: string[]) => Promise<Set<string>>,
+): Promise<void> {
   const total = await prisma.archiveGame.count();
   console.log(
     `${PROGRESS_TAG} mode=${options.mode} total archive_games=${total}; ` +
@@ -228,102 +259,117 @@ export async function runBackfill(options: BackfillOptions): Promise<void> {
   };
 
   let cursor: string | null = options.resumeFrom;
-  try {
-    while (true) {
-      const games = (await prisma.archiveGame.findMany({
-        where: cursor ? { id: { gt: cursor } } : {},
-        orderBy: { id: 'asc' },
-        take: options.batchSize,
-        select: {
-          id: true,
-          pgn: true,
-          whiteElo: true,
-          blackElo: true,
-          playedAt: true,
-          result: true,
-          whiteTitle: true,
-          blackTitle: true,
-          whiteName: true,
-          blackName: true,
-          event: true,
-          site: true,
-          round: true,
-          date: true,
-          eco: true,
-          opening: true,
-          plyCount: true,
-          finalFen: true,
-        },
-      })) as DbGameRow[];
-      if (games.length === 0) break;
+  while (true) {
+    const games = (await prisma.archiveGame.findMany({
+      where: cursor ? { id: { gt: cursor } } : {},
+      orderBy: { id: 'asc' },
+      take: options.batchSize,
+      select: {
+        id: true,
+        pgn: true,
+        whiteElo: true,
+        blackElo: true,
+        playedAt: true,
+        result: true,
+        whiteTitle: true,
+        blackTitle: true,
+        whiteName: true,
+        blackName: true,
+        event: true,
+        site: true,
+        round: true,
+        date: true,
+        eco: true,
+        opening: true,
+        plyCount: true,
+        finalFen: true,
+      },
+    })) as DbGameRow[];
+    if (games.length === 0) break;
 
-      cursor = games[games.length - 1].id;
-      state.lastCursor = cursor;
+    cursor = games[games.length - 1].id;
+    state.lastCursor = cursor;
 
-      // extend-mode пропускает оптимизацию: все партии перепроходятся, новые
-      // ply 25..40 доливаются, старые ply 0..24 no-op по ON CONFLICT.
-      const existing =
-        options.mode === 'extend'
-          ? new Set<string>()
-          : await fetchExistingGameIds(
-              prisma,
-              games.map((g) => g.id),
-            );
+    // extend-mode пропускает оптимизацию: все партии перепроходятся, новые
+    // ply 25..40 доливаются, старые ply 0..24 no-op по ON CONFLICT.
+    const existing =
+      options.mode === 'extend'
+        ? new Set<string>()
+        : await fetchExisting(games.map((g) => g.id));
 
-      const rows: PositionRow[] = [];
-      for (const g of games) {
-        if (existing.has(g.id)) {
-          state.skipped++;
-          continue;
-        }
-        let parsed: ParsedGame | null = null;
-        try {
-          parsed = parseGame(g.pgn);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(
-            `${PROGRESS_TAG} game ${g.id}: parse threw: ${msg}`,
-          );
-        }
-        if (!parsed) {
-          state.parseFailed++;
-          process.stderr.write(
-            `${PROGRESS_TAG} game ${g.id}: PGN parse failed, skipping\n`,
-          );
-          continue;
-        }
-        const merged = mergeParsedWithDb(parsed, g);
-        for (const row of buildPositionRowsForGame(g.id, merged, DEFAULT_BUCKET)) {
-          rows.push(row);
-        }
+    const rows: PositionRow[] = [];
+    for (const g of games) {
+      if (existing.has(g.id)) {
+        state.skipped++;
+        continue;
       }
-
-      if (rows.length > 0) {
-        try {
-          const inserted = await writer.write(rows, `backfill:${options.mode}`);
-          state.rowsWritten += rows.length;
-          state.newRowsInserted += inserted;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.error(`${PROGRESS_TAG} writer.write failed: ${msg}`);
-          // Падение одного батча не должно останавливать весь backfill,
-          // но мы ещё не пометили эти game_id как обработанные. Двигаемся
-          // дальше — повторный запуск обработает их заново (идемпотентно).
-          // Cursor уже продвинут, так что resume возможен только вручную
-          // с более раннего id, если это критично.
-        }
+      let parsed: ParsedGame | null = null;
+      try {
+        parsed = parseGame(g.pgn);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`${PROGRESS_TAG} game ${g.id}: parse threw: ${msg}`);
       }
-
-      state.processed += games.length;
-      logProgress(state);
+      if (!parsed) {
+        state.parseFailed++;
+        process.stderr.write(
+          `${PROGRESS_TAG} game ${g.id}: PGN parse failed, skipping\n`,
+        );
+        continue;
+      }
+      const merged = mergeParsedWithDb(parsed, g);
+      for (const row of buildPositionRowsForGame(g.id, merged, DEFAULT_BUCKET)) {
+        rows.push(row);
+      }
     }
 
-    const elapsedSec = (Date.now() - state.startedAt) / 1000;
-    console.log(
-      `${PROGRESS_TAG} DONE mode=${state.mode} processed=${state.processed} ` +
-        `rows=${state.rowsWritten} newRowsInserted=${state.newRowsInserted} ` +
-        `skipped=${state.skipped} parseFailed=${state.parseFailed} ` +
-        `elapsed=${formatEta(elapsedSec)}`,
+    if (rows.length > 0) {
+      try {
+        const inserted = await writer.write(rows, `backfill:${options.mode}`);
+        state.rowsWritten += rows.length;
+        state.newRowsInserted += inserted;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // KS-1640: больше не silent-fail. Любая ошибка записи — fatal,
+        // процесс завершается non-zero. Cursor продвинут, resume — через
+        // `--resume-from=<lastCursor>`.
+        console.error(
+          `${PROGRESS_TAG} writer.write failed (fatal): ${msg} ` +
+            `lastCursor=${state.lastCursor ?? 'start'} ` +
+            `processed=${state.processed} newRowsInserted=${state.newRowsInserted}`,
+        );
+        throw err instanceof Error ? err : new Error(msg);
+      }
+    }
+
+    state.processed += games.length;
+    logProgress(state);
+  }
+
+  const elapsedSec = (Date.now() - state.startedAt) / 1000;
+  console.log(
+    `${PROGRESS_TAG} DONE mode=${state.mode} processed=${state.processed} ` +
+      `rows=${state.rowsWritten} newRowsInserted=${state.newRowsInserted} ` +
+      `skipped=${state.skipped} parseFailed=${state.parseFailed} ` +
+      `elapsed=${formatEta(elapsedSec)}`,
+  );
+}
+
+export async function runBackfill(options: BackfillOptions): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL is not set');
+  }
+
+  const prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+  const writer = new ArchivePositionWriter(databaseUrl);
+
+  try {
+    await backfillLoop(
+      prisma as unknown as BackfillPrisma,
+      writer,
+      options,
+      (ids) => fetchExistingGameIds(prisma, ids),
     );
   } finally {
     await writer.close().catch(() => {});
