@@ -250,7 +250,7 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       eco: req.eco,
     };
 
-    const [page, totalApprox] = await Promise.all([
+    const [page, totalApproxRaw] = await Promise.all([
       this.stats.getGamesByPosition(key, opts),
       this.stats.countApprox(key, bucket),
     ]);
@@ -259,6 +259,23 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     const nextCursor = hasMore
       ? encodeCursor(buildCursor(sort, page.overflow as RawGamePositionRow))
       : null;
+
+    // Fail-closed guard (ADR-016 §Инвариант #3 "honest badge"): если
+    // `position_stats` говорит о ≥1 партии на этой позиции, а
+    // `archive_game_positions` не отдаёт ни одной (ни на этой странице, ни
+    // overflow'ом в следующую) — бейдж "≈N партий" обманывает пользователя.
+    // Скрываем число, чтобы UI показал fallback. До завершения ply-sync
+    // backfill такие несоответствия ожидаемы; метрика помогает отследить
+    // остаточный шум после прогрева.
+    let totalApprox: number | null = totalApproxRaw;
+    if (page.items.length === 0 && totalApproxRaw > 0) {
+      this.metrics.recordListMismatch(bucket);
+      this.logger.warn(
+        `archive.list.mismatch positionKey=${keyHex} bucket=${bucket} ` +
+          `totalApprox=${totalApproxRaw} filters=${this.hashGamesByPositionFilters(req, limit)}`,
+      );
+      totalApprox = null;
+    }
 
     const response: ArchiveGamesByPositionResponse = {
       fen: req.fen,

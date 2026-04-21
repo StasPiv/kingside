@@ -28,4 +28,18 @@ describe('ArchiveMetricsService', () => {
     expect(s.durationSumByHit.true).toBeCloseTo(0.003, 5);
     expect(s.durationSumByHit.false).toBeCloseTo(0.2, 5);
   });
+
+  it('listMismatchByBucket стартует с нулями для обоих bucket', () => {
+    const s = svc.snapshot();
+    expect(s.listMismatchByBucket).toEqual({ master: 0, user: 0 });
+  });
+
+  it('recordListMismatch инкрементирует счётчик по bucket', () => {
+    svc.recordListMismatch('master');
+    svc.recordListMismatch('master');
+    svc.recordListMismatch('user');
+
+    const s = svc.snapshot();
+    expect(s.listMismatchByBucket).toEqual({ master: 2, user: 1 });
+  });
 });

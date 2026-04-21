@@ -184,8 +184,17 @@ export type ArchiveGamesByPositionResponse = {
   /** Opaque cursor for the next page, or null if there are no more pages. */
   nextCursor: string | null;
   hasMore: boolean;
-  /** Approximate total number of matching games (may be an estimate). */
-  totalApprox: number;
+  /**
+   * Approximate total number of matching games (may be an estimate).
+   *
+   * `null` — сервер не уверен в числе и сознательно его скрывает. Это
+   * fail-closed guard (ADR-016 §Инвариант #3): если `items` пустой, а
+   * `position_stats` даёт totalApprox > 0, значит `archive_game_positions`
+   * рассинхронизировано с индексом (например, между задачами `ply-sync` до
+   * окончания backfill). В таком случае UI должен показать fallback
+   * «Позиция за пределами индекса» вместо обманчивого бейджа «≈N партий».
+   */
+  totalApprox: number | null;
 };
 
 // ─── Source admin ────────────────────────────────────────────────────
