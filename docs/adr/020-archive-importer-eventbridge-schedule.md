@@ -97,7 +97,7 @@
 - `containerDefinitions[0].command: ["node", "dist/importer-once.js"]` (см. §2.2).
 - Те же env (`ARCHIVE_DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `NODE_ENV=production`). **Добавляется**: `AWS_EMF_ENVIRONMENT=Lambda|ECS`, `AWS_EMF_NAMESPACE=Kingside/ArchiveImporter`, `AWS_EMF_LOG_GROUP_NAME=/ecs/archive-importer-oneshot` — для EMF client (§2.5).
 - `logConfiguration`: `awslogs` driver → CloudWatch Logs group `/ecs/archive-importer-oneshot`. **Обязательно** — отсюда EMF метрики извлекаются.
-- `cpu=256, memory=512` (как сейчас) — sizing можно ужать после одного месяца наблюдений.
+- `cpu=1024, memory=4096` — см. §2.4.5. Исходный черновик ADR предлагал `256 / 512`, но фактический RSS-профиль импортёра при TWIC-выпуске ~8 000 партий превышает 512 MiB (подтверждено KS-1684 smoke: OOM exit 137 на `adhoc` с теми же 256/512). Оба task-def (adhoc и oneshot) используют один sizing, потому что код-путь идентичен.
 - `essential: true`, `stopTimeout: 120` сек — даём Nest `onModuleDestroy` закрыть `pg.Pool`, Redis, Prisma gracefully.
 
 **ECR image tag:** каждый CI-build публикует `kingside-archive-service:<sha>`. `kingside-archive-importer-oneshot` task-def шаблон ссылается на **тот же tag**, что и `kingside-archive-importer` и `kingside-archive-api` — cutover единый (deploy пайплайн обновляет все три task definitions одновременно). Это инвариант: `dist/main.js`, `dist/importer-main.js`, `dist/importer-once.js` — из одного `nest build` одного `src/`, код одинаковый.
@@ -255,7 +255,7 @@ Fargate 256 CPU / 512 MiB on-demand (us-east-1) ≈ \$0.0122/vCPU-hour + \$0.001
 - `containerDefinitions[0].command: ["node", "dist/cli/import-twic-issue.js"]`. Номер выпуска подаётся через `--overrides.containerOverrides.command[1]`, см. команду ниже.
 - Env: те же, что у `oneshot` (`ARCHIVE_DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `NODE_ENV=production`). **Исключение:** `AWS_EMF_*` переменные — не задаём (см. §2.4.2).
 - `logConfiguration.awslogs-group: /kingside/archive-importer-adhoc`, `retention: 30 days`.
-- `cpu=256, memory=512`, `stopTimeout: 120` — как у `oneshot`.
+- `cpu=1024, memory=4096`, `stopTimeout: 120` — тот же sizing, что и у `oneshot` (§2.1, §2.4.5). Общий код-путь `TwicImporter.runForIssue` одинаково аллоцирует память в обоих режимах.
 
 **Команда запуска (пример, TWIC-1639):**
 
@@ -310,6 +310,46 @@ aws ecs run-task \
 
 - Оба (scheduler-triggered `importer-once.js` и ad-hoc `cli:import-twic-issue.js`) берут **один и тот же Redis-lock** `archive:import:lock:twic` (ADR-019 §2.11). Поведение при race описано в §2.4.3 #4.
 - Ad-hoc CLI, запущенный в 20:00 UTC ± минуты со scheduler'ом — один из них возьмёт lock, второй получит busy. Low-probability, но терпимо.
+
+#### 2.4.5 Memory budget и профиль RSS (KS-1684)
+
+**Факт (KS-1684 smoke, 2026-04-21):** задача `kingside-archive-importer-adhoc` с sizing'ом `256 CPU / 512 MiB` (изначальный черновик ADR) упала OOM exit 137 через 23m37s на ретроспективном импорте TWIC-1639. CLI успел: поднять Nest-context, подключиться к Redis+Postgres, скачать zip, выполнить `parseBatch()` → `parsed=8182 failed=389`. OOM случился ДО `filterAlreadyImported` / insert-loop.
+
+**Диагностика пика RSS (анализ `TwicImporter.runForIssue` + `pgn-utils.parseBatch`):**
+
+| Этап | Источник памяти | Оценка (8 000 партий) |
+| - | - | - |
+| `decodePgnBuffer` | Полная PGN-строка в памяти (buffer → utf8) | 20–40 MiB |
+| `splitPgn` | Массив raw-строк на партию | 20–30 MiB |
+| `parseBatch` → `ParsedGame[]` | `raw: string` + `moves: GameMoveStep[]` (UCI+FEN-after на каждый ход, 50–100 плайев на партию) + `finalFen` + contentHash | 100–160 MiB |
+| `filterAlreadyImported` | Prisma findMany with IN (8 000 × 20 bytes) + Set<hex> в памяти | 5–15 MiB |
+| `addedGames[]` + `positionRows[]` во время insert-loop | position rows копятся для classical partии (≈ 70% × 8 000 × 70 плайев × ~500 байт) | 150–200 MiB |
+| V8 heap overhead + GC headroom | 2× пика пользовательских данных | 300–400 MiB |
+| NestJS context + Prisma engine + ioredis baseline | | 80–120 MiB |
+| **Пик RSS при в-памяти-пайплайне** | | **~600–900 MiB** |
+
+512 MiB закрывается до пика; 1024 MiB — впритык без запаса под V8 GC; **4096 MiB** оставляет 3–4x margin под рост TWIC-выпусков (наблюдалось 8–12 k партий в современных выпусках против ~3 k в старых).
+
+**Решение sizing'а: `cpu=1024, memory=4096` для обоих task-def'ов (adhoc + oneshot).**
+
+- **CPU 1024 (1 vCPU)** вместо 256 (0.25): парсинг 8 000 партий через chess.js + replay — CPU-bound. Факт smoke-run'а: 23 минуты до OOM при 256 CPU в норме должны были уложиться в ~30–60 сек парсинга (chess.js ~2–5 ms/партия × 8 000 ≈ 8–40 сек). Медленное CPU приводит к GC thrashing под memory pressure'ом, что усугубляет OOM. 1 vCPU даёт минимум 4x ускорения.
+- **Memory 4096 MiB** вместо 512: 3–4x margin над пиком 900 MiB. Одноразовый bump, чтобы не возвращаться к этому вопросу через 6 месяцев при росте TWIC-выпусков или добавлении второго источника (Lichess / chess.com).
+- **Fargate matrix:** 1024 CPU / 4096 MiB — валидная комбинация (1 vCPU поддерживает 2–8 GiB memory).
+- **Cost:** Fargate 1024 / 4096 on-demand us-east-1 ≈ \$0.058/task-hour. Daily 2-мин task: \$0.002/день = **\$0.06/мес**. Ad-hoc 30 run'ов × 3 мин: **~\$0.09/мес**. Всё ещё копейки против \$10–15/мес 24/7 Fargate, который заменили.
+
+**Критический бэкпорт на `oneshot` (scheduler daily):** текущий `oneshot` с `cpu=256, memory=512` **подвержен тому же OOM-риску**. Scheduler идёт по cursor +1 в неделю; OOM не наступал только потому, что cursor пока шёл по старым небольшим выпускам (~1 000–3 000 партий). Первый же «крупный» TWIC-выпуск (8 000+ партий) свалит daily-tick. Alarm `LastSuccessAgeSeconds > 14 days` (§2.6) сработает только через 2 недели после сбоя. **Оба task-def'а должны быть переведены на `1024/4096` синхронно**, иначе дизайн содержит скрытую таймбомбу.
+
+**Техдолг — streaming/chunk-based parsing (follow-up, не в scope KS-1684/KS-1686):**
+
+Bump sizing'а — *tactical fix*. Правильное долгосрочное решение — потоковый парсер:
+
+- `splitPgn` → stream-итератор, yield по одной партии (pgn header detection построчно).
+- `parseGame` per-item, без накопления в массиве.
+- Chunk-based `filterAlreadyImported` (например chunk=500): один `IN`-query на chunk, не на весь батч.
+- Insert-loop потребляет стрим, `addedGames`/`positionRows` очищаются после каждого chunk'а (после `PositionIndexer.index` + `PositionWriter.write`).
+- Peak RSS должен стать ≈ \~150 MiB постоянным (одна партия + 500-chunk hash-lookup + baseline) — работоспособен на любом sizing'е, в т.ч. 256/512.
+
+Это отдельный backend-тикет (KS-1687-like, см. §5). Не блокирует KS-1684 (задача тактического unblock'а) и KS-1686 (первый ретроспективный импорт). После стриминга sizing'и `oneshot`/`adhoc` можно вернуть к 512/2048 или меньше — но это будет отдельным решением после профилирования фактического RSS стримингового пайплайна.
 
 ### 2.5 Мониторинг short-lived tasks
 
@@ -531,7 +571,7 @@ Rollback: `--desired-count 1` — мгновенно возвращает пос
 1. **Race с ad-hoc CLI.** Если scheduler тикнул в 20:00:00 и оператор запускает `cli:import-twic-issue` в 20:00:05, один из них получит `lock held, skipping` и exit ≠ 0 (для CLI — это сигнал оператору). CLI в текущей реализации (`apps/archive-service/src/cli/import-twic-issue.ts:100-104`) бросает ошибку если lock занят — оператор получит exit 1. Это ожидаемое поведение, не исправляем.
 2. **EMF client flush timing.** `aws-embedded-metrics` использует stdout.write с буферизацией. Если process.exit() вызван сразу, потенциально теряется последний flush. Mitigation: `await emf.flush()` перед `app.close()`; библиотека должна поддерживать явный flush. Если нет — ручной `console.log(JSON.stringify(emfObject))` гарантирует flush перед exit'ом (stdout в ECS awslogs — line-buffered).
 3. **CloudWatch Logs awslogs driver batching.** Stdout → logs агент → CloudWatch Logs API в батчах по 5 сек / 64 KiB. Если task завершилась быстрее (2 сек в edge-case идеального lock-skip noop'а) — задержка flush до 5 сек после task stop. ECS `stopTimeout: 120` сек закрывает этот риск: task не стопается моментально, ждёт graceful shutdown.
-4. **Task размер памяти.** NestJS context + Prisma client + Redis + PGN parse может подтягивать 200–300 MiB RSS при активном импорте. `memory: 512` оставляет margin ~200 MiB. Если EMF-publisher или `aws-embedded-metrics` транзитивно тянет AWS SDK — RSS может вырасти до 400 MiB. Проверить на stage до cutover'а; при OOM поднять до `memory: 1024`.
+4. **Task размер памяти.** **Зафиксировано KS-1684:** исходный профиль `256 CPU / 512 MiB` недостаточен — OOM exit 137 на TWIC-1639 (8 182 партии). Реальный пик RSS in-memory пайплайна ≈ 600–900 MiB (детали в §2.4.5). Sizing повышен до **`1024 CPU / 4096 MiB`** для обоих task-def'ов (`oneshot`, `adhoc`). Streaming/chunk-based parsing — follow-up backend'у (см. §5 KS-E09), после которого sizing можно будет откатить.
 5. **IAM ecs:RunTask permissions.** EventBridge Scheduler role требует `ecs:RunTask` + `iam:PassRole` на две роли (task execution role, task role). Подводный камень — policy должна указывать именно ARN task-def, иначе scheduler может запустить **любой** task-def. Least-privilege критичен: `Resource: arn:aws:ecs:...:task-definition/kingside-archive-importer-oneshot:*`.
 6. **TWIC publisher availability.** EventBridge запускает каждый день в 20:00 UTC. `theweekinchess.com` может быть недоступен (сервер сайта редко, но падает). Exit 0 если `TwicImporter.run()` возвращает `{status:'failed', error:'HTTP 503'}`? Сейчас — да, task завершается штатно, failure записывается в `archive_sources.last_error`. Это приемлемо: DLQ и alarm 14 дней всё равно ловят persistent failures. Alarm A3 (`SourcesFailed > 0 за 1 ч`) ловит разовые.
 7. **Cursor increment in TWIC.** `TwicImporter` идёт от `cursor+1`. Если один TWIC выпуск ещё не опубликован (404) → `status='noop'`, cursor не двигается. Schedule запустит снова завтра. Не ломается.
@@ -561,3 +601,5 @@ Rollback: `--desired-count 1` — мгновенно возвращает пос
 - **KS-E05 [devops]** — Шаг 4. `delete-service`, удаление Prometheus scrape target, cleanup docker-compose.yml.
 - **KS-E06 [qa]** — Smoke-план по каждому шагу: manual invoke на стейдже → проверка EMF метрик → CloudWatch Alarm синтетический триггер (временно threshold=1 → проверка SNS → вернуть threshold) → проверка что `archive_sources.last_success_at` двигается.
 - **KS-E07 [devops, опционально]** — Weekly ECR image rebuild trigger (security updates) + task-def registration pipeline. Follow-up, не блокирует KS-1680.
+- **KS-E08 [devops]** — (KS-1684 follow-up, §2.4.5) Bump sizing обоих task-def'ов (`oneshot` + `adhoc`) до `cpu=1024, memory=4096`. Обновить `scripts/archive-service-aws-setup.sh`. Smoke re-run TWIC-1639 на `adhoc` — ожидаем exit=0 / gamesAdded/Skipped в лог. Критично: oneshot bumped синхронно — иначе scheduler-tick уязвим к тому же OOM на крупных TWIC-выпусках.
+- **KS-E09 [backend, follow-up, приоритет medium]** — Streaming/chunk-based PGN pipeline (§2.4.5). Переписать `TwicImporter.runForIssue` + `pgn-utils.parseBatch` + `dedup.filterAlreadyImported` + insert-loop на stream-based архитектуру: chunk=500 партий, peak RSS ≤ 256 MiB независимо от размера TWIC-выпуска. Тесты: memory-smoke с профайлером (peak RSS ограничен), unit-тесты стрим-сплиттера. Не блокирует KS-1686 (первый ретроспективный импорт делаем на bumped sizing'е, до streaming'а).
