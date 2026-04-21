@@ -129,7 +129,7 @@ describe('buildPositionRowsForGame', () => {
   });
 
   it('Gherkin: партия 60 полуходов → только ply 0..POSITION_PLY_LIMIT', () => {
-    // Длинная партия из Сицилианки — 60 полуходов без транспозиций.
+    // Длинная партия из произвольных легальных ходов — 60 полуходов.
     // Делаем через набор ходов; реалистичность не важна — важна длина.
     const chess = new Chess();
     const moves: GameMoveStep[] = [];
@@ -152,7 +152,7 @@ describe('buildPositionRowsForGame', () => {
     const game = mkGame({ moves, plyCount: moves.length });
     const rows = buildPositionRowsForGame(GAME_ID, game, 'master');
 
-    // Ожидаем максимум POSITION_PLY_LIMIT + 1 строк (ply 0..24);
+    // Ожидаем максимум POSITION_PLY_LIMIT + 1 строк (ply 0..POSITION_PLY_LIMIT);
     // если где-то была транспозиция — меньше.
     expect(rows.length).toBeLessThanOrEqual(POSITION_PLY_LIMIT + 1);
     for (const r of rows) {

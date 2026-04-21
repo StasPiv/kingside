@@ -2,7 +2,8 @@
  * Построение строк для таблицы `archive_game_positions` (ADR-014 §1.2, §5).
  *
  * На одну партию сохраняется одна строка на каждую уникальную позицию для
- * ply ≤ `PLY_LIMIT`. Первичный ключ (position_key, bucket, game_id) —
+ * ply ≤ `POSITION_PLY_LIMIT` (= `ARCHIVE_PLY_LIMIT`). Первичный ключ
+ * (position_key, bucket, game_id) —
  * транспозиции в рамках одной партии сворачиваются в одну строку; берётся
  * первая встреча (минимальный ply).
  *
@@ -10,11 +11,17 @@
  * через staging TEMP TABLE с `ON CONFLICT DO NOTHING`).
  */
 
+import { ARCHIVE_PLY_LIMIT } from '@kingside/shared';
 import { positionKey } from '@kingside/shared/dist/utils/position-key.js';
 import type { ParsedGame } from './pgn-utils.js';
 
-/** До какого ply включительно индексируем позиции. ply 0 — стартовая. */
-export const POSITION_PLY_LIMIT = 24;
+/**
+ * До какого ply включительно индексируем позиции в `archive_game_positions`.
+ * ply 0 — стартовая. Значение должно совпадать с `PLY_LIMIT` из
+ * `position-indexer.ts` — инвариант #2 (ply-lock) из ADR-016. Для этого
+ * обе константы проксируются через `ARCHIVE_PLY_LIMIT` из `@kingside/shared`.
+ */
+export const POSITION_PLY_LIMIT = ARCHIVE_PLY_LIMIT;
 
 /** Стартовый FEN; совпадает с PositionIndexer. */
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

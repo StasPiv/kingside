@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from '@kingside/db';
+import { ARCHIVE_PLY_LIMIT } from '@kingside/shared';
 // Прямой subpath-импорт — из `@kingside/shared` publicly этот символ больше не
 // экспортируется, чтобы не тянуть `node:crypto` в браузерный бандл (KS-1597).
 import { positionKey } from '@kingside/shared/dist/utils/position-key.js';
@@ -19,7 +20,12 @@ import { positionStatsUpsertDurationSeconds } from './metrics.js';
  */
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-const PLY_LIMIT = 40;
+/**
+ * Лимит ply для position_stats. Экспортируется, чтобы row-builder и тесты
+ * могли проверить инвариант #2 (ply-lock) из ADR-016: оба архивных индекса
+ * должны использовать одно и то же значение.
+ */
+export const PLY_LIMIT = ARCHIVE_PLY_LIMIT;
 const DEFAULT_BUCKET = 'master';
 
 /** Дельта по одной (positionKey, move, bucket) — накапливается до UPSERT. */
