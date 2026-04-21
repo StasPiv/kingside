@@ -183,6 +183,10 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-kingside}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      # Проброс для datasource provisioning (Postgres datasource использует эти переменные)
+      POSTGRES_DB: ${POSTGRES_DB:-kingside}
+      POSTGRES_USER: ${POSTGRES_USER:-kingside}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kingside}
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning
       - grafana_data:/var/lib/grafana
@@ -190,9 +194,95 @@ services:
       - loki
     profiles:
       - logging
+      - monitoring
+
+  # --- Monitoring (KS-1635 / ADR-016 Этап 6) ---
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    mem_limit: 512m
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    depends_on:
+      - postgres-exporter
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+    profiles:
+      - monitoring
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "${ALERTMANAGER_PORT:-9093}:9093"
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
+    volumes:
+      - ./infra/alertmanager:/etc/alertmanager:ro
+      - alertmanager_data:/alertmanager
+    # Alertmanager не умеет envsubst — шаблон рендерится на старте через sed.
+    # Плейсхолдеры __TELEGRAM_BOT_TOKEN__ / __TELEGRAM_CHAT_ID__ заменяются значениями из env.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        sed \
+          -e "s|__TELEGRAM_BOT_TOKEN__|${TELEGRAM_BOT_TOKEN:-}|g" \
+          -e "s|__TELEGRAM_CHAT_ID__|${TELEGRAM_CHAT_ID:-0}|g" \
+          /etc/alertmanager/alertmanager.yml.tpl > /tmp/alertmanager.yml
+        exec /bin/alertmanager \
+          --config.file=/tmp/alertmanager.yml \
+          --storage.path=/alertmanager \
+          --web.listen-address=:9093
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - monitoring
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    restart: unless-stopped
+    mem_limit: 128m
+    ports:
+      - "${POSTGRES_EXPORTER_PORT:-9187}:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yaml
+    volumes:
+      - ./infra/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    depends_on:
+      - postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    profiles:
+      - monitoring
 
 volumes:
   postgres_data:
   redis_data:
   loki_data:
   grafana_data:
+  prometheus_data:
+  alertmanager_data:
