@@ -4,6 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { RedisIoAdapter } from './common/redis-io.adapter';
+import { stripApiPrefix } from './common/strip-api-prefix.middleware';
 
 /**
  * Determine whether to use Redis adapter for Socket.IO.
@@ -35,7 +36,9 @@ function shouldUseRedisAdapter(logger: Logger): boolean {
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api');
+  // Dual-prefix: контроллеры живут на `/xyz`, но продолжаем принимать
+  // `/api/xyz` от legacy-клиентов (KS-1664, ADR-018 §2.5 шаг A).
+  app.use(stripApiPrefix);
   const corsOrigins: (string | RegExp)[] = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
     : [];

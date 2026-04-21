@@ -15,6 +15,7 @@ import request from 'supertest';
 import type { Server } from 'http';
 import { MetricsController } from './metrics.controller';
 import { MetricsService } from './metrics.service';
+import { stripApiPrefix } from '../common/strip-api-prefix.middleware';
 
 describe('MetricsController E2E', () => {
   let app: INestApplication;
@@ -27,9 +28,11 @@ describe('MetricsController E2E', () => {
     }).compile();
 
     app = module.createNestApplication();
-    // Main.ts ставит глобальный префикс `api`; повторяем его здесь,
-    // чтобы тест проверял фактический внешний путь `/api/metrics`.
-    app.setGlobalPrefix('api');
+    // KS-1664: `setGlobalPrefix('api')` заменён на dual-prefix middleware
+    // в `main.ts` — повторяем ту же семантику здесь, чтобы тест проверял
+    // фактический внешний путь `/api/metrics` (который middleware
+    // переписывает в `/metrics` до матчинга Nest'ом).
+    app.use(stripApiPrefix);
     await app.init();
 
     metrics = module.get(MetricsService);
