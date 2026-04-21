@@ -65,17 +65,23 @@ else
 fi
 
 # --- 2. Security group ingress 3003 ---
-HAS_INGRESS=$(aws_cli ec2 describe-security-groups --group-ids "${ECS_SG}" \
-    --query "SecurityGroups[0].IpPermissions[?FromPort==\`${CONTAINER_PORT}\` && ToPort==\`${CONTAINER_PORT}\` && IpProtocol=='tcp'].UserIdGroupPairs[?GroupId=='${ALB_SG}'] | [0]" \
-    --output text)
-if [ -z "${HAS_INGRESS}" ] || [ "${HAS_INGRESS}" = "None" ]; then
-    log "adding ingress TCP:${CONTAINER_PORT} from ${ALB_SG} → ${ECS_SG}"
-    aws_cli ec2 authorize-security-group-ingress \
-        --group-id "${ECS_SG}" \
-        --ip-permissions "IpProtocol=tcp,FromPort=${CONTAINER_PORT},ToPort=${CONTAINER_PORT},UserIdGroupPairs=[{GroupId=${ALB_SG},Description=\"archive-service ALB ingress\"}]" \
-        >/dev/null
-else
+# AWS возвращает IpPermissions в необычной форме (вложенные массивы), из-за чего
+# JMESPath-фильтр не всегда находит совпадение. Поэтому просто пробуем добавить
+# правило и игнорируем InvalidPermission.Duplicate.
+set +e
+SG_OUT=$(aws_cli ec2 authorize-security-group-ingress \
+    --group-id "${ECS_SG}" \
+    --ip-permissions "IpProtocol=tcp,FromPort=${CONTAINER_PORT},ToPort=${CONTAINER_PORT},UserIdGroupPairs=[{GroupId=${ALB_SG},Description=\"archive-service ALB ingress\"}]" \
+    2>&1)
+SG_RC=$?
+set -e
+if [ ${SG_RC} -eq 0 ]; then
+    log "added ingress TCP:${CONTAINER_PORT} from ${ALB_SG} → ${ECS_SG}"
+elif echo "${SG_OUT}" | grep -q "InvalidPermission.Duplicate"; then
     log "SG ingress TCP:${CONTAINER_PORT} from ${ALB_SG} already present"
+else
+    echo "${SG_OUT}" >&2
+    exit ${SG_RC}
 fi
 
 # --- 3. CloudWatch log group ---
@@ -138,7 +144,10 @@ TASKDEF_JSON=$(cat <<EOF
 }
 EOF
 )
-TD_ARN=$(echo "${TASKDEF_JSON}" | aws_cli ecs register-task-definition --cli-input-json file:///dev/stdin \
+TASKDEF_FILE="$(mktemp -t archive-taskdef.XXXXXX.json)"
+trap 'rm -f "${TASKDEF_FILE}"' EXIT
+printf '%s' "${TASKDEF_JSON}" > "${TASKDEF_FILE}"
+TD_ARN=$(aws_cli ecs register-task-definition --cli-input-json "file://${TASKDEF_FILE}" \
     --query 'taskDefinition.taskDefinitionArn' --output text)
 log "registered task definition: ${TD_ARN}"
 
@@ -189,7 +198,9 @@ TG_SUFFIX="$(echo "${TG_ARN}" | sed 's|.*:targetgroup/||')"
 ALB_ARN="$(aws_cli elbv2 describe-target-groups --target-group-arns "${TG_ARN}" \
     --query 'TargetGroups[0].LoadBalancerArns[0]' --output text)"
 ALB_SUFFIX="$(echo "${ALB_ARN}" | sed 's|.*:loadbalancer/||')"
-RESOURCE_LABEL="${ALB_SUFFIX}/${TG_SUFFIX}"
+# Формат ResourceLabel для ALBRequestCountPerTarget:
+#   app/<alb-name>/<alb-id>/targetgroup/<tg-name>/<tg-id>
+RESOURCE_LABEL="${ALB_SUFFIX}/targetgroup/${TG_SUFFIX}"
 
 POLICY_EXISTS=$(aws_cli application-autoscaling describe-scaling-policies \
     --service-namespace ecs --resource-id "${SCALABLE_TARGET_ID}" \
