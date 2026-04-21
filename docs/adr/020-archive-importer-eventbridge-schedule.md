@@ -5,6 +5,30 @@
 **Задача:** KS-1680
 **Связанные ADR:** [ADR-013](./013-game-archive-and-tree.md), [ADR-018](./018-archive-service-extraction.md), [ADR-019](./019-archive-importer-merge-into-service.md)
 
+## 0. Проектный инвариант: code optimization first, hardware bump second
+
+**Общий проектный принцип (не локальный для archive-importer):** повышение infrastructure sizing'а (CPU / RAM / disk / instance class) рассматривается ТОЛЬКО после исчерпания code-optimization путей. Формальный чек-лист перед любым sizing-bump'ом:
+
+1. Профилирован ли фактический ресурс? (не догадки, а измерение — heap snapshot, flamegraph, SQL `EXPLAIN`, ECS container insights.)
+2. Существует ли in-code способ снять нагрузку? — streaming/chunking, lazy loading, indexing, query push-down в БД, кеширование, batching, back-pressure.
+3. Если существует — какова его стоимость (человеко-дни) и риск регрессии? Зафиксировано ли это тикетом?
+4. Если in-code путь выбран — sizing остаётся на минимуме; bump вводится только если code-fix провалился или стоимость code-fix'а превышает N-летнюю стоимость bump'а с учётом роста нагрузки.
+
+**Причины инварианта:**
+
+- Sizing-bump маскирует архитектурные проблемы (утечки, O(N²) алгоритмы, ненужная in-memory аккумуляция), откладывая их на следующий выпуск/источник/порядок масштаба данных. Исправление становится кратно дороже.
+- В продукте с одним разработчиком time-to-fix дешевле дополнительного \$/мес только пока проблема активна; как только нагрузка вырастет, bump упирается в новый cap, и платить нужно ещё раз.
+- Bump'ами трудно анализировать фактический baseline-профиль сервиса. Минимальный sizing + streaming код даёт предсказуемые limits, видимые в мониторинге.
+- Stability через minimalism: меньше vCPU/RAM — меньше скрытых трат на memory leaks, zombie threads, непрочищенные connection pools.
+
+**Что инвариант НЕ означает:**
+
+- Не запрет на bump при объективной нехватке ресурсов (например, для чисто CPU-bound задач типа stockfish-анализа 24-ply). Запрет — на bump «потому что сейчас быстрее чем писать код».
+- Не требование прогонять чек-лист для микро-изменений (например, +50 MiB на контейнер по результатам upgrade-а зависимости). Применяется к существенным bump'ам (kx2+).
+- Не освобождение от bump'ов, если code-optimization пути проработаны и исчерпаны (ADR обязан это зафиксировать).
+
+**Следствие для этого ADR:** конкретный кейс применения инварианта — KS-1684 OOM (§2.4.5). Факт OOM на `256 CPU / 512 MiB` НЕ ведёт к sizing-bump'у; ведёт к KS-1687 (streaming/chunked PGN pipeline, §2.4.5). Sizing обеих task-def (`oneshot`, `adhoc`) остаётся на `256 / 512`.
+
 ## 1. Контекст
 
 ### Что есть сейчас (факт, после KS-1676 / ADR-019)
@@ -97,7 +121,7 @@
 - `containerDefinitions[0].command: ["node", "dist/importer-once.js"]` (см. §2.2).
 - Те же env (`ARCHIVE_DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `NODE_ENV=production`). **Добавляется**: `AWS_EMF_ENVIRONMENT=Lambda|ECS`, `AWS_EMF_NAMESPACE=Kingside/ArchiveImporter`, `AWS_EMF_LOG_GROUP_NAME=/ecs/archive-importer-oneshot` — для EMF client (§2.5).
 - `logConfiguration`: `awslogs` driver → CloudWatch Logs group `/ecs/archive-importer-oneshot`. **Обязательно** — отсюда EMF метрики извлекаются.
-- `cpu=1024, memory=4096` — см. §2.4.5. Исходный черновик ADR предлагал `256 / 512`, но фактический RSS-профиль импортёра при TWIC-выпуске ~8 000 партий превышает 512 MiB (подтверждено KS-1684 smoke: OOM exit 137 на `adhoc` с теми же 256/512). Оба task-def (adhoc и oneshot) используют один sizing, потому что код-путь идентичен.
+- `cpu=256, memory=512`. Sizing НЕ повышается после OOM на KS-1684 — применяется §0 «code optimization first». Фактический пик RSS (~600–900 MiB на TWIC-выпуск ~8 000 партий) превышает лимит контейнера, но решение — streaming pipeline (KS-1687, §2.4.5), а не bump. Принятый риск до закрытия KS-1687: scheduler-tick на крупных TWIC (>~2k партий) уязвим к OOM; обнаруживается через alarm A3 (`SourcesFailed > 0 за 1 ч`, §2.7) в течение часа, не через 14-дневный A4.
 - `essential: true`, `stopTimeout: 120` сек — даём Nest `onModuleDestroy` закрыть `pg.Pool`, Redis, Prisma gracefully.
 
 **ECR image tag:** каждый CI-build публикует `kingside-archive-service:<sha>`. `kingside-archive-importer-oneshot` task-def шаблон ссылается на **тот же tag**, что и `kingside-archive-importer` и `kingside-archive-api` — cutover единый (deploy пайплайн обновляет все три task definitions одновременно). Это инвариант: `dist/main.js`, `dist/importer-main.js`, `dist/importer-once.js` — из одного `nest build` одного `src/`, код одинаковый.
@@ -255,7 +279,7 @@ Fargate 256 CPU / 512 MiB on-demand (us-east-1) ≈ \$0.0122/vCPU-hour + \$0.001
 - `containerDefinitions[0].command: ["node", "dist/cli/import-twic-issue.js"]`. Номер выпуска подаётся через `--overrides.containerOverrides.command[1]`, см. команду ниже.
 - Env: те же, что у `oneshot` (`ARCHIVE_DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`, `NODE_ENV=production`). **Исключение:** `AWS_EMF_*` переменные — не задаём (см. §2.4.2).
 - `logConfiguration.awslogs-group: /kingside/archive-importer-adhoc`, `retention: 30 days`.
-- `cpu=1024, memory=4096`, `stopTimeout: 120` — тот же sizing, что и у `oneshot` (§2.1, §2.4.5). Общий код-путь `TwicImporter.runForIssue` одинаково аллоцирует память в обоих режимах.
+- `cpu=256, memory=512`, `stopTimeout: 120` — тот же sizing, что и у `oneshot` (§2.1, §2.4.5). Общий код-путь `TwicImporter.runForIssue` одинаково аллоцирует память в обоих режимах; bump одного из них без другого не имеет смысла. До закрытия KS-1687 (streaming) ретроспективный импорт крупных TWIC-выпусков на этом sizing'е НЕ работает (OOM); KS-1686 ждёт KS-1687.
 
 **Команда запуска (пример, TWIC-1639):**
 
@@ -311,9 +335,9 @@ aws ecs run-task \
 - Оба (scheduler-triggered `importer-once.js` и ad-hoc `cli:import-twic-issue.js`) берут **один и тот же Redis-lock** `archive:import:lock:twic` (ADR-019 §2.11). Поведение при race описано в §2.4.3 #4.
 - Ad-hoc CLI, запущенный в 20:00 UTC ± минуты со scheduler'ом — один из них возьмёт lock, второй получит busy. Low-probability, но терпимо.
 
-#### 2.4.5 Memory budget и профиль RSS (KS-1684)
+#### 2.4.5 Memory budget, OOM KS-1684 и streaming-фикс KS-1687
 
-**Факт (KS-1684 smoke, 2026-04-21):** задача `kingside-archive-importer-adhoc` с sizing'ом `256 CPU / 512 MiB` (изначальный черновик ADR) упала OOM exit 137 через 23m37s на ретроспективном импорте TWIC-1639. CLI успел: поднять Nest-context, подключиться к Redis+Postgres, скачать zip, выполнить `parseBatch()` → `parsed=8182 failed=389`. OOM случился ДО `filterAlreadyImported` / insert-loop.
+**Факт (KS-1684 smoke, 2026-04-21):** задача `kingside-archive-importer-adhoc` с sizing'ом `256 CPU / 512 MiB` упала OOM exit 137 через 23m37s на ретроспективном импорте TWIC-1639. CLI успел: поднять Nest-context, подключиться к Redis+Postgres, скачать zip, выполнить `parseBatch()` → `parsed=8182 failed=389`. OOM случился ДО `filterAlreadyImported` / insert-loop.
 
 **Диагностика пика RSS (анализ `TwicImporter.runForIssue` + `pgn-utils.parseBatch`):**
 
@@ -323,33 +347,73 @@ aws ecs run-task \
 | `splitPgn` | Массив raw-строк на партию | 20–30 MiB |
 | `parseBatch` → `ParsedGame[]` | `raw: string` + `moves: GameMoveStep[]` (UCI+FEN-after на каждый ход, 50–100 плайев на партию) + `finalFen` + contentHash | 100–160 MiB |
 | `filterAlreadyImported` | Prisma findMany with IN (8 000 × 20 bytes) + Set<hex> в памяти | 5–15 MiB |
-| `addedGames[]` + `positionRows[]` во время insert-loop | position rows копятся для classical partии (≈ 70% × 8 000 × 70 плайев × ~500 байт) | 150–200 MiB |
+| `addedGames[]` + `positionRows[]` во время insert-loop | position rows копятся для classical партий (≈ 70% × 8 000 × 70 плайев × ~500 байт) | 150–200 MiB |
 | V8 heap overhead + GC headroom | 2× пика пользовательских данных | 300–400 MiB |
 | NestJS context + Prisma engine + ioredis baseline | | 80–120 MiB |
-| **Пик RSS при в-памяти-пайплайне** | | **~600–900 MiB** |
+| **Пик RSS при in-memory пайплайне** | | **~600–900 MiB** |
 
-512 MiB закрывается до пика; 1024 MiB — впритык без запаса под V8 GC; **4096 MiB** оставляет 3–4x margin под рост TWIC-выпусков (наблюдалось 8–12 k партий в современных выпусках против ~3 k в старых).
+**Решение: НЕ повышаем sizing. Переписываем пайплайн в streaming (KS-1687).**
 
-**Решение sizing'а: `cpu=1024, memory=4096` для обоих task-def'ов (adhoc + oneshot).**
+Применяется инвариант §0 «code optimization first, hardware bump second». Sizing-bump до 1024/4096 обсуждался и **отклонён пользователем**; причина — маскирование архитектурной проблемы (in-memory аккумуляция всего TWIC-выпуска) на очередные 6–12 месяцев до следующего роста TWIC / добавления Lichess-источника. Корень проблемы — не размер контейнера, а то, что `parseBatch` + `addedGames[]` + `positionRows[]` держат O(N) по всему выпуску вместо O(chunk).
 
-- **CPU 1024 (1 vCPU)** вместо 256 (0.25): парсинг 8 000 партий через chess.js + replay — CPU-bound. Факт smoke-run'а: 23 минуты до OOM при 256 CPU в норме должны были уложиться в ~30–60 сек парсинга (chess.js ~2–5 ms/партия × 8 000 ≈ 8–40 сек). Медленное CPU приводит к GC thrashing под memory pressure'ом, что усугубляет OOM. 1 vCPU даёт минимум 4x ускорения.
-- **Memory 4096 MiB** вместо 512: 3–4x margin над пиком 900 MiB. Одноразовый bump, чтобы не возвращаться к этому вопросу через 6 месяцев при росте TWIC-выпусков или добавлении второго источника (Lichess / chess.com).
-- **Fargate matrix:** 1024 CPU / 4096 MiB — валидная комбинация (1 vCPU поддерживает 2–8 GiB memory).
-- **Cost:** Fargate 1024 / 4096 on-demand us-east-1 ≈ \$0.058/task-hour. Daily 2-мин task: \$0.002/день = **\$0.06/мес**. Ad-hoc 30 run'ов × 3 мин: **~\$0.09/мес**. Всё ещё копейки против \$10–15/мес 24/7 Fargate, который заменили.
+**План KS-1687 (streaming/chunked PGN pipeline, HIGH priority, БЛОКЕР KS-1686):**
 
-**Критический бэкпорт на `oneshot` (scheduler daily):** текущий `oneshot` с `cpu=256, memory=512` **подвержен тому же OOM-риску**. Scheduler идёт по cursor +1 в неделю; OOM не наступал только потому, что cursor пока шёл по старым небольшим выпускам (~1 000–3 000 партий). Первый же «крупный» TWIC-выпуск (8 000+ партий) свалит daily-tick. Alarm `LastSuccessAgeSeconds > 14 days` (§2.6) сработает только через 2 недели после сбоя. **Оба task-def'а должны быть переведены на `1024/4096` синхронно**, иначе дизайн содержит скрытую таймбомбу.
+*Уровень 1 — chunk-loop в `runForIssue` (обязательный):*
 
-**Техдолг — streaming/chunk-based parsing (follow-up, не в scope KS-1684/KS-1686):**
+- `splitPgn` и `parseBatch` вызываются как сейчас, но результат не передаётся целиком в дальнейший пайплайн. Вместо этого — chunk-итерация с размером **N=500 партий**:
+  ```
+  for chunk of chunks(games, 500):
+      freshChunk = filterAlreadyImported(prisma, chunk)
+      for game of freshChunk:
+          try create archive_game (P2002 → skipped++)
+          if isClassical: positionRows.push(...)
+      PositionIndexer.index(chunk-classical)
+      PositionWriter.write(positionRows)
+      addedGames += chunk.added; positionRows = []; addedGames-stats tracked
+  ```
+- После каждого chunk'а `positionRows`, `addedGames`-внутренний буфер и `freshChunk` становятся eligible к GC. Heap growth линейный по одному chunk'у, не по всему выпуску.
+- Агрегированная статистика (`gamesParsed`, `gamesAdded`, `gamesSkipped`, `classicalRatio`) копится по chunk'ам и пишется в `archive_imports` одной финальной `update()`-строкой (как сейчас — один audit row на issue, не по одному на chunk).
+- Ожидаемый peak RSS: ~250–300 MiB (PGN-строка `decodePgnBuffer` и `ParsedGame[]` после `parseBatch` всё ещё держатся полностью; в 512 MiB с запасом для GC).
 
-Bump sizing'а — *tactical fix*. Правильное долгосрочное решение — потоковый парсер:
+*Уровень 2 — streaming split/parse (условный, если уровень 1 не укладывается в < 400 MiB):*
 
-- `splitPgn` → stream-итератор, yield по одной партии (pgn header detection построчно).
-- `parseGame` per-item, без накопления в массиве.
-- Chunk-based `filterAlreadyImported` (например chunk=500): один `IN`-query на chunk, не на весь батч.
-- Insert-loop потребляет стрим, `addedGames`/`positionRows` очищаются после каждого chunk'а (после `PositionIndexer.index` + `PositionWriter.write`).
-- Peak RSS должен стать ≈ \~150 MiB постоянным (одна партия + 500-chunk hash-lookup + baseline) — работоспособен на любом sizing'е, в т.ч. 256/512.
+- `splitPgn` → async generator `splitPgnStream(buffer)` с построчной детекцией headers'ов. Yield по одной партии, без накопления полного `string[]`.
+- `parseBatch` заменяется на потребление генератора: батчами по 500 передаём в chunk-loop уровня 1, после чего батч eligible к GC.
+- `decodePgnBuffer` — возможно заменить на streaming-decode через `iconv-lite` streaming-transform (buffer → utf8 chunk → pgn-line-splitter).
+- `AdmZip` — если станет узким местом (держит полный unzip в памяти), заменить на streaming-unzip (`unzipper` или `yauzl`).
+- Ожидаемый peak RSS после уровня 2: ~150 MiB постоянно, независимо от размера TWIC-выпуска.
 
-Это отдельный backend-тикет (KS-1687-like, см. §5). Не блокирует KS-1684 (задача тактического unblock'а) и KS-1686 (первый ретроспективный импорт). После стриминга sizing'и `oneshot`/`adhoc` можно вернуть к 512/2048 или меньше — но это будет отдельным решением после профилирования фактического RSS стримингового пайплайна.
+**Критерии приёмки KS-1687 (must-have в тикете backend'а):**
+
+1. **Memory-smoke тест** в Jest: создаётся fixture TWIC-pgn 8 000 партий (или рекорд TWIC-1639 как fixture в tests/fixtures), запускается `runForIssue` с `--max-old-space-size=384` (ограничение V8 heap до 384 MiB). Тест проходит без OOM. Если не проходит после уровня 1 — реализуется уровень 2.
+2. **Chunk-boundary dedup correctness**: unit-тест на сценарий когда один `content_hash` встречается в двух разных chunk'ах одного выпуска (дубликат партии внутри выпуска). Первый chunk вставит, второй должен увидеть через `filterAlreadyImported` → skipped. Контракт: dedup работает независимо от границы chunk'а.
+3. **Aggregate audit row**: `archive_imports` получает **один** row на issue (не по chunk), с правильно агрегированными `gamesParsed`, `gamesAdded`, `gamesSkipped`. Тест проверяет, что после импорта в БД ровно один audit row со всеми тремя счётчиками == сумме по chunk'ам.
+4. **Metric parity**: `archive_import_games_total{status='added|skipped|failed'}` инкрементируется ровно столько же раз, сколько в старой in-memory реализации, на том же fixture. Без «double-counting» на chunk-boundary.
+5. **Transactional semantics per-chunk**: см. подраздел ниже.
+
+**Transactional semantics chunk'а (консультация backend'у):**
+
+Три варианта, для KS-1687 рекомендуется вариант C:
+
+- **A: chunk в одной `$transaction`.** Все 500 inserts + `PositionIndexer.index` + `PositionWriter.write` в одной Prisma-транзакции. Плюс: atomic — либо весь chunk записан, либо ничего. Минус: долгая транзакция (500 × ~10 ms = 5 сек) держит connection + locks; race с параллельными scheduler/ad-hoc через Redis-lock уже защищает, но connection pool всё равно занят; на 16 chunk'ах (8000 партий) — 80 сек занятой транзакции, близко к `statement_timeout` в Postgres. Overkill для idempotent'ного импорта.
+- **B: chunk вне транзакций, каждый `create()` в auto-commit.** Как сейчас. Плюс: connection free после каждой записи, короткие транзакции. Минус: partial chunk возможен (если процесс упал на 250-м create'е из 500) — но это не проблема: `content_hash` UNIQUE + P2002 catch делает retry idempotent'ным.
+- **C (РЕКОМЕНДУЕТСЯ): chunk вне транзакций, insert-loop в auto-commit, только `PositionWriter.write` (COPY staging) — в собственной короткой транзакции.** `archive_games.create` — auto-commit, как в текущей реализации (catches P2002). `PositionIndexer.index` и `PositionWriter.write` внутри себя уже используют собственные транзакции или ON CONFLICT semantics (ADR-015/ADR-019) — не трогаем, у них контракт идемпотентности. Aggregate-update `archive_imports` в finale одной транзакцией с локом на row'е.
+
+  Обоснование: chunk уже идемпотентен через UNIQUE `content_hash`. `$transaction` не добавляет ценности (partial chunk безопасен при retry), но добавляет lock-contention. Chunk-boundary crash просто значит что половина partий уже в `archive_games`, retry импорта того же issue подхватит, `filterAlreadyImported` их отсечёт на следующем пробеге.
+
+  **Явное следствие:** `archive_imports` audit-row обновляется только один раз финально. Если crash между chunk'ами — audit row останется в `status='running'`. Это бага текущей реализации (KS-1687 не обязан её чинить, но может). Follow-up: stale `archive_imports.status='running' AND finished_at IS NULL AND created_at < now() - interval '2 hour'` → sweeper marks as `'failed'`. Отдельный тикет.
+
+**Риск до закрытия KS-1687:**
+
+Пока KS-1687 не реализован, `oneshot` scheduler-tick **уязвим к OOM** при `cursor+1` → крупный TWIC-выпуск (>~2k партий). Конкретные последствия:
+
+- OOM на scheduled-tick → exit 137 → ECS Task State Change с `containers.exitCode=137` → alarm A3 (`SourcesFailed > 0 за 1 ч`, §2.7) триггерится **в течение часа**, НЕ через 14-дневный A4.
+- Cursor не сдвинется (в auto-commit `update archive_sources SET cursor=...` выполняется только после успеха `tickOnce()`). Следующий scheduled-tick через 24 ч попробует тот же выпуск — если KS-1687 ещё не задеплоен, OOM повторится. Gap в импорте = 24 ч × N дней до реализации KS-1687.
+- `archive_imports.status='running'` с незакрытым `finished_at` — остаётся stale до ручной чистки / KS-1687 sweeper'а.
+
+Принятый риск: пользователь + координатор подтвердили, что такой gap в impor'те (до недели, пока backend делает KS-1687) приемлем; alarm A3 ловит сбой в течение часа, оператор видит. Если во время этого окна приходит «большой» TWIC-выпуск (среда вечером UTC — штатное время release'ов TWIC), gap продлевается на каждый последующий daily-retry до закрытия KS-1687.
+
+**Ретроспективный импорт (KS-1686) ЖДЁТ KS-1687.** До реализации streaming ни один ад-хок запуск крупного выпуска не сработает. KS-1686 не запускать на `256/512` — это повторный OOM, бесполезный цикл.
 
 ### 2.5 Мониторинг short-lived tasks
 
@@ -571,7 +635,7 @@ Rollback: `--desired-count 1` — мгновенно возвращает пос
 1. **Race с ad-hoc CLI.** Если scheduler тикнул в 20:00:00 и оператор запускает `cli:import-twic-issue` в 20:00:05, один из них получит `lock held, skipping` и exit ≠ 0 (для CLI — это сигнал оператору). CLI в текущей реализации (`apps/archive-service/src/cli/import-twic-issue.ts:100-104`) бросает ошибку если lock занят — оператор получит exit 1. Это ожидаемое поведение, не исправляем.
 2. **EMF client flush timing.** `aws-embedded-metrics` использует stdout.write с буферизацией. Если process.exit() вызван сразу, потенциально теряется последний flush. Mitigation: `await emf.flush()` перед `app.close()`; библиотека должна поддерживать явный flush. Если нет — ручной `console.log(JSON.stringify(emfObject))` гарантирует flush перед exit'ом (stdout в ECS awslogs — line-buffered).
 3. **CloudWatch Logs awslogs driver batching.** Stdout → logs агент → CloudWatch Logs API в батчах по 5 сек / 64 KiB. Если task завершилась быстрее (2 сек в edge-case идеального lock-skip noop'а) — задержка flush до 5 сек после task stop. ECS `stopTimeout: 120` сек закрывает этот риск: task не стопается моментально, ждёт graceful shutdown.
-4. **Task размер памяти.** **Зафиксировано KS-1684:** исходный профиль `256 CPU / 512 MiB` недостаточен — OOM exit 137 на TWIC-1639 (8 182 партии). Реальный пик RSS in-memory пайплайна ≈ 600–900 MiB (детали в §2.4.5). Sizing повышен до **`1024 CPU / 4096 MiB`** для обоих task-def'ов (`oneshot`, `adhoc`). Streaming/chunk-based parsing — follow-up backend'у (см. §5 KS-E09), после которого sizing можно будет откатить.
+4. **Task размер памяти.** **Зафиксировано KS-1684:** профиль `256 CPU / 512 MiB` недостаточен для in-memory пайплайна на TWIC-выпусках >~2 000 партий — OOM exit 137 на TWIC-1639 (8 182 партии). Реальный пик RSS ≈ 600–900 MiB (детали в §2.4.5). **Sizing НЕ повышается** (инвариант §0 «code first»). Решение — streaming/chunked pipeline KS-1687 (HIGH priority, блокер KS-1686, см. §2.4.5 и §5). Принятый риск до закрытия KS-1687: scheduler-tick на крупных TWIC-выпусках уязвим к OOM; обнаруживается через alarm A3 (`SourcesFailed > 0 за 1 ч`, §2.7) в течение часа.
 5. **IAM ecs:RunTask permissions.** EventBridge Scheduler role требует `ecs:RunTask` + `iam:PassRole` на две роли (task execution role, task role). Подводный камень — policy должна указывать именно ARN task-def, иначе scheduler может запустить **любой** task-def. Least-privilege критичен: `Resource: arn:aws:ecs:...:task-definition/kingside-archive-importer-oneshot:*`.
 6. **TWIC publisher availability.** EventBridge запускает каждый день в 20:00 UTC. `theweekinchess.com` может быть недоступен (сервер сайта редко, но падает). Exit 0 если `TwicImporter.run()` возвращает `{status:'failed', error:'HTTP 503'}`? Сейчас — да, task завершается штатно, failure записывается в `archive_sources.last_error`. Это приемлемо: DLQ и alarm 14 дней всё равно ловят persistent failures. Alarm A3 (`SourcesFailed > 0 за 1 ч`) ловит разовые.
 7. **Cursor increment in TWIC.** `TwicImporter` идёт от `cursor+1`. Если один TWIC выпуск ещё не опубликован (404) → `status='noop'`, cursor не двигается. Schedule запустит снова завтра. Не ломается.
@@ -595,11 +659,17 @@ Rollback: `--desired-count 1` — мгновенно возвращает пос
 - **KS-E02 [devops]** — Шаг 1. IAM role + ECS task-def `kingside-archive-importer-oneshot` + SQS DLQ + EventBridge schedule (DISABLED) + EventBridge rule для ECS Task State Change + SNS topic + 5 CloudWatch alarms. Smoke через `aws ecs run-task` вручную.
 - **KS-E02b [devops]** — (KS-1683 corrigendum, §2.4.1) ECS task-def `kingside-archive-importer-adhoc` + CloudWatch log group `/kingside/archive-importer-adhoc` retention 30d. Общие IAM/SG/subnet с `oneshot`. Обновить `scripts/archive-service-aws-setup.sh` так, чтобы оба task-def'а регистрировались IaC-скриптом.
 - **KS-E02c [backend]** — (KS-1683 corrigendum, §2.4.2/§2.4.3) Защитный unit-тест: CLI `cli/import-twic-issue.ts` не тянет `setup-emf-env` в dependency graph (EMF не должен инициализироваться). Integration-тесты на `TwicImporter.runAdHoc`: инварианты `archive_sources` immutable + `archive_imports.cursor_before == cursor_after` + идемпотентность повторного запуска.
-- **KS-E02d [devops]** — Финальный запуск ретроспективного импорта TWIC-1639 через `kingside-archive-importer-adhoc`, пост-проверка: `SELECT count(*) FROM archive_games ai JOIN archive_imports aim ON ai.import_id=aim.id WHERE aim.file_name='twic1639.pgn'` + `archive_sources.cursor` не изменился.
+- ~~**KS-E02d [devops]** — Финальный запуск ретроспективного импорта TWIC-1639.~~ **Замещён** тикетом KS-1686 (см. ниже, блокирован KS-1687).
 - **KS-E03 [devops]** — Шаг 2. `State=ENABLED` на schedule. 7 дней soak, проверка EMF + alarm'ов.
 - **KS-E04 [devops]** — Шаг 3. `desired-count=0` на `kingside-archive-importer` service. 14 дней soak.
 - **KS-E05 [devops]** — Шаг 4. `delete-service`, удаление Prometheus scrape target, cleanup docker-compose.yml.
 - **KS-E06 [qa]** — Smoke-план по каждому шагу: manual invoke на стейдже → проверка EMF метрик → CloudWatch Alarm синтетический триггер (временно threshold=1 → проверка SNS → вернуть threshold) → проверка что `archive_sources.last_success_at` двигается.
 - **KS-E07 [devops, опционально]** — Weekly ECR image rebuild trigger (security updates) + task-def registration pipeline. Follow-up, не блокирует KS-1680.
-- **KS-E08 [devops]** — (KS-1684 follow-up, §2.4.5) Bump sizing обоих task-def'ов (`oneshot` + `adhoc`) до `cpu=1024, memory=4096`. Обновить `scripts/archive-service-aws-setup.sh`. Smoke re-run TWIC-1639 на `adhoc` — ожидаем exit=0 / gamesAdded/Skipped в лог. Критично: oneshot bumped синхронно — иначе scheduler-tick уязвим к тому же OOM на крупных TWIC-выпусках.
-- **KS-E09 [backend, follow-up, приоритет medium]** — Streaming/chunk-based PGN pipeline (§2.4.5). Переписать `TwicImporter.runForIssue` + `pgn-utils.parseBatch` + `dedup.filterAlreadyImported` + insert-loop на stream-based архитектуру: chunk=500 партий, peak RSS ≤ 256 MiB независимо от размера TWIC-выпуска. Тесты: memory-smoke с профайлером (peak RSS ограничен), unit-тесты стрим-сплиттера. Не блокирует KS-1686 (первый ретроспективный импорт делаем на bumped sizing'е, до streaming'а).
+- ~~**KS-E08 [devops]** — Bump sizing task-def'ов.~~ **Отменён** (2026-04-21) после отказа пользователя от подхода «bump sizing». Применяется инвариант §0, решение — streaming. Тикет KS-E09 замещает.
+- **KS-E09 ≡ KS-1687 [backend, HIGH priority, блокер KS-1686]** — Streaming/chunked PGN pipeline (§2.4.5). Переписать `TwicImporter.runForIssue` + insert-loop на chunk-iteration (N=500). Уровень 1 (chunk-loop) обязательный; уровень 2 (streaming split/parse + streaming unzip) — условный, включается если уровень 1 не укладывается в peak RSS <400 MiB на fixture 8k партий. Критерии приёмки:
+  1. Memory-smoke test в Jest на fixture TWIC-1639 (8 182 партии) с `--max-old-space-size=384` — проходит без OOM.
+  2. Chunk-boundary dedup correctness — unit-тест: один `content_hash` встречается в двух разных chunk'ах, второй chunk видит в БД через `filterAlreadyImported`.
+  3. Aggregate audit row — один `archive_imports` row на issue, с правильно агрегированными счётчиками.
+  4. Metric parity — `archive_import_games_total` инкрементируется то же N раз, что в in-memory версии.
+  5. Transactional semantics — см. §2.4.5 «Transactional semantics chunk'а», рекомендация: chunk вне транзакций (C), insert-loop в auto-commit с P2002 catch, aggregate-update `archive_imports` одной финальной транзакцией.
+- **KS-1686 [devops, заблокирован KS-1687]** — Финальный ретроспективный импорт TWIC-1639 через `kingside-archive-importer-adhoc`, после merge KS-1687 и re-deploy archive-service образа. Пост-проверка: `SELECT count(*) FROM archive_games WHERE import_id IN (SELECT id FROM archive_imports WHERE file_name='twic1639.pgn')` > 0; `archive_sources.cursor` не изменился; peak RSS контейнера < 512 MiB (из ECS container insights).
