@@ -24,7 +24,28 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { logger: new InstanceLogger() });
   // No global prefix — Game Service is WS-primary, health at /health
-  app.enableCors({ origin: '*', credentials: true });
+
+  // CORS: читаем список разрешённых origin из env (см. ADR-017, KS-1641).
+  // Разбор по образцу apps/api/src/main.ts.
+  const corsOriginEnv = process.env.CORS_ORIGIN;
+  const isProd = process.env.NODE_ENV === 'production';
+  const corsOrigins: (string | RegExp)[] = corsOriginEnv
+    ? corsOriginEnv.split(',').map((o) => o.trim()).filter(Boolean)
+    : [];
+  if (corsOrigins.length === 0) {
+    if (isProd) {
+      logger.error(
+        'CORS_ORIGIN env variable is required in production (comma-separated list of allowed origins)'
+      );
+      throw new Error('CORS_ORIGIN is not set');
+    }
+    // В dev допускаем дефолт: любой localhost:<port>
+    corsOrigins.push(/^http:\/\/localhost:\d+$/);
+    logger.warn(
+      'CORS_ORIGIN not set — using dev default http://localhost:<any-port>'
+    );
+  }
+  app.enableCors({ origin: corsOrigins, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
   app.useGlobalFilters(new AllExceptionsFilter());
 
