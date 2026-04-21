@@ -1,0 +1,20 @@
+{
+  "name": "@kingside/archive-db",
+  "version": "0.0.1",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "prisma generate && tsc && npm run copy:engine",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "copy:engine": "mkdir -p dist/generated/prisma && cp -f src/generated/prisma/*.so.node dist/generated/prisma/ 2>/dev/null || true"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.2"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.2"
+  }
+}
