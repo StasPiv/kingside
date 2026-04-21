@@ -87,7 +87,7 @@ function InviteRedirect() {
 
   useEffect(() => {
     if (!code) return;
-    api.post<{ tournamentId: string }>(`/api/arena/invite/${code}`, {})
+    api.post<{ tournamentId: string }>(`/arena/invite/${code}`, {})
       .then((data) => navigate(`/tournaments/${data.tournamentId}`, { replace: true }))
       .catch(() => setError(t('tournaments.inviteInvalid', 'Invalid or expired invite link')));
   }, [code, navigate, t]);

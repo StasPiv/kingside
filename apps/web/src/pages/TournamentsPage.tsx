@@ -62,7 +62,7 @@ export function TournamentsPage() {
   const fetchTournaments = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get<Tournament[]>('/api/arena');
+      const data = await api.get<Tournament[]>('/arena');
       setTournaments(data);
     } catch { setTournaments([]); }
     finally { setLoading(false); }
@@ -71,7 +71,7 @@ export function TournamentsPage() {
   const fetchMyTournaments = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await api.get<Tournament[]>('/api/arena/my');
+      const data = await api.get<Tournament[]>('/arena/my');
       setMyTournaments(data);
     } catch { setMyTournaments([]); }
   }, [user]);

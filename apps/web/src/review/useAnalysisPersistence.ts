@@ -35,7 +35,7 @@ export function useAnalysisPersistence(
     timerRef.current = setTimeout(() => {
       pendingSaveRef.current = false;
       const pgn = serializeToAnnotatedPgn(history);
-      api.put(`/api/games/${gameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
+      api.put(`/games/${gameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
     }, DEBOUNCE_MS);
 
     return () => {
@@ -54,7 +54,7 @@ export function useAnalysisPersistence(
       const token = localStorage.getItem('token');
       if (!token) return;
       const pgn = serializeToAnnotatedPgn(currentHistory);
-      api.put(`/api/games/${currentGameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
+      api.put(`/games/${currentGameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
     };
   }, []);
 }

@@ -30,7 +30,7 @@ export function DashboardPage() {
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
 
   useEffect(() => {
-    api.get<TournamentSummary[]>('/api/arena')
+    api.get<TournamentSummary[]>('/arena')
       .then((data) => setTournaments(data.filter((t) => t.status === 'active' || t.status === 'upcoming').slice(0, 5)))
       .catch(() => {});
   }, []);

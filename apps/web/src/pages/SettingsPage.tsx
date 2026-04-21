@@ -21,10 +21,10 @@ export function SettingsPage() {
   const [externalStatus, setExternalStatus] = useState<string | null>(null);
 
   useEffect(() => {
-    api.get<{ data: { id: string; username: string }[] }>('/api/users/blocked')
+    api.get<{ data: { id: string; username: string }[] }>('/users/blocked')
       .then(({ data }) => setBlocked(data))
       .catch(() => {});
-    api.get<{ chesscomUsername?: string; lichessUsername?: string }>('/api/users/me/settings')
+    api.get<{ chesscomUsername?: string; lichessUsername?: string }>('/users/me/settings')
       .then((data) => {
         if (data.chesscomUsername) setChesscomUsername(data.chesscomUsername);
         if (data.lichessUsername) setLichessUsername(data.lichessUsername);
@@ -36,7 +36,7 @@ export function SettingsPage() {
     setExternalSaving(true);
     setExternalStatus(null);
     try {
-      await api.patch('/api/users/me/external-accounts', {
+      await api.patch('/users/me/external-accounts', {
         chesscomUsername: chesscomUsername.trim() || null,
         lichessUsername: lichessUsername.trim() || null,
       });
@@ -50,7 +50,7 @@ export function SettingsPage() {
 
   const handleUnblock = useCallback(async (userId: string) => {
     try {
-      await api.delete(`/api/users/unblock/${userId}`);
+      await api.delete(`/users/unblock/${userId}`);
       setBlocked((prev) => prev.filter((b) => b.id !== userId));
     } catch { /* ignore */ }
   }, []);
@@ -70,7 +70,7 @@ export function SettingsPage() {
     const locale = e.target.value as Locale;
     i18n.changeLanguage(locale);
     localStorage.setItem('locale', locale);
-    await api.patch('/api/users/me/settings', { locale });
+    await api.patch('/users/me/settings', { locale });
   };
 
   return (

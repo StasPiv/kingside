@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const tokenAtStart = localStorage.getItem('token');
     console.log('[AuthContext] fetchMe start', { tokenAtStartPreview: tokenAtStart ? tokenAtStart.slice(0, 20) + '...' : null });
     try {
-      const user = await api.get<User | null>('/api/auth/me');
+      const user = await api.get<User | null>('/auth/me');
       const currentToken = localStorage.getItem('token');
       console.log('[AuthContext] fetchMe success', { userId: user?.id, username: user?.username, tokenChanged: tokenAtStart !== currentToken });
       // Only apply server locale if user has explicitly chosen one
@@ -91,14 +91,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state.token, fetchMe]);
 
   const login = async (username: string, password: string) => {
-    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/api/auth/login', { username, password });
+    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/auth/login', { username, password });
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken }));
   };
 
   const register = async (username: string, email: string, password: string) => {
-    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/api/auth/register', { username, email, password });
+    const { accessToken, refreshToken } = await api.post<AuthTokenResponse>('/auth/register', { username, email, password });
     localStorage.setItem('token', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     setState((s) => ({ ...s, token: accessToken }));

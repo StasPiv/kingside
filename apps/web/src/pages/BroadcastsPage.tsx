@@ -80,12 +80,12 @@ export function BroadcastsPage() {
   const [lichessBroadcasts, setLichessBroadcasts] = useState<LichessBroadcast[]>([]);
 
   useEffect(() => {
-    api.get<LiveTournamentsResponse>('/api/tournaments/live')
+    api.get<LiveTournamentsResponse>('/tournaments/live')
       .then((res) => setAllTournaments(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {})
       .finally(() => setTournamentsLoading(false));
 
-    api.get<BroadcastListResponse>('/api/broadcasts?limit=100')
+    api.get<BroadcastListResponse>('/broadcasts?limit=100')
       .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, []);
@@ -117,7 +117,7 @@ export function BroadcastsPage() {
     setLoading(true);
     try {
       const data = await api.get<DgtTournamentResult>(
-        `/api/dgt/tournament/${encodeURIComponent(trimmed)}`,
+        `/dgt/tournament/${encodeURIComponent(trimmed)}`,
       );
       navigate(`/broadcasts/${data.uuid}`);
     } catch (err) {

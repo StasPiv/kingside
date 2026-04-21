@@ -59,7 +59,7 @@ export function PlayerProfilePage() {
     setNotFound(false);
     setError('');
 
-    api.get<PlayerProfileResponse>(`/api/players/${encodeURIComponent(username)}`)
+    api.get<PlayerProfileResponse>(`/players/${encodeURIComponent(username)}`)
       .then((data) => setProfile(data))
       .catch((err) => {
         const msg = err instanceof Error ? err.message : '';
@@ -80,9 +80,9 @@ export function PlayerProfilePage() {
     }
     setFriendStatus('loading');
     Promise.all([
-      api.get<{ data: FriendEntry[] }>('/api/friends'),
-      api.get<{ data: { id: string; username: string }[] }>('/api/users/blocked'),
-      api.get<{ status: string; friendshipId?: string }>(`/api/friends/status/${profile.id}`)
+      api.get<{ data: FriendEntry[] }>('/friends'),
+      api.get<{ data: { id: string; username: string }[] }>('/users/blocked'),
+      api.get<{ status: string; friendshipId?: string }>(`/friends/status/${profile.id}`)
         .catch(() => ({ status: 'none' as string, friendshipId: undefined as string | undefined })),
     ]).then(([friendsRes, blockedRes, statusRes]) => {
       const entry = friendsRes.data.find((f) => f.user.id === profile.id);
@@ -105,7 +105,7 @@ export function PlayerProfilePage() {
     if (!profile) return;
     setFriendStatus('loading');
     try {
-      await api.post(`/api/friends/request/${profile.id}`, {});
+      await api.post(`/friends/request/${profile.id}`, {});
       setFriendStatus('pending');
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
@@ -123,7 +123,7 @@ export function PlayerProfilePage() {
     if (!friendshipId) return;
     setFriendStatus('loading');
     try {
-      await api.delete(`/api/friends/${friendshipId}`);
+      await api.delete(`/friends/${friendshipId}`);
       setFriendStatus('none');
       setFriendshipId(null);
     } catch {
@@ -134,7 +134,7 @@ export function PlayerProfilePage() {
   const handleBlock = useCallback(async () => {
     if (!profile) return;
     try {
-      await api.post(`/api/users/block/${profile.id}`, {});
+      await api.post(`/users/block/${profile.id}`, {});
       setIsBlocked(true);
     } catch { /* ignore */ }
   }, [profile]);
@@ -142,7 +142,7 @@ export function PlayerProfilePage() {
   const handleUnblock = useCallback(async () => {
     if (!profile) return;
     try {
-      await api.delete(`/api/users/unblock/${profile.id}`);
+      await api.delete(`/users/unblock/${profile.id}`);
       setIsBlocked(false);
     } catch { /* ignore */ }
   }, [profile]);

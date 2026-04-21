@@ -37,7 +37,7 @@ export function TournamentSchedule({ tournamentId, userId, refreshKey, pointsWin
 
   const fetchSchedule = useCallback(async () => {
     try {
-      const data = await api.get<ScheduleRound[]>(`/api/arena/${tournamentId}/schedule`);
+      const data = await api.get<ScheduleRound[]>(`/arena/${tournamentId}/schedule`);
       setRounds(data);
     } catch { /* ignore */ }
   }, [tournamentId]);

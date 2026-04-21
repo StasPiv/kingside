@@ -14,7 +14,7 @@ vi.mock('../components/ChatWidget', () => ({
 }));
 
 // Prevent MainLayout's polling `useEffect`s (`fetch('/version.json')`,
-// `fetch('/api/players/online')`, `api.get('/api/messages/unread-count')`) from
+// `fetch('/players/online')`, `api.get('/messages/unread-count')`) from
 // leaving pending requests that happy-dom will abort on teardown.
 vi.mock('../api', () => ({
   api: {
@@ -86,8 +86,8 @@ describe('KS-633: навигация — убрать Train, Login/Register, д�
       const google = screen.getByLabelText('Google');
       const facebook = screen.getByLabelText('Facebook');
 
-      expect(google).toHaveAttribute('href', expect.stringContaining('/api/auth/google'));
-      expect(facebook).toHaveAttribute('href', expect.stringContaining('/api/auth/facebook'));
+      expect(google).toHaveAttribute('href', expect.stringContaining('/auth/google'));
+      expect(facebook).toHaveAttribute('href', expect.stringContaining('/auth/facebook'));
     });
 
     it('кнопка Telegram использует onClick для OAuth редиректа', () => {

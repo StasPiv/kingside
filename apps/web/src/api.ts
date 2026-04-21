@@ -8,7 +8,7 @@ async function refreshAccessToken(): Promise<string> {
   const refreshToken = localStorage.getItem('refreshToken');
   if (!refreshToken) throw new Error('No refresh token');
 
-  const res = await fetch(`${API_URL}/api/auth/refresh`, {
+  const res = await fetch(`${API_URL}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),

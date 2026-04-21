@@ -27,7 +27,7 @@ export function UsernameSetupModal({ onSuccess, accessToken }: Props) {
     setAvailable(null);
     try {
       const res = await api.get<CheckResponse>(
-        `/api/users/check-username?username=${encodeURIComponent(value)}`,
+        `/users/check-username?username=${encodeURIComponent(value)}`,
       );
       setAvailable(res.available);
     } catch {
@@ -67,7 +67,7 @@ export function UsernameSetupModal({ onSuccess, accessToken }: Props) {
     try {
       const authHeaders = accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined;
       const res = await api.post<{ accessToken?: string; refreshToken?: string }>(
-        '/api/users/set-username',
+        '/users/set-username',
         { username },
         authHeaders,
       );

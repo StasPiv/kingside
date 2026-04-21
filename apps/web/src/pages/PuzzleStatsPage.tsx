@@ -52,9 +52,9 @@ export function PuzzleStatsPage() {
     if (!user) return;
     setLoading(true);
     Promise.all([
-      api.get<PuzzleStats>('/api/puzzles/stats/me').catch(() => null),
-      api.get<RatingPoint[]>('/api/puzzles/stats/rating-history?days=30').catch(() => []),
-      api.get<Attempt[]>('/api/puzzles/attempts?take=100&skip=0').catch(() => []),
+      api.get<PuzzleStats>('/puzzles/stats/me').catch(() => null),
+      api.get<RatingPoint[]>('/puzzles/stats/rating-history?days=30').catch(() => []),
+      api.get<Attempt[]>('/puzzles/attempts?take=100&skip=0').catch(() => []),
     ]).then(([s, rh, att]) => {
       if (s) setStats(s);
       setRatingHistory(Array.isArray(rh) ? rh : []);
@@ -76,7 +76,7 @@ export function PuzzleStatsPage() {
 
   const openPuzzleAnalysis = async (puzzleId: string) => {
     try {
-      const puzzle = await api.get<{ fen: string; moves: string | string[] }>(`/api/puzzles/${puzzleId}`);
+      const puzzle = await api.get<{ fen: string; moves: string | string[] }>(`/puzzles/${puzzleId}`);
       const moves = Array.isArray(puzzle.moves) ? puzzle.moves : puzzle.moves.split(/\s+/).filter(Boolean);
       // Convert UCI to SAN PGN
       const { Chess } = await import('chess.js');

@@ -26,7 +26,7 @@ export function WorkshopTournaments() {
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    api.get<Tournament[]>('/api/tournaments/top-active')
+    api.get<Tournament[]>('/tournaments/top-active')
       .then((data) => setTournaments(data))
       .catch(() => setError(true))
       .finally(() => setLoading(false));

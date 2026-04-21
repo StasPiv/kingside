@@ -49,7 +49,7 @@ export function PuzzleBrowserPage() {
       const mineQuery = mine ? '&mine=true' : '';
       const hideQuery = hideSolved ? '&hideSolved=true' : '';
       const data = await api.get<{ data: GeneratedPuzzle[]; total: number }>(
-        `/api/puzzles/browse?limit=${PAGE_SIZE}&offset=${offset}&sort=${sort}&order=${order}${mineQuery}${hideQuery}`
+        `/puzzles/browse?limit=${PAGE_SIZE}&offset=${offset}&sort=${sort}&order=${order}${mineQuery}${hideQuery}`
       );
       setPuzzles(data.data ?? []);
       setTotal(data.total ?? 0);
@@ -113,7 +113,7 @@ export function PuzzleBrowserPage() {
               onClick={async () => {
                 if (!confirm(t('puzzleBrowser.confirmDeleteMine', 'Delete all your {{count}} puzzles?', { count: total }))) return;
                 try {
-                  await api.delete('/api/puzzles/all');
+                  await api.delete('/puzzles/all');
                   setPuzzles([]);
                   setTotal(0);
                   setPage(1);
@@ -128,7 +128,7 @@ export function PuzzleBrowserPage() {
               className="puzzle-publish-all-btn"
               onClick={async () => {
                 try {
-                  await api.patch('/api/puzzles/publish-all', {});
+                  await api.patch('/puzzles/publish-all', {});
                   fetchPuzzles();
                 } catch { /* ignore */ }
               }}
@@ -202,7 +202,7 @@ export function PuzzleBrowserPage() {
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        await api.patch(`/api/puzzles/${puzzle.id}`, { isPublic: !puzzle.isPublic });
+                        await api.patch(`/puzzles/${puzzle.id}`, { isPublic: !puzzle.isPublic });
                         setPuzzles((prev) => prev.map((p) => p.id === puzzle.id ? { ...p, isPublic: !p.isPublic } : p));
                       } catch { /* ignore */ }
                     }}
@@ -217,7 +217,7 @@ export function PuzzleBrowserPage() {
                     onClick={async (e) => {
                       e.stopPropagation();
                       try {
-                        await api.delete(`/api/puzzles/${puzzle.id}`);
+                        await api.delete(`/puzzles/${puzzle.id}`);
                         setPuzzles((prev) => prev.filter((p) => p.id !== puzzle.id));
                         setTotal((n) => n - 1);
                       } catch { /* ignore */ }

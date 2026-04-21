@@ -39,7 +39,7 @@ export function WorkshopMyGames() {
     setError(false);
     try {
       const data = await api.get<GamesResponse>(
-        `/api/games/my?take=${PAGE_SIZE}&skip=${offset}`
+        `/games/my?take=${PAGE_SIZE}&skip=${offset}`
       );
       setGames(data.data);
       setHasMore(data.hasMore);

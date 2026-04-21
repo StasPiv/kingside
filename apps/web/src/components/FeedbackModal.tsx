@@ -24,7 +24,7 @@ export function FeedbackModal({ onClose }: FeedbackModalProps) {
     setSending(true);
     setError('');
     try {
-      await api.post('/api/feedback', {
+      await api.post('/feedback', {
         type,
         title: title.trim() || undefined,
         message: message.trim(),

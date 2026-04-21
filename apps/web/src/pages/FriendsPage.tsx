@@ -35,8 +35,8 @@ export function FriendsPage() {
     setLoading(true);
     try {
       const [friendsRes, requestsRes] = await Promise.all([
-        api.get<{ data: FriendItem[] }>('/api/friends'),
-        api.get<{ data: RequestItem[] }>('/api/friends/requests'),
+        api.get<{ data: FriendItem[] }>('/friends'),
+        api.get<{ data: RequestItem[] }>('/friends/requests'),
       ]);
       setFriends(friendsRes.data);
       setRequests(requestsRes.data);
@@ -71,21 +71,21 @@ export function FriendsPage() {
 
   const handleAccept = useCallback(async (requestId: string) => {
     try {
-      await api.post(`/api/friends/accept/${requestId}`, {});
+      await api.post(`/friends/accept/${requestId}`, {});
       fetchData();
     } catch { /* ignore */ }
   }, [fetchData]);
 
   const handleDecline = useCallback(async (requestId: string) => {
     try {
-      await api.post(`/api/friends/decline/${requestId}`, {});
+      await api.post(`/friends/decline/${requestId}`, {});
       setRequests((prev) => prev.filter((r) => r.requestId !== requestId));
     } catch { /* ignore */ }
   }, []);
 
   const handleRemove = useCallback(async (friendshipId: string) => {
     try {
-      await api.delete(`/api/friends/${friendshipId}`);
+      await api.delete(`/friends/${friendshipId}`);
       setFriends((prev) => prev.filter((f) => f.friendshipId !== friendshipId));
     } catch { /* ignore */ }
   }, []);

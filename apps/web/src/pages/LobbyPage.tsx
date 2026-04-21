@@ -51,7 +51,7 @@ export function LobbyPage() {
       setWidgetsLoading(false);
       return;
     }
-    api.get<PuzzleRushStats>(`/api/users/${user.id}/puzzle-rush-stats`)
+    api.get<PuzzleRushStats>(`/users/${user.id}/puzzle-rush-stats`)
       .catch(() => null)
       .then((rush) => {
         setRushStats(rush);
@@ -62,7 +62,7 @@ export function LobbyPage() {
     if (!user) return;
     setWorkshopGamesLoading(true);
     try {
-      const data = await api.get<{ data: WorkshopGame[] }>(`/api/users/${user.id}/games?take=5`);
+      const data = await api.get<{ data: WorkshopGame[] }>(`/users/${user.id}/games?take=5`);
       setWorkshopGames(data.data);
     } catch {
       setWorkshopGames([]);

@@ -29,7 +29,7 @@ export function LoginPage() {
 
   useEffect(() => {
     if (loadingProvider) {
-      window.location.href = `/api/auth/${loadingProvider}`;
+      window.location.href = `/auth/${loadingProvider}`;
     }
   }, [loadingProvider]);
 
@@ -55,7 +55,7 @@ export function LoginPage() {
     if (!telegramData) return;
     setTelegramLoading(true);
     api
-      .post<TelegramAuthResponse>('/api/auth/telegram', telegramData)
+      .post<TelegramAuthResponse>('/auth/telegram', telegramData)
       .then(({ accessToken, refreshToken, requiresUsernameSetup: needsSetup }) => {
         setTelegramData(null);
         if (needsSetup) {

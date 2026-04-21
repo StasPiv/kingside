@@ -96,7 +96,7 @@ export function WorkshopAnalysisList() {
     setSavingFilter(false);
     setFilterNameInput('');
     try {
-      const created = await api.post<SavedFilter>('/api/analyses/filters', {
+      const created = await api.post<SavedFilter>('/analyses/filters', {
         name,
         category: categoryFilter === 'all' ? '' : categoryFilter,
         tags: selectedTags.join(','),
@@ -118,20 +118,20 @@ export function WorkshopAnalysisList() {
 
   const handleDeleteFilter = useCallback(async (id: string) => {
     setSavedFilters((prev) => prev.filter((f) => f.id !== id));
-    try { await api.delete(`/api/analyses/filters/${id}`); } catch { /* ignore */ }
+    try { await api.delete(`/analyses/filters/${id}`); } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
     if (!user) return;
     setLoading(true);
     setError('');
-    api.get<AnalysisListItem[]>('/api/analyses')
+    api.get<AnalysisListItem[]>('/analyses')
       .then((data) => setAllAnalyses(data))
       .catch(() => setError(t('common.loadError', 'Failed to load analyses')))
       .finally(() => setLoading(false));
 
     // Load saved filters from API + migrate localStorage
-    api.get<SavedFilter[]>('/api/analyses/filters')
+    api.get<SavedFilter[]>('/analyses/filters')
       .then(async (filters) => {
         setSavedFilters(filters);
         // Migrate from localStorage if any
@@ -142,7 +142,7 @@ export function WorkshopAnalysisList() {
             if (local.length > 0) {
               const created = await Promise.all(
                 local.map((f) =>
-                  api.post<SavedFilter>('/api/analyses/filters', {
+                  api.post<SavedFilter>('/analyses/filters', {
                     name: f.name,
                     category: f.category === 'all' ? '' : f.category,
                     tags: Array.isArray(f.tags) ? f.tags.join(',') : (f.tags || ''),
@@ -170,7 +170,7 @@ export function WorkshopAnalysisList() {
     }
     setSearching(true);
     searchTimerRef.current = setTimeout(() => {
-      api.get<AnalysisListItem[]>(`/api/analyses/search?q=${encodeURIComponent(searchQuery)}`)
+      api.get<AnalysisListItem[]>(`/analyses/search?q=${encodeURIComponent(searchQuery)}`)
         .then((data) => setSearchResults(data))
         .catch(() => setSearchResults(null))
         .finally(() => setSearching(false));
@@ -230,7 +230,7 @@ export function WorkshopAnalysisList() {
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    api.delete(`/api/analyses/${id}`)
+    api.delete(`/analyses/${id}`)
       .then(() => setAllAnalyses((prev) => prev.filter((a) => a.id !== id)))
       .catch(() => {});
   };
@@ -258,7 +258,7 @@ export function WorkshopAnalysisList() {
     try {
       const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
       const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/analyses/export`, {
+      const res = await fetch(`${API_URL}/analyses/export`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -290,7 +290,7 @@ export function WorkshopAnalysisList() {
     if (!window.confirm(t('workshop.myAnalyses.confirmDelete', `Delete ${count} analysis(es)?`))) return;
     setDeleting(true);
     try {
-      await Promise.all(Array.from(selected).map((id) => api.delete(`/api/analyses/${id}`).catch(() => {})));
+      await Promise.all(Array.from(selected).map((id) => api.delete(`/analyses/${id}`).catch(() => {})));
       setAllAnalyses((prev) => prev.filter((a) => !selected.has(a.id)));
       setSelected(new Set());
     } catch (err) {
@@ -489,7 +489,7 @@ export function WorkshopAnalysisList() {
                         <button onClick={(e) => {
                           e.stopPropagation();
                           const newTags = (analysis.tags ?? []).filter((t2) => t2 !== tag);
-                          api.patch(`/api/analyses/${analysis.id}`, { tags: newTags }).then(() => {
+                          api.patch(`/analyses/${analysis.id}`, { tags: newTags }).then(() => {
                             setAllAnalyses((prev) => prev.map((a) => a.id === analysis.id ? { ...a, tags: newTags } : a));
                           }).catch(() => {});
                         }}>×</button>
@@ -507,7 +507,7 @@ export function WorkshopAnalysisList() {
                               e.stopPropagation();
                               const newTag = tagInput.trim().toLowerCase();
                               const newTags = [...new Set([...(analysis.tags ?? []), newTag])];
-                              api.patch(`/api/analyses/${analysis.id}`, { tags: newTags }).then(() => {
+                              api.patch(`/analyses/${analysis.id}`, { tags: newTags }).then(() => {
                                 setAllAnalyses((prev) => prev.map((a) => a.id === analysis.id ? { ...a, tags: newTags } : a));
                               }).catch(() => {});
                               setTagInput('');

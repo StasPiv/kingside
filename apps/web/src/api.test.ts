@@ -26,10 +26,10 @@ describe('api', () => {
         json: () => Promise.resolve({ id: 1 }),
       });
 
-      const result = await api.get('/api/test');
+      const result = await api.get('/test');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/test',
+        'http://localhost:3001/test',
         expect.objectContaining({
           headers: expect.objectContaining({
             Authorization: 'Bearer test-token',
@@ -46,7 +46,7 @@ describe('api', () => {
         json: () => Promise.resolve({ data: 'ok' }),
       });
 
-      await api.get('/api/public');
+      await api.get('/public');
 
       const headers = mockFetch.mock.calls[0][1].headers;
       expect(headers.Authorization).toBeUndefined();
@@ -61,10 +61,10 @@ describe('api', () => {
         json: () => Promise.resolve({ success: true }),
       });
 
-      await api.post('/api/data', { foo: 'bar' });
+      await api.post('/data', { foo: 'bar' });
 
       expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:3001/api/data',
+        'http://localhost:3001/data',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ foo: 'bar' }),
@@ -84,7 +84,7 @@ describe('api', () => {
         json: () => Promise.resolve({ message: 'Bad request' }),
       });
 
-      await expect(api.get('/api/fail')).rejects.toThrow('Bad request');
+      await expect(api.get('/fail')).rejects.toThrow('Bad request');
     });
 
     it('returns undefined for 204 responses', async () => {
@@ -93,7 +93,7 @@ describe('api', () => {
         status: 204,
       });
 
-      const result = await api.delete('/api/item');
+      const result = await api.delete('/item');
       expect(result).toBeUndefined();
     });
   });
@@ -127,7 +127,7 @@ describe('api', () => {
         json: () => Promise.resolve({ id: 1 }),
       });
 
-      const result = await api.get('/api/protected');
+      const result = await api.get('/protected');
 
       expect(result).toEqual({ id: 1 });
       expect(localStorage.getItem('token')).toBe('new-token');

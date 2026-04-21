@@ -83,7 +83,7 @@ export function PlayersPage() {
   const loadTop = useCallback(async (type: RatingType) => {
     setTopLoading(true);
     try {
-      const data = await api.get<TopPlayersResponse>(`/api/players/top?type=${type}&limit=${PAGE_SIZE}`);
+      const data = await api.get<TopPlayersResponse>(`/players/top?type=${type}&limit=${PAGE_SIZE}`);
       setTopPlayers(data.data);
       setTopTotal(data.total);
     } catch {
@@ -101,7 +101,7 @@ export function PlayersPage() {
       (entries) => {
         if (entries[0].isIntersecting && !topLoadingMore && topPlayers.length < topTotal) {
           setTopLoadingMore(true);
-          api.get<TopPlayersResponse>(`/api/players/top?type=${ratingType}&limit=${PAGE_SIZE}&offset=${topPlayers.length}`)
+          api.get<TopPlayersResponse>(`/players/top?type=${ratingType}&limit=${PAGE_SIZE}&offset=${topPlayers.length}`)
             .then((data) => {
               setTopPlayers((prev) => [...prev, ...data.data]);
               setTopTotal(data.total);
@@ -121,7 +121,7 @@ export function PlayersPage() {
   const loadOnline = useCallback(async () => {
     setOnlineLoading(true);
     try {
-      const data = await api.get<OnlinePlayersResponse>(`/api/players/online?limit=${PAGE_SIZE}`);
+      const data = await api.get<OnlinePlayersResponse>(`/players/online?limit=${PAGE_SIZE}`);
       setOnlinePlayers(data.data);
       setOnlineTotal(data.total);
     } catch {
@@ -139,7 +139,7 @@ export function PlayersPage() {
       (entries) => {
         if (entries[0].isIntersecting && !onlineLoadingMore && onlinePlayers.length < onlineTotal) {
           setOnlineLoadingMore(true);
-          api.get<OnlinePlayersResponse>(`/api/players/online?limit=${PAGE_SIZE}&offset=${onlinePlayers.length}`)
+          api.get<OnlinePlayersResponse>(`/players/online?limit=${PAGE_SIZE}&offset=${onlinePlayers.length}`)
             .then((data) => {
               setOnlinePlayers((prev) => [...prev, ...data.data]);
               setOnlineTotal(data.total);
@@ -175,7 +175,7 @@ export function PlayersPage() {
       setSearchDone(false);
       try {
         const data = await api.get<SearchPlayersResponse>(
-          `/api/players/search?q=${encodeURIComponent(searchQuery.trim())}&limit=20`,
+          `/players/search?q=${encodeURIComponent(searchQuery.trim())}&limit=20`,
         );
         setSearchResults(data.data);
       } catch {

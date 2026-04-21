@@ -72,36 +72,36 @@ export const puzzleApi = {
     if (params?.ratingMin != null) q.set('ratingMin', String(params.ratingMin));
     if (params?.ratingMax != null) q.set('ratingMax', String(params.ratingMax));
     const qs = q.toString();
-    return api.get<PuzzleDto>(`/api/puzzles/next${qs ? `?${qs}` : ''}`);
+    return api.get<PuzzleDto>(`/puzzles/next${qs ? `?${qs}` : ''}`);
   },
 
   /** Get puzzle by ID */
   getById: (id: string) =>
-    api.get<PuzzleDto>(`/api/puzzles/${encodeURIComponent(id)}`),
+    api.get<PuzzleDto>(`/puzzles/${encodeURIComponent(id)}`),
 
   /** Submit puzzle attempt result */
   submitAttempt: (puzzleId: string, body: PuzzleAttemptRequest) =>
-    api.post<PuzzleAttemptResponse>(`/api/puzzles/${encodeURIComponent(puzzleId)}/attempts`, body),
+    api.post<PuzzleAttemptResponse>(`/puzzles/${encodeURIComponent(puzzleId)}/attempts`, body),
 
   /** Get today's daily puzzle */
   getDaily: () =>
-    api.get<DailyPuzzleResponse>('/api/puzzles/daily'),
+    api.get<DailyPuzzleResponse>('/puzzles/daily'),
 
   /** Start a new puzzle rush session */
   startRush: (body: PuzzleRushStartRequest) =>
-    api.post<PuzzleRushStartResponse>('/api/puzzle-rush/start', body),
+    api.post<PuzzleRushStartResponse>('/puzzle-rush/start', body),
 
   /** Get current puzzle rush session */
   getRushSession: () =>
-    api.get('/api/puzzle-rush/session'),
+    api.get('/puzzle-rush/session'),
 
   /** Submit a move in puzzle rush */
   solveRush: (body: PuzzleRushSolveRequest) =>
-    api.post<PuzzleRushSolveResponse>('/api/puzzle-rush/solve', body),
+    api.post<PuzzleRushSolveResponse>('/puzzle-rush/solve', body),
 
   /** End current puzzle rush session */
   endRushSession: () =>
-    api.delete<{ score: number; timeMode: string; isHighScore: boolean; scoreId?: string }>('/api/puzzle-rush/session'),
+    api.delete<{ score: number; timeMode: string; isHighScore: boolean; scoreId?: string }>('/puzzle-rush/session'),
 
   /** Get puzzle rush leaderboard */
   getRushLeaderboard: (params?: PuzzleRushLeaderboardParams) => {
@@ -109,20 +109,20 @@ export const puzzleApi = {
     if (params?.timeMode) query.set('timeMode', params.timeMode);
     if (params?.limit) query.set('limit', String(params.limit));
     const qs = query.toString();
-    return api.get(`/api/puzzle-rush/leaderboard${qs ? `?${qs}` : ''}`);
+    return api.get(`/puzzle-rush/leaderboard${qs ? `?${qs}` : ''}`);
   },
 
   /** Get user's best puzzle rush result */
   getRushBest: (timeMode?: '3' | '5') => {
     const query = timeMode ? `?timeMode=${timeMode}` : '';
-    return api.get(`/api/puzzle-rush/best${query}`);
+    return api.get(`/puzzle-rush/best${query}`);
   },
 
   /** Get review data for a completed puzzle rush session */
   getRushReview: (scoreId: string) =>
-    api.get<PuzzleRushReviewResponse>(`/api/puzzle-rush/review/${encodeURIComponent(scoreId)}`),
+    api.get<PuzzleRushReviewResponse>(`/puzzle-rush/review/${encodeURIComponent(scoreId)}`),
 
   /** Get best move for a specific puzzle in a review session */
   getRushBestMove: (scoreId: string, puzzleId: string) =>
-    api.get<PuzzleRushBestMoveResponse>(`/api/puzzle-rush/review/${encodeURIComponent(scoreId)}/puzzle/${encodeURIComponent(puzzleId)}/best-move`),
+    api.get<PuzzleRushBestMoveResponse>(`/puzzle-rush/review/${encodeURIComponent(scoreId)}/puzzle/${encodeURIComponent(puzzleId)}/best-move`),
 };

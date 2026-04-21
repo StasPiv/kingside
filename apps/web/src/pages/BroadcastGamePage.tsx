@@ -183,8 +183,8 @@ export function BroadcastGamePage() {
 
     setLoading(true);
     Promise.all([
-      api.get<DgtTournamentResult>(`/api/dgt/tournament/${tournamentId}`),
-      api.get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`),
+      api.get<DgtTournamentResult>(`/dgt/tournament/${tournamentId}`),
+      api.get<DgtRoundResult>(`/dgt/tournament/${tournamentId}/round/${roundId}`),
     ])
       .then(([tournament, round]) => {
         if (!cancelled) {
@@ -254,7 +254,7 @@ export function BroadcastGamePage() {
 
     const poll = () => {
       api
-        .get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
+        .get<DgtRoundResult>(`/dgt/tournament/${tournamentId}/round/${roundId}`)
         .then((round) => {
           if (cancelled) return;
           const found = round.games.find((g) => g.gameIndex === gameIndex) ?? null;

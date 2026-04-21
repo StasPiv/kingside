@@ -16,7 +16,7 @@ export function useActiveGame(isLoggedIn: boolean) {
       return;
     }
     try {
-      const data = await api.get<ActiveGame | null>('/api/games/active');
+      const data = await api.get<ActiveGame | null>('/games/active');
       setActiveGame(data);
     } catch {
       setActiveGame(null);

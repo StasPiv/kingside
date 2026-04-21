@@ -65,7 +65,7 @@ export function MainLayout() {
   useEffect(() => {
     if (!user) { setUnreadCount(0); return; }
     const fetchUnread = () => {
-      api.get<{ count: number }>('/api/messages/unread-count')
+      api.get<{ count: number }>('/messages/unread-count')
         .then((data) => setUnreadCount(data.count))
         .catch(() => {});
     };
@@ -86,7 +86,7 @@ export function MainLayout() {
 
   useEffect(() => {
     const fetchCount = () => {
-      fetch(`${API_URL}/api/players/online?limit=1`)
+      fetch(`${API_URL}/players/online?limit=1`)
         .then((r) => r.ok ? r.json() : null)
         .then((data: { total?: number } | null) => {
           if (data?.total != null) setOnlineCount(data.total);
@@ -218,10 +218,10 @@ export function MainLayout() {
               </div>
             ) : (
               <div className="social-login-buttons">
-                <a href={`${API_URL}/api/auth/google`} className="social-login-btn social-login-btn--google" aria-label="Google">
+                <a href={`${API_URL}/auth/google`} className="social-login-btn social-login-btn--google" aria-label="Google">
                   <FcGoogle size={20} />
                 </a>
-                <a href={`${API_URL}/api/auth/facebook`} className="social-login-btn social-login-btn--facebook" aria-label="Facebook">
+                <a href={`${API_URL}/auth/facebook`} className="social-login-btn social-login-btn--facebook" aria-label="Facebook">
                   <FaFacebook size={20} color="#1877F2" />
                 </a>
                 <a

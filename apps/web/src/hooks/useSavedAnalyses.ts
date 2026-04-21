@@ -23,7 +23,7 @@ export function parsePgnHeaders(pgn: string): Record<string, string> {
 export function useSavedAnalyses() {
   const create = useCallback(
     async (pgn: string, title?: string, category?: string): Promise<AnalysisResponse> => {
-      return api.post<AnalysisResponse>('/api/analyses', {
+      return api.post<AnalysisResponse>('/analyses', {
         pgn,
         title: title ?? getDefaultTitle(),
         ...(category ? { category } : {}),
@@ -34,18 +34,18 @@ export function useSavedAnalyses() {
 
   const update = useCallback(
     async (id: string, updates: { pgn?: string; title?: string; currentPosition?: number | null }): Promise<void> => {
-      await api.patch<AnalysisResponse>(`/api/analyses/${id}`, updates);
+      await api.patch<AnalysisResponse>(`/analyses/${id}`, updates);
     },
     [],
   );
 
   const remove = useCallback(async (id: string): Promise<void> => {
-    await api.delete(`/api/analyses/${id}`);
+    await api.delete(`/analyses/${id}`);
   }, []);
 
   const getById = useCallback(async (id: string): Promise<AnalysisResponse | null> => {
     try {
-      return await api.get<AnalysisResponse>(`/api/analyses/${id}`);
+      return await api.get<AnalysisResponse>(`/analyses/${id}`);
     } catch {
       return null;
     }

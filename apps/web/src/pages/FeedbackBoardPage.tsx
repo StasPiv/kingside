@@ -42,7 +42,7 @@ export function FeedbackBoardPage() {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(page * PAGE_SIZE), sort });
       if (type) params.set('type', type);
       if (status) params.set('status', status);
-      const data = await api.get<{ data: FeedbackPost[]; total: number }>(`/api/feedback?${params}`);
+      const data = await api.get<{ data: FeedbackPost[]; total: number }>(`/feedback?${params}`);
       setPosts(data.data ?? []);
       setTotal(data.total ?? 0);
     } catch { setPosts([]); }
@@ -53,7 +53,7 @@ export function FeedbackBoardPage() {
 
   const handleVote = async (id: string, direction: 'up' | 'down') => {
     try {
-      const res = await api.post<Record<string, unknown>>(`/api/feedback/${id}/vote`, { direction });
+      const res = await api.post<Record<string, unknown>>(`/feedback/${id}/vote`, { direction });
       const voteCount = (res.voteCount ?? 0) as number;
       const upCount = (res.upCount ?? (direction === 'up' && res.voted ? 1 : 0)) as number;
       const downCount = (res.downCount ?? (direction === 'down' && res.voted ? 1 : 0)) as number;

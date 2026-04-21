@@ -49,7 +49,7 @@ export function ChatWidget() {
 
   const fetchConversations = useCallback(async () => {
     try {
-      const data = await api.get<Conversation[]>('/api/chat/conversations');
+      const data = await api.get<Conversation[]>('/chat/conversations');
       setConversations(Array.isArray(data) ? data : []);
     } catch { setConversations([]); }
   }, []);

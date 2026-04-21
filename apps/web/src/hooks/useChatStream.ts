@@ -28,7 +28,7 @@ export function useChatStream() {
     abortRef.current = controller;
 
     try {
-      const res = await fetch(`${API_URL}/api/chat`, {
+      const res = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -103,7 +103,7 @@ export function useChatStream() {
   const loadConversation = useCallback(async (convId: string) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch(`${API_URL}/api/chat/conversations/${convId}`, {
+      const res = await fetch(`${API_URL}/chat/conversations/${convId}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return;

@@ -119,13 +119,13 @@ export function WatchGamePage() {
       black?: { username: string } | null;
       whiteRatingBefore?: number | null;
       blackRatingBefore?: number | null;
-    }>(`/api/games/${gameId}`)
+    }>(`/games/${gameId}`)
       .then((game) => {
         if (game.white?.username) setWhite((prev) => prev.username === '?' ? { ...prev, username: game.white!.username, rating: game.whiteRatingBefore ?? prev.rating } : prev);
         if (game.black?.username) setBlack((prev) => prev.username === '?' ? { ...prev, username: game.black!.username, rating: game.blackRatingBefore ?? prev.rating } : prev);
         if (game.tournamentId) {
           setTournamentId(game.tournamentId);
-          api.get<{ name: string }>(`/api/arena/${game.tournamentId}`)
+          api.get<{ name: string }>(`/arena/${game.tournamentId}`)
             .then((t) => setTournamentName(t.name))
             .catch(() => {});
         }

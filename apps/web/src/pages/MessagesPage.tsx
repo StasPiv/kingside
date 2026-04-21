@@ -56,7 +56,7 @@ export function MessagesPage() {
 
   // Load conversations
   useEffect(() => {
-    api.get<ConversationsResponse>('/api/messages/conversations')
+    api.get<ConversationsResponse>('/messages/conversations')
       .then((data) => {
         const items = Array.isArray(data?.data) ? data.data : [];
         setConversations(items);
@@ -85,13 +85,13 @@ export function MessagesPage() {
 
     // If not in conversations and conversations loaded, fetch from players API
     if (!convLoading) {
-      api.get<PlayerProfileResponse>(`/api/players/${selectedUserId}`)
+      api.get<PlayerProfileResponse>(`/players/${selectedUserId}`)
         .then((data) => {
           if (data?.username) setSelectedUsername(data.username);
         })
         .catch(() => {
           // Try user API as fallback
-          api.get<{ username: string }>(`/api/users/${selectedUserId}`)
+          api.get<{ username: string }>(`/users/${selectedUserId}`)
             .then((u) => { if (u?.username) setSelectedUsername(u.username); })
             .catch(() => setSelectedUsername(selectedUserId.slice(0, 8)));
         });
@@ -102,7 +102,7 @@ export function MessagesPage() {
   useEffect(() => {
     if (!selectedUserId) return;
     setMsgLoading(true);
-    api.get<MessageHistoryResponse>(`/api/messages/${selectedUserId}?limit=100`)
+    api.get<MessageHistoryResponse>(`/messages/${selectedUserId}?limit=100`)
       .then((data) => {
         const items = Array.isArray(data?.data) ? data.data : [];
         setMessages(items.reverse());
@@ -111,7 +111,7 @@ export function MessagesPage() {
       .finally(() => setMsgLoading(false));
 
     // Mark as read + refresh notification badge
-    api.patch<void>(`/api/messages/${selectedUserId}/read`, {})
+    api.patch<void>(`/messages/${selectedUserId}/read`, {})
       .then(() => {
         window.dispatchEvent(new Event('messages:read'));
         window.dispatchEvent(new Event('notifications:refresh'));
@@ -146,7 +146,7 @@ export function MessagesPage() {
       // If this conversation is open, add message and mark read
       if (otherUserId === selectedUserId) {
         setMessages((prev) => [...prev, payload]);
-        api.patch<void>(`/api/messages/${otherUserId}/read`, {}).catch(() => {});
+        api.patch<void>(`/messages/${otherUserId}/read`, {}).catch(() => {});
       }
 
       // Update conversations list
@@ -183,7 +183,7 @@ export function MessagesPage() {
     if (!text.trim() || !selectedUserId || sending) return;
     setSending(true);
     try {
-      const msg = await api.post<DirectMessageItem>('/api/messages', {
+      const msg = await api.post<DirectMessageItem>('/messages', {
         receiverId: selectedUserId,
         text: text.trim(),
       });

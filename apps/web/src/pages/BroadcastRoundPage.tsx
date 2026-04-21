@@ -261,7 +261,7 @@ export function BroadcastRoundPage() {
     if (!tournamentId || !roundId) return;
     let cancelled = false;
 
-    api.get<LichessBroadcastMeta>(`/api/broadcasts/${tournamentId}`)
+    api.get<LichessBroadcastMeta>(`/broadcasts/${tournamentId}`)
       .then((broadcast) => {
         if (cancelled) return;
         setLichessBroadcast(broadcast);
@@ -269,8 +269,8 @@ export function BroadcastRoundPage() {
 
         // Load rounds + games
         Promise.all([
-          api.get<{ data: LichessRoundInfo[] }>(`/api/broadcasts/${tournamentId}/rounds`),
-          api.get<{ data: LichessGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${roundId}/games`),
+          api.get<{ data: LichessRoundInfo[] }>(`/broadcasts/${tournamentId}/rounds`),
+          api.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`),
         ]).then(([roundsRes, gamesRes]) => {
           if (!cancelled) {
             setLichessRounds(Array.isArray(roundsRes?.data) ? roundsRes.data : []);
@@ -294,8 +294,8 @@ export function BroadcastRoundPage() {
     let cancelled = false;
 
     Promise.all([
-      api.get<DgtTournamentResult>(`/api/dgt/tournament/${tournamentId}`),
-      api.get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`),
+      api.get<DgtTournamentResult>(`/dgt/tournament/${tournamentId}`),
+      api.get<DgtRoundResult>(`/dgt/tournament/${tournamentId}/round/${roundId}`),
     ])
       .then(([t, r]) => {
         if (!cancelled) {
@@ -320,7 +320,7 @@ export function BroadcastRoundPage() {
     let cancelled = false;
 
     const poll = () => {
-      api.get<DgtRoundResult>(`/api/dgt/tournament/${tournamentId}/round/${roundId}`)
+      api.get<DgtRoundResult>(`/dgt/tournament/${tournamentId}/round/${roundId}`)
         .then((r) => {
           if (cancelled) return;
           // Check if any game actually changed
@@ -360,7 +360,7 @@ export function BroadcastRoundPage() {
     let isFirstFetch = true;
 
     const fetchGames = () => {
-      api.get<{ data: LichessGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${roundId}/games`)
+      api.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`)
         .then((res) => {
           if (cancelled) return;
           const games = Array.isArray(res?.data) ? res.data : [];

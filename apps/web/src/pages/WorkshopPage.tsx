@@ -29,7 +29,7 @@ export function WorkshopPage() {
     if (fileId && !stateFile) {
       setFileLoading(true);
       const token = localStorage.getItem('token');
-      fetch(`${API_URL}/api/workshop/pgn-files`, {
+      fetch(`${API_URL}/workshop/pgn-files`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
         .then((res) => {

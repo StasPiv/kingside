@@ -59,7 +59,7 @@ export function CrossTable({ tournamentId, refreshKey, pointsWin = 1, pointsDraw
 
   const fetchData = useCallback(async () => {
     try {
-      const d = await api.get<CrossTableData>(`/api/arena/${tournamentId}/crosstable`);
+      const d = await api.get<CrossTableData>(`/arena/${tournamentId}/crosstable`);
       setData(d);
     } catch { /* ignore */ }
   }, [tournamentId]);

@@ -30,7 +30,7 @@ export function RatingHistoryChart({ userId }: RatingHistoryChartProps) {
 
   useEffect(() => {
     setLoading(true);
-    api.get<{ data: RatingEntry[] }>(`/api/users/${userId}/rating-history?category=${category}`)
+    api.get<{ data: RatingEntry[] }>(`/users/${userId}/rating-history?category=${category}`)
       .then((res) => setData(res.data))
       .catch(() => setData([]))
       .finally(() => setLoading(false));

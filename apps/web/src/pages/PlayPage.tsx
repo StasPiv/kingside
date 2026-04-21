@@ -64,7 +64,7 @@ export function PlayPage() {
     if (!user) return;
     setFriendsLoading(true);
     try {
-      const res = await api.get<{ data: FriendItem[] }>('/api/friends');
+      const res = await api.get<{ data: FriendItem[] }>('/friends');
       setFriends(res.data.filter((f) => f.online));
     } catch {
       setFriends([]);

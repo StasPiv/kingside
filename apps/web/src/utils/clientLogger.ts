@@ -34,7 +34,7 @@ function flush(): void {
 
 function sendEntries(entries: LogEntry[]): void {
   try {
-    fetch(`${API_URL}/api/logs`, {
+    fetch(`${API_URL}/logs`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ logs: entries }),

@@ -34,7 +34,7 @@ export function useGameReport(gameId: string | undefined) {
     if (!gameId) return;
     setLoading(true);
     try {
-      const data = await api.get<GameReport | null>(`/api/games/${gameId}/report`);
+      const data = await api.get<GameReport | null>(`/games/${gameId}/report`);
       if (data) setReport(data);
     } catch {
       // No report yet — not an error
@@ -48,7 +48,7 @@ export function useGameReport(gameId: string | undefined) {
     setAnalyzing(true);
     setError(null);
     try {
-      const data = await api.post<GameReport>(`/api/games/${gameId}/analyze`, {});
+      const data = await api.post<GameReport>(`/games/${gameId}/analyze`, {});
       setReport(data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Analysis failed');

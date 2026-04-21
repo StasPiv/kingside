@@ -32,7 +32,7 @@ export function LiveGamesPage() {
       params.set('limit', '50');
       if (typeFilter !== 'all') params.set('type', typeFilter);
       if (playerFilter.trim()) params.set('player', playerFilter.trim());
-      const data = await api.get<LiveGamesResponse>(`/api/games/live?${params}`);
+      const data = await api.get<LiveGamesResponse>(`/games/live?${params}`);
       setGames(Array.isArray(data?.data) ? data.data : []);
       setTotal(data?.total ?? 0);
     } catch {

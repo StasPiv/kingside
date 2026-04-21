@@ -65,7 +65,7 @@ export function CreateTournamentModal({ onClose, onCreated }: CreateTournamentMo
     setError(null);
     try {
       const startsAt = new Date(Date.now() + startsIn * 60 * 1000).toISOString();
-      const result = await api.post<{ id: string; inviteCode?: string }>('/api/arena', {
+      const result = await api.post<{ id: string; inviteCode?: string }>('/arena', {
         name: name.trim(),
         type,
         visibility,

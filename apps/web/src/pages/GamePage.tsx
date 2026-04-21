@@ -138,7 +138,7 @@ export function GamePage() {
   useEffect(() => {
     if (!gameId || !user) return;
     const token = localStorage.getItem('token');
-    fetch(`${API_URL}/api/games/${gameId}`, {
+    fetch(`${API_URL}/games/${gameId}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
       .then((r) => r.ok ? r.json() : null)
@@ -157,7 +157,7 @@ export function GamePage() {
   // Fetch tournament type for berserk visibility
   useEffect(() => {
     if (!tournamentId) return;
-    api.get<{ type: string }>(`/api/arena/${tournamentId}`)
+    api.get<{ type: string }>(`/arena/${tournamentId}`)
       .then((t) => setTournamentType(t.type))
       .catch(() => {});
   }, [tournamentId]);

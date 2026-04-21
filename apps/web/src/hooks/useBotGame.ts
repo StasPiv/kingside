@@ -21,7 +21,7 @@ export function useBotGame() {
     setStartingBot(true);
     setBotError(null);
     try {
-      const game = await api.post<CreateGameResponse>('/api/games/bot', {
+      const game = await api.post<CreateGameResponse>('/games/bot', {
         color: botColor,
         botLevel,
         timeControl: botTC,

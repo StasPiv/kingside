@@ -35,7 +35,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      const res = await fetch(`${API_URL}/api/chat/limits`, {
+      const res = await fetch(`${API_URL}/chat/limits`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -71,7 +71,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     let fullText = '';
 
     try {
-      const res = await fetch(`${API_URL}/api/chat`, {
+      const res = await fetch(`${API_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ message: text, conversationId, currentPage: window.location.pathname }),
@@ -143,7 +143,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const loadConversation = useCallback(async (convId: string) => {
     const token = localStorage.getItem('token');
     try {
-      const res = await fetch(`${API_URL}/api/chat/conversations/${convId}`, {
+      const res = await fetch(`${API_URL}/chat/conversations/${convId}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return;

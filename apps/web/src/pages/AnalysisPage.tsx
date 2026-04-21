@@ -333,9 +333,9 @@ export function AnalysisPage() {
       try {
         const isAuthenticated = Boolean(localStorage.getItem('token'));
         const requests: [Promise<GameData>, Promise<MoveData[]>, Promise<{ analysisPgn: string | null } | null>] = [
-          api.get<GameData>(`/api/games/${gameId}`),
-          api.get<MoveData[]>(`/api/games/${gameId}/moves`),
-          isAuthenticated ? api.get<{ analysisPgn: string | null }>(`/api/games/${gameId}/analysis`).catch(() => null) : Promise.resolve(null),
+          api.get<GameData>(`/games/${gameId}`),
+          api.get<MoveData[]>(`/games/${gameId}/moves`),
+          isAuthenticated ? api.get<{ analysisPgn: string | null }>(`/games/${gameId}/analysis`).catch(() => null) : Promise.resolve(null),
         ];
         const [gData, mData, analysisData] = await Promise.all(requests);
         setGameData(gData);

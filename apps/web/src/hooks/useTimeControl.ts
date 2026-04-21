@@ -55,7 +55,7 @@ export function useTimeControl() {
   const loadSavedControls = useCallback(async () => {
     if (!user) return;
     try {
-      const data = await api.get<CustomTimeControl[]>('/api/users/me/time-controls');
+      const data = await api.get<CustomTimeControl[]>('/users/me/time-controls');
       setSavedControls(data);
     } catch {
       // silent
@@ -74,7 +74,7 @@ export function useTimeControl() {
   const handleSaveCustom = async () => {
     if (!user) return;
     try {
-      await api.post('/api/users/me/time-controls', {
+      await api.post('/users/me/time-controls', {
         initialSec: customMinutes * 60,
         incrementSec: customIncrement,
       });
@@ -93,7 +93,7 @@ export function useTimeControl() {
 
   const handleDeleteSaved = async (id: string) => {
     try {
-      await api.delete(`/api/users/me/time-controls/${id}`);
+      await api.delete(`/users/me/time-controls/${id}`);
       setSavedControls((prev) => prev.filter((c) => c.id !== id));
     } catch {
       // silent

@@ -56,7 +56,7 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
   const [externalAccounts, setExternalAccounts] = useState<{ chesscomUsername?: string; lichessUsername?: string }>({});
 
   useEffect(() => {
-    api.get<{ chesscomUsername?: string; lichessUsername?: string }>('/api/users/me/settings')
+    api.get<{ chesscomUsername?: string; lichessUsername?: string }>('/users/me/settings')
       .then(setExternalAccounts)
       .catch(() => {});
   }, []);
@@ -65,7 +65,7 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(`${API_URL}/api/workshop/pgn-files`, { headers: authHeaders() });
+      const res = await fetch(`${API_URL}/workshop/pgn-files`, { headers: authHeaders() });
       if (!res.ok) throw new Error();
       const data = await res.json();
       const raw: any[] = data.data ?? data;
@@ -93,7 +93,7 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`${API_URL}/api/workshop/pgn-files`, {
+      const res = await fetch(`${API_URL}/workshop/pgn-files`, {
         method: 'POST',
         headers: authHeaders(),
         body: formData,
@@ -111,7 +111,7 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
     e.stopPropagation();
     if (!confirm(t('workshop.pgnFiles.confirmDelete', 'Delete this PGN file?'))) return;
     try {
-      await fetch(`${API_URL}/api/workshop/pgn-files/${id}`, { method: 'DELETE', headers: authHeaders() });
+      await fetch(`${API_URL}/workshop/pgn-files/${id}`, { method: 'DELETE', headers: authHeaders() });
       setFiles((prev) => prev.filter((f) => f.id !== id));
     } catch { /* ignore */ }
   };
@@ -125,7 +125,7 @@ function PgnFilesList({ onSelectFile, onRefresh }: { onSelectFile: (file: PgnFil
   const handleRename = async (id: string) => {
     if (!editName.trim()) { setEditingId(null); return; }
     try {
-      await fetch(`${API_URL}/api/workshop/pgn-files/${id}`, {
+      await fetch(`${API_URL}/workshop/pgn-files/${id}`, {
         method: 'PATCH',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: editName.trim() }),
@@ -230,7 +230,7 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
     setLoading(true);
     setError(false);
 
-    fetch(`${API_URL}/api/workshop/pgn-files/${file.id}/games`, { headers: authHeaders() })
+    fetch(`${API_URL}/workshop/pgn-files/${file.id}/games`, { headers: authHeaders() })
       .then((res) => { if (!res.ok) throw new Error(); return res.json(); })
       .then((data) => { if (!cancelled) setGames(data.data ?? data); })
       .catch(() => { if (!cancelled) setError(true); })
@@ -256,7 +256,7 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
   const handleDeleteFile = async () => {
     if (!confirm(t('workshop.pgnFiles.confirmDelete', 'Delete this PGN file?'))) return;
     try {
-      await fetch(`${API_URL}/api/workshop/pgn-files/${file.id}`, { method: 'DELETE', headers: authHeaders() });
+      await fetch(`${API_URL}/workshop/pgn-files/${file.id}`, { method: 'DELETE', headers: authHeaders() });
       navigate('/workshop/pgn-files');
     } catch { /* ignore */ }
   };
@@ -264,7 +264,7 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
   const handleRenameFile = async () => {
     if (!fileName.trim()) { setEditingName(false); return; }
     try {
-      await fetch(`${API_URL}/api/workshop/pgn-files/${file.id}`, {
+      await fetch(`${API_URL}/workshop/pgn-files/${file.id}`, {
         method: 'PATCH',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileName: fileName.trim() }),
@@ -277,7 +277,7 @@ function PgnFileGames({ file, refreshKey }: { file: PgnFile; refreshKey?: number
     e.stopPropagation();
     if (!confirm(t('workshop.pgnFiles.confirmDeleteGame', 'Delete this game?'))) return;
     try {
-      await fetch(`${API_URL}/api/workshop/pgn-files/${file.id}/games/${gameId}`, { method: 'DELETE', headers: authHeaders() });
+      await fetch(`${API_URL}/workshop/pgn-files/${file.id}/games/${gameId}`, { method: 'DELETE', headers: authHeaders() });
       setGames((prev) => prev.filter((g) => g.id !== gameId));
     } catch { /* ignore */ }
   };

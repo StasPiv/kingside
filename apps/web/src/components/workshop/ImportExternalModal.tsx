@@ -23,7 +23,7 @@ export function ImportExternalModal({ source, onClose, onImported }: ImportExter
     setImporting(true);
     setError(null);
     try {
-      const data = await api.post<{ imported: number; fileId: string }>('/api/workshop/import-external', {
+      const data = await api.post<{ imported: number; fileId: string }>('/workshop/import-external', {
         platform: source,
         year,
         month,

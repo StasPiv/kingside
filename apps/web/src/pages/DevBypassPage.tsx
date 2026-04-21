@@ -22,7 +22,7 @@ export function DevBypassPage({ secret, user, returnTo }: DevBypassPageProps) {
     calledRef.current = true;
 
     api
-      .post<AuthTokenResponse>('/api/auth/dev-bypass', { secret, ...(user ? { user } : {}) })
+      .post<AuthTokenResponse>('/auth/dev-bypass', { secret, ...(user ? { user } : {}) })
       .then(({ accessToken, refreshToken }) => {
         loginWithTokens(accessToken, refreshToken);
         navigate(returnTo || '/', { replace: true });

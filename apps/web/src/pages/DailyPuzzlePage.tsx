@@ -35,7 +35,7 @@ export function DailyPuzzlePage() {
 
   useEffect(() => {
     api
-      .get<DailyPuzzleResponse>('/api/puzzles/daily')
+      .get<DailyPuzzleResponse>('/puzzles/daily')
       .then((data) => {
         setPuzzle(data.puzzle);
         const moves = data.puzzle.moves.split(' ');
@@ -76,7 +76,7 @@ export function DailyPuzzlePage() {
         setState('correct');
         playSound('puzzle-correct');
         if (puzzle) {
-          if (user) api.post('/api/puzzles/daily/solve', { puzzleId: puzzle.id, solved: true }).catch(() => {});
+          if (user) api.post('/puzzles/daily/solve', { puzzleId: puzzle.id, solved: true }).catch(() => {});
         }
         return;
       }
@@ -97,7 +97,7 @@ export function DailyPuzzlePage() {
           if (idx + 1 >= moves.length) {
             setState('correct');
             if (puzzle) {
-              if (user) api.post('/api/puzzles/daily/solve', { puzzleId: puzzle.id, solved: true }).catch(() => {});
+              if (user) api.post('/puzzles/daily/solve', { puzzleId: puzzle.id, solved: true }).catch(() => {});
             }
           }
         }
@@ -132,7 +132,7 @@ export function DailyPuzzlePage() {
           setState('failed');
           playSound('puzzle-incorrect');
           if (puzzle) {
-            if (user) api.post('/api/puzzles/daily/solve', { puzzleId: puzzle.id, solved: false }).catch(() => {});
+            if (user) api.post('/puzzles/daily/solve', { puzzleId: puzzle.id, solved: false }).catch(() => {});
           }
           return false;
         }

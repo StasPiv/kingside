@@ -29,7 +29,7 @@ export function FeedbackDetailPage() {
     if (!id) return;
     setLoading(true);
     try {
-      const data = await api.get<FeedbackDetail>(`/api/feedback/${id}`);
+      const data = await api.get<FeedbackDetail>(`/feedback/${id}`);
       setPost(data);
     } catch { /* ignore */ }
     setLoading(false);
@@ -40,7 +40,7 @@ export function FeedbackDetailPage() {
   const handleVote = async (direction: 'up' | 'down') => {
     if (!post || !user) return;
     try {
-      const res = await api.post<Record<string, unknown>>(`/api/feedback/${post.id}/vote`, { direction });
+      const res = await api.post<Record<string, unknown>>(`/feedback/${post.id}/vote`, { direction });
       const voteCount = (res.voteCount ?? 0) as number;
       const upCount = (res.upCount ?? (direction === 'up' && res.voted ? 1 : 0)) as number;
       const downCount = (res.downCount ?? (direction === 'down' && res.voted ? 1 : 0)) as number;
@@ -53,7 +53,7 @@ export function FeedbackDetailPage() {
     if (!post || !commentText.trim() || sending) return;
     setSending(true);
     try {
-      await api.post(`/api/feedback/${post.id}/comments`, { message: commentText.trim() });
+      await api.post(`/feedback/${post.id}/comments`, { message: commentText.trim() });
       setCommentText('');
       fetchPost();
     } catch { /* ignore */ }

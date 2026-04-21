@@ -11,7 +11,7 @@ export function LiveTournamentsPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    api.get<LiveTournamentsResponse>('/api/tournaments/live')
+    api.get<LiveTournamentsResponse>('/tournaments/live')
       .then((res) => {
         setTournaments(Array.isArray(res?.data) ? res.data : []);
       })

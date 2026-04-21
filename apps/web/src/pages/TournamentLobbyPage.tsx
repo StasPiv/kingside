@@ -135,7 +135,7 @@ export function TournamentLobbyPage() {
   const fetchTournament = useCallback(async () => {
     if (!id) return;
     try {
-      const data = await api.get<Tournament>(`/api/arena/${id}`);
+      const data = await api.get<Tournament>(`/arena/${id}`);
       setTournament(data);
     } catch { /* ignore */ }
     setLoading(false);
@@ -144,7 +144,7 @@ export function TournamentLobbyPage() {
   const fetchStandings = useCallback(async () => {
     if (!id) return;
     try {
-      const data = await api.get<Standing[]>(`/api/arena/${id}/standings`);
+      const data = await api.get<Standing[]>(`/arena/${id}/standings`);
       updateStandings(data);
     } catch { /* ignore */ }
   }, [id, updateStandings]);
@@ -152,7 +152,7 @@ export function TournamentLobbyPage() {
   const fetchRounds = useCallback(async () => {
     if (!id) return;
     try {
-      const data = await api.get<RoundData[]>(`/api/arena/${id}/rounds`);
+      const data = await api.get<RoundData[]>(`/arena/${id}/rounds`);
       setRounds(data);
     } catch { /* ignore */ }
   }, [id]);
@@ -160,7 +160,7 @@ export function TournamentLobbyPage() {
   const fetchInvites = useCallback(async () => {
     if (!id) return;
     try {
-      const data = await api.get<TournamentInvite[]>(`/api/arena/${id}/invites`);
+      const data = await api.get<TournamentInvite[]>(`/arena/${id}/invites`);
       setInvites(data);
     } catch { /* ignore — only creator can fetch */ }
   }, [id]);
@@ -170,7 +170,7 @@ export function TournamentLobbyPage() {
     setInviting(true);
     setInviteError(null);
     try {
-      await api.post(`/api/arena/${id}/invite`, { username: inviteUsername.trim() });
+      await api.post(`/arena/${id}/invite`, { username: inviteUsername.trim() });
       setInviteUsername('');
       fetchInvites();
     } catch (err) {
@@ -183,7 +183,7 @@ export function TournamentLobbyPage() {
   const handleRemoveInvite = async (userId: string) => {
     if (!id) return;
     try {
-      await api.delete(`/api/arena/${id}/invite/${userId}`);
+      await api.delete(`/arena/${id}/invite/${userId}`);
       setInvites((prev) => prev.filter((inv) => inv.userId !== userId));
     } catch { /* ignore */ }
   };
@@ -249,7 +249,7 @@ export function TournamentLobbyPage() {
 
     const pollActiveGame = async () => {
       try {
-        const data = await api.get<{ gameId: string; tournamentId: string | null } | null>('/api/games/active');
+        const data = await api.get<{ gameId: string; tournamentId: string | null } | null>('/games/active');
         if (data && data.tournamentId === id) {
           navigate(`/game/${data.gameId}?tournamentId=${id}`);
         }
@@ -423,7 +423,7 @@ export function TournamentLobbyPage() {
       setJoined(true);
     } else {
       try {
-        await api.post(`/api/arena/${id}/join`, {});
+        await api.post(`/arena/${id}/join`, {});
         setJoined(true);
         fetchStandings();
       } catch { /* ignore */ }
@@ -439,7 +439,7 @@ export function TournamentLobbyPage() {
   const handleLeave = async () => {
     if (!id) return;
     try {
-      await api.post(`/api/arena/${id}/leave`, {});
+      await api.post(`/arena/${id}/leave`, {});
     } catch (e) {
       console.error('Leave failed:', e);
     }
@@ -453,7 +453,7 @@ export function TournamentLobbyPage() {
     if (!id) return;
     if (!window.confirm(t('tournaments.withdrawConfirm', 'Are you sure? Remaining rounds will be scored as 0.'))) return;
     try {
-      await api.post(`/api/arena/${id}/leave`, {});
+      await api.post(`/arena/${id}/leave`, {});
     } catch (e) {
       console.error('Withdraw failed:', e);
     }

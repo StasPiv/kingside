@@ -89,11 +89,11 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   }, [ongoingRound]);
 
   useEffect(() => {
-    api.get<{ data: BroadcastRound[] }>(`/api/broadcasts/${tournamentId}/rounds`)
+    api.get<{ data: BroadcastRound[] }>(`/broadcasts/${tournamentId}/rounds`)
       .then((res) => setRounds(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
 
-    api.get<{ players: StandingsPlayer[] }>(`/api/broadcasts/${tournamentId}/standings`)
+    api.get<{ players: StandingsPlayer[] }>(`/broadcasts/${tournamentId}/standings`)
       .then((res) => {
         if (res?.players) {
           setStandings(res);
@@ -107,7 +107,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   // Load live games from ongoing round
   useEffect(() => {
     if (!ongoingRound) return;
-    api.get<{ data: BroadcastGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${ongoingRound.id}/games`)
+    api.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${ongoingRound.id}/games`)
       .then((res) => setLiveGames(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, [ongoingRound, tournamentId]);
@@ -128,7 +128,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
     // Find the game across all rounds to get PGN
     for (const round of rounds) {
       try {
-        const res = await api.get<{ data: BroadcastGame[] }>(`/api/broadcasts/${tournamentId}/rounds/${round.id}/games`);
+        const res = await api.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${round.id}/games`);
         const games = Array.isArray(res?.data) ? res.data : [];
         const game = games.find((g) => g.id === gameId);
         if (game?.pgn) {
@@ -395,7 +395,7 @@ export function BroadcastTournamentPage() {
     if (!tournamentId) return;
     let cancelled = false;
 
-    api.get<BroadcastMeta>(`/api/broadcasts/${tournamentId}`)
+    api.get<BroadcastMeta>(`/broadcasts/${tournamentId}`)
       .then((b) => {
         if (!cancelled) { setLichessBroadcast(b); setIsLichess(true); setLoading(false); }
       })
@@ -412,12 +412,12 @@ export function BroadcastTournamentPage() {
     let cancelled = false;
 
     if (!tournamentStatus) {
-      api.get<LiveTournamentsResponse>('/api/tournaments/live')
+      api.get<LiveTournamentsResponse>('/tournaments/live')
         .then((res) => { const m = res?.data?.find((t) => t.livechessUuid === tournamentId); if (m) setTournamentStatus(m.status); })
         .catch(() => {});
     }
 
-    api.get<DgtTournamentResult>(`/api/dgt/tournament/${tournamentId}`)
+    api.get<DgtTournamentResult>(`/dgt/tournament/${tournamentId}`)
       .then((result) => {
         if (cancelled) return;
         setDgtData(result);
