@@ -1,0 +1,353 @@
+/**
+ * Ядро CLI-утилиты backfill: перебирает `archive_games` и заполняет
+ * `archive_game_positions` существующими партиями (KS-1611 / ADR-014 §5).
+ *
+ * Экспортируется для unit-тестов (`backfillLoop`, `parseArgs`). CLI-shim —
+ * в `apps/archive-service/src/cli/backfill.ts`.
+ *
+ * Режимы (флаг `--mode=<default|extend>`, по умолчанию `default`):
+ *
+ *   default:
+ *     - Читает `archive_games` keyset'ом по id (ASC) батчами `BATCH_SIZE`.
+ *     - Отбрасывает game_id, уже присутствующие в `archive_game_positions`
+ *       (SELECT DISTINCT … WHERE game_id = ANY(…)).
+ *     - Парсит PGN через `parseGame`, собирает строки через
+ *       `buildPositionRowsForGame` и пишет батчем через
+ *       `ArchivePositionWriterService` (COPY → ON CONFLICT DO NOTHING).
+ *
+ *   extend:
+ *     - То же самое, НО без оптимизации `fetchExistingGameIds`: все партии
+ *       обрабатываются, даже если у них уже есть строки в индексе.
+ *     - Используется после подъёма `ARCHIVE_PLY_LIMIT` (KS-1632), чтобы
+ *       дополнить старые партии (ply 0..24) строками ply 25..40.
+ *     - Идемпотентность обеспечивает `ON CONFLICT DO NOTHING` по PK
+ *       `(position_key, bucket, game_id)`.
+ */
+
+import { parseGame, type ParsedGame } from './pgn-utils';
+import {
+  buildPositionRowsForGame,
+  type PositionRow,
+} from './position-row-builder';
+
+const DEFAULT_BATCH_SIZE = 2000;
+const DEFAULT_BUCKET = 'master';
+const PROGRESS_TAG = '[backfill]';
+
+export type BackfillMode = 'default' | 'extend';
+
+export interface BackfillOptions {
+  mode: BackfillMode;
+  batchSize: number;
+  resumeFrom: string | null;
+}
+
+interface DbGameRow {
+  id: string;
+  pgn: string;
+  whiteElo: number | null;
+  blackElo: number | null;
+  playedAt: Date | null;
+  result: string | null;
+  whiteTitle: string | null;
+  blackTitle: string | null;
+  whiteName: string | null;
+  blackName: string | null;
+  event: string | null;
+  site: string | null;
+  round: string | null;
+  date: string | null;
+  eco: string | null;
+  opening: string | null;
+  plyCount: number | null;
+  finalFen: string | null;
+}
+
+/**
+ * ParsedGame, но поля metadata — из самой БД (archive_games). Builder
+ * использует только `moves` / `whiteElo` / `blackElo` / `playedAt` /
+ * `result`, но полную форму проще заполнить целиком.
+ */
+function mergeParsedWithDb(parsed: ParsedGame, db: DbGameRow): ParsedGame {
+  return {
+    ...parsed,
+    white: db.whiteName,
+    black: db.blackName,
+    whiteElo: db.whiteElo,
+    blackElo: db.blackElo,
+    whiteTitle: db.whiteTitle,
+    blackTitle: db.blackTitle,
+    event: db.event,
+    site: db.site,
+    round: db.round,
+    date: db.date,
+    playedAt: db.playedAt,
+    result: db.result,
+    eco: db.eco,
+    opening: db.opening,
+    plyCount: db.plyCount ?? parsed.moves.length,
+    finalFen: db.finalFen ?? parsed.finalFen,
+  };
+}
+
+function formatEta(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function logProgress(state: {
+  processed: number;
+  total: number;
+  rowsWritten: number;
+  newRowsInserted: number;
+  skipped: number;
+  parseFailed: number;
+  startedAt: number;
+  lastCursor: string | null;
+  mode: BackfillMode;
+}): void {
+  const elapsedSec = (Date.now() - state.startedAt) / 1000;
+  const rate = elapsedSec > 0 ? state.processed / elapsedSec : 0;
+  const remaining = Math.max(0, state.total - state.processed);
+  const etaSec = rate > 0 ? remaining / rate : Infinity;
+  const pct = state.total > 0 ? ((state.processed / state.total) * 100).toFixed(1) : '—';
+
+  // eslint-disable-next-line no-console
+  console.log(
+    `${PROGRESS_TAG} mode=${state.mode} processed=${state.processed}/${state.total} (${pct}%) ` +
+      `rate=${rate.toFixed(1)} g/s rows=${state.rowsWritten} ` +
+      `newRowsInserted=${state.newRowsInserted} ` +
+      `skipped=${state.skipped} parseFailed=${state.parseFailed} ` +
+      `cursor=${state.lastCursor ?? 'start'} ETA=${formatEta(etaSec)}`,
+  );
+}
+
+/**
+ * Парсинг CLI-аргументов. Поддерживаемые флаги:
+ *   --mode=default|extend                 (default: default)
+ *   --batch-size=<N>                      (default: 2000)
+ *   --resume-from=<uuid>                  (default: null — с начала)
+ *
+ * Экспортируется для юнит-тестов.
+ */
+export function parseArgs(argv: readonly string[]): BackfillOptions {
+  let mode: BackfillMode = 'default';
+  let batchSize = DEFAULT_BATCH_SIZE;
+  let resumeFrom: string | null = null;
+
+  for (const raw of argv) {
+    if (raw === '--ignore-existing-game-ids') {
+      mode = 'extend';
+      continue;
+    }
+    const eq = raw.indexOf('=');
+    if (!raw.startsWith('--') || eq < 0) continue;
+    const name = raw.slice(2, eq);
+    const value = raw.slice(eq + 1);
+    switch (name) {
+      case 'mode': {
+        if (value !== 'default' && value !== 'extend') {
+          throw new Error(`Unknown --mode=${value} (expected default|extend)`);
+        }
+        mode = value;
+        break;
+      }
+      case 'batch-size': {
+        const n = Number(value);
+        if (!Number.isInteger(n) || n <= 0) {
+          throw new Error(`Invalid --batch-size=${value}`);
+        }
+        batchSize = n;
+        break;
+      }
+      case 'resume-from': {
+        resumeFrom = value || null;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return { mode, batchSize, resumeFrom };
+}
+
+/**
+ * Минимальный интерфейс writer'а, чтобы тесты могли подсунуть mock. В
+ * проде — `ArchivePositionWriterService` из DI.
+ */
+export interface BackfillWriter {
+  write(rows: PositionRow[], source?: string): Promise<number>;
+  close?(): Promise<void>;
+}
+
+/**
+ * Минимальный Prisma-surface, нужный backfill'у. Тесты подсовывают мок
+ * без подключения к БД.
+ */
+export interface BackfillPrisma {
+  archiveGame: {
+    count(): Promise<number>;
+    findMany(args: {
+      where: Record<string, unknown>;
+      orderBy: Record<string, 'asc' | 'desc'>;
+      take: number;
+      select: Record<string, boolean>;
+    }): Promise<unknown[]>;
+  };
+  $disconnect(): Promise<void>;
+}
+
+/**
+ * Ядро backfill: без создания подключений — принимает готовые prisma/writer.
+ * Экспортируется для тестов и для CLI-шima, который берёт зависимости из
+ * DI (`NestFactory.createApplicationContext`).
+ *
+ * При `writer.write` throw — re-throws (больше не silent-fail, KS-1640).
+ */
+export async function backfillLoop(
+  prisma: BackfillPrisma,
+  writer: BackfillWriter,
+  options: BackfillOptions,
+  fetchExisting: (ids: string[]) => Promise<Set<string>>,
+): Promise<void> {
+  const total = await prisma.archiveGame.count();
+  // eslint-disable-next-line no-console
+  console.log(
+    `${PROGRESS_TAG} mode=${options.mode} total archive_games=${total}; ` +
+      `batch_size=${options.batchSize} ` +
+      `resume_from=${options.resumeFrom ?? 'start'}`,
+  );
+
+  const state = {
+    processed: 0,
+    total,
+    rowsWritten: 0,
+    newRowsInserted: 0,
+    skipped: 0,
+    parseFailed: 0,
+    startedAt: Date.now(),
+    lastCursor: null as string | null,
+    mode: options.mode,
+  };
+
+  let cursor: string | null = options.resumeFrom;
+  while (true) {
+    const games = (await prisma.archiveGame.findMany({
+      where: cursor ? { id: { gt: cursor } } : {},
+      orderBy: { id: 'asc' },
+      take: options.batchSize,
+      select: {
+        id: true,
+        pgn: true,
+        whiteElo: true,
+        blackElo: true,
+        playedAt: true,
+        result: true,
+        whiteTitle: true,
+        blackTitle: true,
+        whiteName: true,
+        blackName: true,
+        event: true,
+        site: true,
+        round: true,
+        date: true,
+        eco: true,
+        opening: true,
+        plyCount: true,
+        finalFen: true,
+      },
+    })) as DbGameRow[];
+    if (games.length === 0) break;
+
+    cursor = games[games.length - 1].id;
+    state.lastCursor = cursor;
+
+    // extend-mode пропускает оптимизацию: все партии перепроходятся, новые
+    // ply 25..40 доливаются, старые ply 0..24 no-op по ON CONFLICT.
+    const existing =
+      options.mode === 'extend'
+        ? new Set<string>()
+        : await fetchExisting(games.map((g) => g.id));
+
+    const rows: PositionRow[] = [];
+    for (const g of games) {
+      if (existing.has(g.id)) {
+        state.skipped++;
+        continue;
+      }
+      let parsed: ParsedGame | null = null;
+      try {
+        parsed = parseGame(g.pgn);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // eslint-disable-next-line no-console
+        console.error(`${PROGRESS_TAG} game ${g.id}: parse threw: ${msg}`);
+      }
+      if (!parsed) {
+        state.parseFailed++;
+        process.stderr.write(
+          `${PROGRESS_TAG} game ${g.id}: PGN parse failed, skipping\n`,
+        );
+        continue;
+      }
+      const merged = mergeParsedWithDb(parsed, g);
+      for (const row of buildPositionRowsForGame(g.id, merged, DEFAULT_BUCKET)) {
+        rows.push(row);
+      }
+    }
+
+    if (rows.length > 0) {
+      try {
+        const inserted = await writer.write(rows, `backfill:${options.mode}`);
+        state.rowsWritten += rows.length;
+        state.newRowsInserted += inserted;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // KS-1640: больше не silent-fail. Любая ошибка записи — fatal,
+        // процесс завершается non-zero. Cursor продвинут, resume — через
+        // `--resume-from=<lastCursor>`.
+        // eslint-disable-next-line no-console
+        console.error(
+          `${PROGRESS_TAG} writer.write failed (fatal): ${msg} ` +
+            `lastCursor=${state.lastCursor ?? 'start'} ` +
+            `processed=${state.processed} newRowsInserted=${state.newRowsInserted}`,
+        );
+        throw err instanceof Error ? err : new Error(msg);
+      }
+    }
+
+    state.processed += games.length;
+    logProgress(state);
+  }
+
+  const elapsedSec = (Date.now() - state.startedAt) / 1000;
+  // eslint-disable-next-line no-console
+  console.log(
+    `${PROGRESS_TAG} DONE mode=${state.mode} processed=${state.processed} ` +
+      `rows=${state.rowsWritten} newRowsInserted=${state.newRowsInserted} ` +
+      `skipped=${state.skipped} parseFailed=${state.parseFailed} ` +
+      `elapsed=${formatEta(elapsedSec)}`,
+  );
+}
+
+/**
+ * Utility: SELECT distinct game_ids, already present in archive_game_positions.
+ * Exported so CLI shim can inject it into `backfillLoop` via DI'd prisma.
+ */
+export async function fetchExistingGameIds(
+  prisma: {
+    $queryRawUnsafe: <T>(sql: string, ...args: unknown[]) => Promise<T>;
+  },
+  ids: string[],
+): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await prisma.$queryRawUnsafe<Array<{ game_id: string }>>(
+    `SELECT DISTINCT game_id FROM archive_game_positions WHERE game_id = ANY($1::uuid[])`,
+    ids,
+  );
+  return new Set(rows.map((r) => r.game_id));
+}
