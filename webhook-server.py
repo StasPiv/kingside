@@ -41,6 +41,12 @@ _SHARED_TMP = os.path.join(_P, ".agent-tmp")
 os.makedirs(_SHARED_TMP, exist_ok=True)
 _LOCKS_DIR = os.path.join(_SHARED_TMP, "locks")
 os.makedirs(_LOCKS_DIR, exist_ok=True)
+# Очищаем stale lock-файлы от предыдущего запуска webhook — контейнеры были убиты
+for _f in os.listdir(_LOCKS_DIR):
+    try:
+        os.remove(os.path.join(_LOCKS_DIR, _f))
+    except OSError:
+        pass
 
 
 def _set_busy(agent: str, task: str = ""):
