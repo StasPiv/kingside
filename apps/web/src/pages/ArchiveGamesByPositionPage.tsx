@@ -19,8 +19,8 @@ import {
 } from '../components/archive/ArchiveGamesFilters';
 import { ArchiveGamesList } from '../components/archive/ArchiveGamesList';
 import { useArchiveGamesByPosition, type UseArchiveGamesByPositionFilters } from '../hooks/useArchiveGamesByPosition';
+import { ARCHIVE_URL } from '../config/archiveUrl';
 
-const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001') as string;
 const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 const VALID_SORTS: readonly ArchiveGamesSort[] = ['recent', 'topElo'];
@@ -171,7 +171,7 @@ export function ArchiveGamesByPositionPage() {
       // Fetch PGN for the selected archived game and hand it to /analysis
       // via router state — mirrors the pattern used in WorkshopPgnList.
       try {
-        const res = await fetch(`${API_URL}/api/archive/games/${item.id}`, {
+        const res = await fetch(`${ARCHIVE_URL}/games/${item.id}`, {
           method: 'GET',
           headers: authHeaders(),
         });

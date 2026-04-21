@@ -16,5 +16,10 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     css: false,
+    env: {
+      // Archive-service base URL for tests. Production value is injected via
+      // VITE_ARCHIVE_URL in scripts/deploy-aws.sh; dev uses .env. See ADR-018 §2.7.
+      VITE_ARCHIVE_URL: 'http://archive.test',
+    },
   },
 });

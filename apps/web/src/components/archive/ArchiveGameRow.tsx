@@ -51,7 +51,7 @@ function uciToSan(positionFen: string, uci: string | null): string | null {
  * Single row in the games-by-position list.
  *
  * Clicking the row notifies the parent (which fetches the PGN via
- * /api/archive/games/:id and navigates to /analysis).
+ * archive-service `/games/:id` and navigates to /analysis).
  */
 export function ArchiveGameRow({ item, positionFen, onClick }: ArchiveGameRowProps) {
   const { t } = useTranslation();

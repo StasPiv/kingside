@@ -7,8 +7,8 @@ import type {
   ArchiveGamesByPositionResponse,
   ArchiveGamesSort,
 } from '@kingside/shared';
+import { ARCHIVE_URL } from '../config/archiveUrl';
 
-const API_URL = (import.meta.env.VITE_API_URL ?? 'http://localhost:3001') as string;
 const DEBOUNCE_MS = 300;
 const PAGE_SIZE = 20;
 
@@ -149,7 +149,7 @@ export function useArchiveGamesByPosition(
 
       const params = buildParams(fen, filters, null);
 
-      fetch(`${API_URL}/api/archive/games/by-position?${params.toString()}`, {
+      fetch(`${ARCHIVE_URL}/games/by-position?${params.toString()}`, {
         method: 'GET',
         signal: controller.signal,
         headers: authHeaders(),
@@ -203,7 +203,7 @@ export function useArchiveGamesByPosition(
 
     const params = buildParams(fen, filters, nextCursor);
 
-    fetch(`${API_URL}/api/archive/games/by-position?${params.toString()}`, {
+    fetch(`${ARCHIVE_URL}/games/by-position?${params.toString()}`, {
       method: 'GET',
       signal: controller.signal,
       headers: authHeaders(),
