@@ -602,6 +602,30 @@ def _escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _wrap_markdown_tables(text: str) -> str:
+    """Заворачивает блоки markdown-таблиц в ```<code>``` — Telegram не рендерит таблицы."""
+    lines = text.split("\n")
+    out = []
+    i = 0
+    while i < len(lines):
+        # Начало таблицы: строка с `|` на обоих концах
+        if lines[i].lstrip().startswith("|") and lines[i].rstrip().endswith("|"):
+            block = []
+            while i < len(lines) and lines[i].lstrip().startswith("|") and lines[i].rstrip().endswith("|"):
+                block.append(lines[i])
+                i += 1
+            if len(block) >= 2:
+                out.append("```")
+                out.extend(block)
+                out.append("```")
+            else:
+                out.extend(block)
+        else:
+            out.append(lines[i])
+            i += 1
+    return "\n".join(out)
+
+
 def handle_telegram_send(handler, payload):
     """Обрабатывает POST /telegram/send — агент отправляет сообщение в Telegram (Markdown)."""
     message = payload.get("message", "")
@@ -611,7 +635,8 @@ def handle_telegram_send(handler, payload):
         handler.wfile.write(json.dumps({"error": "missing 'message'"}).encode())
         return
 
-    # Агенты пишут в обычном Markdown (**bold**, `code`, ```blocks```)
+    # Таблицы Telegram не рендерит — оборачиваем в моноширинный блок
+    message = _wrap_markdown_tables(message)
     send_telegram(message, parse_mode="Markdown")
     log(f"Telegram send: {message[:80]}")
 
