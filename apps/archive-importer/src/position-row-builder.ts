@@ -78,6 +78,12 @@ export function buildPositionRowsForGame(
   game: ParsedGame,
   bucket: string,
 ): PositionRow[] {
+  // KS-1624: партии с нестандартной стартовой позицией (`[SetUp "1"][FEN]`)
+  // не входят в классическое дерево дебютов — их позиции не сохраняем в
+  // `archive_game_positions`. Ply-lock инвариант с `PositionIndexer`
+  // сохраняется: обе структуры пропускают такие партии одинаково.
+  if (game.startFen) return [];
+
   const avgElo = averageElo(game);
   const result = normalizeResult(game.result);
   const playedAt = game.playedAt;

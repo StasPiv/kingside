@@ -89,6 +89,13 @@ export class PositionIndexer {
     const now = new Date();
 
     for (const game of games) {
+      // KS-1624: партии с `[SetUp "1"][FEN "..."]` (фишеррандом, этюды,
+      // нестандартные стартовые позиции) — не часть классического дерева
+      // дебютов. Их позиции полностью исключаем из position_stats, иначе
+      // первый ход ошибочно прибавлялся к стандартной стартовой позиции
+      // (расхождение starting_total vs with_moves ~1451 партия на локалке).
+      if (game.startFen) continue;
+
       const outcome = resultOutcome(game.result);
       const { sum: eloSum, count: eloCount } = avgElo(game);
       let fenBefore = STARTING_FEN;

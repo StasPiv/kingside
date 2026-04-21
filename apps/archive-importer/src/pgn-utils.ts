@@ -45,6 +45,19 @@ export interface ParsedGame {
   isClassical: boolean;
   /** Причина отсева/принятия, для метрик. */
   classificationReason: GameClassification['reason'];
+  /**
+   * Нестандартная стартовая позиция партии (фишеррандом, этюды, партии с
+   * PGN-заголовком `[SetUp "1"][FEN "..."]`). `undefined` для обычных партий,
+   * которые начинаются со стандартной стартовой шахматной позиции.
+   *
+   * Используется индексерами (`PositionIndexer`, `buildPositionRowsForGame`)
+   * чтобы:
+   *   1) не прибавлять первый ход к стандартной стартовой позиции для партий
+   *      с нестандартным стартом (раньше position_stats раздувалась — KS-1624);
+   *   2) решить политику: такие партии не часть классического дерева дебютов,
+   *      поэтому полностью исключаются из позиционных индексов.
+   */
+  startFen?: string;
 }
 
 export interface ParseResult {
@@ -151,6 +164,31 @@ export function computeContentHash(
   return createHash('sha1').update(input, 'utf8').digest();
 }
 
+/** Стандартная начальная позиция — тот же FEN, что и в индексерах. */
+const STANDARD_STARTING_FEN =
+  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/**
+ * Определяем, начата ли партия с нестандартной позиции.
+ *
+ * По PGN-стандарту нестандартный старт обозначается парой `[SetUp "1"]` +
+ * `[FEN "..."]`. В реальных архивах встречаются и небрежные записи без
+ * `SetUp` — только `[FEN]` с нестандартной позицией (TWIC такое регулярно
+ * кладёт для партий chess960/этюдов). Считаем партию SetUp'ной, если
+ * присутствует `[FEN]` с позицией, отличной от стандартной стартовой; тег
+ * `[SetUp "0"]` явно отменяет это (нестандартный FEN игнорируется).
+ */
+function resolveStartFen(rawPgn: string): string | undefined {
+  const fenHeader = extractHeader(rawPgn, 'FEN');
+  if (!fenHeader) return undefined;
+  const setUp = extractHeader(rawPgn, 'SetUp');
+  if (setUp !== null && setUp.trim() === '0') return undefined;
+  const trimmed = fenHeader.trim();
+  if (!trimmed) return undefined;
+  if (trimmed === STANDARD_STARTING_FEN) return undefined;
+  return trimmed;
+}
+
 /**
  * Разбор одной партии — строит список ходов через chess.js.
  *
@@ -168,10 +206,12 @@ export function parseGame(rawPgn: string): ParsedGame | null {
     return null;
   }
 
+  const startFen = resolveStartFen(rawPgn);
+
   // Восстанавливаем FEN после каждого хода: заново проигрываем ходы на чистой доске.
   const moves: GameMoveStep[] = [];
   try {
-    const replay = new Chess(extractHeader(rawPgn, 'FEN') ?? undefined);
+    const replay = new Chess(startFen ?? undefined);
     for (const mv of history as Array<{ from: string; to: string; promotion?: string }>) {
       const res = replay.move({ from: mv.from, to: mv.to, promotion: mv.promotion });
       if (!res) return null;
@@ -215,6 +255,7 @@ export function parseGame(rawPgn: string): ParsedGame | null {
     category: classification.category,
     isClassical: classification.isClassical,
     classificationReason: classification.reason,
+    startFen,
   };
 }
 

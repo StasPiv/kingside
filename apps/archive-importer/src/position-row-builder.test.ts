@@ -175,6 +175,34 @@ describe('buildPositionRowsForGame', () => {
     expect(normalizeResult('*')).toBeNull();
     expect(normalizeResult(null)).toBeNull();
   });
+
+  it('Gherkin KS-1624: SetUp-партия (startFen задан) → rows = [] (не индексируем в archive_game_positions)', () => {
+    // Берём произвольную нестандартную стартовую позицию (не важно, легальная
+    // или нет для чёрных — моделируем реальный кейс, когда парсер уже выставил
+    // startFen. Важно лишь что билдер уважает этот флаг и пропускает партию).
+    const nonStartFen = 'r1bqkbnr/pppppppp/2n5/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+    const moves = stepsFromUci(['e2e4', 'c6e5'], nonStartFen);
+    const game = mkGame({
+      moves,
+      plyCount: moves.length,
+      startFen: nonStartFen,
+    });
+
+    const rows = buildPositionRowsForGame(GAME_ID, game, 'master');
+    expect(rows).toEqual([]);
+  });
+
+  it('Gherkin KS-1624: обычная партия (startFen undefined) индексируется как раньше', () => {
+    const moves = stepsFromUci(['e2e4', 'e7e5']);
+    const game = mkGame({ moves, plyCount: moves.length });
+
+    const rows = buildPositionRowsForGame(GAME_ID, game, 'master');
+    // ply 0..2 → 3 строки, первая — стандартная стартовая позиция.
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows[0].ply).toBe(0);
+    expect(rows[0].moveUci).toBe('e2e4');
+    expect(rows[0].sideToMove).toBe('w');
+  });
 });
 
 describe('serializePositionRowCsv', () => {
