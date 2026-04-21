@@ -1,0 +1,37 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    cluster: kingside
+    env: prod
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # API — экспонирует счётчики (в т.ч. archive_tree_list_mismatch_total)
+  # Требование: backend должен отдавать метрики в prometheus text-формате на /api/metrics.
+  # На момент деплоя этого стека endpoint должен быть реализован (см. KS-1634/отдельная задача).
+  - job_name: kingside-api
+    metrics_path: /api/metrics
+    static_configs:
+      - targets: ["api:3001"]
+        labels:
+          service: api
+
+  # postgres-exporter — для размера таблиц, n_live_tup, n_tup_ins и т.д.
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+        labels:
+          service: postgres

@@ -1,0 +1,57 @@
+groups:
+  - name: archive-ply-sync
+    interval: 30s
+    rules:
+      # ADR-016 §Инвариант #1 (tree/list consistency) — guard уже в API.
+      # Любое срабатывание guard'а за 5 минут — инцидент.
+      - alert: ArchiveTreeListMismatch
+        expr: increase(archive_tree_list_mismatch_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: archive
+          component: ply-sync
+        annotations:
+          summary: "Archive tree/list mismatch detected: bucket={{ $labels.bucket }} increase={{ $value }}"
+          description: |
+            Сервер /archive/games/by-position вернул items=[] при totalApprox>0
+            для bucket={{ $labels.bucket }}. Guard принудительно выставил totalApprox=null
+            (ADR-016 §Инвариант #3 honest badge), но рассинхрон требует разбора.
+            Runbook: docs/adr/016-archive-tree-list-ply-sync.md §Этап 4 Проверка консистентности.
+            Шаги: (1) сверить PLY_LIMIT/POSITION_PLY_LIMIT == ARCHIVE_PLY_LIMIT;
+            (2) проверить прогресс backfill в архиве (KS-1636);
+            (3) запросить метрику archive_games_list_position_not_indexed_total — если растёт на тех же bucket,
+            значит есть партии с ply > 40, нужно рассмотреть расширение PL в следующем ADR.
+
+      # ADR-014 §1.4 — при размере таблицы >20 GB пора включать партиционирование.
+      - alert: ArchiveGamePositionsSizeWarn
+        expr: pg_archive_table_total_bytes{relname="archive_game_positions"} > 20 * 1024 * 1024 * 1024
+        for: 10m
+        labels:
+          severity: warning
+          service: archive
+          component: storage
+        annotations:
+          summary: "archive_game_positions size > 20 GB ({{ $value | humanize1024 }}B) — consider partitioning (ADR-014 §1.4)"
+          description: |
+            Таблица archive_game_positions превысила порог 20 GB.
+            По ADR-014 §1.4 (Phase B triggers) — время включить PARTITION BY HASH (position_key) на 32 партиции.
+            Runbook: docs/adr/014-archive-games-by-position.md §1.4.
+            Шаги: (1) сверить темп роста (rate(n_tup_ins)); (2) оценить время миграции;
+            (3) создать задачу на backend c планом партиционирования.
+
+      # Дополнение: отдельный алёрт на rate неиндексированных позиций (если метрика есть).
+      # Работает в связке с KS-1611 / ADR-016 §План миграции этап 3.
+      - alert: ArchiveListPositionNotIndexed
+        expr: increase(archive_games_list_position_not_indexed_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: archive
+          component: ply-sync
+        annotations:
+          summary: "archive_games_list_position_not_indexed_total incrementing (bucket={{ $labels.bucket }})"
+          description: |
+            Пользовательские запросы попадают в позиции, которых нет в archive_game_positions
+            (ply > ARCHIVE_PLY_LIMIT или backfill не завершён).
+            До завершения KS-1636 — ожидаемое поведение. После — инцидент.

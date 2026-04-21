@@ -1,0 +1,64 @@
+# Кастомные запросы postgres-exporter для KS-1635 / ADR-014 §1.4.
+# Монтируется в контейнер как /etc/postgres-exporter/queries.yaml.
+# Активируется переменной PG_EXPORTER_EXTEND_QUERY_PATH.
+
+pg_archive_table:
+  query: |
+    SELECT
+      c.relname::text AS relname,
+      pg_table_size(c.oid)::bigint AS table_bytes,
+      pg_indexes_size(c.oid)::bigint AS indexes_bytes,
+      pg_total_relation_size(c.oid)::bigint AS total_bytes
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE c.relname IN ('archive_game_positions', 'position_stats')
+      AND c.relkind = 'r'
+      AND n.nspname = 'public'
+  master: true
+  cache_seconds: 60
+  metrics:
+    - relname:
+        usage: "LABEL"
+        description: "Имя таблицы"
+    - table_bytes:
+        usage: "GAUGE"
+        description: "pg_table_size(oid) — heap + toast, в байтах"
+    - indexes_bytes:
+        usage: "GAUGE"
+        description: "pg_indexes_size(oid) — сумма всех индексов, в байтах"
+    - total_bytes:
+        usage: "GAUGE"
+        description: "pg_total_relation_size(oid) — table + indexes + toast, в байтах"
+
+pg_archive_stats:
+  query: |
+    SELECT
+      relname::text AS relname,
+      n_live_tup::bigint AS n_live_tup,
+      n_dead_tup::bigint AS n_dead_tup,
+      n_tup_ins::bigint AS n_tup_ins,
+      n_tup_upd::bigint AS n_tup_upd,
+      n_tup_del::bigint AS n_tup_del
+    FROM pg_stat_user_tables
+    WHERE relname IN ('archive_game_positions', 'position_stats', 'archive_games')
+  master: true
+  cache_seconds: 30
+  metrics:
+    - relname:
+        usage: "LABEL"
+        description: "Имя таблицы"
+    - n_live_tup:
+        usage: "GAUGE"
+        description: "pg_stat_user_tables.n_live_tup"
+    - n_dead_tup:
+        usage: "GAUGE"
+        description: "pg_stat_user_tables.n_dead_tup"
+    - n_tup_ins:
+        usage: "COUNTER"
+        description: "pg_stat_user_tables.n_tup_ins (кумулятивно)"
+    - n_tup_upd:
+        usage: "COUNTER"
+        description: "pg_stat_user_tables.n_tup_upd (кумулятивно)"
+    - n_tup_del:
+        usage: "COUNTER"
+        description: "pg_stat_user_tables.n_tup_del (кумулятивно)"

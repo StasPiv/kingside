@@ -1,0 +1,241 @@
+{
+  "title": "Archive — ply-sync (archive_game_positions)",
+  "uid": "archive-ply-sync",
+  "tags": ["kingside", "archive", "ks-1635", "adr-016"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "archive_game_positions — size (table + indexes)",
+      "description": "pg_table_size, pg_indexes_size, pg_total_relation_size. Порог 20 GB — триггер на партиционирование (ADR-014 §1.4).",
+      "gridPos": { "x": 0, "y": 0, "w": 16, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_archive_table_table_bytes{relname=\"archive_game_positions\"}",
+          "legendFormat": "table"
+        },
+        {
+          "refId": "B",
+          "expr": "pg_archive_table_indexes_bytes{relname=\"archive_game_positions\"}",
+          "legendFormat": "indexes"
+        },
+        {
+          "refId": "C",
+          "expr": "pg_archive_table_total_bytes{relname=\"archive_game_positions\"}",
+          "legendFormat": "total"
+        },
+        {
+          "refId": "D",
+          "expr": "20 * 1024 * 1024 * 1024",
+          "legendFormat": "warn threshold 20 GB"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "warn threshold 20 GB" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [8, 4] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "calcs": ["last"] }
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "archive_game_positions — total size (now)",
+      "description": "pg_total_relation_size — последнее значение.",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_archive_table_total_bytes{relname=\"archive_game_positions\"}",
+          "legendFormat": "total",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 15000000000 },
+              { "color": "red", "value": 21474836480 }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "archive_game_positions — n_live_tup",
+      "description": "pg_stat_user_tables.n_live_tup — оценка живых строк.",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "pg_archive_stats_n_live_tup{relname=\"archive_game_positions\"}",
+          "legendFormat": "n_live_tup"
+        },
+        {
+          "refId": "B",
+          "expr": "pg_archive_stats_n_dead_tup{relname=\"archive_game_positions\"}",
+          "legendFormat": "n_dead_tup"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "archive_game_positions — insert rate (rows / minute)",
+      "description": "rate(n_tup_ins[1m]) * 60 — прогресс backfill / импорта. Ожидаемый порядок во время backfill — 30–60k rows/min (COPY батчами).",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(pg_archive_stats_n_tup_ins{relname=\"archive_game_positions\"}[1m]) * 60",
+          "legendFormat": "insert rows/min"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(pg_archive_stats_n_tup_upd{relname=\"archive_game_positions\"}[1m]) * 60",
+          "legendFormat": "update rows/min"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(pg_archive_stats_n_tup_del{relname=\"archive_game_positions\"}[1m]) * 60",
+          "legendFormat": "delete rows/min"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "fillOpacity": 15 }
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "archive_tree_list_mismatch_total (rate per 5m)",
+      "description": "Инвариант #1 tree/list consistency. Любое значение > 0 — инцидент (алёрт ArchiveTreeListMismatch).",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(archive_tree_list_mismatch_total[5m])",
+          "legendFormat": "bucket={{bucket}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "archive_games_list_position_not_indexed_total (rate per 15m)",
+      "description": "Пользовательские запросы попадают в позиции, не проиндексированные в archive_game_positions. Во время backfill (KS-1636) — ожидаемо; после — инцидент.",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "increase(archive_games_list_position_not_indexed_total[15m])",
+          "legendFormat": "bucket={{bucket}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "logs",
+      "title": "archive.list.mismatch — warn-логи API",
+      "description": "LogQL-выборка warn-сообщений о рассинхроне (fail-closed guard, KS-1634).",
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"api\"} |~ \"archive.list.mismatch\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ]
+}
