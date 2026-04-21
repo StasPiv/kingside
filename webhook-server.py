@@ -1219,8 +1219,8 @@ def _split_message(text, max_len=4096):
     return parts
 
 
-def send_telegram(text, parse_mode="HTML"):
-    """Отправляет сообщение в Telegram. parse_mode: HTML | Markdown | MarkdownV2."""
+def send_telegram(text, parse_mode="Markdown"):
+    """Отправляет сообщение в Telegram. parse_mode: Markdown | HTML | MarkdownV2."""
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -1239,7 +1239,7 @@ def send_telegram(text, parse_mode="HTML"):
 
 
 def format_telegram_issue(event_type, payload):
-    """Форматирует событие трекера в текст для Telegram."""
+    """Форматирует событие трекера в Markdown для Telegram."""
     issue = payload.get("issue", {})
     key = issue.get("key", payload.get("issue_key", "?"))
     summary = issue.get("summary", "")
@@ -1248,7 +1248,7 @@ def format_telegram_issue(event_type, payload):
 
     if event_type == "issue_created":
         return (
-            f"🆕 <b>Создана задача</b>\n"
+            f"🆕 *Создана задача*\n"
             f"{key}: {summary}\n"
             f"Статус: {status}\n"
             f"Исполнитель: {assignee}"
@@ -1256,7 +1256,7 @@ def format_telegram_issue(event_type, payload):
 
     if event_type == "issue_updated":
         return (
-            f"✏️ <b>Обновлена задача</b>\n"
+            f"✏️ *Обновлена задача*\n"
             f"{key}: {summary}\n"
             f"Статус: {status}\n"
             f"Исполнитель: {assignee}"
@@ -1264,7 +1264,7 @@ def format_telegram_issue(event_type, payload):
 
     if event_type == "issue_transitioned":
         return (
-            f"🔄 <b>Смена статуса</b>\n"
+            f"🔄 *Смена статуса*\n"
             f"{key}: {summary}\n"
             f"Статус: {status}"
         )
@@ -1274,10 +1274,10 @@ def format_telegram_issue(event_type, payload):
         comment_author = comment.get("author", "")
         comment_body = comment.get("body", "")
         return (
-            f"💬 <b>Новый комментарий</b>\n"
+            f"💬 *Новый комментарий*\n"
             f"{key}: {summary}\n"
             f"Автор: {comment_author}\n"
-            f"{comment_body}"
+            f"{_wrap_markdown_tables(comment_body)}"
         )
 
     return None
