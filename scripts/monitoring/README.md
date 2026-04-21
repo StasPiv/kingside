@@ -45,7 +45,7 @@ GRAFANA_PORT=3002
 и `__TELEGRAM_CHAT_ID__` в `alertmanager.yml.tpl` заменяются через `sed` на
 значения из env (entrypoint контейнера).
 
-## Правила алёртов (`infra/prometheus/rules/archive.yml`)
+## Правила алёртов (`scripts/monitoring/prometheus/rules/archive.yml`)
 
 ### `ArchiveTreeListMismatch` (critical)
 - **PromQL:** `increase(archive_tree_list_mismatch_total[5m]) > 0`
@@ -55,7 +55,7 @@ GRAFANA_PORT=3002
 
 ### `ArchiveGamePositionsSizeWarn` (warning)
 - **PromQL:** `pg_archive_table_total_bytes{relname="archive_game_positions"} > 20 * 1024 * 1024 * 1024`
-- **Источник метрики:** postgres-exporter, кастомный запрос `pg_archive_table` (`infra/postgres-exporter/queries.yaml`).
+- **Источник метрики:** postgres-exporter, кастомный запрос `pg_archive_table` (`scripts/monitoring/postgres-exporter/queries.yaml`).
 - **Условие:** размер таблицы (heap + indexes + toast) превышает 20 GB — триггер на партиционирование по ADR-014 §1.4.
 - **Runbook:** `docs/adr/014-archive-games-by-position.md` §1.4.
 

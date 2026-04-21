@@ -188,7 +188,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-kingside}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kingside}
     volumes:
-      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./scripts/monitoring/grafana/provisioning:/etc/grafana/provisioning
       - grafana_data:/var/lib/grafana
     depends_on:
       - loki
@@ -205,8 +205,8 @@ services:
     ports:
       - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
-      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
+      - ./scripts/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./scripts/monitoring/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -233,7 +233,7 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-0}
     volumes:
-      - ./infra/alertmanager:/etc/alertmanager:ro
+      - ./scripts/monitoring/alertmanager:/etc/alertmanager:ro
       - alertmanager_data:/alertmanager
     # Alertmanager не умеет envsubst — шаблон рендерится на старте через sed.
     # Плейсхолдеры __TELEGRAM_BOT_TOKEN__ / __TELEGRAM_CHAT_ID__ заменяются значениями из env.
@@ -268,7 +268,7 @@ services:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/${POSTGRES_DB:-kingside}?sslmode=disable"
       PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres-exporter/queries.yaml
     volumes:
-      - ./infra/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+      - ./scripts/monitoring/postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
     depends_on:
       - postgres
     logging:
