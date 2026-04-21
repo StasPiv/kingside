@@ -31,6 +31,9 @@ ECS_SERVICE_ARCHIVE="kingside-archive-importer"
 # локальные VITE_* (dev: ws://localhost:3002) в env webhook-server/хоста
 # перебивали дефолты и попадали в prod-бандл. См. KS-1570.
 PROD_API_URL="https://kingside.site"
+# VITE_API_URL теперь указывает на api-субдомен (KS-1643 / ADR-017).
+# VITE_APP_ORIGIN остаётся на корне — для Telegram OAuth redirect.
+PROD_VITE_API_URL="https://api.kingside.site"
 PROD_GAME_URL="wss://game.kingside.site"
 PROD_GA4_ID="G-9HF8RVMK8K"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
@@ -200,8 +203,8 @@ echo ""
 
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 if $DEPLOY_FRONTEND; then
-    echo "[frontend] Building (VITE_API_URL=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
-    VITE_API_URL="$PROD_API_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
+    echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
+    VITE_API_URL="$PROD_VITE_API_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
 
     echo "[frontend] Syncing to S3..."
