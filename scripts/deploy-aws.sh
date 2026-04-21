@@ -36,6 +36,10 @@ PROD_API_URL="https://kingside.site"
 # VITE_API_URL теперь указывает на api-субдомен (KS-1643 / ADR-017).
 # VITE_APP_ORIGIN остаётся на корне — для Telegram OAuth redirect.
 PROD_VITE_API_URL="https://api.kingside.site"
+# VITE_ARCHIVE_URL — выделенный поддомен для archive-service (KS-1662 / ADR-018 §2.7).
+# Fallback на VITE_API_URL во фронте не используется: archiveUrl.js бросает исключение
+# при загрузке модуля, если переменная не задана.
+PROD_VITE_ARCHIVE_URL="https://archive.kingside.site"
 PROD_GAME_URL="wss://game.kingside.site"
 PROD_GA4_ID="G-9HF8RVMK8K"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
@@ -218,8 +222,8 @@ echo ""
 
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 if $DEPLOY_FRONTEND; then
-    echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
-    VITE_API_URL="$PROD_VITE_API_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
+    echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
+    VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
 
     echo "[frontend] Syncing to S3..."
