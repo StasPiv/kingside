@@ -4,7 +4,7 @@
  * здесь поддерживаются только две формы, остальные — fallback 60 минут.
  *
  * Поведение сохраняется 1:1 относительно прежнего `intervalFromSchedule`
- * из `apps/archive-importer/src/importer.ts` (ADR-013 §5, §2.5).
+ * из исторического пакета archive-importer (удалён по KS-1676, ADR-013 §5, §2.5).
  */
 
 const FALLBACK_MS = 60 * 60 * 1000;

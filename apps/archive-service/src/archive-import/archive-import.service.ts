@@ -15,7 +15,8 @@ import { intervalFromSchedule } from './interval-schedule';
  * для каждого «созревшего» источника берёт Redis-lock
  * (`archive:import:lock:{code}`) и запускает соответствующий импортёр.
  *
- * Отличия от старого `apps/archive-importer/src/importer.ts`:
+ * Отличия от исторического `ArchiveImporter` класса (archive-importer
+ * пакет, удалён по KS-1676):
  *   - планировщик — `@nestjs/schedule` `@Interval(60_000)` (ADR-019 §2.5)
  *     вместо setInterval;
  *   - зависимости инжектятся через DI, singleton-ы переживают tick'и;

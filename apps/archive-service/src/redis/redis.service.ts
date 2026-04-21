@@ -3,9 +3,10 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 /**
- * Redis-клиент archive-service. Подключается к тому же Redis,
- * что и archive-importer (ADR-018 §2.3) — чтобы получать события
- * `archive:imported` и дружно инвалидировать кеш.
+ * Redis-клиент archive-service. HTTP-процесс (`main.ts`) и
+ * importer-процесс (`importer-main.ts`) оба пользуются одним экземпляром —
+ * importer публикует `archive:imported`, HTTP подписан и инвалидирует кеш
+ * (ADR-018 §2.3, ADR-019 §2.3).
  */
 @Injectable()
 export class RedisService extends Redis implements OnModuleDestroy {

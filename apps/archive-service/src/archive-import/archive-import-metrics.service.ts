@@ -6,8 +6,8 @@ import { MetricsService } from '../metrics/metrics.service';
  * Importer-метрики на prom-client (ADR-019 §2.1 / §2.11).
  *
  * Имена метрик сохранены 1:1 относительно самописного `metrics.ts`
- * старого `apps/archive-importer` — Grafana/алерты завязаны. Любое
- * переименование должно сопровождаться миграцией dashboard'ов.
+ * исторического archive-importer пакета (удалён по KS-1676) — Grafana/алерты
+ * завязаны. Любое переименование должно сопровождаться миграцией dashboard'ов.
  *
  * Все Counter/Histogram/Gauge регистрируются в общий `MetricsService.registry`
  * archive-service — единая scrape-точка `/_/metrics`.
