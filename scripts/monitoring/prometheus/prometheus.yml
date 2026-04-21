@@ -42,6 +42,25 @@ scrape_configs:
       - source_labels: [ecs_health]
         target_label: health
 
+  # archive-importer (KS-1674 / ADR-019): отдельный ECS service `kingside-archive-importer`,
+  # один контейнер, без ALB. Scrape по внутреннему IP ENI task'а, порт 3004.
+  # Sidecar `ecs-discovery-archive-importer` каждые 60 сек пишет /etc/prometheus/targets/kingside-archive-importer.json.
+  # SG kingside-ecs-sg (sg-07f96fdb66b70e8eb) разрешает monitoring-sg → 3004.
+  - job_name: kingside-archive-importer
+    scheme: http
+    metrics_path: /_/metrics
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/targets/kingside-archive-importer.json
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [task_arn]
+        regex: .*/([^/]+)$
+        target_label: task_id
+        replacement: $1
+      - source_labels: [ecs_health]
+        target_label: health
+
   # postgres-exporter — коннектится к RDS по POSTGRES_EXPORTER_DATA_SOURCE_NAME (.env).
   - job_name: postgres
     static_configs:
