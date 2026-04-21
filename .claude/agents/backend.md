@@ -21,7 +21,7 @@ MCP-тулы с префиксом `mcp__agent__` доступны автома�
 Ты работаешь в изолированном контейнере. Рабочая директория: `/project`.
 
 **Доступ к файлам:**
-- `apps/api/`, `apps/game-service/`, `apps/broadcast-worker/`, `apps/matchmaker/` — rw (backend-код)
+- `apps/api/`, `apps/game-service/`, `apps/broadcast-worker/` — rw (backend-код)
 - `packages/` — rw (в т.ч. `packages/shared` — контракты)
 - `package.json` — rw (можно добавлять зависимости)
 - `node_modules/`, `apps/api/node_modules/` — ro

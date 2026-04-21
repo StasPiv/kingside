@@ -92,7 +92,6 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_APPS_API":             [f"{_P}/apps/api:/project/apps/api"],
     "ROLE_WRITE_APPS_GAME_SERVICE":    [f"{_P}/apps/game-service:/project/apps/game-service"],
     "ROLE_WRITE_APPS_BROADCAST_WORKER":[f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker"],
-    "ROLE_WRITE_APPS_MATCHMAKER":      [f"{_P}/apps/matchmaker:/project/apps/matchmaker"],
     "ROLE_WRITE_APPS_ARCHIVE_IMPORTER":[f"{_P}/apps/archive-importer:/project/apps/archive-importer"],
     # Frontend-код
     "ROLE_WRITE_APPS_WEB":             [f"{_P}/apps/web:/project/apps/web"],
@@ -678,7 +677,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
-        "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_MATCHMAKER",
+        "ROLE_WRITE_APPS_BROADCAST_WORKER",
         "ROLE_WRITE_APPS_ARCHIVE_IMPORTER",
         "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
         "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
@@ -746,7 +745,6 @@ ENDPOINT_ROLE: dict[str, object] = {
         "api": "ROLE_DEPLOY_API",
         "workers": "ROLE_DEPLOY_WORKERS",
         "broadcast-worker": "ROLE_DEPLOY_WORKERS",
-        "matchmaker": "ROLE_DEPLOY_WORKERS",
         "all": "ROLE_DEPLOY_ALL",
         "": "ROLE_DEPLOY_ALL",
     },
