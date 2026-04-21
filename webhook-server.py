@@ -689,6 +689,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
         "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
         "ROLE_READ_APPS_API_NODE_MODULES",
+        "ROLE_READ_DOCS",
     ],
     "frontend": [
         "ROLE_COMMIT", "ROLE_DEPLOY_FRONTEND", "ROLE_NPM_RUN", "ROLE_API_START",
@@ -752,6 +753,8 @@ ENDPOINT_ROLE: dict[str, object] = {
         "api": "ROLE_DEPLOY_API",
         "workers": "ROLE_DEPLOY_WORKERS",
         "broadcast-worker": "ROLE_DEPLOY_WORKERS",
+        "archive-service": "ROLE_DEPLOY_WORKERS",
+        "archive-importer": "ROLE_DEPLOY_WORKERS",
         "all": "ROLE_DEPLOY_ALL",
         "": "ROLE_DEPLOY_ALL",
     },
