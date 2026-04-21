@@ -396,6 +396,8 @@ IMPORTER_TD_ARN=$(aws_cli ecs register-task-definition --cli-input-json "file://
     --query 'taskDefinition.taskDefinitionArn' --output text)
 rm -f "${IMPORTER_TD_FILE}"
 log "registered oneshot task-def: ${IMPORTER_TD_ARN}"
+# ARN ревизии (вида ...:task-definition/kingside-archive-importer-oneshot:N) —
+# ниже используется для pin'а в EventBridge Scheduler target (avoid drift).
 
 # --- 11. EventBridge Scheduler (cron 0 20 ? * * * UTC, ENABLED) ---
 IMPORTER_SCHED_JSON=$(cat <<EOF
@@ -585,3 +587,92 @@ aws_cli cloudwatch put-metric-alarm \
 log "archive-importer oneshot infrastructure ready. Schedule: ${IMPORTER_SCHED_NAME}."
 log "NOTE: старый service kingside-archive-importer удаляется отдельно после первого"
 log "      успешного RunTask — см. шаг 7 из KS-1682 (aws ecs delete-service)."
+
+# =============================================================================
+# KS-1684 / ADR-020 §2.4: archive-importer ad-hoc (ручной backward-walk TWIC).
+# Отдельный task-def + log group под ретроспективный CLI
+# `apps/archive-service/src/cli/import-twic-issue.ts` (сейчас TWIC-1639, далее
+# 1638/1637/…). Не имеет EventBridge Scheduler'а — запуск руками через
+# `aws ecs run-task --overrides 'containerOverrides=[{name=...,command=[...,<issue>]}]'`.
+#
+# Почему отдельный task-def (а не --overrides на oneshot):
+#   - ретроспективный backward-walk при регулярном использовании зашумит log
+#     group daily scheduler'а;
+#   - IaC должен отражать все сущности явно (ADR-020 §2.4.1);
+#   - в env НЕ выставляем AWS_EMF_* (если бы ad-hoc шёл в oneshot family, при
+#     будущем добавлении EMF-env в oneshot случайно опубликовали бы метрики из
+#     ручного backfill) — ADR-020 §2.4.2.
+# Блок идемпотентный.
+# =============================================================================
+
+ADHOC_FAMILY="kingside-archive-importer-adhoc"
+ADHOC_LOG_GROUP="/kingside/archive-importer-adhoc"
+
+# --- 15. Log group для ad-hoc importer'а ---
+LG_EXISTS=$(aws_cli logs describe-log-groups --log-group-name-prefix "${ADHOC_LOG_GROUP}" \
+    --query "logGroups[?logGroupName=='${ADHOC_LOG_GROUP}'] | [0].logGroupName" --output text)
+if [ -z "${LG_EXISTS}" ] || [ "${LG_EXISTS}" = "None" ]; then
+    log "creating log group ${ADHOC_LOG_GROUP}"
+    aws_cli logs create-log-group --log-group-name "${ADHOC_LOG_GROUP}"
+else
+    log "log group ${ADHOC_LOG_GROUP} exists"
+fi
+# Retention 30 дней — ad-hoc редкий (несколько запусков в год на backward-walk),
+# 30d достаточно для постмортема, больше — необоснованный cost.
+aws_cli logs put-retention-policy --log-group-name "${ADHOC_LOG_GROUP}" --retention-in-days 30 || \
+    log "WARN: PutRetentionPolicy на ${ADHOC_LOG_GROUP} не удалось — проверь права kingside-ci"
+
+# --- 16. Task definition ad-hoc ---
+# command: заглушка ["node", "dist/cli/import-twic-issue.js"] — реальный аргумент
+# (номер выпуска) передаётся через --overrides.containerOverrides.command[2].
+# Environment НЕ содержит AWS_EMF_NAMESPACE / AWS_EMF_LOG_GROUP_NAME (ADR-020 §2.4.2):
+# CLI не должен публиковать EMF из ручных backfill-запусков.
+ADHOC_TD_JSON=$(cat <<EOF
+{
+  "family": "${ADHOC_FAMILY}",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "${ADHOC_FAMILY}",
+      "image": "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service:latest",
+      "essential": true,
+      "command": ["node", "dist/cli/import-twic-issue.js"],
+      "environment": [
+        {"name": "NODE_ENV", "value": "production"}
+      ],
+      "secrets": [
+        {"name": "ARCHIVE_DATABASE_URL", "valueFrom": "${ARCHIVE_SECRET_ARN}:ARCHIVE_DATABASE_URL::"},
+        {"name": "REDIS_URL",  "valueFrom": "${API_SECRET_ARN}:REDIS_URL::"},
+        {"name": "REDIS_HOST", "valueFrom": "${API_SECRET_ARN}:REDIS_HOST::"},
+        {"name": "REDIS_PORT", "valueFrom": "${API_SECRET_ARN}:REDIS_PORT::"}
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${ADHOC_LOG_GROUP}",
+          "awslogs-region": "${REGION}",
+          "awslogs-stream-prefix": "adhoc"
+        }
+      }
+    }
+  ]
+}
+EOF
+)
+ADHOC_TD_FILE="$(mktemp -t adhoc-taskdef.XXXXXX.json)"
+printf '%s' "${ADHOC_TD_JSON}" > "${ADHOC_TD_FILE}"
+ADHOC_TD_ARN=$(aws_cli ecs register-task-definition --cli-input-json "file://${ADHOC_TD_FILE}" \
+    --query 'taskDefinition.taskDefinitionArn' --output text)
+rm -f "${ADHOC_TD_FILE}"
+log "registered ad-hoc task-def: ${ADHOC_TD_ARN}"
+
+log "archive-importer ad-hoc infrastructure ready. Run-task example:"
+log "  aws ecs run-task --cluster ${CLUSTER} --task-definition ${ADHOC_FAMILY} \\"
+log "    --launch-type FARGATE --network-configuration \\"
+log "    \"awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${ECS_SG}],assignPublicIp=ENABLED}\" \\"
+log "    --overrides 'containerOverrides=[{name=${ADHOC_FAMILY},command=[\"node\",\"dist/cli/import-twic-issue.js\",\"<ISSUE_NUMBER>\"]}]'"
