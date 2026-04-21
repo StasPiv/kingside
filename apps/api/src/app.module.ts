@@ -27,7 +27,6 @@ import { ArenaModule } from './arena/arena.module';
 import { AiChatModule } from './ai-chat/ai-chat.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { AdminModule } from './admin/admin.module';
-import { ArchiveModule } from './archive/archive.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
@@ -70,7 +69,6 @@ import { HealthController } from './health.controller';
     AiChatModule,
     FeedbackModule,
     AdminModule,
-    ArchiveModule,
     MetricsModule,
   ],
 })
