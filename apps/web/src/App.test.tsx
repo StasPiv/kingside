@@ -61,6 +61,19 @@ vi.mock('./pages/ProfilePage', () => ({
   ProfilePage: () => <div>Profile</div>,
 }));
 
+// `/*` redirects to `/`, which renders FeaturesPage for an unauthenticated
+// user via <HomePage>. Mock it so we can assert on the landing route.
+vi.mock('./pages/FeaturesPage', () => ({
+  FeaturesPage: () => <div>Features</div>,
+}));
+
+// `/profile` redirects to `/player/:username` via <ProfileRedirect>, which
+// renders PlayerProfilePage. Without this mock the real page loads and
+// hangs on auth/api calls during the test.
+vi.mock('./pages/PlayerProfilePage', () => ({
+  PlayerProfilePage: () => <div>Player Profile</div>,
+}));
+
 function renderApp(route: string) {
   return render(
     <I18nextProvider i18n={testI18n}>
@@ -88,14 +101,19 @@ describe('App routing', () => {
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
   });
 
-  it('redirects to /lobby for unknown routes', () => {
+  it('redirects unknown routes to `/` (landing page for guests)', () => {
+    // The catch-all route `path="*"` now navigates to "/", which renders
+    // HomePage. For an unauthenticated user HomePage shows FeaturesPage
+    // instead of the previous redirect to /lobby → /login.
     renderApp('/unknown');
-    // unauthenticated user on /lobby gets redirected to /login
-    expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
+    expect(screen.getByText('Features')).toBeInTheDocument();
   });
 
   it('redirects protected routes to /login when not authenticated', () => {
-    renderApp('/lobby');
+    // `/lobby` is now a public route, so use `/settings` (ProtectedRoute)
+    // to exercise the redirect-to-login behavior that the previous
+    // assertion relied on.
+    renderApp('/settings');
     expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
   });
 
@@ -106,7 +124,7 @@ describe('App routing', () => {
   });
 
   // KS-260: Scenario 2 — direct navigation to /puzzle-rush (protected)
-  it('renders /puzzle-rush for authenticated user', () => {
+  it('renders /puzzle-rush for authenticated user', async () => {
     mockUseAuth.mockReturnValue({
       user: { id: 'u1', username: 'Test' },
       loading: false,
@@ -116,7 +134,9 @@ describe('App routing', () => {
       logout: vi.fn(),
     });
     renderApp('/puzzle-rush');
-    expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+    // `/puzzle-rush` is a lazy()-loaded route wrapped in <Suspense>, so the
+    // assertion has to wait for the dynamic import to resolve.
+    expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
   });
 
   // KS-260: Scenario 2b — /puzzle-rush redirects to login when not authenticated
@@ -150,7 +170,7 @@ describe('App routing', () => {
 
   // KS-268: QA verification of KS-258 redirect /puzzles/rush → /puzzle-rush
   describe('KS-258 redirect verification', () => {
-    it('redirects /puzzles/rush to /puzzle-rush for authenticated user', () => {
+    it('redirects /puzzles/rush to /puzzle-rush for authenticated user', async () => {
       mockUseAuth.mockReturnValue({
         user: { id: 'u1', username: 'Test' },
         loading: false,
@@ -160,7 +180,8 @@ describe('App routing', () => {
         logout: vi.fn(),
       });
       renderApp('/puzzles/rush');
-      expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+      // Lands on the lazy PuzzleRushPage via redirect — await dynamic import.
+      expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
     });
 
     it('redirects /puzzles/rush to /puzzle-rush then to /login when not authenticated', () => {
@@ -168,7 +189,7 @@ describe('App routing', () => {
       expect(screen.getByRole('heading', { name: 'Login' })).toBeInTheDocument();
     });
 
-    it('/puzzle-rush still works directly (not broken by redirect)', () => {
+    it('/puzzle-rush still works directly (not broken by redirect)', async () => {
       mockUseAuth.mockReturnValue({
         user: { id: 'u1', username: 'Test' },
         loading: false,
@@ -178,7 +199,7 @@ describe('App routing', () => {
         logout: vi.fn(),
       });
       renderApp('/puzzle-rush');
-      expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+      expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
     });
   });
 
@@ -196,12 +217,15 @@ describe('App routing', () => {
       register: vi.fn(),
       logout: vi.fn(),
     });
+    // `/profile` is a ProtectedRoute that redirects to `/player/:username`
+    // via <ProfileRedirect>, so the resolved page is the mocked
+    // PlayerProfilePage.
     renderApp('/profile');
-    expect(screen.getByText('Profile')).toBeInTheDocument();
+    expect(screen.getByText('Player Profile')).toBeInTheDocument();
   });
 
   // KS-267: Scenario 6 — client-side navigation to /puzzle-rush/leaderboard
-  it('navigates to /puzzle-rush/leaderboard via client-side link', () => {
+  it('navigates to /puzzle-rush/leaderboard via client-side link', async () => {
     mockUseAuth.mockReturnValue({
       user: { id: 'u1', username: 'Test' },
       loading: false,
@@ -211,13 +235,13 @@ describe('App routing', () => {
       logout: vi.fn(),
     });
     renderApp('/puzzle-rush');
-    expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+    expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Leaderboard Nav'));
     expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
   });
 
   // KS-267: Navigation from leaderboard back to /puzzle-rush (auth user)
-  it('navigates from /puzzle-rush/leaderboard to /puzzle-rush via link', () => {
+  it('navigates from /puzzle-rush/leaderboard to /puzzle-rush via link', async () => {
     mockUseAuth.mockReturnValue({
       user: { id: 'u1', username: 'Test' },
       loading: false,
@@ -229,7 +253,7 @@ describe('App routing', () => {
     renderApp('/puzzle-rush/leaderboard');
     expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Puzzle Rush Nav'));
-    expect(screen.getByText('Puzzle Rush')).toBeInTheDocument();
+    expect(await screen.findByText('Puzzle Rush')).toBeInTheDocument();
   });
 
   // KS-267: /puzzle-rush/leaderboard client-side nav without auth
