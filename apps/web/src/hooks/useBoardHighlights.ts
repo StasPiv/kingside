@@ -14,6 +14,15 @@ const EN_PASSANT_COLOR = 'rgba(234, 88, 12, 0.45)';
 // Selected square highlight
 const SELECTED_COLOR = 'rgba(255, 213, 0, 0.55)';
 
+// Semi-transparent arrow shown on hover over archive-tree suggested moves
+const SUGGESTED_ARROW_COLOR = 'rgba(56, 189, 248, 0.55)';
+
+interface ArrowData {
+  startSquare: string;
+  endSquare: string;
+  color: string;
+}
+
 interface UseBoardHighlightsOptions {
   /** Current chess.js instance with the active position (may be null while loading) */
   game: Chess | null;
@@ -32,6 +41,8 @@ interface UseBoardHighlightsOptions {
 interface UseBoardHighlightsResult {
   /** squareStyles to pass to MemoChessboard boardOptions */
   squareStyles: Record<string, React.CSSProperties>;
+  /** arrows to pass to MemoChessboard boardOptions */
+  arrows: ArrowData[];
   /** Call when a square/piece is clicked */
   onSquareClick: (square: Square) => void;
   /** Call after a move is made to record the last move */
@@ -40,6 +51,11 @@ interface UseBoardHighlightsResult {
   clearLastMove: () => void;
   /** Clear selected square (e.g. after a drag drop) */
   clearSelection: () => void;
+  /**
+   * Show/hide a semi-transparent suggestion arrow (e.g. for hover over
+   * archive-tree variation rows). Pass nulls to clear.
+   */
+  setSuggestedArrow: (from: Square | null, to: Square | null) => void;
 }
 
 export function useBoardHighlights({
@@ -50,6 +66,7 @@ export function useBoardHighlights({
 }: UseBoardHighlightsOptions): UseBoardHighlightsResult {
   const [selectedSquare, setSelectedSquareState] = useState<Square | null>(null);
   const [lastMove, setLastMoveState] = useState<{ from: Square; to: Square } | null>(null);
+  const [suggestedArrow, setSuggestedArrowState] = useState<{ from: Square; to: Square } | null>(null);
   // Synchronous mirror of selectedSquare. React state updates are async, so when
   // react-chessboard fires onSquareClick AND onPieceClick for a single click on
   // a piece, both handlers run before the state re-render — without a sync ref
@@ -74,6 +91,17 @@ export function useBoardHighlights({
   const clearSelection = useCallback(() => {
     setSelectedSquare(null);
   }, [setSelectedSquare]);
+
+  const setSuggestedArrow = useCallback(
+    (from: Square | null, to: Square | null) => {
+      if (from && to && from !== to) {
+        setSuggestedArrowState({ from, to });
+      } else {
+        setSuggestedArrowState(null);
+      }
+    },
+    [],
+  );
 
   const onSquareClick = useCallback(
     (square: Square) => {
@@ -158,5 +186,24 @@ export function useBoardHighlights({
     return styles;
   }, [selectedSquare, lastMove, game, enabled]);
 
-  return { squareStyles, onSquareClick, setLastMove, clearLastMove, clearSelection };
+  const arrows = useMemo<ArrowData[]>(() => {
+    if (!suggestedArrow) return [];
+    return [
+      {
+        startSquare: suggestedArrow.from,
+        endSquare: suggestedArrow.to,
+        color: SUGGESTED_ARROW_COLOR,
+      },
+    ];
+  }, [suggestedArrow]);
+
+  return {
+    squareStyles,
+    arrows,
+    onSquareClick,
+    setLastMove,
+    clearLastMove,
+    clearSelection,
+    setSuggestedArrow,
+  };
 }

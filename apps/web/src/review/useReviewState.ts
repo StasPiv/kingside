@@ -261,6 +261,42 @@ export function useReviewState() {
           promotion: (promotion as 'q' | 'r' | 'b' | 'n') ?? undefined,
         });
         if (!move) return false;
+
+        // If the entered move matches an existing continuation (main line next
+        // or first move of any existing variation of the next position), just
+        // navigate to it instead of creating a duplicate. This prevents the
+        // "move appears twice in notation" bug when the user replays a move
+        // that is already present in the current line.
+        const matchesMove = (candidate: ChessMove | null | undefined): boolean =>
+          !!candidate
+          && candidate.from === move.from
+          && candidate.to === move.to
+          && (candidate.promotion ?? '') === (move.promotion ?? '');
+
+        let existingNext: ChessMove | null = null;
+        let existingVariations: ChessMove[][] | undefined;
+        if (state.currentMove) {
+          existingNext = state.currentMove.next ?? null;
+          existingVariations = state.currentMove.next?.variations;
+        } else if (state.history.length > 0) {
+          existingNext = state.history[0];
+          existingVariations = state.history[0].variations;
+        }
+
+        if (matchesMove(existingNext)) {
+          dispatch({ type: 'GOTO_MOVE', payload: existingNext as ChessMove });
+          return true;
+        }
+        if (existingVariations) {
+          for (const variation of existingVariations) {
+            const first = variation[0];
+            if (matchesMove(first)) {
+              dispatch({ type: 'GOTO_MOVE', payload: first });
+              return true;
+            }
+          }
+        }
+
         const newFen = chess.fen();
         const ply = (state.currentMove?.ply ?? 0) + 1;
         const globalIndex = state.nextGlobalIndex;
@@ -289,7 +325,7 @@ export function useReviewState() {
         return false;
       }
     },
-    [state.currentMove, state.nextGlobalIndex, state.initialFen],
+    [state.currentMove, state.nextGlobalIndex, state.initialFen, state.history],
   );
 
   const promoteVariation = useCallback((move: ChessMove) => {
