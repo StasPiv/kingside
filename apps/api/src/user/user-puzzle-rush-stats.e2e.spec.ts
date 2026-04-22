@@ -22,6 +22,7 @@ import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { AuthService } from '../auth/auth.service';
 import { BlockService } from './block.service';
+import { ExternalChessService } from '../workshop/external-chess.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 describe('GET /users/:id/puzzle-rush-stats E2E', () => {
@@ -46,6 +47,7 @@ describe('GET /users/:id/puzzle-rush-stats E2E', () => {
         { provide: UserService, useValue: mockService },
         { provide: AuthService, useValue: { generateTokens: jest.fn() } },
         { provide: BlockService, useValue: {} },
+        { provide: ExternalChessService, useValue: {} },
       ],
     })
       .overrideGuard(JwtAuthGuard)
@@ -227,7 +229,8 @@ describe('GET /users/:id/puzzle-rush-stats E2E', () => {
         providers: [
           { provide: UserService, useValue: mockService },
           { provide: AuthService, useValue: { generateTokens: jest.fn() } },
-        { provide: BlockService, useValue: {} },
+          { provide: BlockService, useValue: {} },
+          { provide: ExternalChessService, useValue: {} },
         ],
       })
         .overrideGuard(JwtAuthGuard)

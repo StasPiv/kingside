@@ -52,11 +52,20 @@ describe('UserService', () => {
       const result = await service.updateSettings(userId, { locale: 'ru' });
 
       expect(result).toEqual({ id: userId, locale: 'ru' });
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: userId },
-        data: { locale: 'ru' },
-        select: { id: true, locale: true, boardTheme: true, pieceSet: true, soundEnabled: true },
-      });
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: userId },
+          data: { locale: 'ru' },
+          // Select was extended to include external-account fields
+          select: expect.objectContaining({
+            id: true,
+            locale: true,
+            boardTheme: true,
+            pieceSet: true,
+            soundEnabled: true,
+          }),
+        }),
+      );
     });
   });
 

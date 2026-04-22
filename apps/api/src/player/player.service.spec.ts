@@ -160,9 +160,12 @@ describe('PlayerService', () => {
   describe('getOnlinePlayers', () => {
     it('should return players seen within last 5 minutes', async () => {
       const mockUsers = [
-        { id: '1', username: 'online1', ratingBullet: 1500, ratingBlitz: 1600, ratingRapid: 1400, ratingClassical: 1500 },
+        { id: '1', username: 'online1', isBot: false, ratingBullet: 1500, ratingBlitz: 1600, ratingRapid: 1400, ratingClassical: 1500 },
       ];
-      prisma.user.findMany.mockResolvedValue(mockUsers);
+      // Two findMany calls: 1) real users filtered by lastSeenAt, 2) bot accounts (always online).
+      prisma.user.findMany
+        .mockResolvedValueOnce(mockUsers)
+        .mockResolvedValueOnce([]);
       prisma.user.count.mockResolvedValue(1);
 
       const result = await service.getOnlinePlayers();

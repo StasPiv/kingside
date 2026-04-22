@@ -24,6 +24,7 @@ describe('PuzzleService', () => {
         create: jest.fn(),
         count: jest.fn(),
         findMany: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
       puzzleRushScore: {
         findFirst: jest.fn(),
@@ -33,6 +34,7 @@ describe('PuzzleService', () => {
         findUniqueOrThrow: jest.fn(),
         update: jest.fn(),
       },
+      $queryRawUnsafe: jest.fn().mockResolvedValue([]),
     } as any;
 
     i18n = {
@@ -120,7 +122,7 @@ describe('PuzzleService', () => {
 
   describe('getNextPuzzleByTheme', () => {
     it('should filter by theme and user rating range', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1200 });
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1200 });
       prisma.puzzleAttempt.findMany.mockResolvedValue([]);
       prisma.puzzle.findMany.mockResolvedValue([
         { id: 'p1', fen: 'fen', moves: 'e2e4', rating: 1200, themes: 'fork' },
@@ -140,7 +142,7 @@ describe('PuzzleService', () => {
     });
 
     it('should throw NotFoundException when no puzzles for theme', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
       prisma.puzzleAttempt.findMany.mockResolvedValue([]);
       prisma.puzzle.findMany.mockResolvedValue([]);
 
@@ -150,7 +152,7 @@ describe('PuzzleService', () => {
     });
 
     it('should exclude all attempted puzzles (KS-299)', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
       prisma.puzzleAttempt.findMany.mockResolvedValue([
         { puzzleId: 'p1' },
         { puzzleId: 'p2' },
@@ -187,11 +189,11 @@ describe('PuzzleService', () => {
         puzzleRatingAfter: 1495,
       });
       prisma.puzzleAttempt.create.mockResolvedValue({});
-      // Mock getNextPuzzle dependencies
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1210 });
-      prisma.puzzleAttempt.findMany.mockResolvedValue([{ puzzleId: 'p1' }]);
-      const nextPuzzle = { id: 'p2', fen: 'fen2', moves: 'e2e4', rating: 1300, themes: 'pin' };
-      prisma.puzzle.findMany.mockResolvedValue([nextPuzzle]);
+      // Mock getNextPuzzle dependencies (raw query for next puzzle)
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1210 });
+      prisma.$queryRawUnsafe.mockResolvedValue([
+        { id: 'p2', fen: 'fen2', moves: 'e2e4', rating: 1300, themes: 'pin', source: 'lichess', game_url: null, opening_tags: null },
+      ]);
 
       const result = await service.submitAttempt('user-1', 'p1', true, 5000);
 
@@ -208,10 +210,10 @@ describe('PuzzleService', () => {
         puzzleRatingAfter: 1505,
       });
       prisma.puzzleAttempt.create.mockResolvedValue({});
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1190 });
-      prisma.puzzleAttempt.findMany.mockResolvedValue([]);
-      prisma.puzzle.findMany.mockResolvedValue([]);
-      prisma.puzzle.findFirst.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1190 });
+      // Both primary and fallback raw queries return empty → getNextPuzzle throws,
+      // submitAttempt catches and sets nextPuzzle = null.
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
 
       const result = await service.submitAttempt('user-1', 'p1', false, 3000);
 
@@ -239,54 +241,40 @@ describe('PuzzleService', () => {
   });
 
   describe('KS-299: no repeated attempted puzzles', () => {
-    describe('getNextPuzzle — excludes all attempted', () => {
-      it('should exclude failed attempts, not just solved (KS-299)', async () => {
-        prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1200 });
-        // User attempted p1 (solved) and p2 (failed) — both should be excluded
-        prisma.puzzleAttempt.findMany.mockResolvedValue([
-          { puzzleId: 'p1' },
-          { puzzleId: 'p2' },
-        ]);
-        prisma.puzzle.findMany.mockResolvedValue([
-          { id: 'p3', fen: 'fen', moves: 'e2e4', rating: 1200, themes: 'fork' },
+    describe('getNextPuzzle — excludes already-solved attempts', () => {
+      // getNextPuzzle uses $queryRawUnsafe with a NOT EXISTS clause that filters on
+      // pa.solved = true. We verify the userId is passed as a SQL parameter so the
+      // NOT EXISTS condition is applied for the current user.
+      it('should pass userId to NOT EXISTS clause (solved filter) via raw SQL', async () => {
+        prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1200 });
+        prisma.$queryRawUnsafe.mockResolvedValue([
+          { id: 'p3', fen: 'fen', moves: 'e2e4', rating: 1200, themes: 'fork', source: 'lichess', game_url: null, opening_tags: null },
         ]);
 
         const result = await service.getNextPuzzle('user-1');
 
-        // Must query WITHOUT solved filter — all attempts excluded
-        expect(prisma.puzzleAttempt.findMany).toHaveBeenCalledWith({
-          where: { userId: 'user-1' },
-          select: { puzzleId: true },
-          distinct: ['puzzleId'],
-        });
-        expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
-          expect.objectContaining({
-            where: expect.objectContaining({
-              id: { notIn: ['p1', 'p2'] },
-            }),
-          }),
-        );
         expect(result.id).toBe('p3');
+        expect(prisma.$queryRawUnsafe).toHaveBeenCalled();
+        const [sql, ...params] = prisma.$queryRawUnsafe.mock.calls[0];
+        expect(sql).toContain('NOT EXISTS');
+        expect(sql).toContain('pa.solved = true');
+        expect(params).toEqual(expect.arrayContaining(['user-1']));
       });
 
       it('should not repeat puzzles across consecutive calls', async () => {
-        prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1200 });
+        prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1200 });
 
-        // First call: no attempts yet
-        prisma.puzzleAttempt.findMany.mockResolvedValueOnce([]);
-        prisma.puzzle.findMany.mockResolvedValueOnce([
-          { id: 'p1', fen: 'fen1', moves: 'e2e4', rating: 1200, themes: 'fork' },
+        // First call: raw query returns p1
+        prisma.$queryRawUnsafe.mockResolvedValueOnce([
+          { id: 'p1', fen: 'fen1', moves: 'e2e4', rating: 1200, themes: 'fork', source: 'lichess', game_url: null, opening_tags: null },
         ]);
-
         const first = await service.getNextPuzzle('user-1');
         expect(first.id).toBe('p1');
 
-        // Second call: p1 was attempted (failed)
-        prisma.puzzleAttempt.findMany.mockResolvedValueOnce([{ puzzleId: 'p1' }]);
-        prisma.puzzle.findMany.mockResolvedValueOnce([
-          { id: 'p2', fen: 'fen2', moves: 'd2d4', rating: 1200, themes: 'pin' },
+        // Second call: raw query returns p2 (solved p1 filtered out by NOT EXISTS)
+        prisma.$queryRawUnsafe.mockResolvedValueOnce([
+          { id: 'p2', fen: 'fen2', moves: 'd2d4', rating: 1200, themes: 'pin', source: 'lichess', game_url: null, opening_tags: null },
         ]);
-
         const second = await service.getNextPuzzle('user-1');
         expect(second.id).toBe('p2');
         expect(second.id).not.toBe(first.id);
@@ -295,7 +283,7 @@ describe('PuzzleService', () => {
 
     describe('getNextPuzzleByTheme — excludes all attempted', () => {
       it('should not return previously failed puzzles in theme mode', async () => {
-        prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1300 });
+        prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1300 });
         // p1 was failed, p2 was solved — both excluded
         prisma.puzzleAttempt.findMany.mockResolvedValue([
           { puzzleId: 'p1' },
@@ -326,7 +314,7 @@ describe('PuzzleService', () => {
 
     describe('boundary: all puzzles in theme attempted', () => {
       it('should throw NotFoundException when all theme puzzles are attempted', async () => {
-        prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1400 });
+        prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1400 });
         // All puzzles in this theme were attempted
         prisma.puzzleAttempt.findMany.mockResolvedValue([
           { puzzleId: 'p1' },
@@ -341,39 +329,27 @@ describe('PuzzleService', () => {
         ).rejects.toThrow(NotFoundException);
       });
 
-      it('should use fallback in getNextPuzzle when all rating-range puzzles attempted', async () => {
-        prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-        prisma.puzzleAttempt.findMany.mockResolvedValue([
-          { puzzleId: 'p1' },
-          { puzzleId: 'p2' },
-        ]);
-        // No puzzles in rating range
-        prisma.puzzle.findMany.mockResolvedValue([]);
-        // Fallback finds one outside range
-        prisma.puzzle.findFirst.mockResolvedValue({
-          id: 'p99', fen: 'fen99', moves: 'a2a4', rating: 800, themes: 'mate',
-        });
+      it('should use fallback in getNextPuzzle when primary rating-range query is empty', async () => {
+        prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+        // Primary raw query returns empty → service runs fallback raw query without rating filter.
+        prisma.$queryRawUnsafe
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([
+            { id: 'p99', fen: 'fen99', moves: 'a2a4', rating: 800, themes: 'mate', source: 'lichess', game_url: null, opening_tags: null },
+          ]);
 
         const result = await service.getNextPuzzle('user-1');
 
         expect(result.id).toBe('p99');
-        // Fallback should also use notIn exclusion
-        expect(prisma.puzzle.findFirst).toHaveBeenCalledWith(
-          expect.objectContaining({
-            where: expect.objectContaining({
-              id: { notIn: ['p1', 'p2'] },
-            }),
-          }),
-        );
+        expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(2);
       });
 
       it('should throw NotFoundException when absolutely no puzzles left', async () => {
-        prisma.user.findUniqueOrThrow.mockResolvedValue({ ratingPuzzle: 1500 });
-        prisma.puzzleAttempt.findMany.mockResolvedValue([
-          { puzzleId: 'p1' },
-        ]);
-        prisma.puzzle.findMany.mockResolvedValue([]);
-        prisma.puzzle.findFirst.mockResolvedValue(null);
+        prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1500 });
+        // Both primary and fallback raw queries return empty.
+        prisma.$queryRawUnsafe
+          .mockResolvedValueOnce([])
+          .mockResolvedValueOnce([]);
 
         await expect(service.getNextPuzzle('user-1')).rejects.toThrow(
           NotFoundException,

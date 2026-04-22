@@ -15,6 +15,7 @@ import { PuzzleRushController } from './puzzle-rush.controller';
 import { PuzzleRushService } from './puzzle-rush.service';
 import { PuzzleController } from '../puzzle/puzzle.controller';
 import { PuzzleService } from '../puzzle/puzzle.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 describe('PuzzleRush + Puzzle route conflict test', () => {
@@ -48,6 +49,7 @@ describe('PuzzleRush + Puzzle route conflict test', () => {
       providers: [
         { provide: PuzzleRushService, useValue: mockPuzzleRushService },
         { provide: PuzzleService, useValue: mockPuzzleService },
+        { provide: PrismaService, useValue: {} },
       ],
     })
       .overrideGuard(JwtAuthGuard)
