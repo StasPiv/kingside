@@ -1118,7 +1118,11 @@ export function AnalysisPage() {
             )}
           </div>
           <div className="analysis-mobile-panel__content">
-            <div className={`analysis-mobile-section analysis-mobile-section--engine${mobileTab !== 'report' && mobileTab !== 'tree' ? ' active' : ''}`}>
+            {/* KS-1698: каждая вкладка показывает только своё содержимое.
+                До этой правки условие было `mobileTab !== 'report' && mobileTab !== 'tree'`
+                на обеих секциях (engine + moves), поэтому `moves` и `engine`
+                одновременно получали `.active` и показывались вместе. */}
+            <div className={`analysis-mobile-section analysis-mobile-section--engine${mobileTab === 'engine' ? ' active' : ''}`}>
               <div className="analysis-mobile-engine-controls">
                 <span className="engine-multipv-controls">
                   <button className="engine-multipv-btn" onClick={() => ec.setMultiPv((v) => Math.max(1, v - 1))} disabled={ec.multiPv <= 1}>−</button>
@@ -1150,7 +1154,7 @@ export function AnalysisPage() {
                 </div>
               </div>
             </div>
-            <div className={`analysis-mobile-section analysis-mobile-section--moves${mobileTab !== 'report' && mobileTab !== 'tree' ? ' active' : ''}`}>
+            <div className={`analysis-mobile-section analysis-mobile-section--moves${mobileTab === 'moves' ? ' active' : ''}`}>
               <div className="analysis-panel-body analysis-panel-body--scroll">
                 <ReviewMoveList
                   history={history}

@@ -466,11 +466,13 @@
     "stop": "Stop",
     "start": "Start",
     "off": "Off",
+    "engine": "Engine",
     "engineError": "Engine error",
     "ready": "Ready",
     "notSupported": "Not supported",
     "notSupportedMobile": "Not supported on mobile",
-    "editTitle": "Click to edit title"
+    "editTitle": "Click to edit title",
+    "report": "Report"
   },
   "puzzle": {
     "title": "Puzzles",
@@ -1100,6 +1102,7 @@
   },
   "archive": {
     "database": "Database",
+    "tree": "Tree",
     "dbUnavailable": "Database unavailable",
     "noGames": "No games found in this position",
     "move": "Move",
