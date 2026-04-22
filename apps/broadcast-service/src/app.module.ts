@@ -4,7 +4,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { HealthModule } from './health/health.module';
-import { BroadcastModule } from './broadcast/broadcast.module';
+import { BroadcastModule } from './http/broadcast.module';
+import { BroadcastSyncModule } from './sync/broadcast-sync.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { BroadcastModule } from './broadcast/broadcast.module';
     MetricsModule,
     HealthModule,
     BroadcastModule,
+    BroadcastSyncModule,
   ],
 })
 export class AppModule {}

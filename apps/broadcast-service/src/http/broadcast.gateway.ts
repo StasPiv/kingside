@@ -13,6 +13,10 @@ import Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
 import { MetricsService } from '../metrics/metrics.service';
 import {
+  BROADCAST_MOVE_CHANNEL,
+  BROADCAST_SYNC_CHANNEL,
+} from '../sync/broadcast-channels';
+import {
   SubscribeRoundDto,
   UnsubscribeRoundDto,
 } from './dto/broadcast.dto';
@@ -24,10 +28,6 @@ const BroadcastEvents = {
   SYNC: 'broadcast:sync',
   ERROR: 'error',
 } as const;
-
-/** Redis pub/sub channels (должны совпадать с broadcast-worker). */
-const BROADCAST_MOVE_CHANNEL = 'broadcast:move';
-const BROADCAST_SYNC_CHANNEL = 'broadcast:sync';
 
 type WsBroadcastMovePayload = {
   roundId: string;

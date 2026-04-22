@@ -56,10 +56,19 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Redis pub/sub adapter — нужен для sync ws-rooms между ECS-инстансами
-  // и для получения событий broadcast:move / broadcast:sync от worker'а.
+  // и для получения событий broadcast:move / broadcast:sync от sync-loop
+  // (ADR-022: sync-loop живёт в том же процессе под флагом
+  // BROADCAST_SYNC_ENABLED, а до cutover'а — в apps/broadcast-worker).
   const redisAdapter = new RedisIoAdapter(app);
   await redisAdapter.connectToRedis();
   app.useWebSocketAdapter(redisAdapter);
+
+  // ADR-022 §2.4.4: включаем shutdown hooks, чтобы на SIGTERM отрабатывали
+  // OnModuleDestroy у BroadcastSyncService (clearInterval, abort streams,
+  // redis.del локов, pubRedis.quit), BroadcastGateway (subRedis.quit) и
+  // прочих сервисов. Без этого Node просто exitнется, соединения останутся
+  // «грязными».
+  app.enableShutdownHooks();
 
   const port = process.env.PORT || process.env.BROADCAST_SERVICE_PORT || 3004;
   await app.listen(port, '0.0.0.0');
