@@ -1,4 +1,4 @@
-import { PrismaClient } from '@kingside/db';
+import { PrismaClient } from '@kingside/broadcasts-db';
 import Redis from 'ioredis';
 import { createHash } from 'crypto';
 import { Chess } from 'chess.js';
@@ -38,7 +38,12 @@ interface ParsedGame {
 }
 
 export class BroadcastWorker {
-  private readonly prisma = new PrismaClient({ datasourceUrl: process.env.DATABASE_URL });
+  // KS-1697: broadcast-worker пишет в отдельную БД broadcasts_kingside
+  // (ADR-021 §2.1). Использует переменную BROADCASTS_DATABASE_URL.
+  private readonly prisma = new PrismaClient({
+    datasourceUrl:
+      process.env.BROADCASTS_DATABASE_URL ?? process.env.DATABASE_URL,
+  });
   private readonly redis: Redis;
   private readonly pubRedis: Redis;
   private syncTimer: NodeJS.Timeout | null = null;
@@ -72,8 +77,12 @@ export class BroadcastWorker {
     console.log('[broadcast-worker] Cleared stale locks');
 
     // DB connectivity check
-    const dbUrl = (process.env.DATABASE_URL || '').replace(/\/\/[^@]*@/, '//***@');
-    console.log(`[broadcast-worker] DATABASE_URL=${dbUrl}`);
+    const dbUrlRaw = process.env.BROADCASTS_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
+    const dbUrl = dbUrlRaw.replace(/\/\/[^@]*@/, '//***@');
+    const dbUrlSource = process.env.BROADCASTS_DATABASE_URL
+      ? 'BROADCASTS_DATABASE_URL'
+      : 'DATABASE_URL (fallback)';
+    console.log(`[broadcast-worker] DB URL (${dbUrlSource})=${dbUrl}`);
     try {
       const start = Date.now();
       await this.prisma.$queryRawUnsafe('SELECT 1');
