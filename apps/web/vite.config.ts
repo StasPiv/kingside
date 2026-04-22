@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import path from 'path';
@@ -33,6 +33,20 @@ function versionPlugin(): Plugin {
       });
     },
   };
+}
+
+// Load per-app env files (apps/web/.env.local, .env.development.local, .env)
+// in addition to the shared monorepo envDir below. Per-app overrides are useful
+// when the root .env is managed by devops и ещё не содержит новую переменную —
+// разработчик/агент добавляет VITE_* в apps/web/.env.local без правки корня.
+// KS-1699: VITE_BROADCAST_URL добавляется именно так до того, как devops
+// пропишет её в /project/.env хоста.
+const APP_ENV_MODE = process.env.NODE_ENV ?? 'development';
+const perAppEnv = loadEnv(APP_ENV_MODE, __dirname, '');
+for (const key of Object.keys(perAppEnv)) {
+  if (key.startsWith('VITE_') && process.env[key] === undefined) {
+    process.env[key] = perAppEnv[key];
+  }
 }
 
 export default defineConfig({
