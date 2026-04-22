@@ -410,65 +410,11 @@ model GameReport {
   @@map("game_reports")
 }
 
-model Broadcast {
-  id            String   @id @default(uuid()) @db.Uuid
-  lichessId     String   @unique @map("lichess_id")
-  title         String
-  description   String?
-  url           String?
-  isActive      Boolean  @default(true) @map("is_active")
-  format        String?
-  timeControl   String?  @map("time_control")
-  location      String?
-  players       String?
-  website       String?
-  standingsUrl  String?  @map("standings_url")
-  imageUrl      String?  @map("image_url")
-  startDate     DateTime? @map("start_date")
-  endDate       DateTime? @map("end_date")
-  streams       Json?
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
-
-  rounds BroadcastRound[]
-
-  @@index([isActive])
-  @@map("broadcasts")
-}
-
-model BroadcastRound {
-  id             String    @id @default(uuid()) @db.Uuid
-  broadcastId    String    @map("broadcast_id") @db.Uuid
-  lichessRoundId String    @unique @map("lichess_round_id")
-  name           String
-  startsAt       DateTime? @map("starts_at")
-  status         String    @default("pending")
-
-  broadcast Broadcast      @relation(fields: [broadcastId], references: [id])
-  games     BroadcastGame[]
-
-  @@index([broadcastId])
-  @@map("broadcast_rounds")
-}
-
-model BroadcastGame {
-  id            String    @id @default(uuid()) @db.Uuid
-  roundId       String    @map("round_id") @db.Uuid
-  lichessGameId String?   @map("lichess_game_id")
-  whitePlayer   String?   @map("white_player")
-  blackPlayer   String?   @map("black_player")
-  whiteElo      Int?      @map("white_elo")
-  blackElo      Int?      @map("black_elo")
-  result        String?
-  pgn           String?   @db.Text
-  currentFen    String?   @map("current_fen")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-
-  round BroadcastRound @relation(fields: [roundId], references: [id])
-
-  @@index([roundId])
-  @@map("broadcast_games")
-}
+// Broadcast/BroadcastRound/BroadcastGame модели перенесены в
+// packages/broadcasts-db (ADR-021 §2.1, KS-1697). Таблицы broadcasts,
+// broadcast_rounds, broadcast_games удалены из main БД через миграцию
+// 20260422_drop_broadcast_tables. Источник истины для broadcasts —
+// отдельный сервис apps/broadcast-service + БД broadcasts_kingside.
 
 model DirectMessage {
   id         String    @id @default(uuid()) @db.Uuid

@@ -16,7 +16,7 @@ import { PuzzleRushModule } from './puzzle-rush/puzzle-rush.module';
 import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { WorkshopModule } from './workshop/workshop.module';
-import { BroadcastModule } from './broadcast/broadcast.module';
+import { LiveTournamentModule } from './live-tournament/live-tournament.module';
 import { DgtModule } from './dgt/dgt.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
@@ -59,7 +59,7 @@ import { HealthController } from './health.controller';
     TournamentModule,
     AnalysisModule,
     WorkshopModule,
-    BroadcastModule,
+    LiveTournamentModule,
     DgtModule,
     ClientLogsModule,
     PlayerModule,
