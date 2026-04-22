@@ -12,7 +12,6 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/api/package.json apps/api/
 COPY apps/web/package.json apps/web/
-COPY apps/broadcast-worker/package.json apps/broadcast-worker/
 COPY apps/game-service/package.json apps/game-service/
 COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
