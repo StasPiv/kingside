@@ -368,46 +368,8 @@ aws_cli ecs describe-services --cluster "${CLUSTER}" --services "${SERVICE_NAME}
     --query 'services[0].serviceArn' --output text
 
 # =============================================================================
-# M1 cutover (KS-1696/1697): переключение broadcast-worker на BROADCASTS_DATABASE_URL.
-# ЗАКОММЕНТИРОВАНО — выполняется отдельно backend'ом по готовности apps/broadcast-service.
-#
-# Текущий worker task-def: kingside-broadcast-worker:1, env DATABASE_URL из
-# kingside/api. После закрытия KS-1697 backend даст сигнал, и мы:
-#   1. Зарегистрируем новый task-def с BROADCASTS_DATABASE_URL вместо DATABASE_URL.
-#   2. update-service kingside-broadcast-worker --task-definition :<new_rev>.
-#   3. Через ~30-60с первый syncBroadcasts наполнит broadcasts_kingside.
-#
-# Шаблон (раскомментировать в момент cutover):
-#
-# WORKER_FAMILY="kingside-broadcast-worker"
-# WORKER_TD_JSON=$(cat <<EOF
-# {
-#   "family": "${WORKER_FAMILY}",
-#   "networkMode": "awsvpc",
-#   "requiresCompatibilities": ["FARGATE"],
-#   "cpu": "256",
-#   "memory": "512",
-#   "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole",
-#   "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskRole",
-#   "containerDefinitions": [{
-#     "name": "${WORKER_FAMILY}",
-#     "image": "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-worker:latest",
-#     "essential": true,
-#     "environment": [{"name": "NODE_ENV", "value": "production"}],
-#     "secrets": [
-#       {"name": "BROADCASTS_DATABASE_URL", "valueFrom": "${BROADCAST_SECRET_ARN}:BROADCASTS_DATABASE_URL::"},
-#       {"name": "REDIS_URL",             "valueFrom": "${API_SECRET_ARN}:REDIS_URL::"},
-#       {"name": "REDIS_HOST",            "valueFrom": "${API_SECRET_ARN}:REDIS_HOST::"},
-#       {"name": "REDIS_PORT",            "valueFrom": "${API_SECRET_ARN}:REDIS_PORT::"},
-#       {"name": "LICHESS_BROADCAST_IDS", "valueFrom": "${API_SECRET_ARN}:LICHESS_BROADCAST_IDS::"}
-#     ],
-#     "logConfiguration": {"logDriver": "awslogs", "options": {
-#       "awslogs-group": "/ecs/broadcast-worker",
-#       "awslogs-region": "${REGION}",
-#       "awslogs-stream-prefix": "ecs"
-#     }}
-#   }]
-# }
-# EOF
-# )
+# ADR-022 / KS-1709: прежний шаблон M1 cutover (переключение broadcast-worker
+# на BROADCASTS_DATABASE_URL) удалён вместе с самим worker'ом. sync-цикл теперь
+# выполняется внутри apps/broadcast-service (см. packages/broadcasts-db + модуль
+# sync внутри broadcast-service). Отдельного ECS-сервиса больше нет.
 # =============================================================================

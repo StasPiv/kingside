@@ -18,7 +18,6 @@ REGION="${AWS_DEFAULT_REGION:-eu-central-1}"
 ACCOUNT_ID="342946498289"
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
 ECR_URI_GAME="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-game-service"
-ECR_URI_BROADCAST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-worker"
 ECR_URI_BROADCAST_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-service"
 ECR_URI_ARCHIVE_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
@@ -26,8 +25,8 @@ CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
 ECS_SERVICE="kingside-api"
 ECS_SERVICE_GAME="kingside-game-service"
-ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
 # ADR-021: отдельный сервис для REST+WS broadcasts на broadcasts.kingside.site.
+# ADR-022 (KS-1709): kingside-broadcast-worker удалён, sync-цикл выполняется внутри broadcast-service.
 ECS_SERVICE_BROADCAST_SERVICE="kingside-broadcast-service"
 # ADR-019: единый образ archive-service обслуживает два ECS-сервиса: HTTP и importer.
 ECS_SERVICE_ARCHIVE_SERVICE="kingside-archive-service"
@@ -118,7 +117,6 @@ detect_deploy_scope() {
     local has_frontend=false
     local has_api=false
     local has_game=false
-    local has_broadcast=false
     local has_broadcast_service=false
     local has_archive_service=false
 
@@ -131,13 +129,10 @@ detect_deploy_scope() {
                 has_api=true ;;
             apps/game-service/*)
                 has_game=true ;;
-            apps/broadcast-worker/*)
-                has_broadcast=true ;;
             apps/broadcast-service/*)
                 has_broadcast_service=true ;;
             packages/broadcasts-db/*)
-                has_broadcast_service=true
-                has_broadcast=true ;;
+                has_broadcast_service=true ;;
             apps/archive-service/*)
                 has_archive_service=true ;;
             packages/archive-db/*)
@@ -146,14 +141,12 @@ detect_deploy_scope() {
                 has_frontend=true
                 has_api=true
                 has_game=true
-                has_broadcast=true
                 has_broadcast_service=true
                 has_archive_service=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
                 has_game=true
-                has_broadcast=true
                 has_broadcast_service=true
                 has_archive_service=true ;;
         esac
@@ -164,7 +157,6 @@ detect_deploy_scope() {
     $has_frontend && count=$((count + 1))
     $has_api && count=$((count + 1))
     $has_game && count=$((count + 1))
-    $has_broadcast && count=$((count + 1))
     $has_broadcast_service && count=$((count + 1))
     $has_archive_service && count=$((count + 1))
 
@@ -176,8 +168,6 @@ detect_deploy_scope() {
         echo "api"
     elif $has_game; then
         echo "game-service"
-    elif $has_broadcast; then
-        echo "broadcast-worker"
     elif $has_broadcast_service; then
         echo "broadcast-service"
     elif $has_archive_service; then
@@ -209,7 +199,6 @@ fi
 DEPLOY_FRONTEND=false
 DEPLOY_API=false
 DEPLOY_GAME=false
-DEPLOY_BROADCAST=false
 DEPLOY_BROADCAST_SERVICE=false
 DEPLOY_ARCHIVE_SERVICE=false
 
@@ -217,11 +206,10 @@ case "$SCOPE" in
     frontend)           DEPLOY_FRONTEND=true ;;
     api)                DEPLOY_API=true ;;
     game-service)       DEPLOY_GAME=true ;;
-    broadcast-worker)   DEPLOY_BROADCAST=true ;;
     broadcast-service)  DEPLOY_BROADCAST_SERVICE=true ;;
     archive-service)    DEPLOY_ARCHIVE_SERVICE=true ;;
-    workers)            DEPLOY_BROADCAST=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
-    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
+    workers)            DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
+    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
     *)                  echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
@@ -297,25 +285,6 @@ if $DEPLOY_GAME; then
 
     echo "[game-service] Updating ECS service..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_GAME" \
-        --force-new-deployment --query 'service.deployments[0].status' --output text
-    echo "  ECS service update initiated."
-fi
-
-# --- Broadcast Worker: docker build → ECR push → ECS update ---
-if $DEPLOY_BROADCAST; then
-    echo "[broadcast-worker] Logging in to ECR..."
-    aws ecr get-login-password --region "$REGION" | \
-        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
-
-    echo "[broadcast-worker] Building Docker image..."
-    docker build -t kingside-broadcast-worker:latest -f "$REPO_DIR/apps/broadcast-worker/Dockerfile" "$REPO_DIR"
-
-    echo "[broadcast-worker] Pushing to ECR..."
-    docker tag kingside-broadcast-worker:latest "${ECR_URI_BROADCAST}:latest"
-    docker push "${ECR_URI_BROADCAST}:latest" 2>&1 | tail -3
-
-    echo "[broadcast-worker] Updating ECS service..."
-    aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
 fi

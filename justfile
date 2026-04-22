@@ -19,13 +19,13 @@ deploy-frontend:
 deploy-api:
     bash scripts/deploy-aws.sh api
 
-# Deploy only workers (broadcast-worker + archive-service → HTTP и importer)
+# Deploy only workers (broadcast-service + archive-service → HTTP и importer)
 deploy-workers:
     bash scripts/deploy-aws.sh workers
 
-# Deploy only broadcast-worker
+# Deploy only broadcast-service (ECR + ECS)
 deploy-broadcast:
-    bash scripts/deploy-aws.sh broadcast-worker
+    bash scripts/deploy-aws.sh broadcast-service
 
 # Deploy archive-service (rebuild образ, force-new-deployment archive-service + archive-importer)
 deploy-archive-service:

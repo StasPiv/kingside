@@ -25,7 +25,7 @@ LABELS = {
     "puzzle": "шахматные задачи, puzzle rush, rating puzzle",
     "tournament": "турниры, арены, swiss, round-robin, brackets",
     "analysis": "анализ партий, engine-bridge, evaluation, PGN",
-    "broadcast": "трансляции, lichess feed, broadcast-worker",
+    "broadcast": "трансляции, lichess feed, broadcast-service sync",
     "stockfish": "бот Stockfish, WASM, engine",
     # Социальное
     "chat": "чат, личные сообщения, direct messages",
