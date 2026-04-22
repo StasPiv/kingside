@@ -52,5 +52,7 @@ tools/tracker/tracker.db
 node_modules
 .agent-tmp/
 __pycache__/
+*.pyc
+*.tsbuildinfo
 tools/tracker/tracker.db-shm
 tools/tracker/tracker.db-wal
