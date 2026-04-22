@@ -12,6 +12,7 @@ import { IncomingChallengeToast } from '../components/IncomingChallengeToast';
 import { NotificationDropdown } from '../components/NotificationDropdown';
 import { MobileBottomBar } from '../components/MobileBottomBar';
 import { Sidebar } from '../components/Sidebar';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
 import { ChatWidget } from '../components/ChatWidget';
 
@@ -179,6 +180,9 @@ export function MainLayout() {
                 {onlineCount}
               </span>
             )}
+
+            {/* Theme toggle (KS-1693) */}
+            <ThemeToggle />
 
             {/* Language switcher */}
             <button

@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BoardSettingsProvider } from './context/BoardSettingsContext';
 import { ChatProvider } from './context/ChatContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { App } from './App';
 import { initClientLogger } from './utils/clientLogger';
 import { initGA4 } from './utils/analytics';
@@ -34,13 +35,15 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <AuthProvider>
-        <ChatProvider>
-          <BoardSettingsProvider>
-            <App />
-          </BoardSettingsProvider>
-        </ChatProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <ChatProvider>
+            <BoardSettingsProvider>
+              <App />
+            </BoardSettingsProvider>
+          </ChatProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   </StrictMode>,
 );

@@ -7,6 +7,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import en from '../i18n/locales/en/translation.json';
 import { BoardSettingsProvider } from '../context/BoardSettingsContext';
+import { ThemeProvider } from '../context/ThemeContext';
 
 const testI18n: I18nInstance = i18n.createInstance();
 testI18n.use(initReactI18next).init({
@@ -24,11 +25,13 @@ function createWrapper({ route = '/' }: WrapperOptions = {}) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <I18nextProvider i18n={testI18n}>
-        <BoardSettingsProvider>
-          <MemoryRouter initialEntries={[route]}>
-            {children}
-          </MemoryRouter>
-        </BoardSettingsProvider>
+        <ThemeProvider initialTheme="dark">
+          <BoardSettingsProvider>
+            <MemoryRouter initialEntries={[route]}>
+              {children}
+            </MemoryRouter>
+          </BoardSettingsProvider>
+        </ThemeProvider>
       </I18nextProvider>
     );
   };

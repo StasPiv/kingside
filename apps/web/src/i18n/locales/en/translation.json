@@ -30,6 +30,11 @@
     "home": "Home",
     "feedback": "Feedback"
   },
+  "theme": {
+    "toggle": "Toggle theme",
+    "light": "Switch to light theme",
+    "dark": "Switch to dark theme"
+  },
   "play": {
     "title": "Play",
     "quickPlay": "Quick Play",

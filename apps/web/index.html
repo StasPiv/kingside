@@ -27,6 +27,27 @@
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
 
+    <!-- KS-1693: Resolve theme before first paint to prevent FOUC.
+         Reads localStorage.theme (set by ThemeContext), falls back to
+         prefers-color-scheme. Mirror logic in src/context/ThemeContext.tsx. -->
+    <script>
+      (function () {
+        try {
+          var stored = null;
+          try { stored = localStorage.getItem('theme'); } catch (_) {}
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+                  ? 'light'
+                  : 'dark');
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+
     <!-- JSON-LD -->
     <script type="application/ld+json">
     {
