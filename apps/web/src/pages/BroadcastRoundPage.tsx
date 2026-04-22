@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { broadcastApi } from '../api/broadcastApi';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types';
 import { formatPlayerName, formatResult } from '../dgt.types';
@@ -261,7 +262,7 @@ export function BroadcastRoundPage() {
     if (!tournamentId || !roundId) return;
     let cancelled = false;
 
-    api.get<LichessBroadcastMeta>(`/broadcasts/${tournamentId}`)
+    broadcastApi.get<LichessBroadcastMeta>(`/broadcasts/${tournamentId}`)
       .then((broadcast) => {
         if (cancelled) return;
         setLichessBroadcast(broadcast);
@@ -269,8 +270,8 @@ export function BroadcastRoundPage() {
 
         // Load rounds + games
         Promise.all([
-          api.get<{ data: LichessRoundInfo[] }>(`/broadcasts/${tournamentId}/rounds`),
-          api.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`),
+          broadcastApi.get<{ data: LichessRoundInfo[] }>(`/broadcasts/${tournamentId}/rounds`),
+          broadcastApi.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`),
         ]).then(([roundsRes, gamesRes]) => {
           if (!cancelled) {
             setLichessRounds(Array.isArray(roundsRes?.data) ? roundsRes.data : []);
@@ -360,7 +361,7 @@ export function BroadcastRoundPage() {
     let isFirstFetch = true;
 
     const fetchGames = () => {
-      api.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`)
+      broadcastApi.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`)
         .then((res) => {
           if (cancelled) return;
           const games = Array.isArray(res?.data) ? res.data : [];

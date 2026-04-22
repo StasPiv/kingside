@@ -4,6 +4,7 @@
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
   readonly VITE_ARCHIVE_URL: string;
+  readonly VITE_BROADCAST_URL: string;
   readonly VITE_GAME_URL?: string;
   readonly VITE_TELEGRAM_BOT_USERNAME: string;
   readonly VITE_TELEGRAM_BOT_ID: string;

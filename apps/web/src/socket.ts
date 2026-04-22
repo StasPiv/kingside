@@ -56,6 +56,14 @@ function resolveServiceUrl(
 
 const API_URL = resolveServiceUrl(import.meta.env.VITE_API_URL, DEV_API_URL, 'VITE_API_URL');
 const GAME_URL = resolveServiceUrl(import.meta.env.VITE_GAME_URL, API_URL, 'VITE_GAME_URL');
+// Broadcast service (ADR-021). Единственное число `/broadcast` для WS namespace.
+// Без env — падаем на API_URL (как раньше), чтобы не ломать dev при отсутствии переменной;
+// prod-сборка обязана задать VITE_BROADCAST_URL (см. apps/web/src/config/broadcastUrl.ts).
+const BROADCAST_URL = resolveServiceUrl(
+  import.meta.env.VITE_BROADCAST_URL,
+  API_URL,
+  'VITE_BROADCAST_URL',
+);
 
 const SOCKET_OPTS = {
   autoConnect: false,
@@ -106,7 +114,8 @@ export const matchmakingSocket = withHandlers(io(`${GAME_URL}/matchmaking`, SOCK
 
 export const tournamentSocket = withHandlers(io(`${GAME_URL}/tournament`, SOCKET_OPTS));
 
-// API Service (API_URL) — broadcast, messages
-export const broadcastSocket = withHandlers(io(`${API_URL}/broadcast`, SOCKET_OPTS));
+// Broadcast Service (BROADCAST_URL) — broadcasts.kingside.site/broadcast (ADR-021)
+export const broadcastSocket = withHandlers(io(`${BROADCAST_URL}/broadcast`, SOCKET_OPTS));
 
+// API Service (API_URL) — messages
 export const messagesSocket = withHandlers(io(`${API_URL}/messages`, SOCKET_OPTS));

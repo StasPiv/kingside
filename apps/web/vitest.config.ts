@@ -20,6 +20,9 @@ export default defineConfig({
       // Archive-service base URL for tests. Production value is injected via
       // VITE_ARCHIVE_URL in scripts/deploy-aws.sh; dev uses .env. See ADR-018 §2.7.
       VITE_ARCHIVE_URL: 'http://archive.test',
+      // Broadcast-service base URL for tests. Production value is injected via
+      // VITE_BROADCAST_URL in scripts/deploy-aws.sh; dev uses .env. See ADR-021.
+      VITE_BROADCAST_URL: 'http://broadcast.test',
     },
   },
 });

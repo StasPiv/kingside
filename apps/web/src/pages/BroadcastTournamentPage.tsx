@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { broadcastApi } from '../api/broadcastApi';
 import type { DgtTournamentResult } from '../dgt.types';
 import type { LiveTournamentsResponse, TournamentStatus } from '@kingside/shared';
 
@@ -89,11 +90,11 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   }, [ongoingRound]);
 
   useEffect(() => {
-    api.get<{ data: BroadcastRound[] }>(`/broadcasts/${tournamentId}/rounds`)
+    broadcastApi.get<{ data: BroadcastRound[] }>(`/broadcasts/${tournamentId}/rounds`)
       .then((res) => setRounds(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
 
-    api.get<{ players: StandingsPlayer[] }>(`/broadcasts/${tournamentId}/standings`)
+    broadcastApi.get<{ players: StandingsPlayer[] }>(`/broadcasts/${tournamentId}/standings`)
       .then((res) => {
         if (res?.players) {
           setStandings(res);
@@ -107,7 +108,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   // Load live games from ongoing round
   useEffect(() => {
     if (!ongoingRound) return;
-    api.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${ongoingRound.id}/games`)
+    broadcastApi.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${ongoingRound.id}/games`)
       .then((res) => setLiveGames(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, [ongoingRound, tournamentId]);
@@ -128,7 +129,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
     // Find the game across all rounds to get PGN
     for (const round of rounds) {
       try {
-        const res = await api.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${round.id}/games`);
+        const res = await broadcastApi.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${round.id}/games`);
         const games = Array.isArray(res?.data) ? res.data : [];
         const game = games.find((g) => g.id === gameId);
         if (game?.pgn) {
@@ -395,7 +396,7 @@ export function BroadcastTournamentPage() {
     if (!tournamentId) return;
     let cancelled = false;
 
-    api.get<BroadcastMeta>(`/broadcasts/${tournamentId}`)
+    broadcastApi.get<BroadcastMeta>(`/broadcasts/${tournamentId}`)
       .then((b) => {
         if (!cancelled) { setLichessBroadcast(b); setIsLichess(true); setLoading(false); }
       })

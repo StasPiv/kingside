@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
+import { broadcastApi } from '../api/broadcastApi';
 import { HelpButton } from '../components/HelpButton';
 import type { DgtTournamentResult } from '../dgt.types';
 import type {
@@ -85,7 +86,7 @@ export function BroadcastsPage() {
       .catch(() => {})
       .finally(() => setTournamentsLoading(false));
 
-    api.get<BroadcastListResponse>('/broadcasts?limit=100')
+    broadcastApi.get<BroadcastListResponse>('/broadcasts?limit=100')
       .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, []);
