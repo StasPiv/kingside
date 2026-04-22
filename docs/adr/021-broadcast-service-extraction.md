@@ -5,6 +5,8 @@
 **Задача:** KS-1695
 **Связанные ADR:** [ADR-017](./017-service-subdomains.md), [ADR-018](./018-archive-service-extraction.md), [ADR-019](./019-archive-importer-merge-into-service.md), [ADR-020](./020-archive-importer-eventbridge-schedule.md)
 
+> **Обновление 2026-04-22 (после реализации, KS-1701).** Env-переменная `LICHESS_BROADCAST_IDS` из описания ниже **удалена из кода** `apps/broadcast-worker` и не переносится в `apps/broadcast-service`. Признак `isPinned` теперь вычисляется на лету на стороне broadcast-service по среднему Elo партий (пороги — `BROADCAST_PINNED_MIN_ELO`, `BROADCAST_PINNED_MIN_GAMES`, окно — `PINNED_UPCOMING_WINDOW_HOURS`; опциональный override — `BROADCAST_PINNED_OVERRIDE_IDS`). Текущая редакция §1 и §2.3 сохранена как исторический снимок — упоминания `LICHESS_BROADCAST_IDS` ниже помечены как deprecated и оставлены для полноты истории решений.
+
 ## 1. Контекст
 
 ### Что есть сейчас (факт)
@@ -28,11 +30,11 @@
 2. **Фоновый воркер `apps/broadcast-worker`** (один процесс, headless):
    - Берёт `PrismaClient from '@kingside/db'` + два `ioredis`-клиента (`redis` — общий, `pubRedis` — publish-only).
    - Два таймера:
-     - `syncBroadcasts` (каждые 5 минут) — тянет `/api/broadcast?nb=20` у Lichess, делает `fetchBroadcastById` для закреплённых ID из `LICHESS_BROADCAST_IDS`, `upsert` в `broadcasts`/`broadcast_rounds`, стартует SSE-стримы `LICHESS_API/stream/broadcast/round/:id.pgn` для всех активных раундов (до `MAX_CONCURRENT_STREAMS=50`), при finished — `fetchFinishedRoundGamesIfEmpty`.
+     - `syncBroadcasts` (каждые 5 минут) — тянет `/api/broadcast?nb=20` у Lichess, делает `fetchBroadcastById` для закреплённых ID из ~~`LICHESS_BROADCAST_IDS`~~ *(deprecated, KS-1701 — см. обновление в шапке ADR)*, `upsert` в `broadcasts`/`broadcast_rounds`, стартует SSE-стримы `LICHESS_API/stream/broadcast/round/:id.pgn` для всех активных раундов (до `MAX_CONCURRENT_STREAMS=50`), при finished — `fetchFinishedRoundGamesIfEmpty`.
      - `syncPinnedBroadcasts` (каждую минуту) — опрос PGN по ongoing-раундам (не через стрим), приоритет pinned-трансляций, ротация остальных, до `MAX_PGN_POLLS_PER_CYCLE=5` запросов/цикл.
    - `processPgnUpdate` парсит PGN через `chess.js`, пишет в `broadcast_games` (создать/обновить по `lichessGameId`), публикует `broadcast:move` (при новом ходе) и `broadcast:sync` (при sanity-refresh) в Redis.
    - Redis locks: `broadcast:sync:lock` (TTL 4 мин), `broadcast:pinned:lock` (TTL 50с), `broadcast:pgn-hash:<roundId>` (md5-кеш входящего PGN, TTL 5 мин), `broadcast:pgn-fetch-cooldown:<roundId>`, `broadcast:fen:<roundId>:<idx>`.
-   - Env: `DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `LICHESS_BROADCAST_IDS` (список через запятую).
+   - Env: `DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, ~~`LICHESS_BROADCAST_IDS` (список через запятую)~~ *(deprecated, KS-1701 — pinned вычисляется на лету в broadcast-service, см. обновление в шапке ADR)*.
    - Размещён на том же ECS-кластере, что и archive-importer.
 
 3. **Таблицы** в общей Prisma-схеме `packages/db/prisma/schema.prisma:413-471` — **три** модели, замкнутый FK-граф:
@@ -181,7 +183,7 @@ FK-граф замкнут внутри группы. Индексы и `@@map` 
 
 ### 2.3 Impact на `apps/broadcast-worker`
 
-**Текущее состояние:** `PrismaClient from '@kingside/db'` + `ioredis` pub/sub + один общий Redis + publisher. `DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `LICHESS_BROADCAST_IDS`.
+**Текущее состояние:** `PrismaClient from '@kingside/db'` + `ioredis` pub/sub + один общий Redis + publisher. `DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, ~~`LICHESS_BROADCAST_IDS`~~ *(deprecated, KS-1701 — удалено, см. обновление в шапке ADR)*.
 
 **Что меняется:**
 
