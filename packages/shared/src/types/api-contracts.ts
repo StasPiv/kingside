@@ -553,7 +553,6 @@ export type BroadcastItem = {
  * `isPinned` — автоматически вычисляемый флаг для featured-секции.
  * Условия: есть активный раунд (ongoing или pending в ближайшие 48ч) И
  * средний Elo участников >= BROADCAST_PINNED_MIN_ELO (default 2600) на >= BROADCAST_PINNED_MIN_GAMES (default 4) играх.
- * Override: broadcast с `lichessId` из ENV `LICHESS_BROADCAST_IDS` автоматически получает `isPinned=true` при наличии активного раунда.
  *
  * `avgElo` — округлённое до целого среднее значение Elo по валидным данным; null если недостаточно данных.
  */

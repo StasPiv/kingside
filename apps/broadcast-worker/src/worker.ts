@@ -50,7 +50,6 @@ export class BroadcastWorker {
   private pinnedPollTimer: NodeJS.Timeout | null = null;
   private readonly activeStreams = new Map<string, AbortController>();
   private pollOffset = 0;
-  private readonly pinnedBroadcastIds: string[];
   private rateLimitBackoffUntil = 0;
   private stopped = false;
 
@@ -59,18 +58,12 @@ export class BroadcastWorker {
     const redisPort = parseInt(process.env.REDIS_PORT || '6380', 10);
     this.redis = new Redis({ host: redisHost, port: redisPort });
     this.pubRedis = new Redis({ host: redisHost, port: redisPort });
-
-    const ids = process.env.LICHESS_BROADCAST_IDS ?? '';
-    this.pinnedBroadcastIds = ids.split(',').map((s) => s.trim()).filter(Boolean);
-    if (this.pinnedBroadcastIds.length > 0) {
-      console.log(`[broadcast-worker] Pinned broadcast IDs: ${this.pinnedBroadcastIds.join(', ')}`);
-    }
   }
 
   async start(): Promise<void> {
     const redisHost = process.env.REDIS_HOST || 'localhost';
     const redisPort = process.env.REDIS_PORT || '6380';
-    console.log(`[broadcast-worker] Starting... Redis=${redisHost}:${redisPort} pinnedIds=${this.pinnedBroadcastIds.length}`);
+    console.log(`[broadcast-worker] Starting... Redis=${redisHost}:${redisPort}`);
 
     // Clear stale locks from previous instance
     await this.redis.del(SYNC_LOCK_KEY, PINNED_LOCK_KEY).catch(() => {});
@@ -192,22 +185,6 @@ export class BroadcastWorker {
     try {
       const broadcasts = await this.fetchActiveBroadcasts();
 
-      // Fetch pinned broadcasts individually (they may not appear in top-20 list)
-      const fetchedIds = new Set(broadcasts.map((b) => b.tour.id));
-      for (const pinnedId of this.pinnedBroadcastIds) {
-        if (fetchedIds.has(pinnedId)) continue;
-        await this.rateLimitDelay();
-        try {
-          const bc = await this.fetchBroadcastById(pinnedId);
-          if (bc) {
-            broadcasts.push(bc);
-            console.log(`[broadcast-worker] Fetched pinned broadcast ${pinnedId}: ${bc.tour.name}`);
-          }
-        } catch (e: any) {
-          console.warn(`[broadcast-worker] Failed to fetch pinned broadcast ${pinnedId}: ${e.message}`);
-        }
-      }
-
       console.log(`[broadcast-worker] Processing ${broadcasts.length} broadcasts...`);
       let fetchCount = 0;
       for (let idx = 0; idx < broadcasts.length; idx++) {
@@ -267,27 +244,22 @@ export class BroadcastWorker {
 
     const ongoingRounds = await this.prisma.broadcastRound.findMany({
       where: { status: 'ongoing' },
-      select: { lichessRoundId: true, broadcast: { select: { lichessId: true } } },
+      select: { lichessRoundId: true },
     });
 
     // Exclude rounds that already have an active stream — they get data via streaming, no need to poll
     const streamedRoundIds = new Set(this.activeStreams.keys());
     const nonStreamedRounds = ongoingRounds.filter((r) => !streamedRoundIds.has(r.lichessRoundId));
 
-    const pinnedSet = new Set(this.pinnedBroadcastIds);
-    const pinned = nonStreamedRounds.filter((r) => pinnedSet.has(r.broadcast.lichessId));
-    const others = nonStreamedRounds.filter((r) => !pinnedSet.has(r.broadcast.lichessId));
-
-    const remainingSlots = Math.max(0, MAX_PGN_POLLS_PER_CYCLE - pinned.length);
-    const rotated: typeof others = [];
-    if (others.length > 0 && remainingSlots > 0) {
-      this.pollOffset = this.pollOffset % others.length;
-      for (let i = 0; i < Math.min(remainingSlots, others.length); i++) {
-        rotated.push(others[(this.pollOffset + i) % others.length]);
+    const toFetch: typeof nonStreamedRounds = [];
+    if (nonStreamedRounds.length > 0) {
+      this.pollOffset = this.pollOffset % nonStreamedRounds.length;
+      const take = Math.min(MAX_PGN_POLLS_PER_CYCLE, nonStreamedRounds.length);
+      for (let i = 0; i < take; i++) {
+        toFetch.push(nonStreamedRounds[(this.pollOffset + i) % nonStreamedRounds.length]);
       }
-      this.pollOffset = (this.pollOffset + remainingSlots) % others.length;
+      this.pollOffset = (this.pollOffset + take) % nonStreamedRounds.length;
     }
-    const toFetch = [...pinned, ...rotated];
 
     for (let i = 0; i < toFetch.length; i++) {
       if (i > 0) await this.rateLimitDelay();
@@ -378,17 +350,6 @@ export class BroadcastWorker {
       }
     }
     throw lastError ?? new Error('fetchActiveBroadcasts failed');
-  }
-
-  private async fetchBroadcastById(lichessId: string): Promise<LichessBroadcast | null> {
-    const url = `${LICHESS_API}/broadcast/${lichessId}`;
-    const res = await this.lichessFetch(url, {
-      headers: { Accept: 'application/json', 'User-Agent': 'Kingside/1.0 (https://kingside.app)' },
-    });
-    if (!res.ok) return null;
-    const data = await res.json() as LichessBroadcast;
-    if (!data.tour?.id || !data.rounds) return null;
-    return data;
   }
 
   private async upsertBroadcast(bc: LichessBroadcast): Promise<void> {

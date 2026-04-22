@@ -99,7 +99,6 @@ export class BroadcastController {
 
     const pinnedMap = await this.computePinnedStats(
       broadcasts.map((b) => b.id),
-      broadcasts.map((b) => b.lichessId),
     );
 
     const data: BroadcastSummary[] = broadcasts.map((b) => {
@@ -122,17 +121,13 @@ export class BroadcastController {
   /**
    * Вычисляет isPinned и avgElo для набора broadcast_id.
    *
-   * Критерий pinned:
+   * Критерий pinned (все три условия обязательны):
    *  1. Есть активный раунд — status='ongoing' ИЛИ (status='pending' AND starts_at в окне [-1h; +PINNED_UPCOMING_WINDOW_HOURS]).
    *  2. avg(Elo) по всем играм всех раундов трансляции >= BROADCAST_PINNED_MIN_ELO (default 2600).
    *  3. Количество игр с обоими валидными Elo >= BROADCAST_PINNED_MIN_GAMES (default 4).
-   *
-   * Override: если lichess_id есть в ENV LICHESS_BROADCAST_IDS — пункты 2,3 игнорируются,
-   * но активный раунд (пункт 1) обязателен, чтобы закрытые турниры не залипали в featured.
    */
   private async computePinnedStats(
     broadcastIds: string[],
-    lichessIds: string[],
   ): Promise<Map<string, { isPinned: boolean; avgElo: number | null }>> {
     const result = new Map<
       string,
@@ -149,14 +144,9 @@ export class BroadcastController {
       process.env.BROADCAST_PINNED_UPCOMING_HOURS ?? '48',
       10,
     );
-    const overrideIds = (process.env.LICHESS_BROADCAST_IDS ?? '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
 
     type Row = {
       id: string;
-      lichess_id: string;
       has_active: boolean;
       avg_elo: number | null;
       elo_games_count: number | string;
@@ -164,7 +154,6 @@ export class BroadcastController {
 
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT b.id::text as id,
-        b.lichess_id,
         EXISTS (
           SELECT 1 FROM broadcast_rounds r
           WHERE r.broadcast_id = b.id
@@ -204,18 +193,15 @@ export class BroadcastController {
       WHERE b.id::text = ANY(${broadcastIds}::text[])
     `;
 
-    const overrideSet = new Set(overrideIds);
-
     for (const row of rows) {
       const avgElo =
         row.avg_elo !== null && row.avg_elo !== undefined
           ? Math.round(row.avg_elo)
           : null;
       const eloGamesCount = Number(row.elo_games_count);
-      const isOverride = overrideSet.has(row.lichess_id);
       const strongField =
         avgElo !== null && avgElo >= minElo && eloGamesCount >= minGames;
-      const isPinned = row.has_active && (isOverride || strongField);
+      const isPinned = row.has_active && strongField;
       result.set(row.id, { isPinned, avgElo });
     }
 
@@ -223,7 +209,6 @@ export class BroadcastController {
       if (!result.has(id)) result.set(id, { isPinned: false, avgElo: null });
     }
 
-    void lichessIds;
     return result;
   }
 
