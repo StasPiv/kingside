@@ -7,11 +7,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+type LifecycleStatus = 'live' | 'upcoming' | 'finished';
+
 type BroadcastSummary = {
   id: string;
   lichessId: string;
   title: string;
   status: 'active' | 'finished';
+  lifecycleStatus: LifecycleStatus;
   startDate: string | null;
   roundCount: number;
   isPinned: boolean;
@@ -24,6 +27,16 @@ type BroadcastListResponse = {
   limit: number;
   offset: number;
 };
+
+const LIFECYCLE_VALUES = ['live', 'upcoming', 'finished', 'all'] as const;
+type LifecycleFilter = (typeof LIFECYCLE_VALUES)[number];
+
+function parseLifecycleFilter(raw: string | undefined): LifecycleFilter {
+  if (!raw) return 'all';
+  return (LIFECYCLE_VALUES as readonly string[]).includes(raw)
+    ? (raw as LifecycleFilter)
+    : 'all';
+}
 
 type BroadcastRoundItem = {
   id: string;
@@ -71,15 +84,68 @@ function assertUuid(value: string, label: string): void {
   }
 }
 
+// KS-1700 Part B: порядок секций live → upcoming → finished.
+// Внутри секции:
+//  - live: по updatedAt DESC (наиболее свежая обновление первым).
+//  - upcoming: по nearestPendingAt ASC (ближайший старт первым),
+//    null в конце секции.
+//  - finished: по updatedAt DESC.
+const LIFECYCLE_ORDER: Record<LifecycleStatus, number> = {
+  live: 0,
+  upcoming: 1,
+  finished: 2,
+};
+
+function compareLifecycleSort(
+  a: BroadcastSummary & {
+    _updatedAt: Date;
+    _nearestPendingAt: Date | null;
+  },
+  b: BroadcastSummary & {
+    _updatedAt: Date;
+    _nearestPendingAt: Date | null;
+  },
+): number {
+  const orderDiff =
+    LIFECYCLE_ORDER[a.lifecycleStatus] - LIFECYCLE_ORDER[b.lifecycleStatus];
+  if (orderDiff !== 0) return orderDiff;
+
+  if (a.lifecycleStatus === 'upcoming') {
+    const aT = a._nearestPendingAt ? a._nearestPendingAt.getTime() : Infinity;
+    const bT = b._nearestPendingAt ? b._nearestPendingAt.getTime() : Infinity;
+    if (aT !== bT) return aT - bT;
+  }
+  // live и finished — по updatedAt DESC
+  return b._updatedAt.getTime() - a._updatedAt.getTime();
+}
+
 @Controller()
 export class BroadcastController {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** GET / — список трансляций (summary + пагинация). */
+  /**
+   * GET / — список трансляций с lifecycle-категоризацией (KS-1700 Part B).
+   *
+   * Query:
+   *  - `limit`, `offset` — пагинация (default 20/0, max 100).
+   *  - `lifecycle` — фильтр `live|upcoming|finished|all` (default all).
+   *
+   * Сортировка:
+   *  1) live (updatedAt DESC), 2) upcoming (ближайший pending starts_at ASC),
+   *  3) finished (updatedAt DESC).
+   *
+   * Выбираются только `isActive=true` — stale-broadcasts, помеченные worker'ом
+   * (KS-1700 Part A), не попадают в выдачу совсем.
+   *
+   * Пагинация: фильтр + сортировка применяются ДО slice, `total` равен длине
+   * отфильтрованного массива (в прод-объёме isActive=true broadcasts <100 это
+   * ок; при росте объёма перенести всю логику в SQL с CTE+ROW_NUMBER).
+   */
   @Get()
   async getActiveBroadcasts(
     @Query('limit') limitParam?: string,
     @Query('offset') offsetParam?: string,
+    @Query('lifecycle') lifecycleParam?: string,
   ): Promise<BroadcastListResponse> {
     const MAX_LIMIT = 100;
     const DEFAULT_LIMIT = 20;
@@ -91,61 +157,107 @@ export class BroadcastController {
     let offset = offsetParam ? parseInt(offsetParam, 10) : 0;
     if (isNaN(offset) || offset < 0) offset = 0;
 
-    const where = { isActive: true };
+    const lifecycle = parseLifecycleFilter(lifecycleParam);
 
-    const [broadcasts, total] = await Promise.all([
-      this.prisma.broadcast.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        take: limit,
-        skip: offset,
-        select: {
-          id: true,
-          lichessId: true,
-          title: true,
-          isActive: true,
-          startDate: true,
-          _count: { select: { rounds: true } },
-        },
-      }),
-      this.prisma.broadcast.count({ where }),
-    ]);
+    const broadcasts = await this.prisma.broadcast.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        lichessId: true,
+        title: true,
+        isActive: true,
+        startDate: true,
+        updatedAt: true,
+        _count: { select: { rounds: true } },
+      },
+    });
 
-    const pinnedMap = await this.computePinnedStats(
+    const detailsMap = await this.computeBroadcastDetails(
       broadcasts.map((b) => b.id),
     );
 
-    const data: BroadcastSummary[] = broadcasts.map((b) => {
-      const stats = pinnedMap.get(b.id);
+    type Enriched = BroadcastSummary & {
+      _updatedAt: Date;
+      _nearestPendingAt: Date | null;
+    };
+
+    const enriched: Enriched[] = broadcasts.map((b) => {
+      const d = detailsMap.get(b.id);
+      const lifecycleStatus: LifecycleStatus = d?.lifecycleStatus ?? 'finished';
       return {
         id: b.id,
         lichessId: b.lichessId,
         title: b.title,
         status: b.isActive ? ('active' as const) : ('finished' as const),
+        lifecycleStatus,
         startDate: b.startDate?.toISOString() ?? null,
         roundCount: b._count.rounds,
-        isPinned: stats?.isPinned ?? false,
-        avgElo: stats?.avgElo ?? null,
+        // isPinned только для live, даже если avgElo/gamesCount проходят порог —
+        // finished/upcoming не должны висеть в Featured (см. KS-1700 Part B §2).
+        isPinned: lifecycleStatus === 'live' ? (d?.isPinned ?? false) : false,
+        avgElo: d?.avgElo ?? null,
+        _updatedAt: b.updatedAt,
+        _nearestPendingAt: d?.nearestPendingAt ?? null,
       };
+    });
+
+    const filtered =
+      lifecycle === 'all'
+        ? enriched
+        : enriched.filter((e) => e.lifecycleStatus === lifecycle);
+
+    const total = filtered.length;
+
+    filtered.sort(compareLifecycleSort);
+
+    const pageSlice = filtered.slice(offset, offset + limit);
+    const data: BroadcastSummary[] = pageSlice.map((e) => {
+      const { _updatedAt, _nearestPendingAt, ...publicFields } = e;
+      void _updatedAt;
+      void _nearestPendingAt;
+      return publicFields;
     });
 
     return { data, total, limit, offset };
   }
 
   /**
-   * Вычисляет isPinned и avgElo для набора broadcast_id.
+   * Вычисляет lifecycleStatus, isPinned, avgElo и nearestPendingAt.
    *
-   * Критерий pinned (все три условия обязательны):
-   *  1. Есть активный раунд — status='ongoing' ИЛИ (status='pending' AND starts_at в окне [-1h; +PINNED_UPCOMING_WINDOW_HOURS]).
-   *  2. avg(Elo) по всем играм всех раундов трансляции >= BROADCAST_PINNED_MIN_ELO (default 2600).
-   *  3. Количество игр с обоими валидными Elo >= BROADCAST_PINNED_MIN_GAMES (default 4).
+   * lifecycleStatus:
+   *  - `live` — есть раунд со `status='ongoing'` ИЛИ `status='pending'` со
+   *    `starts_at` в окне [NOW - 1h; NOW + PINNED_UPCOMING_WINDOW_HOURS].
+   *  - `upcoming` — не live И есть раунд со `status='pending'`,
+   *    `starts_at > NOW + PINNED_UPCOMING_WINDOW_HOURS`.
+   *  - `finished` — ни live, ни upcoming (все раунды finished или 0 раундов).
+   *
+   * isPinned (для клиента проверяется также что lifecycleStatus='live'):
+   *  avg_elo >= BROADCAST_PINNED_MIN_ELO (default 2600) AND
+   *  elo_games_count >= BROADCAST_PINNED_MIN_GAMES (default 4) AND
+   *  есть активный раунд (has_live=true).
+   *
+   * nearestPendingAt — MIN(starts_at) по pending-раундам с starts_at >= NOW-1h,
+   * нужен для сортировки upcoming-секции по ближайшему старту.
    */
-  private async computePinnedStats(
-    broadcastIds: string[],
-  ): Promise<Map<string, { isPinned: boolean; avgElo: number | null }>> {
+  private async computeBroadcastDetails(broadcastIds: string[]): Promise<
+    Map<
+      string,
+      {
+        lifecycleStatus: LifecycleStatus;
+        isPinned: boolean;
+        avgElo: number | null;
+        nearestPendingAt: Date | null;
+      }
+    >
+  > {
     const result = new Map<
       string,
-      { isPinned: boolean; avgElo: number | null }
+      {
+        lifecycleStatus: LifecycleStatus;
+        isPinned: boolean;
+        avgElo: number | null;
+        nearestPendingAt: Date | null;
+      }
     >();
     if (broadcastIds.length === 0) return result;
 
@@ -161,7 +273,9 @@ export class BroadcastController {
 
     type Row = {
       id: string;
-      has_active: boolean;
+      has_live: boolean;
+      has_upcoming: boolean;
+      nearest_pending_at: Date | null;
       avg_elo: number | null;
       elo_games_count: number | string;
     };
@@ -180,7 +294,22 @@ export class BroadcastController {
                 AND r.starts_at <= NOW() + make_interval(hours => ${upcomingWindowHours}::int)
               )
             )
-        ) AS has_active,
+        ) AS has_live,
+        EXISTS (
+          SELECT 1 FROM broadcast_rounds r
+          WHERE r.broadcast_id = b.id
+            AND r.status = 'pending'
+            AND r.starts_at IS NOT NULL
+            AND r.starts_at > NOW() + make_interval(hours => ${upcomingWindowHours}::int)
+        ) AS has_upcoming,
+        (
+          SELECT MIN(r.starts_at)
+            FROM broadcast_rounds r
+           WHERE r.broadcast_id = b.id
+             AND r.status = 'pending'
+             AND r.starts_at IS NOT NULL
+             AND r.starts_at >= NOW() - INTERVAL '1 hour'
+        ) AS nearest_pending_at,
         (
           SELECT AVG(elo_val)::float
           FROM (
@@ -215,12 +344,33 @@ export class BroadcastController {
       const eloGamesCount = Number(row.elo_games_count);
       const strongField =
         avgElo !== null && avgElo >= minElo && eloGamesCount >= minGames;
-      const isPinned = row.has_active && strongField;
-      result.set(row.id, { isPinned, avgElo });
+
+      let lifecycleStatus: LifecycleStatus;
+      if (row.has_live) lifecycleStatus = 'live';
+      else if (row.has_upcoming) lifecycleStatus = 'upcoming';
+      else lifecycleStatus = 'finished';
+
+      const isPinned = row.has_live && strongField;
+
+      result.set(row.id, {
+        lifecycleStatus,
+        isPinned,
+        avgElo,
+        nearestPendingAt: row.nearest_pending_at
+          ? new Date(row.nearest_pending_at)
+          : null,
+      });
     }
 
     for (const id of broadcastIds) {
-      if (!result.has(id)) result.set(id, { isPinned: false, avgElo: null });
+      if (!result.has(id)) {
+        result.set(id, {
+          lifecycleStatus: 'finished',
+          isPinned: false,
+          avgElo: null,
+          nearestPendingAt: null,
+        });
+      }
     }
 
     return result;

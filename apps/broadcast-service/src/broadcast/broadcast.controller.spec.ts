@@ -98,4 +98,189 @@ describe('BroadcastController', () => {
       expect(prisma.broadcastRound.findFirst).not.toHaveBeenCalled();
     });
   });
+
+  // KS-1700 Part B: lifecycleStatus + сортировка + фильтр ?lifecycle
+  describe('GET / — lifecycleStatus + сортировка (KS-1700 Part B)', () => {
+    // Три broadcast'а разных lifecycle — проверяем и поле, и порядок.
+    const now = Date.now();
+    const upcomingSoon = new Date(now + 72 * 3600 * 1000); // +72h
+    const upcomingLate = new Date(now + 168 * 3600 * 1000); // +7d
+
+    const broadcastsFixture = [
+      {
+        id: 'uuid-finished',
+        lichessId: 'lf',
+        title: 'Finished Old',
+        isActive: true,
+        startDate: new Date(now - 14 * 86400 * 1000),
+        updatedAt: new Date(now - 3 * 86400 * 1000),
+        _count: { rounds: 3 },
+      },
+      {
+        id: 'uuid-live',
+        lichessId: 'll',
+        title: 'Live Now',
+        isActive: true,
+        startDate: new Date(now - 86400 * 1000),
+        updatedAt: new Date(now - 60 * 1000),
+        _count: { rounds: 5 },
+      },
+      {
+        id: 'uuid-upcoming-late',
+        lichessId: 'lul',
+        title: 'Upcoming in a week',
+        isActive: true,
+        startDate: upcomingLate,
+        updatedAt: new Date(now - 2 * 86400 * 1000),
+        _count: { rounds: 4 },
+      },
+      {
+        id: 'uuid-upcoming-soon',
+        lichessId: 'lus',
+        title: 'Upcoming in 3 days',
+        isActive: true,
+        startDate: upcomingSoon,
+        updatedAt: new Date(now - 4 * 86400 * 1000),
+        _count: { rounds: 4 },
+      },
+    ];
+
+    // Возвращаем $queryRaw строки с соответствующим lifecycle-сигналом.
+    const queryRawRows = [
+      {
+        id: 'uuid-finished',
+        has_live: false,
+        has_upcoming: false,
+        nearest_pending_at: null,
+        avg_elo: 2400,
+        elo_games_count: 10,
+      },
+      {
+        id: 'uuid-live',
+        has_live: true,
+        has_upcoming: false,
+        nearest_pending_at: null,
+        avg_elo: 2750,
+        elo_games_count: 10,
+      },
+      {
+        id: 'uuid-upcoming-late',
+        has_live: false,
+        has_upcoming: true,
+        nearest_pending_at: upcomingLate,
+        avg_elo: null,
+        elo_games_count: 0,
+      },
+      {
+        id: 'uuid-upcoming-soon',
+        has_live: false,
+        has_upcoming: true,
+        nearest_pending_at: upcomingSoon,
+        avg_elo: null,
+        elo_games_count: 0,
+      },
+    ];
+
+    function buildWithFixture() {
+      return build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue(broadcastsFixture),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(broadcastsFixture.length),
+        },
+        $queryRaw: jest.fn().mockResolvedValue(queryRawRows),
+      });
+    }
+
+    it('каждый элемент содержит lifecycleStatus', async () => {
+      const { controller } = buildWithFixture();
+      const res = await controller.getActiveBroadcasts('100', '0');
+      const byId = new Map(res.data.map((d) => [d.id, d.lifecycleStatus]));
+      expect(byId.get('uuid-live')).toBe('live');
+      expect(byId.get('uuid-upcoming-soon')).toBe('upcoming');
+      expect(byId.get('uuid-upcoming-late')).toBe('upcoming');
+      expect(byId.get('uuid-finished')).toBe('finished');
+    });
+
+    it('сортировка: live → upcoming (по ближайшему старту) → finished', async () => {
+      const { controller } = buildWithFixture();
+      const res = await controller.getActiveBroadcasts('100', '0');
+      expect(res.data.map((d) => d.id)).toEqual([
+        'uuid-live',
+        'uuid-upcoming-soon', // +72h
+        'uuid-upcoming-late', // +168h
+        'uuid-finished',
+      ]);
+    });
+
+    it('isPinned=true возможен только при lifecycleStatus=live', async () => {
+      const { controller } = buildWithFixture();
+      const res = await controller.getActiveBroadcasts('100', '0');
+      const byId = new Map(res.data.map((d) => [d.id, d]));
+      // Live с сильным полем → pinned
+      expect(byId.get('uuid-live')!.isPinned).toBe(true);
+      // finished/upcoming всегда isPinned=false
+      expect(byId.get('uuid-finished')!.isPinned).toBe(false);
+      expect(byId.get('uuid-upcoming-soon')!.isPinned).toBe(false);
+    });
+
+    it('?lifecycle=live возвращает только live', async () => {
+      const { controller } = buildWithFixture();
+      const res = await controller.getActiveBroadcasts('100', '0', 'live');
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].id).toBe('uuid-live');
+      expect(res.total).toBe(1);
+    });
+
+    it('?lifecycle=upcoming возвращает только upcoming с порядком по ближайшему старту', async () => {
+      const { controller } = buildWithFixture();
+      const res = await controller.getActiveBroadcasts('100', '0', 'upcoming');
+      expect(res.data.map((d) => d.id)).toEqual([
+        'uuid-upcoming-soon',
+        'uuid-upcoming-late',
+      ]);
+      expect(res.total).toBe(2);
+    });
+
+    it('?lifecycle=finished возвращает только finished', async () => {
+      const { controller } = buildWithFixture();
+      const res = await controller.getActiveBroadcasts('100', '0', 'finished');
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].id).toBe('uuid-finished');
+    });
+
+    it('?lifecycle=garbage трактуется как all (default)', async () => {
+      const { controller } = buildWithFixture();
+      const res = await controller.getActiveBroadcasts('100', '0', 'garbage');
+      expect(res.data).toHaveLength(4);
+    });
+
+    it('пагинация применяется ПОСЛЕ фильтра + сортировки', async () => {
+      const { controller } = buildWithFixture();
+      // total=4 по all, limit=2 offset=1 → вторая и третья запись по sorted order.
+      const res = await controller.getActiveBroadcasts('2', '1');
+      expect(res.total).toBe(4);
+      expect(res.limit).toBe(2);
+      expect(res.offset).toBe(1);
+      expect(res.data.map((d) => d.id)).toEqual([
+        'uuid-upcoming-soon',
+        'uuid-upcoming-late',
+      ]);
+    });
+
+    it('broadcast без detail-строки (не в $queryRaw) дефолтится в finished', async () => {
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([broadcastsFixture[1]]), // live fixture
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([]), // пустой detail
+      });
+      const res = await controller.getActiveBroadcasts();
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].lifecycleStatus).toBe('finished');
+      expect(res.data[0].isPinned).toBe(false);
+    });
+  });
 });

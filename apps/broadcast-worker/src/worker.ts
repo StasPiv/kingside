@@ -5,6 +5,10 @@ import { Chess } from 'chess.js';
 
 const LICHESS_API = 'https://lichess.org/api';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000;
+// KS-1700 Part A: после N пропусков в Lichess top-20 подряд broadcast
+// помечается isActive=false. Default 72 цикла × 5 мин = 6 часов.
+const DEFAULT_STALE_CYCLES = 72;
+const MISS_COUNT_KEY_PREFIX = 'broadcast:miss-count:';
 const PINNED_POLL_INTERVAL_MS = 60_000;
 const MAX_PGN_POLLS_PER_CYCLE = 5;
 const REDIS_FEN_TTL = 60 * 60 * 12;
@@ -184,6 +188,7 @@ export class BroadcastWorker {
 
     try {
       const broadcasts = await this.fetchActiveBroadcasts();
+      const currentLichessIds = new Set(broadcasts.map((b) => b.tour.id));
 
       console.log(`[broadcast-worker] Processing ${broadcasts.length} broadcasts...`);
       let fetchCount = 0;
@@ -231,9 +236,57 @@ export class BroadcastWorker {
           this.activeStreams.delete(roundId);
         }
       }
+
+      // KS-1700 Part A: маркируем stale broadcasts. Защита от false-negative —
+      // выполняем только если fetch вернул хотя бы что-то (пустой top-20 =
+      // Lichess не ответил, не надо на его основании архивить свою БД).
+      if (broadcasts.length > 0) {
+        await this.checkStaleBroadcasts(currentLichessIds);
+      } else {
+        console.warn('[broadcast-worker] Empty Lichess response — skipping stale check to avoid false-negatives');
+      }
     } catch (e: any) {
       console.error(`[broadcast-worker] Sync failed: ${e.message}`);
     }
+  }
+
+  /**
+   * KS-1700 Part A: после N циклов отсутствия broadcast в Lichess top-20 —
+   * `isActive=false`. Запись не удаляется, игры и раунды остаются для
+   * исторических страниц. При возвращении в top-20 `upsertBroadcast` вернёт
+   * `isActive=true`, а счётчик сбросится здесь же (ветка seen).
+   *
+   * Счётчик живёт в Redis — переживает перезапуск. TTL = N × SYNC_INTERVAL × 2,
+   * чтобы между циклами не истёк, но и не накапливался вечно.
+   *
+   * Примечание про pinned: отдельного env-override после KS-1701 cleanup нет,
+   * pinned считается на лету в broadcast-service по avg Elo. Stale-check
+   * применяется ко всем isActive=true, включая ранее-pinned.
+   */
+  private async checkStaleBroadcasts(
+    currentLichessIds: Set<string>,
+  ): Promise<void> {
+    const staleCycles = parseInt(
+      process.env.BROADCAST_STALE_CYCLES ?? String(DEFAULT_STALE_CYCLES),
+      10,
+    );
+    if (isNaN(staleCycles) || staleCycles < 1) {
+      console.warn(
+        `[broadcast-worker] Invalid BROADCAST_STALE_CYCLES, skipping stale check`,
+      );
+      return;
+    }
+    const ttlSeconds = Math.ceil((staleCycles * SYNC_INTERVAL_MS * 2) / 1000);
+
+    await runStaleCheck({
+      prisma: this.prisma,
+      redis: this.redis,
+      currentLichessIds,
+      staleCycles,
+      ttlSeconds,
+      keyPrefix: MISS_COUNT_KEY_PREFIX,
+      logger: console,
+    });
   }
 
   async syncPinnedBroadcasts(): Promise<void> {
@@ -605,4 +658,119 @@ export class BroadcastWorker {
       signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); });
     });
   }
+}
+
+// --- KS-1700 Part A: exported pure stale-check (testable) -------------------
+
+export interface StaleCheckPrisma {
+  broadcast: {
+    findMany(args: {
+      where: { isActive: boolean };
+      select: { id: boolean; lichessId: boolean; title: boolean };
+    }): Promise<Array<{ id: string; lichessId: string; title: string }>>;
+    update(args: {
+      where: { id: string };
+      data: { isActive: boolean };
+    }): Promise<unknown>;
+  };
+}
+
+export interface StaleCheckRedis {
+  incr(key: string): Promise<number>;
+  expire(key: string, ttlSeconds: number): Promise<number | 'OK'>;
+  del(key: string): Promise<number>;
+}
+
+export interface StaleCheckLogger {
+  log(msg: string): void;
+  warn(msg: string): void;
+  error(msg: string): void;
+}
+
+export interface StaleCheckResult {
+  marked: number;
+  incremented: number;
+  reset: number;
+  scanned: number;
+}
+
+/**
+ * Чистая функция stale-check (без привязки к классу и TCP-коннектам).
+ *
+ * Для каждого `isActive=true` broadcast:
+ *  - если он в `currentLichessIds` — счётчик сбрасывается.
+ *  - иначе — инкремент. На первом инкременте ставим TTL.
+ *  - если счётчик достиг `staleCycles` — `isActive=false` и счётчик удаляется.
+ *
+ * Ошибки Redis/Prisma логируются но не прерывают обход (один сломанный
+ * broadcast не должен ломать весь цикл).
+ */
+export async function runStaleCheck(opts: {
+  prisma: StaleCheckPrisma;
+  redis: StaleCheckRedis;
+  currentLichessIds: Set<string>;
+  staleCycles: number;
+  ttlSeconds: number;
+  keyPrefix: string;
+  logger: StaleCheckLogger;
+}): Promise<StaleCheckResult> {
+  const { prisma, redis, currentLichessIds, staleCycles, ttlSeconds, keyPrefix, logger } = opts;
+  const result: StaleCheckResult = { marked: 0, incremented: 0, reset: 0, scanned: 0 };
+
+  const active = await prisma.broadcast.findMany({
+    where: { isActive: true },
+    select: { id: true, lichessId: true, title: true },
+  });
+  result.scanned = active.length;
+
+  for (const bc of active) {
+    const key = `${keyPrefix}${bc.lichessId}`;
+
+    if (currentLichessIds.has(bc.lichessId)) {
+      try {
+        await redis.del(key);
+        result.reset++;
+      } catch { /* reset errors ignored — следующий цикл повторит */ }
+      continue;
+    }
+
+    let count = 0;
+    try {
+      count = await redis.incr(key);
+      if (count === 1) {
+        await redis.expire(key, ttlSeconds);
+      }
+      result.incremented++;
+    } catch (e: unknown) {
+      logger.warn(
+        `[broadcast-worker] Redis incr failed for ${bc.lichessId}: ${(e as Error).message}`,
+      );
+      continue;
+    }
+
+    if (count >= staleCycles) {
+      try {
+        await prisma.broadcast.update({
+          where: { id: bc.id },
+          data: { isActive: false },
+        });
+        try { await redis.del(key); } catch { /* cleanup best-effort */ }
+        result.marked++;
+        logger.log(
+          `[broadcast-worker] Broadcast ${bc.lichessId} "${bc.title}" marked isActive=false after ${count} missed cycles`,
+        );
+      } catch (e: unknown) {
+        logger.error(
+          `[broadcast-worker] Failed to mark ${bc.lichessId} inactive: ${(e as Error).message}`,
+        );
+      }
+    }
+  }
+
+  if (result.marked > 0) {
+    logger.log(
+      `[broadcast-worker] Stale check: marked ${result.marked} broadcasts isActive=false (cutoff=${staleCycles} cycles, scanned=${result.scanned})`,
+    );
+  }
+  return result;
 }

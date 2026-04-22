@@ -548,19 +548,33 @@ export type BroadcastItem = {
 };
 
 /**
- * Элемент списка `GET /api/broadcasts`.
+ * Элемент списка `GET /api/broadcasts` (или `GET /` на subdomain
+ * `broadcasts.kingside.site` после KS-1702).
+ *
+ * `lifecycleStatus` (KS-1700 Part B) — категоризация для UI-секций:
+ *   - `live` — есть ongoing раунд или pending со startsAt в окне
+ *     [NOW - 1h; NOW + PINNED_UPCOMING_WINDOW_HOURS] (default 48h).
+ *   - `upcoming` — не live, но есть pending раунд со startsAt дальше окна.
+ *   - `finished` — ни live, ни upcoming (все раунды finished или 0 раундов).
  *
  * `isPinned` — автоматически вычисляемый флаг для featured-секции.
- * Условия: есть активный раунд (ongoing или pending в ближайшие 48ч) И
- * средний Elo участников >= BROADCAST_PINNED_MIN_ELO (default 2600) на >= BROADCAST_PINNED_MIN_GAMES (default 4) играх.
+ * Условия: `lifecycleStatus='live'` AND средний Elo участников >= BROADCAST_PINNED_MIN_ELO
+ * (default 2600) на >= BROADCAST_PINNED_MIN_GAMES (default 4) играх.
  *
  * `avgElo` — округлённое до целого среднее значение Elo по валидным данным; null если недостаточно данных.
+ *
+ * Фильтрация по query `?lifecycle=live|upcoming|finished|all` (default all).
+ * Порядок сортировки: live (updatedAt DESC) → upcoming (nearest starts_at ASC)
+ * → finished (updatedAt DESC).
  */
+export type BroadcastLifecycleStatus = 'live' | 'upcoming' | 'finished';
+
 export type BroadcastSummary = {
   id: string;
   lichessId: string;
   title: string;
   status: 'active' | 'finished';
+  lifecycleStatus: BroadcastLifecycleStatus;
   startDate: string | null;
   roundCount: number;
   isPinned: boolean;
