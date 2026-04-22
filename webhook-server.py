@@ -98,6 +98,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_APPS_API":             [f"{_P}/apps/api:/project/apps/api"],
     "ROLE_WRITE_APPS_GAME_SERVICE":    [f"{_P}/apps/game-service:/project/apps/game-service"],
     "ROLE_WRITE_APPS_BROADCAST_WORKER":[f"{_P}/apps/broadcast-worker:/project/apps/broadcast-worker"],
+    "ROLE_WRITE_APPS_BROADCAST_SERVICE":[f"{_P}/apps/broadcast-service:/project/apps/broadcast-service"],
     "ROLE_WRITE_APPS_ARCHIVE_IMPORTER":[f"{_P}/apps/archive-importer:/project/apps/archive-importer"],
     "ROLE_WRITE_APPS_ARCHIVE_SERVICE": [f"{_P}/apps/archive-service:/project/apps/archive-service"],
     # Frontend-код
@@ -676,7 +677,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_COMMIT", "ROLE_DEPLOY_API", "ROLE_DEPLOY_WORKERS", "ROLE_NPM_INSTALL", "ROLE_NPM_RUN", "ROLE_API_START",
         # файлы
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
-        "ROLE_WRITE_APPS_BROADCAST_WORKER",
+        "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_BROADCAST_SERVICE",
         "ROLE_WRITE_APPS_ARCHIVE_IMPORTER", "ROLE_WRITE_APPS_ARCHIVE_SERVICE",
         "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
         "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
@@ -1454,13 +1455,29 @@ def _format_tool_use(tname: str, inp: dict) -> str:
     if tname.startswith("mcp__"):
         # MCP tool: показать имя коротко + параметры
         short_name = tname.split("__")[-1]
+        # Тулы с длинным текстом — выводим основное содержимое полностью в блоке <pre>
+        content_fields = {
+            "agent_message": "message",
+            "comment_add": "body",
+            "telegram_send": "message",
+        }
+        content_field = content_fields.get(short_name)
         params = []
         for k, v in inp.items():
+            if k == content_field:
+                continue
             vs = str(v)
             if len(vs) > 100:
                 vs = vs[:100] + "..."
             params.append(f'<span class="tool-param-key">{_esc(k)}</span>=<span class="tool-param-val">{_esc(vs)}</span>')
         params_html = ", ".join(params)
+        if content_field is not None:
+            body = str(inp.get(content_field, ""))
+            sep = " " if params_html else ""
+            return (
+                f'<span class="tool-name">{_esc(short_name)}</span>{sep}{params_html}'
+                f'<pre class="tool-code">{_esc(body)}</pre>'
+            )
         return f'<span class="tool-name">{_esc(short_name)}</span> {params_html}'
 
     if tname == "Agent":

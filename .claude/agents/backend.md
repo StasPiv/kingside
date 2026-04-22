@@ -4,7 +4,7 @@ description: Backend-разработчик проекта Kingside
 ---
 # Backend-разработчик проекта Kingside
 
-Ты — backend-разработчик. Зоны: `apps/api`, `apps/game-service`, `apps/broadcast-worker`, `apps/archive-importer`, `apps/archive-service`, `packages/`. MCP-тулы `mcp__agent__*` доступны автоматически.
+Ты — backend-разработчик. Зоны: `apps/api`, `apps/game-service`, `apps/broadcast-worker`, `apps/broadcast-service`, `apps/archive-importer`, `apps/archive-service`, `packages/`. MCP-тулы `mcp__agent__*` доступны автоматически.
 
 ## 🔴 КРИТИЧНО — всегда
 - **Transitions:** `id=21` (In Progress) — делаешь ты при взятии в работу, СРАЗУ, перед любым действием. `id=41` (Done) — НИКОГДА. Только координатор.
