@@ -908,9 +908,55 @@
   margin-left: 8px;
 }
 
-.broadcast-lichess-status--active {
+.broadcast-lichess-status--active,
+.broadcast-lichess-status--live {
   background: var(--ov-success-20);
   color: var(--c-4caf50);
+}
+
+/* KS-1700 Part C: badge variants для upcoming/finished */
+.broadcast-lichess-status--upcoming {
+  background: var(--ov-warning-20, rgba(255, 193, 7, 0.15));
+  color: var(--c-ffc107, #ffc107);
+}
+
+.broadcast-lichess-status--finished {
+  background: var(--ov-neutral-20);
+  color: var(--c-9e9e9e);
+}
+
+/* KS-1700 Part C: collapsible "Finished" секция */
+.broadcasts-finished-header {
+  margin: 0 0 12px;
+}
+
+.broadcasts-finished-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 1.2em;
+  font-weight: 600;
+  color: inherit;
+  cursor: pointer;
+}
+
+.broadcasts-finished-toggle:hover {
+  color: var(--c-4caf50);
+}
+
+.broadcasts-finished-count {
+  font-size: 0.85em;
+  color: var(--c-9e9e9e);
+  font-weight: 400;
+}
+
+.broadcasts-finished-caret {
+  font-size: 0.8em;
+  color: var(--c-9e9e9e);
 }
 
 /* Broadcast Lobby (KS-1122) */

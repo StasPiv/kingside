@@ -116,7 +116,15 @@
       "noGames": "No games in this round",
       "noMoves": "No moves yet"
     },
-    "lichessTitle": "Lichess Broadcasts"
+    "lichessTitle": "Lichess Broadcasts",
+    "liveTitle": "Live",
+    "upcomingTitle": "Upcoming",
+    "finishedTitle": "Finished",
+    "badgeLive": "LIVE",
+    "badgeUpcoming": "UPCOMING",
+    "badgeFinished": "FINISHED",
+    "expandFinished": "Show finished",
+    "collapseFinished": "Hide finished"
   },
   "broadcast": {
     "tabLive": "Live",
