@@ -1,56 +1,35 @@
 jest.mock('../prisma/prisma.service', () => ({
   PrismaService: jest.fn(),
 }));
-jest.mock('../engine/stockfish.service', () => ({
-  StockfishService: jest.fn(),
-}));
-jest.mock('./game.service', () => ({
-  GameService: jest.fn(),
-}));
 
 import { BotGameService } from './bot-game.service';
-import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME, MATCHMAKING_BOTS } from '@kingside/shared';
 
 describe('BotGameService', () => {
   let service: BotGameService;
   let prisma: any;
-  let gameService: any;
-  let stockfish: any;
 
-  const gameId = 'game-001';
   const humanId = 'human-player';
 
   beforeEach(() => {
     prisma = {
       user: {
         upsert: jest.fn().mockResolvedValue(undefined),
-        update: jest.fn().mockResolvedValue(undefined),
-      },
-      game: {
-        findUniqueOrThrow: jest.fn(),
       },
     };
 
-    gameService = {
-      getGameState: jest.fn(),
-      makeMove: jest.fn(),
-    };
-
-    stockfish = {
-      getBestMove: jest.fn(),
-    };
-
-    const openingBook = {
-      getBookMove: jest.fn().mockReturnValue(null),
-    };
-
-    service = new BotGameService(prisma, gameService, stockfish, openingBook as any);
+    service = new BotGameService(prisma);
   });
 
   describe('isBotPlayer', () => {
-    it('should return true for bot ID', () => {
+    it('should return true for Stockfish bot ID', () => {
       expect(service.isBotPlayer(STOCKFISH_BOT_ID)).toBe(true);
+    });
+
+    it('should return true for any matchmaking bot ID', () => {
+      for (const bot of MATCHMAKING_BOTS) {
+        expect(service.isBotPlayer(bot.id)).toBe(true);
+      }
     });
 
     it('should return false for human ID', () => {
@@ -58,155 +37,58 @@ describe('BotGameService', () => {
     });
   });
 
-  describe('ensureBotUser (via onModuleInit)', () => {
-    it('should upsert bot user on init', async () => {
+  describe('onModuleInit', () => {
+    it('should upsert Stockfish bot user on init', async () => {
       await service.onModuleInit();
 
-      expect(prisma.user.upsert).toHaveBeenCalledWith({
-        where: { id: STOCKFISH_BOT_ID },
-        update: {},
-        create: {
-          id: STOCKFISH_BOT_ID,
-          username: STOCKFISH_BOT_USERNAME,
-          email: 'stockfish-bot@kingside.local',
-          passwordHash: '',
-        },
-      });
+      expect(prisma.user.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: STOCKFISH_BOT_ID },
+          create: expect.objectContaining({
+            id: STOCKFISH_BOT_ID,
+            username: STOCKFISH_BOT_USERNAME,
+            email: 'stockfish-bot@kingside.local',
+            isBot: true,
+          }),
+        }),
+      );
     });
 
-    it('should handle P2002 conflict by updating existing record', async () => {
-      const err = new PrismaClientKnownRequestError('Unique constraint', {
-        code: 'P2002',
-        clientVersion: '5.0.0',
-      });
-      prisma.user.upsert.mockRejectedValue(err);
-
+    it('should upsert every matchmaking bot on init', async () => {
       await service.onModuleInit();
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { email: 'stockfish-bot@kingside.local' },
-        data: { id: STOCKFISH_BOT_ID, username: STOCKFISH_BOT_USERNAME },
-      });
+      // 1 Stockfish + N matchmaking bots
+      expect(prisma.user.upsert).toHaveBeenCalledTimes(1 + MATCHMAKING_BOTS.length);
     });
 
-    it('should rethrow non-P2002 errors', async () => {
+    it('should swallow upsert errors without throwing (logs warning)', async () => {
       prisma.user.upsert.mockRejectedValue(new Error('DB down'));
 
-      await expect(service.onModuleInit()).rejects.toThrow('DB down');
+      await expect(service.onModuleInit()).resolves.not.toThrow();
     });
   });
 
-  describe('maybeBotReply', () => {
-    it('should return null if game is not active', async () => {
-      prisma.game.findUniqueOrThrow.mockResolvedValue({
-        whiteId: humanId,
-        blackId: STOCKFISH_BOT_ID,
-        status: 'finished',
-        botLevel: 5,
-        timeIncrementSec: 0,
-      });
+  describe('pickBotForRating', () => {
+    it('should return a matchmaking bot', () => {
+      const bot = service.pickBotForRating(1500);
 
-      const result = await service.maybeBotReply(gameId);
-
-      expect(result).toBeNull();
+      expect(bot).toBeDefined();
+      expect(bot.id).toBeDefined();
+      expect(bot.username).toBeDefined();
+      expect(typeof bot.botLevel).toBe('number');
     });
 
-    it('should return null if next player is not bot', async () => {
-      prisma.game.findUniqueOrThrow.mockResolvedValue({
-        whiteId: humanId,
-        blackId: STOCKFISH_BOT_ID,
-        status: 'active',
-        botLevel: 5,
-        timeIncrementSec: 0,
-      });
-      gameService.getGameState.mockResolvedValue({
-        state: { activeColor: 'white', fen: 'startpos' },
-        clocks: { whiteMs: 60000, blackMs: 60000, lastTick: 0, running: true },
-      });
-
-      const result = await service.maybeBotReply(gameId);
-
-      expect(result).toBeNull();
-      expect(stockfish.getBestMove).not.toHaveBeenCalled();
-    });
-
-    it('should make bot move when it is bot turn', async () => {
-      prisma.game.findUniqueOrThrow.mockResolvedValue({
-        whiteId: humanId,
-        blackId: STOCKFISH_BOT_ID,
-        status: 'active',
-        botLevel: 10,
-        timeIncrementSec: 2,
-      });
-      gameService.getGameState.mockResolvedValue({
-        state: { activeColor: 'black', fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1' },
-        clocks: { whiteMs: 55000, blackMs: 58000, lastTick: 0, running: true },
-      });
-      stockfish.getBestMove.mockResolvedValue({ bestMove: 'e7e5' });
-      gameService.makeMove.mockResolvedValue({
-        san: 'e5',
-        fen: 'some-fen',
-        clocks: {},
-        gameOver: false,
-      });
-
-      const result = await service.maybeBotReply(gameId);
-
-      expect(stockfish.getBestMove).toHaveBeenCalledWith(
-        'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
-        10,
-        { wtime: 55000, btime: 58000, winc: 2000, binc: 2000 },
-      );
-      expect(gameService.makeMove).toHaveBeenCalledWith(gameId, STOCKFISH_BOT_ID, 'e7e5');
-      expect(result).toMatchObject({ uci: 'e7e5', san: 'e5' });
-    });
-
-    it('should default to level 5 when botLevel is null', async () => {
-      prisma.game.findUniqueOrThrow.mockResolvedValue({
-        whiteId: STOCKFISH_BOT_ID,
-        blackId: humanId,
-        status: 'active',
-        botLevel: null,
-        timeIncrementSec: 0,
-      });
-      gameService.getGameState.mockResolvedValue({
-        state: { activeColor: 'white', fen: 'startpos' },
-        clocks: { whiteMs: 60000, blackMs: 60000, lastTick: 0, running: true },
-      });
-      stockfish.getBestMove.mockResolvedValue({ bestMove: 'e2e4' });
-      gameService.makeMove.mockResolvedValue({
-        san: 'e4',
-        fen: 'fen',
-        clocks: {},
-        gameOver: false,
-      });
-
-      await service.maybeBotReply(gameId);
-
-      expect(stockfish.getBestMove).toHaveBeenCalledWith(
-        'startpos',
-        5,
-        { wtime: 60000, btime: 60000, winc: 0, binc: 0 },
-      );
-    });
-
-    it('should return null on stockfish error', async () => {
-      prisma.game.findUniqueOrThrow.mockResolvedValue({
-        whiteId: STOCKFISH_BOT_ID,
-        blackId: humanId,
-        status: 'active',
-        botLevel: 5,
-        timeIncrementSec: 0,
-      });
-      gameService.getGameState.mockResolvedValue({
-        state: { activeColor: 'white', fen: 'startpos' },
-        clocks: { whiteMs: 60000, blackMs: 60000, lastTick: 0, running: true },
-      });
-      stockfish.getBestMove.mockRejectedValue(new Error('Engine crash'));
-
-      const result = await service.maybeBotReply(gameId);
-
-      expect(result).toBeNull();
+    it('should prefer bots closest to given rating', () => {
+      // Run multiple times to account for randomness within top-3 candidates
+      const ratings = [800, 1200, 1600, 2000, 2400];
+      for (const rating of ratings) {
+        const bot = service.pickBotForRating(rating);
+        const distances = MATCHMAKING_BOTS
+          .map((b) => Math.abs(b.rating - rating))
+          .sort((a, b) => a - b);
+        const top3MaxDistance = distances[Math.min(2, distances.length - 1)];
+        expect(Math.abs(bot.rating - rating)).toBeLessThanOrEqual(top3MaxDistance);
+      }
     });
   });
 });

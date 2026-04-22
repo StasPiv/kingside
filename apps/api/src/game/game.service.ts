@@ -214,9 +214,13 @@ export class GameService {
     }
 
     // --- CPU: chess.js validation ---
-    // Reconstruct chess.js from move history (required for isThreefoldRepetition)
+    // Reconstruct chess.js from move history (required for isThreefoldRepetition).
+    // If move history is empty but a non-default FEN is cached, use that FEN as
+    // the starting position (happens only at game start or when replaying tests).
     const moves = JSON.parse(raw.moves || '[]') as { uci: string; san: string }[];
-    const chess = new Chess();
+    const chess = moves.length === 0 && raw.fen && raw.fen !== INITIAL_FEN
+      ? new Chess(raw.fen)
+      : new Chess();
     for (const m of moves) {
       const hFrom = m.uci.substring(0, 2);
       const hTo = m.uci.substring(2, 4);
@@ -359,9 +363,13 @@ export class GameService {
       };
     }
 
-    // Reconstruct chess.js from move history (required for isThreefoldRepetition)
+    // Reconstruct chess.js from move history (required for isThreefoldRepetition).
+    // If move history is empty but a non-default FEN is cached, use that FEN as
+    // the starting position (happens only at game start or when replaying tests).
     const moves = JSON.parse(raw.moves || '[]') as { uci: string; san: string }[];
-    const chess = new Chess();
+    const chess = moves.length === 0 && raw.fen && raw.fen !== INITIAL_FEN
+      ? new Chess(raw.fen)
+      : new Chess();
     for (const m of moves) {
       const hFrom = m.uci.substring(0, 2);
       const hTo = m.uci.substring(2, 4);

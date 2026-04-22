@@ -38,11 +38,16 @@ describe('ArenaService', () => {
     service = new ArenaService(prisma as any, redis as any, gameService as any);
   });
 
-  it('should reject duration < 30', async () => {
+  it('should reject duration outside 1-180 range', async () => {
     await expect(service.create('u1', {
       name: 'Test', timeInitialSec: 180, timeIncrementSec: 0,
-      durationMin: 10, startsAt: new Date(Date.now() + 60000).toISOString(),
-    })).rejects.toThrow('Duration must be 30-180');
+      durationMin: 0, startsAt: new Date(Date.now() + 60000).toISOString(),
+    })).rejects.toThrow('Duration must be 1-180 minutes');
+
+    await expect(service.create('u1', {
+      name: 'Test', timeInitialSec: 180, timeIncrementSec: 0,
+      durationMin: 181, startsAt: new Date(Date.now() + 60000).toISOString(),
+    })).rejects.toThrow('Duration must be 1-180 minutes');
   });
 
   it('should reject past start time', async () => {
@@ -55,7 +60,9 @@ describe('ArenaService', () => {
   it('should add score with streak bonus', async () => {
     prisma.game.findUnique.mockResolvedValue({
       tournamentId: 't1', whiteId: 'w', blackId: 'b', result: 'white',
+      whiteBerserk: false, blackBerserk: false,
     });
+    prisma.arenaTournament.findUnique.mockResolvedValue({ id: 't1', type: 'arena' });
     prisma.arenaTournamentEntry.findUnique
       .mockResolvedValueOnce({ id: 'e1', streak: 1 }) // winner: streak 1 -> 2 (bonus)
       .mockResolvedValueOnce({ id: 'e2', streak: 0 }); // loser
@@ -81,7 +88,9 @@ describe('ArenaService', () => {
   it('should give 1 point each on draw', async () => {
     prisma.game.findUnique.mockResolvedValue({
       tournamentId: 't1', whiteId: 'w', blackId: 'b', result: 'draw',
+      whiteBerserk: false, blackBerserk: false,
     });
+    prisma.arenaTournament.findUnique.mockResolvedValue({ id: 't1', type: 'arena' });
     prisma.arenaTournamentEntry.findUnique
       .mockResolvedValueOnce({ id: 'e1', streak: 0 })
       .mockResolvedValueOnce({ id: 'e2', streak: 3 });

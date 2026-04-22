@@ -36,6 +36,7 @@ describe('GameGateway', () => {
       emit: jest.fn(),
       to: jest.fn().mockReturnThis(),
       disconnect: jest.fn(),
+      onAny: jest.fn(),
     };
   }
 
@@ -85,17 +86,19 @@ describe('GameGateway', () => {
       expect(client.data.user).toEqual({ id: userId, username: 'player1' });
     });
 
-    it('should disconnect client without token', async () => {
+    it('should allow anonymous connection without token (spectator mode)', async () => {
       const client = createMockClient(undefined);
       client.data = {};
       client.handshake = { auth: {}, query: {} };
 
       await gateway.handleConnection(client);
 
-      expect(client.disconnect).toHaveBeenCalled();
+      // Anonymous clients are allowed for spectating — no disconnect, no user set
+      expect(client.disconnect).not.toHaveBeenCalled();
+      expect(client.data.user).toBeUndefined();
     });
 
-    it('should disconnect client with invalid token', async () => {
+    it('should allow connection with invalid token (spectator mode)', async () => {
       const client = createMockClient(undefined);
       client.data = {};
       jwtService.verify.mockImplementation(() => {
@@ -104,7 +107,9 @@ describe('GameGateway', () => {
 
       await gateway.handleConnection(client);
 
-      expect(client.disconnect).toHaveBeenCalled();
+      // Invalid token → anonymous spectator, no disconnect
+      expect(client.disconnect).not.toHaveBeenCalled();
+      expect(client.data.user).toBeUndefined();
     });
   });
 
@@ -205,8 +210,8 @@ describe('GameGateway', () => {
 
       await gateway.handleMove(client, { gameId, uci: 'e2e4' });
 
-      expect(client.to).toHaveBeenCalledWith(`game:${gameId}`);
-      expect(client.emit).toHaveBeenCalledWith('game:move', {
+      expect(mockServer.to).toHaveBeenCalledWith(`game:${gameId}`);
+      expect(mockServer.emit).toHaveBeenCalledWith('game:move', {
         uci: 'e2e4',
         san: 'e4',
         fen: 'new-fen',
@@ -228,7 +233,7 @@ describe('GameGateway', () => {
 
       await gateway.handleMove(client, { gameId, uci: 'e4d5' });
 
-      expect(client.emit).toHaveBeenCalledWith('game:move',
+      expect(mockServer.emit).toHaveBeenCalledWith('game:move',
         expect.objectContaining({ moveFlags }),
       );
     });
@@ -246,7 +251,7 @@ describe('GameGateway', () => {
 
       await gateway.handleMove(client, { gameId, uci: 'd1h5' });
 
-      expect(client.emit).toHaveBeenCalledWith('game:move',
+      expect(mockServer.emit).toHaveBeenCalledWith('game:move',
         expect.objectContaining({ moveFlags }),
       );
     });
@@ -264,7 +269,7 @@ describe('GameGateway', () => {
 
       await gateway.handleMove(client, { gameId, uci: 'e1g1' });
 
-      expect(client.emit).toHaveBeenCalledWith('game:move',
+      expect(mockServer.emit).toHaveBeenCalledWith('game:move',
         expect.objectContaining({ moveFlags }),
       );
     });
@@ -282,7 +287,7 @@ describe('GameGateway', () => {
 
       await gateway.handleMove(client, { gameId, uci: 'e7e8q' });
 
-      expect(client.emit).toHaveBeenCalledWith('game:move',
+      expect(mockServer.emit).toHaveBeenCalledWith('game:move',
         expect.objectContaining({ moveFlags }),
       );
     });

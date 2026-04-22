@@ -56,6 +56,16 @@ describe('GameService', () => {
       set: jest.fn().mockResolvedValue('OK'),
       get: jest.fn().mockResolvedValue(null),
       exists: jest.fn().mockResolvedValue(0),
+      pipeline: jest.fn(() => ({
+        hgetall: jest.fn().mockReturnThis(),
+        exec: jest.fn(async () => {
+          // Delegate state read to redis.hgetall mock so existing tests keep working.
+          // Clocks entry is returned empty — inline timeout check is then skipped
+          // and tests that rely on clockService.checkTimeout use fallback path.
+          const stateRaw = await redis.hgetall('state');
+          return [[null, stateRaw], [null, {}]];
+        }),
+      })),
     } as any;
 
     clockService = {
@@ -221,7 +231,8 @@ describe('GameService', () => {
 
       expect(result.san).toBe('e4');
       expect(result.gameOver).toBe(false);
-      expect(prisma.move.create).toHaveBeenCalled();
+      // Moves are now stored in Redis and batch-written to DB in endGame
+      expect(redis.hset).toHaveBeenCalled();
     });
 
     it('should reject move when game is not active', async () => {
@@ -362,9 +373,11 @@ describe('GameService', () => {
 
       expect(result.san).toContain('a8=Q');
       expect(result.gameOver).toBe(false);
-      expect(prisma.move.create).toHaveBeenCalledWith(
+      // Normalized UCI (with promotion suffix) is persisted to Redis state
+      expect(redis.hset).toHaveBeenCalledWith(
+        `game:${gameId}:state`,
         expect.objectContaining({
-          data: expect.objectContaining({ uci: 'a7a8q' }),
+          moves: expect.stringContaining('a7a8q'),
         }),
       );
     });
@@ -387,9 +400,11 @@ describe('GameService', () => {
       const result = await service.makeMove(gameId, STOCKFISH_BOT_ID, 'a2a1');
 
       expect(result.san).toContain('a1=Q');
-      expect(prisma.move.create).toHaveBeenCalledWith(
+      // Normalized UCI (with promotion suffix) is persisted to Redis state
+      expect(redis.hset).toHaveBeenCalledWith(
+        `game:${gameId}:state`,
         expect.objectContaining({
-          data: expect.objectContaining({ uci: 'a2a1q' }),
+          moves: expect.stringContaining('a2a1q'),
         }),
       );
     });
@@ -512,12 +527,12 @@ describe('GameService', () => {
         status: 'active',
         activeColor: 'white',
       });
-      expect(redis.hset).toHaveBeenCalledWith(`game:${gameId}:state`, {
+      expect(redis.hset).toHaveBeenCalledWith(`game:${gameId}:state`, expect.objectContaining({
         fen: INITIAL_FEN,
         moves: '[]',
         status: 'active',
         active_color: 'white',
-      });
+      }));
       expect(clockService.initClocks).toHaveBeenCalledWith(gameId, 300000);
       expect(clockService.startClock).toHaveBeenCalledWith(gameId);
     });

@@ -13,8 +13,10 @@ describe('GameClockService', () => {
   beforeEach(() => {
     redis = {
       hset: jest.fn().mockResolvedValue(undefined),
-      hgetall: jest.fn(),
+      hgetall: jest.fn().mockResolvedValue({}),
       del: jest.fn().mockResolvedValue(undefined),
+      zadd: jest.fn().mockResolvedValue(undefined),
+      zrem: jest.fn().mockResolvedValue(undefined),
     };
 
     service = new GameClockService(redis);

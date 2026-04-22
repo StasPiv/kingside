@@ -54,10 +54,20 @@ describe('GameService E2E Scenarios', () => {
 
     redis = {
       hset: jest.fn().mockResolvedValue(1),
-      hgetall: jest.fn(),
+      hgetall: jest.fn().mockResolvedValue({}),
       del: jest.fn().mockResolvedValue(1),
       set: jest.fn().mockResolvedValue('OK'),
       get: jest.fn().mockResolvedValue(null),
+      pipeline: jest.fn(() => ({
+        hgetall: jest.fn().mockReturnThis(),
+        exec: jest.fn(async () => {
+          // Delegate state read to redis.hgetall mock so existing tests keep working.
+          // Clocks entry is returned empty — inline timeout check is then skipped
+          // and makeMove falls back to clockService.checkTimeout via prisma path.
+          const stateRaw = await redis.hgetall('state');
+          return [[null, stateRaw], [null, {}]];
+        }),
+      })),
     } as any;
 
     clockService = {
