@@ -746,6 +746,7 @@ ENDPOINT_ROLE: dict[str, object] = {
         "api": "ROLE_DEPLOY_API",
         "workers": "ROLE_DEPLOY_WORKERS",
         "broadcast-worker": "ROLE_DEPLOY_WORKERS",
+        "broadcast-service": "ROLE_DEPLOY_WORKERS",
         "archive-service": "ROLE_DEPLOY_WORKERS",
         "archive-importer": "ROLE_DEPLOY_WORKERS",
         "all": "ROLE_DEPLOY_ALL",
