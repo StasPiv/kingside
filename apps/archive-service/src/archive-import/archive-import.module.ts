@@ -3,6 +3,7 @@ import { ArchiveImportService } from './archive-import.service';
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
 import { ArchivePositionWriterService } from './archive-position-writer.service';
 import { PositionIndexerService } from './position-indexer.service';
+import { ArchiveSourcesSeedService } from './archive-sources-seed.service';
 
 /**
  * DI-модуль importer'а (ADR-019 §2.1).
@@ -20,12 +21,14 @@ import { PositionIndexerService } from './position-indexer.service';
     ArchiveImportMetricsService,
     ArchivePositionWriterService,
     PositionIndexerService,
+    ArchiveSourcesSeedService,
   ],
   exports: [
     ArchiveImportService,
     ArchiveImportMetricsService,
     ArchivePositionWriterService,
     PositionIndexerService,
+    ArchiveSourcesSeedService,
   ],
 })
 export class ArchiveImportModule {}

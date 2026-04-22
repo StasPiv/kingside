@@ -5,6 +5,7 @@ import {
   TickTimeoutError,
 } from './archive-import/archive-import.service';
 import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
+import { ArchiveSourcesSeedService } from './archive-import/archive-sources-seed.service';
 import type {
   TickResult,
   TickSourceResult,
@@ -36,6 +37,12 @@ interface MockContext {
     flush: jest.Mock<Promise<void>, []>;
     calls: EmfCall[];
   };
+  seed: {
+    ensureDefaults: jest.Mock<
+      Promise<{ created: number; kept: number }>,
+      []
+    >;
+  };
   app: INestApplicationContext;
 }
 
@@ -61,17 +68,24 @@ function makeContext(tick: TickResult | Error): MockContext {
     }),
     calls: emfCalls,
   };
+  const seed = {
+    ensureDefaults: jest.fn<
+      Promise<{ created: number; kept: number }>,
+      []
+    >(() => Promise.resolve({ created: 0, kept: 1 })),
+  };
 
   const app: INestApplicationContext = {
     get: jest.fn((token: unknown) => {
       if (token === ArchiveImportService) return archive;
       if (token === EmfMetricsPublisher) return emf;
+      if (token === ArchiveSourcesSeedService) return seed;
       throw new Error(`unexpected token: ${String(token)}`);
     }),
     // Остальные методы INestApplicationContext не нужны для этих тестов.
   } as unknown as INestApplicationContext;
 
-  return { archive, emf, app };
+  return { archive, emf, seed, app };
 }
 
 function makeRun(overrides: Partial<TickSourceResult> = {}): TickSourceResult {
@@ -232,6 +246,48 @@ describe('runImporterOnce', () => {
     expect(ctx.emf.recordSourceRun).toHaveBeenCalledTimes(1);
     expect(ctx.emf.recordTickSummary).toHaveBeenCalledWith(partial, 124);
     expect(ctx.emf.flush).toHaveBeenCalled();
+  });
+
+  it('KS-1716: ensureDefaults() вызывается ДО tickOnce() — sources сидируются перед проверкой due', async () => {
+    const tick: TickResult = {
+      runs: [makeRun()],
+      totalGamesAdded: 95,
+    };
+    const ctx = makeContext(tick);
+    // Фиксируем порядок вызовов между двумя моками.
+    const callOrder: Array<'seed' | 'tick'> = [];
+    ctx.seed.ensureDefaults.mockImplementation(() => {
+      callOrder.push('seed');
+      return Promise.resolve({ created: 1, kept: 0 });
+    });
+    ctx.archive.tickOnce.mockImplementation(() => {
+      callOrder.push('tick');
+      return Promise.resolve(tick);
+    });
+
+    await runImporterOnce(ctx.app);
+
+    expect(ctx.seed.ensureDefaults).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(['seed', 'tick']);
+  });
+
+  it('KS-1716: ensureDefaults() throws → классифицируется как bootstrap fail, exitCode=2, EMF summary всё равно публикуется', async () => {
+    const ctx = makeContext({ runs: [], totalGamesAdded: 0 });
+    ctx.seed.ensureDefaults.mockRejectedValue(new Error('DB unreachable'));
+
+    const outcome = await runImporterOnce(ctx.app);
+
+    // ensureDefaults упал до tickOnce — tickOnce НЕ должен вызываться.
+    expect(ctx.archive.tickOnce).not.toHaveBeenCalled();
+    expect(outcome.exitCode).toBe(2);
+    expect(outcome.runsTotal).toBe(0);
+    expect(outcome.runsFailed).toBe(1);
+    // Summary с exitCode=2 и пустым tick всё равно публикуется.
+    expect(ctx.emf.recordTickSummary).toHaveBeenCalledWith(
+      { runs: [], totalGamesAdded: 0 },
+      2,
+    );
+    expect(ctx.emf.flush).toHaveBeenCalledTimes(1);
   });
 
   it('partial status — не считается failure, exitCode=0', async () => {

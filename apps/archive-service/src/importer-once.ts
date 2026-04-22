@@ -14,6 +14,7 @@ import {
   type TickResult,
 } from './archive-import/archive-import.service';
 import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
+import { ArchiveSourcesSeedService } from './archive-import/archive-sources-seed.service';
 
 /**
  * One-shot entrypoint для EventBridge Scheduler + ECS RunTask (KS-1681,
@@ -78,12 +79,25 @@ export async function runImporterOnce(
 ): Promise<RunOutcome> {
   const archiveImport = app.get(ArchiveImportService);
   const emf = app.get(EmfMetricsPublisher);
+  const seed = app.get(ArchiveSourcesSeedService);
 
   let tick: TickResult;
   let timedOut = false;
   let bootstrapFailed = false;
 
   try {
+    // KS-1716: гарантируем, что дефолтные источники (TWIC и т.п.) есть в БД
+    // ДО tickOnce. Без этого archive_sources пустой, tickOnce возвращает
+    // runs=[], и per-source `LastSuccessAgeSeconds` в EMF не публикуется —
+    // CloudWatch alarm A4 остаётся навсегда в ALARM. ensureDefaults
+    // идемпотентен (upsert по `code`), оператор-правки `schedule`/`cursor`
+    // сохраняются.
+    const seedResult = await seed.ensureDefaults();
+    if (seedResult.created > 0) {
+      logger.log(
+        `archive_sources seeded: created=${seedResult.created} kept=${seedResult.kept}`,
+      );
+    }
     tick = await archiveImport.tickOnce();
   } catch (err: unknown) {
     if (err instanceof TickTimeoutError) {
