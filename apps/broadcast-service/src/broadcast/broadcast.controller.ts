@@ -57,6 +57,20 @@ type BroadcastGamesResponse = { data: BroadcastGameItem[] };
  *
  * Публичные read-only данные — auth не требуется.
  */
+// KS-1702 hotfix: `@Get(':id')` матчит любой single-segment путь, включая legacy
+// `/broadcasts`, monitoring `/active` и прочий мусор. Без валидации мусор уходит
+// в `prisma.broadcast.findUnique({where:{id}})` и Prisma кидает 500 на UUID
+// validation. Валидируем параметр как UUID на уровне контроллера и отвечаем 404
+// на несоответствие.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertUuid(value: string, label: string): void {
+  if (!UUID_RE.test(value)) {
+    throw new NotFoundException(`${label} ${value} not found`);
+  }
+}
+
 @Controller()
 export class BroadcastController {
   constructor(private readonly prisma: PrismaService) {}
@@ -215,6 +229,7 @@ export class BroadcastController {
   /** GET /:id — метаданные трансляции. */
   @Get(':id')
   async getBroadcast(@Param('id') id: string) {
+    assertUuid(id, 'Broadcast');
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { id },
     });
@@ -245,6 +260,7 @@ export class BroadcastController {
   /** GET /:id/standings — crosstable standings. */
   @Get(':id/standings')
   async getStandings(@Param('id') id: string) {
+    assertUuid(id, 'Broadcast');
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { id },
       include: {
@@ -365,6 +381,7 @@ export class BroadcastController {
   async getBroadcastRounds(
     @Param('id') id: string,
   ): Promise<BroadcastRoundsResponse> {
+    assertUuid(id, 'Broadcast');
     const broadcast = await this.prisma.broadcast.findUnique({
       where: { id },
     });
@@ -394,6 +411,8 @@ export class BroadcastController {
     @Param('id') id: string,
     @Param('roundId') roundId: string,
   ): Promise<BroadcastGamesResponse> {
+    assertUuid(id, 'Broadcast');
+    assertUuid(roundId, 'Round');
     const round = await this.prisma.broadcastRound.findFirst({
       where: { id: roundId, broadcastId: id },
     });

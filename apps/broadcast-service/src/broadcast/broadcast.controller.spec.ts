@@ -47,4 +47,55 @@ describe('BroadcastController', () => {
       NotFoundException,
     );
   });
+
+  // KS-1702 hotfix: жадный `:id`-матчинг уводил legacy `/broadcasts` и
+  // monitoring `/active` в Prisma.findUnique → 500 на UUID validation.
+  // Теперь assertUuid в контроллере отдаёт 404 до обращения в БД.
+  describe('non-UUID :id → 404 (hotfix после acad49ec)', () => {
+    it.each([
+      ['broadcasts'], // legacy-фронт на старом префиксе
+      ['active'],     // внешний monitoring/бот
+      ['not-a-uuid'],
+      [''],
+      ['12345'],
+    ])('getBroadcast(%p) → NotFoundException без обращения в БД', async (id) => {
+      const { controller, prisma } = build();
+      await expect(controller.getBroadcast(id)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.broadcast.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('getBroadcastRounds("broadcasts") → 404 без БД', async () => {
+      const { controller, prisma } = build();
+      await expect(controller.getBroadcastRounds('broadcasts')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.broadcast.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('getStandings("active") → 404 без БД', async () => {
+      const { controller, prisma } = build();
+      await expect(controller.getStandings('active')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.broadcast.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('getBroadcastRoundGames(non-UUID, uuid) → 404 без БД', async () => {
+      const { controller, prisma } = build();
+      await expect(
+        controller.getBroadcastRoundGames('garbage', '11111111-1111-1111-1111-111111111111'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.broadcastRound.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('getBroadcastRoundGames(uuid, non-UUID roundId) → 404 без БД', async () => {
+      const { controller, prisma } = build();
+      await expect(
+        controller.getBroadcastRoundGames('11111111-1111-1111-1111-111111111111', 'garbage'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(prisma.broadcastRound.findFirst).not.toHaveBeenCalled();
+    });
+  });
 });
