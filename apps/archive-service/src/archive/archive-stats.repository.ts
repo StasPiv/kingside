@@ -125,18 +125,28 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async getTree(posKey: Buffer, opts: TreeOpts): Promise<ArchiveTreeResponse> {
-    const rows = await this.prisma.$queryRawUnsafe<StatsRow[]>(
-      `SELECT next_move_uci, white_wins, draws, black_wins, total, avg_elo, last_seen_at
-         FROM position_stats
-         WHERE position_key = $1 AND bucket = $2
-         ORDER BY total DESC
-         LIMIT $3`,
-      posKey,
-      opts.bucket,
-      opts.limit,
-    );
+    // KS-1692: `totalGames` считается отдельным `SUM(total)` без LIMIT,
+    // а не суммированием top-N row'ов из moves-запроса. Прошлая реализация
+    // теряла партии с редкими первыми ходами, вылетевшими за `LIMIT`, —
+    // это давало расхождение `/tree.totalGames` vs `/games/by-position.
+    // totalApprox` для позиций с числом уникальных next_move_uci > LIMIT.
+    // Контракт `ArchiveTreeResponse.totalGames` требует полный счёт (см.
+    // `packages/shared/src/types/archive.ts:55`: "Total number of games
+    // reaching this position").
+    const [rows, totalGames] = await Promise.all([
+      this.prisma.$queryRawUnsafe<StatsRow[]>(
+        `SELECT next_move_uci, white_wins, draws, black_wins, total, avg_elo, last_seen_at
+           FROM position_stats
+           WHERE position_key = $1 AND bucket = $2
+           ORDER BY total DESC
+           LIMIT $3`,
+        posKey,
+        opts.bucket,
+        opts.limit,
+      ),
+      this.countApprox(posKey, opts.bucket),
+    ]);
 
-    const totalGames = rows.reduce((sum, r) => sum + Number(r.total), 0);
     const moves = rows.map((r) => this.toMove(opts.fen, r));
 
     return {
