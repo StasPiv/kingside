@@ -35,12 +35,12 @@ const TOOLS = [
   // --- Webhook ---
   { name: 'commit', description: 'Коммит изменённых файлов в main (требует роль).',
     inputSchema: { type: 'object', properties: { message: { type: 'string' }, files: { type: 'array', items: { type: 'string' } } }, required: ['message', 'files'] } },
-  { name: 'agent_message', description: 'Прямое сообщение другому агенту. Ставится в FIFO-очередь target; target увидит его следующим tool-запросом. Если ответа не ждёшь — reply_required=false, иначе webhook напомнит target ответить.',
+  { name: 'agent_message', description: 'Прямое сообщение другому агенту. Ставится в FIFO-очередь target; target увидит его следующим tool-запросом. reply_required — обязательный флаг: true (target обязан ответить) | false (уведомление без ответа).',
     inputSchema: { type: 'object', properties: {
       to: { type: 'string' },
       message: { type: 'string' },
-      reply_required: { type: 'boolean', description: 'true (default) — target ОБЯЗАН ответить через agent_message. false — уведомление без ожидания ответа' },
-    }, required: ['to', 'message'] } },
+      reply_required: { type: 'boolean', description: 'ОБЯЗАТЕЛЬНО. true — target обязан ответить через agent_message, webhook пришлёт напоминание если не ответит. false — уведомление/ACK, ответ не ожидается' },
+    }, required: ['to', 'message', 'reply_required'] } },
   { name: 'agent_kill', description: 'Убить daemon-процесс агента (координатор).',
     inputSchema: { type: 'object', properties: { agent: { type: 'string' } }, required: ['agent'] } },
   { name: 'agent_status', description: 'Получить статус всех daemon-агентов: alive, busy, queue_size, message_count, total_cost. Без параметров возвращает всех.',
@@ -166,11 +166,14 @@ async function call(name, args) {
     case 'commit':
       return webhookPost('/commit', { message: args.message, files: args.files });
     case 'agent_message':
+      if (typeof args.reply_required !== 'boolean') {
+        return { error: 'reply_required is required and must be boolean (true | false)' };
+      }
       return webhookPost('/agent/message', {
         from: AGENT,
         to: args.to,
         message: args.message,
-        reply_required: args.reply_required !== false,
+        reply_required: args.reply_required,
       });
     case 'agent_kill':
       return webhookPost('/agent/kill', { agent: args.agent });

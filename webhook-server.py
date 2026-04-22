@@ -649,19 +649,21 @@ def handle_agent_message(handler, payload):
     sender = payload.get("from", "")
     target = payload.get("to", "")
     message = payload.get("message", "")
-    reply_required_raw = payload.get("reply_required", True)
-    if isinstance(reply_required_raw, bool):
-        reply_required = reply_required_raw
-    elif isinstance(reply_required_raw, str):
-        reply_required = reply_required_raw.lower() not in ("false", "0", "no", "")
-    else:
-        reply_required = bool(reply_required_raw)
 
     if not target or not message:
         handler.send_response(400)
         handler.end_headers()
         handler.wfile.write(json.dumps({"error": "missing 'to' or 'message'"}).encode())
         return
+
+    if "reply_required" not in payload or not isinstance(payload["reply_required"], bool):
+        handler.send_response(400)
+        handler.end_headers()
+        handler.wfile.write(json.dumps({
+            "error": "'reply_required' is required and must be boolean (true | false)",
+        }).encode())
+        return
+    reply_required = payload["reply_required"]
 
     valid_agents = get_valid_agents()
     if target not in valid_agents:
