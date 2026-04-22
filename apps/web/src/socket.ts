@@ -114,8 +114,9 @@ export const matchmakingSocket = withHandlers(io(`${GAME_URL}/matchmaking`, SOCK
 
 export const tournamentSocket = withHandlers(io(`${GAME_URL}/tournament`, SOCKET_OPTS));
 
-// Broadcast Service (BROADCAST_URL) — broadcasts.kingside.site/broadcast (ADR-021)
-export const broadcastSocket = withHandlers(io(`${BROADCAST_URL}/broadcast`, SOCKET_OPTS));
+// Broadcast Service (BROADCAST_URL) — broadcasts.kingside.site default namespace (ADR-021, KS-1702).
+// Namespace `/broadcast` убран: субдомен уже выражает domain, дополнительный префикс избыточен.
+export const broadcastSocket = withHandlers(io(BROADCAST_URL, SOCKET_OPTS));
 
 // API Service (API_URL) — messages
 export const messagesSocket = withHandlers(io(`${API_URL}/messages`, SOCKET_OPTS));

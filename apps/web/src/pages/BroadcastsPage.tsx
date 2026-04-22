@@ -86,7 +86,7 @@ export function BroadcastsPage() {
       .catch(() => {})
       .finally(() => setTournamentsLoading(false));
 
-    broadcastApi.get<BroadcastListResponse>('/broadcasts?limit=100')
+    broadcastApi.get<BroadcastListResponse>('/?limit=100')
       .then((res) => setLichessBroadcasts(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, []);

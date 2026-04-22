@@ -262,7 +262,7 @@ export function BroadcastRoundPage() {
     if (!tournamentId || !roundId) return;
     let cancelled = false;
 
-    broadcastApi.get<LichessBroadcastMeta>(`/broadcasts/${tournamentId}`)
+    broadcastApi.get<LichessBroadcastMeta>(`/${tournamentId}`)
       .then((broadcast) => {
         if (cancelled) return;
         setLichessBroadcast(broadcast);
@@ -270,8 +270,8 @@ export function BroadcastRoundPage() {
 
         // Load rounds + games
         Promise.all([
-          broadcastApi.get<{ data: LichessRoundInfo[] }>(`/broadcasts/${tournamentId}/rounds`),
-          broadcastApi.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`),
+          broadcastApi.get<{ data: LichessRoundInfo[] }>(`/${tournamentId}/rounds`),
+          broadcastApi.get<{ data: LichessGame[] }>(`/${tournamentId}/rounds/${roundId}/games`),
         ]).then(([roundsRes, gamesRes]) => {
           if (!cancelled) {
             setLichessRounds(Array.isArray(roundsRes?.data) ? roundsRes.data : []);
@@ -361,7 +361,7 @@ export function BroadcastRoundPage() {
     let isFirstFetch = true;
 
     const fetchGames = () => {
-      broadcastApi.get<{ data: LichessGame[] }>(`/broadcasts/${tournamentId}/rounds/${roundId}/games`)
+      broadcastApi.get<{ data: LichessGame[] }>(`/${tournamentId}/rounds/${roundId}/games`)
         .then((res) => {
           if (cancelled) return;
           const games = Array.isArray(res?.data) ? res.data : [];

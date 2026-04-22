@@ -9,12 +9,12 @@ import { BROADCAST_URL } from '../config/broadcastUrl';
  * При необходимости future endpoints могут потребовать токен, поэтому
  * Bearer прокидывается если есть в localStorage.
  *
- * Используется для:
- *  - GET /broadcasts (список)
- *  - GET /broadcasts/:id (мета)
- *  - GET /broadcasts/:id/rounds
- *  - GET /broadcasts/:id/rounds/:roundId/games
- *  - GET /broadcasts/:id/standings
+ * Используется для (KS-1702: префикс /broadcasts удалён, субдомен уже выражает domain):
+ *  - GET /               — список
+ *  - GET /:id            — мета
+ *  - GET /:id/rounds
+ *  - GET /:id/rounds/:roundId/games
+ *  - GET /:id/standings
  */
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

@@ -90,11 +90,11 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   }, [ongoingRound]);
 
   useEffect(() => {
-    broadcastApi.get<{ data: BroadcastRound[] }>(`/broadcasts/${tournamentId}/rounds`)
+    broadcastApi.get<{ data: BroadcastRound[] }>(`/${tournamentId}/rounds`)
       .then((res) => setRounds(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
 
-    broadcastApi.get<{ players: StandingsPlayer[] }>(`/broadcasts/${tournamentId}/standings`)
+    broadcastApi.get<{ players: StandingsPlayer[] }>(`/${tournamentId}/standings`)
       .then((res) => {
         if (res?.players) {
           setStandings(res);
@@ -108,7 +108,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   // Load live games from ongoing round
   useEffect(() => {
     if (!ongoingRound) return;
-    broadcastApi.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${ongoingRound.id}/games`)
+    broadcastApi.get<{ data: BroadcastGame[] }>(`/${tournamentId}/rounds/${ongoingRound.id}/games`)
       .then((res) => setLiveGames(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
   }, [ongoingRound, tournamentId]);
@@ -129,7 +129,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
     // Find the game across all rounds to get PGN
     for (const round of rounds) {
       try {
-        const res = await broadcastApi.get<{ data: BroadcastGame[] }>(`/broadcasts/${tournamentId}/rounds/${round.id}/games`);
+        const res = await broadcastApi.get<{ data: BroadcastGame[] }>(`/${tournamentId}/rounds/${round.id}/games`);
         const games = Array.isArray(res?.data) ? res.data : [];
         const game = games.find((g) => g.id === gameId);
         if (game?.pgn) {
@@ -396,7 +396,7 @@ export function BroadcastTournamentPage() {
     if (!tournamentId) return;
     let cancelled = false;
 
-    broadcastApi.get<BroadcastMeta>(`/broadcasts/${tournamentId}`)
+    broadcastApi.get<BroadcastMeta>(`/${tournamentId}`)
       .then((b) => {
         if (!cancelled) { setLichessBroadcast(b); setIsLichess(true); setLoading(false); }
       })
