@@ -396,11 +396,11 @@ describe('TwicImporter streaming pipeline — chunk boundary UNIQUE (in-jest)', 
     code: 'twic',
     cursor: '1641',
   };
-  // chunk-boundary тест — строим 600 партий с дублем на границе chunk'ов.
-  // При chunk_size=500: chunk #1 = idx [0..499], chunk #2 = idx [500..599].
-  // Оригинал под idx=499, копия под idx=500 — т.е. первая запись chunk'а #2
-  // дублирует последнюю запись chunk'а #1.
-  const CHUNK_SIZE = DEFAULT_TWIC_IMPORT_CHUNK_SIZE; // = 500
+  // chunk-boundary тест — строим CHUNK_SIZE+100 партий с дублем на границе
+  // chunk'ов. При chunk_size=N: chunk #1 = idx [0..N-1], chunk #2 =
+  // idx [N..N+99]. Оригинал под idx=N-1, копия под idx=N — т.е. первая
+  // запись chunk'а #2 дублирует последнюю запись chunk'а #1.
+  const CHUNK_SIZE = DEFAULT_TWIC_IMPORT_CHUNK_SIZE; // KS-1688: = 200
   const DUP_FIRST = CHUNK_SIZE - 1;
   const DUP_SECOND = CHUNK_SIZE;
   const TOTAL = CHUNK_SIZE + 100;
@@ -465,9 +465,9 @@ describe('TwicImporter streaming pipeline — chunk boundary UNIQUE (in-jest)', 
     });
   }, 60_000);
 
-  it('Тест 4b — aggregate audit row на малом run (3 chunk\'а) тоже ровно 1 строка', async () => {
-    // Параллельная проверка теста 4 в-jest: 1500 партий = 3 chunk'а.
-    // importCreates должен остаться === 1.
+  it('Тест 4b — aggregate audit row на малом run (>1 chunk\'а) тоже ровно 1 строка', async () => {
+    // Параллельная проверка теста 4 в-jest: 1500 партий при chunk_size=200
+    // (KS-1688) → 8 chunk'ов. importCreates должен остаться === 1.
     const state = freshState();
     const prisma = fakePrisma(state);
 

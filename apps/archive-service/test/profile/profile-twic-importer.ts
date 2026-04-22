@@ -44,6 +44,17 @@ interface Args {
   dupSecond?: number;
   /** Для `idempotent` — сколько раз прогнать подряд (все на той же fake-Prisma). */
   repeat?: number;
+  /**
+   * KS-1688: предаллоцировать и удерживать до конца run'а Buffer указанного
+   * размера в MiB — эмулирует runtime-надбавку Nest/Prisma/ioredis (~80-120
+   * MiB на prod'е), которую fake-DI синтетики не моделируют. Без этого флага
+   * peak RSS профиля — чисто «importer-only» и не сопоставим с CloudWatch
+   * Container Insights по Fargate-task'у. Значение 80 MiB подобрано по
+   * наблюдаемой разнице 447 (prod TWIC-1639) − ~327 (изолированный
+   * importer) ≈ 120 MiB для полного Nest-бутстрапа; берём 80 как нижняя
+   * оценка, оставляя запас до 512-limit'а.
+   */
+  baselineBufferMiB?: number;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -67,7 +78,18 @@ function parseArgs(argv: string[]): Args {
   const repeat = flags.has('repeat')
     ? parseInt(flags.get('repeat')!, 10)
     : undefined;
-  return { gamesCount, issue, mode, dupFirst, dupSecond, repeat };
+  const baselineBufferMiB = flags.has('baseline-buffer')
+    ? parseInt(flags.get('baseline-buffer')!, 10)
+    : undefined;
+  return {
+    gamesCount,
+    issue,
+    mode,
+    dupFirst,
+    dupSecond,
+    repeat,
+    baselineBufferMiB,
+  };
 }
 
 // ─── Fake DI ──────────────────────────────────────────────────────────
@@ -256,6 +278,22 @@ async function main() {
 
   startMeasurements.push(snapshotRss('start', true));
 
+  // KS-1688: baseline-buffer — эмулирует Nest/Prisma/ioredis runtime-надбавку.
+  // Аллоцируем ПЕРЕД запуском importer'а и заполняем (чтобы kernel мапнул
+  // физические страницы — иначе RSS не вырастет, buffer останется lazy).
+  // Ссылка живёт до конца main() через замыкание — GC не освободит.
+  let baselineBuffer: Buffer | undefined;
+  if (args.baselineBufferMiB && args.baselineBufferMiB > 0) {
+    baselineBuffer = Buffer.alloc(args.baselineBufferMiB * MIB);
+    // Заполняем non-zero патернами: Buffer.alloc сам zero-filled, но kernel
+    // всё равно может ленить и возвращать «zero page» для read-only страниц.
+    // Пишем 1 байт в каждую 4-KiB страницу — гарантируем commit.
+    for (let off = 0; off < baselineBuffer.length; off += 4096) {
+      baselineBuffer[off] = 1;
+    }
+    startMeasurements.push(snapshotRss('after-baseline-buffer', true));
+  }
+
   // Build fixture.
   const zipBuf =
     args.mode === 'duplicate' &&
@@ -341,6 +379,10 @@ async function main() {
   const endMeasurement = snapshotRss('end', true);
   startMeasurements.push(endMeasurement);
 
+  // Удерживаем ссылку на baseline-buffer до конца main() — чтобы V8 не
+  // освободил его «оптимистично» в середине run'а и не обнулил эмуляцию.
+  const baselineBufferSize = baselineBuffer?.length ?? 0;
+
   const output = {
     peakRssMiB: peakRssBytes / MIB,
     measurements: startMeasurements,
@@ -352,6 +394,7 @@ async function main() {
       lastImportUpdate: state.lastImportUpdate,
     },
     gcExposed: typeof global.gc === 'function',
+    baselineBufferMiB: baselineBufferSize / MIB,
   };
 
   // stderr — читаемо для оператора, stdout — чистый JSON для родительского процесса.

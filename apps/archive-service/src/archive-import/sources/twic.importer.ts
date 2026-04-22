@@ -25,14 +25,31 @@ const DEFAULT_BUCKET = 'master';
  *
  * Значение подбирается экспериментально (измеряй через
  * `test/profile/profile-twic-importer.ts`): меньше → меньше RSS, но
- * больше round-trip'ов в indexer / position-writer. Default 500 —
- * компромисс для 8k выпуска.
+ * больше round-trip'ов в indexer / position-writer.
+ *
+ * KS-1688: снижено 500 → 200 после анализа prod-замеров TWIC-1639 (peak
+ * RSS=447 MiB, запас до 512-limit'а всего 65 MiB). С chunk=200 пик
+ * insert-фазы смещается вниз пропорционально, освобождая ~20-30 MiB
+ * резерва до OOM.
+ *
+ * Замер на 8k fixture с baseline-buffer 80 MiB (эмуляция
+ * Nest/Prisma/ioredis через `--baseline-buffer=80` у
+ * `profile-twic-importer.ts`):
+ *   chunk=500 → peak 447+ MiB (prod TWIC-1639)
+ *   chunk=300 → peak плавает 402-425 MiB, нет стабильного <420
+ *   chunk=200 → peak плавает 340-415 MiB, стабильно <420
+ *   chunk=150 → peak 340-395 MiB (дополнительный запас, но больше
+ *               SQL-round-trips).
+ *
+ * Выбран 200 как компромисс: запас ≥ 95 MiB до 512-hard-limit'а
+ * (ADR-020 §2.5 требует ≥ 90 MiB), и не слишком много round-trip'ов
+ * в indexer/position-writer (для 8000 партий: 40 chunk'ов против 16).
  *
  * Переопределяется через env `TWIC_IMPORT_CHUNK_SIZE` (оператор может
- * снизить до 250 для memory-constrained окружений или поднять до 1000
+ * снизить до 150 для memory-constrained окружений или поднять до 500
  * если peak RSS позволяет и хочется меньше SQL-вызовов).
  */
-export const DEFAULT_TWIC_IMPORT_CHUNK_SIZE = 500;
+export const DEFAULT_TWIC_IMPORT_CHUNK_SIZE = 200;
 
 function readChunkSizeFromEnv(): number {
   const raw = process.env.TWIC_IMPORT_CHUNK_SIZE;
