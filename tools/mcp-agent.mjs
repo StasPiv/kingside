@@ -35,8 +35,12 @@ const TOOLS = [
   // --- Webhook ---
   { name: 'commit', description: 'Коммит изменённых файлов в main (требует роль).',
     inputSchema: { type: 'object', properties: { message: { type: 'string' }, files: { type: 'array', items: { type: 'string' } } }, required: ['message', 'files'] } },
-  { name: 'agent_message', description: 'Прямое сообщение другому агенту.',
-    inputSchema: { type: 'object', properties: { to: { type: 'string' }, message: { type: 'string' }, force: { type: 'boolean', description: 'Обходит lock (только после agent_kill)' } }, required: ['to', 'message'] } },
+  { name: 'agent_message', description: 'Прямое сообщение другому агенту. Ставится в FIFO-очередь target; target увидит его следующим tool-запросом. Если ответа не ждёшь — reply_required=false, иначе webhook напомнит target ответить.',
+    inputSchema: { type: 'object', properties: {
+      to: { type: 'string' },
+      message: { type: 'string' },
+      reply_required: { type: 'boolean', description: 'true (default) — target ОБЯЗАН ответить через agent_message. false — уведомление без ожидания ответа' },
+    }, required: ['to', 'message'] } },
   { name: 'agent_kill', description: 'Убить daemon-процесс агента (координатор).',
     inputSchema: { type: 'object', properties: { agent: { type: 'string' } }, required: ['agent'] } },
   { name: 'agent_status', description: 'Получить статус всех daemon-агентов: alive, busy, queue_size, message_count, total_cost. Без параметров возвращает всех.',
@@ -162,7 +166,12 @@ async function call(name, args) {
     case 'commit':
       return webhookPost('/commit', { message: args.message, files: args.files });
     case 'agent_message':
-      return webhookPost('/agent/message', { from: AGENT, to: args.to, message: args.message, force: !!args.force });
+      return webhookPost('/agent/message', {
+        from: AGENT,
+        to: args.to,
+        message: args.message,
+        reply_required: args.reply_required !== false,
+      });
     case 'agent_kill':
       return webhookPost('/agent/kill', { agent: args.agent });
     case 'agent_status':

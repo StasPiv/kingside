@@ -210,6 +210,10 @@ class AgentDaemon:
         # Статистика сессии
         self._total_cost: float = 0.0
         self._message_count: int = 0
+        # Состояние ожидаемого ответа на текущее входящее сообщение
+        self._current_sender: str = ""
+        self._current_reply_channel: str | None = None
+        self._current_replied: bool = False
 
     def _build_cmd(self) -> list[str]:
         volumes = _get_agent_volumes(self.name)
@@ -306,14 +310,59 @@ class AgentDaemon:
                     with open(log_file, "a") as lf:
                         lf.write(json.dumps({"type": "agent_init", "agent": self.name, "session_id": sid}) + "\n")
 
+                # Отслеживаем tool_use: если агент вызвал agent_message/telegram_send
+                # с правильным адресатом — считаем что ответ отправителю дан.
+                if data.get("type") == "assistant" and self._current_reply_channel:
+                    msg = data.get("message") or {}
+                    for c in msg.get("content") or []:
+                        if c.get("type") != "tool_use":
+                            continue
+                        tname = c.get("name", "")
+                        tinp = c.get("input") or {}
+                        expected = self._current_reply_channel
+                        if tname == "mcp__agent__agent_message":
+                            if expected == f"agent:{tinp.get('to') or ''}":
+                                self._current_replied = True
+                        elif tname == "mcp__agent__telegram_send":
+                            if expected == "telegram":
+                                self._current_replied = True
+
                 # result означает что агент закончил обработку текущего сообщения
                 if data.get("type") == "result":
                     cost = data.get("total_cost_usd", 0)
                     self._total_cost += cost
                     self._message_count += 1
                     log(f"Daemon {self.name}: result (${cost:.4f}, total=${self._total_cost:.4f}, msgs={self._message_count})")
+
+                    # Проверка обязательного ответа отправителю. Сбрасываем состояние
+                    # ДО постановки корректирующего сообщения, чтобы оно само не
+                    # триггернуло повторную проверку.
+                    expected = self._current_reply_channel
+                    replied = self._current_replied
+                    sender = self._current_sender
+                    self._current_sender = ""
+                    self._current_reply_channel = None
+                    self._current_replied = False
+
                     self._idle.set()
                     _set_idle(self.name)
+
+                    if expected and not replied:
+                        log(f"Daemon {self.name}: ответ не отправлен (expected={expected}, sender={sender}) — шлю корректирующее")
+                        if expected.startswith("agent:"):
+                            who = expected.split(":", 1)[1]
+                            hint = f"вызови `agent_message(to=\"{who}\", message=...)`"
+                        elif expected == "telegram":
+                            hint = "вызови `telegram_send(message=...)`"
+                        else:
+                            hint = "используй нужный tool-call"
+                        self.send_message(
+                            f"[SYSTEM] Ты не ответил отправителю ({sender or expected}). "
+                            f"Текст в stdout до отправителя НЕ доходит — {hint}. "
+                            f"Если ответ действительно не требовался, отправитель должен был указать reply_required=false.",
+                            sender="system",
+                            reply_channel=None,
+                        )
 
         except Exception as e:
             log(f"Daemon {self.name}: ошибка чтения stdout: {e}")
@@ -334,13 +383,33 @@ class AgentDaemon:
                 continue
             if not result:
                 continue
-            _, msg = result
+            _, raw = result
+
+            # Распаковываем envelope: {stream, sender, reply_channel}.
+            # Поддержка старого формата (сам stream-json) для бэкомпат.
+            sender = ""
+            reply_channel: str | None = None
+            stream_msg = raw
+            try:
+                env = json.loads(raw)
+                if isinstance(env, dict) and "stream" in env:
+                    stream_msg = env["stream"]
+                    sender = env.get("sender") or ""
+                    reply_channel = env.get("reply_channel")
+            except Exception:
+                pass
 
             # Ждём пока агент освободится
             self._idle.wait(timeout=600)
 
+            # Устанавливаем состояние ожидаемого ответа ДО отправки в stdin:
+            # reader должен видеть правильный reply_channel, когда придут tool_use.
+            self._current_sender = sender
+            self._current_reply_channel = reply_channel
+            self._current_replied = False
+
             # Отправляем сообщение
-            self._send_raw(msg)
+            self._send_raw(stream_msg)
 
     def _send_raw(self, message_json: str):
         """Отправляет JSON-строку в stdin процесса."""
@@ -378,15 +447,27 @@ class AgentDaemon:
                 self._idle.set()
                 _set_idle(self.name)
 
-    def send_message(self, text: str):
-        """Ставит сообщение в Redis-очередь агента (LPUSH слева, BRPOP справа = FIFO)."""
-        msg = json.dumps({
+    def send_message(self, text: str, sender: str = "", reply_channel: str | None = None):
+        """Ставит сообщение в Redis-очередь агента (LPUSH слева, BRPOP справа = FIFO).
+
+        sender          — ключ отправителя ("agent:<name>", "telegram", "web", "system", "").
+        reply_channel   — если не None, worker проверит на event=result что агент вызвал
+                          соответствующий tool-call ("agent:<name>" → agent_message.to=<name>,
+                          "telegram" → telegram_send) и, если не вызвал, пришлёт корректирующее
+                          сообщение.
+        """
+        stream = json.dumps({
             "type": "user",
             "message": {"role": "user", "content": text},
         })
-        _REDIS.lpush(self._queue_key, msg)
+        envelope = json.dumps({
+            "stream": stream,
+            "sender": sender,
+            "reply_channel": reply_channel,
+        })
+        _REDIS.lpush(self._queue_key, envelope)
         size = _REDIS.llen(self._queue_key)
-        log(f"Daemon {self.name}: сообщение в очереди (размер: {size})")
+        log(f"Daemon {self.name}: сообщение в очереди (размер: {size}, sender={sender or '-'}, reply={reply_channel or '-'})")
 
     def get_rss_mb(self) -> float | None:
         """Возвращает RSS памяти контейнера в MB, или None."""
@@ -552,11 +633,11 @@ def _get_issue_status_category(key: str) -> str:
 # Отправка сообщений агентам
 # ---------------------------------------------------------------------------
 
-def send_to_agent(agent: str, prompt: str):
+def send_to_agent(agent: str, prompt: str, sender: str = "", reply_channel: str | None = None):
     """Отправляет сообщение daemon-агенту. Добавляет в очередь — не прерывает текущее."""
     daemon = get_daemon(agent)
     daemon.ensure_running()
-    daemon.send_message(prompt)
+    daemon.send_message(prompt, sender=sender, reply_channel=reply_channel)
 
 
 def handle_agent_message(handler, payload):
@@ -568,6 +649,13 @@ def handle_agent_message(handler, payload):
     sender = payload.get("from", "")
     target = payload.get("to", "")
     message = payload.get("message", "")
+    reply_required_raw = payload.get("reply_required", True)
+    if isinstance(reply_required_raw, bool):
+        reply_required = reply_required_raw
+    elif isinstance(reply_required_raw, str):
+        reply_required = reply_required_raw.lower() not in ("false", "0", "no", "")
+    else:
+        reply_required = bool(reply_required_raw)
 
     if not target or not message:
         handler.send_response(400)
@@ -583,9 +671,11 @@ def handle_agent_message(handler, payload):
         return
 
     prefix = f"[from {sender}] " if sender else ""
-    send_to_agent(target, f"{prefix}{message}")
+    sender_tag = f"agent:{sender}" if sender else ""
+    reply_channel = f"agent:{sender}" if (sender and reply_required) else None
+    send_to_agent(target, f"{prefix}{message}", sender=sender_tag, reply_channel=reply_channel)
     queue_size = _REDIS.llen(f"agent:queue:{target}")
-    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars, queue={queue_size})")
+    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars, queue={queue_size}, reply_required={reply_required})")
 
     handler.send_response(200)
     handler.end_headers()
@@ -593,6 +683,7 @@ def handle_agent_message(handler, payload):
         "status": "queued",
         "to": target,
         "queue_size": queue_size,
+        "reply_required": reply_required,
     }).encode())
 
 
@@ -1360,7 +1451,7 @@ def telegram_poll_loop():
 
             prompt_text = f"[Telegram {display}] {agent_msg}"
             _log_user_prompt(target_agent, prompt_text, source=f"Telegram {display}")
-            send_to_agent(target_agent, prompt_text)
+            send_to_agent(target_agent, prompt_text, sender="telegram", reply_channel="telegram")
             log(f"Telegram -> {target_agent}: {agent_msg[:80]}")
             send_telegram(f"✅ Сообщение отправлено агенту {target_agent}")
 
