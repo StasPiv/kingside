@@ -14,6 +14,37 @@ import { ArchiveImportMetricsService } from '../archive-import-metrics.service';
 const DEFAULT_BUCKET = 'master';
 
 /**
+ * KS-1687: размер chunk'а в пайплайне parse → dedup → insert → index → write.
+ *
+ * Мотивация — peak RSS. Для TWIC-выпуска с 8000+ партий без chunk'ов
+ * аккумуляторы `addedGames[]`/`positionRows[]` вырастают до 150–200 MiB;
+ * суммарно с parseBatch-пиком (~100 MiB) process пробивает 512 MiB
+ * Fargate-limit и OOM-килится (KS-1686 history). Обрабатывая партии
+ * окнами по `TWIC_IMPORT_CHUNK_SIZE`, освобождаем per-chunk буферы
+ * между окнами — peak смещается к единому parseBatch-пику.
+ *
+ * Значение подбирается экспериментально (измеряй через
+ * `test/profile/profile-twic-importer.ts`): меньше → меньше RSS, но
+ * больше round-trip'ов в indexer / position-writer. Default 500 —
+ * компромисс для 8k выпуска.
+ *
+ * Переопределяется через env `TWIC_IMPORT_CHUNK_SIZE` (оператор может
+ * снизить до 250 для memory-constrained окружений или поднять до 1000
+ * если peak RSS позволяет и хочется меньше SQL-вызовов).
+ */
+export const DEFAULT_TWIC_IMPORT_CHUNK_SIZE = 500;
+
+function readChunkSizeFromEnv(): number {
+  const raw = process.env.TWIC_IMPORT_CHUNK_SIZE;
+  if (!raw) return DEFAULT_TWIC_IMPORT_CHUNK_SIZE;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_TWIC_IMPORT_CHUNK_SIZE;
+  }
+  return parsed;
+}
+
+/**
  * TWIC (The Week In Chess) — еженедельный архив партий, выпуски нумерованы
  * монотонно. URL: `https://theweekinchess.com/zips/twic{N}g.zip`.
  *
@@ -218,6 +249,9 @@ export class TwicImporter {
     let fileName: string;
     try {
       ({ content, fileName } = this.extractPgn(zipBuffer));
+      // KS-1687: сам zip-buffer больше не нужен (10–20 MiB compressed +
+      // inflated копия внутри AdmZip). Дай GC шанс до parseBatch-пика.
+      zipBuffer = null;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       return {
@@ -233,19 +267,35 @@ export class TwicImporter {
     }
 
     const { games, failed } = parseBatch(content);
+    // KS-1687: `content` больше не нужен — ParsedGame внутри games держит
+    // `raw` (сырой PGN-текст партии) отдельно. Обнуляем переменную, чтобы
+    // V8 GC смог вернуть исходную строку-контейнер (10–40 MiB для 8k
+    // выпуска) до старта chunk-loop'а.
+    content = '';
+    const gamesParsedTotal = games.length + failed;
     this.logger.log(`[twic] issue ${issue}: parsed=${games.length} failed=${failed}`);
 
     // KS-1621: idempotent index. Отфильтровываем одним SELECT'ом уже
     // сохранённые content_hash — чтобы retry того же TWIC-пакета не
     // инкрементировал `position_stats` второй раз. Cycle insert ниже
     // остаётся защищённым catch'ем P2002 на случай race'а.
+    // KS-1687: filterAlreadyImported вызывается ОДИН раз на весь batch
+    // до chunk-loop'а — это сохраняет семантику, при которой дубли
+    // ВНУТРИ одного выпуска (один и тот же content_hash в разных
+    // позициях PGN-файла) падают через P2002-ветку inside insert-loop
+    // (т.к. на момент filterAlreadyImported оба ещё отсутствуют в БД).
     const freshGames = await filterAlreadyImported(this.prisma, games);
     const preSkipped = games.length - freshGames.length;
+    // Отвязываем ссылку: games[] больше не нужен, дай V8 GC шанс
+    // освободить ParsedGame объекты, попавшие в preSkipped (pre-existing).
+    // freshGames держит только неотфильтрованные.
+    games.length = 0;
 
     // Запись в archive_imports с `status=running`. В ad-hoc-режиме
     // `cursor_before` = текущий source.cursor; финальный `cursor_after`
     // в scheduler-режиме станет `String(issue)`, в ad-hoc останется
     // равным `cursor_before`.
+    // KS-1687: ровно одна audit-строка на весь run (не per-chunk).
     const importRow = await this.prisma.archiveImport.create({
       data: {
         sourceId: this.source.id,
@@ -257,110 +307,138 @@ export class TwicImporter {
 
     let added = 0;
     let skipped = failed + preSkipped; // битые + уже в БД
-    const addedGames: ParsedGame[] = [];
-    const positionRows: PositionRow[] = [];
+    let classicalAdded = 0;
 
-    // Вставляем только неизвестные content_hash'и. Доп. catch на P2002 —
-    // защита от race'а между pre-SELECT и INSERT (параллельный запуск).
-    for (const game of freshGames) {
-      // Копируем хэш в Uint8Array с собственным ArrayBuffer — Prisma не принимает
-      // Buffer/SharedArrayBuffer-backed views в качестве входа `Bytes`.
-      const hashBytes = new Uint8Array(game.contentHash.length);
-      hashBytes.set(game.contentHash);
-      try {
-        const created = await this.prisma.archiveGame.create({
-          data: {
-            sourceId: this.source.id,
-            importId: importRow.id,
-            contentHash: hashBytes,
-            event: game.event,
-            site: game.site,
-            round: game.round,
-            date: game.date,
-            playedAt: game.playedAt,
-            whiteName: game.white,
-            blackName: game.black,
-            whiteElo: game.whiteElo,
-            blackElo: game.blackElo,
-            whiteTitle: game.whiteTitle,
-            blackTitle: game.blackTitle,
-            result: game.result,
-            eco: game.eco,
-            opening: game.opening,
-            plyCount: game.plyCount,
-            pgn: game.raw,
-            finalFen: game.finalFen,
-            timeControl: game.timeControl,
+    // KS-1687: chunk-loop. Per-chunk:
+    //   1) insert (fresh games only, catching P2002 for in-batch duplicates),
+    //   2) build position rows (classical-only),
+    //   3) indexer.index(...) + positionWriter.write(...),
+    //   4) chunk-local буферы выходят из scope — V8 может GC'нуть.
+    //
+    // ParsedGame-ссылки в freshGames обнуляются по мере продвижения по
+    // chunk'ам — это освобождает самую тяжёлую часть (moves[] c FEN на
+    // каждый полуход) без ожидания конца run'а.
+    const chunkSize = readChunkSizeFromEnv();
+    for (let base = 0; base < freshGames.length; base += chunkSize) {
+      const end = Math.min(base + chunkSize, freshGames.length);
+
+      const chunkAddedGames: ParsedGame[] = [];
+      const chunkPositionRows: PositionRow[] = [];
+
+      for (let i = base; i < end; i++) {
+        const game = freshGames[i];
+        // Копируем хэш в Uint8Array с собственным ArrayBuffer — Prisma не принимает
+        // Buffer/SharedArrayBuffer-backed views в качестве входа `Bytes`.
+        const hashBytes = new Uint8Array(game.contentHash.length);
+        hashBytes.set(game.contentHash);
+        try {
+          const created = await this.prisma.archiveGame.create({
+            data: {
+              sourceId: this.source.id,
+              importId: importRow.id,
+              contentHash: hashBytes,
+              event: game.event,
+              site: game.site,
+              round: game.round,
+              date: game.date,
+              playedAt: game.playedAt,
+              whiteName: game.white,
+              blackName: game.black,
+              whiteElo: game.whiteElo,
+              blackElo: game.blackElo,
+              whiteTitle: game.whiteTitle,
+              blackTitle: game.blackTitle,
+              result: game.result,
+              eco: game.eco,
+              opening: game.opening,
+              plyCount: game.plyCount,
+              pgn: game.raw,
+              finalFen: game.finalFen,
+              timeControl: game.timeControl,
+              category: game.category,
+              isClassical: game.isClassical,
+            },
+            select: { id: true },
+          });
+          added++;
+          chunkAddedGames.push(game);
+          // KS-1626: метрики классификации.
+          this.metrics.archiveGamesByCategoryTotal.inc({
+            source: this.source.code,
             category: game.category,
-            isClassical: game.isClassical,
-          },
-          select: { id: true },
-        });
-        added++;
-        addedGames.push(game);
-        // KS-1626: метрики классификации.
-        this.metrics.archiveGamesByCategoryTotal.inc({
-          source: this.source.code,
-          category: game.category,
-        });
-        this.metrics.archiveRejectedUnknownReasonTotal.inc({
-          source: this.source.code,
-          rule: game.classificationReason,
-        });
-        if (!game.isClassical) {
-          this.metrics.archiveImportedNonClassicalTotal.inc({ source: this.source.code });
-        } else {
-          // В агрегаты/индекс позиций только классика.
-          for (const row of buildPositionRowsForGame(created.id, game, DEFAULT_BUCKET)) {
-            positionRows.push(row);
+          });
+          this.metrics.archiveRejectedUnknownReasonTotal.inc({
+            source: this.source.code,
+            rule: game.classificationReason,
+          });
+          if (!game.isClassical) {
+            this.metrics.archiveImportedNonClassicalTotal.inc({ source: this.source.code });
+          } else {
+            // В агрегаты/индекс позиций только классика.
+            for (const row of buildPositionRowsForGame(created.id, game, DEFAULT_BUCKET)) {
+              chunkPositionRows.push(row);
+            }
+          }
+        } catch (err: unknown) {
+          // P2002 — UNIQUE violation по content_hash → дубликат, это ОК.
+          // Сюда попадают in-batch дубли (два PGN с одинаковым хэшем
+          // в одном выпуске — первое insert проходит, второе отбивается).
+          if (isUniqueViolation(err)) {
+            skipped++;
+          } else {
+            skipped++;
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.warn(`[twic] game insert failed: ${msg}`);
           }
         }
-      } catch (err: unknown) {
-        // P2002 — UNIQUE violation по content_hash → дубликат, это ОК.
-        if (isUniqueViolation(err)) {
-          skipped++;
-        } else {
-          skipped++;
+      }
+
+      // Позиционный индекс обновляем только по новым КЛАССИЧЕСКИМ партиям
+      // (ADR-015 §2.4: non-classical не попадают в position_stats / дерево).
+      // KS-1687: index+write per chunk, не единой коллекцией на весь run —
+      // это ключевое изменение для peak RSS (положение rows не копится
+      // на всю длину freshGames, а освобождается после каждого окна).
+      const classicalInChunk = chunkAddedGames.filter((g) => g.isClassical);
+      if (classicalInChunk.length > 0) {
+        classicalAdded += classicalInChunk.length;
+        try {
+          await this.indexer.index(classicalInChunk, this.source.code);
+        } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          this.logger.warn(`[twic] game insert failed: ${msg}`);
+          this.logger.error(`[twic] position-indexer failed: ${msg}`);
+          // Партии вставлены — оставляем как есть, индексацию можно догнать backfill-процедурой.
         }
       }
-    }
 
-    // Позиционный индекс обновляем только по новым КЛАССИЧЕСКИМ партиям
-    // (ADR-015 §2.4: non-classical не попадают в position_stats / дерево).
-    const classicalGames = addedGames.filter((g) => g.isClassical);
-    if (classicalGames.length > 0) {
-      try {
-        await this.indexer.index(classicalGames, this.source.code);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.logger.error(`[twic] position-indexer failed: ${msg}`);
-        // Партии вставлены — оставляем как есть, индексацию можно догнать backfill-процедурой.
+      // COPY в archive_game_positions — отдельный путь (staging + ON CONFLICT DO NOTHING).
+      // Падение не откатывает archive_games — индекс по позициям догоним backfill'ом.
+      if (this.positionWriter && chunkPositionRows.length > 0) {
+        try {
+          await this.positionWriter.write(chunkPositionRows, this.source.code);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.error(`[twic] position-writer failed: ${msg}`);
+        }
+      }
+
+      // Обнуляем ссылки на ParsedGame-объекты в обработанной части
+      // freshGames, чтобы V8 мог GC'нуть их (moves + finalFen + raw —
+      // самая жирная часть). chunkAddedGames / chunkPositionRows
+      // выходят из scope следующей итерации и также GC'нутся.
+      for (let i = base; i < end; i++) {
+        // @ts-expect-error intentional reference drop for GC
+        freshGames[i] = null;
       }
     }
 
     // Gauge: доля классических в последнем импорте источника.
     const classicalRatio =
-      addedGames.length > 0
-        ? classicalGames.length / addedGames.length
-        : undefined;
+      added > 0 ? classicalAdded / added : undefined;
     if (classicalRatio !== undefined) {
       this.metrics.archiveClassicalRatio.set(
         { source: this.source.code },
         classicalRatio,
       );
-    }
-
-    // COPY в archive_game_positions — отдельный путь (staging + ON CONFLICT DO NOTHING).
-    // Падение не откатывает archive_games — индекс по позициям догоним backfill'ом.
-    if (this.positionWriter && positionRows.length > 0) {
-      try {
-        await this.positionWriter.write(positionRows, this.source.code);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.logger.error(`[twic] position-writer failed: ${msg}`);
-      }
     }
 
     const status: ImportResult['status'] =
@@ -377,7 +455,7 @@ export class TwicImporter {
       data: {
         status,
         cursorAfter,
-        gamesParsed: games.length + failed,
+        gamesParsed: gamesParsedTotal,
         gamesAdded: added,
         gamesSkipped: skipped,
         finishedAt: new Date(),
@@ -415,7 +493,7 @@ export class TwicImporter {
       cursorBefore,
       cursorAfter,
       fileName,
-      gamesParsed: games.length + failed,
+      gamesParsed: gamesParsedTotal,
       gamesAdded: added,
       gamesSkipped: skipped,
       classicalRatio,
