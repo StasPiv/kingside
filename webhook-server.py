@@ -559,11 +559,14 @@ def send_to_agent(agent: str, prompt: str):
 
 
 def handle_agent_message(handler, payload):
-    """Обрабатывает POST /agent/message — прямое сообщение между агентами."""
+    """Обрабатывает POST /agent/message — прямое сообщение между агентами.
+
+    Сообщение всегда кладётся в Redis-очередь target-агента. Если target сейчас
+    занят — worker-loop сам обработает сообщение после освобождения (FIFO).
+    """
     sender = payload.get("from", "")
     target = payload.get("to", "")
     message = payload.get("message", "")
-    force = payload.get("force", False)
 
     if not target or not message:
         handler.send_response(400)
@@ -578,29 +581,18 @@ def handle_agent_message(handler, payload):
         handler.wfile.write(json.dumps({"error": f"unknown agent '{target}'"}).encode())
         return
 
-    # Проверка: target занят другой работой — отказ
-    if _is_busy(target):
-        # force=true требует чтобы target был мёртв (убит через /agent/kill)
-        with agent_daemons_lock:
-            target_daemon = agent_daemons.get(target)
-        target_alive = target_daemon and target_daemon.is_alive()
-        if not force or target_alive:
-            handler.send_response(409)
-            handler.send_header("Content-Type", "application/json")
-            handler.end_headers()
-            handler.wfile.write(json.dumps({
-                "error": f"agent '{target}' is busy",
-                "hint": "retry later, or call /agent/kill first then retry with force=true"
-            }).encode())
-            return
-
     prefix = f"[from {sender}] " if sender else ""
     send_to_agent(target, f"{prefix}{message}")
-    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars){' [force]' if force else ''}")
+    queue_size = _REDIS.llen(f"agent:queue:{target}")
+    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars, queue={queue_size})")
 
     handler.send_response(200)
     handler.end_headers()
-    handler.wfile.write(json.dumps({"status": "delivered", "to": target}).encode())
+    handler.wfile.write(json.dumps({
+        "status": "queued",
+        "to": target,
+        "queue_size": queue_size,
+    }).encode())
 
 
 def _escape_html(text: str) -> str:
