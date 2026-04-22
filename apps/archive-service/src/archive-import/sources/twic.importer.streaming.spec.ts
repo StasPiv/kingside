@@ -81,19 +81,32 @@ const PROFILE_SCRIPT = path.resolve(
 );
 
 /**
- * Пути к tsx проверяются в порядке: сначала workspace-локальный, затем
- * root monorepo (hoisted). Если ни того, ни другого — тест падает с
- * осмысленной ошибкой (окружение не готово, а не «непонятный exit 127»).
+ * Резолв tsx бинарника через upward-поиск по node_modules/.bin, начиная
+ * от __dirname и поднимаясь до корня файловой системы. Это работает и в
+ * рабочей копии на хосте, и в контейнере agent'а — не зависит от того,
+ * где именно смонтирован workspace. `/project/node_modules/.bin/tsx`
+ * оставлен как last-resort fallback для legacy container layouts.
  */
 function resolveTsxBin(): string {
-  const candidates = [
-    path.resolve(__dirname, '../../../node_modules/.bin/tsx'),
-    '/project/node_modules/.bin/tsx',
-  ];
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require('node:fs') as typeof import('node:fs');
+  const candidates: string[] = [];
+
+  let dir = __dirname;
+  // Upward lookup: node_modules/.bin/tsx на каждом уровне до корня ФС.
+  while (true) {
+    candidates.push(path.join(dir, 'node_modules', '.bin', 'tsx'));
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Legacy fallback (container with /project mount).
+  if (!candidates.includes('/project/node_modules/.bin/tsx')) {
+    candidates.push('/project/node_modules/.bin/tsx');
+  }
+
   for (const bin of candidates) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fs = require('node:fs') as typeof import('node:fs');
       if (fs.existsSync(bin)) return bin;
     } catch {
       // ignore
