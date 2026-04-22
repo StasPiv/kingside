@@ -19,6 +19,7 @@ ACCOUNT_ID="342946498289"
 ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
 ECR_URI_GAME="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-game-service"
 ECR_URI_BROADCAST="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-worker"
+ECR_URI_BROADCAST_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-service"
 ECR_URI_ARCHIVE_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
@@ -26,6 +27,8 @@ ECS_CLUSTER="kingside"
 ECS_SERVICE="kingside-api"
 ECS_SERVICE_GAME="kingside-game-service"
 ECS_SERVICE_BROADCAST="kingside-broadcast-worker"
+# ADR-021: отдельный сервис для REST+WS broadcasts на broadcasts.kingside.site.
+ECS_SERVICE_BROADCAST_SERVICE="kingside-broadcast-service"
 # ADR-019: единый образ archive-service обслуживает два ECS-сервиса: HTTP и importer.
 ECS_SERVICE_ARCHIVE_SERVICE="kingside-archive-service"
 ECS_SERVICE_ARCHIVE_IMPORTER="kingside-archive-importer"
@@ -40,6 +43,10 @@ PROD_VITE_API_URL="https://api.kingside.site"
 # Fallback на VITE_API_URL во фронте не используется: archiveUrl.js бросает исключение
 # при загрузке модуля, если переменная не задана.
 PROD_VITE_ARCHIVE_URL="https://archive.kingside.site"
+# VITE_BROADCAST_URL — выделенный поддомен для broadcast-service (KS-1696 / ADR-021 §6).
+# Fallback на VITE_API_URL не используется: broadcastUrl.ts кидает Error при загрузке
+# модуля, если переменная не задана (broadcast-страницы eager-loaded в App.tsx).
+PROD_VITE_BROADCAST_URL="https://broadcasts.kingside.site"
 PROD_GAME_URL="wss://game.kingside.site"
 PROD_GA4_ID="G-9HF8RVMK8K"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
@@ -112,6 +119,7 @@ detect_deploy_scope() {
     local has_api=false
     local has_game=false
     local has_broadcast=false
+    local has_broadcast_service=false
     local has_archive_service=false
 
     while IFS= read -r file; do
@@ -125,6 +133,11 @@ detect_deploy_scope() {
                 has_game=true ;;
             apps/broadcast-worker/*)
                 has_broadcast=true ;;
+            apps/broadcast-service/*)
+                has_broadcast_service=true ;;
+            packages/broadcasts-db/*)
+                has_broadcast_service=true
+                has_broadcast=true ;;
             apps/archive-service/*)
                 has_archive_service=true ;;
             packages/archive-db/*)
@@ -134,12 +147,14 @@ detect_deploy_scope() {
                 has_api=true
                 has_game=true
                 has_broadcast=true
+                has_broadcast_service=true
                 has_archive_service=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
                 has_game=true
                 has_broadcast=true
+                has_broadcast_service=true
                 has_archive_service=true ;;
         esac
     done <<< "$changed_files"
@@ -150,6 +165,7 @@ detect_deploy_scope() {
     $has_api && count=$((count + 1))
     $has_game && count=$((count + 1))
     $has_broadcast && count=$((count + 1))
+    $has_broadcast_service && count=$((count + 1))
     $has_archive_service && count=$((count + 1))
 
     if [ "$count" -gt 1 ]; then
@@ -162,6 +178,8 @@ detect_deploy_scope() {
         echo "game-service"
     elif $has_broadcast; then
         echo "broadcast-worker"
+    elif $has_broadcast_service; then
+        echo "broadcast-service"
     elif $has_archive_service; then
         echo "archive-service"
     else
@@ -192,17 +210,19 @@ DEPLOY_FRONTEND=false
 DEPLOY_API=false
 DEPLOY_GAME=false
 DEPLOY_BROADCAST=false
+DEPLOY_BROADCAST_SERVICE=false
 DEPLOY_ARCHIVE_SERVICE=false
 
 case "$SCOPE" in
-    frontend)          DEPLOY_FRONTEND=true ;;
-    api)               DEPLOY_API=true ;;
-    game-service)      DEPLOY_GAME=true ;;
-    broadcast-worker)  DEPLOY_BROADCAST=true ;;
-    archive-service)   DEPLOY_ARCHIVE_SERVICE=true ;;
-    workers)           DEPLOY_BROADCAST=true; DEPLOY_ARCHIVE_SERVICE=true ;;
-    all)               DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true; DEPLOY_ARCHIVE_SERVICE=true ;;
-    *)                 echo "Unknown scope: $SCOPE"; exit 1 ;;
+    frontend)           DEPLOY_FRONTEND=true ;;
+    api)                DEPLOY_API=true ;;
+    game-service)       DEPLOY_GAME=true ;;
+    broadcast-worker)   DEPLOY_BROADCAST=true ;;
+    broadcast-service)  DEPLOY_BROADCAST_SERVICE=true ;;
+    archive-service)    DEPLOY_ARCHIVE_SERVICE=true ;;
+    workers)            DEPLOY_BROADCAST=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
+    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
+    *)                  echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
 echo ""
@@ -211,8 +231,8 @@ echo ""
 
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 if $DEPLOY_FRONTEND; then
-    echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
-    VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
+    echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_BROADCAST_URL=$PROD_VITE_BROADCAST_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
+    VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_BROADCAST_URL="$PROD_VITE_BROADCAST_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
 
     echo "[frontend] Syncing to S3..."
@@ -298,6 +318,39 @@ if $DEPLOY_BROADCAST; then
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
+fi
+
+# --- Broadcast Service (apps/broadcast-service): docker build → ECR push → ECS update ---
+# ADR-021: REST+WS для /broadcasts переезжает из apps/api в отдельный apps/broadcast-service
+# на broadcasts.kingside.site. Образ kingside-broadcast-service обслуживает один ECS-сервис
+# kingside-broadcast-service (HTTP+WS на порту 3004). Sticky sessions включены на ALB TG
+# kingside-broadcasts-api (lb_cookie, WS-critical).
+# Инфра — scripts/broadcast-service-aws-setup.sh (KS-1696).
+if $DEPLOY_BROADCAST_SERVICE; then
+    echo "[broadcast-service] Logging in to ECR..."
+    aws ecr get-login-password --region "$REGION" | \
+        docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
+
+    echo "[broadcast-service] Building Docker image..."
+    docker build -t kingside-broadcast-service:latest -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR"
+
+    echo "[broadcast-service] Pushing to ECR..."
+    docker tag kingside-broadcast-service:latest "${ECR_URI_BROADCAST_SERVICE}:latest"
+    docker push "${ECR_URI_BROADCAST_SERVICE}:latest" 2>&1 | tail -3
+
+    SVC_STATUS=$(aws ecs describe-services \
+        --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_BROADCAST_SERVICE" \
+        --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+
+    if [ "$SVC_STATUS" = "ACTIVE" ]; then
+        echo "[broadcast-service] Updating ECS service..."
+        aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST_SERVICE" \
+            --force-new-deployment --query 'service.deployments[0].status' --output text
+        echo "  ECS service update initiated."
+    else
+        echo "[broadcast-service] ECS service '$ECS_SERVICE_BROADCAST_SERVICE' not found (status=$SVC_STATUS)."
+        echo "[broadcast-service] Run scripts/broadcast-service-aws-setup.sh after first image push to register task-def + create service."
+    fi
 fi
 
 # --- Archive Service (apps/archive-service): docker build → ECR push → ECS update ---
