@@ -369,7 +369,10 @@ IMPORTER_TD_JSON=$(cat <<EOF
       "essential": true,
       "command": ["node", "dist/importer-once.js"],
       "environment": [
-        {"name": "NODE_ENV", "value": "production"}
+        {"name": "NODE_ENV", "value": "production"},
+        {"name": "AWS_EMF_ENVIRONMENT", "value": "Local"},
+        {"name": "AWS_EMF_NAMESPACE", "value": "${IMPORTER_METRIC_NAMESPACE}"},
+        {"name": "AWS_EMF_LOG_GROUP_NAME", "value": "${IMPORTER_LOG_GROUP}"}
       ],
       "secrets": [
         {"name": "ARCHIVE_DATABASE_URL", "valueFrom": "${ARCHIVE_SECRET_ARN}:ARCHIVE_DATABASE_URL::"},
@@ -390,6 +393,10 @@ IMPORTER_TD_JSON=$(cat <<EOF
 }
 EOF
 )
+# AWS_EMF_ENVIRONMENT=Local — заставляет aws-embedded-metrics писать EMF-JSON
+# в stdout вместо попытки отправить через CloudWatch agent sidecar; в ECS Fargate
+# EMF-строки подхватывает awslogs-driver и CloudWatch Logs автоматически парсит
+# их в метрики. ADR-020 §2.1 + §2.5 (вариант B). KS-1714.
 IMPORTER_TD_FILE="$(mktemp -t importer-taskdef.XXXXXX.json)"
 printf '%s' "${IMPORTER_TD_JSON}" > "${IMPORTER_TD_FILE}"
 IMPORTER_TD_ARN=$(aws_cli ecs register-task-definition --cli-input-json "file://${IMPORTER_TD_FILE}" \
