@@ -41,16 +41,17 @@ type WsBroadcastMovePayload = {
 /**
  * WS gateway для трансляций (ADR-021 §2.3).
  *
- * Namespace `/broadcast`, transports=['websocket']. Клиент подписывается на
- * `broadcast:{roundId}` room через event `broadcast:subscribe`. Источник
- * обновлений — Redis pub/sub каналы, которые пишет `apps/broadcast-worker`.
+ * KS-1702: namespace убран (subdomain `broadcasts.kingside.site` уже выражает
+ * домен) — используется default `/`. transports=['websocket']. Клиент
+ * подписывается на `broadcast:{roundId}` room через event `broadcast:subscribe`.
+ * Источник обновлений — Redis pub/sub каналы, которые пишет
+ * `apps/broadcast-worker`.
  *
  * Multi-instance safe: socket.io настроен с `RedisIoAdapter`
  * (см. `apps/broadcast-service/src/redis/redis-io.adapter.ts`), так что
  * room-events доставляются через все реплики.
  */
 @WebSocketGateway({
-  namespace: '/broadcast',
   cors: { origin: '*' },
   transports: ['websocket'],
   pingTimeout: 30000,

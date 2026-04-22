@@ -51,17 +51,17 @@ type BroadcastGamesResponse = { data: BroadcastGameItem[] };
 /**
  * Broadcast HTTP controller (ADR-021 §2.1).
  *
- * Paths (без global prefix): `/broadcasts`, `/broadcasts/:id`,
- * `/broadcasts/:id/standings`, `/broadcasts/:id/rounds`,
- * `/broadcasts/:id/rounds/:roundId/games`.
+ * Paths (KS-1702 — без префикса `/broadcasts`, хост `broadcasts.kingside.site`
+ * уже выражает домен): `/`, `/:id`, `/:id/standings`, `/:id/rounds`,
+ * `/:id/rounds/:roundId/games`.
  *
  * Публичные read-only данные — auth не требуется.
  */
-@Controller('broadcasts')
+@Controller()
 export class BroadcastController {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** GET /broadcasts — список трансляций (summary + пагинация). */
+  /** GET / — список трансляций (summary + пагинация). */
   @Get()
   async getActiveBroadcasts(
     @Query('limit') limitParam?: string,
@@ -212,7 +212,7 @@ export class BroadcastController {
     return result;
   }
 
-  /** GET /broadcasts/:id — метаданные трансляции. */
+  /** GET /:id — метаданные трансляции. */
   @Get(':id')
   async getBroadcast(@Param('id') id: string) {
     const broadcast = await this.prisma.broadcast.findUnique({
@@ -242,7 +242,7 @@ export class BroadcastController {
     };
   }
 
-  /** GET /broadcasts/:id/standings — crosstable standings. */
+  /** GET /:id/standings — crosstable standings. */
   @Get(':id/standings')
   async getStandings(@Param('id') id: string) {
     const broadcast = await this.prisma.broadcast.findUnique({
@@ -360,7 +360,7 @@ export class BroadcastController {
     return { players };
   }
 
-  /** GET /broadcasts/:id/rounds — туры трансляции. */
+  /** GET /:id/rounds — туры трансляции. */
   @Get(':id/rounds')
   async getBroadcastRounds(
     @Param('id') id: string,
@@ -388,7 +388,7 @@ export class BroadcastController {
     return { data };
   }
 
-  /** GET /broadcasts/:id/rounds/:roundId/games — партии в туре. */
+  /** GET /:id/rounds/:roundId/games — партии в туре. */
   @Get(':id/rounds/:roundId/games')
   async getBroadcastRoundGames(
     @Param('id') id: string,

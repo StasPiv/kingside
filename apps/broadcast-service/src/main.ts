@@ -9,13 +9,14 @@ import { RedisIoAdapter } from './redis/redis-io.adapter';
  * broadcast-service bootstrap (ADR-021 §2.3).
  *
  * Особенности:
- * - Публичные пути: `/broadcasts`, `/broadcasts/:id`, `/broadcasts/:id/rounds`,
- *   `/broadcasts/:id/rounds/:roundId/games`, `/broadcasts/:id/standings`.
+ * - Публичные пути (KS-1702, без префикса `/broadcasts`): `/`, `/:id`,
+ *   `/:id/rounds`, `/:id/rounds/:roundId/games`, `/:id/standings`.
  *   Служебные — под `/_` (health, metrics).
- * - WS namespace `/broadcast` через `RedisIoAdapter` — на ECS за ALB с sticky
- *   sessions всё равно возможно переключение инстансов между HTTP и WS, и
- *   broadcast-worker публикует `broadcast:move` / `broadcast:sync` в Redis,
- *   а socket.io-rooms должны быть синхронизированы между всеми инстансами.
+ * - WS default namespace `/` (KS-1702, без `/broadcast`) через `RedisIoAdapter` —
+ *   на ECS за ALB с sticky sessions всё равно возможно переключение инстансов
+ *   между HTTP и WS, и broadcast-worker публикует `broadcast:move` /
+ *   `broadcast:sync` в Redis, а socket.io-rooms должны быть синхронизированы
+ *   между всеми инстансами.
  * - Аутентификации нет — данные public read-only (ADR-021 §2.1).
  * - CORS: GET/HEAD, credentials=false. Origin-ы из `CORS_ORIGIN`.
  */

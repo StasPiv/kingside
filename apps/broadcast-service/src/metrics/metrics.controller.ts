@@ -6,7 +6,7 @@ import { MetricsService } from './metrics.service';
  * `GET /_/metrics` — Prometheus scrape endpoint.
  *
  * Публичный (без аутентификации). Префикс `/_` выбран, чтобы не коллидировать
- * с broadcast-маршрутами (`/broadcasts/...`).
+ * с broadcast-маршрутами (`/`, `/:id` и т.д. — см. BroadcastController).
  */
 @Controller('_/metrics')
 export class MetricsController {

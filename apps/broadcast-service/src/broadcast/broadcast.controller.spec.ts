@@ -3,8 +3,11 @@ import { BroadcastController } from './broadcast.controller';
 
 /**
  * Минимальный unit-test для BroadcastController:
- *   - `GET /broadcasts` возвращает пустой список при пустой БД.
- *   - `GET /broadcasts/:id` кидает 404 при отсутствии записи.
+ *   - `GET /` возвращает пустой список при пустой БД.
+ *   - `GET /:id` кидает 404 при отсутствии записи.
+ *
+ * Пути без префикса `/broadcasts` — KS-1702, субдомен
+ * `broadcasts.kingside.site` уже выражает домен.
  *
  * Больший coverage (standings crosstable, pinned stats) — e2e-уровень, его
  * добавим после того как broadcasts_kingside БД будет доступна в CI.
@@ -32,13 +35,13 @@ describe('BroadcastController', () => {
     return { controller, prisma };
   }
 
-  it('GET /broadcasts — empty DB → { data: [], total: 0 }', async () => {
+  it('GET / — empty DB → { data: [], total: 0 }', async () => {
     const { controller } = build();
     const res = await controller.getActiveBroadcasts();
     expect(res).toEqual({ data: [], total: 0, limit: 20, offset: 0 });
   });
 
-  it('GET /broadcasts/:id — 404 when missing', async () => {
+  it('GET /:id — 404 when missing', async () => {
     const { controller } = build();
     await expect(controller.getBroadcast('11111111-1111-1111-1111-111111111111')).rejects.toBeInstanceOf(
       NotFoundException,
