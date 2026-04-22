@@ -1,0 +1,686 @@
+/* ============================================================
+ * Kingside design tokens (KS-1694)
+ *
+ * Two-layer token system:
+ *   1. Raw colour tokens (--c-<hex-slug>, --ov-<...>)
+ *      — every distinct hex / rgba literal that historically
+ *      lived inline in *.css. These are the values themselves
+ *      and are remapped per theme.
+ *   2. Semantic aliases (--bg-canvas, --text-primary, …)
+ *      — point at raw tokens. Use these in NEW components.
+ *
+ * Theme switching: <html data-theme="light"> overrides the raw
+ * palette. Dark theme is the default (no attribute, or
+ * data-theme="dark"). The semantic aliases are stable across
+ * themes — only raw values change.
+ *
+ * The light-theme overrides keep the SAME token names; only
+ * the colour value flips, so every consumer rule keeps working
+ * unchanged. Where a hex used to mean "pure white text on a
+ * coloured button", the light override keeps it white.
+ * ============================================================ */
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* ---------- Raw colour palette (dark) ---------- */
+  /* Backgrounds: deep / canvas / surface */
+  --c-0b0c12: #0b0c12;
+  --c-0d0d1a: #0d0d1a;
+  --c-0f0f1a: #0f0f1a;
+  --c-0f0f1e: #0f0f1e;
+  --c-0f172a: #0f172a;
+  --c-111827: #111827;
+  --c-12122a: #12122a;
+  --c-131a2e: #131a2e;
+  --c-16162a: #16162a;
+  --c-161632: #161632;
+  --c-16213e: #16213e;
+  --c-1a1a1a: #1a1a1a;
+  --c-1a1a2e: #1a1a2e;
+  --c-1a1a3a: #1a1a3a;
+  --c-1a1a3e: #1a1a3e;
+  --c-1a2436: #1a2436;
+  --c-1b2a4e: #1b2a4e;
+  --c-1e1e2e: #1e1e2e;
+  --c-1e1e38: #1e1e38;
+  --c-1e1e3a: #1e1e3a;
+  --c-1e1e3e: #1e1e3e;
+  --c-1e293b: #1e293b;
+  --c-1e2a4a: #1e2a4a;
+  --c-1e2d50: #1e2d50;
+  --c-1e3a2f: #1e3a2f;
+  --c-1e3a5f: #1e3a5f;
+  --c-1f2937: #1f2937;
+  --c-222: #222;
+  --c-222240: #222240;
+  --c-252540: #252540;
+  --c-262648: #262648;
+  --c-2a1a4e: #2a1a4e;
+  --c-2a1e4a: #2a1e4a;
+  --c-2a2a3e: #2a2a3e;
+  --c-2a2a4a: #2a2a4a;
+  --c-2a2a4e: #2a2a4e;
+  --c-2a2a5e: #2a2a5e;
+  --c-2a2d3e: #2a2d3e;
+  --c-2a3a5e: #2a3a5e;
+  --c-2a3a6a: #2a3a6a;
+  --c-2e0a0a: #2e0a0a;
+  --c-2e2e4e: #2e2e4e;
+  --c-312e2b: #312e2b;
+  --c-333: #333;
+  --c-334155: #334155;
+  --c-3a3a50: #3a3a50;
+  --c-3a3a5a: #3a3a5a;
+  --c-3a3a5e: #3a3a5e;
+  --c-3a3a6a: #3a3a6a;
+  --c-3a3a6e: #3a3a6e;
+  --c-3c4043: #3c4043;
+  --c-444: #444;
+  --c-454240: #454240;
+  --c-475569: #475569;
+  --c-4a4a6e: #4a4a6e;
+  --c-4a4a7e: #4a4a7e;
+  --c-4a4a8e: #4a4a8e;
+  --c-555: #555;
+  --c-5a5a7e: #5a5a7e;
+  --c-606078: #606078;
+  --c-606080: #606080;
+  --c-64748b: #64748b;
+  --c-666: #666;
+  --c-6a6562: #6a6562;
+  --c-6b7280: #6b7280;
+  --c-7080a0: #7080a0;
+  --c-777: #777;
+  --c-808090: #808090;
+  --c-808098: #808098;
+  --c-8080a0: #8080a0;
+  --c-80a0b0: #80a0b0;
+  --c-888: #888;
+  --c-8888aa: #8888aa;
+  --c-94a3b8: #94a3b8;
+  --c-9ca3af: #9ca3af;
+  --c-9e9e9e: #9e9e9e;
+  --c-999: #999;
+  --c-a0a0c0: #a0a0c0;
+  --c-aaa: #aaa;
+  --c-b0b0c8: #b0b0c8;
+  --c-b8b8cc: #b8b8cc;
+  --c-bbb: #bbb;
+  --c-c0c0d0: #c0c0d0;
+  --c-c0c0d8: #c0c0d8;
+  --c-c0c0e0: #c0c0e0;
+  --c-c0c0ff: #c0c0ff;
+  --c-c8d0ff: #c8d0ff;
+  --c-cbd5e1: #cbd5e1;
+  --c-ccc: #ccc;
+  --c-d0d0e0: #d0d0e0;
+  --c-e0e0e0: #e0e0e0;
+  --c-e0e0f0: #e0e0f0;
+  --c-e0e0ff: #e0e0ff;
+  --c-e0f2fe: #e0f2fe;
+  --c-e2e8f0: #e2e8f0;
+  --c-e8e8e8: #e8e8e8;
+  --c-f0f0f0: #f0f0f0;
+  --c-f1f1f1: #f1f1f1;
+  --c-f1f5f9: #f1f5f9;
+  --c-fff: #fff;
+
+  /* Accents: indigo / periwinkle */
+  --c-4f46e5: #4f46e5;
+  --c-5555aa: #5555aa;
+  --c-5a60dd: #5a60dd;
+  --c-5d65ff: #5d65ff;
+  --c-6366f1: #6366f1;
+  --c-6a72e8: #6a72e8;
+  --c-6b71e8: #6b71e8;
+  --c-6b72ee: #6b72ee;
+  --c-7c83ff: #7c83ff;
+  --c-8080cc: #8080cc;
+  --c-9ca3ff: #9ca3ff;
+  --c-a0a0ee: #a0a0ee;
+  --c-a0a0ff: #a0a0ff;
+  --c-a0a4ff: #a0a4ff;
+  --c-a0a5ff: #a0a5ff;
+  --c-8b5cf6: #8b5cf6;
+
+  /* Success: greens */
+  --c-0a2e1a: #0a2e1a;
+  --c-15803d: #15803d;
+  --c-16a34a: #16a34a;
+  --c-22c55e: #22c55e;
+  --c-48c774: #48c774;
+  --c-4ade80: #4ade80;
+  --c-4caf50: #4caf50;
+  --c-6a9a3a: #6a9a3a;
+  --c-81b64c: #81b64c;
+  --c-81c784: #81c784;
+  --c-86efac: #86efac;
+  --c-a5d6a7: #a5d6a7;
+
+  /* Danger: reds */
+  --c-b91c1c: #b91c1c;
+  --c-ca3431: #ca3431;
+  --c-dc2626: #dc2626;
+  --c-e53935: #e53935;
+  --c-e55: #e55;
+  --c-ef4444: #ef4444;
+  --c-ef5350: #ef5350;
+  --c-ef9a9a: #ef9a9a;
+  --c-f44336: #f44336;
+  --c-f87171: #f87171;
+  --c-fca5a5: #fca5a5;
+
+  /* Warning / amber */
+  --c-e6912c: #e6912c;
+  --c-f59e0b: #f59e0b;
+  --c-f7c631: #f7c631;
+  --c-fbbf24: #fbbf24;
+  --c-ffb74d: #ffb74d;
+  --c-ffc107: #ffc107;
+  --c-ffe082: #ffe082;
+
+  /* Info / blue */
+  --c-1565c0: #1565c0;
+  --c-1877f2: #1877f2;
+  --c-2563eb: #2563eb;
+  --c-2aabee: #2aabee;
+  --c-3b82f6: #3b82f6;
+  --c-60a5fa: #60a5fa;
+  --c-90caf9: #90caf9;
+  --c-1976d2: #1976d2;
+  --c-4a6fa5: #4a6fa5;
+
+  /* Additional accent variants (notation, NAG colours) */
+  --c-9ba0ff: #9ba0ff;
+  --c-151525: #151525;
+  --c-ff9800: #ff9800;
+
+  /* Board / piece colours (theme-invariant — same in light) */
+  --c-4b7399: #4b7399;
+  --c-6b3a2a: #6b3a2a;
+  --c-86a666: #86a666;
+  --c-b58863: #b58863;
+  --c-d4b896: #d4b896;
+  --c-dde6ef: #dde6ef;
+  --c-f0d9b5: #f0d9b5;
+  --c-ffffdd: #ffffdd;
+
+  /* ---------- Overlays (rgba literals) ---------- */
+  /* Black scrims and shadows */
+  --ov-black-08: rgba(0, 0, 0, 0.08);
+  --ov-black-15: rgba(0, 0, 0, 0.15);
+  --ov-black-20: rgba(0, 0, 0, 0.2);
+  --ov-black-25: rgba(0, 0, 0, 0.25);
+  --ov-black-30: rgba(0, 0, 0, 0.3);
+  --ov-black-35: rgba(0, 0, 0, 0.35);
+  --ov-black-40: rgba(0, 0, 0, 0.4);
+  --ov-black-50: rgba(0, 0, 0, 0.5);
+  --ov-black-55: rgba(0, 0, 0, 0.55);
+  --ov-black-60: rgba(0, 0, 0, 0.6);
+  --ov-black-70: rgba(0, 0, 0, 0.7);
+  --ov-black-75: rgba(0, 0, 0, 0.75);
+  --ov-black-80: rgba(0, 0, 0, 0.8);
+  --ov-black-85: rgba(0, 0, 0, 0.85);
+
+  /* White highlights */
+  --ov-white-03: rgba(255, 255, 255, 0.03);
+  --ov-white-04: rgba(255, 255, 255, 0.04);
+  --ov-white-05: rgba(255, 255, 255, 0.05);
+  --ov-white-06: rgba(255, 255, 255, 0.06);
+  --ov-white-08: rgba(255, 255, 255, 0.08);
+  --ov-white-10: rgba(255, 255, 255, 0.1);
+  --ov-white-15: rgba(255, 255, 255, 0.15);
+  --ov-white-20: rgba(255, 255, 255, 0.2);
+  --ov-white-35: rgba(255, 255, 255, 0.35);
+  --ov-white-50: rgba(255, 255, 255, 0.5);
+
+  /* Accent (indigo #7c83ff) overlays */
+  --ov-accent-00: rgba(124, 131, 255, 0);
+  --ov-accent-05: rgba(124, 131, 255, 0.05);
+  --ov-accent-06: rgba(124, 131, 255, 0.06);
+  --ov-accent-08: rgba(124, 131, 255, 0.08);
+  --ov-accent-10: rgba(124, 131, 255, 0.1);
+  --ov-accent-12: rgba(124, 131, 255, 0.12);
+  --ov-accent-15: rgba(124, 131, 255, 0.15);
+  --ov-accent-18: rgba(124, 131, 255, 0.18);
+  --ov-accent-20: rgba(124, 131, 255, 0.2);
+  --ov-accent-25: rgba(124, 131, 255, 0.25);
+  --ov-accent-30: rgba(124, 131, 255, 0.3);
+  --ov-accent-35: rgba(124, 131, 255, 0.35);
+  --ov-accent-50: rgba(124, 131, 255, 0.5);
+
+  /* Success (green) overlays */
+  --ov-success-12: rgba(76, 175, 80, 0.12);
+  --ov-success-15: rgba(76, 175, 80, 0.15);
+  --ov-success-20: rgba(76, 175, 80, 0.2);
+  --ov-success-25: rgba(76, 175, 80, 0.25);
+  --ov-success-30: rgba(76, 175, 80, 0.3);
+  --ov-success-35: rgba(76, 175, 80, 0.35);
+  --ov-success-15-alt: rgba(34, 197, 94, 0.15);
+  --ov-success-15-alt2: rgba(72, 199, 116, 0.15);
+  --ov-success-10-emerald: rgba(22, 163, 74, 0.1);
+  --ov-success-20-emerald: rgba(22, 163, 74, 0.2);
+
+  /* Danger (red) overlays */
+  --ov-danger-10: rgba(244, 67, 54, 0.1);
+  --ov-danger-15: rgba(244, 67, 54, 0.15);
+  --ov-danger-20: rgba(244, 67, 54, 0.2);
+  --ov-danger-25: rgba(244, 67, 54, 0.25);
+  --ov-danger-30: rgba(244, 67, 54, 0.3);
+  --ov-danger-15-r400: rgba(248, 113, 113, 0.15);
+  --ov-danger-25-r400: rgba(248, 113, 113, 0.25);
+  --ov-danger-08-r400: rgba(248, 113, 113, 0.08);
+  --ov-danger-40-r400: rgba(248, 113, 113, 0.4);
+  --ov-danger-15-r500: rgba(239, 68, 68, 0.15);
+  --ov-danger-25-r500: rgba(239, 68, 68, 0.25);
+  --ov-danger-30-r500: rgba(239, 68, 68, 0.3);
+  --ov-danger-15-r400b: rgba(239, 83, 80, 0.15);
+  --ov-danger-10-r600: rgba(220, 38, 38, 0.1);
+  --ov-danger-20-r600: rgba(220, 38, 38, 0.2);
+  --ov-danger-20-burgundy: rgba(202, 52, 49, 0.2);
+
+  /* Warning (amber) overlays */
+  --ov-warning-08: rgba(255, 193, 7, 0.08);
+  --ov-warning-10: rgba(255, 193, 7, 0.1);
+  --ov-warning-15: rgba(255, 193, 7, 0.15);
+  --ov-warning-20: rgba(255, 193, 7, 0.2);
+  --ov-warning-25: rgba(255, 193, 7, 0.25);
+  --ov-warning-20-orange: rgba(230, 145, 44, 0.2);
+  --ov-warning-20-yellow: rgba(247, 198, 49, 0.2);
+  --ov-warning-20-amber: rgba(245, 158, 11, 0.2);
+
+  /* Misc tinted overlays */
+  --ov-info-40: rgba(21, 101, 192, 0.4);
+  --ov-slate-50: rgba(15, 23, 42, 0.5);
+  --ov-slate-85: rgba(15, 23, 42, 0.85);
+  --ov-slate-50-gray: rgba(31, 41, 55, 0.5);
+  --ov-slate-60-gray: rgba(31, 41, 55, 0.6);
+  --ov-slate-70-gray: rgba(55, 65, 81, 0.7);
+  --ov-neutral-08: rgba(158, 158, 158, 0.08);
+  --ov-neutral-15: rgba(158, 158, 158, 0.15);
+  --ov-neutral-20: rgba(158, 158, 158, 0.2);
+  --ov-neutral-25: rgba(158, 158, 158, 0.25);
+  --ov-text-muted-15: rgba(160, 160, 192, 0.15);
+  --ov-text-muted-20: rgba(160, 160, 192, 0.2);
+
+  /* ---------- Semantic aliases (use in NEW code) ---------- */
+  --bg-canvas: var(--c-1a1a2e);
+  --bg-deep: var(--c-16213e);
+  --bg-surface: var(--c-2a2a4e);
+  --bg-surface-alt: var(--c-2a2a4a);
+  --bg-muted: var(--c-1e293b);
+  --bg-elevated: var(--c-3a3a6e);
+  --bg-input: var(--c-0f172a);
+
+  --text-primary: var(--c-e0e0e0);
+  --text-secondary: var(--c-a0a0c0);
+  --text-muted: var(--c-888);
+  --text-dim: var(--c-666);
+  --text-on-accent: var(--c-fff);
+  --text-link: var(--c-7c83ff);
+
+  --border-subtle: var(--c-333);
+  --border-mid: var(--c-444);
+  --border-strong: var(--c-555);
+  --border-accent: var(--c-7c83ff);
+  --border-slate: var(--c-334155);
+
+  --accent-primary: var(--c-7c83ff);
+  --accent-hover: var(--c-6366f1);
+  --accent-active: var(--c-4f46e5);
+  --accent-soft: var(--ov-accent-15);
+  --accent-soft-strong: var(--ov-accent-30);
+
+  --success: var(--c-4caf50);
+  --success-strong: var(--c-16a34a);
+  --success-soft: var(--ov-success-15);
+
+  --danger: var(--c-ef4444);
+  --danger-strong: var(--c-dc2626);
+  --danger-soft: var(--ov-danger-15-r500);
+
+  --warning: var(--c-f59e0b);
+  --warning-strong: var(--c-d97706, #d97706);
+  --warning-soft: var(--ov-warning-15);
+
+  --info: var(--c-3b82f6);
+  --info-soft: var(--ov-info-40);
+
+  --shadow-sm: 0 1px 4px var(--ov-black-30);
+  --shadow-md: 0 2px 8px var(--ov-black-40);
+  --shadow-lg: 0 4px 16px var(--ov-black-60);
+
+  /* Scrollbars (color-scheme handles native UA bits;
+     these are for custom *::-webkit-scrollbar rules) */
+  --scrollbar-track: var(--c-1a1a2e);
+  --scrollbar-thumb: var(--c-4a4a7e);
+  --scrollbar-thumb-hover: var(--c-7c83ff);
+}
+
+/* ============================================================
+ * LIGHT THEME
+ * Override raw tokens; semantic aliases follow automatically.
+ * Goal: WCAG AA contrast on body text, panels distinguishable
+ * from canvas by border or subtle elevation, accent stays
+ * indigo (a touch darker for contrast on white).
+ * ============================================================ */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Backgrounds: deep / canvas / surface — INVERT to light tones */
+  --c-0b0c12: #ffffff;
+  --c-0d0d1a: #fbfbfd;
+  --c-0f0f1a: #fbfbfd;
+  --c-0f0f1e: #fbfbfd;
+  --c-0f172a: #f1f5f9;
+  --c-111827: #f3f4f6;
+  --c-12122a: #f8f8fc;
+  --c-131a2e: #eef2f7;
+  --c-16162a: #f5f6fb;
+  --c-161632: #f5f6fb;
+  --c-16213e: #eef2ff;
+  --c-1a1a1a: #f5f5f5;
+  --c-1a1a2e: #f6f7fb;          /* canvas */
+  --c-1a1a3a: #eef0fa;
+  --c-1a1a3e: #eef0fa;
+  --c-1a2436: #eef2f8;
+  --c-1b2a4e: #e7ecf6;
+  --c-1e1e2e: #f1f2f6;
+  --c-1e1e38: #ecedf7;
+  --c-1e1e3a: #ecedf7;
+  --c-1e1e3e: #ecedf7;
+  --c-1e293b: #e2e8f0;
+  --c-1e2a4a: #e3eaf5;
+  --c-1e2d50: #dfe7f2;
+  --c-1e3a2f: #e7f5ec;
+  --c-1e3a5f: #dbeafe;
+  --c-1f2937: #e5e7eb;
+  --c-222: #ededed;
+  --c-222240: #e9ecf6;
+  --c-252540: #ebedf6;
+  --c-262648: #e9ecf6;
+  --c-2a1a4e: #ece5f5;
+  --c-2a1e4a: #ede6f5;
+  --c-2a2a3e: #e7e8ee;
+  --c-2a2a4a: #e8eaf3;
+  --c-2a2a4e: #ebedf5;          /* surface — slightly cooler than canvas */
+  --c-2a2a5e: #e6e8f2;
+  --c-2a2d3e: #e6e8ef;
+  --c-2a3a5e: #dde4ef;
+  --c-2a3a6a: #dae1ed;
+  --c-2e0a0a: #fde8e8;
+  --c-2e2e4e: #e2e4ef;
+  --c-312e2b: #ece8e3;
+
+  /* Borders / dividers (mid-greys keep readable contrast) */
+  --c-333: #cfd4dd;
+  --c-334155: #cbd5e1;
+  --c-3a3a50: #c8cad6;
+  --c-3a3a5a: #c5c8d4;
+  --c-3a3a5e: #c4c7d2;
+  --c-3a3a6a: #bfc3d2;
+  --c-3a3a6e: #bfc3d2;
+  --c-3c4043: #c8cbd0;
+  --c-444: #b8bcc6;
+  --c-454240: #c5c1bc;
+  --c-475569: #94a3b8;
+  --c-4a4a6e: #b1b5c6;
+  --c-4a4a7e: #afb3c6;
+  --c-4a4a8e: #adb1ca;
+  --c-555: #a3a8b3;
+  --c-5a5a7e: #a4a8bd;
+
+  /* Mid-muted greys (text-muted territory in dark; in light → darker) */
+  --c-606078: #6e7384;
+  --c-606080: #6e7384;
+  --c-64748b: #64748b;
+  --c-666: #6b7280;
+  --c-6a6562: #6e6964;
+  --c-6b7280: #6b7280;
+  --c-7080a0: #4f5b75;
+  --c-777: #6b7280;
+  --c-808090: #5e6470;
+  --c-808098: #5e6478;
+  --c-8080a0: #4f5b75;
+  --c-80a0b0: #46586a;
+  --c-888: #5b6270;             /* text-muted */
+  --c-8888aa: #5e6478;
+  --c-94a3b8: #475569;
+  --c-9ca3af: #4b5563;
+  --c-9e9e9e: #6b6b6b;
+  --c-999: #5e5e5e;
+
+  /* Light text in dark theme → dark text in light theme */
+  --c-a0a0c0: #4a5163;
+  --c-aaa: #555a64;
+  --c-b0b0c8: #475569;
+  --c-b8b8cc: #4b5263;
+  --c-bbb: #4f545d;
+  --c-c0c0d0: #3f4654;
+  --c-c0c0d8: #3d4452;
+  --c-c0c0e0: #3a4256;
+  --c-c0c0ff: #3f3f9c;
+  --c-c8d0ff: #3f3f9c;
+  --c-cbd5e1: #64748b;
+  --c-ccc: #3a3f48;
+  --c-d0d0e0: #2f3441;
+  --c-e0e0e0: #1f2937;          /* text-primary */
+  --c-e0e0f0: #1f2937;
+  --c-e0e0ff: #232a4d;
+  --c-e0f2fe: #e0f2fe;          /* info-subtle works in both */
+  --c-e2e8f0: #334155;
+  --c-e8e8e8: #1f2937;
+  --c-f0f0f0: #1f2937;
+  --c-f1f1f1: #1f2937;
+  --c-f1f5f9: #1f2937;
+  --c-fff: #ffffff;             /* keep white — used as text on coloured chips/buttons */
+
+  /* Accents — slightly darker indigo for contrast on light bg */
+  --c-4f46e5: #4f46e5;
+  --c-5555aa: #5555aa;
+  --c-5a60dd: #4338ca;
+  --c-5d65ff: #4f46e5;
+  --c-6366f1: #4f46e5;
+  --c-6a72e8: #4338ca;
+  --c-6b71e8: #4338ca;
+  --c-6b72ee: #4338ca;
+  --c-7c83ff: #4f46e5;          /* accent-primary */
+  --c-8080cc: #5b63b8;
+  --c-9ca3ff: #4f46e5;
+  --c-a0a0ee: #4f46e5;
+  --c-a0a0ff: #4f46e5;
+  --c-a0a4ff: #4f46e5;
+  --c-a0a5ff: #4f46e5;
+  --c-8b5cf6: #6d28d9;
+
+  /* Success — slight darken for AA on white */
+  --c-0a2e1a: #d4edd9;
+  --c-15803d: #15803d;
+  --c-16a34a: #15803d;
+  --c-22c55e: #16a34a;
+  --c-48c774: #16a34a;
+  --c-4ade80: #16a34a;
+  --c-4caf50: #2e7d32;
+  --c-6a9a3a: #4d7a26;
+  --c-81b64c: #5e9c2e;
+  --c-81c784: #2e7d32;
+  --c-86efac: #16a34a;
+  --c-a5d6a7: #2e7d32;
+
+  /* Danger */
+  --c-b91c1c: #b91c1c;
+  --c-ca3431: #b91c1c;
+  --c-dc2626: #dc2626;
+  --c-e53935: #c1272d;
+  --c-e55: #c1272d;
+  --c-ef4444: #dc2626;
+  --c-ef5350: #c62828;
+  --c-ef9a9a: #b71c1c;
+  --c-f44336: #d32f2f;
+  --c-f87171: #dc2626;
+  --c-fca5a5: #dc2626;
+
+  /* Warning / amber */
+  --c-e6912c: #b45309;
+  --c-f59e0b: #b45309;
+  --c-f7c631: #a16207;
+  --c-fbbf24: #b45309;
+  --c-ffb74d: #b45309;
+  --c-ffc107: #b45309;
+  --c-ffe082: #92400e;
+
+  /* Info / blue */
+  --c-1565c0: #1565c0;
+  --c-1877f2: #1565c0;
+  --c-2563eb: #1d4ed8;
+  --c-2aabee: #0284c7;
+  --c-3b82f6: #1d4ed8;
+  --c-60a5fa: #1d4ed8;
+  --c-90caf9: #1d4ed8;
+  --c-1976d2: #1565c0;
+  --c-4a6fa5: #4a6fa5;
+
+  /* Notation / NAG variants */
+  --c-9ba0ff: #4f46e5;
+  --c-151525: #f4f5fa;
+  --c-ff9800: #c26100;
+
+  /* Board / piece colours: identical (board theme owns its own
+     palette via BoardSettingsContext — UI theme must not move it) */
+  --c-4b7399: #4b7399;
+  --c-6b3a2a: #6b3a2a;
+  --c-86a666: #86a666;
+  --c-b58863: #b58863;
+  --c-d4b896: #d4b896;
+  --c-dde6ef: #dde6ef;
+  --c-f0d9b5: #f0d9b5;
+  --c-ffffdd: #ffffdd;
+
+  /* Overlays — flip black ↔ light-ink for scrims, keep accent
+     overlays the same hue (indigo ovals read fine on white) */
+  --ov-black-08: rgba(15, 23, 42, 0.06);
+  --ov-black-15: rgba(15, 23, 42, 0.10);
+  --ov-black-20: rgba(15, 23, 42, 0.12);
+  --ov-black-25: rgba(15, 23, 42, 0.15);
+  --ov-black-30: rgba(15, 23, 42, 0.18);
+  --ov-black-35: rgba(15, 23, 42, 0.22);
+  --ov-black-40: rgba(15, 23, 42, 0.25);
+  --ov-black-50: rgba(15, 23, 42, 0.32);
+  --ov-black-55: rgba(15, 23, 42, 0.35);
+  --ov-black-60: rgba(15, 23, 42, 0.40);
+  --ov-black-70: rgba(15, 23, 42, 0.50);
+  --ov-black-75: rgba(15, 23, 42, 0.55);
+  --ov-black-80: rgba(15, 23, 42, 0.60);
+  --ov-black-85: rgba(15, 23, 42, 0.65);
+
+  /* White overlays were "lighten" in dark; in light "lighten on
+     light" is invisible → use slate-tinted darken instead */
+  --ov-white-03: rgba(15, 23, 42, 0.02);
+  --ov-white-04: rgba(15, 23, 42, 0.03);
+  --ov-white-05: rgba(15, 23, 42, 0.04);
+  --ov-white-06: rgba(15, 23, 42, 0.05);
+  --ov-white-08: rgba(15, 23, 42, 0.06);
+  --ov-white-10: rgba(15, 23, 42, 0.08);
+  --ov-white-15: rgba(15, 23, 42, 0.12);
+  --ov-white-20: rgba(15, 23, 42, 0.16);
+  --ov-white-35: rgba(15, 23, 42, 0.30);
+  --ov-white-50: rgba(15, 23, 42, 0.40);
+
+  /* Accent overlays — keep indigo, possibly slightly stronger */
+  --ov-accent-00: rgba(79, 70, 229, 0);
+  --ov-accent-05: rgba(79, 70, 229, 0.06);
+  --ov-accent-06: rgba(79, 70, 229, 0.07);
+  --ov-accent-08: rgba(79, 70, 229, 0.09);
+  --ov-accent-10: rgba(79, 70, 229, 0.11);
+  --ov-accent-12: rgba(79, 70, 229, 0.13);
+  --ov-accent-15: rgba(79, 70, 229, 0.15);
+  --ov-accent-18: rgba(79, 70, 229, 0.18);
+  --ov-accent-20: rgba(79, 70, 229, 0.20);
+  --ov-accent-25: rgba(79, 70, 229, 0.25);
+  --ov-accent-30: rgba(79, 70, 229, 0.30);
+  --ov-accent-35: rgba(79, 70, 229, 0.35);
+  --ov-accent-50: rgba(79, 70, 229, 0.45);
+
+  --ov-success-12: rgba(46, 125, 50, 0.12);
+  --ov-success-15: rgba(46, 125, 50, 0.15);
+  --ov-success-20: rgba(46, 125, 50, 0.20);
+  --ov-success-25: rgba(46, 125, 50, 0.25);
+  --ov-success-30: rgba(46, 125, 50, 0.30);
+  --ov-success-35: rgba(46, 125, 50, 0.35);
+  --ov-success-15-alt: rgba(22, 163, 74, 0.15);
+  --ov-success-15-alt2: rgba(22, 163, 74, 0.15);
+  --ov-success-10-emerald: rgba(22, 163, 74, 0.12);
+  --ov-success-20-emerald: rgba(22, 163, 74, 0.22);
+
+  --ov-danger-10: rgba(220, 38, 38, 0.10);
+  --ov-danger-15: rgba(220, 38, 38, 0.15);
+  --ov-danger-20: rgba(220, 38, 38, 0.20);
+  --ov-danger-25: rgba(220, 38, 38, 0.25);
+  --ov-danger-30: rgba(220, 38, 38, 0.30);
+  --ov-danger-15-r400: rgba(220, 38, 38, 0.15);
+  --ov-danger-25-r400: rgba(220, 38, 38, 0.25);
+  --ov-danger-08-r400: rgba(220, 38, 38, 0.10);
+  --ov-danger-40-r400: rgba(220, 38, 38, 0.35);
+  --ov-danger-15-r500: rgba(220, 38, 38, 0.15);
+  --ov-danger-25-r500: rgba(220, 38, 38, 0.25);
+  --ov-danger-30-r500: rgba(220, 38, 38, 0.28);
+  --ov-danger-15-r400b: rgba(220, 38, 38, 0.15);
+  --ov-danger-10-r600: rgba(220, 38, 38, 0.10);
+  --ov-danger-20-r600: rgba(220, 38, 38, 0.18);
+  --ov-danger-20-burgundy: rgba(185, 28, 28, 0.20);
+
+  --ov-warning-08: rgba(180, 83, 9, 0.10);
+  --ov-warning-10: rgba(180, 83, 9, 0.12);
+  --ov-warning-15: rgba(180, 83, 9, 0.15);
+  --ov-warning-20: rgba(180, 83, 9, 0.20);
+  --ov-warning-25: rgba(180, 83, 9, 0.25);
+  --ov-warning-20-orange: rgba(180, 83, 9, 0.22);
+  --ov-warning-20-yellow: rgba(180, 83, 9, 0.22);
+  --ov-warning-20-amber: rgba(180, 83, 9, 0.22);
+
+  --ov-info-40: rgba(21, 101, 192, 0.20);
+  --ov-slate-50: rgba(255, 255, 255, 0.55);
+  --ov-slate-85: rgba(255, 255, 255, 0.85);
+  --ov-slate-50-gray: rgba(255, 255, 255, 0.5);
+  --ov-slate-60-gray: rgba(255, 255, 255, 0.6);
+  --ov-slate-70-gray: rgba(15, 23, 42, 0.10);
+  --ov-neutral-08: rgba(100, 116, 139, 0.08);
+  --ov-neutral-15: rgba(100, 116, 139, 0.15);
+  --ov-neutral-20: rgba(100, 116, 139, 0.20);
+  --ov-neutral-25: rgba(100, 116, 139, 0.25);
+  --ov-text-muted-15: rgba(100, 116, 139, 0.15);
+  --ov-text-muted-20: rgba(100, 116, 139, 0.20);
+
+  /* Shadows: deeper alpha to remain visible on white */
+  --shadow-sm: 0 1px 4px var(--ov-black-15);
+  --shadow-md: 0 2px 8px var(--ov-black-20);
+  --shadow-lg: 0 4px 16px var(--ov-black-30);
+
+  /* Scrollbars switch to subtle slate */
+  --scrollbar-track: #eef0f5;
+  --scrollbar-thumb: #b0b6c4;
+  --scrollbar-thumb-hover: #4f46e5;
+}
+
+/* ============================================================
+ * Native scrollbars (custom styling — adapts via tokens)
+ * ============================================================ */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 5px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}

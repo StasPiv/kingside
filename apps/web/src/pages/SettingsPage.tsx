@@ -200,7 +200,7 @@ export function SettingsPage() {
         <button onClick={handleSaveExternalAccounts} disabled={externalSaving} style={{ marginTop: 8 }}>
           {externalSaving ? t('common.loading') : t('common.save', 'Save')}
         </button>
-        {externalStatus && <span style={{ marginLeft: 8, fontSize: 12, color: externalStatus.includes('Failed') ? '#ef4444' : '#4caf50' }}>{externalStatus}</span>}
+        {externalStatus && <span style={{ marginLeft: 8, fontSize: 12, color: externalStatus.includes('Failed') ? 'var(--c-ef4444)' : 'var(--c-4caf50)' }}>{externalStatus}</span>}
       </section>
 
       <section className="settings-section">

@@ -205,8 +205,8 @@
     top: 48px;
     left: 0;
     right: 0;
-    background: #16213e;
-    border-bottom: 1px solid #1a1a3e;
+    background: var(--c-16213e);
+    border-bottom: 1px solid var(--c-1a1a3e);
     flex-direction: column;
     padding: 8px 16px;
     gap: 0;
@@ -223,7 +223,7 @@
   }
 
   .header-nav-link.active {
-    background: rgba(124, 131, 255, 0.15);
+    background: var(--ov-accent-15);
     border-bottom: none;
   }
 
@@ -240,10 +240,10 @@
     top: 100%;
     right: 0;
     left: auto;
-    background: #1e2a4a;
-    border: 1px solid #2a3a5e;
+    background: var(--c-1e2a4a);
+    border: 1px solid var(--c-2a3a5e);
     border-radius: 8px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 8px 24px var(--ov-black-50);
     margin-top: 4px;
     z-index: 200;
   }

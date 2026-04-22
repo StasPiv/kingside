@@ -21,7 +21,7 @@ type FeedbackPost = {
 };
 
 const TYPE_ICONS: Record<string, string> = { bug: '\uD83D\uDC1B', suggestion: '\uD83D\uDCA1', question: '\u2753' };
-const STATUS_COLORS: Record<string, string> = { open: '#3b82f6', planned: '#f59e0b', 'in-progress': '#8b5cf6', done: '#4ade80', declined: '#64748b' };
+const STATUS_COLORS: Record<string, string> = { open: 'var(--c-3b82f6)', planned: 'var(--c-f59e0b)', 'in-progress': 'var(--c-8b5cf6)', done: 'var(--c-4ade80)', declined: 'var(--c-64748b)' };
 const PAGE_SIZE = 20;
 
 export function FeedbackBoardPage() {
@@ -117,7 +117,7 @@ export function FeedbackBoardPage() {
                   {post.title || post.message.slice(0, 60)}
                 </Link>
                 <div className="fb-post-meta">
-                  <span className="fb-post-status" style={{ background: STATUS_COLORS[post.status] || '#64748b' }}>{post.status}</span>
+                  <span className="fb-post-status" style={{ background: STATUS_COLORS[post.status] || 'var(--c-64748b)' }}>{post.status}</span>
                   <span>{post.user?.username || t('feedbackBoard.anonymous', 'Anonymous')}</span>
                   <span>{new Date(post.createdAt).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                   <span>{post.commentCount} {t('feedbackBoard.comments', 'comments')}</span>

@@ -10,7 +10,7 @@
 }
 
 .settings-section {
-  background: #16213e;
+  background: var(--c-16213e);
   border-radius: 12px;
   padding: 24px;
   margin-bottom: 16px;
@@ -19,14 +19,14 @@
 .settings-section h2 {
   font-size: 16px;
   margin-bottom: 16px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
 }
 
 .settings-field {
   display: flex;
   justify-content: space-between;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--ov-white-06);
 }
 
 .settings-field:last-child {
@@ -34,7 +34,7 @@
 }
 
 .settings-label {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 14px;
 }
 
@@ -45,16 +45,16 @@
 .settings-section select {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid #333;
+  border: 1px solid var(--c-333);
   border-radius: 6px;
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--c-1a1a2e);
+  color: var(--c-e0e0e0);
   font-size: 14px;
   outline: none;
 }
 
 .settings-section select:focus {
-  border-color: #7c83ff;
+  border-color: var(--c-7c83ff);
 }
 
 .settings-form {
@@ -92,16 +92,16 @@
 }
 
 .board-theme-option.active .board-theme-preview {
-  border-color: #81b64c;
+  border-color: var(--c-81b64c);
 }
 
 .board-theme-label {
   font-size: 12px;
-  color: #ccc;
+  color: var(--c-ccc);
 }
 
 .settings-empty {
-  color: #808098;
+  color: var(--c-808098);
   font-size: 14px;
 }
 
@@ -116,13 +116,13 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: #16213e;
-  border: 1px solid #2a2a4e;
+  background: var(--c-16213e);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 6px;
 }
 
 .settings-blocked-name {
-  color: #c0c0ff;
+  color: var(--c-c0c0ff);
   text-decoration: none;
 }
 
@@ -131,8 +131,8 @@
 }
 
 .settings-unblock-btn {
-  background: #16a34a;
-  color: #fff;
+  background: var(--c-16a34a);
+  color: var(--c-fff);
   border: none;
   padding: 5px 14px;
   border-radius: 6px;
@@ -141,6 +141,6 @@
 }
 
 .settings-unblock-btn:hover {
-  background: #15803d;
+  background: var(--c-15803d);
 }
 

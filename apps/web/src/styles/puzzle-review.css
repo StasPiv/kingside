@@ -27,18 +27,18 @@
 .rush-review-score {
   font-size: 16px;
   font-weight: 600;
-  color: #7c83ff;
+  color: var(--c-7c83ff);
 }
 
 .rush-review-back-link {
   margin-left: auto;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   text-decoration: none;
   font-size: 14px;
 }
 
 .rush-review-back-link:hover {
-  color: #fff;
+  color: var(--c-fff);
 }
 
 .rush-review-layout {
@@ -49,14 +49,14 @@
 }
 
 .rush-review-list {
-  background: #1a1a2e;
+  background: var(--c-1a1a2e);
   border-radius: 8px;
   padding: 16px;
 }
 
 .rush-review-list h2 {
   font-size: 14px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin: 0 0 12px;
@@ -75,31 +75,31 @@
   text-align: left;
   transition: background 0.15s;
   margin-bottom: 4px;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
   font-size: 14px;
 }
 
 .rush-review-puzzle-item:hover {
-  background: #2a2a3e;
+  background: var(--c-2a2a3e);
 }
 
 .rush-review-puzzle-item.active {
-  background: #2a2a3e;
-  border-color: #7c83ff;
+  background: var(--c-2a2a3e);
+  border-color: var(--c-7c83ff);
 }
 
 .rush-review-puzzle-item.solved .rush-review-puzzle-status {
-  color: #4caf50;
+  color: var(--c-4caf50);
   font-weight: 700;
 }
 
 .rush-review-puzzle-item.failed .rush-review-puzzle-status {
-  color: #f44336;
+  color: var(--c-f44336);
   font-weight: 700;
 }
 
 .rush-review-puzzle-num {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   min-width: 28px;
 }
 
@@ -109,13 +109,13 @@
 }
 
 .rush-review-puzzle-rating {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   margin-left: auto;
   font-size: 13px;
 }
 
 .rush-review-board-panel {
-  background: #1a1a2e;
+  background: var(--c-1a1a2e);
   border-radius: 8px;
   padding: 16px;
   min-height: 300px;
@@ -131,7 +131,7 @@
 }
 
 .rush-review-placeholder {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   text-align: center;
   padding: 48px 16px;
   font-size: 15px;
@@ -151,17 +151,17 @@
 }
 
 .rush-review-result-badge.solved {
-  background: rgba(76, 175, 80, 0.2);
-  color: #4caf50;
+  background: var(--ov-success-20);
+  color: var(--c-4caf50);
 }
 
 .rush-review-result-badge.failed {
-  background: rgba(244, 67, 54, 0.2);
-  color: #f44336;
+  background: var(--ov-danger-20);
+  color: var(--c-f44336);
 }
 
 .rush-review-board-loading {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   padding: 32px;
 }
 
@@ -176,7 +176,7 @@
   gap: 4px;
   margin-top: 12px;
   padding: 8px;
-  background: #16162a;
+  background: var(--c-16162a);
   border-radius: 6px;
   max-height: 120px;
   overflow-y: auto;
@@ -185,7 +185,7 @@
 .rush-review-move-btn {
   background: none;
   border: none;
-  color: #c0c0e0;
+  color: var(--c-c0c0e0);
   padding: 3px 6px;
   border-radius: 4px;
   font-size: 14px;
@@ -194,29 +194,29 @@
 }
 
 .rush-review-move-btn:hover {
-  background: #2a2a4e;
+  background: var(--c-2a2a4e);
 }
 
 .rush-review-move-btn.active {
-  background: #3a3a6e;
-  color: #fff;
+  background: var(--c-3a3a6e);
+  color: var(--c-fff);
   font-weight: 600;
 }
 
 .rush-review-move-btn.setup {
-  color: #808098;
+  color: var(--c-808098);
   font-style: italic;
 }
 
 .rush-review-move-num {
-  color: #808098;
+  color: var(--c-808098);
   margin-right: 2px;
   font-size: 12px;
 }
 
 .rush-review-best-move-hint {
   margin-top: 12px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 13px;
   text-align: center;
 }
@@ -226,9 +226,9 @@
   width: 100%;
   padding: 12px;
   margin-top: 12px;
-  background: #2a2a4e;
-  color: #a0a0ff;
-  border: 1px solid #4a4a7e;
+  background: var(--c-2a2a4e);
+  color: var(--c-a0a0ff);
+  border: 1px solid var(--c-4a4a7e);
   border-radius: 8px;
   font-size: 15px;
   cursor: pointer;
@@ -236,8 +236,8 @@
 }
 
 .rush-review-btn:hover {
-  background: #3a3a6e;
-  color: #c0c0ff;
+  background: var(--c-3a3a6e);
+  color: var(--c-c0c0ff);
 }
 
 @media (max-width: 700px) {

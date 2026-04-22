@@ -644,7 +644,7 @@ export function GamePage() {
             {tournamentId && tournamentType === 'arena' && (playerColor === 'white' ? moves.length === 0 : moves.length <= 1) && !(playerColor === 'white' ? whiteBerserk : blackBerserk) && (
               <button
                 onClick={() => socket.emit('game:berserk', { gameId })}
-                style={{ background: '#f59e0b', color: '#000', fontWeight: 'bold', borderRadius: 4 }}
+                style={{ background: 'var(--c-f59e0b)', color: 'var(--c-1a1a2e)', fontWeight: 'bold', borderRadius: 4 }}
                 title={t('game.berserkHint', 'Halve your clock for a bonus point if you win')}
               >
                 ⚡ Berserk

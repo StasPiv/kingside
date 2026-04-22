@@ -429,7 +429,7 @@ export function WatchGamePage() {
             {status === 'active' && !isFollowing && (
               <button
                 onClick={gotoLast}
-                style={{ background: '#dc2626', color: '#fff', fontWeight: 'bold', borderRadius: 4, padding: '2px 10px', border: 'none', cursor: 'pointer', marginLeft: 8 }}
+                style={{ background: 'var(--c-dc2626)', color: 'var(--c-fff)', fontWeight: 'bold', borderRadius: 4, padding: '2px 10px', border: 'none', cursor: 'pointer', marginLeft: 8 }}
               >
                 ● LIVE
               </button>

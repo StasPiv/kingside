@@ -2,14 +2,14 @@
 
 /* default (classic) — no extra rules, inline styles handle it */
 
-[data-board-theme="green"] .board-square-light  { background-color: #ffffdd; }
-[data-board-theme="green"] .board-square-dark   { background-color: #86a666; }
+[data-board-theme="green"] .board-square-light  { background-color: var(--c-ffffdd); }
+[data-board-theme="green"] .board-square-dark   { background-color: var(--c-86a666); }
 
-[data-board-theme="blue"] .board-square-light   { background-color: #dde6ef; }
-[data-board-theme="blue"] .board-square-dark    { background-color: #4b7399; }
+[data-board-theme="blue"] .board-square-light   { background-color: var(--c-dde6ef); }
+[data-board-theme="blue"] .board-square-dark    { background-color: var(--c-4b7399); }
 
-[data-board-theme="brown"] .board-square-light  { background-color: #d4b896; }
-[data-board-theme="brown"] .board-square-dark   { background-color: #6b3a2a; }
+[data-board-theme="brown"] .board-square-light  { background-color: var(--c-d4b896); }
+[data-board-theme="brown"] .board-square-dark   { background-color: var(--c-6b3a2a); }
 
 /* ===================== Piece set preview tiles ===================== */
 
@@ -36,7 +36,7 @@
   height: 56px;
   border-radius: 4px;
   border: 3px solid transparent;
-  background: #2a2a4a;
+  background: var(--c-2a2a4a);
   overflow: hidden;
   transition: border-color 0.15s;
 }
@@ -48,12 +48,12 @@
 }
 
 .piece-set-option.active .piece-set-preview {
-  border-color: #81b64c;
+  border-color: var(--c-81b64c);
 }
 
 .piece-set-label {
   font-size: 12px;
-  color: #ccc;
+  color: var(--c-ccc);
 }
 
 /* VariantMoveList — variant-aware move list for AnalysisPage */
@@ -64,7 +64,7 @@
   min-height: 0;
   overflow: hidden;
   padding: 0;
-  background: #16213e;
+  background: var(--c-16213e);
   border-radius: 8px;
   position: relative;
 }
@@ -79,12 +79,12 @@
 .vml-moves {
   font-size: 14px;
   line-height: 1.7;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
 }
 
 .vml-empty {
   padding: 16px;
-  color: #666;
+  color: var(--c-666);
   font-size: 14px;
 }
 
@@ -97,12 +97,12 @@
 }
 
 .vml-move:hover:not(.active) {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ov-white-08);
 }
 
 .vml-move.active {
-  background: rgba(124, 131, 255, 0.3);
-  color: #fff;
+  background: var(--ov-accent-30);
+  color: var(--c-fff);
   font-weight: 600;
 }
 
@@ -112,7 +112,7 @@
 
 .vml-bracket {
   display: inline;
-  color: #666;
+  color: var(--c-666);
   font-size: 12px;
   margin: 0 1px;
 }
@@ -120,17 +120,17 @@
 .vml-bracket-open { margin-right: 2px; }
 .vml-bracket-close { margin-left: 0; margin-right: 3px; }
 
-.vml-level-1 { color: #90caf9; }
-.vml-level-2 { color: #a5d6a7; }
-.vml-level-3 { color: #ffe082; }
-.vml-level-4 { color: #ef9a9a; }
+.vml-level-1 { color: var(--c-90caf9); }
+.vml-level-2 { color: var(--c-a5d6a7); }
+.vml-level-3 { color: var(--c-ffe082); }
+.vml-level-4 { color: var(--c-ef9a9a); }
 
 /* Variant editor toolbar */
 .analysis-variant-editor {
   flex: 0 0 auto;
   padding: 4px 8px;
-  background: #1a1a2e;
-  border-top: 1px solid #2a2a4a;
+  background: var(--c-1a1a2e);
+  border-top: 1px solid var(--c-2a2a4a);
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
@@ -141,20 +141,20 @@
   font-size: 12px;
   cursor: pointer;
   border-radius: 4px;
-  border: 1px solid #444;
-  background: #2a2a3e;
-  color: #ccc;
+  border: 1px solid var(--c-444);
+  background: var(--c-2a2a3e);
+  color: var(--c-ccc);
   transition: background-color 0.1s ease;
 }
 
 .analysis-variant-btn:hover {
-  background: #3a3a5e;
-  color: #fff;
+  background: var(--c-3a3a5e);
+  color: var(--c-fff);
 }
 
 .analysis-variant-btn--danger:hover {
-  border-color: #f44336;
-  color: #f44336;
+  border-color: var(--c-f44336);
+  color: var(--c-f44336);
 }
 
 

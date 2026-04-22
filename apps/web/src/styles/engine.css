@@ -2,7 +2,7 @@
 .engine-settings-btn {
   background: none;
   border: none;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   cursor: pointer;
   font-size: 16px;
   padding: 2px 6px;
@@ -10,7 +10,7 @@
 }
 
 .engine-settings-btn:hover {
-  color: #fff;
+  color: var(--c-fff);
 }
 
 .engine-status-dot {
@@ -21,13 +21,13 @@
   margin-left: 6px;
 }
 
-.engine-status-dot--connected { background: #4caf50; }
-.engine-status-dot--connecting { background: #ffc107; animation: pulse-dot 1.5s infinite; }
-.engine-status-dot--disconnected { background: #f44336; }
+.engine-status-dot--connected { background: var(--c-4caf50); }
+.engine-status-dot--connecting { background: var(--c-ffc107); animation: pulse-dot 1.5s infinite; }
+.engine-status-dot--disconnected { background: var(--c-f44336); }
 
 .engine-settings-panel {
-  background: #16162a;
-  border: 1px solid #2a2a4e;
+  background: var(--c-16162a);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 6px;
   padding: 12px;
   margin-bottom: 8px;
@@ -42,18 +42,18 @@
 .engine-source-btn {
   flex: 1;
   padding: 6px 10px;
-  background: #1a1a2e;
-  border: 1px solid #3a3a5e;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-3a3a5e);
   border-radius: 4px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
   cursor: pointer;
 }
 
 .engine-source-btn.active {
-  background: #3a3a6e;
-  color: #fff;
-  border-color: #7c83ff;
+  background: var(--c-3a3a6e);
+  color: var(--c-fff);
+  border-color: var(--c-7c83ff);
 }
 
 .engine-settings-form {
@@ -63,16 +63,16 @@
 }
 
 .engine-settings-input {
-  background: #1a1a2e;
-  border: 1px solid #3a3a5e;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-3a3a5e);
   border-radius: 4px;
   padding: 6px 10px;
-  color: #e0e0ff;
+  color: var(--c-e0e0ff);
   font-size: 12px;
 }
 
 .engine-settings-input:focus {
-  border-color: #7c83ff;
+  border-color: var(--c-7c83ff);
   outline: none;
 }
 
@@ -84,8 +84,8 @@
 .engine-connect-btn {
   flex: 1;
   padding: 6px;
-  background: #16a34a;
-  color: #fff;
+  background: var(--c-16a34a);
+  color: var(--c-fff);
   border: none;
   border-radius: 4px;
   font-size: 12px;
@@ -94,9 +94,9 @@
 
 .engine-save-btn {
   padding: 6px 12px;
-  background: #3a3a6e;
-  color: #c0c0ff;
-  border: 1px solid #4a4a8e;
+  background: var(--c-3a3a6e);
+  color: var(--c-c0c0ff);
+  border: 1px solid var(--c-4a4a8e);
   border-radius: 4px;
   font-size: 12px;
   cursor: pointer;
@@ -108,16 +108,16 @@
 
 .engine-saved-label {
   font-size: 11px;
-  color: #808098;
+  color: var(--c-808098);
   margin-bottom: 4px;
 }
 
 .engine-saved-item {
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 4px;
   padding: 4px 10px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
   cursor: pointer;
   margin-right: 4px;
@@ -125,12 +125,12 @@
 }
 
 .engine-saved-item.active {
-  border-color: #7c83ff;
-  color: #fff;
+  border-color: var(--c-7c83ff);
+  color: var(--c-fff);
 }
 
 .engine-saved-item:hover {
-  background: #2a2a4e;
+  background: var(--c-2a2a4e);
 }
 
 .engine-saved-row {
@@ -144,18 +144,18 @@
 .engine-saved-delete {
   background: none;
   border: none;
-  color: #606078;
+  color: var(--c-606078);
   font-size: 10px;
   cursor: pointer;
   padding: 2px 4px;
 }
 
 .engine-saved-delete:hover {
-  color: #f44336;
+  color: var(--c-f44336);
 }
 
 .engine-help-link {
-  color: #7c83ff;
+  color: var(--c-7c83ff);
   text-decoration: none;
   font-size: 12px;
   margin-top: 8px;
@@ -179,7 +179,7 @@
 }
 
 .help-intro {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 15px;
   margin-bottom: 24px;
   line-height: 1.5;
@@ -194,8 +194,8 @@
 .help-step {
   display: flex;
   gap: 16px;
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 8px;
   padding: 16px;
 }
@@ -204,8 +204,8 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #7c83ff;
-  color: #fff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -221,18 +221,18 @@
 .help-step-content h3 {
   margin: 0 0 6px;
   font-size: 15px;
-  color: #e0e0ff;
+  color: var(--c-e0e0ff);
 }
 
 .help-step-content p {
   margin: 0 0 8px;
   font-size: 14px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   line-height: 1.4;
 }
 
 .help-link {
-  color: #7c83ff;
+  color: var(--c-7c83ff);
   text-decoration: none;
   font-size: 13px;
 }
@@ -243,19 +243,19 @@
 
 .help-code {
   display: inline-block;
-  background: #12122a;
-  border: 1px solid #2a2a4e;
+  background: var(--c-12122a);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 4px;
   padding: 4px 10px;
   font-family: monospace;
   font-size: 13px;
-  color: #c0c0e0;
+  color: var(--c-c0c0e0);
 }
 
 .help-faq {
   margin-top: 32px;
   padding-top: 24px;
-  border-top: 1px solid #2a2a4e;
+  border-top: 1px solid var(--c-2a2a4e);
 }
 .help-faq h2 {
   margin: 0 0 16px;
@@ -265,24 +265,24 @@
 }
 .help-faq h4 {
   margin: 16px 0 6px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
 }
 .help-code-block {
   display: block;
-  background: #12122a;
-  border: 1px solid #2a2a4e;
+  background: var(--c-12122a);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 6px;
   padding: 12px 16px;
   font-family: monospace;
   font-size: 13px;
-  color: #c0c0e0;
+  color: var(--c-c0c0e0);
   white-space: pre;
   overflow-x: auto;
   margin: 0;
 }
 .help-note {
   font-size: 13px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   margin: 6px 0 0;
   font-style: italic;
 }
@@ -290,23 +290,23 @@
 .engine-load-config-btn {
   width: 100%;
   padding: 8px;
-  background: #1a1a2e;
-  border: 1px dashed #4a4a8e;
+  background: var(--c-1a1a2e);
+  border: 1px dashed var(--c-4a4a8e);
   border-radius: 6px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s;
 }
 
 .engine-load-config-btn:hover {
-  border-color: #7c83ff;
-  color: #e0e0ff;
+  border-color: var(--c-7c83ff);
+  color: var(--c-e0e0ff);
 }
 
 .engine-error-detail {
   font-size: 11px;
-  color: #f44336;
+  color: var(--c-f44336);
   margin-left: 8px;
   max-width: 200px;
   overflow: hidden;
@@ -317,7 +317,7 @@
 .engine-uci-options {
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px solid #2a2a4e;
+  border-top: 1px solid var(--c-2a2a4e);
 }
 
 .engine-uci-row {
@@ -330,23 +330,23 @@
 
 .engine-uci-row label {
   font-size: 12px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   min-width: 70px;
 }
 
 .engine-uci-input {
   width: 80px;
-  background: #1a1a2e;
-  border: 1px solid #3a3a5e;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-3a3a5e);
   border-radius: 4px;
   padding: 4px 8px;
-  color: #e0e0ff;
+  color: var(--c-e0e0ff);
   font-size: 12px;
   text-align: right;
 }
 
 .engine-uci-input:focus {
-  border-color: #7c83ff;
+  border-color: var(--c-7c83ff);
   outline: none;
 }
 
@@ -354,7 +354,7 @@
 .engine-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--ov-black-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -362,8 +362,8 @@
 }
 
 .engine-modal {
-  background: #1a1a2e;
-  border: 1px solid #2a2a4e;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 10px;
   padding: 20px;
   width: 420px;
@@ -382,19 +382,19 @@
 .engine-modal-header h3 {
   margin: 0;
   font-size: 16px;
-  color: #e0e0ff;
+  color: var(--c-e0e0ff);
 }
 
 .engine-modal-close {
   background: none;
   border: none;
-  color: #808098;
+  color: var(--c-808098);
   font-size: 18px;
   cursor: pointer;
 }
 
 .engine-modal-close:hover {
-  color: #fff;
+  color: var(--c-fff);
 }
 
 /* MultiPV controls in status bar */
@@ -406,9 +406,9 @@
 }
 
 .engine-multipv-btn {
-  background: #2a2a4e;
-  border: 1px solid #3a3a5e;
-  color: #a0a0c0;
+  background: var(--c-2a2a4e);
+  border: 1px solid var(--c-3a3a5e);
+  color: var(--c-a0a0c0);
   width: 20px;
   height: 20px;
   border-radius: 3px;
@@ -422,8 +422,8 @@
 }
 
 .engine-multipv-btn:hover:not(:disabled) {
-  background: #3a3a6e;
-  color: #fff;
+  background: var(--c-3a3a6e);
+  color: var(--c-fff);
 }
 
 .engine-multipv-btn:disabled {
@@ -433,7 +433,7 @@
 
 .engine-multipv-value {
   font-size: 11px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   min-width: 14px;
   text-align: center;
 }
@@ -447,27 +447,27 @@
 }
 
 .engine-status--connecting {
-  background: #1e2a4a;
-  color: #a0a0c0;
-  border: 1px solid #4a4a8e;
+  background: var(--c-1e2a4a);
+  color: var(--c-a0a0c0);
+  border: 1px solid var(--c-4a4a8e);
 }
 
 .engine-status--connected {
-  background: #0a2e1a;
-  color: #16a34a;
-  border: 1px solid #16a34a;
+  background: var(--c-0a2e1a);
+  color: var(--c-16a34a);
+  border: 1px solid var(--c-16a34a);
 }
 
 .engine-status--error {
-  background: #2e0a0a;
-  color: #ef4444;
-  border: 1px solid #ef4444;
+  background: var(--c-2e0a0a);
+  color: var(--c-ef4444);
+  border: 1px solid var(--c-ef4444);
 }
 
 .engine-saved-url {
   display: block;
   font-size: 11px;
-  color: #666;
+  color: var(--c-666);
   font-weight: normal;
 }
 
@@ -476,14 +476,14 @@
   padding: 8px;
   margin-top: 4px;
   background: transparent;
-  border: 1px dashed #4a4a8e;
-  color: #7c83ff;
+  border: 1px dashed var(--c-4a4a8e);
+  color: var(--c-7c83ff);
   border-radius: 6px;
   font-size: 13px;
   cursor: pointer;
 }
 
 .engine-add-btn:hover {
-  background: #1e2a4a;
-  border-color: #7c83ff;
+  background: var(--c-1e2a4a);
+  border-color: var(--c-7c83ff);
 }

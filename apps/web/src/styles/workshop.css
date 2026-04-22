@@ -14,23 +14,23 @@
   background: none;
   border: none;
   padding: 0;
-  color: #8080cc;
+  color: var(--c-8080cc);
   font-size: 14px;
   cursor: pointer;
   transition: color 0.15s;
 }
 
 .workshop-breadcrumbs__link:hover {
-  color: #a0a0ee;
+  color: var(--c-a0a0ee);
   text-decoration: underline;
 }
 
 .workshop-breadcrumbs__sep {
-  color: #666;
+  color: var(--c-666);
 }
 
 .workshop-breadcrumbs__current {
-  color: #c0c0e0;
+  color: var(--c-c0c0e0);
   font-weight: 600;
 }
 
@@ -40,12 +40,12 @@
   display: flex;
   gap: 0;
   margin-bottom: 24px;
-  border-bottom: 1px solid #2e2e4e;
+  border-bottom: 1px solid var(--c-2e2e4e);
 }
 
 .workshop-section-tab {
   background: none;
-  color: #808098;
+  color: var(--c-808098);
   border: none;
   border-bottom: 2px solid transparent;
   padding: 10px 20px;
@@ -56,12 +56,12 @@
 }
 
 .workshop-section-tab:hover {
-  color: #c0c0d0;
+  color: var(--c-c0c0d0);
 }
 
 .workshop-section-tab.active {
-  color: #fff;
-  border-bottom-color: #7c83ff;
+  color: var(--c-fff);
+  border-bottom-color: var(--c-7c83ff);
 }
 
 /* Workshop section block header */
@@ -90,20 +90,20 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: #1e2a4a;
+  background: var(--c-1e2a4a);
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .workshop-pgn-file-item:hover {
-  background: #2a3a6a;
+  background: var(--c-2a3a6a);
 }
 
 .workshop-pgn-file-item__name {
   font-size: 14px;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
 }
 
 .workshop-pgn-file-item__meta {
@@ -114,12 +114,12 @@
 
 .workshop-pgn-file-item__games {
   font-size: 12px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
 }
 
 .workshop-pgn-file-item__date {
   font-size: 12px;
-  color: #808090;
+  color: var(--c-808090);
 }
 
 /* PGN games list */
@@ -135,7 +135,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  background: #1e2a4a;
+  background: var(--c-1e2a4a);
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.15s;
@@ -143,11 +143,11 @@
 }
 
 .workshop-pgn-game-item:hover {
-  background: #2a3a6a;
+  background: var(--c-2a3a6a);
 }
 
 .workshop-pgn-game-item__players {
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
   font-weight: 500;
 }
 
@@ -158,12 +158,12 @@
 }
 
 .workshop-pgn-game-item__result {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 13px;
 }
 
 .workshop-pgn-game-item__date {
-  color: #808090;
+  color: var(--c-808090);
   font-size: 12px;
 }
 
@@ -177,7 +177,7 @@
   font-size: 28px;
   font-weight: 700;
   margin-bottom: 24px;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
 }
 
 .workshop-page__content {
@@ -187,8 +187,8 @@
 }
 
 .workshop-section-block {
-  background: #16213e;
-  border: 1px solid #2a2a4e;
+  background: var(--c-16213e);
+  border: 1px solid var(--c-2a2a4e);
   border-radius: 12px;
   padding: 24px;
 }
@@ -197,22 +197,22 @@
   font-size: 18px;
   font-weight: 600;
   margin-bottom: 16px;
-  color: #c0c0ff;
+  color: var(--c-c0c0ff);
 }
 
 .workshop-section-block__loading,
 .workshop-section-block__empty {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 14px;
 }
 
 .workshop-section-block__error {
-  color: #f44336;
+  color: var(--c-f44336);
   font-size: 14px;
 }
 
 .workshop-section-block__desc {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 14px;
   margin-bottom: 16px;
 }
@@ -226,9 +226,9 @@
 }
 
 .workshop-mode-tab {
-  background: #2a2a4e;
-  color: #a0a0c0;
-  border: 1px solid #3a3a6e;
+  background: var(--c-2a2a4e);
+  color: var(--c-a0a0c0);
+  border: 1px solid var(--c-3a3a6e);
   border-radius: 8px;
   padding: 8px 20px;
   font-size: 14px;
@@ -237,14 +237,14 @@
 }
 
 .workshop-mode-tab:hover {
-  background: #3a3a6e;
-  color: #e0e0ff;
+  background: var(--c-3a3a6e);
+  color: var(--c-e0e0ff);
 }
 
 .workshop-mode-tab.active {
-  background: #7c83ff;
-  color: #fff;
-  border-color: #7c83ff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
+  border-color: var(--c-7c83ff);
 }
 
 /* TC panel inside workshop */
@@ -268,16 +268,16 @@
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  background: #1e2a4a;
+  background: var(--c-1e2a4a);
   border-radius: 8px;
   text-decoration: none;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
   transition: background 0.15s;
   font-size: 14px;
 }
 
 .workshop-game-list-item:hover {
-  background: #2a3a6a;
+  background: var(--c-2a3a6a);
   text-decoration: none;
 }
 
@@ -287,9 +287,9 @@
   text-align: center;
 }
 
-.workshop-game-list-item__result--win { color: #4caf50; }
-.workshop-game-list-item__result--loss { color: #f44336; }
-.workshop-game-list-item__result--draw { color: #a0a0c0; }
+.workshop-game-list-item__result--win { color: var(--c-4caf50); }
+.workshop-game-list-item__result--loss { color: var(--c-f44336); }
+.workshop-game-list-item__result--draw { color: var(--c-a0a0c0); }
 
 .workshop-game-list-item__opponent {
   flex: 1;
@@ -297,13 +297,13 @@
 }
 
 .workshop-game-list-item__rating {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
   font-weight: 400;
 }
 
 .workshop-game-list-item__tc {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 13px;
   min-width: 40px;
   text-align: center;
@@ -316,14 +316,14 @@
 }
 
 .workshop-game-list-item__moves {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
   min-width: 60px;
   text-align: right;
 }
 
 .workshop-game-list-item__opening {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
   max-width: 200px;
   overflow: hidden;
@@ -332,12 +332,12 @@
 }
 
 .workshop-game-list-item__eco {
-  background: #2a2a4e;
+  background: var(--c-2a2a4e);
   border-radius: 4px;
   padding: 1px 5px;
   margin-right: 4px;
   font-size: 11px;
-  color: #7c83ff;
+  color: var(--c-7c83ff);
 }
 
 /* Pagination */
@@ -351,20 +351,20 @@
 }
 
 .workshop-pagination__btn {
-  background: #2a2a4e;
-  color: #a0a0ff;
-  border: 1px solid #4a4a7e;
+  background: var(--c-2a2a4e);
+  color: var(--c-a0a0ff);
+  border: 1px solid var(--c-4a4a7e);
   border-radius: 6px;
   padding: 6px 16px;
   font-size: 13px;
 }
 
 .workshop-pagination__btn:hover:not(:disabled) {
-  background: #3a3a6e;
+  background: var(--c-3a3a6e);
 }
 
 .workshop-pagination__info {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 13px;
 }
 
@@ -377,7 +377,7 @@
 }
 
 .workshop-tournament-card {
-  background: #1e2a4a;
+  background: var(--c-1e2a4a);
   border-radius: 8px;
   padding: 16px;
 }
@@ -394,14 +394,14 @@
 .workshop-tournament-card__name {
   font-size: 15px;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
 }
 
 .workshop-tournament-card__meta {
   display: flex;
   gap: 12px;
   font-size: 13px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
 }
 
 .workshop-tournament-card__games {
@@ -420,15 +420,15 @@
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  background: #16213e;
+  background: var(--c-16213e);
   border-radius: 6px;
   text-decoration: none;
-  color: #c0c0ff;
+  color: var(--c-c0c0ff);
   transition: background 0.15s;
 }
 
 .workshop-tournament-card__game-link:hover {
-  background: #2a3a6a;
+  background: var(--c-2a3a6a);
   text-decoration: none;
 }
 
@@ -437,13 +437,13 @@
 }
 
 .workshop-tournament-card__player-rating {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
   margin-left: 4px;
 }
 
 .workshop-tournament-card__vs {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 12px;
 }
 
@@ -456,8 +456,8 @@
 }
 
 .workshop-pgn-upload__btn {
-  background: #7c83ff;
-  color: #fff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
   border: none;
   border-radius: 8px;
   padding: 10px 20px;
@@ -468,22 +468,22 @@
 }
 
 .workshop-pgn-upload__btn:hover {
-  background: #6366f1;
+  background: var(--c-6366f1);
 }
 
 .workshop-pgn-upload__btn--secondary {
-  background: #2a2a4e;
-  color: #a0a0ff;
-  border: 1px solid #4a4a7e;
+  background: var(--c-2a2a4e);
+  color: var(--c-a0a0ff);
+  border: 1px solid var(--c-4a4a7e);
 }
 
 .workshop-pgn-upload__btn--secondary:hover {
-  background: #3a3a6e;
+  background: var(--c-3a3a6e);
 }
 
 .workshop-import-btn {
-  background: rgba(124, 131, 255, 0.15);
-  color: #9ca3ff;
+  background: var(--ov-accent-15);
+  color: var(--c-9ca3ff);
   border: none;
   border-radius: 6px;
   padding: 8px 14px;
@@ -492,7 +492,7 @@
 }
 
 .workshop-import-btn:hover {
-  background: rgba(124, 131, 255, 0.25);
+  background: var(--ov-accent-25);
 }
 
 .import-form {
@@ -509,12 +509,12 @@
 
 .import-field label {
   font-size: 12px;
-  color: #aaa;
+  color: var(--c-aaa);
 }
 
 .import-btn {
-  background: #7c83ff;
-  color: #fff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
   border: none;
   border-radius: 6px;
   padding: 8px 16px;
@@ -529,7 +529,7 @@
 }
 
 .import-result p {
-  color: #4caf50;
+  color: var(--c-4caf50);
   font-size: 16px;
   margin-bottom: 12px;
 }
@@ -547,14 +547,14 @@
   gap: 10px;
   padding: 10px 12px;
   border-radius: 6px;
-  background: #1e1e2e;
-  border: 1px solid #2e2e4e;
+  background: var(--c-1e1e2e);
+  border: 1px solid var(--c-2e2e4e);
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .workshop-analysis-item:hover {
-  background: #252540;
+  background: var(--c-252540);
 }
 
 .workshop-analysis-item__main {
@@ -568,7 +568,7 @@
   gap: 4px;
   font-size: 14px;
   font-weight: 600;
-  color: #e0e0f0;
+  color: var(--c-e0e0f0);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -582,25 +582,25 @@
 .workshop-analysis-item__elo {
   font-size: 12px;
   font-weight: 400;
-  color: #999;
+  color: var(--c-999);
 }
 
 .workshop-analysis-item__result {
   font-weight: 700;
-  color: #7c83ff;
+  color: var(--c-7c83ff);
   margin: 0 2px;
 }
 
 .workshop-analysis-item__vs {
   font-weight: 400;
-  color: #777;
+  color: var(--c-777);
   font-size: 12px;
 }
 
 .workshop-analysis-item__pgn-date {
   font-size: 11px;
   font-weight: 400;
-  color: #666;
+  color: var(--c-666);
   margin-left: 4px;
 }
 
@@ -613,24 +613,24 @@
 
 .workshop-analysis-item__date {
   font-size: 12px;
-  color: #888;
+  color: var(--c-888);
 }
 
 .workshop-analysis-item__opening {
   font-size: 12px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
 }
 
 .workshop-analysis-item__players {
   font-size: 12px;
-  color: #80a0b0;
+  color: var(--c-80a0b0);
 }
 
 .workshop-analysis-item__delete {
   flex-shrink: 0;
   background: none;
   border: none;
-  color: #666;
+  color: var(--c-666);
   font-size: 18px;
   line-height: 1;
   cursor: pointer;
@@ -640,15 +640,15 @@
 }
 
 .workshop-analysis-item__delete:hover {
-  color: #f44336;
-  background: rgba(244, 67, 54, 0.1);
+  color: var(--c-f44336);
+  background: var(--ov-danger-10);
 }
 
 .workshop-category-tabs {
   display: flex;
   gap: 0;
   margin-bottom: 10px;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--c-333);
 }
 
 .workshop-category-tab {
@@ -656,7 +656,7 @@
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: #888;
+  color: var(--c-888);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -664,8 +664,8 @@
 }
 
 .workshop-category-tab.active {
-  color: #7c83ff;
-  border-bottom-color: #7c83ff;
+  color: var(--c-7c83ff);
+  border-bottom-color: var(--c-7c83ff);
 }
 
 .workshop-search {
@@ -676,10 +676,10 @@
   width: 100%;
   padding: 6px 10px;
   font-size: 13px;
-  background: #0f172a;
-  border: 1px solid #333;
+  background: var(--c-0f172a);
+  border: 1px solid var(--c-333);
   border-radius: 4px;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
 }
 
 .workshop-tag-filters {
@@ -695,8 +695,8 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(124, 131, 255, 0.12);
-  color: #9ca3ff;
+  background: var(--ov-accent-12);
+  color: var(--c-9ca3ff);
   font-size: 11px;
   border-radius: 10px;
   cursor: pointer;
@@ -718,14 +718,14 @@
 }
 
 .workshop-tag-chip--active {
-  background: rgba(124, 131, 255, 0.25);
-  color: #7c83ff;
+  background: var(--ov-accent-25);
+  color: var(--c-7c83ff);
 }
 
 .workshop-tag-clear {
   background: none;
   border: none;
-  color: #666;
+  color: var(--c-666);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 4px;
@@ -743,10 +743,10 @@
 }
 
 .workshop-save-filter-input {
-  background: #2a2a4e;
-  border: 1px solid #4a4a7e;
+  background: var(--c-2a2a4e);
+  border: 1px solid var(--c-4a4a7e);
   border-radius: 4px;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
   padding: 2px 6px;
   font-size: 12px;
   width: 120px;
@@ -754,7 +754,7 @@
 }
 
 .workshop-save-filter-input:focus {
-  border-color: #7c83ff;
+  border-color: var(--c-7c83ff);
 }
 
 .workshop-saved-filters {
@@ -767,7 +767,7 @@
 
 .workshop-saved-filters__label {
   font-size: 11px;
-  color: #666;
+  color: var(--c-666);
 }
 
 .workshop-saved-filter-chip {
@@ -775,15 +775,15 @@
   align-items: center;
   gap: 4px;
   padding: 2px 8px;
-  background: rgba(76, 175, 80, 0.12);
-  color: #81c784;
+  background: var(--ov-success-12);
+  color: var(--c-81c784);
   font-size: 11px;
   border-radius: 10px;
   cursor: pointer;
 }
 
 .workshop-saved-filter-chip:hover {
-  background: rgba(76, 175, 80, 0.2);
+  background: var(--ov-success-20);
 }
 
 .workshop-saved-filter-chip button {
@@ -806,9 +806,9 @@
 }
 
 .workshop-tag-add {
-  background: rgba(124, 131, 255, 0.1);
-  border: 1px dashed #555;
-  color: #888;
+  background: var(--ov-accent-10);
+  border: 1px dashed var(--c-555);
+  color: var(--c-888);
   width: 22px;
   height: 22px;
   border-radius: 50%;
@@ -852,8 +852,8 @@
 }
 
 .workshop-analyses-new-btn {
-  background: #7c83ff;
-  color: #fff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
   border: none;
   padding: 6px 16px;
   border-radius: 6px;
@@ -863,7 +863,7 @@
 }
 
 .workshop-analyses-new-btn:hover {
-  background: #6366f1;
+  background: var(--c-6366f1);
 }
 
 .workshop-analyses-toolbar__spacer {
@@ -872,9 +872,9 @@
 
 .workshop-analyses-select-btn,
 .workshop-analyses-cancel-btn {
-  background: #3a3a6e;
-  color: #c0c0ff;
-  border: 1px solid #4a4a8e;
+  background: var(--c-3a3a6e);
+  color: var(--c-c0c0ff);
+  border: 1px solid var(--c-4a4a8e);
   padding: 5px 14px;
   border-radius: 6px;
   font-size: 13px;
@@ -883,7 +883,7 @@
 
 .workshop-analyses-select-btn:hover,
 .workshop-analyses-cancel-btn:hover {
-  background: #4a4a8e;
+  background: var(--c-4a4a8e);
 }
 
 .workshop-analyses-cancel-btn {
@@ -894,7 +894,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 13px;
   cursor: pointer;
 }
@@ -906,8 +906,8 @@
 }
 
 .workshop-analyses-export-btn {
-  background: #16a34a;
-  color: #fff;
+  background: var(--c-16a34a);
+  color: var(--c-fff);
   border: none;
   padding: 6px 14px;
   border-radius: 6px;
@@ -916,7 +916,7 @@
 }
 
 .workshop-analyses-export-btn:hover {
-  background: #15803d;
+  background: var(--c-15803d);
 }
 
 .workshop-analyses-export-btn:disabled {
@@ -925,8 +925,8 @@
 }
 
 .workshop-analyses-delete-btn {
-  background: #dc2626;
-  color: #fff;
+  background: var(--c-dc2626);
+  color: var(--c-fff);
   border: none;
   padding: 6px 14px;
   border-radius: 6px;
@@ -935,7 +935,7 @@
 }
 
 .workshop-analyses-delete-btn:hover {
-  background: #b91c1c;
+  background: var(--c-b91c1c);
 }
 
 .workshop-analyses-delete-btn:disabled {
@@ -956,8 +956,8 @@
 }
 
 .workshop-analysis-item--selected {
-  border-color: #7c83ff;
-  background: rgba(124, 131, 255, 0.05);
+  border-color: var(--c-7c83ff);
+  background: var(--ov-accent-05);
 }
 
 /* Analysis page: breadcrumbs navigation */
@@ -973,7 +973,7 @@
 }
 
 .analysis-breadcrumbs__link {
-  color: #8080cc;
+  color: var(--c-8080cc);
   text-decoration: none;
   white-space: nowrap;
   overflow: hidden;
@@ -984,12 +984,12 @@
 }
 
 .analysis-breadcrumbs__link:hover {
-  color: #a0a0ee;
+  color: var(--c-a0a0ee);
   text-decoration: underline;
 }
 
 .analysis-breadcrumbs__sep {
-  color: #666;
+  color: var(--c-666);
   flex-shrink: 0;
 }
 
@@ -999,7 +999,7 @@
   gap: 6px;
   font-size: 14px;
   font-weight: 600;
-  color: #c0c0e0;
+  color: var(--c-c0c0e0);
   cursor: pointer;
   border-bottom: 1px dashed transparent;
   transition: border-color 0.15s, color 0.15s;
@@ -1017,8 +1017,8 @@
 }
 
 .analysis-breadcrumbs__current:hover {
-  color: #e0e0ff;
-  border-bottom-color: #5555aa;
+  color: var(--c-e0e0ff);
+  border-bottom-color: var(--c-5555aa);
 }
 
 .analysis-breadcrumbs__current:hover .analysis-title__edit-icon {
@@ -1037,13 +1037,13 @@
 
 .analysis-workshop-shortcut__link {
   font-size: 12px;
-  color: #666;
+  color: var(--c-666);
   text-decoration: none;
   transition: color 0.15s;
 }
 
 .analysis-workshop-shortcut__link:hover {
-  color: #8080cc;
+  color: var(--c-8080cc);
   text-decoration: underline;
 }
 
@@ -1058,7 +1058,7 @@
   gap: 6px;
   font-size: 15px;
   font-weight: 600;
-  color: #c0c0e0;
+  color: var(--c-c0c0e0);
   margin: 0;
   cursor: pointer;
   border-bottom: 1px dashed transparent;
@@ -1066,13 +1066,13 @@
 }
 
 .analysis-title__text:hover {
-  color: #e0e0ff;
-  border-bottom-color: #5555aa;
+  color: var(--c-e0e0ff);
+  border-bottom-color: var(--c-5555aa);
 }
 
 .analysis-title__edit-icon {
   font-size: 13px;
-  color: #666;
+  color: var(--c-666);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -1083,10 +1083,10 @@
 
 .analysis-title__input {
   width: 100%;
-  background: #1a1a2e;
-  border: 1px solid #5555aa;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-5555aa);
   border-radius: 4px;
-  color: #e0e0f0;
+  color: var(--c-e0e0f0);
   font-size: 15px;
   font-weight: 600;
   padding: 4px 8px;
@@ -1094,7 +1094,7 @@
 }
 
 .analysis-title__input:focus {
-  border-color: #8080cc;
+  border-color: var(--c-8080cc);
 }
 
 @media (max-width: 768px) {
@@ -1169,7 +1169,7 @@
 .workshop-pgn-file-item__action {
   background: none;
   border: none;
-  color: #888;
+  color: var(--c-888);
   cursor: pointer;
   font-size: 14px;
   padding: 2px 6px;
@@ -1178,18 +1178,18 @@
 }
 
 .workshop-pgn-file-item__action:hover {
-  color: #ccc;
-  background: rgba(255,255,255,0.05);
+  color: var(--c-ccc);
+  background: var(--ov-white-05);
 }
 
 .workshop-pgn-file-item__action--delete:hover {
-  color: #dc2626;
+  color: var(--c-dc2626);
 }
 
 .workshop-pgn-file-item__edit {
-  background: #0f172a;
-  color: #e0e0e0;
-  border: 1px solid #7c83ff;
+  background: var(--c-0f172a);
+  color: var(--c-e0e0e0);
+  border: 1px solid var(--c-7c83ff);
   border-radius: 4px;
   padding: 2px 8px;
   font-size: 14px;

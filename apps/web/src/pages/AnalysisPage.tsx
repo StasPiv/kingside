@@ -1036,7 +1036,7 @@ export function AnalysisPage() {
                   onClick={(e) => { e.stopPropagation(); toggleAnalysis(); }}
                   title={analysisEnabled ? t('analysis.stop', 'Stop analysis') : t('analysis.start', 'Start analysis')}
                   data-testid="stockfish-toggle"
-                  style={{ padding: '2px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8, whiteSpace: 'nowrap' }}
+                  style={{ padding: '2px 10px', fontSize: 13, cursor: 'pointer', borderRadius: 4, border: '1px solid var(--c-555)', background: analysisEnabled ? 'var(--c-dc2626)' : 'var(--c-16a34a)', color: 'var(--c-fff)', marginLeft: 8, whiteSpace: 'nowrap' }}
                 >
                   {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
                 </button>
@@ -1130,7 +1130,7 @@ export function AnalysisPage() {
                   <button
                     className="analysis-toggle-btn"
                     onClick={toggleAnalysis}
-                    style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid #555', background: analysisEnabled ? '#dc2626' : '#16a34a', color: '#fff', marginLeft: 8 }}
+                    style={{ padding: '2px 10px', fontSize: 13, borderRadius: 4, border: '1px solid var(--c-555)', background: analysisEnabled ? 'var(--c-dc2626)' : 'var(--c-16a34a)', color: 'var(--c-fff)', marginLeft: 8 }}
                   >
                     {analysisEnabled ? t('analysis.stop', 'Stop') : t('analysis.start', 'Start')}
                   </button>

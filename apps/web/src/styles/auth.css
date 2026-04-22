@@ -12,7 +12,7 @@
   width: 100%;
   max-width: 380px;
   padding: 32px;
-  background: #16213e;
+  background: var(--c-16213e);
   border-radius: 12px;
 }
 
@@ -23,7 +23,7 @@
 
 .auth-form p {
   text-align: center;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 14px;
 }
 
@@ -58,18 +58,18 @@
 }
 
 .oauth-button--google {
-  background: #fff;
-  color: #3c4043;
+  background: var(--c-fff);
+  color: var(--c-3c4043);
 }
 
 .oauth-button--facebook {
-  background: #1877f2;
-  color: #fff;
+  background: var(--c-1877f2);
+  color: var(--c-fff);
 }
 
 .oauth-button--telegram {
-  background: #2aabee;
-  color: #fff;
+  background: var(--c-2aabee);
+  color: var(--c-fff);
 }
 
 .telegram-widget-container {
@@ -93,8 +93,8 @@
 }
 
 .error {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
+  background: var(--ov-danger-15-r500);
+  color: var(--c-ef4444);
   padding: 10px;
   border-radius: 6px;
   font-size: 14px;

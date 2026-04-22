@@ -25,7 +25,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  background: #16213e;
+  background: var(--c-16213e);
   padding: 8px 16px;
   border-radius: 8px;
   min-width: 280px;
@@ -39,13 +39,13 @@
 }
 
 .color-indicator.white {
-  background: #f0f0f0;
-  border: 1px solid #999;
+  background: var(--c-f0f0f0);
+  border: 1px solid var(--c-999);
 }
 
 .color-indicator.black {
-  background: #333;
-  border: 1px solid #555;
+  background: var(--c-333);
+  border: 1px solid var(--c-555);
 }
 
 .player-name {
@@ -93,7 +93,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--ov-black-50);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -103,10 +103,10 @@
 .promotion-dialog {
   display: flex;
   gap: 4px;
-  background: #312e2b;
+  background: var(--c-312e2b);
   padding: 8px;
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 20px var(--ov-black-50);
 }
 
 .promotion-piece {
@@ -115,17 +115,17 @@
   font-size: 48px;
   line-height: 64px;
   text-align: center;
-  background: #454240;
+  background: var(--c-454240);
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  color: #fff;
+  color: var(--c-fff);
   padding: 0;
   transition: background 0.15s;
 }
 
 .promotion-piece:hover {
-  background: #6a6562;
+  background: var(--c-6a6562);
 }
 
 .game-sidebar {
@@ -158,17 +158,17 @@
   top: 0;
   bottom: 0;
   width: 2px;
-  background: #1e2d50;
+  background: var(--c-1e2d50);
   border-radius: 1px;
   transition: background 0.15s;
 }
 
 .game-h-resizer:hover::after {
-  background: #7c83ff;
+  background: var(--c-7c83ff);
 }
 
 .move-list {
-  background: #16213e;
+  background: var(--c-16213e);
   border-radius: 8px;
   padding: 16px;
   flex: 1;
@@ -181,7 +181,7 @@
 .move-list h3 {
   margin-bottom: 8px;
   font-size: 14px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
 }
 
 .moves {
@@ -200,7 +200,7 @@
 }
 
 .move-number {
-  color: #666;
+  color: var(--c-666);
   min-width: 24px;
   flex-shrink: 0;
 }
@@ -214,7 +214,7 @@
   display: block !important;
   font-size: 15px;
   line-height: 1.6;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
@@ -224,18 +224,18 @@
   cursor: default;
   padding: 1px 3px;
   border-radius: 3px;
-  color: #e0e0e0;
+  color: var(--c-e0e0e0);
   font-weight: 500;
 }
 
 .game-move-item.current {
-  background-color: #1565c0;
-  color: #fff;
+  background-color: var(--c-1565c0);
+  color: var(--c-fff);
   font-weight: bold;
   border-radius: 4px;
   padding: 2px 6px;
   margin: 1px 2px;
-  box-shadow: 0 2px 4px rgba(21, 101, 192, 0.4);
+  box-shadow: 0 2px 4px var(--ov-info-40);
 }
 
 .game-actions-top {
@@ -246,8 +246,8 @@
 
 .mute-toggle {
   background: transparent;
-  border: 1px solid #2a2d3e;
-  color: #a0a0c0;
+  border: 1px solid var(--c-2a2d3e);
+  color: var(--c-a0a0c0);
   font-size: 1rem;
   padding: 4px 8px;
   cursor: pointer;
@@ -257,8 +257,8 @@
 }
 
 .mute-toggle:hover {
-  background: #16213e;
-  color: #fff;
+  background: var(--c-16213e);
+  color: var(--c-fff);
 }
 
 .mute-toggle.muted {
@@ -272,13 +272,13 @@
 
 .game-actions button {
   flex: 1;
-  background: #16213e;
-  color: #a0a0c0;
+  background: var(--c-16213e);
+  color: var(--c-a0a0c0);
 }
 
 .game-actions button:hover {
-  color: #fff;
-  background: #1e2d50;
+  color: var(--c-fff);
+  background: var(--c-1e2d50);
 }
 
 .draw-offer {
@@ -289,11 +289,11 @@
 
 .draw-offer p {
   font-size: 14px;
-  color: #fbbf24;
+  color: var(--c-fbbf24);
 }
 
 .game-result {
-  background: #16213e;
+  background: var(--c-16213e);
   padding: 16px;
   border-radius: 8px;
   text-align: center;
@@ -315,15 +315,15 @@
 }
 
 .rating-before {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
 }
 
 .rating-arrow {
-  color: #666;
+  color: var(--c-666);
 }
 
 .rating-after {
-  color: #fff;
+  color: var(--c-fff);
 }
 
 .rating-diff {
@@ -332,11 +332,11 @@
 }
 
 .rating-diff.positive {
-  color: #22c55e;
+  color: var(--c-22c55e);
 }
 
 .rating-diff.negative {
-  color: #ef4444;
+  color: var(--c-ef4444);
 }
 
 .game-result-actions {
@@ -349,8 +349,8 @@
 .result-btn {
   display: inline-block;
   padding: 8px 16px;
-  background: #16213e;
-  color: #a0a0c0;
+  background: var(--c-16213e);
+  color: var(--c-a0a0c0);
   border-radius: 6px;
   font-size: 14px;
   font-weight: 600;
@@ -358,18 +358,18 @@
 }
 
 .result-btn:hover {
-  background: #1e2d50;
-  color: #fff;
+  background: var(--c-1e2d50);
+  color: var(--c-fff);
   text-decoration: none;
 }
 
 .result-btn-primary {
-  background: #7c83ff;
-  color: #fff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
 }
 
 .result-btn-primary:hover {
-  background: #6366f1;
+  background: var(--c-6366f1);
 }
 
 /* Game result modal overlay */
@@ -379,7 +379,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--ov-black-60);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -387,12 +387,12 @@
 }
 
 .game-result-modal {
-  background: #1e2a4a;
+  background: var(--c-1e2a4a);
   border-radius: 16px;
   width: 360px;
   max-width: 90vw;
   overflow: hidden;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 40px var(--ov-black-50);
 }
 
 .result-modal-header {
@@ -401,27 +401,27 @@
 }
 
 .result-modal-header.win {
-  background: rgba(34, 197, 94, 0.15);
+  background: var(--ov-success-15-alt);
 }
 
 .result-modal-header.win h2 {
-  color: #22c55e;
+  color: var(--c-22c55e);
 }
 
 .result-modal-header.loss {
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--ov-danger-15-r500);
 }
 
 .result-modal-header.loss h2 {
-  color: #ef4444;
+  color: var(--c-ef4444);
 }
 
 .result-modal-header.draw {
-  background: rgba(124, 131, 255, 0.15);
+  background: var(--ov-accent-15);
 }
 
 .result-modal-header.draw h2 {
-  color: #7c83ff;
+  color: var(--c-7c83ff);
 }
 
 .result-modal-body {
@@ -430,7 +430,7 @@
 }
 
 .result-modal-detail {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 14px;
   margin-bottom: 16px;
 }
@@ -443,7 +443,7 @@
 }
 
 .result-modal-rating .rating-label {
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 13px;
 }
 
@@ -491,15 +491,15 @@
   display: inline-block;
   margin-top: 8px;
   padding: 8px 20px;
-  background: #7c83ff;
-  color: #fff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
   border-radius: 6px;
   font-weight: 600;
   font-size: 14px;
 }
 
 .analysis-link:hover {
-  background: #6366f1;
+  background: var(--c-6366f1);
   text-decoration: none;
 }
 
@@ -519,12 +519,12 @@
 }
 
 .review-move:hover {
-  background: rgba(124, 131, 255, 0.15);
+  background: var(--ov-accent-15);
 }
 
 .review-move.active {
-  background: #7c83ff;
-  color: #fff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
 }
 
 .review-controls {
@@ -537,22 +537,22 @@
   flex: 1;
   padding: 10px;
   font-size: 18px;
-  background: #16213e;
-  color: #e0e0e0;
-  border: 1px solid #333;
+  background: var(--c-16213e);
+  color: var(--c-e0e0e0);
+  border: 1px solid var(--c-333);
 }
 
 .review-controls button:hover:not(:disabled) {
-  background: #7c83ff;
-  color: #fff;
-  border-color: #7c83ff;
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
+  border-color: var(--c-7c83ff);
 }
 
 .review-back-link {
   display: block;
   text-align: center;
   padding: 8px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   font-size: 14px;
 }
 
@@ -563,13 +563,13 @@
 }
 
 .game-record-link:hover {
-  background: #1a1a3e;
+  background: var(--c-1a1a3e);
   text-decoration: none;
 }
 
 /* Chat */
 .chat {
-  background: #16213e;
+  background: var(--c-16213e);
   border-radius: 8px;
   padding: 16px;
   display: flex;
@@ -581,7 +581,7 @@
 
 .chat h3 {
   font-size: 14px;
-  color: #a0a0c0;
+  color: var(--c-a0a0c0);
   margin-bottom: 8px;
 }
 
@@ -601,7 +601,7 @@
 }
 
 .chat-msg.own {
-  color: #7c83ff;
+  color: var(--c-7c83ff);
 }
 
 .chat-input {
@@ -628,8 +628,8 @@
   justify-content: center;
   gap: 10px;
   padding: 6px 14px;
-  background: #f59e0b;
-  color: #1a1a2e;
+  background: var(--c-f59e0b);
+  color: var(--c-1a1a2e);
   font-size: 13px;
   border-radius: 6px;
   margin-bottom: 8px;
@@ -637,7 +637,7 @@
 .bot-fallback-banner button {
   background: none;
   border: none;
-  color: #1a1a2e;
+  color: var(--c-1a1a2e);
   font-size: 16px;
   cursor: pointer;
   opacity: 0.7;
@@ -650,8 +650,8 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(0,0,0,0.7);
-  color: #4ade80;
+  background: var(--ov-black-70);
+  color: var(--c-4ade80);
   font-family: monospace;
   font-size: 11px;
   padding: 4px 8px;
