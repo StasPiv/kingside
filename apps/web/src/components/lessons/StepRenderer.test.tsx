@@ -19,6 +19,15 @@ vi.mock('./steps/PuzzleStep', () => ({
   ),
 }));
 
+vi.mock('./steps/QuizStep', () => ({
+  QuizStep: ({ payload }: { payload: { questions?: Array<{ id: string }> } }) => (
+    <div
+      data-testid="lesson-quiz-step-mock"
+      data-count={payload.questions?.length ?? 0}
+    />
+  ),
+}));
+
 const baseStep = {
   id: 's1',
   lessonId: 'l1',
@@ -37,7 +46,6 @@ describe('<StepRenderer>', () => {
   });
 
   it.each([
-    'quiz',
     'position',
     'game_review',
     'video',
@@ -71,12 +79,31 @@ describe('<StepRenderer>', () => {
     expect(node).toHaveAttribute('data-ids', 'p1,p2');
   });
 
-  it('пробрасывает onStepDone в кнопку stub (quiz)', () => {
-    const onStepDone = vi.fn();
+  it('делегирует quiz-шаг компоненту QuizStep', () => {
     const step: LessonStep = {
       ...baseStep,
       type: 'quiz',
-      payload: { type: 'quiz', questions: [] },
+      payload: {
+        type: 'quiz',
+        questions: [
+          { id: 'q1', promptI18nKey: 'k1', options: [], correctOptionIds: [] },
+          { id: 'q2', promptI18nKey: 'k2', options: [], correctOptionIds: [] },
+        ],
+      },
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    expect(screen.getByTestId('lesson-quiz-step-mock')).toHaveAttribute(
+      'data-count',
+      '2',
+    );
+  });
+
+  it('пробрасывает onStepDone в кнопку stub (position)', () => {
+    const onStepDone = vi.fn();
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'position',
+      payload: { type: 'position', fen: '8/8/8/8/8/8/8/8 w - - 0 1', expectedMoves: [] },
     };
     renderWithProviders(
       <StepRenderer step={step} onStepDone={onStepDone} />,

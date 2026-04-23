@@ -3,6 +3,7 @@ import type { LessonStep } from '@kingside/shared';
 
 import { TextStep } from './steps/TextStep';
 import { PuzzleStep } from './steps/PuzzleStep';
+import { QuizStep } from './steps/QuizStep';
 
 /**
  * Диспетчер рендера шагов урока (L-08).
@@ -40,6 +41,10 @@ export function StepRenderer({ step, onStepDone, hideNext }: StepRendererProps) 
       );
 
     case 'quiz':
+      return (
+        <QuizStep payload={payload} onStepDone={onStepDone} hideNext={hideNext} />
+      );
+
     case 'position':
     case 'game_review':
     case 'video':
