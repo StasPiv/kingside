@@ -12,6 +12,11 @@
  * Использует тот же Redis-lock `archive:import:lock:twic` что и
  * scheduler — параллельный scheduler-tick увидит `lock held, skipping`
  * и корректно пропустит свой заход (ADR-019 §2.11).
+ *
+ * KS-1720: bootstrap идёт через `AdHocCliModule` (без `ScheduleModule`,
+ * без `ArchiveImportService`). Раньше использовался `ImporterModule` —
+ * `ArchiveImportService.onModuleInit` делал immediate tick, брал lock и
+ * ронял сам CLI с `lock held`. Любой ad-hoc после этого ждал TTL 30 мин.
  */
 
 import 'reflect-metadata';
@@ -19,7 +24,7 @@ import type Redis from 'ioredis';
 import type { PrismaClient } from '@kingside/archive-db';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
-import { ImporterModule } from '../importer.module';
+import { AdHocCliModule } from './ad-hoc-cli.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { ArchivePositionWriterService } from '../archive-import/archive-position-writer.service';
@@ -147,7 +152,12 @@ export async function runImportTwicIssue(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  const app = await NestFactory.createApplicationContext(ImporterModule, {
+  // KS-1720: используем `AdHocCliModule`, а не `ImporterModule`. Тот тянул
+  // `ScheduleModule` + `ArchiveImportService` с `OnModuleInit`-immediate
+  // tick'ом — при bootstrap ad-hoc CLI он успевал захватить
+  // `archive:import:lock:twic`, после чего сам CLI падал с `lock held`,
+  // а осиротевший lock блокировал любые ad-hoc запуски на 30 мин TTL.
+  const app = await NestFactory.createApplicationContext(AdHocCliModule, {
     bufferLogs: false,
   });
   const logger = new Logger('cli:import-twic-issue');
