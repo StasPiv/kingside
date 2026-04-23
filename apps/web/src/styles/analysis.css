@@ -375,7 +375,11 @@
 }
 
 .stockfish-eval.best {
-  color: var(--c-fff);
+  /* KS-1752: было `var(--c-fff)` — не флипалось при переключении темы,
+     жирная оценка первой PV-линии становилась белой на почти-белом фоне
+     `.analysis-panel-body` (`var(--c-0f172a)` → `#f1f5f9` в light). Теперь
+     через `--c-e0e0e0` (dark: `#e0e0e0`, light: `#1f2937`) читается в обеих. */
+  color: var(--c-e0e0e0);
 }
 
 .stockfish-eval.mate {
@@ -673,7 +677,9 @@
 .analysis-result-badge {
   font-size: 14px;
   font-weight: 700;
-  color: var(--c-fff);
+  /* KS-1752: bg `--c-1e2d50` в light = `#dfe7f2` (светлый), var(--c-fff)
+     делал белый на почти-белом. */
+  color: var(--c-e0e0e0);
   background: var(--c-1e2d50);
   padding: 2px 8px;
   border-radius: 4px;
@@ -835,7 +841,9 @@
 
 .analysis-move.active {
   background: var(--ov-accent-20);
-  color: var(--c-fff);
+  /* KS-1752: var(--c-fff) не флипался; на светлом `--ov-accent-20` поверх
+     `--c-0f172a`=`#f1f5f9` в light получался белый на почти-белом. */
+  color: var(--c-e0e0e0);
 }
 
 /* VariantMoveList styles */
@@ -876,7 +884,8 @@
 
 .vml-move.active {
   background: var(--ov-accent-35);
-  color: var(--c-fff);
+  /* KS-1752: var(--c-fff) не флипался — белый на светло-индиго в light. */
+  color: var(--c-e0e0e0);
   font-weight: bold;
   border-radius: 4px;
 }
@@ -949,7 +958,8 @@
 
 .review-move.active {
   background: var(--ov-accent-35);
-  color: var(--c-fff);
+  /* KS-1752: см. `.vml-move.active`. */
+  color: var(--c-e0e0e0);
   font-weight: bold;
 }
 
@@ -2186,7 +2196,8 @@
 
 .variation-chooser-item.active {
   background: var(--ov-accent-25);
-  color: var(--c-fff);
+  /* KS-1752: см. `.analysis-move.active`. */
+  color: var(--c-e0e0e0);
 }
 
 .variation-chooser-index {
