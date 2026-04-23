@@ -1,20 +1,13 @@
 import type { CourseLessonSummary } from '@kingside/shared';
 
 /**
- * Группировка уроков по «блокам» курса (KS-1785, QA bug).
+ * Группировка уроков курса по «блокам».
  *
- * QA-spec для курса beginner — 6 блоков:
- *   rules / basic-mates / piece-values / openings / tactics / basic-endgame
- *
- * Backend-API (`CourseLessonSummary`) пока **не возвращает** `blockKey`
- * (см. `packages/shared/src/types/lessons.ts`). Прошу backend задачу на
- * добавление поля; пока что — fallback по slug-mapping для уроков
- * курса beginner. Если в `lesson` появится поле `blockKey` (через
- * расширение типа), `getBlockKey` будет использовать его автоматически.
- *
- * Уроки, slug которых не найден в маппинге, попадают в служебный блок
- * `'other'` — он рендерится последним, чтобы новые seed-уроки не
- * терялись из UI.
+ * Блок урока приходит с бэка в поле `CourseLessonSummary.blockKey`
+ * (см. `packages/shared/src/types/lessons.ts`). Фронт только читает
+ * это поле и раскладывает уроки в порядке `BLOCK_ORDER`. Если у урока
+ * `blockKey` не совпадает ни с одним известным блоком — он попадает в
+ * служебный блок `'other'`, который рендерится последним.
  */
 
 export type BlockKey =
@@ -37,56 +30,16 @@ export const BLOCK_ORDER: BlockKey[] = [
   'other',
 ];
 
-/** Маппинг slug → blockKey для курса beginner (KS-1785 fallback). */
-const SLUG_TO_BLOCK: Record<string, BlockKey> = {
-  // rules
-  'board-coordinates': 'rules',
-  'pawn-moves': 'rules',
-  'knight-moves': 'rules',
-  'bishop-moves': 'rules',
-  'rook-moves': 'rules',
-  'queen-moves': 'rules',
-  'king-and-castling': 'rules',
-  'check-mate-draw': 'rules',
-  // basic-mates
-  'mate-queen-king': 'basic-mates',
-  'mate-rook-king': 'basic-mates',
-  'mate-two-rooks': 'basic-mates',
-  'mate-patterns-recognition': 'basic-mates',
-  // piece-values
-  'piece-values': 'piece-values',
-  exchanges: 'piece-values',
-  'hanging-pieces': 'piece-values',
-  // openings
-  'opening-principles': 'openings',
-  'center-control': 'openings',
-  'piece-development': 'openings',
-  'castling-when': 'openings',
-  'opening-mistakes': 'openings',
-  // tactics
-  fork: 'tactics',
-  pin: 'tactics',
-  'double-attack': 'tactics',
-  'discovered-attack': 'tactics',
-  'discovered-check': 'tactics',
-  'mate-in-one-two': 'tactics',
-  // basic-endgame
-  'king-pawn-vs-king': 'basic-endgame',
-  'pawn-promotion': 'basic-endgame',
-  'active-king-endgame': 'basic-endgame',
-  'stalemate-tricks': 'basic-endgame',
-};
-
 /**
- * Возвращает blockKey для урока. Сначала смотрит API-поле `blockKey`
- * (после backend-апдейта), затем slug-fallback, затем `'other'`.
+ * Возвращает blockKey для урока. Читает `lesson.blockKey` с бэка,
+ * если значение не из списка известных блоков — возвращает `'other'`.
  */
 export function getBlockKey(lesson: CourseLessonSummary): BlockKey {
-  const apiBlock = (lesson as unknown as { blockKey?: string }).blockKey;
-  if (apiBlock && BLOCK_ORDER.includes(apiBlock as BlockKey)) {
+  const apiBlock = lesson.blockKey;
+  if (apiBlock && (BLOCK_ORDER as string[]).includes(apiBlock)) {
     return apiBlock as BlockKey;
   }
-  return SLUG_TO_BLOCK[lesson.slug] ?? 'other';
+  return 'other';
 }
 
 export interface LessonBlock {

@@ -2,11 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { groupLessonsByBlock, getBlockKey, BLOCK_ORDER } from './courseBlocks';
 import type { CourseLessonSummary } from '@kingside/shared';
 
-function lesson(slug: string, order: number, extra?: Partial<CourseLessonSummary>): CourseLessonSummary {
+function lesson(
+  slug: string,
+  order: number,
+  blockKey: string,
+  extra?: Partial<CourseLessonSummary>,
+): CourseLessonSummary {
   return {
     id: `id-${slug}`,
     slug,
     order,
+    blockKey,
     kind: 'theory',
     titleI18nKey: `t.${slug}`,
     summaryI18nKey: `s.${slug}`,
@@ -17,78 +23,67 @@ function lesson(slug: string, order: number, extra?: Partial<CourseLessonSummary
 }
 
 describe('getBlockKey', () => {
-  it('маппит slug курса beginner в правильный block', () => {
-    expect(getBlockKey(lesson('board-coordinates', 0))).toBe('rules');
-    expect(getBlockKey(lesson('mate-queen-king', 8))).toBe('basic-mates');
-    expect(getBlockKey(lesson('piece-values', 12))).toBe('piece-values');
-    expect(getBlockKey(lesson('opening-principles', 15))).toBe('openings');
-    expect(getBlockKey(lesson('fork', 20))).toBe('tactics');
-    expect(getBlockKey(lesson('king-pawn-vs-king', 26))).toBe('basic-endgame');
+  it('возвращает blockKey из API, если он входит в BLOCK_ORDER', () => {
+    expect(getBlockKey(lesson('l1', 0, 'rules'))).toBe('rules');
+    expect(getBlockKey(lesson('l2', 1, 'tactics'))).toBe('tactics');
+    expect(getBlockKey(lesson('l3', 2, 'basic-endgame'))).toBe('basic-endgame');
   });
 
-  it('неизвестный slug → other', () => {
-    expect(getBlockKey(lesson('something-new', 99))).toBe('other');
+  it('неизвестный blockKey → other', () => {
+    expect(getBlockKey(lesson('l1', 0, 'something-new'))).toBe('other');
   });
 
-  it('предпочитает API-поле blockKey, если есть', () => {
-    const l = lesson('board-coordinates', 0) as CourseLessonSummary & { blockKey: string };
-    l.blockKey = 'tactics';
-    expect(getBlockKey(l)).toBe('tactics');
+  it('пустой blockKey → other', () => {
+    expect(getBlockKey(lesson('l1', 0, ''))).toBe('other');
   });
 });
 
 describe('groupLessonsByBlock', () => {
-  it('группирует все 30 slug-ов курса beginner в 6 блоков, в правильном порядке', () => {
-    const all = [
-      'board-coordinates','pawn-moves','knight-moves','bishop-moves','rook-moves',
-      'queen-moves','king-and-castling','check-mate-draw',
-      'mate-queen-king','mate-rook-king','mate-two-rooks','mate-patterns-recognition',
-      'piece-values','exchanges','hanging-pieces',
-      'opening-principles','center-control','piece-development','castling-when','opening-mistakes',
-      'fork','pin','double-attack','discovered-attack','discovered-check','mate-in-one-two',
-      'king-pawn-vs-king','pawn-promotion','active-king-endgame','stalemate-tricks',
-    ].map((s, i) => lesson(s, i));
-    const blocks = groupLessonsByBlock(all);
-    expect(blocks.map((b) => b.key)).toEqual([
-      'rules','basic-mates','piece-values','openings','tactics','basic-endgame',
-    ]);
-    expect(blocks[0].lessons.map((l) => l.slug)).toContain('board-coordinates');
-    expect(blocks[1].lessons.length).toBe(4);
-    expect(blocks[2].lessons.length).toBe(3);
-    expect(blocks[3].lessons.length).toBe(5);
-    expect(blocks[4].lessons.length).toBe(6);
-    expect(blocks[5].lessons.length).toBe(4);
-    // итого 30
-    expect(blocks.reduce((acc, b) => acc + b.lessons.length, 0)).toBe(30);
+  it('группирует уроки по blockKey в порядке BLOCK_ORDER', () => {
+    const lessons = [
+      lesson('a', 0, 'tactics'),
+      lesson('b', 1, 'rules'),
+      lesson('c', 2, 'basic-mates'),
+      lesson('d', 3, 'rules'),
+    ];
+    const blocks = groupLessonsByBlock(lessons);
+    expect(blocks.map((b) => b.key)).toEqual(['rules', 'basic-mates', 'tactics']);
+    expect(blocks[0].lessons.map((l) => l.slug)).toEqual(['b', 'd']);
   });
 
   it('внутри блока уроки идут по order', () => {
     const blocks = groupLessonsByBlock([
-      lesson('mate-rook-king', 9),
-      lesson('mate-queen-king', 8),
-      lesson('mate-two-rooks', 10),
+      lesson('x', 9, 'basic-mates'),
+      lesson('y', 8, 'basic-mates'),
+      lesson('z', 10, 'basic-mates'),
     ]);
     expect(blocks).toHaveLength(1);
     expect(blocks[0].lessons.map((l) => l.order)).toEqual([8, 9, 10]);
   });
 
   it('пустые блоки не отдаёт', () => {
-    const blocks = groupLessonsByBlock([lesson('fork', 20)]);
+    const blocks = groupLessonsByBlock([lesson('a', 0, 'tactics')]);
     expect(blocks.map((b) => b.key)).toEqual(['tactics']);
   });
 
-  it('неизвестные slug-и попадают в блок other (последний)', () => {
+  it('неизвестные blockKey попадают в блок other (последний)', () => {
     const blocks = groupLessonsByBlock([
-      lesson('fork', 20),
-      lesson('mystery-lesson', 100),
+      lesson('a', 0, 'tactics'),
+      lesson('b', 1, 'mystery'),
     ]);
     expect(blocks.map((b) => b.key)).toEqual(['tactics', 'other']);
-    expect(blocks[1].lessons[0].slug).toBe('mystery-lesson');
+    expect(blocks[1].lessons[0].slug).toBe('b');
   });
 
   it('порядок блоков фиксирован (BLOCK_ORDER)', () => {
     expect(BLOCK_ORDER).toEqual([
-      'rules','basic-mates','piece-values','openings','tactics','basic-endgame','other',
+      'rules',
+      'basic-mates',
+      'piece-values',
+      'openings',
+      'tactics',
+      'basic-endgame',
+      'other',
     ]);
   });
 });
