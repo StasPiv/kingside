@@ -11,6 +11,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-kingside}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # KS-1744: init-скрипты выполняются при первом старте (пустой volume).
+      # 01-create-broadcasts-db.sh создаёт БД broadcasts_kingside рядом с основной.
+      # Если postgres volume уже был — создай БД вручную (см. комментарий в скрипте).
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d:ro
     logging:
       driver: json-file
       options:
@@ -126,6 +130,30 @@ services:
       - redis
     profiles:
       - deploy
+
+  # KS-1744: одноразовая инициализация broadcasts_kingside для случаев, когда
+  # postgres volume уже существует (init-скрипт /docker-entrypoint-initdb.d
+  # не выполняется повторно). Вызывается вручную:
+  #   docker compose --profile init run --rm broadcasts-db-init
+  broadcasts-db-init:
+    image: postgres:16-alpine
+    depends_on:
+      - postgres
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-kingside}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-kingside}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        until pg_isready -q; do sleep 1; done
+        psql -d postgres -v ON_ERROR_STOP=1 -tc "SELECT 1 FROM pg_database WHERE datname='broadcasts_kingside'" | grep -q 1 \
+          || psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE broadcasts_kingside OWNER $$PGUSER"
+        echo "broadcasts_kingside ready"
+    restart: "no"
+    profiles:
+      - init
 
   archive-importer:
     # ADR-019 / KS-1674/1676/1677: importer — второй CMD единого образа archive-service.
