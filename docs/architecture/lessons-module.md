@@ -14,7 +14,7 @@
 | `puzzle-rush` | Механика ежедневной тренировки с таймером и лидербордами. Можно привязать как «финальный экзамен» курса. |
 | `workshop` + `external-chess.service.ts` | Парсер PGN, импорт игр с chess.com/lichess, `PgnImport`/`PgnImportGame`. Основа для курса «Анализ своих партий». |
 | `analysis` (`Analysis` model, `analysis.service.ts`) | Хранение PGN с аннотациями, вариантами, NAG, комментариями. Подходит как формат «разбор-позиция» внутри шага урока. |
-| `engine` + `useEngine` + `useStockfish` + `useExternalEngine` + `useGameReport` | Локальный и серверный Stockfish, отчёт по партии (accuracy, ошибки). Используется в шагах «разбери свою партию». |
+| `engine` + `useEngine` + `useStockfish` + `useGameReport` | Локальный Stockfish WASM, отчёт по партии (accuracy, ошибки). Используется в шагах «разбери свою партию». **В уроках используется только Stockfish WASM на клиенте. Серверный движок (`useExternalEngine` / engine-сервис) не используется.** |
 | `ai-chat` (`ChatConversation`, `ChatAssistantMessage`) | Может работать как «объясняющий помощник» внутри шага. |
 | `user` | Поля `ratingPuzzle`, `ratingBullet/Blitz/Rapid/Classical` — сигнал для рекомендации уровня курса. |
 | `archive-service` (отдельный сервис) | Индекс партий пользователя по позициям, `archive-import`. Для продвинутого курса «дебютный репертуар» — готовый источник «все мои партии в этой позиции». |
