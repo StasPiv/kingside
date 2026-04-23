@@ -4,6 +4,7 @@ import { PuzzleModule } from '../puzzle/puzzle.module';
 import { CoursesController } from './courses.controller';
 import { LessonsController } from './lessons.controller';
 import { ProgressController } from './progress.controller';
+import { PuzzleResolverController } from './puzzle-resolver.controller';
 import { CoursesService } from './courses.service';
 import { LessonsService } from './lessons.service';
 import { ProgressService } from './progress.service';
@@ -20,7 +21,7 @@ import { LessonPuzzleResolverService } from './puzzle-resolver.service';
  */
 @Module({
   imports: [PrismaModule, PuzzleModule],
-  controllers: [CoursesController, LessonsController, ProgressController],
+  controllers: [CoursesController, LessonsController, ProgressController, PuzzleResolverController],
   providers: [CoursesService, LessonsService, ProgressService, LessonPuzzleResolverService],
   exports: [CoursesService, LessonsService, ProgressService, LessonPuzzleResolverService],
 })
