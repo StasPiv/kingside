@@ -276,6 +276,62 @@ describe('BroadcastStandingsSyncService — refresh fetch error → legacy', () 
     // Persist всё равно был — кэшируем legacy чтобы не долбить fetcher.
     expect(prisma.standingsUpsert).toHaveBeenCalledTimes(1);
   });
+
+  it('KS-1745: persisted tournamentType = "unknown" (НЕ исходный team-rr)', async () => {
+    // Регрессия: на Bundesliga (team-round-robin) detectTournamentType
+    // возвращает 'team-round-robin', и до фикса persist писал именно его
+    // в БД, хотя response уже был CrosstableLegacy с
+    // tournamentType='unknown'. UI-диспетчер уходил в <TeamStandings>
+    // с пустым teams[] → empty-state, хотя players был.
+    const teamBroadcast = {
+      ...baseBroadcast,
+      format: '12-team round-robin', // → tournamentType = 'team-round-robin'
+      chessResultsTournamentId: '1234',
+    };
+    const fetchPage = jest
+      .fn()
+      .mockRejectedValue(new Error('chess-results timeout'));
+    const fetcher = makeFetcher(fetchPage);
+    const prisma = makePrisma({ broadcast: teamBroadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher });
+
+    const r = await svc.refresh('bc-1');
+
+    // Возврат — legacy с tournamentType='unknown'.
+    expect(r.tournamentType).toBe('unknown');
+
+    // Главный инвариант KS-1745: persisted tournamentType — 'unknown',
+    // НЕ 'team-round-robin'. UI получит CrosstableLegacy от диспетчера.
+    expect(prisma.standingsUpsert).toHaveBeenCalledTimes(1);
+    const upsertCall = prisma.standingsUpsert.mock.calls[0][0];
+    expect(upsertCall.create.tournamentType).toBe('unknown');
+    expect(upsertCall.update.tournamentType).toBe('unknown');
+    // sourceType — internal-fallback (как было).
+    expect(upsertCall.create.sourceType).toBe('internal-fallback');
+    // fetchError содержит причину (для аудита).
+    expect(upsertCall.create.fetchError).toMatch(/chess-results timeout/);
+  });
+
+  it('KS-1745: legacy ветка для chessResultsTournamentId=null тоже пишет unknown', async () => {
+    // Та же логика и для broadcast'ов без chess-results id (Lichess
+    // standings_url ведёт не на chess-results).
+    const broadcast = {
+      ...baseBroadcast,
+      format: '9-round Swiss', // → tournamentType = 'swiss'
+      chessResultsTournamentId: null,
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const fetcher = makeFetcher();
+    const svc = makeService({ prisma, redis, fetcher });
+
+    await svc.refresh('bc-1');
+
+    expect(prisma.standingsUpsert).toHaveBeenCalledTimes(1);
+    const upsertCall = prisma.standingsUpsert.mock.calls[0][0];
+    expect(upsertCall.create.tournamentType).toBe('unknown');
+  });
 });
 
 describe('BroadcastStandingsSyncService — getFresh miss + lock', () => {

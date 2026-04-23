@@ -218,7 +218,7 @@ export class BroadcastStandingsSyncService {
         ? 'broadcast.chessResultsTournamentId is null (Lichess standings_url not chess-results)'
         : `tournamentType='unknown' for format='${broadcast.format}'`;
       const response = this.buildLegacyResponse(broadcast, reason);
-      await this.persist(broadcastId, response, lifecycle, tournamentType);
+      await this.persist(broadcastId, response, lifecycle);
       this.refreshTotal.inc({ status: 'legacy', type: tournamentType });
       return response;
     }
@@ -256,7 +256,7 @@ export class BroadcastStandingsSyncService {
       this.refreshTotal.inc({ status: errorStatus, type: tournamentType });
     }
 
-    await this.persist(broadcastId, response, lifecycle, tournamentType);
+    await this.persist(broadcastId, response, lifecycle);
     return response;
   }
 
@@ -621,11 +621,20 @@ export class BroadcastStandingsSyncService {
     return 'finished';
   }
 
+  /**
+   * Persist'ит response в `broadcast_standings`. **`tournamentType`
+   * берётся ИЗ `response`, не из исходного detect'а** (KS-1745):
+   * для legacy-fallback-веток (fetcher/parser упал) `response.tournamentType`
+   * уже выставлен в `'unknown'` через `buildLegacyResponse`. Если бы мы
+   * писали исходный detected-тип (например `team-round-robin` для
+   * Bundesliga), фронт-диспетчер уходил бы в `<TeamStandings>` с пустым
+   * `teams[]` и показывал empty-state, хотя `players` из broadcast_games
+   * есть. Discriminator должен совпадать с реальным shape JSON-payload'а.
+   */
   private async persist(
     broadcastId: string,
     response: CrosstableResponse,
     lifecycle: Lifecycle,
-    tournamentType: TournamentType,
   ): Promise<void> {
     const ttlMs = TTL_MS_BY_LIFECYCLE[lifecycle];
     const fetchedAt = new Date(this.now());
@@ -646,7 +655,7 @@ export class BroadcastStandingsSyncService {
     const fields = {
       sourceType: response.sourceType,
       sourceUrl: response.sourceUrl,
-      tournamentType,
+      tournamentType: response.tournamentType,
       rawPlayers: rawPlayers as unknown as object,
       rawCrossTable: (rawCrossTable as unknown as object) ?? undefined,
       rawPairings: (rawPairings as unknown as object) ?? undefined,
