@@ -1554,6 +1554,8 @@ def _format_tool_use(tname: str, inp: dict) -> str:
             "agent_message": "message",
             "comment_add": "body",
             "telegram_send": "message",
+            "issue_create": "description",
+            "issue_update": "description",
         }
         content_field = content_fields.get(short_name)
         params = []
@@ -1570,7 +1572,7 @@ def _format_tool_use(tname: str, inp: dict) -> str:
             sep = " " if params_html else ""
             return (
                 f'<span class="tool-name">{_esc(short_name)}</span>{sep}{params_html}'
-                f'<pre class="tool-code">{_esc(body)}</pre>'
+                f'<div class="tool-code text-body">{_esc(body)}</div>'
             )
         return f'<span class="tool-name">{_esc(short_name)}</span> {params_html}'
 
@@ -1868,6 +1870,7 @@ LOGS_HTML = """<!DOCTYPE html>
               font-size: 12px; word-break: break-all; border: 1px solid var(--border-dim); }
   .tool-code { color: var(--fg-strong); background: var(--tool-code-bg); padding: 6px 10px; border-radius: 4px; margin-top: 4px;
                font-size: 12px; white-space: pre-wrap; word-break: break-all; border: 1px solid var(--border-dim); }
+  .tool-code.text-body { white-space: normal; word-break: break-word; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
   .tool-pattern { color: var(--accent-orange-2); background: var(--tool-pattern-bg); padding: 1px 6px; border-radius: 3px; }
   .tool-param-key { color: var(--accent-green-2); }
   .tool-param-val { color: var(--fg); }
