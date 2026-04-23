@@ -560,20 +560,25 @@ aws_cli cloudwatch put-metric-alarm \
     --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
     --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
 
-# 14.4 EMF LastSuccessAgeSeconds > 14 дней (1209600), 2×1h, breaching.
-# Backend публикует LastSuccessAgeSeconds per source (dimension source=<code>).
+# 14.4 EMF LastSuccessAgeSeconds > 14 дней (1209600), суточный ритм.
+# Backend публикует LastSuccessAgeSeconds per source (dimension source=<code>)
+# один раз в сутки при запуске importer-once по EventBridge cron 0 20 * * *.
 # На момент KS-1682 единственный активный source — twic; добавлять новые алармы
 # при появлении новых источников (lichess-elite/ccrl/…) — отдельной задачей.
+#
+# KS-1717: period/eval подогнаны под суточный ритм invocation'ов importer'а.
+# До этого был 3600×2×breaching — структурно не мог уйти в OK, потому что
+# в часовых окнах между суточными run'ами datapoint'ов нет → missing=breaching.
 aws_cli cloudwatch put-metric-alarm \
     --alarm-name "archive-importer-last-success-age" \
-    --alarm-description "KS-1682: LastSuccessAgeSeconds > 14 days (archive-importer stalled) for source=twic" \
+    --alarm-description "KS-1682/KS-1717: LastSuccessAgeSeconds > 14 days (archive-importer stalled) for source=twic" \
     --metric-name LastSuccessAgeSeconds \
     --namespace "${IMPORTER_METRIC_NAMESPACE}" \
     --dimensions "Name=source,Value=twic" \
     --statistic Maximum \
-    --period 3600 --evaluation-periods 2 --threshold 1209600 \
+    --period 86400 --evaluation-periods 1 --threshold 1209600 \
     --comparison-operator GreaterThanThreshold \
-    --treat-missing-data breaching \
+    --treat-missing-data notBreaching \
     --alarm-actions "${IMPORTER_ALERT_SNS_ARN}" \
     --ok-actions "${IMPORTER_ALERT_SNS_ARN}"
 
