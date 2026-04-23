@@ -456,3 +456,91 @@ export interface LevelGateResponse {
   /** Список незакрытых условий, пусто если `unlocked=true`. */
   blockers: LevelGateBlocker[];
 }
+
+// ─── Mistakes journal (L-31 / KS-1802) ────────────────────────────────
+//
+// Дневник ошибок. Агрегирует `puzzle`-неудачи и ходы, классифицированные
+// движком как `mistake` / `blunder` в разборе партии. Используется для
+// рекомендаций «повторить темы X, Y».
+
+/**
+ * Источник ошибки.
+ *  - `puzzle` — неправильная попытка в `PuzzleAttempt`.
+ *  - `game_review` — ход классифицирован как `mistake`/`blunder` в анализе
+ *    партии (см. `MoveClassification` в api-contracts).
+ */
+export type UserMistakeSource = 'puzzle' | 'game_review';
+
+/**
+ * Запись о единичной ошибке. Отдаётся `GET /api/lessons/mistakes/recent`
+ * (если потребуется фронту; MVP endpoints — aggregates / recommendations).
+ */
+export interface UserMistake {
+  id: string;
+  userId: string;
+  source: UserMistakeSource;
+  puzzleId: string | null;
+  gameId: string | null;
+  ply: number | null;
+  themes: PuzzleTheme[];
+  occurredAt: string; // ISO
+}
+
+/**
+ * Агрегат «тема — сколько раз ошибался — когда последний раз».
+ * Сортировка в ответе: по убыванию `count`, при равенстве — по убыванию
+ * `lastOccurredAt`.
+ */
+export interface UserMistakeAggregate {
+  theme: PuzzleTheme;
+  count: number;
+  lastOccurredAt: string; // ISO
+}
+
+/**
+ * GET /api/lessons/mistakes/aggregates?since=ISO&limit=N
+ *
+ * `since` (опц.) — ISO-cutoff, учитывать только ошибки `occurredAt >= since`.
+ * По умолчанию — все ошибки пользователя.
+ * `limit` (опц.) — обрезать топ-N по `count` (default 20, max 50).
+ */
+export interface UserMistakeAggregatesResponse {
+  aggregates: UserMistakeAggregate[];
+  /** Сколько всего уникальных тем, даже если `limit` обрезал список. */
+  totalThemes: number;
+  /** Отражение использованных фильтров (для UI). */
+  since: string | null;
+  limit: number;
+}
+
+/**
+ * Одна рекомендация из топ-N проблемных тем. `puzzleStep` — готовый
+ * `PuzzleStepPayload` типа `filter`, который фронт может передать в API
+ * L-06 (`PuzzleService.findPuzzles`) без дополнительной подготовки.
+ */
+export interface UserMistakeRecommendation {
+  theme: PuzzleTheme;
+  /** Сколько ошибок по теме за окно рекомендаций (см. `windowDays`). */
+  mistakeCount: number;
+  /** Когда последний раз ошибался. */
+  lastOccurredAt: string; // ISO
+  /** Готовый payload для запуска тренировочного сета. */
+  puzzleStep: PuzzleStepPayload;
+}
+
+/**
+ * GET /api/lessons/mistakes/recommendations
+ *
+ * Возвращает топ-3 тем, по которым пользователь больше всего ошибался
+ * за последние `windowDays` дней (default 30), с payload'ом-заглушкой
+ * для `PuzzleStep` (фильтр по теме + `ratingPuzzle ± ratingRange`).
+ */
+export interface UserMistakeRecommendationsResponse {
+  recommendations: UserMistakeRecommendation[];
+  /** Рейтинг пользователя, на основе которого сформированы диапазоны. */
+  ratingPuzzle: number;
+  /** Ширина окна агрегации в днях. */
+  windowDays: number;
+  /** Ширина рейтингового диапазона (± от `ratingPuzzle`). */
+  ratingRange: number;
+}

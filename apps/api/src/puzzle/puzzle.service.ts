@@ -4,6 +4,7 @@ import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
+import { MistakesService } from '../lessons/mistakes.service';
 
 @Injectable()
 export class PuzzleService {
@@ -14,6 +15,7 @@ export class PuzzleService {
     private readonly i18n: I18nService,
     private readonly puzzleRating: PuzzleRatingService,
     private readonly redis: RedisService,
+    private readonly mistakes: MistakesService,
   ) {}
 
   /**
@@ -354,6 +356,18 @@ export class PuzzleService {
         hintsUsed: hintsUsed ?? 0,
       },
     });
+
+    // L-31 (KS-1802): фиксируем ошибку в дневнике. Идемпотентность по
+    // `(userId, puzzleId)` обеспечивает сам `MistakesService` — повторная
+    // неудача по той же задаче обновит `occurredAt`, не создаст дубликат.
+    // Сбой записи не должен ломать submitAttempt — логируем и идём дальше.
+    if (!solved) {
+      this.mistakes.recordPuzzleMistake(userId, puzzleId).catch((e) => {
+        this.logger.warn(
+          `recordPuzzleMistake failed for user=${userId} puzzle=${puzzleId}: ${(e as Error).message ?? e}`,
+        );
+      });
+    }
 
     this.logger.log(
       `Puzzle ${puzzleId} ${solved ? 'solved' : 'failed'} by user ${userId}: rating ${ratingChange.userRatingBefore} -> ${ratingChange.userRatingAfter}${isRetry ? ' (retry)' : ''}`,

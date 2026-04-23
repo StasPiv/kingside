@@ -65,6 +65,7 @@ model User {
   courseProgress      UserCourseProgress[]
   lessonProgress      UserLessonProgress[]
   lessonReviews       LessonReview[]
+  mistakes            UserMistake[]
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -137,6 +138,7 @@ model Game {
   analyses     GameAnalysis[]
   report       GameReport?
   tournament   ArenaTournament?    @relation(fields: [tournamentId], references: [id])
+  mistakes     UserMistake[]
 
   @@index([whiteId])
   @@index([blackId])
@@ -227,6 +229,7 @@ model Puzzle {
   attempts            PuzzleAttempt[]
   dailyPuzzles        DailyPuzzle[]
   rushSessionPuzzles  PuzzleRushSessionPuzzle[]
+  mistakes            UserMistake[]
 
   @@index([rating])
   @@index([themes])
@@ -394,6 +397,44 @@ model GameAnalysis {
   @@index([gameId])
   @@index([userId])
   @@map("game_analyses")
+}
+
+/// Дневник ошибок пользователя (L-31, KS-1802).
+///
+/// Единая таблица агрегирует неудачные попытки из двух доменов:
+///  - `source = 'puzzle'`      — при неправильной попытке в `PuzzleAttempt`
+///    (hook из `PuzzleService.submitAttempt`). Идемпотентность: на один
+///    `(userId, puzzleId)` допускается максимум одна запись — при повторной
+///    неудаче обновляется только `occurredAt`. Это чтобы ретраи по одной и
+///    той же задаче не искажали агрегаты по темам.
+///  - `source = 'game_review'` — ошибка в анализе партии (ход классифицирован
+///    как `mistake` / `blunder`, `ply` — номер полухода). Идемпотентность:
+///    `(userId, gameId, ply)`.
+///
+/// `themes` — массив тем (строки из `Puzzle.themes` и/или разбора партии).
+/// Хранится как Postgres `TEXT[]` для эффективной группировки через
+/// `UNNEST` в агрегирующих запросах.
+///
+/// Partial-уникальные индексы (см. миграцию) удобнее реализовать в SQL,
+/// Prisma `@@unique` не умеет `WHERE`-фильтры. В Prisma-уровне даём обычные
+/// индексы + уникальность обеспечиваем в `MistakesService`.
+model UserMistake {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  source     String   // 'puzzle' | 'game_review' — см. UserMistakeSource в shared
+  puzzleId   String?  @map("puzzle_id")
+  gameId     String?  @map("game_id") @db.Uuid
+  ply        Int?
+  themes     String[] @default([])
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  puzzle Puzzle? @relation(fields: [puzzleId], references: [id])
+  game   Game?   @relation(fields: [gameId], references: [id])
+
+  @@index([userId, occurredAt])
+  @@index([userId, source])
+  @@map("user_mistakes")
 }
 
 model GameReport {

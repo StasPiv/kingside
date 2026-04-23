@@ -29,6 +29,7 @@ import { FeedbackModule } from './feedback/feedback.module';
 import { AdminModule } from './admin/admin.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { LessonsModule } from './lessons/lessons.module';
+import { MistakesModule } from './lessons/mistakes.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -72,6 +73,7 @@ import { HealthController } from './health.controller';
     AdminModule,
     MetricsModule,
     LessonsModule,
+    MistakesModule,
   ],
 })
 export class AppModule implements NestModule {

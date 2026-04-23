@@ -11,6 +11,7 @@ describe('PuzzleService', () => {
   let prisma: any;
   let i18n: any;
   let ratingService: any;
+  let mistakes: any;
 
   beforeEach(() => {
     prisma = {
@@ -46,7 +47,11 @@ describe('PuzzleService', () => {
     };
 
     const redis = { get: jest.fn(), set: jest.fn() } as any;
-    service = new PuzzleService(prisma, i18n, ratingService, redis);
+    mistakes = {
+      recordPuzzleMistake: jest.fn().mockResolvedValue(undefined),
+      recordGameMistake: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new PuzzleService(prisma, i18n, ratingService, redis, mistakes);
   });
 
   describe('findPuzzles', () => {
@@ -329,6 +334,40 @@ describe('PuzzleService', () => {
 
       expect(result.nextPuzzle).toBeNull();
       expect(result.solved).toBe(false);
+    });
+
+    // ── L-31 (KS-1802): hook in mistakes journal ──────────────────
+
+    it('KS-1802: вызывает recordPuzzleMistake при неудачной попытке', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(mockPuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1200,
+        userRatingAfter: 1190,
+        puzzleRatingAfter: 1505,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1190 });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+
+      await service.submitAttempt('user-1', 'p1', false, 3000);
+
+      expect(mistakes.recordPuzzleMistake).toHaveBeenCalledWith('user-1', 'p1');
+    });
+
+    it('KS-1802: НЕ вызывает recordPuzzleMistake при успешной попытке', async () => {
+      prisma.puzzle.findUnique.mockResolvedValue(mockPuzzle);
+      ratingService.applyRatingChange.mockResolvedValue({
+        userRatingBefore: 1200,
+        userRatingAfter: 1210,
+        puzzleRatingAfter: 1495,
+      });
+      prisma.puzzleAttempt.create.mockResolvedValue({});
+      prisma.user.findUnique.mockResolvedValue({ ratingPuzzle: 1210 });
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+
+      await service.submitAttempt('user-1', 'p1', true, 5000);
+
+      expect(mistakes.recordPuzzleMistake).not.toHaveBeenCalled();
     });
   });
 
