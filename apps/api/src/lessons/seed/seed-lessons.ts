@@ -12,6 +12,12 @@
  *     Для каждого урока — полностью переписываем `steps` (deleteMany +
  *     createMany): порядок и состав шагов меняются редко, проще и
  *     надёжнее, чем по одному upsert'у с неустойчивым step-id.
+ *  4. **Удаление осиротевших курсов** (KS-1791): курсы, которые есть в
+ *     БД, но отсутствуют в фикстурах, удаляются. `ON DELETE CASCADE` на
+ *     `lessons.course_id` и `lesson_steps.lesson_id` автоматически снесёт
+ *     уроки и шаги. Это гарантирует, что fixture-файлы — единственный
+ *     источник истины: удалил курс из фикстур → следующий seed вычищает
+ *     его из БД.
  *
  * Важно: fixture `step.id` используется ТОЛЬКО как локальный идентификатор
  * для `UserLessonProgress.stepsState` и линтера. В БД `lesson_steps.id`
@@ -104,8 +110,20 @@ async function main(): Promise<void> {
       }
     }
 
+    // Удаляем «осиротевшие» курсы — те, которые есть в БД, но отсутствуют
+    // в текущих фикстурах. `ON DELETE CASCADE` (миграция L-03) автоматически
+    // каскадно удалит lessons + lesson_steps + user_*_progress.
+    const fixtureSlugs = COURSES.map((c) => c.slug);
+    const orphanedResult =
+      fixtureSlugs.length > 0
+        ? await prisma.course.deleteMany({ where: { slug: { notIn: fixtureSlugs } } })
+        : await prisma.course.deleteMany({}); // фикстур нет — удаляем все курсы
+    const coursesDeleted = orphanedResult.count;
+
     process.stdout.write(
-      `✓ seed-lessons done: ${coursesUpserted} course(s), ${lessonsUpserted} lesson(s), ${stepsWritten} step(s)\n`,
+      `✓ seed-lessons done: ${coursesUpserted} course(s) upserted, ${lessonsUpserted} lesson(s), ${stepsWritten} step(s)` +
+        (coursesDeleted > 0 ? `, ${coursesDeleted} orphaned course(s) deleted` : '') +
+        '\n',
     );
   } finally {
     await prisma.$disconnect();

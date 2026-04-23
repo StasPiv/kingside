@@ -1,8 +1,10 @@
 import type { CourseFixture } from '../fixture-types';
-import { beginnerCourse } from './beginner';
 
 /**
- * Полный список курсов для накатки. Добавляй сюда новые фикстуры
- * по мере появления (в `./<course-slug>/index.ts`).
+ * Полный список курсов для накатки.
+ *
+ * После KS-1791 контент курса «Начинающий» удалён — раздел «Уроки»
+ * стартует пустой. Новые курсы добавлять сюда по мере готовности
+ * (фикстура в `./<course-slug>/index.ts` → импорт → запись в массив).
  */
-export const COURSES: CourseFixture[] = [beginnerCourse];
+export const COURSES: CourseFixture[] = [];
