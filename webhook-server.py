@@ -1333,11 +1333,16 @@ def send_telegram(text, parse_mode="Markdown"):
             log(f"Ошибка отправки в Telegram: {e}")
 
 
+def _md_escape(text: str) -> str:
+    """Экранирует спецсимволы Telegram Markdown v1 (`*`, `_`, `[`, `` ` ``)."""
+    return text.replace("\\", "\\\\").replace("*", "\\*").replace("_", "\\_").replace("[", "\\[").replace("`", "\\`")
+
+
 def format_telegram_issue(event_type, payload):
     """Форматирует событие трекера в Markdown для Telegram."""
     issue = payload.get("issue", {})
     key = issue.get("key", payload.get("issue_key", "?"))
-    summary = issue.get("summary", "")
+    summary = _md_escape(issue.get("summary", ""))
     status = issue.get("status", "")
     assignee = issue.get("assignee", "не назначен") or "не назначен"
 
