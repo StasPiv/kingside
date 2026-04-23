@@ -247,13 +247,19 @@ export class AuthService {
       throw new ForbiddenException('Invalid secret');
     }
 
+    // KS-1788: dev-bypass юзеры стартуют с locale='ru' по умолчанию
+    // (Prisma-дефолт `en` перекрывает выбор на фронте при логине).
+    // Уже существующим dev-юзерам при каждом bypass'е обновляем locale
+    // на 'ru' — это dev-стенд, prod не затрагивается.
+    const DEV_LOCALE = 'ru';
+
     // If a specific username is requested, find or create that user
     if (username) {
       const existing = await this.prisma.user.findUnique({ where: { username } });
       if (existing) {
         await this.prisma.user.update({
           where: { id: existing.id },
-          data: { lastSeenAt: new Date() },
+          data: { lastSeenAt: new Date(), locale: DEV_LOCALE },
         });
         return this.generateTokens(existing.id, existing.username);
       }
@@ -264,6 +270,7 @@ export class AuthService {
           username,
           email: `${username.toLowerCase()}@kingside.local`,
           passwordHash: devPasswordHash,
+          locale: DEV_LOCALE,
         },
       });
       return this.generateTokens(created.id, created.username);
@@ -273,12 +280,13 @@ export class AuthService {
     const devPasswordHash = await bcrypt.hash('dev-no-login', 10);
     const user = await this.prisma.user.upsert({
       where: { id: DEV_USER_ID },
-      update: {},
+      update: { locale: DEV_LOCALE },
       create: {
         id: DEV_USER_ID,
         username: DEV_USERNAME,
         email: 'dev@kingside.local',
         passwordHash: devPasswordHash,
+        locale: DEV_LOCALE,
       },
     });
 
