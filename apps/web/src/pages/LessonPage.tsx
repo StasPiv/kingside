@@ -7,17 +7,17 @@ import type {
 } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
+import { StepRenderer } from '../components/lessons/StepRenderer';
 
 /**
  * Страница `/lessons/:courseSlug/:lessonSlug` — контейнер для шагов урока (L-07).
  *
- * Сам StepRenderer (рендер `text`/`puzzle`/`quiz` и т.п.) — задача L-08
- * (KS-1763). Здесь только:
- *   1) резолв slug → id урока через `getCourse(courseSlug)`,
- *   2) загрузка `getLesson(lessonId)`,
- *   3) рендер списка шагов в виде stub-карточек (тип + порядок).
+ * - резолв slug → id урока через `getCourse(courseSlug)`
+ * - загрузка `getLesson(lessonId)`
+ * - последовательный рендер шагов через `StepRenderer` (L-08)
  *
- * Хук прогресса (`useLessonProgress`) — задача L-11 (KS-1766).
+ * Хук прогресса (`useLessonProgress`) — задача L-11 (KS-1766). До его
+ * появления `onStepDone` — no-op (кнопка «Далее» ничего не отмечает).
  */
 
 export function LessonPage() {
@@ -126,23 +126,27 @@ export function LessonPage() {
         </div>
       ) : (
         <ol className="lesson-step-list" data-testid="lesson-step-list">
-          {sortedSteps.map((step) => (
+          {sortedSteps.map((step, idx) => (
             <li
               key={step.id}
               className={`lesson-step lesson-step--${step.type}`}
               data-testid={`lesson-step-${step.order}`}
             >
-              <span className="lesson-step-order">#{step.order}</span>
-              <span className="lesson-step-type">
-                {t(`lessons.stepType.${step.type}`, step.type)}
-              </span>
-              {/*
-                StepRenderer появится в L-08 (KS-1763); пока — плейсхолдер,
-                чтобы каркас был полностью функционален и тесты L-07 проходили.
-              */}
-              <div className="lesson-step-placeholder">
-                {t('lessons.stepPlaceholder', 'Step content will appear here')}
-              </div>
+              <header className="lesson-step__header">
+                <span className="lesson-step-order">#{step.order}</span>
+                <span className="lesson-step-type">
+                  {t(`lessons.stepType.${step.type}`, step.type)}
+                </span>
+              </header>
+              <StepRenderer
+                step={step}
+                hideNext={idx === sortedSteps.length - 1}
+                /*
+                  onStepDone подключит useLessonProgress в L-11 (KS-1766);
+                  пока no-op, чтобы UI был самодостаточен.
+                */
+                onStepDone={() => {}}
+              />
             </li>
           ))}
         </ol>

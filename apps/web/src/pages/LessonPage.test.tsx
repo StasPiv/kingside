@@ -121,10 +121,13 @@ describe('LessonPage', () => {
     expect(items[1]).toHaveAttribute('data-testid', 'lesson-step-2');
     expect(items[1]).toHaveTextContent('Quiz');
 
-    // Каждая карточка показывает плейсхолдер вместо StepRenderer (он в L-08).
-    expect(
-      screen.getAllByText('Step content will appear here'),
-    ).toHaveLength(2);
+    // Шаг 1 (text) → TextStep, шаг 2 (quiz) → StepRenderer-stub.
+    expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
+    expect(screen.getByTestId('lesson-step-stub-quiz')).toBeInTheDocument();
+    // Кнопка «Далее» только у не-последнего шага (text), у последнего (quiz)
+    // hideNext=true → нет кнопок «Skip»/«Next».
+    expect(screen.getByTestId('lesson-text-step-next')).toBeInTheDocument();
+    expect(screen.queryByTestId('lesson-step-stub-next')).toBeNull();
 
     // Ссылка «назад к курсу» ведёт на /lessons/<slug>
     expect(screen.getByTestId('lesson-back-link')).toHaveAttribute(
