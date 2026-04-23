@@ -52,10 +52,28 @@ export const DEFAULT_ARCHIVE_SOURCES: ArchiveSourceSeed[] = [
  * Идемпотентный bootstrap-сид реестра `archive_sources`.
  *
  * Вызывается из `runImporterOnce()` перед `tickOnce()` каждый scheduler-invocation.
- * `upsert` по уникальному `code`: создаёт запись при отсутствии, не трогает
- * существующую. Это важно: оператор может править `schedule`/`cursor`/`enabled`
- * в проде через `cli:import-twic-issue` или прямым SQL — эти правки не должны
- * откатываться при каждом cron-tick'е.
+ * Поведение по `code`:
+ *   - нет записи → создать со всеми полями из seed;
+ *   - есть запись → НЕ трогать `schedule`/`cursor`/`url`/`name`/`kind`, чтобы
+ *     оператор-правки (через `cli:import-twic-issue` или прямой SQL) не
+ *     откатывались при каждом cron-tick'е;
+ *   - есть запись, `seed.enabled=true` И `existing.enabled=false` → heal-up:
+ *     выставить `enabled=true`. Это однонаправленная починка «дотянуть до
+ *     seed-default», НЕ симметричный force-overwrite:
+ *     - если seed.enabled=true и existing.enabled=false — heal (включаем);
+ *     - если seed.enabled=false и existing.enabled=true — НЕ трогаем
+ *       (оператор вручную включил источник, который мы по дефолту считаем
+ *       отключённым; его решение весомее defaults);
+ *     - если значения совпадают — НЕ трогаем.
+ *
+ * Почему heal-up именно для `enabled=true` нужен: без `enabled=true`
+ * `archiveSource.findMany({where:{enabled:true}})` не вернёт запись,
+ * catalog-метрика `LastSuccessAgeSeconds{source=<code>}` не эмитится и
+ * CloudWatch alarm A4 застревает в ALARM (KS-1716, итерация 3 — реальный
+ * прод-репорт: сид отрапортовал `kept=1`, но `findMany({enabled:true})`
+ * вернул пусто, т.к. запись сохранена с `enabled=false` от предыдущей
+ * версии кода). Heal применим только к полю `enabled` — остальные поля
+ * описывают конфигурацию, которую оператор может менять легитимно.
  */
 @Injectable()
 export class ArchiveSourcesSeedService {
@@ -65,16 +83,35 @@ export class ArchiveSourcesSeedService {
 
   async ensureDefaults(
     sources: ArchiveSourceSeed[] = DEFAULT_ARCHIVE_SOURCES,
-  ): Promise<{ created: number; kept: number }> {
+  ): Promise<{ created: number; kept: number; healed: number }> {
     let created = 0;
     let kept = 0;
+    let healed = 0;
     for (const seed of sources) {
       const existing = await this.prisma.archiveSource.findUnique({
         where: { code: seed.code },
-        select: { id: true },
+        select: { id: true, enabled: true },
       });
       if (existing) {
         kept += 1;
+        // KS-1716: heal-up `enabled` (однонаправленный: только false→true).
+        // Если существующая запись имеет `enabled=false` (результат прошлой
+        // версии сида / миграции / прямого SQL-вмешательства), а seed
+        // объявляет `enabled=true` — восстанавливаем true, иначе catalog-emit
+        // не опубликует метрику. Обратное направление (seed=false, existing=
+        // true) НЕ чиним — это валидная оператор-правка «включить источник,
+        // который мы по дефолту считаем отключённым». Остальные поля не
+        // трогаем в любом случае.
+        if (seed.enabled && !existing.enabled) {
+          await this.prisma.archiveSource.update({
+            where: { id: existing.id },
+            data: { enabled: true },
+          });
+          healed += 1;
+          this.logger.log(
+            `archive_source healed: code=${seed.code} enabled:false→true`,
+          );
+        }
         continue;
       }
       await this.prisma.archiveSource.create({
@@ -92,11 +129,11 @@ export class ArchiveSourcesSeedService {
         `Seeded archive_source: code=${seed.code} kind=${seed.kind} schedule="${seed.schedule}"`,
       );
     }
-    if (created === 0) {
+    if (created === 0 && healed === 0) {
       this.logger.log(
         `archive_sources already seeded (${kept} of ${sources.length}); nothing to do`,
       );
     }
-    return { created, kept };
+    return { created, kept, healed };
   }
 }

@@ -99,9 +99,9 @@ export async function runImporterOnce(
     // идемпотентен (upsert по `code`), оператор-правки `schedule`/`cursor`
     // сохраняются.
     const seedResult = await seed.ensureDefaults();
-    if (seedResult.created > 0) {
+    if (seedResult.created > 0 || seedResult.healed > 0) {
       logger.log(
-        `archive_sources seeded: created=${seedResult.created} kept=${seedResult.kept}`,
+        `archive_sources seeded: created=${seedResult.created} healed=${seedResult.healed} kept=${seedResult.kept}`,
       );
     }
     // KS-1716: catalog-snapshot читается ДО tickOnce и ПОСЛЕ seed, чтобы:
@@ -116,14 +116,30 @@ export async function runImporterOnce(
     // LastSuccessAgeSeconds просто пропустится, alarm A4 останется в ALARM
     // — корректная сигнализация «каталог недоступен».
     try {
+      // KS-1716 iter 4: читаем ВСЕ записи (без where:{enabled:true}), чтобы
+      // залогировать total/enabled. При total>0 && enabled===0 — чёткий
+      // сигнал оператору «есть записи, но все disabled, catalog-метрика
+      // пустая» (именно этот сценарий убил итерации 1-3: запись TWIC была,
+      // но с enabled=false; heal-логика в ensureDefaults теперь чинит это
+      // на каждом invocation'е, но лог оставим — поможет с будущими
+      // источниками).
       const rows = await prisma.archiveSource.findMany({
-        where: { enabled: true },
-        select: { code: true, lastSuccessAt: true },
+        select: { code: true, enabled: true, lastSuccessAt: true },
       });
-      catalog = rows.map((r) => ({
+      const enabledRows = rows.filter((r) => r.enabled);
+      catalog = enabledRows.map((r) => ({
         code: r.code,
         lastSuccessAt: r.lastSuccessAt ?? null,
       }));
+      logger.log(
+        `archive_sources: total=${rows.length} enabled=${enabledRows.length} ` +
+          `codes=[${rows.map((r) => `${r.code}:${r.enabled ? 'on' : 'off'}`).join(',')}]`,
+      );
+      if (rows.length > 0 && enabledRows.length === 0) {
+        logger.warn(
+          'all archive_sources are disabled — catalog metric LastSuccessAgeSeconds will be empty',
+        );
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error(`catalog fetch failed: ${msg}`);

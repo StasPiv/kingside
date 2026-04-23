@@ -32,7 +32,7 @@ type EmfCall =
   | { kind: 'summary'; tick: TickResult; exitCode: number }
   | { kind: 'flush' };
 
-type CatalogRow = { code: string; lastSuccessAt: Date | null };
+type CatalogRow = { code: string; enabled: boolean; lastSuccessAt: Date | null };
 
 interface MockContext {
   archive: {
@@ -47,7 +47,7 @@ interface MockContext {
   };
   seed: {
     ensureDefaults: jest.Mock<
-      Promise<{ created: number; kept: number }>,
+      Promise<{ created: number; kept: number; healed: number }>,
       []
     >;
   };
@@ -95,13 +95,13 @@ function makeContext(
   };
   const seed = {
     ensureDefaults: jest.fn<
-      Promise<{ created: number; kept: number }>,
+      Promise<{ created: number; kept: number; healed: number }>,
       []
-    >(() => Promise.resolve({ created: 0, kept: 1 })),
+    >(() => Promise.resolve({ created: 0, kept: 1, healed: 0 })),
   };
 
   const catalogDefault: CatalogRow[] = [
-    { code: 'twic', lastSuccessAt: null },
+    { code: 'twic', enabled: true, lastSuccessAt: null },
   ];
   const catalogResponse = options.catalog ?? catalogDefault;
   const prisma = {
@@ -300,7 +300,7 @@ describe('runImporterOnce', () => {
     const callOrder: Array<'seed' | 'tick'> = [];
     ctx.seed.ensureDefaults.mockImplementation(() => {
       callOrder.push('seed');
-      return Promise.resolve({ created: 1, kept: 0 });
+      return Promise.resolve({ created: 1, kept: 0, healed: 0 });
     });
     ctx.archive.tickOnce.mockImplementation(() => {
       callOrder.push('tick');
@@ -342,7 +342,7 @@ describe('runImporterOnce', () => {
     const emptyTick: TickResult = { runs: [], totalGamesAdded: 0 };
     const lastSuccessAt = new Date('2026-04-01T00:00:00Z');
     const ctx = makeContext(emptyTick, {
-      catalog: [{ code: 'twic', lastSuccessAt }],
+      catalog: [{ code: 'twic', enabled: true, lastSuccessAt }],
     });
     const outcome = await runImporterOnce(ctx.app);
 
@@ -350,10 +350,11 @@ describe('runImporterOnce', () => {
     expect(outcome.runsTotal).toBe(0);
     expect(outcome.runsFailed).toBe(0);
 
-    // Prisma findMany по enabled=true.
+    // KS-1716 iter4: findMany читает все источники с enabled+lastSuccessAt,
+    // фильтрация по enabled делается уже в importer-once (для доп. лога
+    // total/enabled — помогает диагностировать enabled=false в БД).
     expect(ctx.prisma.archiveSource.findMany).toHaveBeenCalledWith({
-      where: { enabled: true },
-      select: { code: true, lastSuccessAt: true },
+      select: { code: true, enabled: true, lastSuccessAt: true },
     });
 
     // EMF catalog-emit содержит ровно 1 источник — TWIC с lastSuccessAt.
@@ -375,6 +376,30 @@ describe('runImporterOnce', () => {
     // Порядок: catalog → summary → flush (run нет).
     const kinds = ctx.emf.calls.map((c) => c.kind);
     expect(kinds).toEqual(['catalog', 'summary', 'flush']);
+  });
+
+  it('KS-1716 iter4: запись есть в БД, но enabled=false → catalog-emit фильтрует её, recordCatalogAge([]) пустой', async () => {
+    // Реальный прод-сценарий после итерации 3: seed.ensureDefaults
+    // отрапортовал kept=1 (запись TWIC в БД), но enabled=false (от
+    // предыдущей версии кода). findMany без where теперь видит запись,
+    // логирует total=1 enabled=0, фильтр даёт пустой catalog. На ЭТОМ
+    // tick'е catalog-metric пустой — но heal-up в ensureDefaults
+    // (archive-sources-seed.service) при СЛЕДУЮЩЕМ invocation'е
+    // выставит enabled=true, и catalog-emit пойдёт штатно.
+    const emptyTick: TickResult = { runs: [], totalGamesAdded: 0 };
+    const ctx = makeContext(emptyTick, {
+      catalog: [
+        { code: 'twic', enabled: false, lastSuccessAt: null },
+      ],
+    });
+    await runImporterOnce(ctx.app);
+
+    expect(ctx.emf.recordCatalogAge).toHaveBeenCalledTimes(1);
+    const catalogCall = ctx.emf.calls.find((c) => c.kind === 'catalog');
+    if (catalogCall?.kind === 'catalog') {
+      // enabled=false отфильтрован — catalog-emit пустой.
+      expect(catalogCall.entries).toEqual([]);
+    }
   });
 
   it('KS-1716: catalog fetch падает → recordCatalogAge([]) вызван, но tickOnce всё равно запускается', async () => {
