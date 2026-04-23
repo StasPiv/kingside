@@ -1,0 +1,182 @@
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import type { LessonStepState, UserLessonProgress } from '@kingside/shared';
+import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * Политика прогресса (ADR-024 §2.3):
+ *  - Шаг: done / failed / skipped / pending / in_progress.
+ *  - Урок «пройден»: score ≥ 70 (на 100-балльной шкале в БД) => `completedAt`.
+ *    Порог в shared — 0.7 (0..1).
+ *  - `masteredAt` — в MVP всегда null (SM-2 появится в итерации 2).
+ *
+ * Попытки задач внутри `PuzzleStep` фиксируются в существующей таблице
+ * `PuzzleAttempt` (PuzzleService) — здесь дублировать их не нужно. В
+ * `stepsState` храним только агрегат (done / failed / skipped).
+ */
+@Injectable()
+export class ProgressService {
+  private readonly COMPLETE_THRESHOLD = 70; // 0..100, соответствует 0.7 в shared-типах
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  /** POST /api/lessons/progress/step — upsert состояния одного шага. */
+  async updateStep(
+    userId: string,
+    lessonId: string,
+    stepId: string,
+    state: LessonStepState,
+  ): Promise<UserLessonProgress> {
+    // убедимся, что урок существует и шаг ему принадлежит
+    const step = await this.prisma.lessonStep.findUnique({
+      where: { id: stepId },
+      select: { id: true, lessonId: true },
+    });
+    if (!step || step.lessonId !== lessonId) {
+      throw new NotFoundException('Step not found in lesson');
+    }
+
+    const existing = await this.prisma.userLessonProgress.findUnique({
+      where: { userId_lessonId: { userId, lessonId } },
+    });
+
+    const stepsState: Record<string, LessonStepState> = {
+      ...((existing?.stepsState as Record<string, LessonStepState> | undefined) ?? {}),
+      [stepId]: state,
+    };
+
+    const record = await this.prisma.userLessonProgress.upsert({
+      where: { userId_lessonId: { userId, lessonId } },
+      create: {
+        userId,
+        lessonId,
+        startedAt: new Date(),
+        score: 0,
+        stepsState,
+      },
+      update: {
+        // startedAt оставляем как был
+        stepsState,
+      },
+    });
+
+    await this.touchCourseProgress(userId, lessonId);
+
+    return this.toShared(record);
+  }
+
+  /**
+   * POST /api/lessons/progress/lesson/complete — закрыть урок если score ≥ порога.
+   * `score` пришёл в 0..1 (shared), конвертируем в 0..100 для БД.
+   */
+  async completeLesson(
+    userId: string,
+    lessonId: string,
+    scoreNormalized: number,
+  ): Promise<UserLessonProgress> {
+    if (scoreNormalized < 0 || scoreNormalized > 1) {
+      throw new BadRequestException('score must be in [0, 1]');
+    }
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { id: true, courseId: true },
+    });
+    if (!lesson) {
+      throw new NotFoundException('Lesson not found');
+    }
+
+    const score100 = Math.round(scoreNormalized * 100);
+    const completedAt = score100 >= this.COMPLETE_THRESHOLD ? new Date() : null;
+
+    if (score100 < this.COMPLETE_THRESHOLD) {
+      throw new BadRequestException(
+        `Lesson not completed: score ${score100} below threshold ${this.COMPLETE_THRESHOLD}`,
+      );
+    }
+
+    const existing = await this.prisma.userLessonProgress.findUnique({
+      where: { userId_lessonId: { userId, lessonId } },
+    });
+
+    const record = await this.prisma.userLessonProgress.upsert({
+      where: { userId_lessonId: { userId, lessonId } },
+      create: {
+        userId,
+        lessonId,
+        startedAt: new Date(),
+        completedAt,
+        score: score100,
+        stepsState: (existing?.stepsState as object | undefined) ?? {},
+      },
+      update: {
+        completedAt,
+        score: score100,
+      },
+    });
+
+    await this.touchCourseProgress(userId, lessonId);
+
+    return this.toShared(record);
+  }
+
+  /**
+   * Создаёт/обновляет `UserCourseProgress.currentLessonId` — берёт его из
+   * lesson.courseId, выставляет `startedAt` при первом обращении.
+   * Если все уроки курса со `isPublished=true` завершены — ставит `completedAt`.
+   */
+  private async touchCourseProgress(userId: string, lessonId: string): Promise<void> {
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { courseId: true },
+    });
+    if (!lesson) return;
+
+    await this.prisma.userCourseProgress.upsert({
+      where: { userId_courseId: { userId, courseId: lesson.courseId } },
+      create: {
+        userId,
+        courseId: lesson.courseId,
+        startedAt: new Date(),
+        currentLessonId: lessonId,
+      },
+      update: {
+        currentLessonId: lessonId,
+      },
+    });
+
+    // Проверим, все ли опубликованные уроки курса пройдены
+    const totalPublished = await this.prisma.lesson.count({
+      where: { courseId: lesson.courseId, isPublished: true },
+    });
+    const completed = await this.prisma.userLessonProgress.count({
+      where: {
+        userId,
+        completedAt: { not: null },
+        lesson: { courseId: lesson.courseId, isPublished: true },
+      },
+    });
+    if (totalPublished > 0 && completed >= totalPublished) {
+      await this.prisma.userCourseProgress.update({
+        where: { userId_courseId: { userId, courseId: lesson.courseId } },
+        data: { completedAt: new Date() },
+      });
+    }
+  }
+
+  private toShared(row: {
+    userId: string;
+    lessonId: string;
+    startedAt: Date;
+    completedAt: Date | null;
+    score: number;
+    stepsState: unknown;
+  }): UserLessonProgress {
+    return {
+      userId: row.userId,
+      lessonId: row.lessonId,
+      startedAt: row.startedAt.toISOString(),
+      completedAt: row.completedAt?.toISOString() ?? null,
+      score: row.score / 100,
+      stepsState: (row.stepsState as Record<string, LessonStepState>) ?? {},
+    };
+  }
+}

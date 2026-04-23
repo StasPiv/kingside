@@ -27,6 +27,7 @@ import { AiChatModule } from './ai-chat/ai-chat.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { AdminModule } from './admin/admin.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { LessonsModule } from './lessons/lessons.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -68,6 +69,7 @@ import { HealthController } from './health.controller';
     FeedbackModule,
     AdminModule,
     MetricsModule,
+    LessonsModule,
   ],
 })
 export class AppModule implements NestModule {
