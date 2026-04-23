@@ -125,7 +125,7 @@ graph LR
 | L-21  | Prisma: `LessonReview` (easiness, interval, dueAt) + сервис + cron  | backend            | M      | L-20, L-04            |
 | L-22  | UI «К повторению сегодня» + прохождение повтора + порог ≥80%        | frontend           | M      | L-21                  |
 | L-23  | PositionStep (интерактивная inline-позиция, проверка ожидаемых ходов, подсказки) | frontend | M | L-08                  |
-| L-24  | Эндшпильный тренажёр против Stockfish с ограничением силы (UCI Skill Level, запасной план — серверный движок) | frontend (+ backend, если нужен proxy) | L | L-23, существующий `useEngine` |
+| L-24  | Эндшпильный тренажёр против Stockfish WASM с ограничением силы (UCI Skill Level, только клиентский wasm — ADR-025 §2.8) | frontend           | L      | L-23, существующий `useEngine` |
 | L-25  | **Контент «Средний»**: 6 блоков / ~48 уроков (включая позиции для PositionStep и эндшпильного тренажёра) | chess-expert | L | L-05, L-23, L-24 |
 | L-26  | Критерий перехода «Средний → Опытный» (puzzle≥1700 + rapid≥1400 + ≥500 задач + все уроки) — API + UI | backend + frontend | S | L-04                  |
 | L-27  | Редактор уроков (MVP-редактор): локальный form-based инструмент для chess-expert — markdown + FEN/PGN блоки + предпросмотр + экспорт в формат seed-фикстур | backend + frontend | L | L-05                 |
