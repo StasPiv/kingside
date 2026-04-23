@@ -72,7 +72,51 @@ export type PuzzleStepSelection =
       limit: number;
     };
 
-/** Статья + FEN-диаграммы (read-only). Контент — markdown. */
+/**
+ * Статья + FEN-диаграммы (read-only). Контент — markdown.
+ *
+ * ## Синтаксис FEN внутри markdown
+ *
+ * Поддерживается два варианта встраивания диаграмм (эквивалентны, выбор
+ * на усмотрение автора урока):
+ *
+ * ### 1. Reference-плейсхолдер `{{diagram:N}}`
+ *
+ * `N` — индекс в `payload.diagrams` (начиная с 0). Пример:
+ *
+ * ```markdown
+ * Рассмотрим начальную позицию:
+ *
+ * {{diagram:0}}
+ *
+ * Белые ходят первыми…
+ * ```
+ *
+ * `payload.diagrams[0]` содержит `{ fen, caption?, orientation? }`.
+ *
+ * ### 2. Inline fenced-блок ```fen [orientation]```
+ *
+ * `orientation` — `white` или `black`, по умолчанию `white`. FEN-строка
+ * идёт первой непустой строкой блока, опциональная подпись — на отдельной
+ * строке после префикса `caption:`. Пример:
+ *
+ * ````markdown
+ * Защита Каро-Канн начинается так:
+ *
+ * ```fen
+ * rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2
+ * caption: После 1.e4 c6
+ * ```
+ * ````
+ *
+ * Inline-форма удобна для одноразовых диаграмм (не нужно описывать их в
+ * `payload.diagrams`). Reference-форма удобна, если на одну диаграмму
+ * ссылаются несколько раз или её описывают декларативно (полезно для
+ * seed-линтера и переводов).
+ *
+ * Реализация — `apps/web/src/components/lessons/steps/TextStep.tsx`
+ * (KS-1763 / L-08).
+ */
 export interface TextStepPayload {
   type: 'text';
   /** i18n-ключ тела статьи (markdown) либо сам markdown, если `inline` */
