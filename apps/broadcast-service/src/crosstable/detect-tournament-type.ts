@@ -22,19 +22,10 @@
  * crosstable-builder'а в endpoint'е `GET /broadcasts/:id/crosstable`.
  */
 
-/**
- * Перечисление поддерживаемых типов турниров. Должно быть согласовано с
- * `TournamentType` из `@kingside/shared` (KS-1726) — после A02 импорт
- * перейдёт оттуда. Локальное определение здесь — чтобы детектор оставался
- * независимым от A02 (KS-1727 явно «не зависит от A01/A02 — чистая
- * логика»).
- */
-export type TournamentType =
-  | 'swiss'
-  | 'round-robin'
-  | 'team-swiss'
-  | 'team-round-robin'
-  | 'unknown';
+// Источник истины для `TournamentType` — `@kingside/shared` (KS-1726). Re-export
+// для backward-compat с предыдущими импортами из этого модуля.
+export type { TournamentType } from '@kingside/shared';
+import type { TournamentType } from '@kingside/shared';
 
 export interface DetectInput {
   /** `Broadcast.format` — строка из Lichess `tour.info.format` или null. */
