@@ -487,19 +487,30 @@ class AgentDaemon:
         return None
 
     def interrupt(self):
-        """Прерывает текущую операцию агента (SIGINT дочернему bash внутри контейнера)."""
+        """Прерывает текущий turn Claude Code через control_request в stream-json stdin.
+
+        Контекст и session_id сохраняются — прерывается только текущий API-запрос
+        или tool_use. Daemon после этого переходит в idle и готов принять следующий
+        ввод из очереди.
+        """
         with self.lock:
             if not self.proc or self.proc.poll() is not None:
                 return False
-        # Находим bash-процесс внутри контейнера и шлём ему SIGINT
-        result = subprocess.run(
-            ["docker", "exec", f"agent-{self.name}", "bash", "-c",
-             "kill -INT $(pgrep -P $(pgrep -x claude) bash) 2>/dev/null"],
-            capture_output=True, timeout=5,
-        )
-        ok = result.returncode == 0
-        log(f"Daemon {self.name}: SIGINT -> bash in container {'ok' if ok else 'failed'}")
-        return ok
+            proc = self.proc
+        req_id = f"req_interrupt_{int(time.time() * 1000)}"
+        payload = json.dumps({
+            "type": "control_request",
+            "request_id": req_id,
+            "request": {"subtype": "interrupt"},
+        })
+        try:
+            proc.stdin.write(payload + "\n")
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            log(f"Daemon {self.name}: control_request interrupt — ошибка записи в stdin: {e}")
+            return False
+        log(f"Daemon {self.name}: control_request interrupt отправлен (req_id={req_id})")
+        return True
 
     def is_alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -675,9 +686,19 @@ def handle_agent_message(handler, payload):
     prefix = f"[from {sender}] " if sender else ""
     sender_tag = f"agent:{sender}" if sender else ""
     reply_channel = f"agent:{sender}" if (sender and reply_required) else None
+
+    # Прерываем текущий turn target-агента, если он занят — новое сообщение
+    # имеет приоритет над продолжением того, что он делает. Если daemon не
+    # запущен или уже idle — interrupt() no-op.
+    interrupted = False
+    with agent_daemons_lock:
+        target_daemon = agent_daemons.get(target)
+    if target_daemon and target_daemon.is_alive():
+        interrupted = target_daemon.interrupt()
+
     send_to_agent(target, f"{prefix}{message}", sender=sender_tag, reply_channel=reply_channel)
     queue_size = _REDIS.llen(f"agent:queue:{target}")
-    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars, queue={queue_size}, reply_required={reply_required})")
+    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars, queue={queue_size}, reply_required={reply_required}, interrupted={interrupted})")
 
     handler.send_response(200)
     handler.end_headers()
@@ -1811,6 +1832,7 @@ LOGS_HTML = """<!DOCTYPE html>
     --diff-del-bg: #3d1117; --diff-del-fg: #ffa198; --diff-del-bd: #5d1a1a;
     --diff-add-bg: #0d2818; --diff-add-fg: #7ee787; --diff-add-bd: #1a4d2e;
     --btn-send-bg: #238636; --btn-send-bg-hover: #2ea043;
+    --btn-stop-bg: #9e6a03; --btn-stop-bg-hover: #bf8700;
     --btn-disabled-bg: #21262d; --btn-disabled-fg: #484f58;
     --btn-kill-bg: #da3633; --btn-kill-bg-hover: #f85149;
     --mic-rec-bg: #1a0a0a;
@@ -1830,6 +1852,7 @@ LOGS_HTML = """<!DOCTYPE html>
     --diff-del-bg: #ffebe9; --diff-del-fg: #82071e; --diff-del-bd: #ff818266;
     --diff-add-bg: #dafbe1; --diff-add-fg: #116329; --diff-add-bd: #4ac26b66;
     --btn-send-bg: #1f883d; --btn-send-bg-hover: #1a7f37;
+    --btn-stop-bg: #bf8700; --btn-stop-bg-hover: #9a6700;
     --btn-disabled-bg: #eaeef2; --btn-disabled-fg: #8c959f;
     --btn-kill-bg: #cf222e; --btn-kill-bg-hover: #a40e26;
     --mic-rec-bg: #fff0ee;
@@ -1899,10 +1922,10 @@ LOGS_HTML = """<!DOCTYPE html>
   #prompt-input { flex: 1; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px;
                   padding: 8px 12px; font-size: 14px; font-family: inherit; resize: none; min-height: 38px; max-height: 300px; overflow-y: auto; }
   #prompt-input:focus { outline: none; border-color: var(--link); }
-  #send-btn { background: var(--btn-send-bg); color: #fff; border: none; border-radius: 6px; padding: 8px 16px;
-              font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-  #send-btn:hover { background: var(--btn-send-bg-hover); }
-  #send-btn:disabled { background: var(--btn-disabled-bg); color: var(--btn-disabled-fg); cursor: not-allowed; }
+  #stop-send-btn { background: var(--btn-stop-bg); color: #fff; border: none; border-radius: 6px; padding: 8px 16px;
+                   font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  #stop-send-btn:hover { background: var(--btn-stop-bg-hover); }
+  #stop-send-btn:disabled { background: var(--btn-disabled-bg); color: var(--btn-disabled-fg); cursor: not-allowed; }
   #kill-btn { background: var(--btn-kill-bg); color: #fff; border: none; border-radius: 6px; padding: 8px 16px;
               font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
   #kill-btn:hover { background: var(--btn-kill-bg-hover); }
@@ -1923,7 +1946,7 @@ LOGS_HTML = """<!DOCTYPE html>
   <select id="agent-select">{{AGENT_OPTIONS}}</select>
   <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1" autofocus></textarea>
   <button id="mic-btn" title="Голосовой ввод">🎤</button><span id="mic-status"></span>
-  <button id="send-btn">Send</button>
+  <button id="stop-send-btn" title="Прервать текущий turn и отправить новый prompt (Enter)">Stop&amp;Send</button>
   <button id="kill-btn" title="Kill agent (Esc)">Kill</button>
   <button id="theme-btn" title="Переключить тему"></button>
 </div>
@@ -1932,7 +1955,7 @@ const log = document.getElementById('log');
 const status = document.getElementById('status');
 const input = document.getElementById('prompt-input');
 const agentSel = document.getElementById('agent-select');
-const sendBtn = document.getElementById('send-btn');
+const stopSendBtn = document.getElementById('stop-send-btn');
 
 let autoScroll = true;
 window.addEventListener('scroll', () => {
@@ -1969,24 +1992,24 @@ async function sendPrompt() {
   const text = input.value.trim();
   if (!text) return;
   const agent = agentSel.value;
-  sendBtn.disabled = true;
+  stopSendBtn.disabled = true;
   try {
     const res = await fetch('/prompt', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', ...authHeader},
-      body: JSON.stringify({agent, text}),
+      body: JSON.stringify({agent, text, interrupt: true}),
     });
     if (res.ok) {
       input.value = '';
       input.style.height = 'auto';
     }
   } finally {
-    sendBtn.disabled = false;
+    stopSendBtn.disabled = false;
     input.focus();
   }
 }
 
-sendBtn.addEventListener('click', sendPrompt);
+stopSendBtn.addEventListener('click', sendPrompt);
 
 const killBtn = document.getElementById('kill-btn');
 async function killAgent() {
@@ -2191,12 +2214,19 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": f"unknown agent: {agent}"}).encode())
                 return
-            _log_user_prompt(agent, text, source="web")
+            interrupt_flag = bool(payload.get("interrupt"))
+            interrupted = False
+            if interrupt_flag:
+                with agent_daemons_lock:
+                    daemon = agent_daemons.get(agent)
+                if daemon and daemon.is_alive():
+                    interrupted = daemon.interrupt()
+            _log_user_prompt(agent, text, source="web" + (" (interrupt)" if interrupted else ""))
             send_to_agent(agent, f"[Web] {text}\n\nОтветь текстовым сообщением. НЕ отправляй ответ в Telegram — ответ виден в веб-интерфейсе.")
-            log(f"Web prompt -> {agent}: {text[:80]}")
+            log(f"Web prompt -> {agent}: {text[:80]}{' (after interrupt)' if interrupted else ''}")
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "sent", "agent": agent}).encode())
+            self.wfile.write(json.dumps({"status": "sent", "agent": agent, "interrupted": interrupted}).encode())
             return
 
         if path == "/agent/message":
