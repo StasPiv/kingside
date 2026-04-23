@@ -1129,3 +1129,410 @@
 .broadcast-info-schedule-status--active { color: var(--c-4caf50); }
 .broadcast-info-schedule-status--pending { color: var(--c-ffc107); }
 
+/* ─── Broadcast Crosstable (KS-1741 / ADR-023 §2.13, A17) ──────────
+ *
+ * Общие стили для трёх компонентов:
+ *   - <RoundRobinCrosstable>      (A13, матрица N×N)
+ *   - <BroadcastSwissStandings>   (A14, swiss N×R)
+ *   - <TeamStandings>             (A15, командные турниры)
+ *
+ * Конвенции:
+ *   - Namespace `.broadcast-xt-*`, отдельный от legacy `.broadcast-st-*`.
+ *   - Горизонтальный скролл на узких экранах через контейнер
+ *     `.broadcast-xt-scroll` (overflow-x: auto).
+ *   - Первые 1–2 колонки (rank / name) — sticky при скролле.
+ *   - Header sticky top:0 относительно страницы (overflow-y: visible).
+ *   - Все цвета — через токены tokens.css (light/dark темы работают
+ *     автоматически).
+ * ────────────────────────────────────────────────────────────────── */
+
+.broadcast-xt-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  background: var(--c-1a1a2e);
+  border: 1px solid var(--c-2a2a4e);
+  border-radius: 8px;
+}
+
+.broadcast-xt-table {
+  width: 100%;
+  border-collapse: separate; /* separate — sticky cells красятся корректно */
+  border-spacing: 0;
+  font-size: 13px;
+  color: var(--c-e0e0e0);
+  white-space: nowrap;
+}
+
+.broadcast-xt-table th,
+.broadcast-xt-table td {
+  padding: 8px 10px;
+  text-align: center;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--ov-white-05);
+}
+
+.broadcast-xt-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--c-12122a);
+  color: var(--c-9e9e9e);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--c-2a2a4e);
+}
+
+.broadcast-xt-table tbody tr {
+  transition: background 0.12s;
+}
+
+.broadcast-xt-table tbody tr:hover td {
+  background: var(--ov-white-03);
+}
+
+/* Rank / name / federation / numeric columns */
+.broadcast-xt-th-rank,
+.broadcast-xt-td-rank {
+  width: 36px;
+  color: var(--c-9e9e9e);
+  font-weight: 600;
+}
+
+.broadcast-xt-th-name,
+.broadcast-xt-td-name {
+  min-width: 160px;
+  text-align: left;
+  font-weight: 500;
+}
+
+.broadcast-xt-th-fed,
+.broadcast-xt-td-fed {
+  width: 44px;
+  color: var(--c-a0a0c0);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.broadcast-xt-th-num,
+.broadcast-xt-td-num {
+  width: 48px;
+  color: var(--c-c0c0d0);
+  font-variant-numeric: tabular-nums;
+}
+
+.broadcast-xt-td-pts {
+  color: var(--c-e0e0f0);
+  font-weight: 700;
+}
+
+.broadcast-xt-title {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-right: 6px;
+  background: var(--ov-warning-20);
+  color: var(--c-ffc107);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+}
+
+.broadcast-xt-name-text {
+  color: var(--c-e0e0f0);
+}
+
+/* Sticky-колонки — явный маркер (используется в BroadcastSwissStandings).
+ * Round-robin применяет sticky через scoped-селекторы ниже. */
+.broadcast-xt-sticky {
+  position: sticky;
+  background: var(--c-12122a);
+  z-index: 1;
+}
+
+.broadcast-xt-table thead .broadcast-xt-sticky {
+  z-index: 3; /* над ячейками и над обычным заголовком */
+}
+
+.broadcast-xt-th-rank.broadcast-xt-sticky,
+.broadcast-xt-td-rank.broadcast-xt-sticky {
+  left: 0;
+}
+
+.broadcast-xt-th-name.broadcast-xt-sticky,
+.broadcast-xt-td-name.broadcast-xt-sticky {
+  left: 36px; /* за rank-колонкой */
+  box-shadow: 1px 0 0 var(--c-2a2a4e);
+}
+
+/* Round-robin: у компонента нет .broadcast-xt-sticky класса (матрица и без
+ * того широкая — sticky нужен). Применяем scoped-селектором по scroll-контейнеру. */
+.broadcast-xt-scroll--round-robin .broadcast-xt-th-rank,
+.broadcast-xt-scroll--round-robin .broadcast-xt-td-rank {
+  position: sticky;
+  left: 0;
+  background: var(--c-12122a);
+  z-index: 1;
+}
+
+.broadcast-xt-scroll--round-robin thead .broadcast-xt-th-rank {
+  z-index: 3;
+}
+
+.broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
+.broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
+  position: sticky;
+  left: 36px;
+  background: var(--c-12122a);
+  z-index: 1;
+  box-shadow: 1px 0 0 var(--c-2a2a4e);
+}
+
+.broadcast-xt-scroll--round-robin thead .broadcast-xt-th-name {
+  z-index: 3;
+}
+
+/* Round-robin matrix cells */
+.broadcast-xt-th-rr {
+  width: 32px;
+  color: var(--c-808098);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.broadcast-xt-cell {
+  width: 34px;
+  min-width: 34px;
+  padding: 6px 4px;
+  border-left: 1px solid var(--ov-white-04);
+  font-variant-numeric: tabular-nums;
+}
+
+.broadcast-xt-cell--diag {
+  background: var(--ov-white-06);
+  color: var(--c-555);
+}
+
+.broadcast-xt-cell--clickable {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.broadcast-xt-cell--clickable:hover {
+  background: var(--ov-accent-20);
+}
+
+.broadcast-xt-cell--clickable:focus-visible {
+  outline: 2px solid var(--c-7c83ff);
+  outline-offset: -2px;
+}
+
+.broadcast-xt-cell--win { color: var(--c-4caf50); font-weight: 700; }
+.broadcast-xt-cell--loss { color: var(--c-f44336); font-weight: 700; }
+.broadcast-xt-cell--draw { color: var(--c-9e9e9e); }
+.broadcast-xt-cell--bye {
+  background: var(--ov-white-04);
+  color: var(--c-808098);
+}
+.broadcast-xt-cell--forfeit {
+  background: var(--ov-warning-10);
+  color: var(--c-ffb74d);
+  font-weight: 700;
+}
+
+/* Swiss-specific */
+.broadcast-xt-th-round {
+  width: 56px;
+  color: var(--c-808098);
+  font-size: 11px;
+}
+
+.broadcast-xt-cell--swiss {
+  width: 56px;
+  min-width: 56px;
+  padding: 6px 6px;
+  font-size: 12px;
+}
+
+.broadcast-xt-swiss-op {
+  color: var(--c-c0c0d0);
+  margin-right: 1px;
+}
+
+.broadcast-xt-swiss-col {
+  color: var(--c-808098);
+  font-size: 10px;
+  text-transform: lowercase;
+  margin-right: 1px;
+}
+
+.broadcast-xt-swiss-res {
+  font-weight: 700;
+}
+
+/* ─── Team standings ───────────────────────────────────────────── */
+
+.broadcast-xt-team-table {
+  width: 100%;
+}
+
+.broadcast-xt-team-row {
+  transition: background 0.1s;
+}
+
+.broadcast-xt-team-row--open > td {
+  background: var(--ov-accent-08);
+  border-bottom-color: transparent;
+}
+
+.broadcast-xt-team-toggle-cell {
+  width: 36px;
+  text-align: center;
+}
+
+.broadcast-xt-team-toggle {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-2a2a4a);
+  border: 1px solid var(--c-3a3a6a);
+  border-radius: 4px;
+  color: var(--c-e0e0f0);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.broadcast-xt-team-toggle:hover {
+  background: var(--c-3a3a6a);
+  border-color: var(--c-7c83ff);
+  color: var(--c-7c83ff);
+}
+
+.broadcast-xt-team-toggle:focus-visible {
+  outline: 2px solid var(--c-7c83ff);
+  outline-offset: 1px;
+}
+
+.broadcast-xt-team-members-row > td {
+  background: var(--ov-accent-05);
+}
+
+.broadcast-xt-team-members-cell {
+  padding: 10px 14px 12px !important;
+}
+
+.broadcast-xt-team-members-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: var(--c-c0c0d0);
+  background: var(--c-1a1a2e);
+  border-radius: 4px;
+}
+
+.broadcast-xt-team-members-table th {
+  padding: 6px 8px;
+  text-align: center;
+  color: var(--c-808098);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--ov-white-05);
+}
+
+.broadcast-xt-team-members-table td {
+  padding: 6px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--ov-white-03);
+}
+
+.broadcast-xt-team-members-table tr:last-child td {
+  border-bottom: none;
+}
+
+.broadcast-xt-team-members-table th.broadcast-xt-th-name,
+.broadcast-xt-team-members-table td.broadcast-xt-td-name {
+  text-align: left;
+}
+
+/* ─── Mobile (≤ 768px) ─────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .broadcast-xt-table {
+    font-size: 12px;
+  }
+
+  .broadcast-xt-table th,
+  .broadcast-xt-table td {
+    padding: 6px 7px;
+  }
+
+  .broadcast-xt-th-rank,
+  .broadcast-xt-td-rank {
+    width: 28px;
+  }
+
+  .broadcast-xt-th-name,
+  .broadcast-xt-td-name {
+    min-width: 110px;
+  }
+
+  .broadcast-xt-th-fed,
+  .broadcast-xt-td-fed {
+    width: 36px;
+    font-size: 11px;
+  }
+
+  .broadcast-xt-th-num,
+  .broadcast-xt-td-num {
+    width: 38px;
+  }
+
+  .broadcast-xt-cell {
+    width: 28px;
+    min-width: 28px;
+    padding: 5px 2px;
+  }
+
+  .broadcast-xt-cell--swiss {
+    width: 46px;
+    min-width: 46px;
+    font-size: 11px;
+    padding: 5px 4px;
+  }
+
+  .broadcast-xt-th-round {
+    width: 46px;
+  }
+
+  /* Sticky offsets переопределяем под новую ширину rank-колонки */
+  .broadcast-xt-th-name.broadcast-xt-sticky,
+  .broadcast-xt-td-name.broadcast-xt-sticky,
+  .broadcast-xt-scroll--round-robin .broadcast-xt-th-name,
+  .broadcast-xt-scroll--round-robin .broadcast-xt-td-name {
+    left: 28px;
+    min-width: 100px;
+  }
+
+  .broadcast-xt-team-toggle-cell {
+    width: 30px;
+  }
+
+  .broadcast-xt-team-toggle {
+    width: 24px;
+    height: 24px;
+    font-size: 15px;
+  }
+
+  .broadcast-xt-team-members-cell {
+    padding: 8px 8px 10px !important;
+  }
+}
+
