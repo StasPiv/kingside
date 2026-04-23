@@ -63,8 +63,10 @@ describe('LessonPuzzleResolverService', () => {
           ratingMin: 1200,
           ratingMax: 1500,
           limit: 5,
-          source: 'lichess', // default для курируемых наборов
-          orderBy: 'random', // KS-1776: дефолт, чтобы разные ученики получали разные срезы
+          // KS-1783: source больше не имеет дефолта 'lichess' —
+          // до импорта реальной lichess-базы ограничение давало пустой список.
+          source: undefined,
+          orderBy: 'random', // KS-1776: дефолт
         }),
       );
     });

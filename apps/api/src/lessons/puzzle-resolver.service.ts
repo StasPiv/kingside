@@ -33,8 +33,12 @@ export class LessonPuzzleResolverService {
       ratingMin: payload.selection.ratingMin,
       ratingMax: payload.selection.ratingMax,
       limit: payload.selection.limit,
-      // Для курируемых наборов Lichess — стабильные puzzleId.
-      source: options.source ?? 'lichess',
+      // KS-1783: дефолт убран (раньше был `'lichess'`) — до импорта
+      // реальной Lichess-базы задач на dev / staging / prod ограничение
+      // по source выдавало пустые списки. `source` остаётся опциональным;
+      // вызывающий может передать его явно, чтобы ограничиться курируемым
+      // источником (после импорта вернём дефолт обратно отдельной задачей).
+      source: options.source,
       excludeIds: options.excludeIds,
       // KS-1776: дефолт `random`, иначе все пользователи получают
       // одинаковый срез «первых N по возрастанию рейтинга».

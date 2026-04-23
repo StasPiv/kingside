@@ -9,6 +9,7 @@
     "lint": "npm run seed:lessons:lint && eslint src/",
     "seed:lessons": "npx ts-node src/lessons/seed/seed-lessons.ts",
     "seed:lessons:lint": "npx ts-node src/lessons/seed/lint-lessons.ts",
+    "seed:sample-puzzles": "npx ts-node src/lessons/seed/seed-sample-puzzles.ts",
     "test": "jest",
     "prisma:generate": "prisma generate --schema=../../packages/db/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema=../../packages/db/prisma/schema.prisma",
