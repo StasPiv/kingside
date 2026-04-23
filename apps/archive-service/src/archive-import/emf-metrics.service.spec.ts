@@ -95,10 +95,9 @@ describe('EmfMetricsPublisher', () => {
     };
   }
 
-  it('recordSourceRun публикует все 7 бизнес-метрик с dimension source (включая ClassicalRatio)', async () => {
+  it('recordSourceRun публикует 6 run-level метрик с dimension source (LastSuccessAgeSeconds перенесён в recordCatalogAge)', async () => {
     const publisher = new EmfMetricsPublisher();
-    const now = new Date('2026-04-21T00:00:00Z');
-    publisher.recordSourceRun(makeRun(), now);
+    publisher.recordSourceRun(makeRun());
 
     expect(createdLoggers).toHaveLength(1);
     const l = createdLoggers[0];
@@ -112,7 +111,6 @@ describe('EmfMetricsPublisher', () => {
       'GamesParsed',
       'GamesSkipped',
       'ImportDurationSeconds',
-      'LastSuccessAgeSeconds',
       'SourcesFailed',
     ]);
 
@@ -123,10 +121,10 @@ describe('EmfMetricsPublisher', () => {
     expect(byName.ImportDurationSeconds.value).toBeCloseTo(12.34, 5);
     expect(byName.ImportDurationSeconds.unit).toBe('Seconds');
     expect(byName.SourcesFailed.value).toBe(0);
-    // 24 часа между 2026-04-20 и 2026-04-21 = 86400s.
-    expect(byName.LastSuccessAgeSeconds.value).toBe(86400);
     expect(byName.ClassicalRatio.value).toBeCloseTo(0.84, 5);
     expect(byName.ClassicalRatio.unit).toBe('None');
+    // KS-1716: LastSuccessAgeSeconds здесь больше не эмитится.
+    expect(names).not.toContain('LastSuccessAgeSeconds');
   });
 
   it('ClassicalRatio не публикуется, если ImportResult.classicalRatio=undefined (noop/failed/no-games)', () => {
@@ -208,31 +206,14 @@ describe('EmfMetricsPublisher', () => {
     expect(byName.GamesAdded.value).toBe(0);
   });
 
-  it('LastSuccessAgeSeconds=sentinel (10 лет) если lastSuccessAt=null', () => {
+  it('no-op run (not due) публикует нули run-level метрик, без ClassicalRatio (LastSuccessAgeSeconds теперь в recordCatalogAge)', () => {
     const publisher = new EmfMetricsPublisher();
-    publisher.recordSourceRun(
-      makeRun({
-        lastSuccessAt: null,
-        due: false,
-        result: null,
-      }),
-    );
-    const byName = Object.fromEntries(
-      createdLoggers[0].__metrics.map((m) => [m.name, m]),
-    );
-    expect(byName.LastSuccessAgeSeconds.value).toBe(10 * 365 * 86400);
-  });
-
-  it('no-op run (not due) публикует нули и LastSuccessAgeSeconds, без ClassicalRatio', () => {
-    const publisher = new EmfMetricsPublisher();
-    const now = new Date('2026-04-21T00:00:00Z');
     publisher.recordSourceRun(
       makeRun({
         due: false,
         result: null,
         durationSec: 0,
       }),
-      now,
     );
     const byName = Object.fromEntries(
       createdLoggers[0].__metrics.map((m) => [m.name, m]),
@@ -242,8 +223,55 @@ describe('EmfMetricsPublisher', () => {
     expect(byName.GamesParsed.value).toBe(0);
     expect(byName.ImportDurationSeconds.value).toBe(0);
     expect(byName.SourcesFailed.value).toBe(0);
-    expect(byName.LastSuccessAgeSeconds.value).toBe(86400);
+    expect(byName.LastSuccessAgeSeconds).toBeUndefined();
     expect(byName.ClassicalRatio).toBeUndefined();
+  });
+
+  describe('recordCatalogAge (KS-1716 — catalog-level LastSuccessAgeSeconds)', () => {
+    it('публикует LastSuccessAgeSeconds{source=code} для каждого источника каталога', () => {
+      const publisher = new EmfMetricsPublisher();
+      const now = new Date('2026-04-21T00:00:00Z');
+      publisher.recordCatalogAge(
+        [
+          { code: 'twic', lastSuccessAt: new Date('2026-04-20T00:00:00Z') },
+          { code: 'other', lastSuccessAt: new Date('2026-04-14T00:00:00Z') },
+        ],
+        now,
+      );
+
+      expect(createdLoggers).toHaveLength(2);
+      const [twic, other] = createdLoggers;
+      expect(twic.__namespace).toBe('Kingside/ArchiveImporter');
+      expect(twic.__dimensions).toEqual({ source: 'twic' });
+      expect(twic.__metrics.map((m) => m.name)).toEqual([
+        'LastSuccessAgeSeconds',
+      ]);
+      expect(twic.__metrics[0].value).toBe(86400); // 1 день
+      expect(twic.__metrics[0].unit).toBe('Seconds');
+      expect(twic.__props.lastSuccessAt).toBe('2026-04-20T00:00:00.000Z');
+
+      expect(other.__dimensions).toEqual({ source: 'other' });
+      expect(other.__metrics[0].value).toBe(7 * 86400); // 7 дней
+    });
+
+    it('lastSuccessAt=null → sentinel 10 лет в секундах (alarm A4 threshold=14d сработает)', () => {
+      const publisher = new EmfMetricsPublisher();
+      publisher.recordCatalogAge(
+        [{ code: 'twic', lastSuccessAt: null }],
+        new Date('2026-04-23T00:00:00Z'),
+      );
+      expect(createdLoggers).toHaveLength(1);
+      const l = createdLoggers[0];
+      expect(l.__metrics[0].name).toBe('LastSuccessAgeSeconds');
+      expect(l.__metrics[0].value).toBe(10 * 365 * 86400);
+      expect(l.__props.lastSuccessAt).toBeNull();
+    });
+
+    it('пустой каталог → ни одного logger не создаётся (nothing to publish)', () => {
+      const publisher = new EmfMetricsPublisher();
+      publisher.recordCatalogAge([], new Date());
+      expect(createdLoggers).toHaveLength(0);
+    });
   });
 
   it('recordTickSummary публикует агрегат SourcesChecked/Processed/Failed + TotalGamesAdded + ExitCode без dimensions', () => {

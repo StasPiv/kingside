@@ -28,7 +28,20 @@ import type { TickResult, TickSourceResult } from './archive-import.service';
  *
  * Namespace `Kingside/ArchiveImporter` (ADR-020 §2.5).
  *
- * Per-source метрики (dimension `source` = archive_sources.code):
+ * Catalog-level per-source метрики (dimension `source`, эмитятся через
+ * `recordCatalogAge()` для **каждого** enabled-источника из `archive_sources`,
+ * независимо от того, запускался ли runSource на этом тике):
+ *   - `LastSuccessAgeSeconds`  (Seconds) — возраст успеха с `last_success_at`.
+ *      Если `last_success_at=null` (импорт ни разу не проходил) — sentinel
+ *      10 лет в секундах (10*365*86400), alarm A4 с threshold=1209600
+ *      (14 дней) сработает. KS-1716: метрика ДОЛЖНА публиковаться даже
+ *      когда `tick.runs===[]` (все источники не-due), иначе alarm A4
+ *      застревает в `INSUFFICIENT_DATA/ALARM` из-за отсутствия datapoints.
+ *      Логически это мониторинг каталога, а не итог конкретного тика.
+ *
+ * Run-level per-source метрики (dimension `source`, эмитятся через
+ * `recordSourceRun()` только для источников, по которым состоялся runSource
+ * — due и не заблокированы):
  *   - `GamesAdded`             (Count)
  *   - `GamesSkipped`           (Count)
  *   - `GamesParsed`            (Count)
@@ -36,11 +49,6 @@ import type { TickResult, TickSourceResult } from './archive-import.service';
  *   - `SourcesFailed`          (Count, 0/1) — per-source флаг failure,
  *      нужен для CloudWatch Alarm A3 (`SourcesFailed > 0 за 1 ч`,
  *      дифф по dimension'у `source`). ADR-020 §2.7.
- *   - `LastSuccessAgeSeconds`  (Seconds) — публикуется и для не-due
- *      источников, чтобы CloudWatch alarm «14 дней без импортов»
- *      срабатывал независимо от due-окна. Если lastSuccessAt=null
- *      (импорт ни разу не проходил) — sentinel 10 лет в секундах
- *      (10*365*86400), alarm с threshold=1209600 (14 дней) сработает.
  *   - `ClassicalRatio`         (None, 0..1) — доля classical-партий среди
  *      добавленных. Публикуется ТОЛЬКО если `ImportResult.classicalRatio`
  *      определён (status in 'ok'|'partial' и gamesAdded>0) — иначе
@@ -70,6 +78,17 @@ import type { TickResult, TickSourceResult } from './archive-import.service';
 const NAMESPACE = 'Kingside/ArchiveImporter';
 const NEVER_SUCCESS_AGE_SECONDS = 10 * 365 * 86400; // 10 лет, sentinel
 
+/**
+ * Запись каталога для `recordCatalogAge()`: минимально необходимое
+ * подмножество `archive_sources` (`code` + `last_success_at`). Не привязано
+ * к `TickSourceResult`, чтобы catalog-emit работал даже когда tickOnce
+ * не стартовал (bootstrap fail, timeout до processAll).
+ */
+export interface ArchiveSourceCatalogEntry {
+  code: string;
+  lastSuccessAt: Date | null;
+}
+
 @Injectable()
 export class EmfMetricsPublisher {
   private readonly logger = new Logger(EmfMetricsPublisher.name);
@@ -80,11 +99,16 @@ export class EmfMetricsPublisher {
   }
 
   /**
-   * Записывает метрики одного source-run. Не отправляет сразу — собирает
+   * Записывает run-level метрики одного source-run (GamesAdded, ImportDuration,
+   * ClassicalRatio, per-source SourcesFailed). Не отправляет сразу — собирает
    * MetricsLogger'ы в `pending`, flush() отправит всё разом в конце
    * процесса.
+   *
+   * `LastSuccessAgeSeconds` здесь НЕ эмитится — это catalog-level метрика,
+   * публикуется через `recordCatalogAge()` для всех enabled источников,
+   * независимо от того, был ли runSource на этом тике (KS-1716).
    */
-  recordSourceRun(run: TickSourceResult, now: Date = new Date()): void {
+  recordSourceRun(run: TickSourceResult): void {
     const metrics = createMetricsLogger();
     metrics.setNamespace(NAMESPACE);
     metrics.setDimensions({ source: run.sourceCode });
@@ -107,12 +131,6 @@ export class EmfMetricsPublisher {
     const failed =
       run.error != null || run.result?.status === 'failed' ? 1 : 0;
     metrics.putMetric('SourcesFailed', failed, Unit.Count);
-
-    metrics.putMetric(
-      'LastSuccessAgeSeconds',
-      this.computeLastSuccessAgeSeconds(run.lastSuccessAt, now),
-      Unit.Seconds,
-    );
 
     // ClassicalRatio публикуется только при реальном импорте с добавленными
     // играми. Для noop/failed/lockHeld classicalRatio=undefined — не пишем,
@@ -140,6 +158,48 @@ export class EmfMetricsPublisher {
     }
 
     this.pending.push(metrics);
+  }
+
+  /**
+   * Публикует `LastSuccessAgeSeconds{source=<code>}` для каждого источника
+   * каталога (KS-1716, ADR-020 §2.6).
+   *
+   * Вызывается в `importer-once.ts` ПОСЛЕ `seed.ensureDefaults()` и не
+   * зависит от `tick.runs` — каталог-метрика должна публиковаться даже
+   * если `tickOnce()` не нашёл ни одного due-источника или упал до
+   * `processAll`. Без этого CloudWatch alarm A4 «14 дней без успеха»
+   * застревает в `ALARM/INSUFFICIENT_DATA`, потому что метрика просто
+   * не поступает.
+   *
+   * Каждая запись — отдельный MetricsLogger с dimension `source=code`,
+   * чтобы CloudWatch не схлопывал значения по одной и той же метрике
+   * в одном контексте.
+   *
+   * Если `lastSuccessAt=null` — sentinel 10 лет в секундах, alarm с
+   * threshold=1209600 (14 дней) сработает на новом источнике, которого
+   * ни разу не удалось импортнуть.
+   */
+  recordCatalogAge(
+    entries: ReadonlyArray<ArchiveSourceCatalogEntry>,
+    now: Date = new Date(),
+  ): void {
+    for (const entry of entries) {
+      const metrics = createMetricsLogger();
+      metrics.setNamespace(NAMESPACE);
+      metrics.setDimensions({ source: entry.code });
+      metrics.putMetric(
+        'LastSuccessAgeSeconds',
+        this.computeLastSuccessAgeSeconds(entry.lastSuccessAt, now),
+        Unit.Seconds,
+      );
+      // Property для CloudWatch Logs — удобно фильтровать «ни разу не
+      // успевал» источники.
+      metrics.setProperty(
+        'lastSuccessAt',
+        entry.lastSuccessAt ? entry.lastSuccessAt.toISOString() : null,
+      );
+      this.pending.push(metrics);
+    }
   }
 
   /**

@@ -13,8 +13,12 @@ import {
   TickTimeoutError,
   type TickResult,
 } from './archive-import/archive-import.service';
-import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
+import {
+  EmfMetricsPublisher,
+  type ArchiveSourceCatalogEntry,
+} from './archive-import/emf-metrics.service';
 import { ArchiveSourcesSeedService } from './archive-import/archive-sources-seed.service';
+import { PrismaService } from './prisma/prisma.service';
 
 /**
  * One-shot entrypoint для EventBridge Scheduler + ECS RunTask (KS-1681,
@@ -80,10 +84,12 @@ export async function runImporterOnce(
   const archiveImport = app.get(ArchiveImportService);
   const emf = app.get(EmfMetricsPublisher);
   const seed = app.get(ArchiveSourcesSeedService);
+  const prisma = app.get(PrismaService);
 
   let tick: TickResult;
   let timedOut = false;
   let bootstrapFailed = false;
+  let catalog: ArchiveSourceCatalogEntry[] = [];
 
   try {
     // KS-1716: гарантируем, что дефолтные источники (TWIC и т.п.) есть в БД
@@ -97,6 +103,30 @@ export async function runImporterOnce(
       logger.log(
         `archive_sources seeded: created=${seedResult.created} kept=${seedResult.kept}`,
       );
+    }
+    // KS-1716: catalog-snapshot читается ДО tickOnce и ПОСЛЕ seed, чтобы:
+    //   1) гарантированно включал все enabled-источники (сид только что
+    //      выполнился, TWIC точно есть в БД);
+    //   2) пережил TickTimeoutError — `LastSuccessAgeSeconds` публикуется
+    //      даже если processAll зависнет и отработает только backstop;
+    //   3) не зависел от `tick.runs`, который для не-due источников может
+    //      быть пустым (TWIC с недельным cron на обычный день).
+    // Внутренний try/catch — catalog fetch fail сам по себе не считается
+    // bootstrap-ошибкой процесса, importer попытается tickOnce. Emit
+    // LastSuccessAgeSeconds просто пропустится, alarm A4 останется в ALARM
+    // — корректная сигнализация «каталог недоступен».
+    try {
+      const rows = await prisma.archiveSource.findMany({
+        where: { enabled: true },
+        select: { code: true, lastSuccessAt: true },
+      });
+      catalog = rows.map((r) => ({
+        code: r.code,
+        lastSuccessAt: r.lastSuccessAt ?? null,
+      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`catalog fetch failed: ${msg}`);
     }
     tick = await archiveImport.tickOnce();
   } catch (err: unknown) {
@@ -118,8 +148,16 @@ export async function runImporterOnce(
   }
 
   const now = new Date();
+  // KS-1716: сначала каталог-метрика `LastSuccessAgeSeconds{source=code}`
+  // для ВСЕХ enabled-источников, независимо от due/runs. Это основной
+  // сигнал для alarm A4.
+  emf.recordCatalogAge(catalog, now);
+  // Затем run-level метрики (GamesAdded/ImportDurationSeconds/...) — только
+  // по источникам, которые реально попали в tick.runs (due / lockHeld /
+  // failed). Для не-due источников этих метрик нет — корректно, т.к. они
+  // описывают факт импорта, а не свойство каталога.
   for (const run of tick.runs) {
-    emf.recordSourceRun(run, now);
+    emf.recordSourceRun(run);
   }
 
   const runsFailed = tick.runs.filter(
@@ -140,7 +178,8 @@ export async function runImporterOnce(
 
   logger.log(
     `tickOnce done: runs=${tick.runs.length} failed=${runsFailed} ` +
-      `gamesAdded=${tick.totalGamesAdded} timedOut=${timedOut} exit=${exitCode}`,
+      `gamesAdded=${tick.totalGamesAdded} catalog=${catalog.length} ` +
+      `timedOut=${timedOut} exit=${exitCode}`,
   );
   return {
     exitCode,

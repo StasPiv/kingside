@@ -4,8 +4,12 @@ import {
   ArchiveImportService,
   TickTimeoutError,
 } from './archive-import/archive-import.service';
-import { EmfMetricsPublisher } from './archive-import/emf-metrics.service';
+import {
+  EmfMetricsPublisher,
+  type ArchiveSourceCatalogEntry,
+} from './archive-import/emf-metrics.service';
 import { ArchiveSourcesSeedService } from './archive-import/archive-sources-seed.service';
+import { PrismaService } from './prisma/prisma.service';
 import type {
   TickResult,
   TickSourceResult,
@@ -23,15 +27,19 @@ import type {
  */
 
 type EmfCall =
+  | { kind: 'catalog'; entries: ReadonlyArray<ArchiveSourceCatalogEntry> }
   | { kind: 'run'; run: TickSourceResult }
   | { kind: 'summary'; tick: TickResult; exitCode: number }
   | { kind: 'flush' };
+
+type CatalogRow = { code: string; lastSuccessAt: Date | null };
 
 interface MockContext {
   archive: {
     tickOnce: jest.Mock<Promise<TickResult>, []>;
   };
   emf: {
+    recordCatalogAge: jest.Mock;
     recordSourceRun: jest.Mock;
     recordTickSummary: jest.Mock;
     flush: jest.Mock<Promise<void>, []>;
@@ -43,10 +51,22 @@ interface MockContext {
       []
     >;
   };
+  prisma: {
+    archiveSource: {
+      findMany: jest.Mock<Promise<CatalogRow[]>, [unknown]>;
+    };
+  };
   app: INestApplicationContext;
 }
 
-function makeContext(tick: TickResult | Error): MockContext {
+interface MakeContextOptions {
+  catalog?: CatalogRow[] | Error;
+}
+
+function makeContext(
+  tick: TickResult | Error,
+  options: MakeContextOptions = {},
+): MockContext {
   const emfCalls: EmfCall[] = [];
 
   const archive = {
@@ -56,6 +76,11 @@ function makeContext(tick: TickResult | Error): MockContext {
     }),
   };
   const emf = {
+    recordCatalogAge: jest.fn(
+      (entries: ReadonlyArray<ArchiveSourceCatalogEntry>) => {
+        emfCalls.push({ kind: 'catalog', entries });
+      },
+    ),
     recordSourceRun: jest.fn((run: TickSourceResult) => {
       emfCalls.push({ kind: 'run', run });
     }),
@@ -75,17 +100,33 @@ function makeContext(tick: TickResult | Error): MockContext {
     >(() => Promise.resolve({ created: 0, kept: 1 })),
   };
 
+  const catalogDefault: CatalogRow[] = [
+    { code: 'twic', lastSuccessAt: null },
+  ];
+  const catalogResponse = options.catalog ?? catalogDefault;
+  const prisma = {
+    archiveSource: {
+      findMany: jest.fn<Promise<CatalogRow[]>, [unknown]>(() => {
+        if (catalogResponse instanceof Error) {
+          return Promise.reject(catalogResponse);
+        }
+        return Promise.resolve(catalogResponse);
+      }),
+    },
+  };
+
   const app: INestApplicationContext = {
     get: jest.fn((token: unknown) => {
       if (token === ArchiveImportService) return archive;
       if (token === EmfMetricsPublisher) return emf;
       if (token === ArchiveSourcesSeedService) return seed;
+      if (token === PrismaService) return prisma;
       throw new Error(`unexpected token: ${String(token)}`);
     }),
     // Остальные методы INestApplicationContext не нужны для этих тестов.
   } as unknown as INestApplicationContext;
 
-  return { archive, emf, seed, app };
+  return { archive, emf, seed, prisma, app };
 }
 
 function makeRun(overrides: Partial<TickSourceResult> = {}): TickSourceResult {
@@ -124,9 +165,10 @@ describe('runImporterOnce', () => {
     expect(outcome.totalGamesAdded).toBe(95);
     expect(outcome.timedOut).toBe(false);
 
-    // Порядок: recordSourceRun → recordTickSummary → flush.
+    // Порядок: recordCatalogAge → recordSourceRun → recordTickSummary → flush
+    // (catalog-emit идёт первым — он не зависит от tick.runs, см. KS-1716).
     const kinds = ctx.emf.calls.map((c) => c.kind);
-    expect(kinds).toEqual(['run', 'summary', 'flush']);
+    expect(kinds).toEqual(['catalog', 'run', 'summary', 'flush']);
 
     // recordTickSummary должен получить exitCode=0.
     const summaryCall = ctx.emf.calls.find((c) => c.kind === 'summary');
@@ -287,6 +329,86 @@ describe('runImporterOnce', () => {
       { runs: [], totalGamesAdded: 0 },
       2,
     );
+    expect(ctx.emf.flush).toHaveBeenCalledTimes(1);
+  });
+
+  it('KS-1716: 1 enabled source в БД, не-due tick → runs пусты, recordCatalogAge получает TWIC → EMF содержит LastSuccessAgeSeconds{source=twic}', async () => {
+    // Базовый сценарий, который пропустили в первом коммите KS-1716:
+    // на не-due день (cron 0 */168 * * *) processAll возвращает runs=[]
+    // (источников нет в findMany для enabled=true? нет — в реальности isDue
+    // фильтрует в tickOnce, но здесь мы моделируем итог: tick.runs=[]).
+    // catalog-emit должен сработать независимо и опубликовать
+    // LastSuccessAgeSeconds{source=twic}, иначе alarm A4 остаётся в ALARM.
+    const emptyTick: TickResult = { runs: [], totalGamesAdded: 0 };
+    const lastSuccessAt = new Date('2026-04-01T00:00:00Z');
+    const ctx = makeContext(emptyTick, {
+      catalog: [{ code: 'twic', lastSuccessAt }],
+    });
+    const outcome = await runImporterOnce(ctx.app);
+
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.runsTotal).toBe(0);
+    expect(outcome.runsFailed).toBe(0);
+
+    // Prisma findMany по enabled=true.
+    expect(ctx.prisma.archiveSource.findMany).toHaveBeenCalledWith({
+      where: { enabled: true },
+      select: { code: true, lastSuccessAt: true },
+    });
+
+    // EMF catalog-emit содержит ровно 1 источник — TWIC с lastSuccessAt.
+    expect(ctx.emf.recordCatalogAge).toHaveBeenCalledTimes(1);
+    const catalogCall = ctx.emf.calls.find((c) => c.kind === 'catalog');
+    expect(catalogCall).toBeDefined();
+    if (catalogCall?.kind === 'catalog') {
+      expect(catalogCall.entries).toEqual([
+        { code: 'twic', lastSuccessAt },
+      ]);
+    }
+
+    // recordSourceRun НЕ вызывается, т.к. tick.runs пуст (не-due).
+    expect(ctx.emf.recordSourceRun).not.toHaveBeenCalled();
+    // tick-summary и flush — как обычно.
+    expect(ctx.emf.recordTickSummary).toHaveBeenCalledWith(emptyTick, 0);
+    expect(ctx.emf.flush).toHaveBeenCalledTimes(1);
+
+    // Порядок: catalog → summary → flush (run нет).
+    const kinds = ctx.emf.calls.map((c) => c.kind);
+    expect(kinds).toEqual(['catalog', 'summary', 'flush']);
+  });
+
+  it('KS-1716: catalog fetch падает → recordCatalogAge([]) вызван, но tickOnce всё равно запускается', async () => {
+    const tick: TickResult = { runs: [makeRun()], totalGamesAdded: 95 };
+    const ctx = makeContext(tick, {
+      catalog: new Error('prisma unreachable'),
+    });
+    const outcome = await runImporterOnce(ctx.app);
+
+    // Catalog fetch fail — не bootstrap-ошибка, tickOnce всё равно выполняется.
+    expect(ctx.archive.tickOnce).toHaveBeenCalledTimes(1);
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.runsTotal).toBe(1);
+
+    // recordCatalogAge вызывается с пустым массивом — ничего не
+    // опубликуется, alarm A4 не получит datapoint на этом tick'е.
+    expect(ctx.emf.recordCatalogAge).toHaveBeenCalledTimes(1);
+    const catalogCall = ctx.emf.calls.find((c) => c.kind === 'catalog');
+    if (catalogCall?.kind === 'catalog') {
+      expect(catalogCall.entries).toEqual([]);
+    }
+  });
+
+  it('KS-1716: ensureDefaults() throws → catalog fetch пропускается, recordCatalogAge([]) всё равно вызван', async () => {
+    const ctx = makeContext({ runs: [], totalGamesAdded: 0 });
+    ctx.seed.ensureDefaults.mockRejectedValue(new Error('DB unreachable'));
+
+    await runImporterOnce(ctx.app);
+
+    // Seed упал ДО catalog fetch, findMany не вызывается.
+    expect(ctx.prisma.archiveSource.findMany).not.toHaveBeenCalled();
+    // recordCatalogAge всё равно вызван (с []) — симметрично остальным
+    // flush-обязательным метрикам, чтобы order/pending state был чистым.
+    expect(ctx.emf.recordCatalogAge).toHaveBeenCalledWith([], expect.any(Date));
     expect(ctx.emf.flush).toHaveBeenCalledTimes(1);
   });
 
