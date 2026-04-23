@@ -1,0 +1,958 @@
+/* ============================================================
+ * Lessons section (L-13, KS-1768)
+ *
+ * Покрывает три страницы:
+ *   • LessonsPage   — список курсов (`.lessons-page`)
+ *   • CoursePage    — курс и список уроков (`.course-page`)
+ *   • LessonPage    — урок и шаги (`.lesson-page`)
+ *
+ * Адаптив: mobile ≤ 640, tablet 641–960, desktop 961+.
+ * Без горизонтального скролла на любой ширине.
+ * Доска (шахматная) на мобильном — полная ширина контейнера.
+ *
+ * Визуальные состояния шага передаются через `data-step-state`,
+ * проставляется в LessonPage.tsx из useLessonProgress:
+ *   • "pending"     — не начат   (нейтральная рамка)
+ *   • "in-progress" — в процессе (акцентная рамка + свечение)
+ *   • "done"        — пройден    (success-рамка + чек)
+ *   • "failed"      — не пройден (danger-рамка + иконка)
+ * ============================================================ */
+
+/* ---------- Общие обёртки ---------- */
+.lessons-page,
+.course-page,
+.lesson-page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.lessons-page h1,
+.course-page h1,
+.lesson-page h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.lessons-page h2,
+.course-page h2 {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.lessons-page h3,
+.course-page h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* ============================================================
+ * LessonsPage — список курсов
+ * ============================================================ */
+.lessons-header {
+  margin-bottom: 28px;
+}
+
+.lessons-subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.lessons-empty,
+.lessons-page .loading,
+.course-page .loading,
+.lesson-page .loading {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.lessons-page .error,
+.course-page .error,
+.lesson-page .error {
+  padding: 16px 20px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+}
+
+.lessons-level-section {
+  margin-bottom: 28px;
+}
+
+.lessons-level-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lessons-recommended-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-on-accent);
+  background: var(--accent-primary);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.lessons-course-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.lessons-course-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  overflow: hidden;
+}
+
+.lessons-course-card:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.lessons-course-link {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.lessons-course-link:hover,
+.lessons-course-link:focus-visible {
+  text-decoration: none;
+  outline: none;
+}
+
+.lessons-course-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.lessons-course-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 2.9em; /* 2 строки для выравнивания карточек */
+}
+
+.lessons-course-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.lessons-course-progress {
+  font-weight: 600;
+  color: var(--accent-primary);
+}
+
+/* ============================================================
+ * CoursePage — курс и уроки
+ * ============================================================ */
+.course-header {
+  margin-bottom: 24px;
+}
+
+.course-back-link,
+.lesson-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.course-back-link:hover,
+.lesson-back-link:hover {
+  color: var(--accent-primary);
+}
+
+.course-description {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Прогресс курса и урока — общий стиль */
+.course-progress,
+.lesson-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.course-progress-bar,
+.lesson-progress-bar {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  background: var(--bg-muted);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.course-progress-fill,
+.lesson-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-hover));
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
+.course-progress-text,
+.lesson-progress-text {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Список уроков */
+.course-lesson-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  counter-reset: lesson;
+}
+
+.course-lesson-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.course-lesson-item:hover {
+  border-color: var(--border-accent);
+}
+
+.course-lesson-link {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.course-lesson-order {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 1.8em;
+  text-align: right;
+}
+
+.course-lesson-title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.course-lesson-state {
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+}
+
+.course-lesson-state--in_progress {
+  color: var(--accent-primary);
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+}
+
+.course-lesson-state--completed {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success);
+}
+
+.course-lesson-state--failed {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+.course-lesson-step-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Варианты карточки урока по прогрессу (целый айтем) */
+.course-lesson-item--completed {
+  border-left: 3px solid var(--success);
+}
+.course-lesson-item--in_progress {
+  border-left: 3px solid var(--accent-primary);
+}
+.course-lesson-item--failed {
+  border-left: 3px solid var(--danger);
+}
+
+/* ============================================================
+ * LessonPage — шаги урока
+ * ============================================================ */
+.lesson-header {
+  margin-bottom: 20px;
+}
+
+.lesson-summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.lesson-step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lesson-step {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  padding: 18px 20px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Состояния шага по data-step-state */
+.lesson-step[data-step-state="pending"] {
+  /* нейтральная рамка (по умолчанию) */
+}
+
+.lesson-step[data-step-state="in-progress"],
+.lesson-step[data-step-state="in_progress"] {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.lesson-step[data-step-state="done"] {
+  border-color: var(--success);
+  background: linear-gradient(180deg, var(--success-soft), var(--bg-surface) 40%);
+}
+
+.lesson-step[data-step-state="failed"] {
+  border-color: var(--danger);
+  background: linear-gradient(180deg, var(--danger-soft), var(--bg-surface) 40%);
+}
+
+/* Индикатор состояния в углу */
+.lesson-step::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-muted);
+  border: 2px solid var(--border-mid);
+}
+
+.lesson-step[data-step-state="in-progress"]::after,
+.lesson-step[data-step-state="in_progress"]::after {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.lesson-step[data-step-state="done"]::after {
+  background: var(--success);
+  border-color: var(--success);
+  box-shadow: 0 0 0 4px var(--success-soft);
+}
+
+.lesson-step[data-step-state="failed"]::after {
+  background: var(--danger);
+  border-color: var(--danger);
+  box-shadow: 0 0 0 4px var(--danger-soft);
+}
+
+.lesson-step__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-right: 32px; /* место под индикатор */
+}
+
+.lesson-step-order {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lesson-step-type {
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent-primary);
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+/* ---------- Text step ---------- */
+.lesson-text-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lesson-text-step__md {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.lesson-text-step__md p {
+  margin: 0 0 10px;
+}
+.lesson-text-step__md p:last-child {
+  margin-bottom: 0;
+}
+
+.lesson-text-step__md strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.lesson-text-step__md a {
+  color: var(--text-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.lesson-text-step__md code {
+  padding: 1px 6px;
+  font-size: 0.92em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+}
+
+.lesson-text-step__md ul,
+.lesson-text-step__md ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.lesson-text-step__md li {
+  margin-bottom: 4px;
+}
+
+.lesson-text-step__diagram {
+  margin: 0;
+  align-self: flex-start;
+}
+
+.lesson-text-step__caption {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.lesson-text-step__i18n-stub {
+  margin: 0;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.lesson-text-step__actions,
+.lesson-quiz-step__actions,
+.lesson-puzzle-step__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* ---------- Quiz step ---------- */
+.lesson-quiz-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lesson-quiz-step__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.lesson-quiz-step__questions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lesson-quiz-question {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.lesson-quiz-question--checked[data-correct="true"] {
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.lesson-quiz-question--checked[data-correct="false"] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.lesson-quiz-question__prompt {
+  margin: 0 0 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.lesson-quiz-question__diagram {
+  margin: 0 0 12px;
+}
+
+.lesson-quiz-question__options {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lesson-quiz-option {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.lesson-quiz-option:hover:not(:has(input:disabled)) {
+  border-color: var(--border-accent);
+}
+
+.lesson-quiz-option label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.lesson-quiz-option input {
+  margin-top: 2px;
+  accent-color: var(--accent-primary);
+  flex-shrink: 0;
+}
+
+.lesson-quiz-option--correct {
+  border-color: var(--success);
+  background: var(--success-soft);
+}
+
+.lesson-quiz-option--wrong {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.lesson-quiz-option--missed {
+  border-color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.lesson-quiz-question__check {
+  margin-top: 4px;
+}
+
+.lesson-quiz-question__result {
+  margin: 10px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.lesson-quiz-question__result--correct {
+  color: var(--success);
+}
+
+.lesson-quiz-question__result--incorrect {
+  color: var(--danger);
+}
+
+.lesson-quiz-question__explanation {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* ---------- Puzzle step ---------- */
+.lesson-puzzle-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lesson-puzzle-step__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.lesson-puzzle-step__loading,
+.lesson-puzzle-step__error {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border-radius: 8px;
+}
+
+.lesson-puzzle-step__error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.lesson-puzzle-step__result {
+  margin: 0;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.lesson-puzzle-step__result--correct {
+  color: var(--success);
+}
+
+.lesson-puzzle-step__result--incorrect {
+  color: var(--danger);
+}
+
+/* ---------- Единый стиль кнопок внутри шагов ---------- */
+.lesson-text-step__next,
+.lesson-quiz-question__check,
+.lesson-quiz-step__submit,
+.lesson-quiz-step__retry,
+.lesson-quiz-step__continue,
+.lesson-puzzle-step__next,
+.lesson-puzzle-step__complete,
+.lesson-complete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-on-accent);
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  min-height: 40px;
+}
+
+.lesson-text-step__next:hover,
+.lesson-quiz-question__check:hover,
+.lesson-quiz-step__submit:hover,
+.lesson-quiz-step__continue:hover,
+.lesson-puzzle-step__next:hover,
+.lesson-puzzle-step__complete:hover,
+.lesson-complete-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.lesson-text-step__next:active,
+.lesson-quiz-question__check:active,
+.lesson-quiz-step__submit:active,
+.lesson-quiz-step__continue:active,
+.lesson-puzzle-step__next:active,
+.lesson-puzzle-step__complete:active,
+.lesson-complete-btn:active {
+  transform: translateY(1px);
+}
+
+.lesson-text-step__next:disabled,
+.lesson-quiz-question__check:disabled,
+.lesson-quiz-step__submit:disabled,
+.lesson-quiz-step__continue:disabled,
+.lesson-puzzle-step__next:disabled,
+.lesson-puzzle-step__complete:disabled,
+.lesson-complete-btn:disabled {
+  background: var(--bg-elevated);
+  border-color: var(--border-mid);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+/* "Вторичные" кнопки — retry у квиза: outline */
+.lesson-quiz-step__retry {
+  background: transparent;
+  color: var(--accent-primary);
+}
+
+.lesson-quiz-step__retry:hover {
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+}
+
+/* ---------- Footer: завершить урок ---------- */
+.lesson-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  align-items: flex-start;
+}
+
+.lesson-complete-btn {
+  min-width: 200px;
+  padding: 12px 24px;
+  font-size: 15px;
+}
+
+.lesson-complete-msg {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.lesson-sync-error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--warning);
+}
+
+.lesson-quiz-step__empty {
+  padding: 16px;
+  color: var(--text-muted);
+  text-align: center;
+  background: var(--bg-muted);
+  border-radius: 8px;
+}
+
+/* ============================================================
+ * Адаптив
+ * ============================================================ */
+
+/* Tablet / узкий desktop — более плотная сетка курсов */
+@media (max-width: 960px) {
+  .lessons-page,
+  .course-page,
+  .lesson-page {
+    padding: 20px 18px 40px;
+  }
+
+  .lessons-course-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+
+  .lesson-step {
+    padding: 16px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 640px) {
+  .lessons-page,
+  .course-page,
+  .lesson-page {
+    padding: 16px 12px 40px;
+  }
+
+  .lessons-page h1,
+  .course-page h1,
+  .lesson-page h1 {
+    font-size: 22px;
+  }
+
+  .lessons-page h2,
+  .course-page h2 {
+    font-size: 18px;
+  }
+
+  /* Список курсов — одна колонка */
+  .lessons-course-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .lessons-course-description {
+    min-height: 0;
+  }
+
+  /* Карточка урока на CoursePage — в мобайле 2 строки, во второй state+count через flex */
+  .course-lesson-link {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 12px 14px;
+  }
+  .course-lesson-order {
+    min-width: 1.6em;
+    text-align: left;
+    order: 1;
+  }
+  .course-lesson-title {
+    flex: 1 1 auto;
+    font-size: 14px;
+    order: 2;
+  }
+  .course-lesson-state {
+    order: 3;
+    flex-basis: 100%;
+    margin-right: auto;
+  }
+  .course-lesson-step-count {
+    order: 4;
+    margin-left: auto;
+  }
+
+  /* Прогресс — переносим цифры под бар на узких экранах */
+  .course-progress,
+  .lesson-progress {
+    flex-wrap: wrap;
+  }
+  .course-progress-text,
+  .lesson-progress-text {
+    flex-basis: 100%;
+    text-align: right;
+  }
+
+  /* Шахматная доска в шагах — полная ширина */
+  .lesson-text-step__diagram,
+  .lesson-quiz-question__diagram {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  .lesson-step {
+    padding: 14px;
+    border-radius: 10px;
+  }
+
+  .lesson-step__header {
+    padding-right: 28px;
+  }
+
+  .lesson-step::after {
+    top: 12px;
+    right: 12px;
+    width: 12px;
+    height: 12px;
+  }
+
+  /* Кнопки — во всю ширину для тач-удобства */
+  .lesson-complete-btn,
+  .lesson-text-step__next,
+  .lesson-quiz-step__submit,
+  .lesson-quiz-step__continue,
+  .lesson-quiz-step__retry,
+  .lesson-puzzle-step__next,
+  .lesson-puzzle-step__complete {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .lesson-text-step__actions,
+  .lesson-quiz-step__actions,
+  .lesson-puzzle-step__actions {
+    flex-direction: column;
+  }
+
+  .lesson-footer {
+    align-items: stretch;
+  }
+
+  .lesson-quiz-question {
+    padding: 12px;
+  }
+}
