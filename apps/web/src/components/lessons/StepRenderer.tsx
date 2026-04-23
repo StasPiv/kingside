@@ -4,14 +4,15 @@ import type { LessonStep } from '@kingside/shared';
 import { TextStep } from './steps/TextStep';
 import { PuzzleStep } from './steps/PuzzleStep';
 import { QuizStep } from './steps/QuizStep';
+import { PositionStep } from './steps/PositionStep';
 
 /**
  * Диспетчер рендера шагов урока (L-08).
  *
  * Сужает дискриминированный union `step.payload.type` и делегирует
- * рендер конкретному компоненту. В MVP реализован `text` — остальные
- * типы (`puzzle`, `quiz`, `position`, `game_review`, `video`)
- * рендерят stub «coming soon» и появятся в L-09 / L-10 / итерациях 2-3.
+ * рендер конкретному компоненту. Реализованы `text`, `puzzle`, `quiz`,
+ * `position`. Остальные (`game_review`, `video`) рендерят stub
+ * «coming soon» и появятся в итерации 3.
  *
  * Колбэк `onStepDone` пробрасывается в child-компоненты для отметки
  * прохождения шага. Реальная привязка к `useLessonProgress` — задача
@@ -46,6 +47,10 @@ export function StepRenderer({ step, onStepDone, hideNext }: StepRendererProps) 
       );
 
     case 'position':
+      return (
+        <PositionStep payload={payload} onStepDone={onStepDone} hideNext={hideNext} />
+      );
+
     case 'game_review':
     case 'video':
       return (

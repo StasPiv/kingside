@@ -28,6 +28,16 @@ vi.mock('./steps/QuizStep', () => ({
   ),
 }));
 
+vi.mock('./steps/PositionStep', () => ({
+  PositionStep: ({ payload }: { payload: { fen?: string; expectedMoves?: string[] } }) => (
+    <div
+      data-testid="lesson-position-step-mock"
+      data-fen={payload.fen ?? ''}
+      data-expected={payload.expectedMoves?.join(',') ?? ''}
+    />
+  ),
+}));
+
 const baseStep = {
   id: 's1',
   lessonId: 'l1',
@@ -46,7 +56,6 @@ describe('<StepRenderer>', () => {
   });
 
   it.each([
-    'position',
     'game_review',
     'video',
   ] as const)(
@@ -64,6 +73,21 @@ describe('<StepRenderer>', () => {
       ).toBeInTheDocument();
     },
   );
+
+  it('делегирует position-шаг компоненту PositionStep', () => {
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'position',
+      payload: {
+        type: 'position',
+        fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        expectedMoves: ['e2e4', 'd2d4'],
+      },
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    const node = screen.getByTestId('lesson-position-step-mock');
+    expect(node).toHaveAttribute('data-expected', 'e2e4,d2d4');
+  });
 
   it('делегирует puzzle-шаг компоненту PuzzleStep', () => {
     const step: LessonStep = {
@@ -98,12 +122,12 @@ describe('<StepRenderer>', () => {
     );
   });
 
-  it('пробрасывает onStepDone в кнопку stub (position)', () => {
+  it('пробрасывает onStepDone в кнопку stub (video)', () => {
     const onStepDone = vi.fn();
     const step: LessonStep = {
       ...baseStep,
-      type: 'position',
-      payload: { type: 'position', fen: '8/8/8/8/8/8/8/8 w - - 0 1', expectedMoves: [] },
+      type: 'video',
+      payload: { type: 'video', url: 'https://example.com/video.mp4' },
     };
     renderWithProviders(
       <StepRenderer step={step} onStepDone={onStepDone} />,
