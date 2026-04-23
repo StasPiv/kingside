@@ -1194,6 +1194,7 @@
     "quizNeedMore": "Need ≥ {{percent}}% correct",
     "quizQuestionCorrect": "Correct",
     "quizQuestionWrong": "Not quite",
+    "quizMissingTranslation": "— translation pending —",
     "lessonProgress": "{{done}}/{{total}} steps ({{percent}}%)",
     "complete": "Complete lesson",
     "completing": "Saving…",

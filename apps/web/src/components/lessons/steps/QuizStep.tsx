@@ -185,7 +185,7 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
               data-correct={state.correct == null ? '' : String(state.correct)}
             >
               <p className="lesson-quiz-question__prompt">
-                {t(q.promptI18nKey, q.promptI18nKey)}
+                {resolveI18n(t, q.promptI18nKey)}
               </p>
 
               {q.fen && (
@@ -224,7 +224,7 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
                           disabled={state.phase === 'checked'}
                           onChange={() => toggleOption(qIdx, opt.id)}
                         />
-                        <span>{t(opt.labelI18nKey, opt.labelI18nKey)}</span>
+                        <span>{resolveI18n(t, opt.labelI18nKey)}</span>
                       </label>
                     </li>
                   );
@@ -256,7 +256,7 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
                   {q.explanationI18nKey && (
                     <span className="lesson-quiz-question__explanation">
                       {' — '}
-                      {t(q.explanationI18nKey, q.explanationI18nKey)}
+                      {resolveI18n(t, q.explanationI18nKey)}
                     </span>
                   )}
                 </p>
@@ -312,3 +312,28 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
 
 // Экспорт хелпера для тестов.
 export { isAnswerCorrect };
+
+/**
+ * Резолв i18n-ключа с защитой от показа сырого ключа в UI (KS-1782).
+ * Backend (L-14b) кладёт quiz prompts/options/explanations в
+ * `apps/api/src/i18n/<lng>/lessons.json`, но фронтовая версия словарей
+ * пока не подгружается оттуда (см. KS-1782 — динамическая загрузка
+ * через эндпоинт ещё не сделана). До её появления `t(key, key)` показывал
+ * пользователю сырой ключ, что блокирует прохождение quiz.
+ *
+ * Логика: пробуем перевести ключ. Если результат равен исходному ключу
+ * (i18next возвращает key при отсутствии перевода) — возвращаем
+ * читаемый плейсхолдер вместо ключа.
+ */
+function resolveI18n(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  key: string | undefined,
+): string {
+  if (!key) return '';
+  const translated = t(key);
+  if (translated === key) {
+    // i18next вернул сам ключ → перевод отсутствует.
+    return t('lessons.quizMissingTranslation', '— перевод временно недоступен —');
+  }
+  return translated;
+}

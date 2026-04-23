@@ -1194,6 +1194,7 @@
     "quizNeedMore": "Нужно ≥ {{percent}}% правильных",
     "quizQuestionCorrect": "Верно",
     "quizQuestionWrong": "Не точно",
+    "quizMissingTranslation": "— перевод временно недоступен —",
     "lessonProgress": "{{done}}/{{total}} шагов ({{percent}}%)",
     "complete": "Завершить урок",
     "completing": "Сохраняю…",
