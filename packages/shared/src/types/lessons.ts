@@ -399,3 +399,43 @@ export interface CourseRecommendationResponse {
   reason: 'rating_puzzle' | 'default';
   ratingPuzzle?: number;
 }
+
+// ─── Level gate (L-15 / KS-1770) ─────────────────────────────────────
+//
+// Критерий перехода между уровнями курсов. Источник правил —
+// ADR-024 §2.3 («Переход между уровнями»). В MVP реализован только
+// переход Beginner → Intermediate; Intermediate → Advanced — в L-26.
+
+/**
+ * Тип блокера перехода на следующий уровень:
+ *  - `course_not_completed` — не все опубликованные уроки текущего курса
+ *    пройдены (`UserLessonProgress.completedAt = null`).
+ *  - `puzzle_rating` — `user.ratingPuzzle` ниже порога.
+ *  - `games_played` — суммарно сыграно меньше требуемого числа партий
+ *    в категориях rapid + blitz + classical (см. комментарий к `required`).
+ */
+export type LevelGateBlockerKind =
+  | 'course_not_completed'
+  | 'puzzle_rating'
+  | 'games_played';
+
+export interface LevelGateBlocker {
+  kind: LevelGateBlockerKind;
+  /** Требуемое значение (для `puzzle_rating` / `games_played`). */
+  required?: number;
+  /** Текущее значение (для `puzzle_rating` / `games_played`). */
+  current?: number;
+  /** Для `course_not_completed` — сколько уроков ещё не пройдено. */
+  lessonsRemaining?: number;
+}
+
+export interface LevelGateResponse {
+  /** Текущий уровень игрока (по ratingPuzzle). */
+  currentLevel: CourseLevel;
+  /** Следующий уровень (`null` = игрок уже на advanced). */
+  nextLevel: CourseLevel | null;
+  /** Доступен ли переход на `nextLevel`. */
+  unlocked: boolean;
+  /** Список незакрытых условий, пусто если `unlocked=true`. */
+  blockers: LevelGateBlocker[];
+}
