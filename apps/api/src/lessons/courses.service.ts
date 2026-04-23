@@ -117,6 +117,7 @@ export class CoursesService {
         id: l.id,
         slug: l.slug,
         order: l.order,
+        blockKey: l.blockKey,
         kind: l.kind as LessonKind,
         titleI18nKey: l.titleKey,
         summaryI18nKey: l.summaryKey,

@@ -356,6 +356,12 @@ export interface CourseLessonSummary {
   id: string;
   slug: string;
   order: number;
+  /**
+   * Ключ блока внутри курса (`rules`, `basic-mates`, …).
+   * Соответствует `Lesson.blockKey` из БД. Фронт использует для
+   * группировки уроков по блокам на `CoursePage` (см. KS-1785/KS-1790).
+   */
+  blockKey: string;
   kind: LessonKind;
   titleI18nKey: string;
   summaryI18nKey: string;
