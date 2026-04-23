@@ -46,7 +46,7 @@
 | L-09  | PuzzleStep (обёртка `PuzzleBoard`, запись в `PuzzleAttempt`)     | frontend           | S      | L-08                  |
 | L-10  | QuizStep (мульти-выбор, локальная проверка)                      | frontend           | S      | L-08                  |
 | L-11  | `useLessonProgress` + отметка шагов + порог ≥70% «пройден»       | frontend           | S      | L-04, L-08            |
-| L-12  | Рекомендатор уровня по `ratingPuzzle` (backend-правило + UI)     | backend + frontend | S      | L-04, L-07            |
+| L-12  | Рекомендатор уровня по `ratingPuzzle` (backend-правило + UI); пороги — ADR-024 §2.3 (`<1200` / `[1200, 1800)` / `≥1800`; анонимный → beginner) | backend + frontend | S      | L-04, L-07            |
 | L-13  | Стили и адаптив страниц `/lessons/*`                             | layout             | M      | L-07..L-11            |
 | L-14  | **Контент «Начинающий»**: 6 блоков / ~30 уроков (фикстуры)       | chess-expert       | L      | L-05                  |
 | L-15  | Критерий перехода «Начинающий → Средний» (puzzle≥1200 + ≥20 партий + все уроки) — API + UI-плашка | backend + frontend | S | L-04, L-14 |

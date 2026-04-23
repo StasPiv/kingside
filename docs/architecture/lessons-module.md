@@ -91,11 +91,13 @@ UserLessonProgress
 
 Минимум на старте:
 - Пользователь явно выбирает уровень (3 кнопки) — главный путь.
-- Авто-подсказка по `user.ratingPuzzle`:
-  - < 1200 → beginner
-  - 1200–1800 → intermediate
-  - > 1800 → advanced
-- Никаких ML — жёсткие пороги, одна функция в `lessons.service.ts`.
+- Авто-подсказка по `user.ratingPuzzle` (источник истины — ADR-024 §2.3):
+  - `r < 1200` → beginner
+  - `1200 ≤ r < 1800` → intermediate
+  - `r ≥ 1800` → advanced
+  - анонимный / `ratingPuzzle` отсутствует → beginner (`reason: 'default'`)
+- Никаких ML — жёсткие пороги, одна функция (`CoursesService.recommendLevel`
+  в `apps/api/src/lessons/courses.service.ts`).
 
 ### 2.3 Контент
 
