@@ -644,8 +644,8 @@ ADHOC_TD_JSON=$(cat <<EOF
   "family": "${ADHOC_FAMILY}",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "256",
-  "memory": "512",
+  "cpu": "1024",
+  "memory": "2048",
   "executionRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskExecutionRole",
   "taskRoleArn": "arn:aws:iam::${ACCOUNT_ID}:role/ecsTaskRole",
   "containerDefinitions": [
