@@ -13,7 +13,10 @@ import { BroadcastController } from './broadcast.controller';
  * добавим после того как broadcasts_kingside БД будет доступна в CI.
  */
 describe('BroadcastController', () => {
-  function build(prismaOverrides: Record<string, unknown> = {}) {
+  function build(
+    prismaOverrides: Record<string, unknown> = {},
+    standingsSyncOverrides: Partial<{ getFresh: jest.Mock }> = {},
+  ) {
     const prisma = {
       broadcast: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -31,8 +34,23 @@ describe('BroadcastController', () => {
       $queryRaw: jest.fn().mockResolvedValue([]),
       ...prismaOverrides,
     };
-    const controller = new BroadcastController(prisma as never);
-    return { controller, prisma };
+    const standingsSync = {
+      getFresh:
+        standingsSyncOverrides.getFresh ??
+        jest.fn().mockResolvedValue({
+          tournamentType: 'unknown',
+          sourceType: 'internal-fallback',
+          sourceUrl: null,
+          fetchedAt: null,
+          players: [],
+          reason: 'default mock',
+        }),
+    };
+    const controller = new BroadcastController(
+      prisma as never,
+      standingsSync as never,
+    );
+    return { controller, prisma, standingsSync };
   }
 
   it('GET / — empty DB → { data: [], total: 0 }', async () => {
@@ -281,6 +299,69 @@ describe('BroadcastController', () => {
       expect(res.data).toHaveLength(1);
       expect(res.data[0].lifecycleStatus).toBe('finished');
       expect(res.data[0].isPinned).toBe(false);
+    });
+  });
+
+  describe('GET /:id/crosstable (KS-1734)', () => {
+    const validId = '11111111-1111-1111-1111-111111111111';
+
+    it('happy path: делегирует в standingsSync.getFresh, возвращает CrosstableResponse', async () => {
+      const fakeResp = {
+        tournamentType: 'round-robin' as const,
+        sourceType: 'chess-results' as const,
+        sourceUrl: 'https://chess-results.com/tnr1.aspx',
+        fetchedAt: '2026-04-23T12:00:00.000Z',
+        players: [
+          {
+            rank: 1,
+            name: 'Player A',
+            normalizedName: 'player a',
+            points: 5,
+            gamesPlayed: 5,
+          },
+        ],
+        matrix: [[{ result: null }]],
+      };
+      const { controller, standingsSync } = build(
+        {},
+        { getFresh: jest.fn().mockResolvedValue(fakeResp) },
+      );
+      const res = await controller.getCrosstable(validId);
+      expect(res).toEqual(fakeResp);
+      expect(standingsSync.getFresh).toHaveBeenCalledWith(validId);
+    });
+
+    it('non-UUID :id → 404 без обращения в sync (assertUuid)', async () => {
+      const { controller, standingsSync } = build();
+      await expect(controller.getCrosstable('not-a-uuid')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(standingsSync.getFresh).not.toHaveBeenCalled();
+    });
+
+    it('sync-сервис бросает "not found" → 404 (broadcast не существует)', async () => {
+      const { controller } = build(
+        {},
+        {
+          getFresh: jest
+            .fn()
+            .mockRejectedValue(new Error('broadcast bc-1 not found')),
+        },
+      );
+      await expect(controller.getCrosstable(validId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('sync-сервис бросает другую ошибку → пробрасывается как есть (500)', async () => {
+      const otherErr = new Error('database connection lost');
+      const { controller } = build(
+        {},
+        { getFresh: jest.fn().mockRejectedValue(otherErr) },
+      );
+      await expect(controller.getCrosstable(validId)).rejects.toThrow(
+        /database connection lost/,
+      );
     });
   });
 });

@@ -1,11 +1,14 @@
 import {
   Controller,
   Get,
+  Header,
   NotFoundException,
   Param,
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { BroadcastStandingsSyncService } from '../chess-results/broadcast-standings-sync.service';
+import type { CrosstableResponse } from '@kingside/shared';
 
 type LifecycleStatus = 'live' | 'upcoming' | 'finished';
 
@@ -121,7 +124,10 @@ function compareLifecycleSort(
 
 @Controller()
 export class BroadcastController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly standingsSync: BroadcastStandingsSyncService,
+  ) {}
 
   /**
    * GET / — список трансляций с lifecycle-категоризацией (KS-1700 Part B).
@@ -524,6 +530,40 @@ export class BroadcastController {
     }));
 
     return { players };
+  }
+
+  /**
+   * GET /:id/crosstable — type-aware crosstable (KS-1734, ADR-023 §2.8).
+   *
+   * Делегирует в `BroadcastStandingsSyncService.getFresh` (KS-1733):
+   * свежий кэш → отдаём моментально; устаревший → отдаём + триггерим
+   * async refresh; нет кэша → синхронный fetch+parse под Redis-lock.
+   *
+   * Cache-Control: `public, max-age=30, stale-while-revalidate=60` —
+   * фронт и CloudFront уважают, инвалидация при upsert не нужна (срок
+   * короткий).
+   *
+   * Public, без auth (как `/broadcasts/:id`).
+   *
+   * Старый `/:id/standings` остаётся на soak-период по ADR-023 §2.4 —
+   * фронт мигрирует на `/crosstable`, через 2 недели `/standings`
+   * удаляется.
+   */
+  @Get(':id/crosstable')
+  @Header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+  async getCrosstable(@Param('id') id: string): Promise<CrosstableResponse> {
+    assertUuid(id, 'Broadcast');
+    try {
+      return await this.standingsSync.getFresh(id);
+    } catch (err: unknown) {
+      // sync-service бросает только для `broadcast not found` — остальные
+      // ошибки fetcher/parser обёрнуты в legacy-fallback внутри сервиса.
+      const msg = (err as Error).message;
+      if (/not found/i.test(msg)) {
+        throw new NotFoundException(`Broadcast ${id} not found`);
+      }
+      throw err;
+    }
   }
 
   /** GET /:id/rounds — туры трансляции. */
