@@ -47,7 +47,7 @@ import type Redis from 'ioredis';
 import type { PrismaClient } from '@kingside/archive-db';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
-import { ImporterModule } from '../importer.module';
+import { AdHocCliModule } from './ad-hoc-cli.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { ArchivePositionWriterService } from '../archive-import/archive-position-writer.service';
@@ -266,7 +266,10 @@ async function main(): Promise<void> {
     return;
   }
 
-  const app = await NestFactory.createApplicationContext(ImporterModule, {
+  // KS-1722: bootstrap через `AdHocCliModule` — без `ScheduleModule` и без
+  // `ArchiveImportService.onModuleInit`-immediate tick'а. См. KS-1720 для
+  // первичного фикса этой ловушки.
+  const app = await NestFactory.createApplicationContext(AdHocCliModule, {
     bufferLogs: false,
   });
   const logger = new Logger('cli:backfill-twic');

@@ -1,18 +1,24 @@
 /**
  * CLI shim: `node dist/cli/backfill.js` (ADR-019 §2.1).
  *
- * Поднимает `ImporterModule` через `createApplicationContext` (без HTTP
+ * Поднимает `AdHocCliModule` через `createApplicationContext` (без HTTP
  * listener'а), достаёт `PrismaService` и `ArchivePositionWriterService`
  * из DI и вызывает `backfillLoop`.
  *
  * Логика backfill'а — в `apps/archive-service/src/archive-import/backfill.ts`
  * (единый источник правды, тестируется отдельно от DI).
+ *
+ * KS-1722: переключено с `ImporterModule` на `AdHocCliModule`. Раньше
+ * `ImporterModule` тянул `ArchiveImportService` с `OnModuleInit`-immediate
+ * tick'ом scheduler'а — при бутстрапе CLI он мог захватить Redis-lock
+ * `archive:import:lock:twic` и заблокировать сам CLI или конфликтнуть с
+ * его логикой (см. KS-1720).
  */
 
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
-import { ImporterModule } from '../importer.module';
+import { AdHocCliModule } from './ad-hoc-cli.module';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArchivePositionWriterService } from '../archive-import/archive-position-writer.service';
 import {
@@ -28,7 +34,7 @@ async function main(): Promise<void> {
   const logger = new Logger('cli:backfill');
   const options = parseArgs(process.argv.slice(2));
 
-  const app = await NestFactory.createApplicationContext(ImporterModule, {
+  const app = await NestFactory.createApplicationContext(AdHocCliModule, {
     bufferLogs: false,
   });
   try {
