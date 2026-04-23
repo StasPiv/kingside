@@ -1,0 +1,125 @@
+generator client {
+  provider      = "prisma-client"
+  output        = "../src/generated/prisma"
+  binaryTargets = ["native", "debian-openssl-1.1.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("BROADCASTS_DATABASE_URL")
+}
+
+/// Lichess broadcast (турнир/событие). Источник данных — Lichess broadcasts API.
+/// По ADR-021 §2.1 FK на users отсутствует: broadcasts — публичные read-only
+/// ресурсы, auth не требуется. Writer (apps/broadcast-worker) upsert'ит записи
+/// по `lichess_id`, broadcast-service читает их без модификаций.
+model Broadcast {
+  id            String   @id @default(uuid()) @db.Uuid
+  lichessId     String   @unique @map("lichess_id")
+  title         String
+  description   String?
+  url           String?
+  isActive      Boolean  @default(true) @map("is_active")
+  format        String?
+  timeControl   String?  @map("time_control")
+  location      String?
+  players       String?
+  website       String?
+  standingsUrl  String?  @map("standings_url")
+  imageUrl      String?  @map("image_url")
+  startDate     DateTime? @map("start_date")
+  endDate       DateTime? @map("end_date")
+  streams       Json?
+  /// chess-results.com tournament-id (KS-1725, ADR-023 §2.2.2). Извлекается
+  /// из `standingsUrl` regex'ом `/tnr(\d+)\.aspx/` при upsert'е broadcast'а.
+  /// String?, не Int — внешняя система, формат может меняться.
+  chessResultsTournamentId String? @map("chess_results_tournament_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  rounds    BroadcastRound[]
+  standings BroadcastStandings?
+
+  @@index([isActive])
+  @@map("broadcasts")
+}
+
+/// Тур трансляции (раунд). Статусы pending/ongoing/finished/cancelled
+/// пишутся воркером по данным Lichess.
+model BroadcastRound {
+  id             String    @id @default(uuid()) @db.Uuid
+  broadcastId    String    @map("broadcast_id") @db.Uuid
+  lichessRoundId String    @unique @map("lichess_round_id")
+  name           String
+  startsAt       DateTime? @map("starts_at")
+  status         String    @default("pending")
+
+  broadcast Broadcast       @relation(fields: [broadcastId], references: [id])
+  games     BroadcastGame[]
+
+  @@index([broadcastId])
+  @@map("broadcast_rounds")
+}
+
+/// Партия в туре. PGN апдейтится инкрементно по SSE-стриму /stream/broadcast/round/:id.pgn
+/// либо по polling'у Lichess API (для pinned-трансляций).
+model BroadcastGame {
+  id            String    @id @default(uuid()) @db.Uuid
+  roundId       String    @map("round_id") @db.Uuid
+  lichessGameId String?   @map("lichess_game_id")
+  whitePlayer   String?   @map("white_player")
+  blackPlayer   String?   @map("black_player")
+  whiteElo      Int?      @map("white_elo")
+  blackElo      Int?      @map("black_elo")
+  result        String?
+  pgn           String?   @db.Text
+  currentFen    String?   @map("current_fen")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  round BroadcastRound @relation(fields: [roundId], references: [id])
+
+  @@index([roundId])
+  @@map("broadcast_games")
+}
+
+/// Кэш распарсенных standings с chess-results.com для одной трансляции
+/// (KS-1725, ADR-023 §2.3). Один-к-одному с `Broadcast`. JSON-payload
+/// типа-specific: для round-robin — `rawCrossTable` (N×N матрица), для
+/// swiss — `rawPairings` (per-round pairings), для team-* — `rawTeams` +
+/// player-block в `rawPlayers`. `rawPlayers` всегда заполнен.
+///
+/// Писатель — `ChessResultsCrosstableService` (broadcast-service, ADR-023
+/// §2.9.1). Upsert по `broadcastId`. Чтение через
+/// `GET /broadcasts/:id/crosstable`.
+///
+/// `tournamentType` — String, не Prisma enum: при расширении списка в v1.1
+/// (knockout/match/scheveningen) Prisma enum требует отдельной миграции
+/// (ADR-023 §2.3 «`tournamentType` как String, не enum Prisma»). Валидация
+/// выполняется Zod-ом в коде (5 значений в v1: swiss/round-robin/
+/// team-swiss/team-round-robin/unknown).
+///
+/// `staleAt` — момент, после которого запись считается просроченной и
+/// требует фонового refresh (TTL зависит от lifecycle broadcast'а: live=5
+/// мин, upcoming=1ч, finished=24ч; вычисляется на стороне сервиса). Индекс
+/// по `staleAt` — для будущего background-refresh job'а (ADR-023 §2.8).
+model BroadcastStandings {
+  id                       String   @id @default(uuid()) @db.Uuid
+  broadcastId              String   @unique @map("broadcast_id") @db.Uuid
+  sourceType               String   @map("source_type")
+  sourceUrl                String?  @map("source_url")
+  tournamentType           String   @map("tournament_type")
+  rawPlayers               Json     @map("raw_players")
+  rawCrossTable            Json?    @map("raw_cross_table")
+  rawPairings              Json?    @map("raw_pairings")
+  rawTeams                 Json?    @map("raw_teams")
+  fetchedAt                DateTime @map("fetched_at")
+  staleAt                  DateTime @map("stale_at")
+  fetchError               String?  @map("fetch_error")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  broadcast Broadcast @relation(fields: [broadcastId], references: [id])
+
+  @@index([staleAt])
+  @@map("broadcast_standings")
+}
