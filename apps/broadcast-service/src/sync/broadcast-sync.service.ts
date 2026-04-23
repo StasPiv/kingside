@@ -15,6 +15,7 @@ import {
   BROADCAST_SYNC_CHANNEL,
 } from './broadcast-channels';
 import { runStaleCheck } from './stale-check';
+import { extractChessResultsTournamentId } from './extract-chess-results-id';
 
 /**
  * Sync-сервис Lichess broadcasts (ADR-022 §2.6 шаг 0).
@@ -77,6 +78,14 @@ interface LichessBroadcast {
       website?: string;
       standings?: string;
     };
+    /**
+     * KS-1735 / ADR-023 §2.3. Lichess отдаёт булевы флаги команды на
+     * корне `tour`. Нужны `detectTournamentType` для надёжной классификации
+     * командных турниров (без них fallback через regex /team/i по `format`,
+     * пропускает кейсы вроде "Match Bundesliga 2024").
+     */
+    teamTable?: boolean;
+    showTeamScores?: boolean;
   };
   rounds: LichessRound[];
 }
@@ -615,6 +624,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
   private async upsertBroadcast(bc: LichessBroadcast): Promise<void> {
     const info = bc.tour.info;
     const dates = bc.tour.dates;
+    const standingsUrl = info?.standings ?? null;
+    // KS-1735 / ADR-023 §2.2.2. Извлекаем chess-results tournament-id из
+    // standings_url (если URL ведёт на chess-results). Метрика
+    // `crosstable_coverage_total{status}` обновляется на каждой
+    // upsertBroadcast — даёт сигнал «достаточно ли > 50% top-20 покрыто
+    // chess-results, чтобы фича оправдывала запуск».
+    const extracted = extractChessResultsTournamentId(standingsUrl);
+    this.metrics.recordCrosstableCoverage(extracted.status, extracted.host);
+    if (extracted.status === 'unsupported' && extracted.host) {
+      this.logger.log(
+        `[broadcast-sync] standings_url unsupported: host=${extracted.host} ` +
+          `(broadcast=${bc.tour.id}). Crosstable будет fallback на legacy.`,
+      );
+    }
+
     const fields = {
       title: bc.tour.name,
       description: bc.tour.description ?? null,
@@ -625,10 +649,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       location: info?.location ?? null,
       players: info?.players ?? null,
       website: info?.website ?? null,
-      standingsUrl: info?.standings ?? null,
+      standingsUrl,
       imageUrl: bc.tour.image ?? null,
       startDate: dates?.[0] ? new Date(dates[0]) : null,
       endDate: dates?.[1] ? new Date(dates[1]) : null,
+      // KS-1735 — поля для crosstable-фичи (ADR-023 §2.3).
+      chessResultsTournamentId: extracted.tournamentId,
+      teamTable: bc.tour.teamTable ?? false,
+      showTeamScores: bc.tour.showTeamScores ?? false,
     };
     const startTs = Date.now();
     await this.prisma.broadcast.upsert({

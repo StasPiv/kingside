@@ -34,6 +34,14 @@ model Broadcast {
   /// из `standingsUrl` regex'ом `/tnr(\d+)\.aspx/` при upsert'е broadcast'а.
   /// String?, не Int — внешняя система, формат может меняться.
   chessResultsTournamentId String? @map("chess_results_tournament_id")
+  /// `tour.teamTable` от Lichess (KS-1735, ADR-023 §2.3). Нужен `detectTournamentType`
+  /// (apps/broadcast-service/src/crosstable/) для надёжной классификации
+  /// командных турниров — без флага fallback идёт по regex'у /team/i в `format`,
+  /// что промахивается на форматах вроде "Match Bundesliga 2024".
+  teamTable      Boolean @default(false) @map("team_table")
+  /// `tour.showTeamScores` от Lichess (KS-1735, ADR-023 §2.3). Влияет на
+  /// рендер team-турниров на фронте (показывать ли team-score-колонки).
+  showTeamScores Boolean @default(false) @map("show_team_scores")
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
 

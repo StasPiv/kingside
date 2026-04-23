@@ -22,6 +22,18 @@ export class SyncMetricsService {
   readonly broadcastSyncCyclesTotal: Counter<'kind' | 'result'>;
   readonly broadcastSyncDurationSeconds: Histogram<'kind'>;
   readonly broadcastSyncFailuresTotal: Counter<'kind' | 'reason'>;
+  /**
+   * KS-1735 / ADR-023 §5.4. Покрытие chess-results URL'ами на каждой
+   * `upsertBroadcast`-операции. Дешёвый сигнал «достаточно ли > 50% top-20
+   * broadcasts имеют chess-results URL, чтобы фича оправдывала запуск».
+   */
+  readonly crosstableCoverageTotal: Counter<'status'>;
+  /**
+   * KS-1735 / ADR-023 §5.4. Hostname'ы сторонних standings-источников —
+   * диагностика «какие популярные сайты закрывают остальной 50%, кандидаты
+   * для будущих парсеров».
+   */
+  readonly crosstableUnsupportedSourceTotal: Counter<'host'>;
 
   constructor(metrics: MetricsService) {
     this.broadcastSyncCyclesTotal = new Counter({
@@ -45,6 +57,24 @@ export class SyncMetricsService {
       labelNames: ['kind', 'reason'] as const,
       registers: [metrics.registry],
     });
+
+    this.crosstableCoverageTotal = new Counter({
+      name: 'crosstable_coverage_total',
+      help: 'Покрытие broadcast.standings_url chess-results-источником. ' +
+        'matched=URL ведёт на chess-results.com (id извлечён); ' +
+        'unsupported=URL есть, но другой домен; missing=URL пустой.',
+      labelNames: ['status'] as const,
+      registers: [metrics.registry],
+    });
+
+    this.crosstableUnsupportedSourceTotal = new Counter({
+      name: 'crosstable_unsupported_source_total',
+      help: 'Hostname сторонних standings-источников (для диагностики ' +
+        'каких сайтов парсеры писать дальше). Кардинальность ограничена ' +
+        'нормализацией: lower-case, www-префикс снят.',
+      labelNames: ['host'] as const,
+      registers: [metrics.registry],
+    });
   }
 
   recordCycle(kind: 'full' | 'pinned', result: 'ok' | 'err' | 'skipped'): void {
@@ -57,5 +87,20 @@ export class SyncMetricsService {
 
   recordFailure(kind: 'full' | 'pinned', reason: string): void {
     this.broadcastSyncFailuresTotal.inc({ kind, reason });
+  }
+
+  /**
+   * Регистрирует одну `upsertBroadcast`-операцию в coverage-метрику.
+   * `host` опционален — публикуется только для `unsupported` (см.
+   * `crosstableUnsupportedSourceTotal`).
+   */
+  recordCrosstableCoverage(
+    status: 'matched' | 'unsupported' | 'missing',
+    host: string | null,
+  ): void {
+    this.crosstableCoverageTotal.inc({ status });
+    if (status === 'unsupported' && host) {
+      this.crosstableUnsupportedSourceTotal.inc({ host });
+    }
   }
 }
