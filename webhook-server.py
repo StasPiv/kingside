@@ -11,13 +11,10 @@ import time
 import threading
 import urllib.request
 import urllib.parse
-import redis
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 from datetime import datetime
 
-# Redis для персистентных очередей агентов
-_REDIS = redis.Redis(host="localhost", port=6381, db=0, decode_responses=True)
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 AGENT_PROJECT_DIR = "/opt/kingside"
@@ -201,12 +198,6 @@ class AgentDaemon:
         self.session_id: str | None = None
         self.lock = threading.Lock()
         self._reader_thread: threading.Thread | None = None
-        # Событие: агент закончил обработку текущего сообщения
-        self._idle = threading.Event()
-        self._idle.set()
-        # Redis ключ для FIFO-очереди сообщений (переживает рестарт webhook)
-        self._queue_key = f"agent:queue:{name}"
-        self._worker_thread: threading.Thread | None = None
         # Статистика сессии
         self._total_cost: float = 0.0
         self._message_count: int = 0
@@ -266,7 +257,6 @@ class AgentDaemon:
                 start_new_session=True, text=True, bufsize=1,
             )
 
-        self._idle.set()
         self._total_cost = 0.0
         self._message_count = 0
         log(f"Daemon {self.name} запущен (PID: {self.proc.pid})")
@@ -276,13 +266,6 @@ class AgentDaemon:
             target=self._read_stdout, daemon=True,
         )
         self._reader_thread.start()
-
-        # Worker-поток для последовательной отправки сообщений
-        if not self._worker_thread or not self._worker_thread.is_alive():
-            self._worker_thread = threading.Thread(
-                target=self._worker_loop, daemon=True,
-            )
-            self._worker_thread.start()
 
     def _read_stdout(self):
         """Читает stdout daemon-процесса, логирует и ловит session_id / result."""
@@ -344,7 +327,6 @@ class AgentDaemon:
                     self._current_reply_channel = None
                     self._current_replied = False
 
-                    self._idle.set()
                     _set_idle(self.name)
 
                     if expected and not replied:
@@ -371,46 +353,6 @@ class AgentDaemon:
                 proc.stdout.close()
             log(f"Daemon {self.name}: stdout reader завершён")
 
-    def _worker_loop(self):
-        """Последовательно отправляет сообщения из Redis-очереди."""
-        while True:
-            # Блокирующий pop справа (FIFO: LPUSH слева, BRPOP справа)
-            try:
-                result = _REDIS.brpop(self._queue_key, timeout=0)
-            except redis.RedisError as e:
-                log(f"Daemon {self.name}: Redis error: {e}, retry in 5s")
-                time.sleep(5)
-                continue
-            if not result:
-                continue
-            _, raw = result
-
-            # Распаковываем envelope: {stream, sender, reply_channel}.
-            # Поддержка старого формата (сам stream-json) для бэкомпат.
-            sender = ""
-            reply_channel: str | None = None
-            stream_msg = raw
-            try:
-                env = json.loads(raw)
-                if isinstance(env, dict) and "stream" in env:
-                    stream_msg = env["stream"]
-                    sender = env.get("sender") or ""
-                    reply_channel = env.get("reply_channel")
-            except Exception:
-                pass
-
-            # Ждём пока агент освободится
-            self._idle.wait(timeout=600)
-
-            # Устанавливаем состояние ожидаемого ответа ДО отправки в stdin:
-            # reader должен видеть правильный reply_channel, когда придут tool_use.
-            self._current_sender = sender
-            self._current_reply_channel = reply_channel
-            self._current_replied = False
-
-            # Отправляем сообщение
-            self._send_raw(stream_msg)
-
     def _send_raw(self, message_json: str):
         """Отправляет JSON-строку в stdin процесса."""
         self.ensure_running()
@@ -422,14 +364,12 @@ class AgentDaemon:
             with self.lock:
                 proc = self.proc
 
-        self._idle.clear()
         _set_busy(self.name)
         try:
             proc.stdin.write(message_json + "\n")
             proc.stdin.flush()
         except (BrokenPipeError, OSError) as e:
             log(f"Daemon {self.name}: ошибка записи в stdin: {e}, перезапуск")
-            self._idle.set()
             _set_idle(self.name)
             with self.lock:
                 self.proc = None
@@ -437,37 +377,42 @@ class AgentDaemon:
             # Повторная попытка
             with self.lock:
                 proc = self.proc
-            self._idle.clear()
             _set_busy(self.name)
             try:
                 proc.stdin.write(message_json + "\n")
                 proc.stdin.flush()
             except Exception as e2:
                 log(f"Daemon {self.name}: повторная ошибка записи: {e2}")
-                self._idle.set()
                 _set_idle(self.name)
 
     def send_message(self, text: str, sender: str = "", reply_channel: str | None = None):
-        """Ставит сообщение в Redis-очередь агента (LPUSH слева, BRPOP справа = FIFO).
+        """Отправляет сообщение агенту СРАЗУ, прерывая текущий turn.
+
+        Очереди нет: перед новым сообщением вызывается interrupt() — SDK прерывает
+        текущий API-запрос / tool_use и начинает обработку нового user-message.
 
         sender          — ключ отправителя ("agent:<name>", "telegram", "web", "system", "").
-        reply_channel   — если не None, worker проверит на event=result что агент вызвал
+        reply_channel   — если не None, reader проверит на event=result что агент вызвал
                           соответствующий tool-call ("agent:<name>" → agent_message.to=<name>,
                           "telegram" → telegram_send) и, если не вызвал, пришлёт корректирующее
                           сообщение.
         """
+        self.ensure_running()
+        if self.is_alive():
+            self.interrupt()
+
+        # Устанавливаем состояние ожидаемого ответа ДО отправки в stdin:
+        # reader должен видеть правильный reply_channel, когда придут tool_use.
+        self._current_sender = sender
+        self._current_reply_channel = reply_channel
+        self._current_replied = False
+
         stream = json.dumps({
             "type": "user",
             "message": {"role": "user", "content": text},
         })
-        envelope = json.dumps({
-            "stream": stream,
-            "sender": sender,
-            "reply_channel": reply_channel,
-        })
-        _REDIS.lpush(self._queue_key, envelope)
-        size = _REDIS.llen(self._queue_key)
-        log(f"Daemon {self.name}: сообщение в очереди (размер: {size}, sender={sender or '-'}, reply={reply_channel or '-'})")
+        self._send_raw(stream)
+        log(f"Daemon {self.name}: сообщение отправлено (sender={sender or '-'}, reply={reply_channel or '-'})")
 
     def get_rss_mb(self) -> float | None:
         """Возвращает RSS памяти контейнера в MB, или None."""
@@ -687,25 +632,15 @@ def handle_agent_message(handler, payload):
     sender_tag = f"agent:{sender}" if sender else ""
     reply_channel = f"agent:{sender}" if (sender and reply_required) else None
 
-    # Прерываем текущий turn target-агента, если он занят — новое сообщение
-    # имеет приоритет над продолжением того, что он делает. Если daemon не
-    # запущен или уже idle — interrupt() no-op.
-    interrupted = False
-    with agent_daemons_lock:
-        target_daemon = agent_daemons.get(target)
-    if target_daemon and target_daemon.is_alive():
-        interrupted = target_daemon.interrupt()
-
+    # send_to_agent → send_message делает interrupt + stdin.write синхронно.
     send_to_agent(target, f"{prefix}{message}", sender=sender_tag, reply_channel=reply_channel)
-    queue_size = _REDIS.llen(f"agent:queue:{target}")
-    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars, queue={queue_size}, reply_required={reply_required}, interrupted={interrupted})")
+    log(f"Agent message: {sender or '?'} -> {target} ({len(message)} chars, reply_required={reply_required})")
 
     handler.send_response(200)
     handler.end_headers()
     handler.wfile.write(json.dumps({
-        "status": "queued",
+        "status": "sent",
         "to": target,
-        "queue_size": queue_size,
         "reply_required": reply_required,
     }).encode())
 
@@ -2214,19 +2149,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": f"unknown agent: {agent}"}).encode())
                 return
-            interrupt_flag = bool(payload.get("interrupt"))
-            interrupted = False
-            if interrupt_flag:
-                with agent_daemons_lock:
-                    daemon = agent_daemons.get(agent)
-                if daemon and daemon.is_alive():
-                    interrupted = daemon.interrupt()
-            _log_user_prompt(agent, text, source="web" + (" (interrupt)" if interrupted else ""))
+            _log_user_prompt(agent, text, source="web")
             send_to_agent(agent, f"[Web] {text}\n\nОтветь текстовым сообщением. НЕ отправляй ответ в Telegram — ответ виден в веб-интерфейсе.")
-            log(f"Web prompt -> {agent}: {text[:80]}{' (after interrupt)' if interrupted else ''}")
+            log(f"Web prompt -> {agent}: {text[:80]}")
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "sent", "agent": agent, "interrupted": interrupted}).encode())
+            self.wfile.write(json.dumps({"status": "sent", "agent": agent}).encode())
             return
 
         if path == "/agent/message":
@@ -2968,7 +2896,6 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         "alive": daemon.is_alive(),
                         "pid": daemon.proc.pid if daemon.proc else None,
                         "session_id": daemon.session_id,
-                        "queue_size": _REDIS.llen(daemon._queue_key),
                         "total_cost_usd": round(daemon._total_cost, 4),
                         "message_count": daemon._message_count,
                         "rss_mb": daemon.get_rss_mb(),
