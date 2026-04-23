@@ -1238,6 +1238,130 @@
       "position": "Position",
       "game_review": "Game review",
       "video": "Video"
+    },
+    "beginner": {
+      "title": "Beginner",
+      "description": "Foundation course for those just learning chess: piece moves, basic tactics, simple endgames.",
+      "board-coordinates": {
+        "title": "The board and coordinates",
+        "summary": "Files, ranks, and how to read square names."
+      },
+      "pawn-moves": {
+        "title": "Pawn moves",
+        "summary": "How pawns move, capture and use the en-passant rule."
+      },
+      "knight-moves": {
+        "title": "Knight moves",
+        "summary": "The L-shaped jump and how knights navigate the board."
+      },
+      "bishop-moves": {
+        "title": "Bishop moves",
+        "summary": "Diagonals and the difference between light- and dark-squared bishops."
+      },
+      "rook-moves": {
+        "title": "Rook moves",
+        "summary": "Files and ranks: where rooks belong."
+      },
+      "queen-moves": {
+        "title": "Queen moves",
+        "summary": "The most powerful piece — straight lines and diagonals."
+      },
+      "king-and-castling": {
+        "title": "The king and castling",
+        "summary": "King moves and the rules of short and long castling."
+      },
+      "check-mate-draw": {
+        "title": "Check, mate and draw",
+        "summary": "Game-ending conditions: checkmate, stalemate and draws."
+      },
+      "fork": {
+        "title": "Fork",
+        "summary": "Attacking two pieces at once with a single move."
+      },
+      "pin": {
+        "title": "Pin",
+        "summary": "Tying down a piece in front of a more valuable target."
+      },
+      "double-attack": {
+        "title": "Double attack",
+        "summary": "Hitting two targets in one move."
+      },
+      "discovered-attack": {
+        "title": "Discovered attack",
+        "summary": "Moving a piece to reveal an attack from another piece behind it."
+      },
+      "discovered-check": {
+        "title": "Discovered check",
+        "summary": "Special case of a discovered attack — the revealed piece gives check."
+      },
+      "mate-in-one-two": {
+        "title": "Mate in one and two",
+        "summary": "Spotting the forcing sequences that end the game."
+      },
+      "piece-values": {
+        "title": "Piece values",
+        "summary": "Conventional point counts and how to use them when deciding trades."
+      },
+      "exchanges": {
+        "title": "Exchanges",
+        "summary": "When to trade and when to keep the tension."
+      },
+      "hanging-pieces": {
+        "title": "Hanging pieces",
+        "summary": "How to spot undefended pieces — yours and your opponent's."
+      },
+      "opening-principles": {
+        "title": "Opening principles",
+        "summary": "Develop pieces, control the center, castle early, connect the rooks."
+      },
+      "center-control": {
+        "title": "Control of the center",
+        "summary": "Why central squares matter and how to fight for them."
+      },
+      "piece-development": {
+        "title": "Piece development",
+        "summary": "Bringing minor pieces out efficiently in the opening."
+      },
+      "castling-when": {
+        "title": "When to castle",
+        "summary": "Choosing the side and the right moment to castle."
+      },
+      "opening-mistakes": {
+        "title": "Common opening mistakes",
+        "summary": "Typical pitfalls beginners face in the first ten moves."
+      },
+      "king-pawn-vs-king": {
+        "title": "King and pawn vs king",
+        "summary": "The basic pawn endgame: opposition and the rule of the square."
+      },
+      "pawn-promotion": {
+        "title": "Pawn promotion",
+        "summary": "Turning a pawn into a queen — and when underpromotion makes sense."
+      },
+      "active-king-endgame": {
+        "title": "Active king in the endgame",
+        "summary": "The king becomes a fighting piece once queens come off."
+      },
+      "stalemate-tricks": {
+        "title": "Stalemate tricks",
+        "summary": "Saving lost positions by forcing stalemate."
+      },
+      "mate-queen-king": {
+        "title": "Mate with queen and king",
+        "summary": "Driving the lone king to the edge with the queen."
+      },
+      "mate-rook-king": {
+        "title": "Mate with rook and king",
+        "summary": "The basic rook + king vs king mating technique."
+      },
+      "mate-two-rooks": {
+        "title": "Mate with two rooks",
+        "summary": "The 'ladder' mate using two rooks."
+      },
+      "mate-patterns-recognition": {
+        "title": "Recognising mating patterns",
+        "summary": "Common back-rank, smothered and corridor mate motifs."
+      }
     }
   }
 }
