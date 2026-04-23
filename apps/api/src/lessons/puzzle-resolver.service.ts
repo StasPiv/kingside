@@ -18,7 +18,11 @@ export class LessonPuzzleResolverService {
 
   async resolve(
     payload: PuzzleStepPayload,
-    options: { excludeIds?: string[]; source?: string } = {},
+    options: {
+      excludeIds?: string[];
+      source?: string;
+      orderBy?: 'random' | 'rating' | 'popularity';
+    } = {},
   ) {
     if (payload.selection.mode === 'ids') {
       return this.resolveIds(payload.selection.puzzleIds);
@@ -32,6 +36,10 @@ export class LessonPuzzleResolverService {
       // Для курируемых наборов Lichess — стабильные puzzleId.
       source: options.source ?? 'lichess',
       excludeIds: options.excludeIds,
+      // KS-1776: дефолт `random`, иначе все пользователи получают
+      // одинаковый срез «первых N по возрастанию рейтинга».
+      // Детерминированность в рамках прохождения — в L-09/L-11 через stepsState.
+      orderBy: options.orderBy ?? 'random',
     });
   }
 

@@ -167,6 +167,67 @@ describe('PuzzleService', () => {
         }),
       );
     });
+
+    // ── KS-1776: orderBy variants ─────────────────────────────────
+
+    it("KS-1776: default orderBy is { rating: 'asc' } (backward-compat)", async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ themes: ['fork'] });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { rating: 'asc' } }),
+      );
+    });
+
+    it("KS-1776: orderBy='popularity' uses prisma findMany with { popularity: 'desc' }", async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ themes: ['fork'], orderBy: 'popularity' });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { popularity: 'desc' } }),
+      );
+    });
+
+    it("KS-1776: orderBy='random' uses raw SQL with ORDER BY random()", async () => {
+      prisma.$queryRawUnsafe.mockResolvedValue([
+        { id: 'p1', fen: 'f', moves: 'e2e4', rating: 1200, themes: 'fork', source: 'lichess', game_url: null, opening_tags: null },
+      ]);
+
+      const res = await service.findPuzzles({
+        themes: ['fork'],
+        ratingMin: 1000,
+        ratingMax: 1500,
+        source: 'lichess',
+        limit: 5,
+        orderBy: 'random',
+      });
+
+      expect(prisma.puzzle.findMany).not.toHaveBeenCalled();
+      expect(prisma.$queryRawUnsafe).toHaveBeenCalled();
+      const [sql, ...sqlParams] = prisma.$queryRawUnsafe.mock.calls[0];
+      expect(sql).toContain('ORDER BY random()');
+      expect(sql).toContain('LIMIT 5');
+      // параметры (rating min, rating max, source, theme)
+      expect(sqlParams).toEqual(expect.arrayContaining([1000, 1500, 'lichess', '%fork%']));
+      expect(res).toHaveLength(1);
+      expect(res[0].id).toBe('p1');
+    });
+
+    it("KS-1776: orderBy='random' propagates excludeIds as NOT IN", async () => {
+      prisma.$queryRawUnsafe.mockResolvedValue([]);
+
+      await service.findPuzzles({
+        themes: ['pin'],
+        excludeIds: ['a', 'b', 'c'],
+        orderBy: 'random',
+      });
+
+      const [sql, ...sqlParams] = prisma.$queryRawUnsafe.mock.calls[0];
+      expect(sql).toMatch(/NOT IN \(\$\d+, \$\d+, \$\d+\)/);
+      expect(sqlParams).toEqual(expect.arrayContaining(['a', 'b', 'c']));
+    });
   });
 
   describe('getNextPuzzleByTheme', () => {

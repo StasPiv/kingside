@@ -103,6 +103,12 @@ export class PuzzleService {
    * курируемым источником (обычно `'lichess'` — см. lessons-roadmap.md §5
    * «Стабильность puzzleId») и не повторять уже выбранные задачи в рамках
    * одного урока.
+   *
+   * Ревизия KS-1776: добавлен `orderBy: 'random' | 'rating' | 'popularity'`
+   * (default `'rating'`, обратная совместимость сохранена). `'random'` —
+   * через `ORDER BY random()` в raw SQL: без этого все ученики получают
+   * одинаковый срез «первых N по рейтингу», что плохо для курируемых
+   * наборов в уроках.
    */
   async findPuzzles(params: {
     themes?: string[];
@@ -111,9 +117,22 @@ export class PuzzleService {
     limit?: number;
     source?: string;
     excludeIds?: string[];
+    orderBy?: 'random' | 'rating' | 'popularity';
   }) {
-    const { themes, ratingMin, ratingMax, limit, source, excludeIds } = params;
+    const { themes, ratingMin, ratingMax, limit, source, excludeIds, orderBy } = params;
     const take = limit ?? 10;
+    const order = orderBy ?? 'rating';
+
+    if (order === 'random') {
+      return this.findPuzzlesRandom({
+        themes,
+        ratingMin,
+        ratingMax,
+        source,
+        excludeIds,
+        take,
+      });
+    }
 
     const where: Record<string, any> = {};
 
@@ -137,13 +156,71 @@ export class PuzzleService {
       where.id = { notIn: excludeIds };
     }
 
+    const prismaOrder =
+      order === 'popularity'
+        ? { popularity: 'desc' as const }
+        : { rating: 'asc' as const };
+
     const puzzles = await this.prisma.puzzle.findMany({
       where,
       take,
-      orderBy: { rating: 'asc' },
+      orderBy: prismaOrder,
     });
 
     return puzzles.map((p) => this.formatPuzzle(p));
+  }
+
+  /**
+   * `findPuzzles` с `orderBy='random'` — через raw SQL `ORDER BY random()`.
+   * Prisma не поддерживает random-ordering нативно, поэтому строим WHERE
+   * динамически (по аналогии с `getNextPuzzle`).
+   */
+  private async findPuzzlesRandom(params: {
+    themes?: string[];
+    ratingMin?: number;
+    ratingMax?: number;
+    source?: string;
+    excludeIds?: string[];
+    take: number;
+  }) {
+    const { themes, ratingMin, ratingMax, source, excludeIds, take } = params;
+    const conditions: string[] = [];
+    const paramsList: (string | number)[] = [];
+    let idx = 1;
+
+    if (ratingMin !== undefined) {
+      conditions.push(`p.rating >= $${idx++}`);
+      paramsList.push(ratingMin);
+    }
+    if (ratingMax !== undefined) {
+      conditions.push(`p.rating <= $${idx++}`);
+      paramsList.push(ratingMax);
+    }
+    if (source !== undefined) {
+      conditions.push(`p.source = $${idx++}`);
+      paramsList.push(source);
+    }
+    if (themes && themes.length > 0) {
+      for (const theme of themes) {
+        conditions.push(`p.themes LIKE $${idx++}`);
+        paramsList.push(`%${theme}%`);
+      }
+    }
+    if (excludeIds && excludeIds.length > 0) {
+      const placeholders = excludeIds.map(() => `$${idx++}`).join(', ');
+      conditions.push(`p.id NOT IN (${placeholders})`);
+      paramsList.push(...excludeIds);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `SELECT * FROM puzzles p ${whereClause} ORDER BY random() LIMIT ${Number(take)}`;
+
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
+      id: string; fen: string; moves: string; rating: number; themes: string;
+      source: string; game_url: string | null; opening_tags: string | null;
+    }>>(sql, ...paramsList);
+
+    return rows.map((p) => this.formatRawPuzzle(p));
   }
 
   /**

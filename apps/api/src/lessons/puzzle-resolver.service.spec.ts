@@ -43,7 +43,7 @@ describe('LessonPuzzleResolverService', () => {
   });
 
   describe("mode='filter'", () => {
-    it('вызывает findPuzzles с темами, рейтингом и limit', async () => {
+    it('вызывает findPuzzles с темами, рейтингом, limit и random-ordering по умолчанию', async () => {
       puzzleService.findPuzzles.mockResolvedValue([{ id: 'p1' } as any]);
       const payload: PuzzleStepPayload = {
         type: 'puzzle',
@@ -64,23 +64,29 @@ describe('LessonPuzzleResolverService', () => {
           ratingMax: 1500,
           limit: 5,
           source: 'lichess', // default для курируемых наборов
+          orderBy: 'random', // KS-1776: дефолт, чтобы разные ученики получали разные срезы
         }),
       );
     });
 
-    it('прокидывает excludeIds и позволяет переопределить source', async () => {
+    it('прокидывает excludeIds и позволяет переопределить source/orderBy', async () => {
       puzzleService.findPuzzles.mockResolvedValue([]);
       const payload: PuzzleStepPayload = {
         type: 'puzzle',
         selection: { mode: 'filter', themes: ['mate'], limit: 3 },
       };
-      await resolver.resolve(payload, { excludeIds: ['x', 'y'], source: 'generated' });
+      await resolver.resolve(payload, {
+        excludeIds: ['x', 'y'],
+        source: 'generated',
+        orderBy: 'rating',
+      });
       expect(puzzleService.findPuzzles).toHaveBeenCalledWith(
         expect.objectContaining({
           excludeIds: ['x', 'y'],
           source: 'generated',
           themes: ['mate'],
           limit: 3,
+          orderBy: 'rating',
         }),
       );
     });
