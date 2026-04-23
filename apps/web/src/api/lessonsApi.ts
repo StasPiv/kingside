@@ -50,18 +50,41 @@ export const lessonsApi = {
     );
   },
 
-  updateStep(payload: UpdateLessonStepRequest): Promise<UpdateLessonStepResponse> {
-    return api.post<UpdateLessonStepResponse>('/lessons/progress/step', payload);
+  /**
+   * Отметка прогресса шага (KS-1784).
+   *
+   * Реальный backend (apps/api) ждёт `lessonId` в body класс-валидатором
+   * (`POST /lessons/progress/step` → 400 «lessonId must be a UUID» без него).
+   * shared-тип `UpdateLessonStepRequest` lessonId не объявляет — это
+   * расхождение между shared и backend DTO; пока shared не обновили,
+   * передаём lessonId отдельным аргументом и подмешиваем в body.
+   */
+  updateStep(
+    lessonId: string,
+    payload: UpdateLessonStepRequest,
+  ): Promise<UpdateLessonStepResponse> {
+    return api.post<UpdateLessonStepResponse>('/lessons/progress/step', {
+      lessonId,
+      ...payload,
+    });
   },
 
+  /**
+   * Завершение урока (KS-1784).
+   *
+   * Реальный путь — `POST /lessons/progress/lesson/complete` (без id в URL),
+   * lessonId передаётся в body вместе со score. Это соответствует L-04
+   * (KS-1759) и `apps/api/src/lessons/progress.controller.ts`. Изначально
+   * (L-11) фронт стучал на `/lessons/progress/lesson/<id>/complete` — 404.
+   */
   completeLesson(
     lessonId: string,
     payload: CompleteLessonRequest,
   ): Promise<CompleteLessonResponse> {
-    return api.post<CompleteLessonResponse>(
-      `/lessons/progress/lesson/${encodeURIComponent(lessonId)}/complete`,
-      payload,
-    );
+    return api.post<CompleteLessonResponse>('/lessons/progress/lesson/complete', {
+      lessonId,
+      ...payload,
+    });
   },
 
   /**

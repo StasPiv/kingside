@@ -42,7 +42,7 @@ describe('useLessonProgress', () => {
       await vi.advanceTimersByTimeAsync(400);
     });
     expect(mockLessonsApi.updateStep).toHaveBeenCalledTimes(1);
-    expect(mockLessonsApi.updateStep).toHaveBeenCalledWith({
+    expect(mockLessonsApi.updateStep).toHaveBeenCalledWith('l1', {
       stepId: 's1',
       state: 'done',
       score: undefined,
@@ -64,7 +64,7 @@ describe('useLessonProgress', () => {
       await vi.advanceTimersByTimeAsync(400);
     });
     expect(mockLessonsApi.updateStep).toHaveBeenCalledTimes(1);
-    expect(mockLessonsApi.updateStep).toHaveBeenLastCalledWith({
+    expect(mockLessonsApi.updateStep).toHaveBeenLastCalledWith('l1', {
       stepId: 's1',
       state: 'done',
       score: 0.9,

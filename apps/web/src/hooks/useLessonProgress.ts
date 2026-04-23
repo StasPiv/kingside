@@ -125,7 +125,7 @@ export function useLessonProgress({
       pendingTimersRef.current.delete(stepId);
       if (!payload || !lessonId) return;
       try {
-        await lessonsApi.updateStep(payload);
+        await lessonsApi.updateStep(lessonId, payload);
         setLastSyncError(null);
       } catch (err) {
         // Сетевая ошибка не откатывает локальный state — пользователь
