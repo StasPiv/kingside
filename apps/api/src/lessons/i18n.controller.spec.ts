@@ -16,7 +16,7 @@ describe('LessonsI18nController (KS-1787)', () => {
   it('GET /lessons/i18n/ru → читает и возвращает JSON', () => {
     const fake = { beginner: { title: 'Начинающий' } };
     fsMock.existsSync.mockReturnValue(true);
-    fsMock.readFileSync.mockReturnValue(JSON.stringify(fake) as unknown as Buffer);
+    fsMock.readFileSync.mockReturnValue(JSON.stringify(fake) as any);
 
     const res = controller.getLessonsI18n('ru');
     expect(res).toEqual(fake);
@@ -38,7 +38,7 @@ describe('LessonsI18nController (KS-1787)', () => {
 
   it('испорченный JSON → 404', () => {
     fsMock.existsSync.mockReturnValue(true);
-    fsMock.readFileSync.mockReturnValue('not-a-json' as unknown as Buffer);
+    fsMock.readFileSync.mockReturnValue('not-a-json' as any);
     expect(() => controller.getLessonsI18n('ru')).toThrow(NotFoundException);
   });
 });

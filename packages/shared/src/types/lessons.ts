@@ -374,8 +374,15 @@ export interface LessonWithStepsResponse {
 /** POST /api/lessons/:lessonId/progress/start — начать/возобновить урок. */
 export type StartLessonProgressResponse = UserLessonProgress;
 
-/** POST /api/lessons/:lessonId/progress/step — обновить состояние одного шага. */
+/**
+ * POST /api/lessons/progress/step — обновить состояние одного шага.
+ *
+ * Фактический путь эндпоинта — `/api/lessons/progress/step` (без
+ * `lessonId` в URL), поэтому `lessonId` передаётся в body. Поле
+ * обязательное и требуется class-validator DTO на бэке.
+ */
 export interface UpdateLessonStepRequest {
+  lessonId: string;
   stepId: string;
   state: LessonStepState;
   /** Опциональные метрики шага (напр. доля верных ответов для `quiz`). */
@@ -384,8 +391,12 @@ export interface UpdateLessonStepRequest {
 
 export type UpdateLessonStepResponse = UserLessonProgress;
 
-/** POST /api/lessons/:lessonId/progress/complete — завершить урок (≥70%). */
+/**
+ * POST /api/lessons/progress/lesson/complete — завершить урок (≥70%).
+ * `lessonId` передаётся в body (см. комментарий к `UpdateLessonStepRequest`).
+ */
 export interface CompleteLessonRequest {
+  lessonId: string;
   /** Финальный балл 0..1 (обычно агрегат `stepsState`). */
   score: number;
 }
