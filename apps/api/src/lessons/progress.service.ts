@@ -1,13 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { LessonStepState, UserLessonProgress } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { Sm2Service } from './sm2.service';
 
 /**
- * Политика прогресса (ADR-024 §2.3):
+ * Политика прогресса (ADR-024 §2.3, ADR-025):
  *  - Шаг: done / failed / skipped / pending / in_progress.
  *  - Урок «пройден»: score ≥ 70 (на 100-балльной шкале в БД) => `completedAt`.
  *    Порог в shared — 0.7 (0..1).
- *  - `masteredAt` — в MVP всегда null (SM-2 появится в итерации 2).
+ *  - Урок «освоен» (SM-2): score ≥ 80 => `masteredAt` + запись
+ *    в `LessonReview` через `Sm2Service` (L-21).
  *
  * Попытки задач внутри `PuzzleStep` фиксируются в существующей таблице
  * `PuzzleAttempt` (PuzzleService) — здесь дублировать их не нужно. В
@@ -16,8 +18,12 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class ProgressService {
   private readonly COMPLETE_THRESHOLD = 70; // 0..100, соответствует 0.7 в shared-типах
+  private readonly MASTER_THRESHOLD = 80; // 0..100, ADR-025 §2.5
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sm2: Sm2Service,
+  ) {}
 
   /** POST /api/lessons/progress/step — upsert состояния одного шага. */
   async updateStep(
@@ -114,6 +120,17 @@ export class ProgressService {
     });
 
     await this.touchCourseProgress(userId, lessonId);
+
+    // ─── SM-2 повторения (ADR-025 §2.5): только для score ≥ 80. ─────
+    // `markLessonMastered` идемпотентен: `masteredAt` выставляется
+    // только в первый раз (updateMany с `masteredAt: null`).
+    // `scheduleReview` вызывается и при первом «освоении», и при
+    // каждом последующем повторе — обновляет параметры SM-2.
+    if (score100 >= this.MASTER_THRESHOLD) {
+      await this.sm2.markLessonMastered(userId, lessonId);
+      const quality = Sm2Service.scoreToQuality(score100);
+      await this.sm2.scheduleReview(userId, lessonId, quality);
+    }
 
     return this.toShared(record);
   }

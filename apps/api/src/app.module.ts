@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import {
   AcceptLanguageResolver,
   I18nModule,
@@ -48,6 +49,7 @@ import { HealthController } from './health.controller';
         AcceptLanguageResolver,
       ],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     RedisModule,
     AuthModule,

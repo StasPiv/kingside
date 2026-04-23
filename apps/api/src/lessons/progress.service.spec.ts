@@ -4,6 +4,10 @@ import { ProgressService } from './progress.service';
 describe('ProgressService', () => {
   let service: ProgressService;
   let prisma: any;
+  let sm2: {
+    markLessonMastered: jest.Mock;
+    scheduleReview: jest.Mock;
+  };
 
   const userId = 'u1';
   const lessonId = 'L1';
@@ -28,7 +32,16 @@ describe('ProgressService', () => {
         update: jest.fn(),
       },
     };
-    service = new ProgressService(prisma);
+    sm2 = {
+      markLessonMastered: jest.fn().mockResolvedValue(true),
+      scheduleReview: jest.fn().mockResolvedValue({
+        easiness: 2.6,
+        interval: 1,
+        repetitions: 1,
+        dueAt: new Date(),
+      }),
+    };
+    service = new ProgressService(prisma, sm2 as any);
   });
 
   // ─── updateStep ──────────────────────────────────────────────────
@@ -171,6 +184,40 @@ describe('ProgressService', () => {
 
       await service.completeLesson(userId, lessonId, 0.8);
       expect(prisma.userCourseProgress.update).not.toHaveBeenCalled();
+    });
+
+    it('при score ≥ 0.8 → markLessonMastered + scheduleReview вызваны', async () => {
+      prisma.userLessonProgress.findUnique.mockResolvedValue(null);
+      prisma.userLessonProgress.upsert.mockResolvedValue({
+        userId,
+        lessonId,
+        startedAt: new Date(),
+        completedAt: new Date(),
+        score: 85,
+        stepsState: {},
+      });
+
+      await service.completeLesson(userId, lessonId, 0.85);
+
+      expect(sm2.markLessonMastered).toHaveBeenCalledWith(userId, lessonId);
+      expect(sm2.scheduleReview).toHaveBeenCalledWith(userId, lessonId, 4); // score=85 → q=4
+    });
+
+    it('при 0.7 ≤ score < 0.8 — SM-2 не вызывается', async () => {
+      prisma.userLessonProgress.findUnique.mockResolvedValue(null);
+      prisma.userLessonProgress.upsert.mockResolvedValue({
+        userId,
+        lessonId,
+        startedAt: new Date(),
+        completedAt: new Date(),
+        score: 75,
+        stepsState: {},
+      });
+
+      await service.completeLesson(userId, lessonId, 0.75);
+
+      expect(sm2.markLessonMastered).not.toHaveBeenCalled();
+      expect(sm2.scheduleReview).not.toHaveBeenCalled();
     });
 
     it('ставит UserCourseProgress.completedAt когда все опубликованные уроки пройдены', async () => {
