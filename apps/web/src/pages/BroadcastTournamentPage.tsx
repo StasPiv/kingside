@@ -1,13 +1,10 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
+import { useState, useEffect, useMemo } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
-import { api } from '../api';
 import { broadcastApi } from '../api/broadcastApi';
 import { BroadcastCrosstable } from '../components/broadcast/BroadcastCrosstable';
-import type { DgtTournamentResult } from '../dgt.types';
-import type { LiveTournamentsResponse, TournamentStatus } from '@kingside/shared';
 
 // Types
 type BroadcastMeta = {
@@ -166,22 +163,22 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
               <>
                 <h2>{ongoingRound.name}</h2>
                 {liveGames.length > 0 ? (
-                  <div className="dgt-boards-grid">
+                  <div className="broadcast-boards-grid">
                     {liveGames.map((game) => (
                       <div
                         key={game.id}
-                        className="dgt-board-card dgt-board-card--clickable"
+                        className="broadcast-board-card broadcast-board-card--clickable"
                         onClick={() => handleGameClick(game)}
                         role="button"
                         tabIndex={0}
                       >
-                        <div className="dgt-board-players"><span className="dgt-player dgt-player--black">&#9823; {game.blackPlayer}</span></div>
-                        <div className="dgt-board-wrap">
+                        <div className="broadcast-board-players"><span className="broadcast-player broadcast-player--black">&#9823; {game.blackPlayer}</span></div>
+                        <div className="broadcast-board-wrap">
                           <Chessboard options={{ position: computeFen(game.pgn ?? ''), allowDragging: false, showNotation: false, animationDurationInMs: 0 }} />
                         </div>
-                        <div className="dgt-board-players"><span className="dgt-player dgt-player--white">&#9817; {game.whitePlayer}</span></div>
-                        <div className="dgt-board-footer">
-                          <span className="dgt-game-result">{game.result ?? '*'}</span>
+                        <div className="broadcast-board-players"><span className="broadcast-player broadcast-player--white">&#9817; {game.whitePlayer}</span></div>
+                        <div className="broadcast-board-footer">
+                          <span className="broadcast-game-result">{game.result ?? '*'}</span>
                         </div>
                       </div>
                     ))}
@@ -209,7 +206,6 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
             <div className="tournament-rounds-grid">
               {rounds.map((r) => {
                 const isLive = r.status === 'ongoing';
-                const isFuture = r.status === 'pending' && r.startsAt && new Date(r.startsAt) > new Date();
                 return (
                   <button
                     key={r.id}
@@ -274,126 +270,40 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
 }
 
 // ===== Main Page Component =====
+/**
+ * KS-1747: страница трансляции всегда рендерит Lichess-лобби. Если
+ * broadcast не найден — показываем generic-ошибку.
+ */
 export function BroadcastTournamentPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const location = useLocation();
 
-  const [isLichess, setIsLichess] = useState<boolean | null>(null);
-  const [lichessBroadcast, setLichessBroadcast] = useState<BroadcastMeta | null>(null);
-
-  // DGT state
-  const [dgtData, setDgtData] = useState<DgtTournamentResult | null>(null);
+  const [broadcast, setBroadcast] = useState<BroadcastMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [tournamentStatus, setTournamentStatus] = useState<TournamentStatus | null>(
-    (location.state as { status?: TournamentStatus } | null)?.status ?? null,
-  );
-  const shouldAutoRedirect = useRef(
-    (location.state as { fromRound?: boolean } | null)?.fromRound !== true,
-  );
 
-  // Detect source
   useEffect(() => {
     if (!tournamentId) return;
     let cancelled = false;
 
+    setLoading(true);
     broadcastApi.get<BroadcastMeta>(`/${tournamentId}`)
       .then((b) => {
-        if (!cancelled) { setLichessBroadcast(b); setIsLichess(true); setLoading(false); }
-      })
-      .catch(() => {
-        if (!cancelled) setIsLichess(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [tournamentId]);
-
-  // DGT fallback
-  useEffect(() => {
-    if (isLichess !== false || !tournamentId) return;
-    let cancelled = false;
-
-    if (!tournamentStatus) {
-      api.get<LiveTournamentsResponse>('/tournaments/live')
-        .then((res) => { const m = res?.data?.find((t) => t.livechessUuid === tournamentId); if (m) setTournamentStatus(m.status); })
-        .catch(() => {});
-    }
-
-    api.get<DgtTournamentResult>(`/dgt/tournament/${tournamentId}`)
-      .then((result) => {
-        if (cancelled) return;
-        setDgtData(result);
-        setLoading(false);
-        if (shouldAutoRedirect.current && result.totalRounds > 0) {
-          shouldAutoRedirect.current = false;
-          const rounds = result.tournament.rounds;
-          let target = result.totalRounds;
-          for (let i = rounds.length - 1; i >= 0; i--) { if (rounds[i].live > 0) { target = i + 1; break; } }
-          if (!rounds.some((r) => r.live > 0)) { for (let i = rounds.length - 1; i >= 0; i--) { if (rounds[i].count > 0) { target = i + 1; break; } } }
-          navigate(`/broadcasts/${tournamentId}/${target}`, { replace: true });
-        }
+        if (!cancelled) { setBroadcast(b); setLoading(false); }
       })
       .catch((err) => {
-        if (!cancelled) { setError(err instanceof Error ? err.message : t('broadcasts.dgt.errorTournament')); setLoading(false); }
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : t('broadcasts.error', 'Failed to load broadcast'));
+        setLoading(false);
       });
 
     return () => { cancelled = true; };
-  }, [isLichess, tournamentId, t, tournamentStatus]);
+  }, [tournamentId, t]);
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-
-  // Lichess lobby
-  if (isLichess && lichessBroadcast) {
-    return <LichessBroadcastLobby broadcast={lichessBroadcast} tournamentId={tournamentId!} />;
+  if (error || !broadcast) {
+    return <div className="error">{error || t('broadcasts.error', 'Failed to load broadcast')}</div>;
   }
 
-  // DGT fallback view
-  if (error) return <div className="error">{error}</div>;
-  const isArchived = tournamentStatus === 'archived';
-  const hasLive = !isArchived && (dgtData?.tournament.rounds.some((r) => r.live > 0) ?? false);
-
-  return (
-    <div className="broadcasts-page">
-      <nav className="broadcast-breadcrumbs">
-        <Link to="/broadcasts">{t('broadcasts.title')}</Link>
-        <span className="broadcast-breadcrumb-sep">/</span>
-        <span>{dgtData?.tournament.name}</span>
-      </nav>
-      <div className="tournament-overview">
-        <div className="tournament-overview-header">
-          <h1 className="tournament-overview-name">{dgtData?.tournament.name}</h1>
-          {hasLive && <span className="live-tournament-badge">{t('liveTournaments.live')}</span>}
-          {isArchived && <span className="live-tournament-badge live-tournament-badge--archived">ARCHIVED</span>}
-        </div>
-        <div className="tournament-overview-details">
-          {(dgtData?.tournament.location || dgtData?.tournament.country) && <div className="tournament-overview-detail">📍 {[dgtData?.tournament.location, dgtData?.tournament.country].filter(Boolean).join(', ')}</div>}
-          {dgtData?.tournament.timecontrol && <div className="tournament-overview-detail">⏱ {dgtData.tournament.timecontrol}</div>}
-          {dgtData && <div className="tournament-overview-detail">🏆 {dgtData.totalRounds} {t('broadcasts.dgt.rounds').toLowerCase()}</div>}
-        </div>
-      </div>
-      {dgtData && dgtData.totalRounds > 0 && (
-        <div className="tournament-rounds-list">
-          <h2>{t('broadcasts.dgt.rounds')}</h2>
-          <div className="tournament-rounds-grid">
-            {Array.from({ length: dgtData.totalRounds }, (_, i) => {
-              const ri = dgtData.tournament.rounds[i];
-              const n = i + 1;
-              const live = !isArchived && ri?.live > 0;
-              return (
-                <button key={n} className={`tournament-round-card${live ? ' tournament-round-card--live' : ''}`} onClick={() => navigate(`/broadcasts/${tournamentId}/${n}`)}>
-                  <div className="tournament-round-card-title">{t('broadcasts.dgt.round')} {n}</div>
-                  <div className="tournament-round-card-info">
-                    {live && <span className="tournament-round-live-dot" />}
-                    {ri?.count > 0 ? <span>{ri.count} {t('broadcastTournament.games')}</span> : <span className="tournament-round-no-games">{t('broadcastTournament.noGamesYet')}</span>}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  return <LichessBroadcastLobby broadcast={broadcast} tournamentId={tournamentId!} />;
 }

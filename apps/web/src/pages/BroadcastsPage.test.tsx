@@ -3,13 +3,6 @@ import { fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
 import { BroadcastsPage } from './BroadcastsPage';
 
-const mockApi = { get: vi.fn() };
-vi.mock('../api', () => ({
-  api: {
-    get: (...args: unknown[]) => mockApi.get(...args),
-  },
-}));
-
 const mockBroadcastApi = { get: vi.fn() };
 vi.mock('../api/broadcastApi', () => ({
   broadcastApi: {
@@ -46,12 +39,7 @@ function makeBroadcast(overrides: Partial<BroadcastFixture> & Pick<BroadcastFixt
 }
 
 beforeEach(() => {
-  mockApi.get.mockReset();
   mockBroadcastApi.get.mockReset();
-  // DGT /tournaments/live — пустой ответ, чтобы не мешать
-  mockApi.get.mockImplementation(() =>
-    Promise.resolve({ data: [] }),
-  );
 });
 
 /**

@@ -95,86 +95,6 @@
   margin-top: 16px;
 }
 
-/* ─── DGT LiveChess Cloud integration ──────────────────────────── */
-
-.dgt-input-row {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 20px;
-}
-
-.dgt-url-input {
-  flex: 1;
-  padding: 10px 14px;
-  background: var(--c-1a1a2e);
-  border: 1px solid var(--c-2a2a4a);
-  border-radius: 6px;
-  color: var(--c-e0e0f0);
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.dgt-url-input:focus {
-  border-color: var(--c-7c83ff);
-}
-
-.dgt-url-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.dgt-url-btn {
-  padding: 10px 20px;
-  background: var(--c-7c83ff);
-  border: none;
-  border-radius: 6px;
-  color: var(--c-fff);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, opacity 0.15s;
-}
-
-.dgt-url-btn:hover:not(:disabled) {
-  background: var(--c-5d65ff);
-}
-
-.dgt-url-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.dgt-tournament {
-  background: var(--c-1a1a2e);
-  border: 1px solid var(--c-2a2a4a);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 20px;
-}
-
-.dgt-tournament-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 14px;
-}
-
-.dgt-tournament-name {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--c-e0e0f0);
-  margin-bottom: 4px;
-}
-
-.dgt-tournament-meta {
-  font-size: 13px;
-  color: var(--c-888);
-  margin-top: 2px;
-}
-
 /* Tournament overview */
 .tournament-overview {
   background: var(--c-1a1a2e);
@@ -286,30 +206,15 @@
   color: var(--c-606078);
 }
 
-.dgt-reset-btn {
-  padding: 6px 14px;
-  background: transparent;
-  border: 1px solid var(--c-2a2a4a);
-  border-radius: 6px;
-  color: var(--c-888);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: border-color 0.15s, color 0.15s;
-}
+/* ─── Broadcast round tabs ─────────────────────────────────────── */
 
-.dgt-reset-btn:hover {
-  border-color: var(--c-7c83ff);
-  color: var(--c-7c83ff);
-}
-
-.dgt-rounds-row {
+.broadcast-rounds-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.dgt-round-btn {
+.broadcast-round-btn {
   padding: 5px 14px;
   background: transparent;
   border: 1px solid var(--c-2a2a4a);
@@ -320,110 +225,40 @@
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
-.dgt-round-btn:hover:not(:disabled) {
+.broadcast-round-btn:hover:not(:disabled) {
   border-color: var(--c-7c83ff);
   color: var(--c-7c83ff);
 }
 
-.dgt-round-btn--active {
+.broadcast-round-btn--active {
   background: var(--ov-accent-15);
   border-color: var(--c-7c83ff);
   color: var(--c-7c83ff);
 }
 
-.dgt-round-btn:disabled {
+.broadcast-round-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.dgt-games {
+.broadcast-games-section {
   margin-top: 4px;
 }
 
-.dgt-games-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.dgt-back-btn {
-  padding: 5px 12px;
-  background: transparent;
-  border: 1px solid var(--c-2a2a4a);
-  border-radius: 6px;
-  color: var(--c-888);
-  font-size: 13px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.dgt-back-btn:hover {
-  border-color: var(--c-7c83ff);
-  color: var(--c-7c83ff);
-}
-
-.dgt-games-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--c-e0e0f0);
-}
-
-.dgt-games-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.dgt-game-card {
-  background: var(--c-1a1a2e);
-  border: 1px solid var(--c-2a2a4a);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.dgt-game-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  cursor: pointer;
-  user-select: none;
-  transition: background 0.15s;
-}
-
-.dgt-game-header:hover {
-  background: var(--ov-white-04);
-}
-
-.dgt-game-board-num {
-  color: var(--c-666);
-  font-size: 13px;
-  min-width: 24px;
-}
-
-.dgt-game-players {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  flex-wrap: wrap;
-}
-
-.dgt-player {
+.broadcast-player {
   font-size: 14px;
   font-weight: 500;
 }
 
-.dgt-player--white {
+.broadcast-player--white {
   color: var(--c-e0e0f0);
 }
 
-.dgt-player--black {
+.broadcast-player--black {
   color: var(--c-b0b0c8);
 }
 
-.dgt-game-result {
+.broadcast-game-result {
   font-size: 13px;
   font-weight: 600;
   color: var(--c-7c83ff);
@@ -432,72 +267,16 @@
   background: var(--ov-accent-10);
 }
 
-.dgt-game-toggle {
-  color: var(--c-666);
-  font-size: 11px;
-  margin-left: auto;
-}
+/* ─── Broadcast Boards Grid ────────────────────────────────────── */
 
-.dgt-game-moves {
-  padding: 12px 16px;
-  border-top: 1px solid var(--c-2a2a4a);
-  background: var(--ov-black-15);
-}
-
-.dgt-game-moves-empty {
-  color: var(--c-666);
-  font-size: 13px;
-}
-
-.dgt-moves-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px 6px;
-  font-size: 13px;
-  font-family: 'Courier New', monospace;
-  line-height: 1.6;
-}
-
-.dgt-move-item {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
-}
-
-.dgt-move-num {
-  color: var(--c-666);
-}
-
-.dgt-move-san {
-  color: var(--c-c8d0ff);
-}
-
-@media (max-width: 600px) {
-  .dgt-input-row {
-    flex-direction: column;
-  }
-
-  .dgt-tournament-header {
-    flex-direction: column;
-  }
-
-  .dgt-game-players {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
-  }
-}
-
-/* ─── DGT Boards Grid ──────────────────────────────────────────── */
-
-.dgt-boards-grid {
+.broadcast-boards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
   margin-top: 4px;
 }
 
-.dgt-board-card {
+.broadcast-board-card {
   background: var(--c-1a1a2e);
   border: 1px solid var(--c-2a2a4a);
   border-radius: 8px;
@@ -510,16 +289,16 @@
   transition: border-color 0.15s;
 }
 
-.dgt-board-card--clickable:hover {
+.broadcast-board-card--clickable:hover {
   border-color: var(--c-7c83ff);
 }
 
-.dgt-board-players {
+.broadcast-board-players {
   display: flex;
   align-items: center;
 }
 
-.dgt-player-result {
+.broadcast-player-result {
   margin-left: auto;
   font-size: 13px;
   font-weight: 700;
@@ -528,20 +307,20 @@
   text-align: center;
 }
 
-.dgt-board-wrap {
+.broadcast-board-wrap {
   width: 100%;
   aspect-ratio: 1;
   pointer-events: none;
 }
 
-.dgt-board-footer {
+.broadcast-board-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 @media (max-width: 600px) {
-  .dgt-boards-grid {
+  .broadcast-boards-grid {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
     gap: 10px;
   }

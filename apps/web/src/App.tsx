@@ -162,7 +162,6 @@ export function App() {
           }
         />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
-        <Route path="/tournaments/live" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
         <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<Suspense fallback={<LazyFallback />}><BroadcastGamePage /></Suspense>} />

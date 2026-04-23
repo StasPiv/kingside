@@ -102,20 +102,6 @@
     "colTitle": "Tournament",
     "colStatus": "Status",
     "colDate": "Date",
-    "dgt": {
-      "manualTitle": "Open by URL",
-      "urlPlaceholder": "Paste DGT LiveChess Cloud link or tournament ID…",
-      "load": "Load",
-      "errorTournament": "Failed to load tournament",
-      "errorRound": "Failed to load round",
-      "timeControl": "Time control",
-      "rounds": "Rounds",
-      "round": "Round",
-      "newTournament": "New tournament",
-      "backToRounds": "Rounds",
-      "noGames": "No games in this round",
-      "noMoves": "No moves yet"
-    },
     "lichessTitle": "Lichess Broadcasts",
     "liveTitle": "Live",
     "upcomingTitle": "Upcoming",
@@ -859,18 +845,6 @@
     "delayNotice": "Moves are delayed by 5 seconds",
     "waitingMoves": "Waiting for moves..."
   },
-  "liveTournaments": {
-    "title": "Live Tournaments",
-    "archivedTitle": "Archived Tournaments",
-    "live": "LIVE",
-    "archived": "ARCHIVED",
-    "rounds": "rounds",
-    "backToBroadcasts": "← Broadcasts",
-    "noTournaments": "No live tournaments right now",
-    "loadError": "Failed to load tournaments",
-    "watch": "Watch Live",
-    "results": "Results"
-  },
   "engineSettings": {
     "loadConfig": "Load config.yaml"
   },
@@ -1070,7 +1044,7 @@
     "broadcasts": {
       "title": "Live Broadcasts",
       "description": "Watch top tournament games in real-time with engine analysis.",
-      "guide": "Watch live chess tournament games with real-time engine analysis.\n\n1. Go to Broadcasts in the menu\n2. Active tournaments appear in the list automatically\n3. To add a tournament manually: paste a chess-results.com URL or DGT LiveChess UUID in the input field and click \"Load\"\n4. Click a tournament to see rounds, click a round to see games\n5. Click a game to watch it live with the analysis board"
+      "guide": "Watch live chess tournament games with real-time engine analysis.\n\n1. Go to Broadcasts in the menu\n2. Active tournaments appear in the list automatically\n3. Click a tournament to see rounds, click a round to see games\n4. Click a game to watch it live with the analysis board"
     },
     "social": {
       "title": "Community",
@@ -1079,8 +1053,8 @@
     },
     "customize": {
       "title": "Personalize",
-      "description": "Choose your board theme. Adjust sounds and animations. Play in English or Russian. Connect a DGT board.",
-      "guide": "Personalize your experience.\n\nSettings page (click your username > Settings):\n- Board theme: Classic, Green, Blue, Brown\n- Piece set: Standard, Cburnett, Alpha, Merida\n- Notation: show/hide coordinates on the board\n- Input mode: drag or click\n- Sound effects: on/off\n- Move animation speed\n- Language: English or Russian\n\nDGT Board:\nConnect a DGT electronic chess board for over-the-board play with digital recording."
+      "description": "Choose your board theme. Adjust sounds and animations. Play in English or Russian.",
+      "guide": "Personalize your experience.\n\nSettings page (click your username > Settings):\n- Board theme: Classic, Green, Blue, Brown\n- Piece set: Standard, Cburnett, Alpha, Merida\n- Notation: show/hide coordinates on the board\n- Input mode: drag or click\n- Sound effects: on/off\n- Move animation speed\n- Language: English or Russian"
     },
     "cta": {
       "title": "Ready to play?",

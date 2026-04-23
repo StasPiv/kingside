@@ -10,39 +10,64 @@ import type { EvalLine } from '../hooks/useStockfish';
 import { useContainerWidth } from '../hooks/useContainerWidth';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { api } from '../api';
+import { broadcastApi } from '../api/broadcastApi';
 import { useReviewState } from '../review/useReviewState';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
 import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
-import { classifyOpening } from '../utils/ecoClassify';
 import { formatEval, formatPv } from '../utils/chessFormat';
 import { EvalBar } from '../components/EvalBar';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
-import type { DgtTournamentResult, DgtRoundResult, DgtGame } from '../dgt.types';
-import { formatPlayerName } from '../dgt.types';
+
+/**
+ * KS-1747: Lichess-only broadcast-viewer. Страница загружает партию по UUID
+ * (`gameId` в URL — `BroadcastGame.id` из broadcast-service) через
+ * `broadcastApi`. Поллинг каждые 5 секунд за обновлениями PGN / result.
+ */
+
+// Lichess game shape из broadcast-service (/:id/rounds/:roundId/games).
+type LichessGame = {
+  id: string;
+  lichessGameId: string;
+  whitePlayer: string;
+  blackPlayer: string;
+  result: string | null;
+  pgn: string | null;
+  currentFen: string | null;
+};
+
+type BroadcastMeta = {
+  id: string;
+  title: string;
+};
 
 function loadGameIntoReview(
-  game: DgtGame,
+  pgn: string,
   loadFromPgn: (moves: ChessMove[]) => void,
 ): void {
-  if (game.pgn) {
-    try {
-      loadFromPgn(parseAnnotatedPgn(game.pgn));
-      return;
-    } catch {
-      // fall through to moves
-    }
+  if (!pgn) return;
+  try {
+    loadFromPgn(parseAnnotatedPgn(pgn));
+  } catch {
+    // leave board at initial position
   }
-  if (game.moves.length > 0) {
+}
+
+function computeLastMoveSan(pgn: string): string | null {
+  if (!pgn) return null;
+  try {
+    const chess = new Chess();
+    chess.loadPgn(pgn);
+    const hist = chess.history();
+    return hist.length > 0 ? hist[hist.length - 1] : null;
+  } catch {
     try {
       const chess = new Chess();
-      for (const san of game.moves) {
-        chess.move(san);
-      }
-      loadFromPgn(parseAnnotatedPgn(chess.pgn()));
+      chess.loadPgn(pgn.replace(/\{[^}]*\}/g, ''));
+      const hist = chess.history();
+      return hist.length > 0 ? hist[hist.length - 1] : null;
     } catch {
-      // leave board at initial position
+      return null;
     }
   }
 }
@@ -57,10 +82,9 @@ export function BroadcastGamePage() {
   }>();
   const { t } = useTranslation();
 
-  const gameIndex = gameId !== undefined ? parseInt(gameId, 10) : NaN;
-
-  const [tournamentName, setTournamentName] = useState('');
-  const [game, setGame] = useState<DgtGame | null>(null);
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [roundName, setRoundName] = useState('');
+  const [game, setGame] = useState<LichessGame | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -97,7 +121,7 @@ export function BroadcastGamePage() {
   const boardContainerRef = useRef<HTMLDivElement>(null);
   const boardWidth = useContainerWidth(boardContainerRef);
   const isAtEndRef = useRef(false);
-  const gameRef = useRef<DgtGame | null>(null);
+  const gameRef = useRef<LichessGame | null>(null);
   const { boardThemeOptions } = useBoardTheme();
 
   const [boardAreaPx, setBoardAreaPx] = useState(() => {
@@ -177,37 +201,36 @@ export function BroadcastGamePage() {
   }
   const displayedLines = lines.length === MULTI_PV ? lines : lastLinesRef.current;
 
+  // Initial load
   useEffect(() => {
-    if (!tournamentId || !roundId || isNaN(gameIndex)) return;
+    if (!tournamentId || !roundId || !gameId) return;
     let cancelled = false;
 
     setLoading(true);
     Promise.all([
-      api.get<DgtTournamentResult>(`/dgt/tournament/${tournamentId}`),
-      api.get<DgtRoundResult>(`/dgt/tournament/${tournamentId}/round/${roundId}`),
+      broadcastApi.get<BroadcastMeta>(`/${tournamentId}`),
+      broadcastApi.get<{ data: Array<{ id: string; name: string }> }>(`/${tournamentId}/rounds`),
+      broadcastApi.get<{ data: LichessGame[] }>(`/${tournamentId}/rounds/${roundId}/games`),
     ])
-      .then(([tournament, round]) => {
-        if (!cancelled) {
-          setTournamentName(tournament.tournament.name);
-          const found = round.games.find((g) => g.gameIndex === gameIndex) ?? null;
-          setGame(found);
-          if (found) {
-            loadGameIntoReview(found, loadFromPgn);
-          }
-          setLoading(false);
-        }
+      .then(([meta, roundsRes, gamesRes]) => {
+        if (cancelled) return;
+        setBroadcastTitle(meta.title);
+        const rounds = Array.isArray(roundsRes?.data) ? roundsRes.data : [];
+        setRoundName(rounds.find((r) => r.id === roundId)?.name ?? '');
+        const games = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
+        const found = games.find((g) => g.id === gameId) ?? null;
+        setGame(found);
+        if (found?.pgn) loadGameIntoReview(found.pgn, loadFromPgn);
+        setLoading(false);
       })
       .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : t('broadcasts.dgt.errorRound'));
-          setLoading(false);
-        }
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : t('broadcasts.error', 'Failed to load broadcast'));
+        setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [tournamentId, roundId, gameIndex, t, loadFromPgn]);
+    return () => { cancelled = true; };
+  }, [tournamentId, roundId, gameId, t, loadFromPgn]);
 
   useEffect(() => {
     if (sfState === 'error' && analysisEnabled) {
@@ -248,30 +271,34 @@ export function BroadcastGamePage() {
     gameRef.current = game;
   }, [game]);
 
+  // Polling: every 5s re-fetch the games list and update if PGN changed
   useEffect(() => {
-    if (!tournamentId || !roundId || isNaN(gameIndex)) return;
+    if (!tournamentId || !roundId || !gameId) return;
     let cancelled = false;
 
     const poll = () => {
-      api
-        .get<DgtRoundResult>(`/dgt/tournament/${tournamentId}/round/${roundId}`)
-        .then((round) => {
+      broadcastApi
+        .get<{ data: LichessGame[] }>(`/${tournamentId}/rounds/${roundId}/games`)
+        .then((res) => {
           if (cancelled) return;
-          const found = round.games.find((g) => g.gameIndex === gameIndex) ?? null;
+          const games = Array.isArray(res?.data) ? res.data : [];
+          const found = games.find((g) => g.id === gameId) ?? null;
           if (!found) return;
-          const prevGame = gameRef.current;
-          const prevMoves = prevGame?.moves.length ?? 0;
-          const prevPgn = prevGame?.pgn ?? '';
-          if (found.moves.length > prevMoves || (found.pgn && found.pgn !== prevPgn)) {
-            // Play sound for new move (only if not initial load)
-            if (prevMoves > 0 && found.moves.length > prevMoves) {
-              const lastSan = found.moves[found.moves.length - 1];
+          const prev = gameRef.current;
+          const prevPgn = prev?.pgn ?? '';
+          const curPgn = found.pgn ?? '';
+          if (curPgn !== prevPgn) {
+            if (prevPgn.length > 0 && curPgn.length > prevPgn.length) {
+              const lastSan = computeLastMoveSan(curPgn);
               if (lastSan) playSound(soundEventFromSan(lastSan));
             }
             setGame(found);
-            if (isAtEndRef.current || (prevMoves === 0 && prevPgn === '')) {
-              loadGameIntoReview(found, loadFromPgn);
+            if (isAtEndRef.current || prevPgn.length === 0) {
+              loadGameIntoReview(curPgn, loadFromPgn);
             }
+          } else if ((prev?.result ?? null) !== (found.result ?? null)) {
+            // Result changed (game ended) — refresh game state.
+            setGame(found);
           }
         })
         .catch(() => {
@@ -284,7 +311,7 @@ export function BroadcastGamePage() {
       cancelled = true;
       clearInterval(intervalId);
     };
-  }, [tournamentId, roundId, gameIndex, loadFromPgn, playSound]);
+  }, [tournamentId, roundId, gameId, loadFromPgn, playSound]);
 
   useEffect(() => {
     chessGame.load(currentFen);
@@ -359,10 +386,8 @@ export function BroadcastGamePage() {
   const isAtEnd = currentMove !== null && !currentMove.next;
   isAtEndRef.current = isAtEnd;
 
-  const openingName = classifyOpening(history.map((m) => m.san));
-
-  const whiteName = game ? formatPlayerName(game.white) : '';
-  const blackName = game ? formatPlayerName(game.black) : '';
+  const whiteName = game?.whitePlayer ?? '';
+  const blackName = game?.blackPlayer ?? '';
 
   const engineStatusSuffix = !wasmSupported
     ? ` · ${t('analysis.notSupported', 'Not supported')}`
@@ -397,7 +422,7 @@ export function BroadcastGamePage() {
           <Link to="/broadcasts" className="analysis-breadcrumbs__link">
             {t('broadcasts.title')}
           </Link>
-          {tournamentName && (
+          {broadcastTitle && (
             <>
               <span className="analysis-breadcrumbs__sep"> / </span>
               <Link
@@ -405,7 +430,7 @@ export function BroadcastGamePage() {
                 state={{ fromRound: true }}
                 className="analysis-breadcrumbs__link"
               >
-                {tournamentName}
+                {broadcastTitle}
               </Link>
             </>
           )}
@@ -414,7 +439,7 @@ export function BroadcastGamePage() {
             to={`/broadcasts/${tournamentId}/${roundId}`}
             className="analysis-breadcrumbs__link"
           >
-            {t('broadcasts.dgt.round')} {roundId}
+            {roundName || t('broadcastRound.title', 'Round')}
           </Link>
           <span className="analysis-breadcrumbs__sep"> / </span>
           <span className="analysis-breadcrumbs__current">
