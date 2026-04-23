@@ -600,6 +600,174 @@ export type BroadcastRoundsResponse = {
   data: BroadcastRoundItem[];
 };
 
+// ─── Broadcast crosstable (REST: GET /broadcasts/:id/crosstable) ─────
+// KS-1726 / ADR-023 §2.4 — типы для type-aware crosstable из chess-results.com.
+//
+// Источник истины — `chess-results.com` (HTML-скрейпинг броадкаст-сервисом).
+// Если у broadcast'а нет `chessResultsTournamentId` (или скрейпинг упал) —
+// `sourceType='internal-fallback'`, шейп `CrosstableLegacy` (legacy-рендер
+// из `broadcast_games`).
+//
+// Discriminator — `tournamentType` (единое имя с моделью БД
+// `BroadcastStandings.tournamentType`). v1 поддерживает 5 значений
+// (см. `TournamentType` ниже); v1.1 расширит enum (knockout/match/
+// scheveningen/double-round-robin как отдельный рендер) — отдельной задачей.
+
+/**
+ * Тип турнира для рендера crosstable. v1 — 5 значений.
+ *
+ * Должен быть согласован с `detectTournamentType` (apps/broadcast-service)
+ * и `BroadcastStandings.tournamentType` (packages/broadcasts-db).
+ */
+export type TournamentType =
+  | 'swiss'
+  | 'round-robin'
+  | 'team-swiss'
+  | 'team-round-robin'
+  | 'unknown';
+
+/**
+ * Игрок в турнирной таблице. `gamesPlayed` критично для разделения
+ * `bye/withdrawn/forfeit` от реально сыгранных партий — UI использует это
+ * для процента нерезультативных встреч и подсветки «выпавших» участников.
+ *
+ * `normalizedName` — результат `normalizePlayerName` (broadcast-service):
+ * lowercase + strip diacritics + collapse whitespace. Используется фронтом
+ * как стабильный ключ для мэппинга своих partial-данных.
+ *
+ * `fideId`, `title` — приходят с chess-results, могут отсутствовать у
+ * любителей или у турниров с неполной регистрацией. `team` — только для
+ * `team-*` типов, ссылка на `CrosstableTeamEntry.name` через нормализацию.
+ */
+export interface CrosstablePlayer {
+  rank: number;
+  name: string;
+  normalizedName: string;
+  federation?: string;
+  elo?: number;
+  /** GM/IM/FM/WGM/WIM/WFM/NM и др. */
+  title?: string;
+  /** FIDE ID, например "25102001". */
+  fideId?: string;
+  points: number;
+  gamesPlayed: number;
+  /** Ключи: `buchholz`, `sonnebornBerger`, `progressive`, ... */
+  tiebreaks?: Record<string, number>;
+  /** Имя команды для team-турниров (см. `CrosstableTeamEntry.name`). */
+  team?: string;
+}
+
+/**
+ * Ссылка на нашу партию из crosstable-ячейки. `null` (в `CrosstableCell`),
+ * если в `chess-results` партия есть, но в `broadcast_games` — нет
+ * (Lichess не загрузил PGN, либо это партия не из топ-доски и стрим её
+ * пропустил). Такая ячейка не кликабельна на фронте.
+ */
+export interface CrosstableGameRef {
+  /** UUID нашей `BroadcastGame.id`. */
+  gameId: string;
+  /** UUID `BroadcastRound.id`. */
+  roundId: string;
+  /** Человекочитаемое имя тура («Round 5»). */
+  roundName: string;
+}
+
+/**
+ * Универсальная ячейка для round-robin-матрицы и swiss-pairings. Один и
+ * тот же тип переиспользуется специально — фронт-рендер ячейки одинаков
+ * (результат + цвет + опциональный clickable game-link).
+ *
+ * `result='bye' | 'forfeit'` — не-партия, `gameRef` всегда `null`.
+ * `result=null` — для round-robin диагональ (игрок vs он сам).
+ */
+export interface CrosstableCell {
+  /** Ранг оппонента в `players[]`. Опционально для bye / forfeit. */
+  opponentRank?: number;
+  result: 'win' | 'loss' | 'draw' | 'bye' | 'forfeit' | null;
+  color?: 'white' | 'black';
+  /** `null` — chess-results знает партию, у нас её нет; `undefined` — bye/forfeit. */
+  gameRef?: CrosstableGameRef | null;
+}
+
+/**
+ * Команда в team-* турнире. Игроки команды находятся в `players[]` через
+ * совпадение `CrosstablePlayer.team === CrosstableTeamEntry.name`.
+ */
+export interface CrosstableTeamEntry {
+  name: string;
+  rank: number;
+  points: number;
+}
+
+/**
+ * База для всех вариантов response — поля, общие для любого типа турнира.
+ * Используется через `extends` в discriminated union ниже.
+ */
+export interface CrosstableBase {
+  sourceType: 'chess-results' | 'internal-fallback';
+  /** URL на chess-results для «Open official standings»-кнопки. */
+  sourceUrl: string | null;
+  /** ISO-строка момента fetch'а. `null` для `internal-fallback` (нет fetch'а). */
+  fetchedAt: string | null;
+  players: CrosstablePlayer[];
+}
+
+/**
+ * Round-robin (включая double-round-robin в v1; отдельный рендер для
+ * double — v1.1). `matrix[i][j]` — ячейка для игрока с `players[i].rank`
+ * против `players[j].rank`. Диагональ — `result=null`.
+ */
+export interface CrosstableRoundRobin extends CrosstableBase {
+  tournamentType: 'round-robin';
+  /** N×N где N = `players.length`. */
+  matrix: CrosstableCell[][];
+}
+
+/**
+ * Swiss. `pairings[i][r]` — пара для игрока `players[i]` в туре `r` (0-based;
+ * `roundCount` — общее число туров).
+ */
+export interface CrosstableSwiss extends CrosstableBase {
+  tournamentType: 'swiss';
+  roundCount: number;
+  /** N×R где N = `players.length`, R = `roundCount`. */
+  pairings: CrosstableCell[][];
+}
+
+/**
+ * Командные турниры (team-swiss / team-round-robin). Внешняя таблица —
+ * `teams`, индивидуальные результаты игроков команд — в `players` через
+ * `CrosstablePlayer.team`. Внутренняя матрица/pairings команд раскроется
+ * на фронте отдельным компонентом (детали — в A14/A15).
+ */
+export interface CrosstableTeam extends CrosstableBase {
+  tournamentType: 'team-swiss' | 'team-round-robin';
+  teams: CrosstableTeamEntry[];
+}
+
+/**
+ * Fallback-вариант для `tournamentType='unknown'` или
+ * `sourceType='internal-fallback'`. Фронт рендерит legacy-crosstable
+ * (текущий компонент из `broadcast_games`). `reason` — человекочитаемая
+ * причина для логов / тех-инфо ("standings_url not on chess-results.com",
+ * "scrape failed: HTTP 503", и т.п.).
+ */
+export interface CrosstableLegacy extends CrosstableBase {
+  tournamentType: 'unknown';
+  reason: string;
+}
+
+/**
+ * Discriminated union по `tournamentType` — единый response endpoint'а
+ * `GET /broadcasts/:id/crosstable`. Фронт-диспетчер switch'ится на
+ * `tournamentType` (см. ADR-023 §2.5).
+ */
+export type CrosstableResponse =
+  | CrosstableRoundRobin
+  | CrosstableSwiss
+  | CrosstableTeam
+  | CrosstableLegacy;
+
 // ─── WebSocket: /broadcast namespace ────────────────────────────────
 
 /** Client → Server */
