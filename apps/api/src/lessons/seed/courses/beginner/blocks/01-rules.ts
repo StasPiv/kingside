@@ -217,12 +217,14 @@ export const block01Rules: LessonFixture[] = [
           ].join('\n'),
           diagrams: [
             {
-              fen: '4k3/8/8/4N3/8/8/8/4K3 w - - 0 1',
+              // KS-1779 / KS-1778: короли в h8/h1 (рекомендация chess-expert)
+              fen: '7k/8/8/4N3/8/8/8/7K w - - 0 1',
               caption: 'Конь на e5 контролирует 8 полей: c4, c6, d3, d7, f3, f7, g4, g6.',
               orientation: 'white',
             },
             {
-              fen: 'N3k3/8/8/8/8/8/8/4K3 w - - 0 1',
+              // KS-1779 / KS-1778: короли в h8/h1
+              fen: 'N6k/8/8/8/8/8/8/7K w - - 0 1',
               caption: 'Конь в углу a8: ему доступны всего 2 поля — b6 и c7.',
               orientation: 'white',
             },
@@ -313,7 +315,8 @@ export const block01Rules: LessonFixture[] = [
               orientation: 'white',
             },
             {
-              fen: '4k3/8/8/8/8/2B5/1P6/B3K3 w - - 0 1',
+              // KS-1779 / KS-1778: белый король на e2 (рекомендация chess-expert)
+              fen: '4k3/8/8/8/8/2B5/1P2K3/B7 w - - 0 1',
               caption: 'Белопольный слон на c3 и чернопольный слон на a1: работают на разных цветах.',
               orientation: 'white',
             },
@@ -404,7 +407,8 @@ export const block01Rules: LessonFixture[] = [
               orientation: 'white',
             },
             {
-              fen: '4k3/8/8/8/8/8/8/R2R1K2 w - - 0 1',
+              // KS-1779 / KS-1778: белый король на e3 (рекомендация chess-expert)
+              fen: '4k3/8/8/8/8/4K3/8/R2R4 w - - 0 1',
               caption: 'Сдвоенные ладьи на 1-й горизонтали — сильная атакующая конструкция.',
               orientation: 'white',
             },
@@ -480,7 +484,9 @@ export const block01Rules: LessonFixture[] = [
           ].join('\n'),
           diagrams: [
             {
-              fen: '4k3/8/8/8/3Q4/8/8/4K3 w - - 0 1',
+              // KS-1779 / KS-1778: ключевой случай — короли НЕ на d-вертикали,
+              // не на 4-й горизонтали и не на диагоналях ферзя (a8/h1 — рек).
+              fen: 'k7/8/8/8/3Q4/8/8/7K w - - 0 1',
               caption: 'Ферзь на d4 — 27 полей под контролем.',
               orientation: 'white',
             },

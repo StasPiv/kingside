@@ -278,17 +278,11 @@ export const block06BasicEndgame: LessonFixture[] = [
           passThreshold: 0.7,
         },
       },
-      {
-        id: 'practice',
-        order: 2,
-        payload: {
-          type: 'puzzle',
-          // chess-expert указал ['endgame', 'stalemate'], но Lichess puzzle
-          // themes не содержат 'stalemate' — оставляем только 'endgame'.
-          selection: { mode: 'filter', themes: ['endgame'], ratingMax: 1300, limit: 4 },
-          minSolved: 2,
-        },
-      },
+      // KS-1779 / KS-1778: PuzzleStep удалён по решению chess-expert.
+      // Тема 6.4 («не сдавайся, ищи пат и ловушки») — методическая,
+      // задачи на общую тему `endgame` методически вредны для ученика.
+      // Вернуть puzzle-шаг в урок можно после расширения `PuzzleTheme`
+      // темами `stalemate`/`zugzwang` (пост-MVP).
     ],
   },
 ];
