@@ -6,6 +6,7 @@
     "build": "nest build",
     "dev": "nest start --watch",
     "start": "node dist/main.js",
+    "sync-lichess:once": "node dist/sync-once.js",
     "test": "jest"
   },
   "dependencies": {
