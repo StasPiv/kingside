@@ -82,16 +82,35 @@
 - `User-Agent` с контактным email.
 - Timeout 15 с на запрос (как в `chess-results.service.ts`).
 
-**Какие страницы парсим** (разобрано по `art=` параметру):
+**Какие страницы парсим.** **Уточнение 2026-04-23 после эмпирической проверки** 4-х активных турниров на chess-results (Sri Lanka National 14-player RR, Shakti Grandeur 9-round Swiss, Chinese Team 6-round Swiss-for-teams, TIPOS Extraliga 12-team RR):
 
-| `art=` | Что отдаёт | Когда парсим |
-| ------ | ---------- | ------------ |
-| 1 | Общая таблица (rank / name / FIDE ID / Elo / federation / points / tiebreaks) | **Все** типы турниров |
-| 4 | Кросс-таблица (только round-robin-турниры) | round-robin |
-| 9 | Таблица команд (team score) | team-* |
-| 5 | Pairings по турам (all rounds) — ключ для маппинга games | swiss, team-swiss |
+**art-номер на chess-results даёт разную страницу в зависимости от типа турнира.** Первоначальная таблица в ADR «art=1 standings / art=4 RR-crosstable / art=5 pairings / art=9 team» — была неверной. Ниже эмпирически проверенная карта (ориентир — `<h2>`-заголовок страницы).
 
-Для v1 достаточно `art=1` (standings) + `art=4` (crosstable если round-robin) + `art=5` (pairings для swiss). `art=9` (team) отложим на v1.1 (scope-control, см. §2.3).
+| tournamentType | art | `<h2>` на странице | Что парсим |
+| -------------- | ---- | ------------------ | ---------- |
+| `round-robin` / `double-round-robin` | **5** | `Starting rank crosstable` | N×N crosstable + players (Rk, Pts, TB1..TB5, Rtg, FED) одной страницей |
+| `swiss` | **1** | `Rank after Round N` | players[] (Rk, Pts, TB1..TB6, Rtg, FED). Колонок туров здесь НЕТ. |
+| `swiss` | **2** | `Pairings/Results` | per-round pairings (bo, white, black, result) — источник данных для SwissPairings и mapping games |
+| `team-round-robin` | **0** | `Ranking crosstable (Pts.)` | team-crosstable N×N команд + team-ranking (Pts, TB) |
+| `team-round-robin` | **1** | `Team-Composition with round-results` | игроки по командам + колонки туров = N раундов (для mapping players и partial pairings) |
+| `team-swiss` | **0** | `Rank after Round N` | team-standings список команд (Pts, +/=/-, TB1..TB5) |
+| `team-swiss` | **1** | `Team-Composition with round-results` | составы команд + результаты игроков по турам |
+| `team-swiss` | **2** | `Team-Pairings of all rounds` | пары команд по турам (match A vs B, res 3:1) |
+
+**Минимальное число HTTP-запросов для полного `CrosstableResponse`:**
+
+| tournamentType | HTTP-запросов | art'ы |
+| -------------- | ------------- | ----- |
+| round-robin / double-round-robin | 1 | `art=5` |
+| swiss | 2 | `art=1` + `art=2` |
+| team-round-robin | 2 | `art=0` + `art=1` |
+| team-swiss | 3 | `art=0` + `art=1` + `art=2` |
+
+**Валидация.** Парсер при fetch'е проверяет `<h2>`-заголовок: если не совпадает с ожидаемым (например, ждём «Starting rank crosstable», пришло «Starting rank list of players» — значит турнир ещё не начат) → marking `BroadcastStandings.fetchError = 'unexpected-h2: <actual>'` и **не** перетирает ранее распарсенные данные. Pre-start турниры (все `art` дают стартовый список без pts/crosstable) детектятся по h2 `Starting rank list` / `Rank after Round 0` и возвращают `source='internal-fallback'` до первого сыгранного тура.
+
+**Для `knockout` / `match` / `scheveningen` / `unknown`** — art-номера не фиксированы (на chess-results они редки, формат страниц различается), в v1 уходят в `CrosstableLegacy`-ветку без запроса chess-results.
+
+**`art=` параметры НЕ меняются при URL с `s1./s2./s3.` субдоменом** — chess-results использует поддомены для балансировки, содержимое идентично. Follow-redirect на эти поддомены обязателен (существующий `fetchPage` уже делает).
 
 ### 2.2 Идентификация турнира на chess-results (Q2)
 
@@ -538,7 +557,7 @@ export type CrosstableResponse =
 - Если записи нет совсем (первый запрос) → синхронный fetch, ставим Redis-lock `chess-results:fetch:<broadcastId>` (TTL 30 с) чтобы параллельные запросы не шли параллельно, остальные ждут/получают `503 Retry-After: 5`.
 - Circuit-breaker по ошибкам: `chess_results_error_rate`, если >50% ошибок за 10 мин → выключаем опросы на 30 мин (persisted в Redis).
 
-**Причина on-demand вместо cron:** большинство broadcasts на любом конкретном моменте времени никто не смотрит. Пулить standings каждые 5 мин для 100+ broadcasts = 100+ запросов × 3 страницы (`art=1,4,5`) = 300 запросов / 5 мин = 1 req/s постоянно на один сайт. On-demand + TTL уменьшит нагрузку в разы.
+**Причина on-demand вместо cron:** большинство broadcasts на любом конкретном моменте времени никто не смотрит. Пулить standings каждые 5 мин для 100+ broadcasts, с учётом 2-3 HTTP-запросов на турнир (см. карту art-номеров в §2.1), даст 200-300 запросов / 5 мин = ~1 req/s постоянно на один сайт. On-demand + TTL уменьшит нагрузку в разы.
 
 **Недостаток on-demand:** первый пользователь на холодном кеше ждёт ~2-5 с (fetch + parse). Митигация: при upsert `Broadcast` в основном Lichess-sync, если это **новый pinned** broadcast → триггерить warm-up standings async.
 
@@ -548,7 +567,7 @@ export type CrosstableResponse =
 
 - **`src/chess-results/`** — новый модуль:
   - `chess-results.module.ts`
-  - `chess-results-crosstable.service.ts` — парсер HTML (см. fetcher из `apps/api/src/live-tournament/chess-results.service.ts` как reference; **НЕ импортируем его — broadcast-service и api-service — разные NestJS-приложения, разные deploy**; копируем код базового `fetchPage` + пишем новые парсеры для `art=1,4,5`).
+  - `chess-results-crosstable.service.ts` — парсер HTML (см. fetcher из `apps/api/src/live-tournament/chess-results.service.ts` как reference; **НЕ импортируем его — broadcast-service и api-service — разные NestJS-приложения, разные deploy**; копируем код базового `fetchPage`). Внутри — 5 парсеров на разные страницы (см. карту §2.1): `parseRrCrosstable(art=5)`, `parseSwissRanking(art=1)`, `parseSwissPairings(art=2)`, `parseTeamStandings(art=0)`, `parseTeamComposition(art=1)`, `parseTeamPairings(art=2)`. Каждый проверяет `<h2>`-заголовок перед парсингом и возвращает `{ ok: false, reason }` при несовпадении.
   - `chess-results-crosstable.service.spec.ts` — unit-тесты на fixtures из `test/fixtures/chess-results/`.
   - `player-name-matcher.ts` — нормализация + маппинг.
   - `tournament-type-detector.ts` — парсер `Broadcast.format` → `TournamentType`.
@@ -610,14 +629,23 @@ CREATE TABLE broadcast_standings (
 
 **Unit-тесты (backend):**
 
-- `test/fixtures/chess-results/` — сохранённые HTML-ответы:
-  - `tnr1394105-art1.html` (standings swiss)
-  - `tnr1394105-art5.html` (swiss pairings)
-  - `tnr1394105-art9.html` (team table)
-  - `tnr_RR_art4.html` (round-robin crosstable, взять с Candidates)
-  - `tnr_DRR_art4.html` (double round-robin)
-  - `tnr_team-RR_art9.html` (Bundesliga)
-  - `tnr_edge_empty.html`, `tnr_edge_withdrawn.html`, `tnr_edge_bye.html`
+- `test/fixtures/chess-results/` — сохранённые HTML-ответы (**исправлено 2026-04-23** после эмпирической проверки art-номеров, см. §2.1). Fixtures привязаны к конкретным активным/завершённым турнирам с проверенной структурой:
+
+  | Файл | Источник | h2 | Назначение |
+  | ---- | -------- | -- | ---------- |
+  | `rr-art5-crosstable.html` | `s2.chess-results.com/tnr1395782.aspx?lan=1&art=5` (Sri Lanka National, 14-player RR, 6 туров) | `Starting rank crosstable` | pure RR: players + crossTable одной страницей |
+  | `swiss-art1-ranking.html` | `s1.chess-results.com/tnr1352214.aspx?lan=1&art=1` (Shakti Grandeur, 9-round Swiss, 7 туров) | `Rank after Round 7` | pure Swiss: players + tiebreaks |
+  | `swiss-art2-pairings.html` | `s1.chess-results.com/tnr1352214.aspx?lan=1&art=2` | `Pairings/Results` | pure Swiss: pairings по турам |
+  | `team-swiss-art0-teamrank.html` | `s1.chess-results.com/tnr1394105.aspx?lan=1&art=0` (Chinese Team Championship men, 6-round Swiss for teams) | `Rank after Round 5` | team-swiss: teams[] (список, не матрица) |
+  | `team-swiss-art1-composition.html` | `s1.chess-results.com/tnr1394105.aspx?lan=1&art=1` | `Team-Composition with round-results` | team-swiss: составы команд + личные результаты по турам |
+  | `team-swiss-art2-teampairings.html` | `s1.chess-results.com/tnr1394105.aspx?lan=1&art=2` | `Team-Pairings of all rounds` | team-swiss: матчи команд по турам |
+  | `team-rr-art0-crosstable.html` | `s1.chess-results.com/tnr1237261.aspx?lan=1&art=0` (TIPOS šachová Extraliga, 12-team RR) | `Ranking crosstable (Pts.)` | team-RR: матрица N×N команд |
+  | `team-rr-art1-composition.html` | `s1.chess-results.com/tnr1237261.aspx?lan=1&art=1` | `Team-Composition with round-results` | team-RR: составы команд + личные результаты по турам |
+  | `pre-start-art1.html` | `s1.chess-results.com/tnr1389458.aspx?lan=1&art=1` (пре-старт) | `Rank after Round 0` | edge: турнир не начат, парсер должен вернуть `{ ok: false, reason: 'pre-start' }` |
+
+  Edge-cases покрываются тем же набором (в `team-swiss-art1` есть игроки с bye, withdrawn — проверить по h2/td; в `swiss-art2-pairings` у активного турнира есть forfeit — нужно проверить вручную, опционально добавить `edge-forfeit.html`).
+
+  Фикстуры **актуальны на 2026-04-23 12:00 UTC**. Если структура chess-results HTML изменится — перезаписать через `curl -A "$UA" -L` на тех же URL (devops может сделать автоматически в рамках KS-A18, сохраняя свежие HTML раз в месяц в тот же каталог).
 - Mock `fetch` в spec'ах через jest mock (паттерн как в `chess-results.service.spec.ts`).
 - Парсер не ходит в сеть в CI — покрытие по fixtures.
 
