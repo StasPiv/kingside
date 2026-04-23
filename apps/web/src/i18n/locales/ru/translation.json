@@ -28,7 +28,8 @@
     "more": "Ещё",
     "features": "Возможности",
     "home": "Главная",
-    "feedback": "Отзывы"
+    "feedback": "Отзывы",
+    "lessons": "Уроки"
   },
   "theme": {
     "toggle": "Переключить тему",
@@ -1156,6 +1157,50 @@
       "errorMessage": "Не удалось загрузить партии",
       "loadMore": "Показать ещё",
       "loadingMore": "Загрузка…"
+    }
+  },
+  "lessons": {
+    "title": "Уроки",
+    "subtitle": "Структурированный курс шахмат",
+    "empty": "Курсы пока не опубликованы",
+    "loadError": "Не удалось загрузить курсы",
+    "invalidCourse": "Некорректный адрес курса",
+    "invalidLesson": "Некорректный адрес урока",
+    "courseNotFound": "Курс не найден",
+    "lessonNotFound": "Урок не найден",
+    "noLessons": "В курсе пока нет уроков",
+    "noSteps": "В уроке пока нет шагов",
+    "stepPlaceholder": "Содержание шага появится здесь",
+    "backToList": "Все курсы",
+    "recommendedForYou": "Рекомендуем для вас",
+    "lessonCount_one": "{{count}} урок",
+    "lessonCount_few": "{{count}} урока",
+    "lessonCount_many": "{{count}} уроков",
+    "lessonCount_other": "{{count}} уроков",
+    "stepCount_one": "{{count}} шаг",
+    "stepCount_few": "{{count}} шага",
+    "stepCount_many": "{{count}} шагов",
+    "stepCount_other": "{{count}} шагов",
+    "progressShort": "{{completed}}/{{total}}",
+    "progressFull": "{{completed}}/{{total}} ({{percent}}%)",
+    "progressLabel": "Прогресс по курсу",
+    "level": {
+      "beginner": "Начинающий",
+      "intermediate": "Средний",
+      "advanced": "Опытный"
+    },
+    "state": {
+      "not_started": "Не начат",
+      "in_progress": "В процессе",
+      "completed": "Пройден"
+    },
+    "stepType": {
+      "text": "Теория",
+      "puzzle": "Задача",
+      "quiz": "Тест",
+      "position": "Позиция",
+      "game_review": "Разбор партии",
+      "video": "Видео"
     }
   }
 }

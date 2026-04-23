@@ -32,6 +32,9 @@ import { DevBypassPage } from './pages/DevBypassPage';
 import { PlayPage } from './pages/PlayPage';
 import { FeedbackBoardPage } from './pages/FeedbackBoardPage';
 import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
+import { LessonsPage } from './pages/LessonsPage';
+import { CoursePage } from './pages/CoursePage';
+import { LessonPage } from './pages/LessonPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 
@@ -133,6 +136,9 @@ export function App() {
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<PuzzleBrowserPage />} />
         <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
+        <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
+        <Route path="/lessons/:courseSlug" element={<ProtectedRoute><CoursePage /></ProtectedRoute>} />
+        <Route path="/lessons/:courseSlug/:lessonSlug" element={<ProtectedRoute><LessonPage /></ProtectedRoute>} />
         <Route path="/feedback" element={<FeedbackBoardPage />} />
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
         <Route path="/puzzle" element={<PuzzlePage />} />

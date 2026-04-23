@@ -28,7 +28,8 @@
     "more": "More",
     "features": "Features",
     "home": "Home",
-    "feedback": "Feedback"
+    "feedback": "Feedback",
+    "lessons": "Lessons"
   },
   "theme": {
     "toggle": "Toggle theme",
@@ -1156,6 +1157,46 @@
       "errorMessage": "Failed to load games",
       "loadMore": "Load more",
       "loadingMore": "Loading…"
+    }
+  },
+  "lessons": {
+    "title": "Lessons",
+    "subtitle": "Structured chess curriculum",
+    "empty": "No courses available yet",
+    "loadError": "Failed to load courses",
+    "invalidCourse": "Invalid course slug",
+    "invalidLesson": "Invalid lesson URL",
+    "courseNotFound": "Course not found",
+    "lessonNotFound": "Lesson not found",
+    "noLessons": "No lessons in this course yet",
+    "noSteps": "No steps in this lesson yet",
+    "stepPlaceholder": "Step content will appear here",
+    "backToList": "All courses",
+    "recommendedForYou": "Recommended for you",
+    "lessonCount_one": "{{count}} lesson",
+    "lessonCount_other": "{{count}} lessons",
+    "stepCount_one": "{{count}} step",
+    "stepCount_other": "{{count}} steps",
+    "progressShort": "{{completed}}/{{total}}",
+    "progressFull": "{{completed}}/{{total}} ({{percent}}%)",
+    "progressLabel": "Course progress",
+    "level": {
+      "beginner": "Beginner",
+      "intermediate": "Intermediate",
+      "advanced": "Advanced"
+    },
+    "state": {
+      "not_started": "Not started",
+      "in_progress": "In progress",
+      "completed": "Completed"
+    },
+    "stepType": {
+      "text": "Theory",
+      "puzzle": "Puzzle",
+      "quiz": "Quiz",
+      "position": "Position",
+      "game_review": "Game review",
+      "video": "Video"
     }
   }
 }
