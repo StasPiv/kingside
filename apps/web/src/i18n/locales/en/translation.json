@@ -1240,6 +1240,15 @@
       "game_review": "Game review",
       "video": "Video"
     },
+    "block": {
+      "rules": "Rules and pieces",
+      "basic-mates": "Basic checkmates",
+      "piece-values": "Piece values and exchanges",
+      "openings": "Opening principles",
+      "tactics": "Tactics",
+      "basic-endgame": "Basic endgames",
+      "other": "Other"
+    },
     "beginner": {
       "title": "Beginner",
       "description": "Foundation course for those just learning chess: piece moves, basic tactics, simple endgames.",

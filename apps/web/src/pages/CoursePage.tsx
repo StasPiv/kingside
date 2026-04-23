@@ -5,14 +5,15 @@ import type { CourseWithLessonsResponse } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
+import { groupLessonsByBlock } from '../components/lessons/courseBlocks';
 
 /**
  * Страница `/lessons/:courseSlug` — курс с перечнем уроков и прогрессом
- * пользователя (L-07).
+ * пользователя (L-07 + KS-1785).
  *
- * MVP: уроки идут плоским списком, отсортированным по `order`. Группировка
- * в «блоки» (`Block`) появится позже (L-08+) — типы для блоков пока в
- * shared не вынесены, поэтому здесь обходимся плоским списком.
+ * Уроки сгруппированы по «блокам» через `groupLessonsByBlock` (см.
+ * `components/lessons/courseBlocks.ts`). До появления `blockKey` в
+ * API используется slug-fallback для курса beginner.
  */
 
 export function CoursePage() {
@@ -80,6 +81,7 @@ export function CoursePage() {
 
   const { course, lessons, progress } = data;
   const sortedLessons = [...lessons].sort((a, b) => a.order - b.order);
+  const blocks = groupLessonsByBlock(sortedLessons);
   const total = sortedLessons.length;
   const completed = progress?.lessonsCompleted ?? 0;
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -122,34 +124,52 @@ export function CoursePage() {
           {t('lessons.noLessons', 'No lessons in this course yet')}
         </div>
       ) : (
-        <ol className="course-lesson-list" data-testid="course-lesson-list">
-          {sortedLessons.map((lesson) => (
-            <li
-              key={lesson.id}
-              className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
+        <div className="course-block-list" data-testid="course-lesson-list">
+          {blocks.map((block) => (
+            <section
+              key={block.key}
+              className={`course-block course-block--${block.key}`}
+              data-testid={`course-block-${block.key}`}
             >
-              <Link
-                to={`/lessons/${course.slug}/${lesson.slug}`}
-                data-testid={`lesson-link-${lesson.slug}`}
-                className="course-lesson-link"
-              >
-                <span className="course-lesson-order">{lesson.order}.</span>
-                <span className="course-lesson-title">
-                  {t(lesson.titleI18nKey, lesson.slug)}
-                </span>
-                <span className={`course-lesson-state course-lesson-state--${lesson.progressState}`}>
-                  {t(`lessons.state.${lesson.progressState}`, lesson.progressState)}
-                </span>
-                <span className="course-lesson-step-count">
-                  {t('lessons.stepCount', {
-                    count: lesson.stepCount,
-                    defaultValue: '{{count}} steps',
-                  })}
-                </span>
-              </Link>
-            </li>
+              <h2 className="course-block-title">
+                {t(`lessons.block.${block.key}`, block.key)}
+              </h2>
+              <ol className="course-lesson-list">
+                {block.lessons.map((lesson) => (
+                  <li
+                    key={lesson.id}
+                    className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
+                  >
+                    <Link
+                      to={`/lessons/${course.slug}/${lesson.slug}`}
+                      data-testid={`lesson-link-${lesson.slug}`}
+                      className="course-lesson-link"
+                    >
+                      <span className="course-lesson-order">{lesson.order}.</span>
+                      <span className="course-lesson-title">
+                        {t(lesson.titleI18nKey, lesson.slug)}
+                      </span>
+                      <span
+                        className={`course-lesson-state course-lesson-state--${lesson.progressState}`}
+                      >
+                        {t(
+                          `lessons.state.${lesson.progressState}`,
+                          lesson.progressState,
+                        )}
+                      </span>
+                      <span className="course-lesson-step-count">
+                        {t('lessons.stepCount', {
+                          count: lesson.stepCount,
+                          defaultValue: '{{count}} steps',
+                        })}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ol>
+            </section>
           ))}
-        </ol>
+        </div>
       )}
     </div>
   );
