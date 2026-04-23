@@ -197,10 +197,11 @@ describe('BroadcastStandingsSyncService — getFresh stale', () => {
   });
 });
 
-describe('BroadcastStandingsSyncService — refresh legacy fallback', () => {
-  it('chessResultsTournamentId=null → CrosstableLegacy + persist', async () => {
+describe('BroadcastStandingsSyncService — refresh internal-fallback (KS-1749)', () => {
+  it('round-robin format без chess-results-id → tournamentType=round-robin (НЕ unknown), internal-fallback', async () => {
     const broadcast = {
       ...baseBroadcast,
+      // format='12-player round-robin' уже в baseBroadcast → round-robin.
       chessResultsTournamentId: null,
     };
     const prisma = makePrisma({ broadcast, lifecycle: 'live' });
@@ -211,19 +212,118 @@ describe('BroadcastStandingsSyncService — refresh legacy fallback', () => {
 
     const r = await svc.refresh('bc-1');
 
-    expect(r.tournamentType).toBe('unknown');
+    expect(r.tournamentType).toBe('round-robin');
     expect(r.sourceType).toBe('internal-fallback');
-    if (r.tournamentType !== 'unknown') return;
-    expect(r.reason).toMatch(/chessResultsTournamentId is null/);
+    expect(r.sourceUrl).toBeNull();
+    expect(r.fetchedAt).toBeNull();
     expect(fetcherMock).not.toHaveBeenCalled();
     expect(prisma.standingsUpsert).toHaveBeenCalledTimes(1);
+
+    const upsert = prisma.standingsUpsert.mock.calls[0][0];
+    expect(upsert.create.tournamentType).toBe('round-robin');
+    expect(upsert.create.sourceType).toBe('internal-fallback');
+    expect(upsert.create.fetchError).toMatch(/chessResultsTournamentId is null/);
   });
 
-  it('format не свопадает с известными типами → unknown → legacy', async () => {
+  it('team-round-robin format без chess-results-id → teams[] построен из players[].team (Bundesliga-кейс)', async () => {
+    // Регрессия KS-1749: Bundesliga (10-team double round-robin) без
+    // chess-results URL должна показывать team-round-robin тип, фронт
+    // уйдёт в <TeamStandings>. Ранее возвращался unknown → empty-state.
+    const broadcast = {
+      ...baseBroadcast,
+      format: '10-team double round-robin', // → team-round-robin
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'round-1',
+          name: 'Round 1',
+          startsAt: new Date('2026-04-01T15:00:00Z'),
+          games: [
+            {
+              id: 'g1',
+              roundId: 'round-1',
+              whitePlayer: 'Smith, A',
+              blackPlayer: 'Jones, B',
+              whiteElo: 2400,
+              blackElo: 2350,
+              result: '1-0',
+              pgn:
+                '[White "Smith, A"]\n[Black "Jones, B"]\n' +
+                '[WhiteTeam "Hamburg"]\n[BlackTeam "Berlin"]\n' +
+                '[Result "1-0"]\n\n1. e4 e5 1-0',
+            },
+            {
+              id: 'g2',
+              roundId: 'round-1',
+              whitePlayer: 'Brown, C',
+              blackPlayer: 'Davis, D',
+              whiteElo: 2300,
+              blackElo: 2280,
+              result: '1/2-1/2',
+              pgn:
+                '[White "Brown, C"]\n[Black "Davis, D"]\n' +
+                '[WhiteTeam "Hamburg"]\n[BlackTeam "Berlin"]\n' +
+                '[Result "1/2-1/2"]\n\n1. d4 d5 1/2-1/2',
+            },
+          ],
+        },
+      ],
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-1');
+
+    expect(r.tournamentType).toBe('team-round-robin');
+    expect(r.sourceType).toBe('internal-fallback');
+    if (
+      r.tournamentType !== 'team-round-robin' &&
+      r.tournamentType !== 'team-swiss'
+    )
+      return;
+    // Players с заполненным team из PGN-тэгов.
+    expect(r.players).toHaveLength(4);
+    const smith = r.players.find((p) => p.name === 'Smith, A');
+    expect(smith?.team).toBe('Hamburg');
+    const jones = r.players.find((p) => p.name === 'Jones, B');
+    expect(jones?.team).toBe('Berlin');
+    // Teams собраны группировкой и отсортированы по points desc.
+    expect(r.teams.map((t) => t.name).sort()).toEqual(['Berlin', 'Hamburg']);
+    // Hamburg = 1.0 (Smith win) + 0.5 (Brown draw) = 1.5
+    // Berlin  = 0.0 (Jones loss) + 0.5 (Davis draw) = 0.5
+    const hamburg = r.teams.find((t) => t.name === 'Hamburg');
+    const berlin = r.teams.find((t) => t.name === 'Berlin');
+    expect(hamburg?.points).toBe(1.5);
+    expect(berlin?.points).toBe(0.5);
+    expect(hamburg?.rank).toBe(1);
+    expect(berlin?.rank).toBe(2);
+  });
+
+  it('swiss format без chess-results-id → tournamentType=swiss, минимальный shape', async () => {
+    const broadcast = {
+      ...baseBroadcast,
+      format: '9-round Swiss', // → swiss
+      chessResultsTournamentId: null,
+    };
+    const prisma = makePrisma({ broadcast });
+    const redis = makeRedis();
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-1');
+
+    expect(r.tournamentType).toBe('swiss');
+    expect(r.sourceType).toBe('internal-fallback');
+    if (r.tournamentType !== 'swiss') return;
+    expect(r.roundCount).toBe(0);
+    expect(r.pairings).toEqual([]);
+  });
+
+  it('format не распознан (Knockout) → unknown + CrosstableLegacy (единственный legit unknown)', async () => {
     const broadcast = {
       ...baseBroadcast,
       format: 'Knockout',
-      chessResultsTournamentId: '1234',
+      chessResultsTournamentId: '1234', // даже если есть id, unknown blocks fetch
     };
     const prisma = makePrisma({ broadcast });
     const redis = makeRedis();
@@ -259,8 +359,8 @@ describe('BroadcastStandingsSyncService — refresh round-robin happy', () => {
   });
 });
 
-describe('BroadcastStandingsSyncService — refresh fetch error → legacy', () => {
-  it('fetcher throws → CrosstableLegacy', async () => {
+describe('BroadcastStandingsSyncService — fetch error → internal-fallback (KS-1749)', () => {
+  it('fetcher throws (round-robin) → internal-fallback с tournamentType=round-robin', async () => {
     const fetchPage = jest
       .fn()
       .mockRejectedValue(new Error('upstream 503'));
@@ -270,19 +370,21 @@ describe('BroadcastStandingsSyncService — refresh fetch error → legacy', () 
     const svc = makeService({ prisma, redis, fetcher });
 
     const r = await svc.refresh('bc-1');
-    expect(r.tournamentType).toBe('unknown');
-    if (r.tournamentType !== 'unknown') return;
-    expect(r.reason).toMatch(/upstream 503/);
-    // Persist всё равно был — кэшируем legacy чтобы не долбить fetcher.
+    // Detected тип сохраняется (KS-1749, корректировка KS-1745).
+    expect(r.tournamentType).toBe('round-robin');
+    expect(r.sourceType).toBe('internal-fallback');
     expect(prisma.standingsUpsert).toHaveBeenCalledTimes(1);
+    const upsert = prisma.standingsUpsert.mock.calls[0][0];
+    expect(upsert.create.tournamentType).toBe('round-robin');
+    expect(upsert.create.sourceType).toBe('internal-fallback');
+    // fetchError для аудита (через persist).
+    expect(upsert.create.fetchError ?? '').toMatch(/upstream 503/);
   });
 
-  it('KS-1745: persisted tournamentType = "unknown" (НЕ исходный team-rr)', async () => {
-    // Регрессия: на Bundesliga (team-round-robin) detectTournamentType
-    // возвращает 'team-round-robin', и до фикса persist писал именно его
-    // в БД, хотя response уже был CrosstableLegacy с
-    // tournamentType='unknown'. UI-диспетчер уходил в <TeamStandings>
-    // с пустым teams[] → empty-state, хотя players был.
+  it('KS-1749: fetcher throws на team-rr → tournamentType=team-round-robin (НЕ unknown)', async () => {
+    // Главный сценарий KS-1749 (корректировка KS-1745): для team-турнира
+    // с chess-results-id, при fetch fail — discriminator должен остаться
+    // team-round-robin. До корректировки писали unknown → empty-state UI.
     const teamBroadcast = {
       ...baseBroadcast,
       format: '12-team round-robin', // → tournamentType = 'team-round-robin'
@@ -298,39 +400,32 @@ describe('BroadcastStandingsSyncService — refresh fetch error → legacy', () 
 
     const r = await svc.refresh('bc-1');
 
-    // Возврат — legacy с tournamentType='unknown'.
-    expect(r.tournamentType).toBe('unknown');
-
-    // Главный инвариант KS-1745: persisted tournamentType — 'unknown',
-    // НЕ 'team-round-robin'. UI получит CrosstableLegacy от диспетчера.
+    expect(r.tournamentType).toBe('team-round-robin');
+    expect(r.sourceType).toBe('internal-fallback');
     expect(prisma.standingsUpsert).toHaveBeenCalledTimes(1);
-    const upsertCall = prisma.standingsUpsert.mock.calls[0][0];
-    expect(upsertCall.create.tournamentType).toBe('unknown');
-    expect(upsertCall.update.tournamentType).toBe('unknown');
-    // sourceType — internal-fallback (как было).
-    expect(upsertCall.create.sourceType).toBe('internal-fallback');
-    // fetchError содержит причину (для аудита).
-    expect(upsertCall.create.fetchError).toMatch(/chess-results timeout/);
+    const upsert = prisma.standingsUpsert.mock.calls[0][0];
+    expect(upsert.create.tournamentType).toBe('team-round-robin');
+    expect(upsert.update.tournamentType).toBe('team-round-robin');
+    expect(upsert.create.sourceType).toBe('internal-fallback');
+    expect(upsert.create.fetchError).toMatch(/chess-results timeout/);
   });
 
-  it('KS-1745: legacy ветка для chessResultsTournamentId=null тоже пишет unknown', async () => {
-    // Та же логика и для broadcast'ов без chess-results id (Lichess
-    // standings_url ведёт не на chess-results).
+  it('KS-1749: chessResultsTournamentId=null + format=swiss → tournamentType=swiss', async () => {
     const broadcast = {
       ...baseBroadcast,
-      format: '9-round Swiss', // → tournamentType = 'swiss'
+      format: '9-round Swiss',
       chessResultsTournamentId: null,
     };
     const prisma = makePrisma({ broadcast });
     const redis = makeRedis();
-    const fetcher = makeFetcher();
-    const svc = makeService({ prisma, redis, fetcher });
+    const svc = makeService({ prisma, redis, fetcher: makeFetcher() });
 
     await svc.refresh('bc-1');
 
     expect(prisma.standingsUpsert).toHaveBeenCalledTimes(1);
-    const upsertCall = prisma.standingsUpsert.mock.calls[0][0];
-    expect(upsertCall.create.tournamentType).toBe('unknown');
+    const upsert = prisma.standingsUpsert.mock.calls[0][0];
+    // Detected тип сохраняется, разу что format распознан.
+    expect(upsert.create.tournamentType).toBe('swiss');
   });
 });
 

@@ -213,17 +213,36 @@ export class BroadcastStandingsSyncService {
 
     const tid = broadcast.chessResultsTournamentId;
 
-    if (!tid || tournamentType === 'unknown') {
-      const reason = !tid
-        ? 'broadcast.chessResultsTournamentId is null (Lichess standings_url not chess-results)'
-        : `tournamentType='unknown' for format='${broadcast.format}'`;
+    // KS-1749: единственный legit-кейс для CrosstableLegacy — `unknown`
+    // detect (формат не распознан). Если detect дал реальный тип, но нет
+    // chess-results id — строим internal-fallback с тем же типом, чтобы
+    // фронт-диспетчер показал правильную таблицу (даже частично
+    // заполненную из broadcast_games).
+    if (tournamentType === 'unknown') {
+      const reason = `tournamentType='unknown' for format='${broadcast.format ?? ''}'`;
       const response = this.buildLegacyResponse(broadcast, reason);
       await this.persist(broadcastId, response, lifecycle);
       this.refreshTotal.inc({ status: 'legacy', type: tournamentType });
       return response;
     }
 
+    if (!tid) {
+      // Нет chess-results id (Lichess standings_url не туда ведёт), но
+      // detected тип известен — заполняем internal-fallback shape.
+      const reason =
+        'broadcast.chessResultsTournamentId is null (Lichess standings_url not chess-results)';
+      const response = this.buildInternalFallback(
+        broadcast,
+        tournamentType,
+        reason,
+      );
+      await this.persist(broadcastId, response, lifecycle, reason);
+      this.refreshTotal.inc({ status: 'legacy', type: tournamentType });
+      return response;
+    }
+
     let response: CrosstableResponse;
+    let fetchErrReason: string | null = null;
     try {
       switch (tournamentType) {
         case 'round-robin':
@@ -246,17 +265,22 @@ export class BroadcastStandingsSyncService {
     } catch (err: unknown) {
       const msg = (err as Error).message;
       this.logger.warn(
-        `refresh ${broadcastId} fell back to legacy: ${msg}`,
+        `refresh ${broadcastId} fell back to internal-fallback (${tournamentType}): ${msg}`,
       );
-      response = this.buildLegacyResponse(
+      // KS-1749: при ошибке fetch/parse держим detected тип, не
+      // схлопываемся в unknown. Discriminator должен соответствовать
+      // реальной природе турнира — фронт сам решит как рендерить.
+      fetchErrReason = `chess-results error: ${msg}`;
+      response = this.buildInternalFallback(
         broadcast,
-        `chess-results error: ${msg}`,
+        tournamentType,
+        fetchErrReason,
       );
       const errorStatus = this.classifyError(err);
       this.refreshTotal.inc({ status: errorStatus, type: tournamentType });
     }
 
-    await this.persist(broadcastId, response, lifecycle);
+    await this.persist(broadcastId, response, lifecycle, fetchErrReason);
     return response;
   }
 
@@ -467,18 +491,111 @@ export class BroadcastStandingsSyncService {
   }
 
   /**
-   * Список игроков из `broadcast_games` для legacy-fallback. Уникальность
+   * KS-1749: internal-fallback с сохранением **detected типа турнира**.
+   * Используется когда у broadcast'а нет `chessResultsTournamentId` или
+   * fetch/парсер chess-results упал — но мы ВСЁ ЕЩЁ знаем тип из
+   * `Broadcast.format`. Discriminator во фронте уходит в правильный
+   * рендер (`<TeamStandings>` для team-*, `<RoundRobinCrosstable>` для
+   * round-robin, `<BroadcastSwissStandings>` для swiss), даже если
+   * данных мало — лучше частичное отображение, чем пустой legacy
+   * empty-state.
+   *
+   * Players берутся из `broadcast_games` (`buildLegacyPlayersFromGames`)
+   * с извлечением `team`-поля из PGN-тэгов `[WhiteTeam]/[BlackTeam]`
+   * (Lichess broadcast стандарт). Для team-* — `teams[]` группируется
+   * из `players[].team` (имя команды + sum points + ranked by points
+   * desc); если ни у кого нет team-поля — массив пустой, фронт UX
+   * деградирует gracefully.
+   *
+   * Параметр `reason` пишется в `BroadcastStandings.fetchError` — для
+   * аудита почему данные неполные. На фронт `reason` уходит ТОЛЬКО для
+   * `CrosstableLegacy` (по shape). Для типизированных вариантов мы
+   * `reason` не передаём в response (нет поля), но он сохранится в БД.
+   */
+  private buildInternalFallback(
+    broadcast: BroadcastWithRounds,
+    tournamentType: Exclude<TournamentType, 'unknown'>,
+    reason: string,
+  ): CrosstableResponse {
+    const players = this.buildLegacyPlayersFromGames(broadcast);
+    void reason; // персистится в `fetchError` отдельно через persist().
+    switch (tournamentType) {
+      case 'round-robin':
+        return {
+          tournamentType: 'round-robin',
+          sourceType: 'internal-fallback',
+          sourceUrl: null,
+          fetchedAt: null,
+          players,
+          matrix: [],
+        };
+      case 'swiss':
+        return {
+          tournamentType: 'swiss',
+          sourceType: 'internal-fallback',
+          sourceUrl: null,
+          fetchedAt: null,
+          players,
+          roundCount: 0,
+          pairings: [],
+        };
+      case 'team-swiss':
+      case 'team-round-robin':
+        return {
+          tournamentType,
+          sourceType: 'internal-fallback',
+          sourceUrl: null,
+          fetchedAt: null,
+          players,
+          teams: this.buildTeamsFromPlayers(players),
+        };
+    }
+  }
+
+  /**
+   * Группирует players по `team`-полю и строит сортированную таблицу
+   * команд: rank по убыванию суммы points игроков команды. KS-1749 —
+   * нужен для internal-fallback team-* турниров без chess-results.
+   * Игроки без `team`-поля игнорируются (нечего группировать).
+   */
+  private buildTeamsFromPlayers(
+    players: ReadonlyArray<CrosstablePlayer>,
+  ): Array<{ name: string; rank: number; points: number }> {
+    const acc = new Map<string, { name: string; points: number }>();
+    for (const p of players) {
+      const team = p.team?.trim();
+      if (!team) continue;
+      const cur = acc.get(team) ?? { name: team, points: 0 };
+      cur.points += p.points ?? 0;
+      acc.set(team, cur);
+    }
+    return Array.from(acc.values())
+      .sort((a, b) => b.points - a.points)
+      .map((t, i) => ({ name: t.name, rank: i + 1, points: t.points }));
+  }
+
+  /**
+   * Список игроков из `broadcast_games` для internal-fallback. Уникальность
    * по нормализованному имени, points и gamesPlayed считаются по
-   * `result`-полям partii (1-0, 0-1, 1/2-1/2). Это поведение совпадает с
-   * текущим `/standings`-endpoint'ом (ADR-021), просто переехало сюда.
+   * `result`-полям partii (1-0, 0-1, 1/2-1/2).
+   *
+   * KS-1749: дополнительно извлекаются `[WhiteTeam "..."]` /
+   * `[BlackTeam "..."]` PGN-тэги (Lichess broadcast стандарт для team-
+   * турниров) и заполняется `CrosstablePlayer.team`. Если у игрока в
+   * разных партиях разные team-значения (что странно, но возможно —
+   * клуб игрока сменился), берём first-seen.
    */
   private buildLegacyPlayersFromGames(
     broadcast: BroadcastWithRounds,
   ): CrosstablePlayer[] {
-    const acc = new Map<
-      string,
-      { name: string; points: number; gamesPlayed: number; elo: number | null }
-    >();
+    type Acc = {
+      name: string;
+      points: number;
+      gamesPlayed: number;
+      elo: number | null;
+      team: string | null;
+    };
+    const acc = new Map<string, Acc>();
     const allGames = broadcast.rounds.flatMap((r) => r.games);
     for (const g of allGames) {
       const w = g.whitePlayer?.trim() ?? '';
@@ -487,34 +604,39 @@ export class BroadcastStandingsSyncService {
       const wScore =
         result === '1-0' ? 1 : result === '0-1' ? 0 : result === '1/2-1/2' ? 0.5 : null;
       const bScore = wScore == null ? null : 1 - wScore;
+      const { whiteTeam, blackTeam } = extractTeamTags(g.pgn ?? null);
       if (w) {
         const nw = normalizePlayerName(w);
-        const cur = acc.get(nw) ?? {
+        const cur: Acc = acc.get(nw) ?? {
           name: w,
           points: 0,
           gamesPlayed: 0,
           elo: null,
+          team: null,
         };
         if (wScore !== null) {
           cur.points += wScore;
           cur.gamesPlayed += 1;
         }
         if (cur.elo == null && g.whiteElo != null) cur.elo = g.whiteElo;
+        if (!cur.team && whiteTeam) cur.team = whiteTeam;
         acc.set(nw, cur);
       }
       if (b) {
         const nb = normalizePlayerName(b);
-        const cur = acc.get(nb) ?? {
+        const cur: Acc = acc.get(nb) ?? {
           name: b,
           points: 0,
           gamesPlayed: 0,
           elo: null,
+          team: null,
         };
         if (bScore !== null) {
           cur.points += bScore;
           cur.gamesPlayed += 1;
         }
         if (cur.elo == null && g.blackElo != null) cur.elo = g.blackElo;
+        if (!cur.team && blackTeam) cur.team = blackTeam;
         acc.set(nb, cur);
       }
     }
@@ -526,6 +648,7 @@ export class BroadcastStandingsSyncService {
         points: v.points,
         gamesPlayed: v.gamesPlayed,
         elo: v.elo ?? undefined,
+        team: v.team ?? undefined,
       }))
       .sort((a, b) => b.points - a.points);
     // После сортировки переустановим rank = индекс + 1.
@@ -623,18 +746,19 @@ export class BroadcastStandingsSyncService {
 
   /**
    * Persist'ит response в `broadcast_standings`. **`tournamentType`
-   * берётся ИЗ `response`, не из исходного detect'а** (KS-1745):
-   * для legacy-fallback-веток (fetcher/parser упал) `response.tournamentType`
-   * уже выставлен в `'unknown'` через `buildLegacyResponse`. Если бы мы
-   * писали исходный detected-тип (например `team-round-robin` для
-   * Bundesliga), фронт-диспетчер уходил бы в `<TeamStandings>` с пустым
-   * `teams[]` и показывал empty-state, хотя `players` из broadcast_games
-   * есть. Discriminator должен совпадать с реальным shape JSON-payload'а.
+   * берётся ИЗ `response`, не из исходного detect'а** (KS-1745) —
+   * discriminator должен совпадать с реальным shape JSON-payload'а.
+   *
+   * KS-1749: `fallbackReason` пишется в `BroadcastStandings.fetchError`
+   * для **любого** `sourceType='internal-fallback'`-ответа (раньше
+   * только для CrosstableLegacy с unknown). Это сохраняет аудит-trail
+   * «почему данные неполные», даже когда discriminator-тип распознан.
    */
   private async persist(
     broadcastId: string,
     response: CrosstableResponse,
     lifecycle: Lifecycle,
+    fallbackReason?: string | null,
   ): Promise<void> {
     const ttlMs = TTL_MS_BY_LIFECYCLE[lifecycle];
     const fetchedAt = new Date(this.now());
@@ -662,8 +786,15 @@ export class BroadcastStandingsSyncService {
       rawTeams: (rawTeams as unknown as object) ?? undefined,
       fetchedAt,
       staleAt,
+      // fetchError для аудита: для CrosstableLegacy используем
+      // встроенный response.reason, для типизированных internal-fallback
+      // — переданный fallbackReason.
       fetchError:
-        response.tournamentType === 'unknown' ? response.reason : null,
+        response.tournamentType === 'unknown'
+          ? response.reason
+          : (response.sourceType === 'internal-fallback'
+              ? (fallbackReason ?? null)
+              : null),
     };
     await this.prisma.broadcastStandings.upsert({
       where: { broadcastId },
@@ -755,10 +886,35 @@ type BroadcastWithRounds = {
       whiteElo: number | null;
       blackElo: number | null;
       result: string | null;
+      /** PGN-текст; используется для извлечения [WhiteTeam]/[BlackTeam]
+       *  тэгов в internal-fallback (KS-1749). null если игра ещё без PGN. */
+      pgn: string | null;
     }>;
   }>;
 };
 
+/**
+ * Извлекает `[WhiteTeam "..."]` и `[BlackTeam "..."]` PGN-тэги из текста
+ * партии. Lichess в broadcast PGN кладёт эти тэги для team-турниров
+ * (Bundesliga, ECC, FIDE Olympiad и т.п.). Пустая строка PGN или
+ * отсутствие тэгов → `null`.
+ */
+function extractTeamTags(pgn: string | null): {
+  whiteTeam: string | null;
+  blackTeam: string | null;
+} {
+  if (!pgn) return { whiteTeam: null, blackTeam: null };
+  const wMatch = /\[WhiteTeam\s+"([^"]*)"\]/i.exec(pgn);
+  const bMatch = /\[BlackTeam\s+"([^"]*)"\]/i.exec(pgn);
+  return {
+    whiteTeam: wMatch && wMatch[1].trim() ? wMatch[1].trim() : null,
+    blackTeam: bMatch && bMatch[1].trim() ? bMatch[1].trim() : null,
+  };
+}
+
+/** Тип Broadcast с подгруженными rounds+games (Prisma include).
+ *  Дополнен `pgn` в games — для извлечения [WhiteTeam]/[BlackTeam] тэгов
+ *  в KS-1749 internal-fallback. */
 /** Тип строки `BroadcastStandings` от Prisma (минимальный поверхностный). */
 type PrismaBroadcastStandingsRow = {
   id: string;
