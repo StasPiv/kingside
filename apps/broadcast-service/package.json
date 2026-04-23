@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "nest build",
+    "predev": "npm -w @kingside/broadcasts-db run prisma:migrate:deploy",
     "dev": "nest start --watch",
     "start": "node dist/main.js",
     "sync-lichess:once": "node dist/sync-once.js",
