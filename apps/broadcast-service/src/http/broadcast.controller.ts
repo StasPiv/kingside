@@ -140,12 +140,16 @@ export class BroadcastController {
    *  1) live (updatedAt DESC), 2) upcoming (ближайший pending starts_at ASC),
    *  3) finished (updatedAt DESC).
    *
-   * Выбираются только `isActive=true` — stale-broadcasts, помеченные worker'ом
-   * (KS-1700 Part A), не попадают в выдачу совсем.
+   * Stale-broadcasts (KS-1700 Part A: после N циклов отсутствия в Lichess
+   * top-20 worker помечает `isActive=false`) **возвращаются в выдачу** как
+   * `lifecycleStatus='finished'` — KS-1746: пользователь хочет видеть архив,
+   * по ADR-021 записи хранятся всегда. `compareLifecycleSort` укладывает
+   * finished в конец, не мешая live/upcoming.
    *
    * Пагинация: фильтр + сортировка применяются ДО slice, `total` равен длине
-   * отфильтрованного массива (в прод-объёме isActive=true broadcasts <100 это
-   * ок; при росте объёма перенести всю логику в SQL с CTE+ROW_NUMBER).
+   * отфильтрованного массива. На прод-объёме (десятки активных + сотни
+   * архивных) пагинация по 20 default'у держит payload в норме; при росте
+   * до тысяч — перенести всю логику в SQL с CTE+ROW_NUMBER.
    */
   @Get()
   async getActiveBroadcasts(
@@ -165,8 +169,10 @@ export class BroadcastController {
 
     const lifecycle = parseLifecycleFilter(lifecycleParam);
 
+    // KS-1746: фильтр `where: { isActive: true }` снят. Stale-broadcasts
+    // (isActive=false) теперь видны в категории finished — иначе архив
+    // прошлых турниров пропадает после 72 циклов sync-loop'а (~6 ч).
     const broadcasts = await this.prisma.broadcast.findMany({
-      where: { isActive: true },
       select: {
         id: true,
         lichessId: true,

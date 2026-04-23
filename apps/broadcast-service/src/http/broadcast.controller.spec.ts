@@ -300,6 +300,103 @@ describe('BroadcastController', () => {
       expect(res.data[0].lifecycleStatus).toBe('finished');
       expect(res.data[0].isPinned).toBe(false);
     });
+
+    it('KS-1746: archived broadcast (isActive=false) виден в /broadcasts как finished', async () => {
+      // Регрессия: до фикса controller фильтровал `where: { isActive: true }`,
+      // и архив (помеченный stale-check после 72 циклов) пропадал с фронта,
+      // хотя в БД оставался. Сейчас он возвращается с lifecycleStatus='finished'
+      // и status='finished'.
+      const archivedBroadcast = {
+        id: 'uuid-archived',
+        lichessId: 'la',
+        title: 'Archived Tournament',
+        isActive: false, // помечен stale-check'ом
+        startDate: new Date(now - 30 * 86400 * 1000),
+        updatedAt: new Date(now - 10 * 86400 * 1000),
+        _count: { rounds: 9 },
+      };
+      const findManyMock = jest.fn().mockResolvedValue([archivedBroadcast]);
+      const { controller, prisma } = build({
+        broadcast: {
+          findMany: findManyMock,
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(1),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-archived',
+            has_live: false,
+            has_upcoming: false,
+            nearest_pending_at: null,
+            avg_elo: 2700,
+            elo_games_count: 50,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts();
+
+      // 1. archived broadcast в выдаче.
+      expect(res.data).toHaveLength(1);
+      expect(res.data[0].id).toBe('uuid-archived');
+      // 2. status='finished' (не 'active').
+      expect(res.data[0].status).toBe('finished');
+      // 3. lifecycleStatus='finished' (нет ongoing/pending rounds).
+      expect(res.data[0].lifecycleStatus).toBe('finished');
+      // 4. isPinned=false для archived.
+      expect(res.data[0].isPinned).toBe(false);
+
+      // 5. КЛЮЧЕВОЕ — `where: { isActive: true }` НЕ передан в findMany.
+      const findManyCall = findManyMock.mock.calls[0][0];
+      expect(findManyCall.where).toBeUndefined();
+      void prisma;
+    });
+
+    it('KS-1746: archived broadcast виден и при lifecycle=finished фильтре', async () => {
+      const archived = {
+        id: 'uuid-archived-2',
+        lichessId: 'la2',
+        title: 'Old Archive',
+        isActive: false,
+        startDate: new Date(now - 60 * 86400 * 1000),
+        updatedAt: new Date(now - 30 * 86400 * 1000),
+        _count: { rounds: 5 },
+      };
+      const live = broadcastsFixture[1]; // активный live
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([archived, live]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(2),
+        },
+        $queryRaw: jest.fn().mockResolvedValue([
+          {
+            id: 'uuid-archived-2',
+            has_live: false,
+            has_upcoming: false,
+            nearest_pending_at: null,
+            avg_elo: 2400,
+            elo_games_count: 10,
+          },
+          {
+            id: 'uuid-live',
+            has_live: true,
+            has_upcoming: false,
+            nearest_pending_at: null,
+            avg_elo: 2750,
+            elo_games_count: 10,
+          },
+        ]),
+      });
+
+      const res = await controller.getActiveBroadcasts(
+        undefined,
+        undefined,
+        'finished',
+      );
+      // Только archived попал в finished-фильтр (live → live, отсеян).
+      expect(res.data.map((d) => d.id)).toEqual(['uuid-archived-2']);
+    });
   });
 
   describe('GET /:id/crosstable (KS-1734)', () => {
