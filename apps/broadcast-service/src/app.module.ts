@@ -6,6 +6,7 @@ import { MetricsModule } from './metrics/metrics.module';
 import { HealthModule } from './health/health.module';
 import { BroadcastModule } from './http/broadcast.module';
 import { BroadcastSyncModule } from './sync/broadcast-sync.module';
+import { ChessResultsModule } from './chess-results/chess-results.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { BroadcastSyncModule } from './sync/broadcast-sync.module';
     HealthModule,
     BroadcastModule,
     BroadcastSyncModule,
+    ChessResultsModule,
   ],
 })
 export class AppModule {}

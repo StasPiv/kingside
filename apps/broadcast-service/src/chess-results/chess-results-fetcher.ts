@@ -36,7 +36,17 @@ import { MetricsService } from '../metrics/metrics.service';
  *   - `chess_results_circuit_open_total` — counter переходов «закрыт→открыт».
  */
 
-export type Art = 1 | 4 | 5;
+/**
+ * Art-параметры chess-results, поддерживаемые fetcher'ом. Семантика
+ * зависит от типа турнира (см. ADR-023 §2.1):
+ *   - 0 → team-rank (для team-турниров) либо crosstable team-rr.
+ *   - 1 → swiss ranking / team composition.
+ *   - 2 → swiss pairings / team pairings.
+ *   - 4 → ranking crosstable (ранее предполагался для individual RR;
+ *         реально используется как «top players» — оставляем для совместимости).
+ *   - 5 → individual round-robin crosstable.
+ */
+export type Art = 0 | 1 | 2 | 4 | 5;
 export type Lifecycle = 'live' | 'upcoming' | 'finished';
 
 /** Per-tournament rate-limit window per lifecycle (ADR-023 §2.4). */
