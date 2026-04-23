@@ -97,14 +97,22 @@ export class PuzzleService {
   /**
    * Search puzzles by theme and/or difficulty range.
    * Themes are stored as a space-separated string, so we use `contains` for filtering.
+   *
+   * Ревизия KS-1761 (L-06): добавлены `source` и `excludeIds` — чтобы
+   * `LessonsModule.PuzzleStep` с `selection.mode='filter'` мог ограничиваться
+   * курируемым источником (обычно `'lichess'` — см. lessons-roadmap.md §5
+   * «Стабильность puzzleId») и не повторять уже выбранные задачи в рамках
+   * одного урока.
    */
   async findPuzzles(params: {
     themes?: string[];
     ratingMin?: number;
     ratingMax?: number;
     limit?: number;
+    source?: string;
+    excludeIds?: string[];
   }) {
-    const { themes, ratingMin, ratingMax, limit } = params;
+    const { themes, ratingMin, ratingMax, limit, source, excludeIds } = params;
     const take = limit ?? 10;
 
     const where: Record<string, any> = {};
@@ -119,6 +127,14 @@ export class PuzzleService {
       where.AND = themes.map((theme) => ({
         themes: { contains: theme },
       }));
+    }
+
+    if (source !== undefined) {
+      where.source = source;
+    }
+
+    if (excludeIds && excludeIds.length > 0) {
+      where.id = { notIn: excludeIds };
     }
 
     const puzzles = await this.prisma.puzzle.findMany({

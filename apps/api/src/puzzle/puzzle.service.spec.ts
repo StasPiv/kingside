@@ -118,6 +118,55 @@ describe('PuzzleService', () => {
         }),
       );
     });
+
+    // ── KS-1761 (L-06): расширение для LessonsModule ──────────────
+
+    it('KS-1761: ANDs all themes when a multi-theme filter is provided', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ themes: ['fork', 'pin', 'mateIn2'] });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            AND: [
+              { themes: { contains: 'fork' } },
+              { themes: { contains: 'pin' } },
+              { themes: { contains: 'mateIn2' } },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('KS-1761: filters by source when provided', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ themes: ['fork'], source: 'lichess' });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            source: 'lichess',
+            AND: [{ themes: { contains: 'fork' } }],
+          }),
+        }),
+      );
+    });
+
+    it('KS-1761: excludes ids when excludeIds provided', async () => {
+      prisma.puzzle.findMany.mockResolvedValue([]);
+
+      await service.findPuzzles({ excludeIds: ['x', 'y'] });
+
+      expect(prisma.puzzle.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: { notIn: ['x', 'y'] },
+          }),
+        }),
+      );
+    });
   });
 
   describe('getNextPuzzleByTheme', () => {

@@ -7,6 +7,7 @@ import { ProgressController } from './progress.controller';
 import { CoursesService } from './courses.service';
 import { LessonsService } from './lessons.service';
 import { ProgressService } from './progress.service';
+import { LessonPuzzleResolverService } from './puzzle-resolver.service';
 
 /**
  * LessonsModule — тонкий слой над существующими доменами (ADR-024 §2.5):
@@ -20,7 +21,7 @@ import { ProgressService } from './progress.service';
 @Module({
   imports: [PrismaModule, PuzzleModule],
   controllers: [CoursesController, LessonsController, ProgressController],
-  providers: [CoursesService, LessonsService, ProgressService],
-  exports: [CoursesService, LessonsService, ProgressService],
+  providers: [CoursesService, LessonsService, ProgressService, LessonPuzzleResolverService],
+  exports: [CoursesService, LessonsService, ProgressService, LessonPuzzleResolverService],
 })
 export class LessonsModule {}
