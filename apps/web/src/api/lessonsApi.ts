@@ -10,6 +10,7 @@ import type {
   CourseLevel,
   PuzzleDto,
   PuzzleStepPayload,
+  LevelGateResponse,
 } from '@kingside/shared';
 
 import { api } from '../api';
@@ -61,6 +62,15 @@ export const lessonsApi = {
       `/lessons/progress/lesson/${encodeURIComponent(lessonId)}/complete`,
       payload,
     );
+  },
+
+  /**
+   * Level-gate (L-15 / KS-1770 / KS-1781). Возвращает текущий уровень,
+   * следующий уровень и список блокеров перехода. Бэкенд считает по
+   * прогрессу курса, ratingPuzzle и сыгранным партиям.
+   */
+  getLevelGate(): Promise<LevelGateResponse> {
+    return api.get<LevelGateResponse>('/lessons/level-gate');
   },
 
   /**

@@ -1202,6 +1202,16 @@
     "completeSuccess": "Lesson completed!",
     "completeError": "Failed to mark lesson as completed",
     "syncError": "Progress could not be saved — will retry",
+    "levelGate": {
+      "unlocked": "You can move to {{level}} level",
+      "unlockedHint": "All requirements met.",
+      "locked": "To unlock {{level}} level:",
+      "blocker": {
+        "course": "Lessons remaining: {{count}}",
+        "rating": "Puzzle rating: {{current}}/{{required}}",
+        "games": "Games played: {{current}}/{{required}}"
+      }
+    },
     "backToList": "All courses",
     "recommendedForYou": "Recommended for you",
     "lessonCount_one": "{{count}} lesson",

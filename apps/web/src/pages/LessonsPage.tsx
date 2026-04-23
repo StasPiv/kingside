@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { CourseListItem, CourseLevel } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
+import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -65,6 +66,8 @@ export function LessonsPage() {
           {t('lessons.subtitle', 'Structured chess curriculum')}
         </p>
       </header>
+
+      <LevelGateBanner restrictTo="beginner" testId="lessons-page-level-gate" />
 
       {loading && (
         <div className="loading" data-testid="lessons-loading">

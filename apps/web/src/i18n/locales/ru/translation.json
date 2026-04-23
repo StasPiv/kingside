@@ -1202,6 +1202,16 @@
     "completeSuccess": "Урок завершён!",
     "completeError": "Не удалось зачесть урок",
     "syncError": "Прогресс не сохранён — повторим попытку",
+    "levelGate": {
+      "unlocked": "Можно перейти на уровень «{{level}}»",
+      "unlockedHint": "Все условия выполнены.",
+      "locked": "Чтобы открыть уровень «{{level}}»:",
+      "blocker": {
+        "course": "Осталось уроков: {{count}}",
+        "rating": "Puzzle-рейтинг: {{current}}/{{required}}",
+        "games": "Сыграно партий: {{current}}/{{required}}"
+      }
+    },
     "backToList": "Все курсы",
     "recommendedForYou": "Рекомендуем для вас",
     "lessonCount_one": "{{count}} урок",

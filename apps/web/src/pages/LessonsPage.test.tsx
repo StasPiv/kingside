@@ -4,16 +4,26 @@ import { LessonsPage } from './LessonsPage';
 
 const mockLessonsApi = {
   listCourses: vi.fn(),
+  getLevelGate: vi.fn(),
 };
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: {
     listCourses: (...args: unknown[]) => mockLessonsApi.listCourses(...args),
+    getLevelGate: (...args: unknown[]) => mockLessonsApi.getLevelGate(...args),
   },
 }));
 
 beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
+  mockLessonsApi.getLevelGate.mockReset();
+  // По умолчанию level-gate скрыт — никаких блокеров и nextLevel.
+  mockLessonsApi.getLevelGate.mockResolvedValue({
+    currentLevel: 'advanced',
+    nextLevel: null,
+    unlocked: false,
+    blockers: [],
+  });
 });
 
 describe('LessonsPage', () => {

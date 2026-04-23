@@ -4,11 +4,13 @@ import { CoursePage } from './CoursePage';
 
 const mockLessonsApi = {
   getCourse: vi.fn(),
+  getLevelGate: vi.fn(),
 };
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: {
     getCourse: (...args: unknown[]) => mockLessonsApi.getCourse(...args),
+    getLevelGate: (...args: unknown[]) => mockLessonsApi.getLevelGate(...args),
   },
 }));
 
@@ -24,6 +26,14 @@ vi.mock('react-router-dom', async () => {
 
 beforeEach(() => {
   mockLessonsApi.getCourse.mockReset();
+  mockLessonsApi.getLevelGate.mockReset();
+  // По умолчанию level-gate скрыт.
+  mockLessonsApi.getLevelGate.mockResolvedValue({
+    currentLevel: 'advanced',
+    nextLevel: null,
+    unlocked: false,
+    blockers: [],
+  });
 });
 
 describe('CoursePage', () => {
