@@ -31,7 +31,7 @@ export function BroadcastCrosstable({ broadcastId, broadcastTitle }: BroadcastCr
   if (loading) {
     return (
       <p className="broadcast-tab-empty" data-testid="broadcast-crosstable-loading">
-        {t('common.loading', 'Loading…')}
+        {t('broadcast.crosstable.loading', 'Loading standings…')}
       </p>
     );
   }

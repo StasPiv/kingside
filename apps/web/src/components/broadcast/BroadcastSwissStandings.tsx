@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import type { CrosstableCell, CrosstableSwiss } from '@kingside/shared';
 import {
   cellLetterForColor,
@@ -63,10 +64,10 @@ export function BroadcastSwissStandings({ data, broadcastId }: BroadcastSwissSta
             <th className="broadcast-xt-th-name broadcast-xt-sticky">
               {t('tournaments.player', 'Player')}
             </th>
-            <th className="broadcast-xt-th-fed">{t('broadcast.fed', 'Fed')}</th>
-            <th className="broadcast-xt-th-num">{t('broadcast.elo', 'Elo')}</th>
-            <th className="broadcast-xt-th-num">{t('broadcast.points', 'Pts')}</th>
-            <th className="broadcast-xt-th-num">{t('broadcast.gamesPlayed', 'GP')}</th>
+            <th className="broadcast-xt-th-fed">{t('broadcast.crosstable.fed', 'Fed')}</th>
+            <th className="broadcast-xt-th-num">{t('broadcast.crosstable.elo', 'Elo')}</th>
+            <th className="broadcast-xt-th-num">{t('broadcast.crosstable.points', 'Pts')}</th>
+            <th className="broadcast-xt-th-num">{t('broadcast.crosstable.gamesPlayed', 'GP')}</th>
             {tiebreakKeys.map((k) => (
               <th key={k} className="broadcast-xt-th-num" title={k}>
                 {tiebreakLabel(k)}
@@ -101,7 +102,7 @@ export function BroadcastSwissStandings({ data, broadcastId }: BroadcastSwissSta
                 if (!cell) {
                   return <td key={`c-${n}`} className="broadcast-xt-cell" />;
                 }
-                return renderSwissCell(cell, n, broadcastId, navigate);
+                return renderSwissCell(cell, n, broadcastId, navigate, t);
               })}
             </tr>
           ))}
@@ -116,6 +117,7 @@ function renderSwissCell(
   roundNum: number,
   broadcastId: string,
   navigate: ReturnType<typeof useNavigate>,
+  t: TFunction,
 ) {
   if (cell.result === null) {
     return <td key={`c-${roundNum}`} className="broadcast-xt-cell" />;
@@ -124,7 +126,7 @@ function renderSwissCell(
   if (cell.result === 'bye') {
     return (
       <td key={`c-${roundNum}`} className="broadcast-xt-cell broadcast-xt-cell--bye">
-        —
+        {t('broadcast.crosstable.result.byeSwiss', '—')}
       </td>
     );
   }
@@ -147,7 +149,9 @@ function renderSwissCell(
     // F+ — выиграл форфейтом (color + gameRef у нас есть подтверждение),
     // F- — проиграл форфейтом. Без доп. данных chess-results — трактуем:
     // если color отсутствует — это «не пришёл», F-; если есть — выиграл F+.
-    const symbol = cell.color ? 'F+' : 'F-';
+    const symbol = cell.color
+      ? t('broadcast.crosstable.result.forfeitPlus', 'F+')
+      : t('broadcast.crosstable.result.forfeitMinus', 'F-');
     return (
       <td
         key={`c-${roundNum}`}
@@ -155,7 +159,10 @@ function renderSwissCell(
         onClick={onClick}
         role={clickable ? 'button' : undefined}
         tabIndex={clickable ? 0 : undefined}
-        title={`R${roundNum}: forfeit`}
+        title={t('broadcast.crosstable.swissCellForfeit', {
+          round: roundNum,
+          defaultValue: `R${roundNum}: forfeit`,
+        })}
       >
         {symbol}
       </td>
@@ -173,7 +180,11 @@ function renderSwissCell(
       onClick={onClick}
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
-      title={`R${roundNum}: ${opRank}${letter}${symbol}`}
+      title={t('broadcast.crosstable.swissCellTooltip', {
+        round: roundNum,
+        summary: `${opRank}${letter}${symbol}`,
+        defaultValue: `R${roundNum}: ${opRank}${letter}${symbol}`,
+      })}
     >
       <span className="broadcast-xt-swiss-op">{opRank}</span>
       {letter && <span className="broadcast-xt-swiss-col">{letter}</span>}

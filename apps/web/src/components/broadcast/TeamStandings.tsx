@@ -72,8 +72,8 @@ export function TeamStandings({ data }: TeamStandingsProps) {
           <tr>
             <th className="broadcast-xt-th-rank" aria-label="toggle" />
             <th className="broadcast-xt-th-rank">#</th>
-            <th className="broadcast-xt-th-name">{t('broadcast.team', 'Team')}</th>
-            <th className="broadcast-xt-th-num">{t('broadcast.points', 'Pts')}</th>
+            <th className="broadcast-xt-th-name">{t('broadcast.crosstable.team', 'Team')}</th>
+            <th className="broadcast-xt-th-num">{t('broadcast.crosstable.points', 'Pts')}</th>
           </tr>
         </thead>
         <tbody>
@@ -122,8 +122,8 @@ function TeamRow({ team, members, isOpen, onToggle }: TeamRowProps) {
               aria-expanded={isOpen}
               aria-label={
                 isOpen
-                  ? t('broadcast.collapseTeam', 'Collapse team')
-                  : t('broadcast.expandTeam', 'Expand team')
+                  ? t('broadcast.crosstable.collapseTeam', 'Collapse team')
+                  : t('broadcast.crosstable.expandTeam', 'Expand team')
               }
               data-testid={`team-toggle-${team.name}`}
             >
@@ -158,12 +158,12 @@ function TeamMembers({ members }: { members: CrosstablePlayer[] }) {
     <table className="broadcast-xt-team-members-table">
       <thead>
         <tr>
-          <th className="broadcast-xt-th-num">{t('broadcast.board', 'Brd')}</th>
+          <th className="broadcast-xt-th-num">{t('broadcast.crosstable.board', 'Brd')}</th>
           <th className="broadcast-xt-th-name">{t('tournaments.player', 'Player')}</th>
-          <th className="broadcast-xt-th-fed">{t('broadcast.fed', 'Fed')}</th>
-          <th className="broadcast-xt-th-num">{t('broadcast.elo', 'Elo')}</th>
-          <th className="broadcast-xt-th-num">{t('broadcast.points', 'Pts')}</th>
-          <th className="broadcast-xt-th-num">{t('broadcast.gamesPlayed', 'GP')}</th>
+          <th className="broadcast-xt-th-fed">{t('broadcast.crosstable.fed', 'Fed')}</th>
+          <th className="broadcast-xt-th-num">{t('broadcast.crosstable.elo', 'Elo')}</th>
+          <th className="broadcast-xt-th-num">{t('broadcast.crosstable.points', 'Pts')}</th>
+          <th className="broadcast-xt-th-num">{t('broadcast.crosstable.gamesPlayed', 'GP')}</th>
         </tr>
       </thead>
       <tbody>

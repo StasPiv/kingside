@@ -62,10 +62,10 @@ export function RoundRobinCrosstable({ data, broadcastId }: RoundRobinCrosstable
           <tr>
             <th className="broadcast-xt-th-rank">#</th>
             <th className="broadcast-xt-th-name">{t('tournaments.player', 'Player')}</th>
-            <th className="broadcast-xt-th-fed">{t('broadcast.fed', 'Fed')}</th>
-            <th className="broadcast-xt-th-num">{t('broadcast.elo', 'Elo')}</th>
-            <th className="broadcast-xt-th-num">{t('broadcast.points', 'Pts')}</th>
-            <th className="broadcast-xt-th-num">{t('broadcast.gamesPlayed', 'GP')}</th>
+            <th className="broadcast-xt-th-fed">{t('broadcast.crosstable.fed', 'Fed')}</th>
+            <th className="broadcast-xt-th-num">{t('broadcast.crosstable.elo', 'Elo')}</th>
+            <th className="broadcast-xt-th-num">{t('broadcast.crosstable.points', 'Pts')}</th>
+            <th className="broadcast-xt-th-num">{t('broadcast.crosstable.gamesPlayed', 'GP')}</th>
             {tiebreakKeys.map((k) => (
               <th key={k} className="broadcast-xt-th-num" title={k}>
                 {tiebreakLabel(k)}
@@ -118,6 +118,11 @@ export function RoundRobinCrosstable({ data, broadcastId }: RoundRobinCrosstable
                 const onClick = clickable && cell.gameRef
                   ? () => navigate(gameRefPath(broadcastId, cell.gameRef!))
                   : undefined;
+                const title = t('broadcast.crosstable.cellVs', {
+                  player: p.name,
+                  opponent: opp.name,
+                  defaultValue: `${p.name} vs ${opp.name}`,
+                });
                 return (
                   <td
                     key={`c-${ci}`}
@@ -125,7 +130,7 @@ export function RoundRobinCrosstable({ data, broadcastId }: RoundRobinCrosstable
                     onClick={onClick}
                     role={clickable ? 'button' : undefined}
                     tabIndex={clickable ? 0 : undefined}
-                    title={`${p.name} vs ${opp.name}`}
+                    title={title}
                   >
                     {formatResultSymbol(cell)}
                   </td>

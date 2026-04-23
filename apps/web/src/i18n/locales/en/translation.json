@@ -136,7 +136,36 @@
     "noStandings": "Standings not available yet",
     "description": "Description",
     "participants": "Participants",
-    "schedule": "Schedule"
+    "schedule": "Schedule",
+    "crosstable": {
+      "title": "Crosstable",
+      "teamsTitle": "Teams",
+      "team": "Team",
+      "fed": "Fed",
+      "elo": "Elo",
+      "points": "Pts",
+      "gamesPlayed": "GP",
+      "board": "Brd",
+      "loading": "Loading standings…",
+      "noDataFromSource": "No data from source yet",
+      "expandTeam": "Expand team",
+      "collapseTeam": "Collapse team",
+      "roundLabel": "Round {{n}}",
+      "cellVs": "{{player}} vs {{opponent}}",
+      "swissCellTooltip": "R{{round}}: {{summary}}",
+      "swissCellForfeit": "R{{round}}: forfeit",
+      "gameNotInBroadcast": "Game not in broadcast",
+      "opensGameViewer": "Opens game viewer",
+      "result": {
+        "win": "1",
+        "loss": "0",
+        "draw": "½",
+        "bye": "*",
+        "byeSwiss": "—",
+        "forfeitPlus": "F+",
+        "forfeitMinus": "F-"
+      }
+    }
   },
   "broadcastTournament": {
     "rounds": "Rounds",

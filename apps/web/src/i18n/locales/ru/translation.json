@@ -136,7 +136,36 @@
     "noStandings": "Таблица пока недоступна",
     "description": "Описание",
     "participants": "Участники",
-    "schedule": "Расписание"
+    "schedule": "Расписание",
+    "crosstable": {
+      "title": "Таблица результатов",
+      "teamsTitle": "Команды",
+      "team": "Команда",
+      "fed": "Фед",
+      "elo": "Эло",
+      "points": "Очки",
+      "gamesPlayed": "И",
+      "board": "Д",
+      "loading": "Загрузка таблицы…",
+      "noDataFromSource": "Источник данных пока не обновился",
+      "expandTeam": "Раскрыть команду",
+      "collapseTeam": "Свернуть команду",
+      "roundLabel": "Тур {{n}}",
+      "cellVs": "{{player}} против {{opponent}}",
+      "swissCellTooltip": "Тур {{round}}: {{summary}}",
+      "swissCellForfeit": "Тур {{round}}: неявка",
+      "gameNotInBroadcast": "Партия отсутствует в трансляции",
+      "opensGameViewer": "Открыть партию",
+      "result": {
+        "win": "1",
+        "loss": "0",
+        "draw": "½",
+        "bye": "*",
+        "byeSwiss": "—",
+        "forfeitPlus": "F+",
+        "forfeitMinus": "F-"
+      }
+    }
   },
   "broadcastTournament": {
     "rounds": "Туры",
