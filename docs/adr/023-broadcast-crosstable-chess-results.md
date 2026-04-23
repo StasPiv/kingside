@@ -213,26 +213,60 @@ model BroadcastStandings {
 
 **Новый:** `GET /broadcasts/:id/crosstable` (в `apps/broadcast-service`, остаётся без префикса `/broadcasts` — см. ADR-021 §2.1 пункт KS-1702).
 
-Response:
+Response — **discriminated union по `tournamentType`** (уточнение по согласованию с backend, 2026-04-23):
+
 ```ts
-type CrosstableResponse = {
+type CrosstableBase = {
   source: 'chess-results' | 'internal-fallback';
   sourceUrl: string | null;           // URL на chess-results для «Open official standings»
-  tournamentType: TournamentType;     // см. §2.2.4
   fetchedAt: string | null;           // ISO, null если internal-fallback
   players: CrosstablePlayer[];        // всегда заполнен (для любого типа)
-  crossTable?: CrossTableMatrix;      // только для round-robin/double-round-robin
-  pairings?: SwissPairings;           // только для swiss/team-swiss
-  teams?: TeamStanding[];             // только для team-*
 };
 
+type CrosstableRoundRobin = CrosstableBase & {
+  tournamentType: 'round-robin' | 'double-round-robin';
+  crossTable: CrossTableMatrix;
+};
+
+type CrosstableSwiss = CrosstableBase & {
+  tournamentType: 'swiss';
+  pairings: SwissPairings;
+};
+
+type CrosstableTeam = CrosstableBase & {
+  tournamentType: 'team-swiss' | 'team-round-robin';
+  teams: TeamStanding[];
+  // внутренняя раскладка матчей команды может использовать pairings (team-swiss)
+  // или crossTable (team-round-robin) — обязательно ровно одно.
+  pairings?: SwissPairings;
+  crossTable?: CrossTableMatrix;
+};
+
+type CrosstableLegacy = CrosstableBase & {
+  tournamentType: 'unknown' | 'knockout' | 'match' | 'scheveningen';
+  // legacy-ветка: используется для всех типов, которые v1 не рендерит специфично,
+  // включая case когда standings_url не ведёт на chess-results
+  // (source='internal-fallback'). Фронт рендерит <LegacyCrosstable>.
+};
+
+type CrosstableResponse =
+  | CrosstableRoundRobin
+  | CrosstableSwiss
+  | CrosstableTeam
+  | CrosstableLegacy;
+
+// Подтверждено 2026-04-23: fideId + title + gamesPlayed — обязательная часть
+// контракта. fideId chess-results всегда парсит (колонка в art=1 есть всегда,
+// даже если не у всех игроков заполнена — тогда null), title (GM/IM/FM/WGM/…)
+// нужен для UI-бейджа, gamesPlayed критичен при bye/withdrawn (pts без gp
+// не раскрывают картину, особенно в long swiss).
 type CrosstablePlayer = {
   rank: number;
   name: string;                       // как пришло с chess-results
   fideId: string | null;              // "25102001" и т. п.
   elo: number | null;
   federation: string | null;          // ISO-3 код ("GER", "USA", ...)
-  title: string | null;               // GM/IM/FM/WGM/…
+  title: string | null;               // GM/IM/FM/WGM/… | null
   points: number;
   gamesPlayed: number;
   tiebreaks: { buchholz?: number; sonnebornBerger?: number; progressive?: number };
@@ -287,7 +321,7 @@ type GameRef = {
 
 ### 2.5 Frontend — рендер по типу
 
-В `apps/web/src/pages/BroadcastTournamentPage.tsx` заменяем единый рендер на диспетчер:
+В `apps/web/src/pages/BroadcastTournamentPage.tsx` заменяем единый рендер на диспетчер. `tournamentType` — discriminator (§2.4): TS автоматически narrow'ит `crosstable` к конкретной ветке внутри `case`, соответствующий компонент получает typed `data` (например, `<RoundRobinCrosstable>` видит `data.crossTable` без optional chaining).
 
 ```tsx
 switch (crosstable.tournamentType) {
