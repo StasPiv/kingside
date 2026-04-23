@@ -8,6 +8,17 @@ vi.mock('react-chessboard', () => ({
   Chessboard: () => <div data-testid="chessboard" />,
 }));
 
+// PuzzleStep тянет PuzzleBoard / chess.js / useAuth — для unit-теста
+// диспетчера это лишний шум; мокаем сам PuzzleStep на лёгкую заглушку.
+vi.mock('./steps/PuzzleStep', () => ({
+  PuzzleStep: ({ payload }: { payload: { selection?: { puzzleIds?: string[] } } }) => (
+    <div
+      data-testid="lesson-puzzle-step-mock"
+      data-ids={payload.selection?.puzzleIds?.join(',') ?? ''}
+    />
+  ),
+}));
+
 const baseStep = {
   id: 's1',
   lessonId: 'l1',
@@ -26,7 +37,6 @@ describe('<StepRenderer>', () => {
   });
 
   it.each([
-    'puzzle',
     'quiz',
     'position',
     'game_review',
@@ -47,15 +57,26 @@ describe('<StepRenderer>', () => {
     },
   );
 
-  it('пробрасывает onStepDone в кнопку stub', () => {
-    const onStepDone = vi.fn();
+  it('делегирует puzzle-шаг компоненту PuzzleStep', () => {
     const step: LessonStep = {
       ...baseStep,
       type: 'puzzle',
       payload: {
         type: 'puzzle',
-        selection: { mode: 'ids', puzzleIds: [] },
+        selection: { mode: 'ids', puzzleIds: ['p1', 'p2'] },
       },
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    const node = screen.getByTestId('lesson-puzzle-step-mock');
+    expect(node).toHaveAttribute('data-ids', 'p1,p2');
+  });
+
+  it('пробрасывает onStepDone в кнопку stub (quiz)', () => {
+    const onStepDone = vi.fn();
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'quiz',
+      payload: { type: 'quiz', questions: [] },
     };
     renderWithProviders(
       <StepRenderer step={step} onStepDone={onStepDone} />,

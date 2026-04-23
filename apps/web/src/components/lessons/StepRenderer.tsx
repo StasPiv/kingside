@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import type { LessonStep } from '@kingside/shared';
 
 import { TextStep } from './steps/TextStep';
+import { PuzzleStep } from './steps/PuzzleStep';
 
 /**
  * Диспетчер рендера шагов урока (L-08).
@@ -34,6 +35,10 @@ export function StepRenderer({ step, onStepDone, hideNext }: StepRendererProps) 
       );
 
     case 'puzzle':
+      return (
+        <PuzzleStep payload={payload} onStepDone={onStepDone} hideNext={hideNext} />
+      );
+
     case 'quiz':
     case 'position':
     case 'game_review':
