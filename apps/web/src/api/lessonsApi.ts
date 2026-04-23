@@ -8,6 +8,8 @@ import type {
   CompleteLessonResponse,
   CourseRecommendationResponse,
   CourseLevel,
+  PuzzleDto,
+  PuzzleStepPayload,
 } from '@kingside/shared';
 
 import { api } from '../api';
@@ -59,6 +61,18 @@ export const lessonsApi = {
       `/lessons/progress/lesson/${encodeURIComponent(lessonId)}/complete`,
       payload,
     );
+  },
+
+  /**
+   * Батч-резолвер задач для PuzzleStep (KS-1777 / KS-1780). Принимает
+   * полный `PuzzleStepPayload` (`{ type:'puzzle', selection, ... }`),
+   * возвращает массив задач — для `mode='ids'` сохраняет порядок,
+   * для `mode='filter'` отдаёт уникальные задачи в количестве ≤ `limit`.
+   *
+   * Заменяет N-кратный `puzzleApi.getNext()` fallback из L-09.
+   */
+  resolvePuzzleStep(payload: PuzzleStepPayload): Promise<PuzzleDto[]> {
+    return api.post<PuzzleDto[]>('/lessons/puzzle-step/resolve', payload);
   },
 
   /**

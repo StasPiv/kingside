@@ -6,8 +6,6 @@ import type { PuzzleDto, PuzzleStepPayload } from '@kingside/shared';
 import { PuzzleStep, resolvePuzzles } from './PuzzleStep';
 
 const mockPuzzleApi = {
-  getById: vi.fn(),
-  getNext: vi.fn(),
   submitAttempt: vi.fn(),
 };
 
@@ -18,9 +16,24 @@ vi.mock('../../../api-puzzle', async () => {
   return {
     ...actual,
     puzzleApi: {
-      getById: (...args: unknown[]) => mockPuzzleApi.getById(...args),
-      getNext: (...args: unknown[]) => mockPuzzleApi.getNext(...args),
       submitAttempt: (...args: unknown[]) => mockPuzzleApi.submitAttempt(...args),
+    },
+  };
+});
+
+const mockLessonsApi = {
+  resolvePuzzleStep: vi.fn(),
+};
+
+vi.mock('../../../api/lessonsApi', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/lessonsApi')>(
+    '../../../api/lessonsApi',
+  );
+  return {
+    ...actual,
+    lessonsApi: {
+      resolvePuzzleStep: (...args: unknown[]) =>
+        mockLessonsApi.resolvePuzzleStep(...args),
     },
   };
 });
@@ -64,9 +77,8 @@ vi.mock('../../PuzzleBoard', () => ({
 }));
 
 beforeEach(() => {
-  mockPuzzleApi.getById.mockReset();
-  mockPuzzleApi.getNext.mockReset();
   mockPuzzleApi.submitAttempt.mockReset();
+  mockLessonsApi.resolvePuzzleStep.mockReset();
   mockUseAuth.mockReturnValue({ user: { id: 'u1', username: 'Test' }, loading: false });
 });
 
@@ -85,56 +97,61 @@ function makePuzzle(overrides: Partial<PuzzleDto> = {}): PuzzleDto {
 }
 
 describe('resolvePuzzles', () => {
-  it('mode="ids" дёргает getById для каждого id', async () => {
-    mockPuzzleApi.getById.mockImplementation((id: string) =>
-      Promise.resolve(makePuzzle({ id })),
-    );
-    const out = await resolvePuzzles({ mode: 'ids', puzzleIds: ['a', 'b', 'c'] });
+  it('mode="ids" дёргает батч-эндпоинт с полным payload', async () => {
+    const list = [makePuzzle({ id: 'a' }), makePuzzle({ id: 'b' }), makePuzzle({ id: 'c' })];
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce(list);
+
+    const payload: PuzzleStepPayload = {
+      type: 'puzzle',
+      selection: { mode: 'ids', puzzleIds: ['a', 'b', 'c'] },
+    };
+    const out = await resolvePuzzles(payload);
     expect(out.map((p) => p.id)).toEqual(['a', 'b', 'c']);
-    expect(mockPuzzleApi.getById).toHaveBeenCalledTimes(3);
+    expect(mockLessonsApi.resolvePuzzleStep).toHaveBeenCalledTimes(1);
+    expect(mockLessonsApi.resolvePuzzleStep).toHaveBeenCalledWith(payload);
   });
 
-  it('mode="ids" с пустым массивом → пустой результат, без сетевых вызовов', async () => {
-    const out = await resolvePuzzles({ mode: 'ids', puzzleIds: [] });
-    expect(out).toEqual([]);
-    expect(mockPuzzleApi.getById).not.toHaveBeenCalled();
-  });
-
-  it('mode="filter" дедуплицирует по id и не превышает limit', async () => {
-    let i = 0;
-    const ids = ['x', 'x', 'y', 'y', 'z']; // эмуляция дублей с бэка
-    mockPuzzleApi.getNext.mockImplementation(() =>
-      Promise.resolve(makePuzzle({ id: ids[i++] ?? 'last' })),
-    );
+  it('mode="ids" с пустым массивом → пустой результат, без сетевого вызова', async () => {
     const out = await resolvePuzzles({
-      mode: 'filter',
-      themes: ['fork'],
-      ratingMin: 1500,
-      ratingMax: 1700,
-      limit: 3,
+      type: 'puzzle',
+      selection: { mode: 'ids', puzzleIds: [] },
     });
+    expect(out).toEqual([]);
+    expect(mockLessonsApi.resolvePuzzleStep).not.toHaveBeenCalled();
+  });
+
+  it('mode="filter" пробрасывает payload в батч-эндпоинт и возвращает его ответ', async () => {
+    const list = [makePuzzle({ id: 'x' }), makePuzzle({ id: 'y' }), makePuzzle({ id: 'z' })];
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce(list);
+
+    const payload: PuzzleStepPayload = {
+      type: 'puzzle',
+      selection: {
+        mode: 'filter',
+        themes: ['fork'],
+        ratingMin: 1500,
+        ratingMax: 1700,
+        limit: 3,
+      },
+    };
+    const out = await resolvePuzzles(payload);
     expect(out.map((p) => p.id)).toEqual(['x', 'y', 'z']);
-    expect(mockPuzzleApi.getNext).toHaveBeenCalledWith({
-      themes: ['fork'],
-      ratingMin: 1500,
-      ratingMax: 1700,
-    });
+    expect(mockLessonsApi.resolvePuzzleStep).toHaveBeenCalledWith(payload);
   });
 });
 
 describe('<PuzzleStep>', () => {
-  function renderWithIds(payload?: Partial<PuzzleStepPayload>) {
-    const full: PuzzleStepPayload = {
-      type: 'puzzle',
-      selection: { mode: 'ids', puzzleIds: ['p1'] },
-      ...payload,
-    };
-    return renderWithProviders(<PuzzleStep payload={full} />);
-  }
-
   it('показывает loading, потом доску', async () => {
-    mockPuzzleApi.getById.mockResolvedValueOnce(makePuzzle({ id: 'p1' }));
-    renderWithIds();
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([makePuzzle({ id: 'p1' })]);
+
+    renderWithProviders(
+      <PuzzleStep
+        payload={{
+          type: 'puzzle',
+          selection: { mode: 'ids', puzzleIds: ['p1'] },
+        }}
+      />,
+    );
     expect(screen.getByTestId('lesson-puzzle-step-loading')).toBeInTheDocument();
     await waitFor(() =>
       expect(screen.getByTestId('lesson-puzzle-step')).toBeInTheDocument(),
@@ -143,7 +160,9 @@ describe('<PuzzleStep>', () => {
   });
 
   it('сценарий «решил»: правильный ход → submitAttempt(solved), счётчик solved=1, кнопка «Continue» активна, onStepDone вызван', async () => {
-    mockPuzzleApi.getById.mockResolvedValueOnce(makePuzzle({ id: 'p1', moves: 'e2e4' }));
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([
+      makePuzzle({ id: 'p1', moves: 'e2e4' }),
+    ]);
     mockPuzzleApi.submitAttempt.mockResolvedValue({});
     const onStepDone = vi.fn();
 
@@ -171,20 +190,19 @@ describe('<PuzzleStep>', () => {
       expect.objectContaining({ result: 'solved', userMoves: 'e2e4' }),
     );
 
-    // Только одна задача в наборе → нет «Next puzzle», есть «Continue».
     expect(screen.queryByTestId('lesson-puzzle-step-next-puzzle')).toBeNull();
     const cont = screen.getByTestId('lesson-puzzle-step-complete');
     expect(cont).not.toBeDisabled();
     expect(onStepDone).toHaveBeenCalledTimes(1);
 
-    // Повторный клик по «Continue» вызывает onStepDone снова — это явный
-    // пользовательский ввод.
     fireEvent.click(cont);
     expect(onStepDone).toHaveBeenCalledTimes(2);
   });
 
   it('сценарий «не решил»: неправильный ход → submitAttempt(failed), статус incorrect, onStepDone НЕ вызван, кнопка дизейблед', async () => {
-    mockPuzzleApi.getById.mockResolvedValueOnce(makePuzzle({ id: 'p1', moves: 'e2e4' }));
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([
+      makePuzzle({ id: 'p1', moves: 'e2e4' }),
+    ]);
     mockPuzzleApi.submitAttempt.mockResolvedValue({});
     const onStepDone = vi.fn();
 
@@ -218,7 +236,7 @@ describe('<PuzzleStep>', () => {
     expect(cont).toHaveTextContent('Need more correct');
   });
 
-  it('пустой набор → error-state', async () => {
+  it('пустой набор (ids=[]) → error-state, без сетевого вызова', async () => {
     renderWithProviders(
       <PuzzleStep
         payload={{
@@ -230,11 +248,33 @@ describe('<PuzzleStep>', () => {
     await waitFor(() =>
       expect(screen.getByTestId('lesson-puzzle-step-error')).toBeInTheDocument(),
     );
+    expect(mockLessonsApi.resolvePuzzleStep).not.toHaveBeenCalled();
+  });
+
+  it('бэк вернул [] → error-state', async () => {
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([]);
+    renderWithProviders(
+      <PuzzleStep
+        payload={{
+          type: 'puzzle',
+          selection: {
+            mode: 'filter',
+            themes: ['fork'],
+            limit: 5,
+          },
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-puzzle-step-error')).toBeInTheDocument(),
+    );
   });
 
   it('гость (user=null) — попытка не отправляется', async () => {
     mockUseAuth.mockReturnValue({ user: null, loading: false });
-    mockPuzzleApi.getById.mockResolvedValueOnce(makePuzzle({ id: 'p1', moves: 'e2e4' }));
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([
+      makePuzzle({ id: 'p1', moves: 'e2e4' }),
+    ]);
 
     renderWithProviders(
       <PuzzleStep
@@ -255,9 +295,10 @@ describe('<PuzzleStep>', () => {
   });
 
   it('minSolved меньше total: 1 решённая из 2 → onStepDone уже вызван после первой', async () => {
-    mockPuzzleApi.getById
-      .mockResolvedValueOnce(makePuzzle({ id: 'p1', moves: 'e2e4' }))
-      .mockResolvedValueOnce(makePuzzle({ id: 'p2', moves: 'e2e4' }));
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([
+      makePuzzle({ id: 'p1', moves: 'e2e4' }),
+      makePuzzle({ id: 'p2', moves: 'e2e4' }),
+    ]);
     mockPuzzleApi.submitAttempt.mockResolvedValue({});
     const onStepDone = vi.fn();
 

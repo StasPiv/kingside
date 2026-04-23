@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import type { PuzzleDto, PuzzleStepPayload, PuzzleStepSelection } from '@kingside/shared';
+import type { PuzzleDto, PuzzleStepPayload } from '@kingside/shared';
 
-import { puzzleApi, type PuzzleNextParams } from '../../../api-puzzle';
+import { puzzleApi } from '../../../api-puzzle';
+import { lessonsApi } from '../../../api/lessonsApi';
 import { PuzzleBoard } from '../../PuzzleBoard';
 import { useSounds, soundEventFromSan } from '../../../hooks/useSounds';
 import { useAuth } from '../../../context/AuthContext';
@@ -11,13 +12,11 @@ import { useAuth } from '../../../context/AuthContext';
 /**
  * PuzzleStep — обёртка над `PuzzleBoard` для шагов уроков (L-09, KS-1764).
  *
- * Загружает курируемый набор задач по `payload.selection`:
- *   • mode 'ids'    → последовательно `puzzleApi.getById` для каждого id
- *   • mode 'filter' → `puzzleApi.getNext` × `limit` с фильтром тем+рейтинга;
- *                     дедуплицируется по id. Дедикейтед batch-эндпоинт
- *                     `LessonPuzzleResolverService` (L-06) пока не выставлен
- *                     наружу — координатор обещал отдельную микрозадачу
- *                     backend; до неё работает fallback через `getNext`.
+ * Загружает курируемый набор задач через батч-эндпоинт
+ * `POST /lessons/puzzle-step/resolve` (KS-1777 / KS-1780). Backend сам
+ * разбирает `payload.selection`:
+ *   • mode 'ids'    → задачи в порядке `puzzleIds`
+ *   • mode 'filter' → ≤ `limit` уникальных задач по темам+рейтингу
  *
  * Попытки идут в существующий `PuzzleAttempt` через `puzzleApi.submitAttempt`
  * (никаких новых таблиц — Gherkin: «не дублируем»).
@@ -40,8 +39,6 @@ interface AttemptCounters {
   solved: number;
   failed: number;
 }
-
-const FILTER_FETCH_MAX_ATTEMPTS = 3; // защита от бесконечного цикла на дублях
 
 export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
   const { t } = useTranslation();
@@ -86,7 +83,7 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
     setCounters({ solved: 0, failed: 0 });
     stepDoneFiredRef.current = false;
 
-    resolvePuzzles(payload.selection)
+    resolvePuzzles(payload)
       .then((list) => {
         if (cancelled) return;
         if (list.length === 0) {
@@ -389,42 +386,19 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 /**
- * Резолвит payload.selection в массив `PuzzleDto`. Экспортируется для тестов.
+ * Резолвит `payload` в массив `PuzzleDto` через батч-эндпоинт
+ * `POST /lessons/puzzle-step/resolve` (KS-1777). Backend сам разбирает
+ * `selection.mode` ('ids' | 'filter'). Экспортируется для тестов.
  *
- * Для `mode='filter'` выполняет до `limit * FILTER_FETCH_MAX_ATTEMPTS`
- * запросов `getNext`, дедуплицируя по `id`. Это временный fallback —
- * batch-эндпоинт `LessonPuzzleResolverService` появится отдельной задачей
- * (см. KS-1764 комментарий координатора).
+ * Для `mode='ids'` с пустым списком — короткое замыкание без сетевого
+ * вызова (бэк бы тоже вернул `[]`, но экономим раунд-трип).
  */
 export async function resolvePuzzles(
-  selection: PuzzleStepSelection,
+  payload: PuzzleStepPayload,
 ): Promise<PuzzleDto[]> {
-  if (selection.mode === 'ids') {
-    if (selection.puzzleIds.length === 0) return [];
-    return Promise.all(selection.puzzleIds.map((id) => puzzleApi.getById(id)));
+  const { selection } = payload;
+  if (selection.mode === 'ids' && selection.puzzleIds.length === 0) {
+    return [];
   }
-
-  // mode === 'filter'
-  const params: PuzzleNextParams = {
-    themes: selection.themes,
-    ratingMin: selection.ratingMin,
-    ratingMax: selection.ratingMax,
-  };
-  const seen = new Set<string>();
-  const out: PuzzleDto[] = [];
-  const maxAttempts = Math.max(1, selection.limit) * FILTER_FETCH_MAX_ATTEMPTS;
-  let attempts = 0;
-  while (out.length < selection.limit && attempts < maxAttempts) {
-    attempts += 1;
-    try {
-      const p = await puzzleApi.getNext(params);
-      if (!seen.has(p.id)) {
-        seen.add(p.id);
-        out.push(p);
-      }
-    } catch {
-      break;
-    }
-  }
-  return out;
+  return lessonsApi.resolvePuzzleStep(payload);
 }
