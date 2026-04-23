@@ -403,19 +403,118 @@ function normalizePlayerName(raw: string): string {
 
 Все типы из §2.4 — в `packages/shared/src/types/api-contracts.ts`, секция `// ─── Broadcast (REST) ───`.
 
-Дополнить существующий раздел (после `BroadcastListResponse`):
+Дополнить существующий раздел (после `BroadcastListResponse`). Все типы — `export`, бэкенд-контроллер и фронт-компоненты импортируют их из `@kingside/shared`, единый источник:
 
 ```ts
-export type TournamentType = 'round-robin' | 'double-round-robin' | 'swiss' | 'team-swiss' | 'team-round-robin' | 'knockout' | 'match' | 'scheveningen' | 'unknown';
-export type CrosstablePlayer = { ... };
-export type CrossTableMatrix = { ... };
-export type SwissPairings = { ... };
-export type TeamStanding = { ... };
-export type GameRef = { ... };
-export type CrosstableResponse = { ... };
+export type TournamentType =
+  | 'round-robin'
+  | 'double-round-robin'
+  | 'swiss'
+  | 'team-swiss'
+  | 'team-round-robin'
+  | 'knockout'
+  | 'match'
+  | 'scheveningen'
+  | 'unknown';
+
+export type GameRef = {
+  gameId: string;       // UUID из broadcast_games
+  roundId: string;      // UUID из broadcast_rounds
+  roundName: string;    // для UI-tooltip
+};
+
+export type CrosstablePlayer = {
+  rank: number;
+  name: string;
+  fideId: string | null;
+  elo: number | null;
+  federation: string | null;           // ISO-3 ("GER", "USA", ...)
+  title: string | null;                // GM/IM/FM/WGM/… | null
+  points: number;
+  gamesPlayed: number;
+  tiebreaks: {
+    buchholz?: number;
+    sonnebornBerger?: number;
+    progressive?: number;
+  };
+  teamId?: string | null;              // только для team-*
+};
+
+export type CrossTableMatrix = {
+  rows: Array<{
+    playerRank: number;
+    cells: Array<{
+      opponentRank: number | null;     // null для диагонали
+      score: 0 | 0.5 | 1 | null;       // null если не играли / bye
+      color?: 'white' | 'black';
+      gameRef: GameRef | null;
+    }>;
+  }>;
+};
+
+export type SwissPairings = {
+  totalRounds: number;
+  rounds: Array<{
+    roundNumber: number;
+    pairs: Array<{
+      white: { rank: number; name: string; fideId: string | null };
+      black: { rank: number; name: string; fideId: string | null };
+      result: '1-0' | '0-1' | '1/2-1/2' | 'bye' | 'forfeit' | null;
+      gameRef: GameRef | null;
+    }>;
+  }>;
+};
+
+export type TeamStanding = {
+  id: string;                          // нормализованное имя команды, стабильный ключ
+  rank: number;
+  name: string;
+  matchPoints: number;
+  boardPoints: number;
+  tiebreaks: Record<string, number>;
+  playerRanks: number[];               // индексы в players[] по `rank`
+};
+
+// Discriminated union по `tournamentType` (см. §2.4).
+// Общие поля — в CrosstableBase, конкретная форма — в отдельных вариантах,
+// TS автоматически narrow'ит в `switch (resp.tournamentType)`.
+
+export type CrosstableBase = {
+  source: 'chess-results' | 'internal-fallback';
+  sourceUrl: string | null;
+  fetchedAt: string | null;
+  players: CrosstablePlayer[];
+};
+
+export type CrosstableRoundRobin = CrosstableBase & {
+  tournamentType: 'round-robin' | 'double-round-robin';
+  crossTable: CrossTableMatrix;
+};
+
+export type CrosstableSwiss = CrosstableBase & {
+  tournamentType: 'swiss';
+  pairings: SwissPairings;
+};
+
+export type CrosstableTeam = CrosstableBase & {
+  tournamentType: 'team-swiss' | 'team-round-robin';
+  teams: TeamStanding[];
+  pairings?: SwissPairings;            // team-swiss использует это
+  crossTable?: CrossTableMatrix;       // team-round-robin использует это
+};
+
+export type CrosstableLegacy = CrosstableBase & {
+  tournamentType: 'unknown' | 'knockout' | 'match' | 'scheveningen';
+};
+
+export type CrosstableResponse =
+  | CrosstableRoundRobin
+  | CrosstableSwiss
+  | CrosstableTeam
+  | CrosstableLegacy;
 ```
 
-Backend импортирует из `@kingside/shared`, фронт — тоже. Единый источник типов.
+**Инвариант:** `CrosstableResponse` не добавляет новых полей сверх тех, что объявлены в каждой ветке — backend не должен возвращать `crossTable` вместе с `swiss`, фронт не должен читать `teams` без type-guard. Любая новая форма = новая ветка union.
 
 ### 2.8 Кэш и частота обновления (Q6)
 
