@@ -184,12 +184,16 @@
   overflow: visible;
 }
 
-/* Eval bar + board row: fills remaining height inside board-wrapper.
-   KS-970: explicit width: 100% so children can resolve percentages. */
-/* KS-1193: flex:1 + min-height:0 lets board shrink for controls */
+/* Eval bar + board row: sizes to the (square) board.
+   KS-970: explicit width: 100% so children can resolve percentages.
+   KS-1193: min-height:0 lets board shrink for controls when vertical space is tight.
+   KS-1750: row height follows tallest child (board). Было `flex: 1 1 0%`, из-за чего
+   row тянулся на всю вертикаль wrapper'а и `align-items: stretch` растягивал
+   eval-bar ниже низа доски. Теперь row = `flex: 0 1 auto` → высота = высота
+   board'а; eval-bar, благодаря `align-items: stretch`, совпадает с ним. */
 .analysis-eval-board-row {
   display: flex;
-  flex: 1 1 0%;
+  flex: 0 1 auto;
   gap: 0;
   align-items: stretch;
   min-height: 0;
