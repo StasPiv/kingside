@@ -412,7 +412,9 @@
 
 .tc-btn.active {
   border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  /* KS-1752: было `var(--c-fff)` — не флипалось при переключении темы,
+     давало белый текст на светлом фоне tc-btn в light-теме. */
+  color: var(--c-e0e0e0);
 }
 
 .play-btn {
