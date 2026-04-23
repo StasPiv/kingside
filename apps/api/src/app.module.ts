@@ -17,7 +17,6 @@ import { TournamentModule } from './tournament/tournament.module';
 import { AnalysisModule } from './analysis/analysis.module';
 import { WorkshopModule } from './workshop/workshop.module';
 import { LiveTournamentModule } from './live-tournament/live-tournament.module';
-import { DgtModule } from './dgt/dgt.module';
 import { ClientLogsModule } from './client-logs/client-logs.module';
 import { PlayerModule } from './player/player.module';
 import { MessageModule } from './message/message.module';
@@ -60,7 +59,6 @@ import { HealthController } from './health.controller';
     AnalysisModule,
     WorkshopModule,
     LiveTournamentModule,
-    DgtModule,
     ClientLogsModule,
     PlayerModule,
     MessageModule,

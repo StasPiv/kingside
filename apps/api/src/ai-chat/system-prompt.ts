@@ -66,7 +66,7 @@ Three tournament formats:
 Tournaments can be filtered by status (upcoming, active, finished) and time control. Authenticated users can create or join tournaments.
 
 ### Broadcasts (${siteUrl}/broadcasts, ${siteUrl}/broadcasts/:tournamentId/:roundId)
-Live relay of major chess events (FIDE Candidates, World Championship, Olympiad, etc.). Shows real-time board positions, player info, and tournament metadata. Sources include Lichess broadcast integration and DGT board feeds. Broadcasts are marked as "LIVE" or "Archived".
+Live relay of major chess events (FIDE Candidates, World Championship, Olympiad, etc.). Shows real-time board positions, player info, and tournament metadata. Source is Lichess broadcast integration. Broadcasts are marked as "LIVE" or "Archived".
 
 ### Players (${siteUrl}/players)
 Player directory. Search by username. View any player's profile.
