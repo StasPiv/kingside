@@ -5,6 +5,7 @@ import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { broadcastApi } from '../api/broadcastApi';
+import { BroadcastCrosstable } from '../components/broadcast/BroadcastCrosstable';
 import type { DgtTournamentResult } from '../dgt.types';
 import type { LiveTournamentsResponse, TournamentStatus } from '@kingside/shared';
 
@@ -45,15 +46,6 @@ type BroadcastGame = {
   pgn: string | null;
 };
 
-type StandingsPlayer = {
-  rank: number;
-  name: string;
-  points: number;
-  gamesPlayed: number;
-  sb: number;
-  scores: Record<string, Array<{ score: number; gameId: string } | number>>;
-};
-
 type TabId = 'live' | 'standings' | 'rounds' | 'info';
 
 function computeFen(pgn: string): string {
@@ -78,7 +70,6 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   const navigate = useNavigate();
 
   const [rounds, setRounds] = useState<BroadcastRound[]>([]);
-  const [standings, setStandings] = useState<{ players: StandingsPlayer[] } | null>(null);
   const [liveGames, setLiveGames] = useState<BroadcastGame[]>([]);
   const [activeTab, setActiveTab] = useState<TabId>('standings');
 
@@ -93,16 +84,6 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
     broadcastApi.get<{ data: BroadcastRound[] }>(`/${tournamentId}/rounds`)
       .then((res) => setRounds(Array.isArray(res?.data) ? res.data : []))
       .catch(() => {});
-
-    broadcastApi.get<{ players: StandingsPlayer[] }>(`/${tournamentId}/standings`)
-      .then((res) => {
-        if (res?.players) {
-          setStandings(res);
-        } else {
-          console.error('Standings: unexpected response format', res);
-        }
-      })
-      .catch((e) => console.error('Failed to load standings:', e));
   }, [tournamentId]);
 
   // Load live games from ongoing round
@@ -125,28 +106,6 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
     });
   };
 
-  const handleScoreClick = async (gameId: string, playerName: string, oppName: string) => {
-    // Find the game across all rounds to get PGN
-    for (const round of rounds) {
-      try {
-        const res = await broadcastApi.get<{ data: BroadcastGame[] }>(`/${tournamentId}/rounds/${round.id}/games`);
-        const games = Array.isArray(res?.data) ? res.data : [];
-        const game = games.find((g) => g.id === gameId);
-        if (game?.pgn) {
-          navigate('/analysis', {
-            state: {
-              pgn: game.pgn,
-              title: `${playerName} vs ${oppName}`,
-              breadcrumbRootTitle: broadcast.title,
-              breadcrumbRootUrl: `/broadcasts/${tournamentId}`,
-            },
-          });
-          return;
-        }
-      } catch { /* continue */ }
-    }
-  };
-
   const tabs: { id: TabId; label: string }[] = [
     { id: 'live', label: t('broadcast.tabLive', 'Live') },
     { id: 'standings', label: t('broadcast.tabStandings', 'Standings') },
@@ -155,7 +114,6 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
   ];
 
   const playerNames = broadcast.players?.split(', ') ?? [];
-  const allPlayers = standings?.players ?? [];
 
   return (
     <div className="broadcast-lobby">
@@ -241,62 +199,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
         {/* Standings */}
         {activeTab === 'standings' && (
           <div className="broadcast-tab-panel">
-            {allPlayers.length === 0 ? (
-              <p className="broadcast-tab-empty">{t('broadcast.noStandings', 'Standings not available yet')}</p>
-            ) : (
-              <div className="broadcast-standings-scroll">
-                <table className="broadcast-standings-table">
-                  <thead>
-                    <tr>
-                      <th className="broadcast-st-rank">#</th>
-                      <th className="broadcast-st-name">{t('tournaments.player', 'Player')}</th>
-                      <th className="broadcast-st-pts">Pts</th>
-                      <th className="broadcast-st-num">GP</th>
-                      <th className="broadcast-st-num">SB</th>
-                      {allPlayers.map((p) => (
-                        <th key={p.name} className="broadcast-st-cell" title={p.name}>{p.rank}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allPlayers.map((p, ri) => (
-                      <tr key={p.name}>
-                        <td className="broadcast-st-rank">{p.rank}</td>
-                        <td className="broadcast-st-name">{p.name}</td>
-                        <td className="broadcast-st-pts">{p.points}</td>
-                        <td className="broadcast-st-num">{p.gamesPlayed}</td>
-                        <td className="broadcast-st-num">{p.sb}</td>
-                        {allPlayers.map((opp, ci) => {
-                          if (ri === ci) return <td key={ci} className="broadcast-st-cell broadcast-st-diag">✕</td>;
-                          const rawEntries = p.scores[opp.name] ?? [];
-                          if (rawEntries.length === 0) return <td key={ci} className="broadcast-st-cell" />;
-                          // Support both formats: number[] (legacy) and {score,gameId}[] (new)
-                          const entries = rawEntries.map((e: unknown) =>
-                            typeof e === 'number' ? { score: e, gameId: null as string | null } : e as { score: number; gameId: string | null },
-                          );
-                          return (
-                            <td key={ci} className="broadcast-st-cell">
-                              {entries.map((entry, i) => (
-                                <span
-                                  key={i}
-                                  className={`broadcast-st-score${entry.gameId ? ' broadcast-st-score--clickable' : ''}${entry.score === 1 ? ' broadcast-st-win' : entry.score === 0 ? ' broadcast-st-loss' : ' broadcast-st-draw'}`}
-                                  onClick={entry.gameId ? () => handleScoreClick(entry.gameId!, p.name, opp.name) : undefined}
-                                  role={entry.gameId ? 'button' : undefined}
-                                  tabIndex={entry.gameId ? 0 : undefined}
-                                  title={`${p.name} vs ${opp.name}`}
-                                >
-                                  {entry.score === 0.5 ? '½' : entry.score}
-                                </span>
-                              ))}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <BroadcastCrosstable broadcastId={tournamentId} broadcastTitle={broadcast.title} />
           </div>
         )}
 
