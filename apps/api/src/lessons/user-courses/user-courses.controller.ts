@@ -11,12 +11,12 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import type {
-  CreateUserCourseRequest,
-  CreateUserLessonRequest,
-  UpdateUserCourseRequest,
-} from '@kingside/shared';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import {
+  CreateUserCourseDto,
+  UpdateUserCourseDto,
+} from './dto/user-course.dto';
+import { CreateUserLessonDto } from './dto/user-lesson.dto';
 import { AuthenticatedRequest } from '../../common/authenticated-request';
 import { UserRateLimit, UserRateLimitGuard } from '../../common/user-rate-limit.guard';
 import { USER_COURSES_RATE_LIMITS } from './rate-limits';
@@ -87,7 +87,7 @@ export class UserCoursesController {
   )
   create(
     @Request() req: AuthenticatedRequest,
-    @Body() body: CreateUserCourseRequest,
+    @Body() body: CreateUserCourseDto,
   ) {
     return this.service.create(req.user.id, body);
   }
@@ -99,7 +99,7 @@ export class UserCoursesController {
   update(
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
-    @Body() body: UpdateUserCourseRequest,
+    @Body() body: UpdateUserCourseDto,
   ) {
     return this.service.update(req.user.id, id, body);
   }
@@ -130,7 +130,7 @@ export class UserCoursesController {
   addLesson(
     @Request() req: AuthenticatedRequest,
     @Param('id') id: string,
-    @Body() body: CreateUserLessonRequest,
+    @Body() body: CreateUserLessonDto,
   ) {
     return this.service.addLesson(req.user.id, id, body);
   }

@@ -17,6 +17,7 @@ describe('UserLessonsService (KS-1829)', () => {
         findMany: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       userLessonPlayProgress: {
         findUnique: jest.fn(),
@@ -106,6 +107,59 @@ describe('UserLessonsService (KS-1829)', () => {
       await expect(
         service.addStep('l1', { payload: {} } as any),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it.each(['video', 'quiz', 'game_review', 'opening_drill', 'position'])(
+      'type=%s вне whitelist → 400',
+      async (type) => {
+        await expect(
+          service.addStep('l1', { type: type as any, payload: {} as any }),
+        ).rejects.toMatchObject({
+          status: 400,
+          message: expect.stringContaining('not allowed in user courses'),
+        });
+      },
+    );
+
+    it.each(['text', 'puzzle', 'endgame_drill'])(
+      'type=%s whitelist — проходит',
+      async (type) => {
+        prisma.userLessonStep.findFirst.mockResolvedValue(null);
+        prisma.userLessonStep.create.mockImplementation(async ({ data }: any) => ({
+          id: 's', ...data,
+        }));
+        await expect(
+          service.addStep('l1', { type: type as any, payload: { type } as any }),
+        ).resolves.toBeDefined();
+      },
+    );
+
+    it('50 шагов в уроке → 51-й падает 400 "Steps per lesson limit reached"', async () => {
+      prisma.userLessonStep.count.mockResolvedValue(50);
+      await expect(
+        service.addStep('l1', {
+          type: 'text',
+          payload: { type: 'text', bodyMarkdown: '' } as any,
+        }),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining('Steps per lesson limit'),
+      });
+      expect(prisma.userLessonStep.create).not.toHaveBeenCalled();
+    });
+
+    it('граница: 49 шагов → 50-й создаётся', async () => {
+      prisma.userLessonStep.count.mockResolvedValue(49);
+      prisma.userLessonStep.findFirst.mockResolvedValue({ order: 48 });
+      prisma.userLessonStep.create.mockImplementation(async ({ data }: any) => ({
+        id: 's', ...data,
+      }));
+      await expect(
+        service.addStep('l1', {
+          type: 'text',
+          payload: { type: 'text', bodyMarkdown: '' } as any,
+        }),
+      ).resolves.toBeDefined();
     });
   });
 

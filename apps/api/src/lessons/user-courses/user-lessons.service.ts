@@ -19,6 +19,10 @@ import type {
 import { PrismaService } from '../../prisma/prisma.service';
 import { toLessonDto } from './user-courses.service';
 import { toStepDto } from './user-lesson-steps.service';
+import {
+  ALLOWED_USER_STEP_TYPES,
+  USER_COURSES_LIMITS,
+} from './user-courses-limits';
 
 /**
  * UserLessonsService — CRUD уроков пользовательского курса + добавление
@@ -98,7 +102,26 @@ export class UserLessonsService {
       throw new BadRequestException('type is required');
     }
 
+    // Whitelist (ADR-026 §2.4). Дублируем с DTO-валидатором, потому что
+    // сервис может быть вызван напрямую (e2e-тесты, сиды), минуя ValidationPipe.
+    if (!(ALLOWED_USER_STEP_TYPES as readonly string[]).includes(body.type)) {
+      throw new BadRequestException(
+        `Step type '${body.type}' not allowed in user courses. Allowed: ${ALLOWED_USER_STEP_TYPES.join(', ')}`,
+      );
+    }
+
     return this.prisma.$transaction(async (tx) => {
+      // Лимит 50 шагов/урок (ADR-026 §2.2). Проверка в транзакции —
+      // как и для уроков выше.
+      const stepCount = await tx.userLessonStep.count({
+        where: { userLessonId: lessonId },
+      });
+      if (stepCount >= USER_COURSES_LIMITS.stepsPerLesson) {
+        throw new BadRequestException(
+          `Steps per lesson limit reached (${USER_COURSES_LIMITS.stepsPerLesson})`,
+        );
+      }
+
       const last = await tx.userLessonStep.findFirst({
         where: { userLessonId: lessonId },
         orderBy: { order: 'desc' },

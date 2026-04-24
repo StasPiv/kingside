@@ -7,8 +7,8 @@ import {
   Patch,
   UseGuards,
 } from '@nestjs/common';
-import type { UpdateUserLessonStepRequest } from '@kingside/shared';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { UpdateUserLessonStepDto } from './dto/user-lesson-step.dto';
 import {
   UserCourseOwnerGuard,
   UserCourseResource,
@@ -30,7 +30,7 @@ export class UserLessonStepsController {
   @UserCourseResource('step')
   update(
     @Param('id') id: string,
-    @Body() body: UpdateUserLessonStepRequest,
+    @Body() body: UpdateUserLessonStepDto,
   ) {
     return this.service.update(id, body);
   }

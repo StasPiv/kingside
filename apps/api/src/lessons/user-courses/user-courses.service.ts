@@ -16,6 +16,7 @@ import type {
 } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SlugService } from './slug.service';
+import { USER_COURSES_LIMITS } from './user-courses-limits';
 
 /**
  * UserCoursesService — CRUD пользовательского курса (ADR-026 §2.5,
@@ -108,9 +109,20 @@ export class UserCoursesService {
     body: CreateUserCourseRequest,
   ): Promise<UserCourseDto> {
     if (!body || typeof body.title !== 'string' || body.title.trim().length === 0) {
-      // Жёсткая минимальная валидация — без неё slug-генератор упадёт.
-      // Полноценные лимиты (1..120 символов и т.п.) — задача BE-3.
+      // Минимальный guard на случай, если route вызван в обход
+      // ValidationPipe (в тестах, например). Полноценные правила
+      // длины/непустоты — в `CreateUserCourseDto`.
       throw new BadRequestException('title is required');
+    }
+
+    // Лимит на количество курсов одного автора (ADR-026 §2.2, BE-3).
+    const ownerCourseCount = await this.prisma.userCourse.count({
+      where: { ownerId },
+    });
+    if (ownerCourseCount >= USER_COURSES_LIMITS.coursesPerUser) {
+      throw new BadRequestException(
+        `Courses per user limit reached (${USER_COURSES_LIMITS.coursesPerUser})`,
+      );
     }
 
     const slug = body.slug
@@ -189,6 +201,18 @@ export class UserCoursesService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Лимит 30 уроков/курс (ADR-026 §2.2). Считаем в транзакции,
+      // чтобы две параллельные попытки «добить до 30» не обошли
+      // проверку.
+      const lessonCount = await tx.userLesson.count({
+        where: { userCourseId: courseId },
+      });
+      if (lessonCount >= USER_COURSES_LIMITS.lessonsPerCourse) {
+        throw new BadRequestException(
+          `Lessons per course limit reached (${USER_COURSES_LIMITS.lessonsPerCourse})`,
+        );
+      }
+
       const last = await tx.userLesson.findFirst({
         where: { userCourseId: courseId },
         orderBy: { order: 'desc' },

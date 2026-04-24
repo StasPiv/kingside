@@ -20,10 +20,12 @@ describe('UserCoursesService (KS-1829)', () => {
         create: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       userLesson: {
         findFirst: jest.fn(),
         create: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
       },
       userCoursePlayProgress: {
         findUnique: jest.fn(),
@@ -193,6 +195,30 @@ describe('UserCoursesService (KS-1829)', () => {
         message: expect.stringContaining('already taken'),
       });
     });
+
+    it('20-й курс проходит, 21-й → 400 "Courses per user limit reached"', async () => {
+      prisma.userCourse.create.mockImplementation(async ({ data }: any) => ({
+        id: 'c', ...data, description: data.description ?? null,
+        createdAt: new Date(), updatedAt: new Date(), _count: { lessons: 0 },
+      }));
+
+      // 20 уже существует → 21-й падает.
+      prisma.userCourse.count.mockResolvedValue(20);
+      await expect(service.create(OWNER, { title: 'Twenty first' })).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining('Courses per user limit'),
+      });
+      expect(prisma.userCourse.create).not.toHaveBeenCalled();
+    });
+
+    it('граница: ровно 19 существующих → 20-й создаётся', async () => {
+      prisma.userCourse.count.mockResolvedValue(19);
+      prisma.userCourse.create.mockImplementation(async ({ data }: any) => ({
+        id: 'c', ...data, description: data.description ?? null,
+        createdAt: new Date(), updatedAt: new Date(), _count: { lessons: 0 },
+      }));
+      await expect(service.create(OWNER, { title: 'OK' })).resolves.toBeDefined();
+    });
   });
 
   // ─── update / delete ownership enforcement ────────────────────────
@@ -251,6 +277,28 @@ describe('UserCoursesService (KS-1829)', () => {
       await expect(
         service.addLesson(OWNER, 'c1', { title: '' } as any),
       ).rejects.toThrow(BadRequestException);
+    });
+
+    it('30 уроков в курсе → 31-й падает 400 "Lessons per course limit reached"', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER });
+      prisma.userLesson.count.mockResolvedValue(30);
+      await expect(
+        service.addLesson(OWNER, 'c1', { title: 'L' }),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining('Lessons per course limit'),
+      });
+      expect(prisma.userLesson.create).not.toHaveBeenCalled();
+    });
+
+    it('граница: 29 уроков → 30-й создаётся', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER });
+      prisma.userLesson.count.mockResolvedValue(29);
+      prisma.userLesson.findFirst.mockResolvedValue({ order: 28 });
+      prisma.userLesson.create.mockImplementation(async ({ data }: any) => ({
+        id: 'l', ...data, estMinutes: data.estMinutes ?? null, _count: { steps: 0 },
+      }));
+      await expect(service.addLesson(OWNER, 'c1', { title: 'L' })).resolves.toBeDefined();
     });
   });
 

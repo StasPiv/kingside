@@ -10,14 +10,16 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import type {
-  CompleteUserLessonRequest,
-  CreateUserLessonStepRequest,
-  ReorderUserStepsRequest,
-  UpdateUserLessonRequest,
-  UpdateUserStepProgressRequest,
-} from '@kingside/shared';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { UpdateUserLessonDto } from './dto/user-lesson.dto';
+import {
+  CreateUserLessonStepDto,
+  ReorderUserStepsDto,
+} from './dto/user-lesson-step.dto';
+import {
+  CompleteUserLessonDto,
+  UpdateUserStepProgressDto,
+} from './dto/user-progress.dto';
 import { AuthenticatedRequest } from '../../common/authenticated-request';
 import { UserRateLimit, UserRateLimitGuard } from '../../common/user-rate-limit.guard';
 import { USER_COURSES_RATE_LIMITS } from './rate-limits';
@@ -62,7 +64,7 @@ export class UserLessonsController {
   @UserCourseResource('lesson')
   update(
     @Param('id') id: string,
-    @Body() body: UpdateUserLessonRequest,
+    @Body() body: UpdateUserLessonDto,
   ) {
     return this.service.update(id, body);
   }
@@ -89,7 +91,7 @@ export class UserLessonsController {
   )
   addStep(
     @Param('id') id: string,
-    @Body() body: CreateUserLessonStepRequest,
+    @Body() body: CreateUserLessonStepDto,
   ) {
     return this.service.addStep(id, body);
   }
@@ -103,7 +105,7 @@ export class UserLessonsController {
   @UserCourseResource('lesson')
   reorderSteps(
     @Param('id') id: string,
-    @Body() body: ReorderUserStepsRequest,
+    @Body() body: ReorderUserStepsDto,
   ) {
     return this.service.reorderSteps(id, body);
   }
@@ -117,7 +119,7 @@ export class UserLessonsController {
   @Post('user-progress/step')
   updateStepProgress(
     @Request() req: AuthenticatedRequest,
-    @Body() body: UpdateUserStepProgressRequest,
+    @Body() body: UpdateUserStepProgressDto,
   ) {
     return this.service.updateStepProgress(req.user.id, body);
   }
@@ -130,7 +132,7 @@ export class UserLessonsController {
   @Post('user-progress/lesson/complete')
   completeLesson(
     @Request() req: AuthenticatedRequest,
-    @Body() body: CompleteUserLessonRequest,
+    @Body() body: CompleteUserLessonDto,
   ) {
     return this.service.completeLesson(req.user.id, body);
   }
