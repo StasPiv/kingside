@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   StepPayload,
@@ -8,6 +8,7 @@ import type {
 } from '@kingside/shared';
 
 import type { AutoSaveStatus } from '../../../../hooks/useAutoSave';
+import { useReorderDnD } from '../../../../hooks/useReorderDnD';
 import { AddStepEmptyState } from './AddStepEmptyState';
 import { StepCard } from './StepCard';
 import { StepTypePicker } from './StepTypePicker';
@@ -45,6 +46,14 @@ interface LessonOverviewProps {
   onDuplicateStep: (stepId: string) => void;
   onAddStep: (type: UserStepType) => void;
   onMoveStep: (stepId: string, direction: -1 | 1) => void;
+  /**
+   * FE-R8: HTML5-DnD reorder. Если задан — drag-handles `⠿` на StepCard
+   * становятся draggable, drop-зоны вешаются на карточки, клавиатура
+   * (Tab → Space → ↑/↓ → Space) переставляет шаги. На touch-устройствах
+   * не работает (HTML5 DragEvent не поддерживает touch) — это закроет
+   * FE-R13 через @dnd-kit во втором коммите.
+   */
+  onReorderSteps?: (orderedIds: string[]) => void;
   busy?: boolean;
 }
 
@@ -62,11 +71,22 @@ export function LessonOverview({
   onDuplicateStep,
   onAddStep,
   onMoveStep,
+  onReorderSteps,
   busy,
 }: LessonOverviewProps) {
   const { t } = useTranslation();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState<UserStepType | null>(null);
+
+  // FE-R8: подключаем HTML5-DnD для шагов. Хук безопасен при пустом
+  // onReorder (используем no-op если родитель не передал колбэк) — в
+  // этом случае drag-props всё равно генерируются, но без эффекта.
+  const stepIds = useMemo(() => steps.map((s) => s.id), [steps]);
+  const dnd = useReorderDnD({
+    items: stepIds,
+    onReorder: onReorderSteps ?? (() => {}),
+  });
+  const dndEnabled = !!onReorderSteps;
 
   const confirmAdd = () => {
     if (!pickerType) return;
@@ -136,40 +156,65 @@ export function LessonOverview({
             className="lesson-overview__steps"
             data-testid={`lesson-overview-steps-${lesson.id}`}
           >
-            {steps.map((step, i) => (
-              <li key={step.id} className="lesson-overview__step-item">
-                <div className="lesson-overview__reorder-controls">
-                  <button
-                    type="button"
-                    disabled={busy || i === 0}
-                    onClick={() => onMoveStep(step.id, -1)}
-                    data-testid={`lesson-overview-step-up-${step.id}`}
-                    aria-label={t('editor.moveUp', 'Move up')}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy || i === steps.length - 1}
-                    onClick={() => onMoveStep(step.id, 1)}
-                    data-testid={`lesson-overview-step-down-${step.id}`}
-                    aria-label={t('editor.moveDown', 'Move down')}
-                  >
-                    ↓
-                  </button>
-                </div>
-                <StepCard
-                  step={step}
-                  index={i}
-                  expanded={expandedStepIds.has(step.id)}
-                  saveStatus={stepSaveStatusById?.[step.id] ?? 'idle'}
-                  onToggleExpand={() => onToggleStepExpand(step.id)}
-                  onPayloadChange={(p) => onStepPayloadChange(step.id, p)}
-                  onDelete={() => onDeleteStep(step.id)}
-                  onDuplicate={() => onDuplicateStep(step.id)}
-                />
-              </li>
-            ))}
+            {steps.map((step, i) => {
+              const isOver =
+                dndEnabled && dnd.dragState.overId === step.id;
+              const isDragging =
+                dndEnabled && dnd.dragState.draggingId === step.id;
+              return (
+                <li
+                  key={step.id}
+                  className={
+                    'lesson-overview__step-item' +
+                    (isOver ? ' lesson-overview__step-item--dnd-over' : '') +
+                    (isDragging ? ' lesson-overview__step-item--dragging' : '')
+                  }
+                  data-testid={`lesson-overview-step-item-${step.id}`}
+                  data-dnd-over={isOver ? 'true' : undefined}
+                  data-dnd-dragging={isDragging ? 'true' : undefined}
+                >
+                  <div className="lesson-overview__reorder-controls">
+                    <button
+                      type="button"
+                      disabled={busy || i === 0}
+                      onClick={() => onMoveStep(step.id, -1)}
+                      data-testid={`lesson-overview-step-up-${step.id}`}
+                      aria-label={t('editor.moveUp', 'Move up')}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy || i === steps.length - 1}
+                      onClick={() => onMoveStep(step.id, 1)}
+                      data-testid={`lesson-overview-step-down-${step.id}`}
+                      aria-label={t('editor.moveDown', 'Move down')}
+                    >
+                      ↓
+                    </button>
+                  </div>
+                  <StepCard
+                    step={step}
+                    index={i}
+                    expanded={expandedStepIds.has(step.id)}
+                    saveStatus={stepSaveStatusById?.[step.id] ?? 'idle'}
+                    onToggleExpand={() => onToggleStepExpand(step.id)}
+                    onPayloadChange={(p) => onStepPayloadChange(step.id, p)}
+                    onDelete={() => onDeleteStep(step.id)}
+                    onDuplicate={() => onDuplicateStep(step.id)}
+                    dragHandleProps={
+                      dndEnabled ? dnd.getDragProps(step.id) : undefined
+                    }
+                    dropProps={
+                      dndEnabled ? dnd.getDropProps(step.id) : undefined
+                    }
+                    handleKeyboardProps={
+                      dndEnabled ? dnd.getKeyboardProps(step.id) : undefined
+                    }
+                  />
+                </li>
+              );
+            })}
           </ol>
 
           <div

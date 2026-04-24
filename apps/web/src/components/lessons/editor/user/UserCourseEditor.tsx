@@ -16,6 +16,7 @@ import type {
 import { userCoursesApi } from '../../../../api/userCoursesApi';
 import { useAuth } from '../../../../context/AuthContext';
 import { useAutoSave } from '../../../../hooks/useAutoSave';
+import { useReorderDnD } from '../../../../hooks/useReorderDnD';
 import { useUserCourseState } from '../../../../hooks/useUserCourseState';
 import { emptyStepPayload } from '../../../../types/editor';
 import { AddLessonEmptyState } from './AddLessonEmptyState';
@@ -229,6 +230,49 @@ export function UserCourseEditor() {
       .catch(() => {});
   };
 
+  /**
+   * FE-R8: произвольная перестановка уроков из DnD. Применяет новый
+   * порядок оптимистично + PATCH каждого урока с новым `order`.
+   * Backend не имеет batch-reorder для уроков (есть только для шагов
+   * через `/user-lessons/:id/steps/reorder`); параллельные PATCH
+   * приемлемы — не более десятков уроков на курс.
+   */
+  const reorderLessonsByIds = useCallback(
+    (orderedIds: string[]) => {
+      actions.reorderLessons(orderedIds);
+      orderedIds.forEach((id, order) => {
+        userCoursesApi.updateLesson(id, { order }).catch(() => {});
+      });
+    },
+    [actions],
+  );
+
+  /**
+   * FE-R8: произвольная перестановка шагов активного урока из DnD.
+   * `userCoursesApi.reorderSteps` — батч-эндпоинт (BE-3 ADR §2.5),
+   * одна транзакция на сервере.
+   */
+  const reorderStepsByIds = useCallback(
+    (lessonId: string, orderedIds: string[]) => {
+      actions.reorderSteps(lessonId, orderedIds);
+      userCoursesApi
+        .reorderSteps(lessonId, { ids: orderedIds })
+        .catch(() => {});
+    },
+    [actions],
+  );
+
+  // FE-R8: HTML5 DnD для уроков. Drag-handle ⠿ в outline становится
+  // draggable, drop-зоны на каждой строке списка.
+  const lessonIds = useMemo(
+    () => state.lessons.map((l) => l.id),
+    [state.lessons],
+  );
+  const lessonsDnD = useReorderDnD({
+    items: lessonIds,
+    onReorder: reorderLessonsByIds,
+  });
+
   // ── Step actions ──────────────────────────────────────────────────
   const addStep = async (lessonId: string, type: UserStepType) => {
     const payload = emptyStepPayload(type) as StepPayload;
@@ -436,6 +480,34 @@ export function UserCourseEditor() {
                 return next;
               });
             }}
+            renderLessonDragHandle={(lesson) => {
+              const dragProps = lessonsDnD.getDragProps(lesson.id);
+              const dropProps = lessonsDnD.getDropProps(lesson.id);
+              const keyboardProps = lessonsDnD.getKeyboardProps(lesson.id);
+              return (
+                <button
+                  type="button"
+                  className="course-outline__drag-handle"
+                  data-testid={`course-outline-drag-${lesson.id}`}
+                  data-dnd-dragging={
+                    lessonsDnD.dragState.draggingId === lesson.id
+                      ? 'true'
+                      : undefined
+                  }
+                  data-dnd-over={
+                    lessonsDnD.dragState.overId === lesson.id
+                      ? 'true'
+                      : undefined
+                  }
+                  aria-label={t('editor.moveUp', 'Move up')}
+                  {...dragProps}
+                  {...dropProps}
+                  {...keyboardProps}
+                >
+                  ⠿
+                </button>
+              );
+            }}
           />
         </div>
 
@@ -466,6 +538,9 @@ export function UserCourseEditor() {
               onAddStep={(type) => addStep(activeLesson.id, type)}
               onMoveStep={(stepId, dir) =>
                 moveStep(activeLesson.id, stepId, dir)
+              }
+              onReorderSteps={(orderedIds) =>
+                reorderStepsByIds(activeLesson.id, orderedIds)
               }
             />
           )}
