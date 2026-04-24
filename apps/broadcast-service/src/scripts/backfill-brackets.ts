@@ -1,31 +1,35 @@
 /**
  * KS-1819: одноразовый backfill bracket-полей для broadcast-раундов,
- * загруженных до деплоя KS-1813. Проходит по всем раундам и
- * вызывает `classifyRoundBrackets` — детектор пересчитывает
- * `tournament_type`, классификатор расставляет
- * `bracket_stage` / `bracket_pair_id` / `match_score` для playoff-раундов
- * и очищает поля у не-playoff.
+ * загруженных до деплоя KS-1813. Проходит по раундам, вызывает
+ * `classifyRoundBrackets` — детектор пересчитывает `tournament_type`,
+ * классификатор расставляет `bracket_stage` / `bracket_pair_id` /
+ * `match_score` для playoff-раундов и очищает поля у не-playoff.
  *
- * Запуск (на проде, из контейнера broadcast-service или локально с
- * правильным `BROADCASTS_DATABASE_URL`):
+ * Почему лежит в `src/scripts/`: `tsconfig.build.json` у broadcast-service —
+ * `rootDir: "src"`, `include: ["src"]`. Файлы вне `src/` не попадают в
+ * `dist/`, а production-образ копирует только `dist` + `node_modules` без
+ * `ts-node`. Перемещение в `src/scripts/` даёт готовый
+ * `dist/scripts/backfill-brackets.js`, запускаемый через `node` прямо из
+ * прод-образа.
+ *
+ * Запуск в prod (ECS run-task override):
+ *
+ *     cd /app/apps/broadcast-service
+ *     node dist/scripts/backfill-brackets.js            # default --only-null
+ *     node dist/scripts/backfill-brackets.js --all      # полная перегонка
+ *
+ * Локально (dev):
  *
  *     cd apps/broadcast-service
- *     npx ts-node scripts/backfill-brackets.ts [--only-null | --all]
+ *     npx ts-node src/scripts/backfill-brackets.ts
  *
- * Флаги:
- *  --only-null (default) — только раунды с `tournamentType IS NULL`
- *    ИЛИ `tournamentType='playoff'`, у которых хотя бы одна игра без
- *    bracket-полей. Быстрее, если бэкфил уже частично выполнялся.
- *  --all                 — пройти по всем раундам. Полная идемпотентная
- *    перегонка.
- *
- * Скрипт безопасно запускать повторно: `classifyRoundBrackets`
- * идемпотентен.
+ * Скрипт не импортируется nest'овым рантаймом — nest включает его в
+ * `dist/`, но без side-effect'ов в рамках app.module.
  */
 
 /* eslint-disable no-console */
 import { PrismaClient } from '@kingside/broadcasts-db';
-import { classifyRoundBrackets } from '../src/crosstable/classify-round-brackets';
+import { classifyRoundBrackets } from '../crosstable/classify-round-brackets';
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
@@ -75,13 +79,13 @@ async function main(): Promise<void> {
         totalGamesTouched += res.gamesUpdated;
         if (res.tournamentType === 'playoff' || res.gamesUpdated > 0) {
           console.log(
-            `  ✔ ${round.id.slice(0, 8)} "${round.name}" → ${res.tournamentType} (${res.gamesUpdated} game(s))`,
+            `  OK ${round.id.slice(0, 8)} "${round.name}" -> ${res.tournamentType} (${res.gamesUpdated} game(s))`,
           );
         }
       } catch (e: unknown) {
         errors++;
         console.error(
-          `  ✗ ${round.id.slice(0, 8)} "${round.name}": ${(e as Error).message}`,
+          `  ERR ${round.id.slice(0, 8)} "${round.name}": ${(e as Error).message}`,
         );
       }
     }
