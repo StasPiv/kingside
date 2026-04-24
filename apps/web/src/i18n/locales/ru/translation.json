@@ -1281,6 +1281,33 @@
       "tactics": "Тактика",
       "basic-endgame": "Базовый эндшпиль",
       "other": "Прочее"
+    },
+    "badge": {
+      "mastered": "Освоено",
+      "dueForReview": "К повторению"
+    },
+    "reviewsDue": {
+      "title": "К повторению сегодня",
+      "count_one": "{{count}} урок",
+      "count_few": "{{count}} урока",
+      "count_many": "{{count}} уроков",
+      "count_other": "{{count}} уроков",
+      "cta": "Повторить",
+      "lastReviewed": "Последний раз: {{date}}",
+      "firstReview": "Впервые повторяешь",
+      "empty": "Нет уроков для повторения сегодня"
+    },
+    "review": {
+      "banner": "Режим повторения — пройди урок заново.",
+      "finishReview": "Завершить повтор",
+      "resultScore": "{{score}} ({{percent}}%)",
+      "masteredWithInterval_one": "Освоено — следующий повтор через {{count}} день",
+      "masteredWithInterval_few": "Освоено — следующий повтор через {{count}} дня",
+      "masteredWithInterval_many": "Освоено — следующий повтор через {{count}} дней",
+      "masteredWithInterval_other": "Освоено — следующий повтор через {{count}} дней",
+      "masteredNoInterval": "Освоено — следующий повтор запланирован",
+      "reset": "Интервал сброшен — попросим повторить завтра",
+      "nextDue": "Следующий повтор: {{date}}"
     }
   }
 }

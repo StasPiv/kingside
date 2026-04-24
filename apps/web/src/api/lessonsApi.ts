@@ -11,6 +11,7 @@ import type {
   PuzzleDto,
   PuzzleStepPayload,
   LevelGateResponse,
+  ReviewsDueResponse,
 } from '@kingside/shared';
 
 import { api } from '../api';
@@ -85,6 +86,16 @@ export const lessonsApi = {
       lessonId,
       ...payload,
     });
+  },
+
+  /**
+   * SM-2 «К повторению сегодня» (L-22 / KS-1799). Бэк — KS-1798.
+   *
+   * Отдаёт только уроки текущего пользователя, у которых `dueAt <= now`.
+   * Пустой список — нормальная ситуация (нечего повторять).
+   */
+  getReviewsDue(): Promise<ReviewsDueResponse> {
+    return api.get<ReviewsDueResponse>('/lessons/reviews/due');
   },
 
   /**

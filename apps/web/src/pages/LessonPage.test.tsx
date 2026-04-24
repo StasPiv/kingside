@@ -1,16 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderWithProviders, screen, waitFor } from '../test/test-utils';
-import { LessonPage } from './LessonPage';
+import { LessonPage, reviewScoreToQuality } from './LessonPage';
 
 const mockLessonsApi = {
   getCourse: vi.fn(),
   getLesson: vi.fn(),
+  updateStep: vi.fn(),
+  completeLesson: vi.fn(),
 };
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: {
     getCourse: (...args: unknown[]) => mockLessonsApi.getCourse(...args),
     getLesson: (...args: unknown[]) => mockLessonsApi.getLesson(...args),
+    updateStep: (...args: unknown[]) => mockLessonsApi.updateStep(...args),
+    completeLesson: (...args: unknown[]) => mockLessonsApi.completeLesson(...args),
   },
 }));
 
@@ -30,6 +34,17 @@ vi.mock('react-router-dom', async () => {
 beforeEach(() => {
   mockLessonsApi.getCourse.mockReset();
   mockLessonsApi.getLesson.mockReset();
+  mockLessonsApi.updateStep.mockReset();
+  mockLessonsApi.completeLesson.mockReset();
+  // По умолчанию updateStep/completeLesson успешны.
+  mockLessonsApi.updateStep.mockResolvedValue({
+    userId: 'u1',
+    lessonId: 'l1',
+    startedAt: '2026-04-24T00:00:00.000Z',
+    completedAt: null,
+    score: null,
+    stepsState: {},
+  });
 });
 
 const courseFixture = {
@@ -149,4 +164,50 @@ describe('LessonPage', () => {
     );
     expect(mockLessonsApi.getLesson).not.toHaveBeenCalled();
   });
+
+  // ─── L-22 (KS-1799): режим review ────────────────────────────────────
+
+  it('reviewScoreToQuality: граница 0.8 → quality=5 («освоено»), <0.8 → quality=0 («сброс»)', () => {
+    // Граничные значения
+    expect(reviewScoreToQuality(0.8)).toBe(5);
+    expect(reviewScoreToQuality(1.0)).toBe(5);
+    expect(reviewScoreToQuality(0.79)).toBe(0);
+    expect(reviewScoreToQuality(0.0)).toBe(0);
+    // Реалистичные значения
+    expect(reviewScoreToQuality(0.9)).toBe(5);
+    expect(reviewScoreToQuality(0.5)).toBe(0);
+  });
+
+  it('?mode=review → отображает баннер «Режим повторения» и не сохраняет серверный progress', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    // Сервер возвращает полный прогресс (оба шага done), но в review-режиме
+    // он не должен зазвучать как «всё уже сделано» — пользователь проходит заново.
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: '2026-04-10T00:00:00.000Z',
+        score: 1,
+        stepsState: { s1: 'done', s2: 'done' },
+      },
+    });
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces?mode=review',
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-page')).toHaveAttribute('data-mode', 'review'),
+    );
+    expect(screen.getByTestId('lesson-review-banner')).toBeInTheDocument();
+
+    // stepsState сброшен — оба шага в pending, ни одного «done».
+    const s1 = screen.getByTestId('lesson-step-1');
+    const s2 = screen.getByTestId('lesson-step-2');
+    expect(s1).toHaveAttribute('data-step-state', 'pending');
+    expect(s2).toHaveAttribute('data-step-state', 'pending');
+  });
+
 });

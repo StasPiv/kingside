@@ -594,6 +594,203 @@
   filter: brightness(1.05);
 }
 
+/* ---------- Reviews due block (L-22, KS-1799) ---------- */
+.reviews-due-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--accent);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reviews-due-block__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.reviews-due-block__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.reviews-due-block__count {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.reviews-due-block__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reviews-due-block__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.reviews-due-block__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.reviews-due-block__course {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.reviews-due-block__lesson {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.reviews-due-block__meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.reviews-due-block__cta {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  transition: filter 0.15s ease;
+  white-space: nowrap;
+}
+
+.reviews-due-block__cta:hover {
+  filter: brightness(1.05);
+}
+
+/* ---------- Course lesson badges (L-22, KS-1799) ---------- */
+.course-lesson-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.course-lesson-badge--mastered {
+  background: var(--success-soft, #d5f1da);
+  color: var(--success, #1f7a3a);
+}
+
+.course-lesson-badge--due {
+  background: var(--warning-soft, #fff3d0);
+  color: var(--warning, #9a6c14);
+}
+
+/* ---------- Lesson review mode + result (L-22, KS-1799) ---------- */
+.lesson-review-banner {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  background: var(--accent-soft, #e9eaff);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.lesson-page--review-result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.lesson-review-result__score-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.lesson-review-result__explanation {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.lesson-review-result__explanation--mastered {
+  background: var(--success-soft, #d5f1da);
+  border: 1px solid var(--success, #1f7a3a);
+  color: var(--text-primary);
+}
+
+.lesson-review-result__explanation--reset {
+  background: var(--warning-soft, #fff3d0);
+  border: 1px solid var(--warning, #9a6c14);
+  color: var(--text-primary);
+}
+
+.lesson-review-result__next-due {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.lesson-review-result__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.lesson-review-result__to-list {
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-link);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .reviews-due-block__item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .reviews-due-block__cta {
+    text-align: center;
+  }
+
+  .lesson-review-result__to-list {
+    width: 100%;
+    text-align: center;
+  }
+}
+
 /* ---------- Game review step (L-30, KS-1795) ---------- */
 .lesson-game-review-step {
   display: flex;

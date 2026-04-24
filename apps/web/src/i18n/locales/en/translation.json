@@ -1275,6 +1275,29 @@
       "tactics": "Tactics",
       "basic-endgame": "Basic endgames",
       "other": "Other"
+    },
+    "badge": {
+      "mastered": "Mastered",
+      "dueForReview": "Due for review"
+    },
+    "reviewsDue": {
+      "title": "To review today",
+      "count_one": "{{count}} lesson",
+      "count_other": "{{count}} lessons",
+      "cta": "Review",
+      "lastReviewed": "Last review: {{date}}",
+      "firstReview": "First review",
+      "empty": "No lessons to review today"
+    },
+    "review": {
+      "banner": "Review mode — go through the lesson again.",
+      "finishReview": "Finish review",
+      "resultScore": "{{score}} ({{percent}}%)",
+      "masteredWithInterval_one": "Mastered — next review in {{count}} day",
+      "masteredWithInterval_other": "Mastered — next review in {{count}} days",
+      "masteredNoInterval": "Mastered — next review scheduled",
+      "reset": "Interval reset — we'll ask you to review again tomorrow",
+      "nextDue": "Next review: {{date}}"
     }
   }
 }

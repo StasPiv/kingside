@@ -125,6 +125,138 @@ describe('CoursePage', () => {
     );
   });
 
+  it('бейджи «Освоено» и «К повторению» (L-22, KS-1799)', async () => {
+    const pastDue = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    mockLessonsApi.getCourse.mockResolvedValueOnce({
+      course: {
+        id: 'c1',
+        slug: 'beginner-basics',
+        level: 'beginner',
+        titleI18nKey: 'beginner-basics-title',
+        descriptionI18nKey: 'beginner-basics-desc',
+        order: 1,
+        isPublished: true,
+        lessonCount: 3,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      lessons: [
+        {
+          id: 'l1',
+          slug: 'pieces',
+          order: 1,
+          kind: 'theory',
+          titleI18nKey: 'pieces-title',
+          summaryI18nKey: 'pieces-summary',
+          stepCount: 4,
+          progressState: 'completed',
+          masteredAt: '2026-04-10T00:00:00.000Z',
+          dueAt: pastDue,
+        },
+        {
+          id: 'l2',
+          slug: 'rules',
+          order: 2,
+          kind: 'theory',
+          titleI18nKey: 'rules-title',
+          summaryI18nKey: 'rules-summary',
+          stepCount: 3,
+          progressState: 'completed',
+          masteredAt: '2026-04-12T00:00:00.000Z',
+          dueAt: null,
+        },
+        {
+          id: 'l3',
+          slug: 'tactics',
+          order: 3,
+          kind: 'theory',
+          titleI18nKey: 'tactics-title',
+          summaryI18nKey: 'tactics-summary',
+          stepCount: 5,
+          progressState: 'not_started',
+          masteredAt: null,
+          dueAt: null,
+        },
+      ],
+      progress: null,
+    });
+
+    renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('course-page')).toBeInTheDocument(),
+    );
+
+    // l1: освоен + повтор сегодня → оба бейджа
+    expect(
+      screen.getByTestId('course-lesson-mastered-pieces'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('course-lesson-due-pieces'),
+    ).toBeInTheDocument();
+
+    // l2: освоен, но не due — только «Освоено»
+    expect(
+      screen.getByTestId('course-lesson-mastered-rules'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('course-lesson-due-rules'),
+    ).not.toBeInTheDocument();
+
+    // l3: ни masteredAt, ни dueAt — без бейджей
+    expect(
+      screen.queryByTestId('course-lesson-mastered-tactics'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('course-lesson-due-tactics'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('dueAt в будущем → бейдж «К повторению» не показывается', async () => {
+    const futureDue = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    mockLessonsApi.getCourse.mockResolvedValueOnce({
+      course: {
+        id: 'c1',
+        slug: 'beginner-basics',
+        level: 'beginner',
+        titleI18nKey: 'beginner-basics-title',
+        descriptionI18nKey: 'beginner-basics-desc',
+        order: 1,
+        isPublished: true,
+        lessonCount: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      lessons: [
+        {
+          id: 'l1',
+          slug: 'pieces',
+          order: 1,
+          kind: 'theory',
+          titleI18nKey: 'pieces-title',
+          summaryI18nKey: 'pieces-summary',
+          stepCount: 4,
+          progressState: 'completed',
+          masteredAt: '2026-04-10T00:00:00.000Z',
+          dueAt: futureDue,
+        },
+      ],
+      progress: null,
+    });
+
+    renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('course-page')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('course-lesson-mastered-pieces'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('course-lesson-due-pieces'),
+    ).not.toBeInTheDocument();
+  });
+
   it('CoursePage intermediate → LevelGateBanner получает from="intermediate"', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce({
       course: {

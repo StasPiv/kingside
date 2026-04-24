@@ -139,37 +139,61 @@ export function CoursePage() {
                 {t(`lessons.block.${block.key}`, block.key)}
               </h2>
               <ol className="course-lesson-list">
-                {block.lessons.map((lesson) => (
-                  <li
-                    key={lesson.id}
-                    className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
-                  >
-                    <Link
-                      to={`/lessons/${course.slug}/${lesson.slug}`}
-                      data-testid={`lesson-link-${lesson.slug}`}
-                      className="course-lesson-link"
+                {block.lessons.map((lesson) => {
+                  const isMastered = Boolean(lesson.masteredAt);
+                  const isDue =
+                    Boolean(lesson.dueAt) &&
+                    new Date(lesson.dueAt as string).getTime() <= Date.now();
+                  return (
+                    <li
+                      key={lesson.id}
+                      className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
+                      data-mastered={isMastered ? 'true' : 'false'}
+                      data-due={isDue ? 'true' : 'false'}
                     >
-                      <span className="course-lesson-order">{lesson.order}.</span>
-                      <span className="course-lesson-title">
-                        {t(lesson.titleI18nKey, lesson.slug)}
-                      </span>
-                      <span
-                        className={`course-lesson-state course-lesson-state--${lesson.progressState}`}
+                      <Link
+                        to={`/lessons/${course.slug}/${lesson.slug}`}
+                        data-testid={`lesson-link-${lesson.slug}`}
+                        className="course-lesson-link"
                       >
-                        {t(
-                          `lessons.state.${lesson.progressState}`,
-                          lesson.progressState,
+                        <span className="course-lesson-order">{lesson.order}.</span>
+                        <span className="course-lesson-title">
+                          {t(lesson.titleI18nKey, lesson.slug)}
+                        </span>
+                        <span
+                          className={`course-lesson-state course-lesson-state--${lesson.progressState}`}
+                        >
+                          {t(
+                            `lessons.state.${lesson.progressState}`,
+                            lesson.progressState,
+                          )}
+                        </span>
+                        {isMastered && (
+                          <span
+                            className="course-lesson-badge course-lesson-badge--mastered"
+                            data-testid={`course-lesson-mastered-${lesson.slug}`}
+                          >
+                            {t('lessons.badge.mastered', 'Mastered')}
+                          </span>
                         )}
-                      </span>
-                      <span className="course-lesson-step-count">
-                        {t('lessons.stepCount', {
-                          count: lesson.stepCount,
-                          defaultValue: '{{count}} steps',
-                        })}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
+                        {isDue && (
+                          <span
+                            className="course-lesson-badge course-lesson-badge--due"
+                            data-testid={`course-lesson-due-${lesson.slug}`}
+                          >
+                            {t('lessons.badge.dueForReview', 'Due for review')}
+                          </span>
+                        )}
+                        <span className="course-lesson-step-count">
+                          {t('lessons.stepCount', {
+                            count: lesson.stepCount,
+                            defaultValue: '{{count}} steps',
+                          })}
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
               </ol>
             </section>
           ))}

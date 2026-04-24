@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  CompleteLessonResponse,
   LessonStepState,
   UpdateLessonStepRequest,
   UserLessonProgress,
@@ -47,10 +48,19 @@ export interface CompleteOutcome {
   ratio: number;
   /** Применённый порог. */
   threshold: number;
-  /** Серверный ответ при успехе. */
-  progress?: UserLessonProgress;
+  /** Серверный ответ при успехе (включая SM-2 поля для режима review). */
+  progress?: CompleteLessonResponse;
   /** Ошибка сети, если попытка дошла до API и не прошла. */
   error?: Error;
+}
+
+/**
+ * Параметры завершения урока. `quality` — SM-2 оценка 0..5, используется
+ * в режиме review (L-22, KS-1799): 5 — «отлично», 3 — «с усилием»,
+ * 0 — «не помню». Если не передан, бэк сам маппит из `score` в quality.
+ */
+export interface CompleteLessonOptions {
+  quality?: number;
 }
 
 export interface UseLessonProgressReturn {
@@ -67,7 +77,12 @@ export interface UseLessonProgressReturn {
   /** Последняя ошибка отправки шагов (для логирования/баннера). */
   lastSyncError: Error | null;
   markStep: (stepId: string, state: LessonStepState, score?: number) => void;
-  completeLesson: () => Promise<CompleteOutcome>;
+  completeLesson: (options?: CompleteLessonOptions) => Promise<CompleteOutcome>;
+  /**
+   * Сброс локального `stepsState` к пустому (для режима review, L-22):
+   * пользователь должен пройти все шаги заново, даже если они были done.
+   */
+  resetProgress: () => void;
 }
 
 export function useLessonProgress({
@@ -163,39 +178,56 @@ export function useLessonProgress({
   const score = totalSteps > 0 ? doneCount / totalSteps : 0;
 
   // ─── completeLesson ────────────────────────────────────────────────
-  const completeLesson = useCallback(async (): Promise<CompleteOutcome> => {
-    if (!lessonId) {
-      return { ok: false, ratio: score, threshold: passThreshold };
-    }
-    if (score < passThreshold) {
-      return { ok: false, ratio: score, threshold: passThreshold };
-    }
-    // Сначала «продавим» все pending-обновления шагов — иначе бэкенд
-    // может посчитать урок не пройденным, если последний markStep не успел.
-    const stepIds = Array.from(pendingTimersRef.current.keys());
-    for (const id of stepIds) {
-      const timer = pendingTimersRef.current.get(id);
-      if (timer) clearTimeout(timer);
-      // eslint-disable-next-line no-await-in-loop
-      await flushStep(id);
-    }
-    setIsCompleting(true);
-    try {
-      const progress = await lessonsApi.completeLesson(lessonId, { score });
-      return { ok: true, ratio: score, threshold: passThreshold, progress };
-    } catch (err) {
-      return {
-        ok: false,
-        ratio: score,
-        threshold: passThreshold,
-        error: err instanceof Error ? err : new Error(String(err)),
-      };
-    } finally {
-      setIsCompleting(false);
-    }
-  }, [lessonId, score, passThreshold, flushStep]);
+  const completeLesson = useCallback(
+    async (options: CompleteLessonOptions = {}): Promise<CompleteOutcome> => {
+      if (!lessonId) {
+        return { ok: false, ratio: score, threshold: passThreshold };
+      }
+      if (score < passThreshold) {
+        return { ok: false, ratio: score, threshold: passThreshold };
+      }
+      // Сначала «продавим» все pending-обновления шагов — иначе бэкенд
+      // может посчитать урок не пройденным, если последний markStep не успел.
+      const stepIds = Array.from(pendingTimersRef.current.keys());
+      for (const id of stepIds) {
+        const timer = pendingTimersRef.current.get(id);
+        if (timer) clearTimeout(timer);
+        // eslint-disable-next-line no-await-in-loop
+        await flushStep(id);
+      }
+      setIsCompleting(true);
+      try {
+        const progress = await lessonsApi.completeLesson(lessonId, {
+          score,
+          ...(options.quality !== undefined ? { quality: options.quality } : {}),
+        });
+        return { ok: true, ratio: score, threshold: passThreshold, progress };
+      } catch (err) {
+        return {
+          ok: false,
+          ratio: score,
+          threshold: passThreshold,
+          error: err instanceof Error ? err : new Error(String(err)),
+        };
+      } finally {
+        setIsCompleting(false);
+      }
+    },
+    [lessonId, score, passThreshold, flushStep],
+  );
+
+  const resetProgress = useCallback(() => {
+    // Отменяем pending-таймеры — иначе после reset они могут отправить
+    // «done» старого шага уже после сброса.
+    for (const timer of pendingTimersRef.current.values()) clearTimeout(timer);
+    pendingTimersRef.current.clear();
+    pendingPayloadsRef.current.clear();
+    setStepsState({});
+    setLastSyncError(null);
+  }, []);
 
   return {
+    resetProgress,
     stepsState,
     score,
     doneCount,

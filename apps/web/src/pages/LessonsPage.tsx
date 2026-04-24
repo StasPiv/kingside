@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { CourseListItem, CourseLevel } from '@kingside/shared';
+import type { CourseListItem, CourseLevel, ReviewDueItem } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
+import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -27,6 +28,8 @@ export function LessonsPage() {
   const [recommendedLevel, setRecommendedLevel] = useState<CourseLevel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reviewsDue, setReviewsDue] = useState<ReviewDueItem[]>([]);
+  const [reviewsDueErrored, setReviewsDueErrored] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +54,27 @@ export function LessonsPage() {
     };
   }, [t]);
 
+  // SM-2 «К повторению сегодня» (L-22, KS-1799). Ошибка этого запроса не
+  // блокирует страницу — блок просто скрывается. Список пустой — блок
+  // тоже скрывается (поведение по Gherkin).
+  useEffect(() => {
+    let cancelled = false;
+    setReviewsDueErrored(false);
+    lessonsApi
+      .getReviewsDue()
+      .then((res) => {
+        if (cancelled) return;
+        setReviewsDue(res.items ?? []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setReviewsDueErrored(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const grouped = LEVEL_ORDER.map((level) => ({
     level,
     items: courses
@@ -66,6 +90,8 @@ export function LessonsPage() {
           {t('lessons.subtitle', 'Structured chess curriculum')}
         </p>
       </header>
+
+      <ReviewsDueBlock items={reviewsDue} errored={reviewsDueErrored} />
 
       <LevelGateBanner restrictTo="beginner" testId="lessons-page-level-gate" />
 

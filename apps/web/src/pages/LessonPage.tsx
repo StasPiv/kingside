@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
+  CompleteLessonResponse,
   CourseWithLessonsResponse,
   LessonWithStepsResponse,
 } from '@kingside/shared';
@@ -11,14 +12,42 @@ import { StepRenderer } from '../components/lessons/StepRenderer';
 import { useLessonProgress } from '../hooks/useLessonProgress';
 
 /**
- * Страница `/lessons/:courseSlug/:lessonSlug` — контейнер для шагов урока (L-07).
+ * Страница `/lessons/:courseSlug/:lessonSlug` — контейнер для шагов урока.
  *
- * - резолв slug → id урока через `getCourse(courseSlug)`
- * - загрузка `getLesson(lessonId)`
- * - рендер шагов через `StepRenderer` (L-08)
+ * - резолв slug → id урока через `getCourse(courseSlug)` и
+ *   `getLesson(lessonId)` (L-07).
+ * - рендер шагов через `StepRenderer` (L-08).
  * - прогресс через `useLessonProgress` (L-11): индикатор + дебаунс-апдейты
  *   шагов в API + кнопка «Завершить урок» с порогом ≥70%.
+ *
+ * # Режим повторения `?mode=review` (L-22, KS-1799)
+ *
+ * Когда query-параметр `mode=review` — урок считается «повтором»:
+ * - локальный `stepsState` сбрасывается к пустому при монтировании, даже
+ *   если сервер вернул прогресс («done» для всех шагов). Пользователь
+ *   проходит урок заново.
+ * - при завершении в `completeLesson` передаётся `quality` (0..5),
+ *   вычисленный из финального `score`: ≥0.8 → quality=5 («отлично»),
+ *   <0.8 → quality=0 («забыл»). Бэк (KS-1798) применяет SM-2 и вернёт
+ *   `nextDueAt`/`intervalDays` в `CompleteLessonResponse`.
+ * - вместо стандартного «Урок завершён!» показываем экран результата
+ *   с пояснением по ≥80%-порогу «освоено».
  */
+
+const REVIEW_MASTERY_THRESHOLD = 0.8;
+
+/**
+ * Маппинг финального `score` в SM-2 `quality` (0..5) для режима review.
+ *
+ * По ADR-025 §2.8: порог «освоено» — 80% шагов. На клиенте маппим в две
+ * крайние точки (5 / 0), чтобы бэк (Sm2Service) принял однозначное
+ * решение «оставить интервал» vs «сбросить». Если клиент не передаёт
+ * `quality`, бэк сам маппит `score`, но это потеряет семантику «ученик
+ * прошёл повтор» (а не просто «доля done»).
+ */
+export function reviewScoreToQuality(score: number): 0 | 5 {
+  return score >= REVIEW_MASTERY_THRESHOLD ? 5 : 0;
+}
 
 export function LessonPage() {
   const { t } = useTranslation();
@@ -26,12 +55,23 @@ export function LessonPage() {
     courseSlug: string;
     lessonSlug: string;
   }>();
+  const [searchParams] = useSearchParams();
+  const isReviewMode = searchParams.get('mode') === 'review';
 
   const [course, setCourse] = useState<CourseWithLessonsResponse | null>(null);
   const [lesson, setLesson] = useState<LessonWithStepsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [completeMessage, setCompleteMessage] = useState<string | null>(null);
+  /**
+   * В режиме review после успешного `completeLesson` показываем экран
+   * результата (скрываем шаги). Хранит SM-2-поля из `CompleteLessonResponse`,
+   * чтобы отрисовать «следующий повтор через N дней».
+   */
+  const [reviewOutcome, setReviewOutcome] = useState<{
+    score: number;
+    response: CompleteLessonResponse | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!courseSlug || !lessonSlug) return;
@@ -40,6 +80,7 @@ export function LessonPage() {
     setError(null);
     setLesson(null);
     setCompleteMessage(null);
+    setReviewOutcome(null);
 
     lessonsApi
       .getCourse(courseSlug)
@@ -75,11 +116,25 @@ export function LessonPage() {
     [lesson],
   );
 
+  // В режиме review не передаём initialProgress — пользователь проходит
+  // с нуля. Это заодно решает вопрос с «bleed»-ом серверного `done` в
+  // локальный state.
   const progress = useLessonProgress({
     lessonId: lesson?.lesson.id ?? null,
     totalSteps: sortedSteps.length,
-    initialProgress: lesson?.progress ?? null,
+    initialProgress: isReviewMode ? null : lesson?.progress ?? null,
   });
+
+  // Дополнительная гарантия: если hook по какой-то причине засеял state
+  // (например, при ре-монтировании с тем же lessonId) — в review-режиме
+  // сбрасываем его один раз после загрузки урока.
+  const reviewResetDoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isReviewMode || !lesson?.lesson.id) return;
+    if (reviewResetDoneRef.current === lesson.lesson.id) return;
+    progress.resetProgress();
+    reviewResetDoneRef.current = lesson.lesson.id;
+  }, [isReviewMode, lesson?.lesson.id, progress]);
 
   if (!courseSlug || !lessonSlug) {
     return (
@@ -115,11 +170,17 @@ export function LessonPage() {
 
   const handleComplete = async () => {
     setCompleteMessage(null);
-    const outcome = await progress.completeLesson();
+    const quality = isReviewMode ? reviewScoreToQuality(progress.score) : undefined;
+    const outcome = await progress.completeLesson({ quality });
     if (outcome.ok) {
-      setCompleteMessage(
-        t('lessons.completeSuccess', 'Lesson completed!'),
-      );
+      if (isReviewMode) {
+        setReviewOutcome({
+          score: outcome.ratio,
+          response: outcome.progress ?? null,
+        });
+      } else {
+        setCompleteMessage(t('lessons.completeSuccess', 'Lesson completed!'));
+      }
     } else if (outcome.error) {
       setCompleteMessage(
         t('lessons.completeError', 'Failed to mark lesson as completed'),
@@ -137,8 +198,104 @@ export function LessonPage() {
   const percent = Math.round(progress.score * 100);
   const canComplete = progress.score >= progress.threshold;
 
+  // ─── Review: экран результата повтора ──────────────────────────────
+  if (isReviewMode && reviewOutcome) {
+    const scorePercent = Math.round(reviewOutcome.score * 100);
+    const mastered = reviewOutcome.score >= REVIEW_MASTERY_THRESHOLD;
+    const intervalDays = reviewOutcome.response?.intervalDays;
+    const nextDueAt = reviewOutcome.response?.nextDueAt;
+
+    return (
+      <div
+        className="lesson-page lesson-page--review-result"
+        data-testid="lesson-review-result"
+        data-outcome={mastered ? 'mastered' : 'reset'}
+      >
+        <header className="lesson-header">
+          {course && (
+            <Link
+              to={`/lessons/${course.course.slug}`}
+              className="lesson-back-link"
+              data-testid="lesson-back-link"
+            >
+              ← {t(course.course.titleI18nKey, course.course.slug)}
+            </Link>
+          )}
+          <h1>{t(lesson.lesson.titleI18nKey, lesson.lesson.slug)}</h1>
+        </header>
+
+        <div className="lesson-review-result__score">
+          <div
+            className="lesson-review-result__score-value"
+            data-testid="lesson-review-result-score"
+          >
+            {t('lessons.review.resultScore', {
+              score: reviewOutcome.score.toFixed(2),
+              percent: scorePercent,
+              defaultValue: '{{score}} ({{percent}}%)',
+            })}
+          </div>
+        </div>
+
+        {mastered ? (
+          <p
+            className="lesson-review-result__explanation lesson-review-result__explanation--mastered"
+            data-testid="lesson-review-result-explanation-mastered"
+          >
+            {intervalDays !== undefined
+              ? t('lessons.review.masteredWithInterval', {
+                  count: intervalDays,
+                  defaultValue:
+                    'Mastered — next review in {{count}} days',
+                })
+              : t(
+                  'lessons.review.masteredNoInterval',
+                  'Mastered — next review scheduled',
+                )}
+          </p>
+        ) : (
+          <p
+            className="lesson-review-result__explanation lesson-review-result__explanation--reset"
+            data-testid="lesson-review-result-explanation-reset"
+          >
+            {t(
+              'lessons.review.reset',
+              'Interval reset — we will ask you to review again tomorrow',
+            )}
+          </p>
+        )}
+
+        {nextDueAt && (
+          <p
+            className="lesson-review-result__next-due"
+            data-testid="lesson-review-result-next-due"
+          >
+            {t('lessons.review.nextDue', {
+              date: new Date(nextDueAt).toLocaleDateString(),
+              defaultValue: 'Next review: {{date}}',
+            })}
+          </p>
+        )}
+
+        <div className="lesson-review-result__actions">
+          <Link
+            to="/lessons"
+            className="lesson-review-result__to-list"
+            data-testid="lesson-review-result-back"
+          >
+            {t('lessons.backToList', 'All courses')}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="lesson-page" data-testid="lesson-page">
+    <div
+      className="lesson-page"
+      data-testid="lesson-page"
+      data-mode={isReviewMode ? 'review' : 'normal'}
+    >
       <header className="lesson-header">
         {course && (
           <Link
@@ -150,6 +307,17 @@ export function LessonPage() {
           </Link>
         )}
         <h1>{t(lesson.lesson.titleI18nKey, lesson.lesson.slug)}</h1>
+        {isReviewMode && (
+          <p
+            className="lesson-review-banner"
+            data-testid="lesson-review-banner"
+          >
+            {t(
+              'lessons.review.banner',
+              'Review mode: go through the lesson again.',
+            )}
+          </p>
+        )}
         <p className="lesson-summary">
           {t(lesson.lesson.summaryI18nKey, '')}
         </p>
@@ -217,7 +385,9 @@ export function LessonPage() {
           {progress.isCompleting
             ? t('lessons.completing', 'Saving…')
             : canComplete
-              ? t('lessons.complete', 'Complete lesson')
+              ? isReviewMode
+                ? t('lessons.review.finishReview', 'Finish review')
+                : t('lessons.complete', 'Complete lesson')
               : t('lessons.completeNeedMore', {
                   percent: Math.round(progress.threshold * 100),
                   defaultValue: 'Need ≥ {{percent}}% steps',

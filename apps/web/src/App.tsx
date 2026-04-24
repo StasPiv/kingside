@@ -38,6 +38,7 @@ import { LessonPage } from './pages/LessonPage';
 import { DevPositionStepPage } from './pages/DevPositionStepPage';
 import { DevVideoStepPage } from './pages/DevVideoStepPage';
 import { DevGameReviewStepPage } from './pages/DevGameReviewStepPage';
+import { DevReviewsUiPage } from './pages/DevReviewsUiPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 
@@ -145,6 +146,7 @@ export function App() {
         <Route path="/dev/position-step" element={<DevPositionStepPage />} />
         <Route path="/dev/video-step" element={<DevVideoStepPage />} />
         <Route path="/dev/game-review-step" element={<DevGameReviewStepPage />} />
+        <Route path="/dev/reviews-ui" element={<DevReviewsUiPage />} />
         <Route path="/feedback" element={<FeedbackBoardPage />} />
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
         <Route path="/puzzle" element={<PuzzlePage />} />
