@@ -60,7 +60,9 @@
 }
 
 .workshop-section-tab.active {
-  color: var(--c-fff);
+  /* KS-1810: var(--c-fff) stays white in light theme → invisible on white bg.
+     Use semantic --text-primary (dark in light theme, near-white in dark). */
+  color: var(--text-primary);
   border-bottom-color: var(--c-7c83ff);
 }
 

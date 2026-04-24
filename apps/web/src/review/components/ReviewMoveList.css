@@ -180,6 +180,18 @@
   box-shadow: 0 2px 4px var(--ov-info-40) !important;
 }
 
+/* KS-1810: inline clock/eval/nag inside a highlighted move keep their
+   own muted color by default; on the dark-blue current-move background
+   that color is unreadable. Force readable light tones inside .current. */
+.move-item.current .review-clock,
+.move-item.current .review-eval,
+.move-item.current .review-nag {
+  color: var(--c-fff) !important;
+}
+.move-item.current .review-eval {
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
 .move-item:hover:not(.current) {
   background-color: var(--ov-white-10);
 }
