@@ -7,6 +7,42 @@
 #   bash scripts/deploy-aws.sh api        — force API only
 #   bash scripts/deploy-aws.sh game-service — force game-service only
 #   bash scripts/deploy-aws.sh all        — force full deploy
+#
+# =====================================================================
+# KS-1826: ECR tag atomicity — semantics тегов
+# =====================================================================
+# `<repo>:<sha>` — артефакт сборки. Пушится первым, до каких-либо gate'ов.
+# `<repo>:latest` — указывает на последний успешно задеплоенный и прошедший
+#                   все gate'ы (migrate + services-stable + smoke) образ.
+#                   Перемещается атомарно через `aws ecr put-image` ТОЛЬКО
+#                   в конце блока, когда все gate'ы успешны.
+#
+# Task-def revisions регистрируются с явным `<sha>` в image (НЕ :latest).
+# Это даёт чистый откат: `update-service --task-definition <prev-revision>`.
+#
+# Почему так:
+# - Если migrate/services-stable/smoke падает — `:latest` остаётся на
+#   предыдущем удачном digest. ECS auto-heal (health-check replace, scale-up,
+#   task crash replace) и ручные run-task (TWIC-batch, CLI, backfill) — всё
+#   продолжает тянуть проверенный образ.
+# - Без атомарности (как было до KS-1826) падение любого gate оставляло
+#   `:latest` на сломанном digest → ECS auto-heal поднимал crash-looping таски
+#   параллельно с правильным rollout. См. постмортем 24.04 в KS-1817.
+#
+# Runbook отката деплоя (KS-1826):
+#   1. Посмотреть текущую revision и откатиться на предыдущую:
+#        FAM=kingside-broadcast-service            # или другое family
+#        SVC=kingside-broadcast-service            # или другой ECS-сервис
+#        CUR=$(aws ecs describe-services --cluster kingside --services "$SVC" \
+#              --query 'services[0].taskDefinition' --output text)
+#        REV=${CUR##*:}; PREV=$((REV-1))
+#        aws ecs update-service --cluster kingside --service "$SVC" \
+#          --task-definition "${FAM}:${PREV}" --force-new-deployment
+#        aws ecs wait services-stable --cluster kingside --services "$SVC"
+#   2. `:latest` уже указывает на предыдущий удачный digest — трогать не надо.
+#   3. Сломанная revision остаётся как артефакт. Почистить при желании:
+#        aws ecs deregister-task-definition --task-definition "${FAM}:${REV}"
+# =====================================================================
 
 set -euo pipefail
 
@@ -20,11 +56,22 @@ ECR_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-api"
 ECR_URI_GAME="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-game-service"
 ECR_URI_BROADCAST_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-broadcast-service"
 ECR_URI_ARCHIVE_SERVICE="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/kingside-archive-service"
+# Короткие имена ECR-repo для aws ecr put-image / batch-get-image.
+ECR_REPO_API="kingside-api"
+ECR_REPO_GAME="kingside-game-service"
+ECR_REPO_BROADCAST_SERVICE="kingside-broadcast-service"
+ECR_REPO_ARCHIVE_SERVICE="kingside-archive-service"
 S3_BUCKET="kingside-frontend-${ACCOUNT_ID}"
 CF_DISTRIBUTION="E1ECCUC177NSGI"
 ECS_CLUSTER="kingside"
 ECS_SERVICE="kingside-api"
 ECS_SERVICE_GAME="kingside-game-service"
+# Task-def families (ECS task-definition name, не ECS-service).
+TD_FAMILY_API="kingside-api"
+TD_FAMILY_GAME="kingside-game-service"
+TD_FAMILY_BROADCAST_SERVICE="kingside-broadcast-service"
+TD_FAMILY_ARCHIVE_SERVICE="kingside-archive-service"
+TD_FAMILY_ARCHIVE_IMPORTER="kingside-archive-importer"
 # ADR-021: отдельный сервис для REST+WS broadcasts на broadcasts.kingside.site.
 # ADR-022 (KS-1709): kingside-broadcast-worker удалён, sync-цикл выполняется внутри broadcast-service.
 ECS_SERVICE_BROADCAST_SERVICE="kingside-broadcast-service"
@@ -63,6 +110,9 @@ fi
 
 export AWS_DEFAULT_REGION="$REGION"
 
+# SHA текущего HEAD — используется и как docker-тег, и как ECR tag.
+DEPLOY_SHA="$(git -C "$REPO_DIR" rev-parse --short HEAD)"
+
 # --- Helpers ---
 
 fix_symlinks() {
@@ -81,6 +131,15 @@ ensure_deps() {
     fi
 }
 
+# jq нужен только для ECR/ECS блоков (register-task-definition). Frontend-only
+# деплой его не требует — проверяем лениво перед первым использованием.
+ensure_jq() {
+    if ! command -v jq >/dev/null 2>&1; then
+        echo "[pre-deploy] ERROR: 'jq' is required (KS-1826: task-def revision rewrite). Install: apt-get install jq / brew install jq"
+        exit 1
+    fi
+}
+
 get_deployed_commit() {
     cat "$DEPLOY_COMMIT_FILE" 2>/dev/null || echo ""
 }
@@ -90,6 +149,93 @@ save_deployed_commit() {
     commit=$(git -C "$REPO_DIR" rev-parse HEAD)
     echo "$commit" > "$DEPLOY_COMMIT_FILE"
     echo "  Saved deploy commit: ${commit:0:7}"
+}
+
+# KS-1826: кэш VPC/subnet/sg — одинаков для всех migrate-run-task. Ленивая
+# инициализация, чтобы dry-scope-проверки не вызывали AWS API без необходимости.
+MIGRATE_VPC_ID=""
+MIGRATE_SUBNET=""
+MIGRATE_SG=""
+ensure_migrate_network() {
+    if [ -n "$MIGRATE_VPC_ID" ]; then return; fi
+    MIGRATE_VPC_ID=$(aws ec2 describe-vpcs \
+        --filters "Name=cidr-block,Values=10.0.0.0/16" \
+        --query 'Vpcs[0].VpcId' --output text)
+    MIGRATE_SUBNET=$(aws ec2 describe-subnets \
+        --filters "Name=vpc-id,Values=$MIGRATE_VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" \
+        --query 'Subnets[0].SubnetId' --output text)
+    MIGRATE_SG=$(aws ec2 describe-security-groups \
+        --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$MIGRATE_VPC_ID" \
+        --query 'SecurityGroups[0].GroupId' --output text)
+}
+
+# KS-1826: регистрирует новую revision ECS task-def, меняя image во всех
+# containerDefinitions. Возвращает полный ARN новой revision (stdout).
+# Используем jq для очистки read-only полей (aws-cli не принимает их обратно).
+register_new_task_def_with_image() {
+    local family=$1
+    local new_image=$2
+    ensure_jq
+    local tmp
+    tmp=$(mktemp)
+    aws ecs describe-task-definition --task-definition "$family" \
+        --query 'taskDefinition' --output json \
+        | jq --arg img "$new_image" '
+            .containerDefinitions |= map(.image = $img)
+            | del(
+                .taskDefinitionArn, .revision, .status, .compatibilities,
+                .requiresAttributes, .registeredAt, .registeredBy,
+                .deregisteredAt, .enableFaultInjection
+              )
+          ' > "$tmp"
+    aws ecs register-task-definition --cli-input-json "file://$tmp" \
+        --query 'taskDefinition.taskDefinitionArn' --output text
+    rm -f "$tmp"
+}
+
+# KS-1826: атомарно двигает `:latest` в ECR на manifest указанного тега.
+# Вызывается только после того, как ВСЕ gate'ы (migrate + services-stable + smoke)
+# этого блока прошли.
+ecr_move_latest_to_tag() {
+    local repo=$1
+    local src_tag=$2
+    local manifest
+    manifest=$(aws ecr batch-get-image \
+        --repository-name "$repo" \
+        --image-ids imageTag="$src_tag" \
+        --query 'images[0].imageManifest' --output text)
+    if [ -z "$manifest" ] || [ "$manifest" = "None" ]; then
+        echo "  ERROR: cannot read manifest of ${repo}:${src_tag} — :latest NOT moved."
+        return 1
+    fi
+    # put-image перезаписывает существующий :latest (tag mutability=MUTABLE).
+    # Если :latest уже указывает на тот же manifest — AWS вернёт
+    # ImageAlreadyExistsException, тогда ничего не делаем.
+    if aws ecr put-image \
+        --repository-name "$repo" \
+        --image-tag latest \
+        --image-manifest "$manifest" \
+        --output text >/dev/null 2>&1; then
+        echo "  :latest → ${repo}:${src_tag} (atomic move)."
+    else
+        # Проверим, что причина — идентичность manifest, а не реальный сбой.
+        local latest_digest
+        latest_digest=$(aws ecr batch-get-image \
+            --repository-name "$repo" \
+            --image-ids imageTag=latest \
+            --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
+        local sha_digest
+        sha_digest=$(aws ecr batch-get-image \
+            --repository-name "$repo" \
+            --image-ids imageTag="$src_tag" \
+            --query 'images[0].imageId.imageDigest' --output text 2>/dev/null || echo "")
+        if [ -n "$latest_digest" ] && [ "$latest_digest" = "$sha_digest" ]; then
+            echo "  :latest already points to ${repo}:${src_tag} (no-op)."
+        else
+            echo "  ERROR: aws ecr put-image failed and :latest is NOT on ${src_tag} (digest mismatch)."
+            return 1
+        fi
+    fi
 }
 
 detect_deploy_scope() {
@@ -218,9 +364,11 @@ esac
 
 echo ""
 echo "=== Deploy Kingside to AWS ($SCOPE) ==="
+echo "=== Build tag (KS-1826): $DEPLOY_SHA"
 echo ""
 
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
+# Frontend не использует ECR — атомарность ECR-тегов не применима.
 if $DEPLOY_FRONTEND; then
     echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_BROADCAST_URL=$PROD_VITE_BROADCAST_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID, VITE_FEATURE_LESSONS=$PROD_VITE_FEATURE_LESSONS)..."
     VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_BROADCAST_URL="$PROD_VITE_BROADCAST_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" VITE_FEATURE_LESSONS="$PROD_VITE_FEATURE_LESSONS" npm run build --prefix "$REPO_DIR" --workspace=apps/web
@@ -236,25 +384,30 @@ if $DEPLOY_FRONTEND; then
     echo "  CloudFront invalidation created."
 fi
 
-# --- API: docker build → ECR push → ECS update ---
+# --- API: docker build → ECR push под :<sha> → migrate → update-service →
+#         services-stable → put-image :latest (атомарный move) ---
 if $DEPLOY_API; then
+    NEW_IMAGE="${ECR_URI}:${DEPLOY_SHA}"
+
     echo "[api] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
 
-    echo "[api] Building Docker image..."
-    docker build -t kingside-api:latest -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR"
+    echo "[api] Building Docker image (tag=$DEPLOY_SHA)..."
+    docker build -t "kingside-api:${DEPLOY_SHA}" -f "$REPO_DIR/apps/api/Dockerfile" "$REPO_DIR"
 
-    echo "[api] Pushing to ECR..."
-    docker tag kingside-api:latest "${ECR_URI}:latest"
-    docker push "${ECR_URI}:latest" 2>&1 | tail -3
+    echo "[api] Pushing ${ECR_REPO_API}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-api:${DEPLOY_SHA}" "$NEW_IMAGE"
+    docker push "$NEW_IMAGE" 2>&1 | tail -3
 
-    echo "[api] Running Prisma migrations..."
-    VPC_ID=$(aws ec2 describe-vpcs --filters "Name=cidr-block,Values=10.0.0.0/16" --query 'Vpcs[0].VpcId' --output text)
-    MIGRATE_SUBNET=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" --query 'Subnets[0].SubnetId' --output text)
-    MIGRATE_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[0].GroupId' --output text)
+    echo "[api] Registering new task-def revision with image=:${DEPLOY_SHA}..."
+    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE")
+    echo "  task-def: $NEW_TD_ARN"
+
+    echo "[api] Running Prisma migrations on new revision..."
+    ensure_migrate_network
     MIGRATE_TASK=$(aws ecs run-task \
-        --cluster "$ECS_CLUSTER" --task-definition kingside-api --launch-type FARGATE \
+        --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
         --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
         --overrides '{"containerOverrides":[{"name":"kingside-api","command":["sh","-c","cd /app/apps/api && npx prisma migrate deploy"]}]}' \
         --query 'tasks[0].taskArn' --output text)
@@ -263,69 +416,108 @@ if $DEPLOY_API; then
         --query 'tasks[0].containers[0].exitCode' --output text)
     if [ "$MIGRATE_EXIT" != "0" ]; then
         echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+        echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
         exit 1
     fi
     echo "  Migrations applied."
 
-    echo "[api] Updating ECS service..."
+    echo "[api] Updating ECS service to new revision..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE" \
+        --task-definition "$NEW_TD_ARN" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
+
+    echo "[api] Waiting for rollout to stabilize..."
+    if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE"; then
+        echo "  ERROR: services-stable timed out or failed. :latest NOT moved."
+        echo "  Rollback: см. runbook в шапке deploy-aws.sh."
+        exit 1
+    fi
+    echo "  Rollout stable."
+
+    echo "[api] Atomic move ${ECR_REPO_API}:latest → :${DEPLOY_SHA}..."
+    ecr_move_latest_to_tag "$ECR_REPO_API" "$DEPLOY_SHA"
 fi
 
-# --- Game Service: docker build → ECR push → ECS update ---
+# --- Game Service: docker build → ECR push под :<sha> → update-service →
+#                   services-stable → put-image :latest (атомарный move) ---
+# Миграций нет (game-service stateless). Smoke пока тоже нет (см. KS-1817 — там
+# появился только для broadcast/archive). Gate = services-stable.
 if $DEPLOY_GAME; then
+    NEW_IMAGE="${ECR_URI_GAME}:${DEPLOY_SHA}"
+
     echo "[game-service] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
 
-    echo "[game-service] Building Docker image..."
-    docker build -t kingside-game-service:latest -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR"
+    echo "[game-service] Building Docker image (tag=$DEPLOY_SHA)..."
+    docker build -t "kingside-game-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/game-service/Dockerfile" "$REPO_DIR"
 
-    echo "[game-service] Pushing to ECR..."
-    docker tag kingside-game-service:latest "${ECR_URI_GAME}:latest"
-    docker push "${ECR_URI_GAME}:latest" 2>&1 | tail -3
+    echo "[game-service] Pushing ${ECR_REPO_GAME}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-game-service:${DEPLOY_SHA}" "$NEW_IMAGE"
+    docker push "$NEW_IMAGE" 2>&1 | tail -3
 
-    echo "[game-service] Updating ECS service..."
+    echo "[game-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
+    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_GAME" "$NEW_IMAGE")
+    echo "  task-def: $NEW_TD_ARN"
+
+    echo "[game-service] Updating ECS service to new revision..."
     aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_GAME" \
+        --task-definition "$NEW_TD_ARN" \
         --force-new-deployment --query 'service.deployments[0].status' --output text
     echo "  ECS service update initiated."
+
+    echo "[game-service] Waiting for rollout to stabilize..."
+    if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_GAME"; then
+        echo "  ERROR: services-stable timed out or failed. :latest NOT moved."
+        echo "  Rollback: см. runbook в шапке deploy-aws.sh."
+        exit 1
+    fi
+    echo "  Rollout stable."
+
+    echo "[game-service] Atomic move ${ECR_REPO_GAME}:latest → :${DEPLOY_SHA}..."
+    ecr_move_latest_to_tag "$ECR_REPO_GAME" "$DEPLOY_SHA"
 fi
 
-# --- Broadcast Service (apps/broadcast-service): docker build → ECR push → ECS update ---
+# --- Broadcast Service (apps/broadcast-service): docker build → ECR push под :<sha> →
+#     migrate → update-service → services-stable → smoke → put-image :latest ---
 # ADR-021: REST+WS для /broadcasts переезжает из apps/api в отдельный apps/broadcast-service
 # на broadcasts.kingside.site. Образ kingside-broadcast-service обслуживает один ECS-сервис
 # kingside-broadcast-service (HTTP+WS на порту 3004). Sticky sessions включены на ALB TG
 # kingside-broadcasts-api (lb_cookie, WS-critical).
 # Инфра — scripts/broadcast-service-aws-setup.sh (KS-1696).
 if $DEPLOY_BROADCAST_SERVICE; then
+    NEW_IMAGE="${ECR_URI_BROADCAST_SERVICE}:${DEPLOY_SHA}"
+
     echo "[broadcast-service] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
 
-    echo "[broadcast-service] Building Docker image..."
-    docker build -t kingside-broadcast-service:latest -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR"
+    echo "[broadcast-service] Building Docker image (tag=$DEPLOY_SHA)..."
+    docker build -t "kingside-broadcast-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/broadcast-service/Dockerfile" "$REPO_DIR"
 
-    echo "[broadcast-service] Pushing to ECR..."
-    docker tag kingside-broadcast-service:latest "${ECR_URI_BROADCAST_SERVICE}:latest"
-    docker push "${ECR_URI_BROADCAST_SERVICE}:latest" 2>&1 | tail -3
+    echo "[broadcast-service] Pushing ${ECR_REPO_BROADCAST_SERVICE}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-broadcast-service:${DEPLOY_SHA}" "$NEW_IMAGE"
+    docker push "$NEW_IMAGE" 2>&1 | tail -3
 
     SVC_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_BROADCAST_SERVICE" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
 
     if [ "$SVC_STATUS" = "ACTIVE" ]; then
+        echo "[broadcast-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
+        NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_BROADCAST_SERVICE" "$NEW_IMAGE")
+        echo "  task-def: $NEW_TD_ARN"
+
         # KS-1817: Prisma migrations для broadcasts-db (отдельная БД broadcasts_kingside).
         # До KS-1817 миграции этой БД накатывались вручную → 24.04 миграция 20260424093000
-        # не приехала вместе с деплоем KS-1813 и /rounds падал 500. Шаг симметричен api-блоку
-        # (строки 252-268), дублирование VPC_ID/subnet/sg — принято: выносить общий helper —
-        # follow-up рефакторинг.
-        echo "[broadcast-service] Running Prisma migrations (broadcasts-db)..."
-        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=cidr-block,Values=10.0.0.0/16" --query 'Vpcs[0].VpcId' --output text)
-        MIGRATE_SUBNET=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" --query 'Subnets[0].SubnetId' --output text)
-        MIGRATE_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[0].GroupId' --output text)
+        # не приехала вместе с деплоем KS-1813 и /rounds падал 500.
+        # KS-1826: migrate-run-task идёт на НОВУЮ revision (image :<sha>) — прод-сервисы
+        # пока продолжают работать на предыдущей revision / предыдущем :latest.
+        echo "[broadcast-service] Running Prisma migrations (broadcasts-db) on new revision..."
+        ensure_migrate_network
         MIGRATE_TASK=$(aws ecs run-task \
-            --cluster "$ECS_CLUSTER" --task-definition kingside-broadcast-service --launch-type FARGATE \
+            --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_ARN" --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
             --overrides '{"containerOverrides":[{"name":"kingside-broadcast-service","command":["sh","-c","cd /app/packages/broadcasts-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
             --query 'tasks[0].taskArn' --output text)
@@ -334,12 +526,14 @@ if $DEPLOY_BROADCAST_SERVICE; then
             --query 'tasks[0].containers[0].exitCode' --output text)
         if [ "$MIGRATE_EXIT" != "0" ]; then
             echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
             exit 1
         fi
         echo "  Migrations applied."
 
-        echo "[broadcast-service] Updating ECS service..."
+        echo "[broadcast-service] Updating ECS service to new revision..."
         aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST_SERVICE" \
+            --task-definition "$NEW_TD_ARN" \
             --force-new-deployment --query 'service.deployments[0].status' --output text
         echo "  ECS service update initiated."
 
@@ -349,57 +543,84 @@ if $DEPLOY_BROADCAST_SERVICE; then
         # SMOKE_BROADCAST_ID можно переопределить через env, дефолт — 2026 Chess.com Open.
         SMOKE_BROADCAST_ID="${SMOKE_BROADCAST_ID:-f427e6de-10d7-42b9-9aec-58154a92d270}"
         echo "[broadcast-service] Waiting for rollout to stabilize..."
-        aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_BROADCAST_SERVICE"
+        if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_BROADCAST_SERVICE"; then
+            echo "  ERROR: services-stable timed out or failed. :latest NOT moved."
+            echo "  Rollback: см. runbook в шапке deploy-aws.sh."
+            exit 1
+        fi
         echo "[broadcast-service] Smoke-check /rounds on broadcast $SMOKE_BROADCAST_ID..."
         SMOKE_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "https://broadcasts.kingside.site/${SMOKE_BROADCAST_ID}/rounds" || echo "000")
         if [ "$SMOKE_CODE" != "200" ]; then
             echo "  ERROR: smoke /rounds returned $SMOKE_CODE (expected 200). Likely DB schema regression or service unavailable."
-            echo "  Rollback: aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_BROADCAST_SERVICE --task-definition <previous-revision>"
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+            echo "  Rollback: см. runbook в шапке deploy-aws.sh."
             exit 1
         fi
         echo "  Smoke /rounds OK (HTTP 200)."
+
+        echo "[broadcast-service] Atomic move ${ECR_REPO_BROADCAST_SERVICE}:latest → :${DEPLOY_SHA}..."
+        ecr_move_latest_to_tag "$ECR_REPO_BROADCAST_SERVICE" "$DEPLOY_SHA"
     else
         echo "[broadcast-service] ECS service '$ECS_SERVICE_BROADCAST_SERVICE' not found (status=$SVC_STATUS)."
         echo "[broadcast-service] Run scripts/broadcast-service-aws-setup.sh after first image push to register task-def + create service."
+        echo "[broadcast-service] :latest NOT moved (bootstrap flow)."
     fi
 fi
 
-# --- Archive Service (apps/archive-service): docker build → ECR push → ECS update ---
+# --- Archive Service (apps/archive-service): docker build → ECR push под :<sha> →
+#     migrate → update ОБЕИХ revisions → services-stable → smoke → put-image :latest ---
 # ADR-019: единый образ kingside-archive-service обслуживает два ECS-сервиса:
 #   - kingside-archive-service — HTTP (node dist/main.js, порт 3003)
 #   - kingside-archive-importer — importer/scheduler (node dist/importer-main.js, порт 3004)
-# Оба тянут tag :latest, поэтому push идёт один раз, а force-new-deployment — на каждый.
-# Сервисы создаются один раз через scripts/archive-service-aws-setup.sh (HTTP) +
-# отдельная task-def для importer (см. docs/adr/019-...).
+# Оба используют один ECR-образ, но у каждого ECS-сервиса своя task-def family
+# (kingside-archive-service и kingside-archive-importer).
+#
+# KS-1826: регистрируем новые revisions для ОБЕИХ family (HTTP и importer), чтобы
+# оба сервиса переехали на один и тот же тестируемый :<sha>. Двигаем :latest в ECR
+# только после того как HTTP-rollout стал stable И smoke /tree прошёл.
+# Importer-сервис тоже update-service'им: он запущен continuously и тянет новые
+# digests; если мы оставим его на прежней task-def с image=:latest, то в момент
+# между put-image :latest и следующим force-new-deployment importer окажется
+# рассинхронизирован с HTTP. Явно прописываем image=:<sha> и перекатываем оба.
 if $DEPLOY_ARCHIVE_SERVICE; then
+    NEW_IMAGE="${ECR_URI_ARCHIVE_SERVICE}:${DEPLOY_SHA}"
+
     echo "[archive-service] Logging in to ECR..."
     aws ecr get-login-password --region "$REGION" | \
         docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com" 2>/dev/null
 
-    echo "[archive-service] Building Docker image..."
-    docker build -t kingside-archive-service:latest -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR"
+    echo "[archive-service] Building Docker image (tag=$DEPLOY_SHA)..."
+    docker build -t "kingside-archive-service:${DEPLOY_SHA}" -f "$REPO_DIR/apps/archive-service/Dockerfile" "$REPO_DIR"
 
-    echo "[archive-service] Pushing to ECR..."
-    docker tag kingside-archive-service:latest "${ECR_URI_ARCHIVE_SERVICE}:latest"
-    docker push "${ECR_URI_ARCHIVE_SERVICE}:latest" 2>&1 | tail -3
+    echo "[archive-service] Pushing ${ECR_REPO_ARCHIVE_SERVICE}:${DEPLOY_SHA} to ECR..."
+    docker tag "kingside-archive-service:${DEPLOY_SHA}" "$NEW_IMAGE"
+    docker push "$NEW_IMAGE" 2>&1 | tail -3
 
-    # KS-1822: Prisma migrations для archive-db (отдельная БД archive_kingside,
-    # ADR-018). До KS-1822 миграции этой БД не катились автоматически — повторение
-    # инцидента 24.04 с broadcasts-db было только делом времени. Шаг симметричен
-    # api- и broadcast-service-блокам (KS-1817). Дублирование VPC_ID/subnet/sg —
-    # принято, общий helper — follow-up рефакторинг.
-    # Одного migrate-таска достаточно на оба ECS-сервиса: archive-service и
-    # archive-importer используют один образ и одну БД (ADR-019).
     ARCHIVE_SVC_STATUS=$(aws ecs describe-services \
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+    ARCHIVE_IMPORTER_STATUS=$(aws ecs describe-services \
+        --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_IMPORTER" \
+        --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+
+    NEW_TD_HTTP_ARN=""
+    NEW_TD_IMPORTER_ARN=""
+
     if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
-        echo "[archive-service] Running Prisma migrations (archive-db)..."
-        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=cidr-block,Values=10.0.0.0/16" --query 'Vpcs[0].VpcId' --output text)
-        MIGRATE_SUBNET=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" --query 'Subnets[0].SubnetId' --output text)
-        MIGRATE_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[0].GroupId' --output text)
+        echo "[archive-service] Registering new task-def revision ($TD_FAMILY_ARCHIVE_SERVICE) with image=:${DEPLOY_SHA}..."
+        NEW_TD_HTTP_ARN=$(register_new_task_def_with_image "$TD_FAMILY_ARCHIVE_SERVICE" "$NEW_IMAGE")
+        echo "  task-def: $NEW_TD_HTTP_ARN"
+
+        # KS-1822: Prisma migrations для archive-db (отдельная БД archive_kingside,
+        # ADR-018). До KS-1822 миграции этой БД не катились автоматически — повторение
+        # инцидента 24.04 с broadcasts-db было только делом времени. Шаг симметричен
+        # api- и broadcast-service-блокам (KS-1817).
+        # Одного migrate-таска достаточно на оба ECS-сервиса: archive-service и
+        # archive-importer используют один образ и одну БД (ADR-019).
+        echo "[archive-service] Running Prisma migrations (archive-db) on new revision..."
+        ensure_migrate_network
         MIGRATE_TASK=$(aws ecs run-task \
-            --cluster "$ECS_CLUSTER" --task-definition kingside-archive-service --launch-type FARGATE \
+            --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_HTTP_ARN" --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
             --overrides '{"containerOverrides":[{"name":"kingside-archive-service","command":["sh","-c","cd /app/packages/archive-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
             --query 'tasks[0].taskArn' --output text)
@@ -408,6 +629,7 @@ if $DEPLOY_ARCHIVE_SERVICE; then
             --query 'tasks[0].containers[0].exitCode' --output text)
         if [ "$MIGRATE_EXIT" != "0" ]; then
             echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
             exit 1
         fi
         echo "  Migrations applied."
@@ -415,20 +637,32 @@ if $DEPLOY_ARCHIVE_SERVICE; then
         echo "[archive-service] HTTP service not ACTIVE (status=$ARCHIVE_SVC_STATUS) — skipping migrate step."
     fi
 
-    for svc in "$ECS_SERVICE_ARCHIVE_SERVICE" "$ECS_SERVICE_ARCHIVE_IMPORTER"; do
-        SVC_STATUS=$(aws ecs describe-services \
-            --cluster "$ECS_CLUSTER" --services "$svc" \
-            --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+    if [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ]; then
+        echo "[archive-service] Registering new task-def revision ($TD_FAMILY_ARCHIVE_IMPORTER) with image=:${DEPLOY_SHA}..."
+        NEW_TD_IMPORTER_ARN=$(register_new_task_def_with_image "$TD_FAMILY_ARCHIVE_IMPORTER" "$NEW_IMAGE")
+        echo "  task-def: $NEW_TD_IMPORTER_ARN"
+    fi
 
-        if [ "$SVC_STATUS" = "ACTIVE" ]; then
-            echo "[archive-service] Updating ECS service $svc..."
-            aws ecs update-service --cluster "$ECS_CLUSTER" --service "$svc" \
-                --force-new-deployment --query 'service.deployments[0].status' --output text
-            echo "  ECS service $svc update initiated."
-        else
-            echo "[archive-service] ECS service '$svc' not found (status=$SVC_STATUS). Skipping."
-        fi
-    done
+    # Rolling update обоих ECS-сервисов на свои новые revisions.
+    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ] && [ -n "$NEW_TD_HTTP_ARN" ]; then
+        echo "[archive-service] Updating ECS service $ECS_SERVICE_ARCHIVE_SERVICE to new revision..."
+        aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_ARCHIVE_SERVICE" \
+            --task-definition "$NEW_TD_HTTP_ARN" \
+            --force-new-deployment --query 'service.deployments[0].status' --output text
+        echo "  ECS service $ECS_SERVICE_ARCHIVE_SERVICE update initiated."
+    else
+        echo "[archive-service] ECS service '$ECS_SERVICE_ARCHIVE_SERVICE' not found (status=$ARCHIVE_SVC_STATUS). Skipping."
+    fi
+
+    if [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ] && [ -n "$NEW_TD_IMPORTER_ARN" ]; then
+        echo "[archive-service] Updating ECS service $ECS_SERVICE_ARCHIVE_IMPORTER to new revision..."
+        aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_ARCHIVE_IMPORTER" \
+            --task-definition "$NEW_TD_IMPORTER_ARN" \
+            --force-new-deployment --query 'service.deployments[0].status' --output text
+        echo "  ECS service $ECS_SERVICE_ARCHIVE_IMPORTER update initiated."
+    else
+        echo "[archive-service] ECS service '$ECS_SERVICE_ARCHIVE_IMPORTER' not found (status=$ARCHIVE_IMPORTER_STATUS). Skipping."
+    fi
 
     # KS-1822: post-deploy smoke-gate. `GET /tree?fen=<startpos>` реально трогает
     # Prisma-select на position-table, поэтому ловит регрессии схемы (которые
@@ -436,16 +670,44 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     # константой, URL-encoded inline (jq нет в ряде окружений деплоя).
     if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
         SMOKE_FEN_ENC="rnbqkbnr%2Fpppppppp%2F8%2F8%2F8%2F8%2FPPPPPPPP%2FRNBQKBNR+w+KQkq+-+0+1"
-        echo "[archive-service] Waiting for rollout to stabilize..."
-        aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE"
+        echo "[archive-service] Waiting for HTTP rollout to stabilize..."
+        if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE"; then
+            echo "  ERROR: services-stable timed out or failed. :latest NOT moved."
+            echo "  Rollback: см. runbook в шапке deploy-aws.sh."
+            exit 1
+        fi
         echo "[archive-service] Smoke-check /tree?fen=<startpos>..."
         SMOKE_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "https://archive.kingside.site/tree?fen=${SMOKE_FEN_ENC}" || echo "000")
         if [ "$SMOKE_CODE" != "200" ]; then
             echo "  ERROR: smoke /tree returned $SMOKE_CODE (expected 200). Likely DB schema regression or service unavailable."
-            echo "  Rollback: aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_ARCHIVE_SERVICE --task-definition <previous-revision>"
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+            echo "  Rollback: см. runbook в шапке deploy-aws.sh."
             exit 1
         fi
         echo "  Smoke /tree OK (HTTP 200)."
+    fi
+
+    # importer — дополнительно ждём стабилизации, чтобы в случае cras-loop
+    # свалить деплой до того, как тронем :latest. Smoke для importer нет
+    # (нет HTTP endpoint с бизнес-логикой, только /_/health — отдельный lambda
+    # путь). services-stable покрывает таск-крэши.
+    if [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ]; then
+        echo "[archive-service] Waiting for importer rollout to stabilize..."
+        if ! aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_IMPORTER"; then
+            echo "  ERROR: archive-importer services-stable timed out or failed. :latest NOT moved."
+            echo "  Rollback: см. runbook в шапке deploy-aws.sh."
+            exit 1
+        fi
+        echo "  Importer rollout stable."
+    fi
+
+    # Все gate'ы archive-service'а прошли → атомарно двигаем :latest.
+    # Если ни один из двух сервисов не ACTIVE (bootstrap flow), :latest не двигаем.
+    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ] || [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ]; then
+        echo "[archive-service] Atomic move ${ECR_REPO_ARCHIVE_SERVICE}:latest → :${DEPLOY_SHA}..."
+        ecr_move_latest_to_tag "$ECR_REPO_ARCHIVE_SERVICE" "$DEPLOY_SHA"
+    else
+        echo "[archive-service] Neither HTTP nor importer ACTIVE — :latest NOT moved (bootstrap flow)."
     fi
 fi
 
