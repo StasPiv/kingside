@@ -24,6 +24,7 @@ import type {
   QuizOption,
   PuzzleTheme,
 } from '@kingside/shared';
+import { ArePositionMovesLegal, IsFen } from './position-step.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
@@ -182,16 +183,26 @@ class QuizStepPayloadDto implements QuizStepPayload {
 
 // ─── Заглушки под следующие итерации (валидация минимальная) ─────────
 
+/**
+ * Интерактивная позиция (итерация 2, L-23).
+ *
+ * Доменные проверки (FEN + легальность UCI-ходов) вынесены в кастомные
+ * декораторы `@IsFen` / `@ArePositionMovesLegal` — те же функции использует
+ * seed-линтер (см. `../seed/lint.ts`), так что словарь ошибок одинаковый
+ * у рантайм-валидации API и у pre-seed-проверки.
+ */
 class PositionStepPayloadDto implements PositionStepPayload {
   @IsIn(['position'])
   type!: 'position';
 
   @IsString()
+  @IsFen()
   fen!: string;
 
   @IsArray()
   @ArrayNotEmpty()
   @IsString({ each: true })
+  @ArePositionMovesLegal('fen')
   expectedMoves!: string[];
 
   @IsOptional()

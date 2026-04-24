@@ -36,6 +36,7 @@ import {
   GameReviewStepPayloadDto,
   VideoStepPayloadDto,
 } from '../dto/step-payload.dto';
+import { isValidFen, isLegalUciOnFen } from '../dto/position-step.validators';
 
 export interface LinterError {
   path: string; // напр. "beginner-basics/how-knight-moves/step-2/payload.fen"
@@ -203,21 +204,30 @@ function collectChessChecks(
       break;
     }
     case 'position': {
-      checkFen(payload.fen, `${stepPath}.payload.fen`, errors);
-      // Дополнительно проверим, что каждый ожидаемый ход легален в fen.
-      const chess = new Chess();
-      try {
-        chess.load(payload.fen);
+      // Доменная проверка payload.fen / payload.expectedMoves — через общие
+      // хелперы (те же, что и в `PositionStepPayloadDto`), чтобы линтер
+      // и рантайм-валидация API репортили одни и те же ошибки.
+      const fenOk = isValidFen(payload.fen);
+      if (!fenOk) {
+        errors.push({
+          path: `${stepPath}.payload.fen`,
+          message: `Invalid FEN`,
+        });
+      }
+      if (!Array.isArray(payload.expectedMoves) || payload.expectedMoves.length === 0) {
+        errors.push({
+          path: `${stepPath}.payload.expectedMoves`,
+          message: `expectedMoves must be a non-empty array of UCI moves`,
+        });
+      } else if (fenOk) {
         for (const [i, uci] of payload.expectedMoves.entries()) {
-          if (!tryMoveUci(chess, uci)) {
+          if (!isLegalUciOnFen(payload.fen, uci)) {
             errors.push({
               path: `${stepPath}.payload.expectedMoves[${i}]`,
               message: `Move "${uci}" is not legal from the given FEN`,
             });
           }
         }
-      } catch {
-        // FEN уже зафлажен checkFen выше
       }
       break;
     }
@@ -283,17 +293,3 @@ function checkFen(fen: string, path: string, errors: LinterError[]): void {
   }
 }
 
-/** Попытаться сделать ход в формате UCI ("e2e4", "e7e8q"). */
-function tryMoveUci(chess: Chess, uci: string): boolean {
-  try {
-    const from = uci.slice(0, 2);
-    const to = uci.slice(2, 4);
-    const promotion = uci.length > 4 ? uci.slice(4, 5) : undefined;
-    const mv = chess.move({ from, to, promotion });
-    if (!mv) return false;
-    chess.undo();
-    return true;
-  } catch {
-    return false;
-  }
-}

@@ -123,6 +123,61 @@ describe('lintFixtures', () => {
     expect(errors.some((e) => e.message.includes('not legal'))).toBe(true);
   });
 
+  it('PositionStep с невалидным FEN — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'position',
+          fen: 'not-a-fen',
+          expectedMoves: ['e2e4'],
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.fen') && e.message.includes('Invalid FEN'))).toBe(
+      true,
+    );
+  });
+
+  it('PositionStep с пустым expectedMoves — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'position',
+          fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          expectedMoves: [],
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.includes('expectedMoves'))).toBe(true);
+  });
+
+  it('PositionStep: промоушен e7e8q — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'position',
+          // Белая пешка на e7, чёрный король на h8, белый король на e1 —
+          // валидная позиция для промоушена белых.
+          fen: '7k/4P3/8/8/8/8/8/4K3 w - - 0 1',
+          expectedMoves: ['e7e8q'],
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
   it('PuzzleStep filter: ratingMin > ratingMax — ошибка', async () => {
     const course = makeCourse();
     course.lessons[0].steps = [
