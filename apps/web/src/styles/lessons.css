@@ -2875,3 +2875,289 @@
     padding: 24px 16px;
   }
 }
+
+/* ============================================================
+ * MyCoursesBlock — «Мои курсы» на /lessons (L-2, KS-1845).
+ * ADR-026 §6 Этап 3 / FE-6.
+ *
+ * Встраивается в LessonsPage между LevelGateBanner и системными
+ * курсами. Отличается от системного списка заголовком «Мои курсы»,
+ * акцентной полосой слева на карточках и цветным бейджем isPublic.
+ *
+ * Сетка: 3 колонки desktop (≥961), 2 колонки tablet (641-960),
+ * 1 колонка mobile (≤640). Карточки консистентны с
+ * .lessons-course-card (тот же радиус, shadow на hover, padding),
+ * добавлен модификатор --user (inset box-shadow слева).
+ * ============================================================ */
+.my-courses-block {
+  margin-bottom: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.my-courses-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.my-courses-block__header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.my-courses-block__create {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 1px solid var(--accent-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.my-courses-block__create:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.my-courses-block__create:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.my-courses-block__create:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.my-courses-block__error {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+}
+
+.my-courses-block__loading {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  font-size: 14px;
+}
+
+/* Пустое состояние — центрированный блок с большой иконкой и CTA-
+   намёком. CTA-кнопка выше, в header-е; тут только визуальный hint. */
+.my-courses-block__empty {
+  margin: 0;
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.my-courses-block__empty::before {
+  content: "📚";
+  display: block;
+  margin: 0 auto 10px;
+  font-size: 32px;
+  line-height: 1;
+  opacity: 0.85;
+}
+
+/* Сетка: 3 колонки desktop, 1 колонка mobile (tablet — auto-fill) */
+.my-courses-block__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.my-courses-block__card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: inset 3px 0 0 0 var(--accent-primary);
+}
+
+.my-courses-block__card:hover {
+  border-color: var(--border-accent);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 3px 0 0 0 var(--accent-primary),
+    var(--shadow-md);
+}
+
+.my-courses-block__card:focus-within {
+  border-color: var(--accent-primary);
+}
+
+.my-courses-block__link {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 16px;
+  color: inherit;
+  text-decoration: none;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.my-courses-block__link:hover,
+.my-courses-block__link:focus-visible {
+  text-decoration: none;
+  outline: none;
+}
+
+.my-courses-block__card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.my-courses-block__card-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Бейдж isPublic — цветной индикатор с точкой-префиксом */
+.my-courses-block__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+}
+
+.my-courses-block__badge::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.my-courses-block__badge--public {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success);
+}
+
+.my-courses-block__badge--private {
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border-color: var(--border-subtle);
+}
+
+.my-courses-block__card-description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.45;
+  /* 2 строки для выравнивания карточек по высоте, совместимо с
+     .lessons-course-description */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.9em;
+  overflow-wrap: anywhere;
+}
+
+.my-courses-block__card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tablet / узкий desktop (641-960): 2 колонки */
+@media (max-width: 960px) {
+  .my-courses-block__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+/* Mobile (≤ 640): одна колонка, header растягивает кнопку, бейдж
+   допускает перенос под заголовок */
+@media (max-width: 640px) {
+  .my-courses-block {
+    margin-bottom: 20px;
+    gap: 12px;
+  }
+
+  .my-courses-block__header h2 {
+    font-size: 18px;
+    flex: 1 1 auto;
+  }
+
+  .my-courses-block__create {
+    flex: 1 1 auto;
+    min-width: 140px;
+    text-align: center;
+  }
+
+  .my-courses-block__grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .my-courses-block__card-description {
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    min-height: 0;
+  }
+
+  .my-courses-block__empty {
+    padding: 24px 14px;
+  }
+
+  .my-courses-block__empty::before {
+    font-size: 28px;
+  }
+}
