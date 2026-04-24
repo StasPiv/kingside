@@ -99,9 +99,22 @@ export function emptyStepPayload(type: LessonStepType): StepPayload {
         diagrams: [],
       } satisfies TextStepPayload;
     case 'puzzle':
+      // KS-1873: backend DTO `UserPuzzleStepPayloadDto` (BE-3 / KS-1830)
+      // требует и непустой `puzzleIds` (mode=ids), и непустые `themes`
+      // (mode=filter) — иначе 400 «should not be empty». Дефолтим на
+      // `filter` с одной популярной темой (`middlegame` — широкая,
+      // гарантированно есть задачи в lichess-датасете) и узким
+      // рейтинговым окном. Автор сразу видит рабочий шаг и может
+      // переключить темы / рейтинг / limit (1..20 по DTO).
       return {
         type: 'puzzle',
-        selection: { mode: 'ids', puzzleIds: [] },
+        selection: {
+          mode: 'filter',
+          themes: ['middlegame'],
+          ratingMin: 1200,
+          ratingMax: 1600,
+          limit: 3,
+        },
       } satisfies PuzzleStepPayload;
     case 'quiz':
       return {

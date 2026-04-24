@@ -193,8 +193,10 @@ describe('<LessonEditorPage>', () => {
     fireEvent.change(typeSelect as HTMLSelectElement, {
       target: { value: 'puzzle' },
     });
+    // KS-1873: дефолт puzzle теперь mode=filter (а не ids), поэтому
+    // вместо `editor-step-puzzle-ids` рендерится `puzzle-themes`.
     expect(screen.getByTestId('editor-step-puzzle-mode')).toBeInTheDocument();
-    expect(screen.getByTestId('editor-step-puzzle-ids')).toBeInTheDocument();
+    expect(screen.getByTestId('editor-step-puzzle-themes')).toBeInTheDocument();
   });
 
   it('удаление урока → список пустеет', () => {
