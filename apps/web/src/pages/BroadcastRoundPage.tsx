@@ -3,8 +3,13 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
+import type {
+  BroadcastGameSummary,
+  BroadcastRoundItem,
+} from '@kingside/shared';
 import { broadcastApi } from '../api/broadcastApi';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
+import { PlayoffBracket } from '../components/broadcast/PlayoffBracket';
 
 /** Extract last move SAN from PGN for sound */
 function loadPgnSafe(chess: InstanceType<typeof Chess>, pgn: string): boolean {
@@ -81,24 +86,12 @@ function computeFen(pgn: string): string {
   return INITIAL_FEN;
 }
 
-// Lichess types
-type LichessGame = {
-  id: string;
-  lichessGameId: string;
-  whitePlayer: string;
-  blackPlayer: string;
-  result: string | null;
-  pgn: string | null;
-  currentFen: string | null;
-};
+// Lichess types.
+// NB: shared `BroadcastGameSummary` точнее шейпит bracket-поля (KS-1813);
+// используем его, чтобы `PlayoffBracket` получил корректный тип.
+type LichessGame = BroadcastGameSummary;
 
-type LichessRoundInfo = {
-  id: string;
-  lichessRoundId: string;
-  name: string;
-  startsAt: string | null;
-  status: string;
-};
+type LichessRoundInfo = BroadcastRoundItem;
 
 type LichessBroadcastMeta = {
   id: string;
@@ -236,6 +229,11 @@ export function BroadcastRoundPage() {
 
       {games.length === 0 ? (
         <div className="broadcasts-empty">{t('broadcastRound.noGames', 'No games in this round')}</div>
+      ) : currentRound?.tournamentType === 'playoff' ? (
+        // KS-1814: для playoff-раундов рендерим сетку, не сводную.
+        // Для round_robin / swiss / unknown / null — остаётся старый
+        // `broadcast-boards-grid` (регрессий нет).
+        <PlayoffBracket games={games} onGameClick={handleGameClick} />
       ) : (
         <div className="broadcast-games-section">
           <div className="broadcast-boards-grid">

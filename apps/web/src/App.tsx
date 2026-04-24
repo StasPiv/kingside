@@ -44,6 +44,7 @@ import { DevGameReviewStepPage } from './pages/DevGameReviewStepPage';
 import { DevReviewsUiPage } from './pages/DevReviewsUiPage';
 import { DevEndgameDrillStepPage } from './pages/DevEndgameDrillStepPage';
 import { DevOpeningDrillStepPage } from './pages/DevOpeningDrillStepPage';
+import { DevPlayoffBracketPage } from './pages/DevPlayoffBracketPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 
@@ -157,6 +158,7 @@ export function App() {
         <Route path="/dev/reviews-ui" element={<DevReviewsUiPage />} />
         <Route path="/dev/endgame-drill" element={<DevEndgameDrillStepPage />} />
         <Route path="/dev/opening-drill" element={<DevOpeningDrillStepPage />} />
+        <Route path="/dev/playoff-bracket" element={<DevPlayoffBracketPage />} />
         <Route path="/feedback" element={<FeedbackBoardPage />} />
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
         <Route path="/puzzle" element={<PuzzlePage />} />

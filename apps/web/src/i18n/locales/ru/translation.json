@@ -168,7 +168,33 @@
     "noGames": "Нет партий в этом туре",
     "roundsError": "Не удалось загрузить туры",
     "syncError": "Ошибка соединения",
-    "close": "Закрыть"
+    "close": "Закрыть",
+    "playoff": {
+      "winners": "Сетка победителей",
+      "losers": "Сетка проигравших",
+      "gamesLink_one": "{{count}} партия",
+      "gamesLink_few": "{{count}} партии",
+      "gamesLink_many": "{{count}} партий",
+      "gamesLink_other": "{{count}} партий",
+      "gameNo": "Партия {{n}}",
+      "inProgress": "идёт",
+      "stage": {
+        "round_of_64": "1/32 финала",
+        "round_of_32": "1/16 финала",
+        "round_of_16": "1/8 финала",
+        "quarter": "Четвертьфинал",
+        "semi": "Полуфинал",
+        "final": "Финал",
+        "grand_final": "Гранд-финал",
+        "playoff": "Плей-офф",
+        "winners_quarter": "WB — четвертьфинал",
+        "winners_semi": "WB — полуфинал",
+        "winners_final": "WB — финал",
+        "losers_quarter": "LB — четвертьфинал",
+        "losers_semi": "LB — полуфинал",
+        "losers_final": "LB — финал"
+      }
+    }
   },
   "broadcastGame": {
     "backToRound": "К туру"

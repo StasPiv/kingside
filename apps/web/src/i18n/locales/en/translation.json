@@ -168,7 +168,31 @@
     "noGames": "No games in this round",
     "roundsError": "Failed to load rounds",
     "syncError": "Connection error",
-    "close": "Close"
+    "close": "Close",
+    "playoff": {
+      "winners": "Winners bracket",
+      "losers": "Losers bracket",
+      "gamesLink_one": "{{count}} game",
+      "gamesLink_other": "{{count}} games",
+      "gameNo": "Game {{n}}",
+      "inProgress": "live",
+      "stage": {
+        "round_of_64": "Round of 64",
+        "round_of_32": "Round of 32",
+        "round_of_16": "Round of 16",
+        "quarter": "Quarterfinal",
+        "semi": "Semifinal",
+        "final": "Final",
+        "grand_final": "Grand Final",
+        "playoff": "Playoff",
+        "winners_quarter": "WB — Quarterfinal",
+        "winners_semi": "WB — Semifinal",
+        "winners_final": "WB — Final",
+        "losers_quarter": "LB — Quarterfinal",
+        "losers_semi": "LB — Semifinal",
+        "losers_final": "LB — Final"
+      }
+    }
   },
   "broadcastGame": {
     "backToRound": "Back to round"
