@@ -11,6 +11,7 @@
     "seed:lessons:lint": "npx ts-node src/lessons/seed/lint-lessons.ts",
     "seed:sample-puzzles": "npx ts-node src/lessons/seed/seed-sample-puzzles.ts",
     "test": "jest",
+    "test:e2e": "jest --config test/jest-e2e.config.ts --runInBand",
     "prisma:generate": "prisma generate --schema=../../packages/db/prisma/schema.prisma",
     "prisma:migrate": "prisma migrate dev --schema=../../packages/db/prisma/schema.prisma",
     "prisma:studio": "prisma studio --schema=../../packages/db/prisma/schema.prisma",
