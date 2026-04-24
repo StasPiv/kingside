@@ -118,6 +118,12 @@ export interface CreateUserCourseRequest {
   title: string;
   description?: string;
   isPublic?: boolean;
+  /**
+   * Опциональный кастомный slug. Если не передан — генерируется из
+   * title сервером. Правила для явного slug: `[a-z0-9-]+`, длина 3..80,
+   * без ведущих/замыкающих дефисов и без `--` (ADR-026 §2.5).
+   */
+  slug?: string;
 }
 
 export interface UpdateUserCourseRequest {

@@ -7,6 +7,7 @@ import { UserCoursesService } from './user-courses.service';
 import { UserLessonsService } from './user-lessons.service';
 import { UserLessonStepsService } from './user-lesson-steps.service';
 import { UserCourseOwnerGuard } from './user-course-owner.guard';
+import { SlugService } from './slug.service';
 
 /**
  * UserCoursesModule — пользовательские курсы (ADR-026, KS-1829).
@@ -30,7 +31,13 @@ import { UserCourseOwnerGuard } from './user-course-owner.guard';
     UserLessonsService,
     UserLessonStepsService,
     UserCourseOwnerGuard,
+    SlugService,
   ],
-  exports: [UserCoursesService, UserLessonsService, UserLessonStepsService],
+  exports: [
+    UserCoursesService,
+    UserLessonsService,
+    UserLessonStepsService,
+    SlugService,
+  ],
 })
 export class UserCoursesModule {}

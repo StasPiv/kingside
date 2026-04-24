@@ -4,7 +4,6 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import type {
   CreateUserCourseRequest,
   CreateUserLessonRequest,
@@ -16,6 +15,7 @@ import type {
   UserLessonDto,
 } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { SlugService } from './slug.service';
 
 /**
  * UserCoursesService — CRUD пользовательского курса (ADR-026 §2.5,
@@ -32,7 +32,10 @@ import { PrismaService } from '../../prisma/prisma.service';
  */
 @Injectable()
 export class UserCoursesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly slug: SlugService,
+  ) {}
 
   // ─── Listings ────────────────────────────────────────────────────
 
@@ -93,11 +96,12 @@ export class UserCoursesService {
   // ─── Mutations ───────────────────────────────────────────────────
 
   /**
-   * Создание нового курса. slug-генератор — простейший MVP, вынос в
-   * отдельный `SlugService` — задача BE-5 (см. ADR §6 Этап 1).
-   * До BE-5 используем `<shortId>-<slugFromTitle>`; коллизия по slug
-   * теоретически возможна (~10⁻⁸), при её случае — 400, UI может
-   * повторить.
+   * Создание нового курса.
+   *
+   * Slug: если явно передан в body — валидируется `SlugService.validateExplicit`
+   * + проверка коллизии через unique-индекс БД; иначе — генерируется
+   * автоматически из title (`SlugService.generateUnique`) с внутренней
+   * регенерацией при случайной коллизии nanoid'а.
    */
   async create(
     ownerId: string,
@@ -108,7 +112,11 @@ export class UserCoursesService {
       // Полноценные лимиты (1..120 символов и т.п.) — задача BE-3.
       throw new BadRequestException('title is required');
     }
-    const slug = makeCourseSlug(body.title);
+
+    const slug = body.slug
+      ? this.slug.validateExplicit(body.slug)
+      : await this.slug.generateUnique(body.title);
+
     try {
       const created = await this.prisma.userCourse.create({
         data: {
@@ -122,9 +130,12 @@ export class UserCoursesService {
       });
       return toCourseDto(created);
     } catch (e) {
-      // slug-коллизия → 400, авторегенерация на клиенте.
+      // Случилась коллизия — в случае явного slug это «занят», в случае
+      // сгенерированного — гонка с параллельным create после generateUnique.
       if (isPrismaUniqueViolation(e)) {
-        throw new BadRequestException('slug collision, retry');
+        throw new BadRequestException(
+          body.slug ? 'slug already taken' : 'slug collision, retry',
+        );
       }
       throw e;
     }
@@ -277,31 +288,7 @@ export function toCoursePlayProgressDto(row: {
   };
 }
 
-// ─── Slug generator (BE-5 вынесет в SlugService) ─────────────────────
-
-/**
- * `<shortId>-<slug-from-title>` — простой MVP slug. Транслитерация
- * кириллицы временно примитивная (маппинг в ASCII). Полноценный
- * генератор с проверкой коллизий — задача BE-5.
- */
-export function makeCourseSlug(title: string): string {
-  const shortId = randomUUID().slice(0, 6);
-  const transliterated = title
-    .toLowerCase()
-    .replace(/[а-яё]/g, (c) => RU_MAP[c] ?? '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  const body = transliterated.length > 0 ? transliterated.slice(0, 60) : 'course';
-  return `${shortId}-${body}`;
-}
-
-const RU_MAP: Record<string, string> = {
-  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh',
-  з: 'z', и: 'i', й: 'i', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o',
-  п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'h', ц: 'ts',
-  ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu',
-  я: 'ya',
-};
+// ─── Prisma error helpers ────────────────────────────────────────────
 
 function isPrismaUniqueViolation(e: unknown): boolean {
   return (

@@ -1,13 +1,18 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { UserCoursesService, makeCourseSlug } from './user-courses.service';
+import { UserCoursesService } from './user-courses.service';
 
 describe('UserCoursesService (KS-1829)', () => {
   let service: UserCoursesService;
   let prisma: any;
+  let slug: { generateUnique: jest.Mock; validateExplicit: jest.Mock };
 
   const OWNER = 'owner-1';
 
   beforeEach(() => {
+    slug = {
+      generateUnique: jest.fn().mockResolvedValue('abc123-generated'),
+      validateExplicit: jest.fn((s: string) => s),
+    };
     prisma = {
       userCourse: {
         findMany: jest.fn(),
@@ -29,7 +34,7 @@ describe('UserCoursesService (KS-1829)', () => {
         }),
       ),
     };
-    service = new UserCoursesService(prisma);
+    service = new UserCoursesService(prisma, slug as any);
   });
 
   // ─── list ──────────────────────────────────────────────────────────
@@ -150,21 +155,43 @@ describe('UserCoursesService (KS-1829)', () => {
       const call = prisma.userCourse.create.mock.calls[0][0];
       expect(call.data.ownerId).toBe(OWNER);
       expect(call.data.title).toBe('Мой курс');
-      expect(call.data.slug).toMatch(/^[a-f0-9]{6}-/);
+      // slug пришёл из SlugService.generateUnique (замок выше).
+      expect(call.data.slug).toBe('abc123-generated');
+      expect(slug.generateUnique).toHaveBeenCalledWith('Мой курс');
       expect(r.ownerId).toBe(OWNER);
     });
 
-    it('пустой title → 400', async () => {
+    it('пустой title → 400 (до вызова SlugService)', async () => {
       await expect(service.create(OWNER, { title: '   ' } as any)).rejects.toThrow(
         BadRequestException,
       );
+      expect(slug.generateUnique).not.toHaveBeenCalled();
     });
 
-    it('slug-коллизия (P2002) → 400, клиент ретраит', async () => {
+    it('явный slug идёт через validateExplicit, не через generateUnique', async () => {
+      prisma.userCourse.create.mockImplementation(async ({ data }: any) => ({
+        id: 'c1', ...data, description: data.description ?? null,
+        createdAt: new Date(), updatedAt: new Date(), _count: { lessons: 0 },
+      }));
+      await service.create(OWNER, { title: 'Hi', slug: 'my-nice-slug' });
+      expect(slug.validateExplicit).toHaveBeenCalledWith('my-nice-slug');
+      expect(slug.generateUnique).not.toHaveBeenCalled();
+    });
+
+    it('slug-коллизия (P2002) для авто → 400 "slug collision, retry"', async () => {
       prisma.userCourse.create.mockRejectedValue({ code: 'P2002' });
-      await expect(service.create(OWNER, { title: 'Hi' })).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(service.create(OWNER, { title: 'Hi' })).rejects.toMatchObject({
+        message: expect.stringContaining('slug collision'),
+      });
+    });
+
+    it('slug-коллизия (P2002) при явном slug → 400 "slug already taken"', async () => {
+      prisma.userCourse.create.mockRejectedValue({ code: 'P2002' });
+      await expect(
+        service.create(OWNER, { title: 'Hi', slug: 'taken-one' }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining('already taken'),
+      });
     });
   });
 
@@ -227,28 +254,4 @@ describe('UserCoursesService (KS-1829)', () => {
     });
   });
 
-  // ─── makeCourseSlug ────────────────────────────────────────────────
-
-  describe('makeCourseSlug', () => {
-    it('транслитерирует кириллицу', () => {
-      const s = makeCourseSlug('Мой первый курс');
-      expect(s).toMatch(/^[a-f0-9]{6}-moi-pervyi-kurs$/);
-    });
-
-    it('режет спецсимволы', () => {
-      const s = makeCourseSlug('Hello, World!!!');
-      expect(s).toMatch(/^[a-f0-9]{6}-hello-world$/);
-    });
-
-    it('пустой/только спецсимволы → fallback "course"', () => {
-      const s = makeCourseSlug('!!!');
-      expect(s).toMatch(/^[a-f0-9]{6}-course$/);
-    });
-
-    it('разные вызовы дают разный shortId', () => {
-      const s1 = makeCourseSlug('hi');
-      const s2 = makeCourseSlug('hi');
-      expect(s1).not.toBe(s2);
-    });
-  });
 });
