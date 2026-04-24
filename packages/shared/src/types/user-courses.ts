@@ -164,6 +164,17 @@ export interface ReorderUserStepsRequest {
   ids: string[];
 }
 
+/**
+ * POST /api/lessons/user-courses/:id/lessons/reorder — массовый апдейт
+ * `order` уроков внутри курса (KS-1862). `ids` — массив id уроков в
+ * нужном порядке (0, 1, 2, …). Все id обязаны принадлежать курсу;
+ * список должен содержать все уроки курса (полная перестановка), иначе
+ * сервер отвечает 400. Атомарность та же, что у `ReorderUserStepsRequest`.
+ */
+export interface ReorderUserLessonsRequest {
+  ids: string[];
+}
+
 // ─── Progress update requests ────────────────────────────────────────
 
 /**

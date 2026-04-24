@@ -1,4 +1,6 @@
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsInt,
   IsOptional,
   IsString,
@@ -9,6 +11,7 @@ import {
 } from 'class-validator';
 import type {
   CreateUserLessonRequest,
+  ReorderUserLessonsRequest,
   UpdateUserLessonRequest,
 } from '@kingside/shared';
 
@@ -51,4 +54,16 @@ export class UpdateUserLessonDto implements UpdateUserLessonRequest {
   @IsInt()
   @Min(0)
   order?: number;
+}
+
+/**
+ * POST /lessons/user-courses/:id/lessons/reorder — массовый order-апдейт
+ * уроков в одной транзакции (KS-1862). Сервис дополнительно проверяет,
+ * что все id принадлежат курсу и список полный.
+ */
+export class ReorderUserLessonsDto implements ReorderUserLessonsRequest {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsString({ each: true })
+  ids!: string[];
 }

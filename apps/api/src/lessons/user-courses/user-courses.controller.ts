@@ -16,7 +16,10 @@ import {
   CreateUserCourseDto,
   UpdateUserCourseDto,
 } from './dto/user-course.dto';
-import { CreateUserLessonDto } from './dto/user-lesson.dto';
+import {
+  CreateUserLessonDto,
+  ReorderUserLessonsDto,
+} from './dto/user-lesson.dto';
 import { AuthenticatedRequest } from '../../common/authenticated-request';
 import { UserRateLimit, UserRateLimitGuard } from '../../common/user-rate-limit.guard';
 import { USER_COURSES_RATE_LIMITS } from './rate-limits';
@@ -133,5 +136,25 @@ export class UserCoursesController {
     @Body() body: CreateUserLessonDto,
   ) {
     return this.service.addLesson(req.user.id, id, body);
+  }
+
+  /**
+   * POST /lessons/user-courses/:id/lessons/reorder — массовая
+   * перестановка `order` уроков курса в одной транзакции (KS-1862).
+   * Альтернатива N последовательным PATCH /user-lessons/:lid {order}.
+   *
+   * Rate-limit не навешиваем: reorder идёт при drag-and-drop в
+   * редакторе и может срабатывать пачкой; ограничение сверху уже даёт
+   * сама структура запроса (один батч = один запрос).
+   */
+  @Post(':id/lessons/reorder')
+  @UseGuards(UserCourseOwnerGuard)
+  @UserCourseResource('course')
+  reorderLessons(
+    @Request() req: AuthenticatedRequest,
+    @Param('id') id: string,
+    @Body() body: ReorderUserLessonsDto,
+  ) {
+    return this.service.reorderLessons(req.user.id, id, body);
   }
 }

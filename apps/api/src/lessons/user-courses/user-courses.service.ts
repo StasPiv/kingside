@@ -7,6 +7,7 @@ import {
 import type {
   CreateUserCourseRequest,
   CreateUserLessonRequest,
+  ReorderUserLessonsRequest,
   UpdateUserCourseRequest,
   UserCourseDto,
   UserCourseListResponse,
@@ -229,6 +230,80 @@ export class UserCoursesService {
         include: { _count: { select: { steps: true } } },
       });
       return toLessonDto(created);
+    });
+  }
+
+  /**
+   * Массовая перестановка `order` уроков курса в одной транзакции
+   * (KS-1862, FE-R8/FE-R6 — альтернатива N PATCH'ам).
+   *
+   * На входе — массив id в нужном порядке; всем выставляется
+   * `order = index`. Проверяем, что:
+   *  - `body.ids` непуст;
+   *  - все id принадлежат именно этому курсу (никакой подмены чужих
+   *    уроков или шагов);
+   *  - список полный — содержит ровно все уроки курса. Частичный
+   *    reorder не поддерживаем, чтобы оставшиеся уроки не получили
+   *    «дыры» в order'е.
+   *
+   * Реализация — по образцу `UserLessonsService.reorderSteps`: две
+   * фазы update'а (сначала в безопасный offset `+1_000_000`, потом в
+   * целевые значения). На (userCourseId, order) unique-констрейнта
+   * сейчас нет, но практика защищает на случай будущего ужесточения
+   * схемы и делает промежуточное состояние в транзакции явно невалидным
+   * только один такт.
+   */
+  async reorderLessons(
+    ownerId: string,
+    courseId: string,
+    body: ReorderUserLessonsRequest,
+  ): Promise<{ ids: string[] }> {
+    await this.assertOwner(ownerId, courseId);
+
+    if (!body || !Array.isArray(body.ids) || body.ids.length === 0) {
+      throw new BadRequestException('ids is required');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const lessons = await tx.userLesson.findMany({
+        where: { userCourseId: courseId },
+        select: { id: true },
+      });
+      const allowed = new Set(lessons.map((l) => l.id));
+      for (const id of body.ids) {
+        if (!allowed.has(id)) {
+          throw new BadRequestException(`lesson ${id} does not belong to course`);
+        }
+      }
+      if (body.ids.length !== lessons.length) {
+        throw new BadRequestException(
+          'ids must list every lesson of the course (reorder requires full list)',
+        );
+      }
+
+      // Защита от дублей в `body.ids` — без неё конкретный id попал бы
+      // в два offset'а и второй update переписал бы первый.
+      if (new Set(body.ids).size !== body.ids.length) {
+        throw new BadRequestException('ids must be unique');
+      }
+
+      await Promise.all(
+        body.ids.map((id, idx) =>
+          tx.userLesson.update({
+            where: { id },
+            data: { order: 1_000_000 + idx },
+          }),
+        ),
+      );
+      await Promise.all(
+        body.ids.map((id, idx) =>
+          tx.userLesson.update({
+            where: { id },
+            data: { order: idx },
+          }),
+        ),
+      );
+      return { ids: body.ids };
     });
   }
 

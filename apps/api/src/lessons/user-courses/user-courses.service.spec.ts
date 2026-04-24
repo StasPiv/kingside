@@ -24,7 +24,9 @@ describe('UserCoursesService (KS-1829)', () => {
       },
       userLesson: {
         findFirst: jest.fn(),
+        findMany: jest.fn(),
         create: jest.fn(),
+        update: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
       },
       userCoursePlayProgress: {
@@ -302,4 +304,96 @@ describe('UserCoursesService (KS-1829)', () => {
     });
   });
 
+  // ─── reorderLessons (KS-1862) ────────────────────────────────────
+
+  describe('reorderLessons', () => {
+    beforeEach(() => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER });
+      prisma.userLesson.update.mockResolvedValue({});
+    });
+
+    it('выставляет order по порядку id в массиве (две фазы)', async () => {
+      prisma.userLesson.findMany.mockResolvedValue([
+        { id: 'a' }, { id: 'b' }, { id: 'c' },
+      ]);
+
+      await service.reorderLessons(OWNER, 'c1', { ids: ['c', 'a', 'b'] });
+
+      // 6 update-вызовов: 3 в offset + 3 в финальные значения.
+      expect(prisma.userLesson.update).toHaveBeenCalledTimes(6);
+
+      const finalCalls = prisma.userLesson.update.mock.calls.slice(3);
+      expect(finalCalls).toContainEqual([{ where: { id: 'c' }, data: { order: 0 } }]);
+      expect(finalCalls).toContainEqual([{ where: { id: 'a' }, data: { order: 1 } }]);
+      expect(finalCalls).toContainEqual([{ where: { id: 'b' }, data: { order: 2 } }]);
+    });
+
+    it('первая фаза — offset 1_000_000+idx (snapshot первых трёх вызовов)', async () => {
+      prisma.userLesson.findMany.mockResolvedValue([
+        { id: 'a' }, { id: 'b' }, { id: 'c' },
+      ]);
+
+      await service.reorderLessons(OWNER, 'c1', { ids: ['c', 'a', 'b'] });
+
+      const firstPhase = prisma.userLesson.update.mock.calls.slice(0, 3);
+      expect(firstPhase).toContainEqual([
+        { where: { id: 'c' }, data: { order: 1_000_000 } },
+      ]);
+      expect(firstPhase).toContainEqual([
+        { where: { id: 'a' }, data: { order: 1_000_001 } },
+      ]);
+      expect(firstPhase).toContainEqual([
+        { where: { id: 'b' }, data: { order: 1_000_002 } },
+      ]);
+    });
+
+    it('чужой id в ids → 400, без апдейтов', async () => {
+      prisma.userLesson.findMany.mockResolvedValue([
+        { id: 'a' }, { id: 'b' },
+      ]);
+      await expect(
+        service.reorderLessons(OWNER, 'c1', { ids: ['a', 'x'] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.userLesson.update).not.toHaveBeenCalled();
+    });
+
+    it('неполный список (не все уроки) → 400', async () => {
+      prisma.userLesson.findMany.mockResolvedValue([
+        { id: 'a' }, { id: 'b' }, { id: 'c' },
+      ]);
+      await expect(
+        service.reorderLessons(OWNER, 'c1', { ids: ['a', 'b'] }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.userLesson.update).not.toHaveBeenCalled();
+    });
+
+    it('дубли в ids → 400', async () => {
+      prisma.userLesson.findMany.mockResolvedValue([
+        { id: 'a' }, { id: 'b' }, { id: 'c' },
+      ]);
+      // length=3, все принадлежат курсу, но 'a' повторяется — ожидаем отказ.
+      await expect(
+        service.reorderLessons(OWNER, 'c1', { ids: ['a', 'a', 'b'] }),
+      ).rejects.toMatchObject({
+        status: 400,
+        message: expect.stringContaining('unique'),
+      });
+      expect(prisma.userLesson.update).not.toHaveBeenCalled();
+    });
+
+    it('пустой ids → 400', async () => {
+      await expect(
+        service.reorderLessons(OWNER, 'c1', { ids: [] }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('чужой owner → 403 (до входа в транзакцию)', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: 'someone-else' });
+      await expect(
+        service.reorderLessons(OWNER, 'c1', { ids: ['a'] }),
+      ).rejects.toThrow(ForbiddenException);
+      expect(prisma.userLesson.findMany).not.toHaveBeenCalled();
+      expect(prisma.userLesson.update).not.toHaveBeenCalled();
+    });
+  });
 });
