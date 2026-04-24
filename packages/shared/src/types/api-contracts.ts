@@ -581,12 +581,79 @@ export type BroadcastSummary = {
   avgElo: number | null;
 };
 
+/**
+ * Тип турнира на уровне **раунда** (KS-1813). Не путать с
+ * `TournamentType` — тот про `BroadcastStandings` (crosstable с
+ * chess-results.com и определён форматом всего броадкаста). На уровне
+ * раунда интерес иной — знать, рендерить ли сетку плей-офф вместо
+ * таблицы. Значения:
+ *   - `round_robin` / `swiss` — обычные туры, bracket-поля у игр null;
+ *   - `playoff` — knockout-матч (Winners/Losers/QF/SF/Final…),
+ *      у игр проставлены `bracketStage` / `bracketPairId` / `matchScore`;
+ *   - `unknown` — тип не распознан (клиент рендерит как обычный раунд).
+ *
+ * В БД хранится в `broadcast_rounds.tournament_type` (nullable — старые
+ * раунды до первого sync-цикла отдают `null`; клиент трактует как
+ * `unknown`).
+ */
+export type BroadcastRoundTournamentType =
+  | 'round_robin'
+  | 'swiss'
+  | 'playoff'
+  | 'unknown';
+
 export type BroadcastRoundItem = {
   id: string;
   lichessRoundId: string;
   name: string;
   startsAt: string | null;
   status: string;
+  /**
+   * KS-1813: тип турнира для раунда. `null` до первого запуска
+   * классификатора — клиент должен трактовать как `'unknown'`.
+   */
+  tournamentType?: BroadcastRoundTournamentType | null;
+};
+
+/**
+ * KS-1813: alias под именование в roadmap ("BroadcastRoundResponse").
+ * Разные зоны репы используют разные имена — алиас синхронизирует.
+ */
+export type BroadcastRoundResponse = BroadcastRoundItem;
+
+/**
+ * Короткая сводка партии для API `/broadcasts/:id/rounds/:roundId/games`
+ * (KS-1813). Помимо обычных игровых полей включает bracket-поля —
+ * заполнены только для `tournamentType='playoff'`, иначе `null`.
+ */
+export type BroadcastGameSummary = {
+  id: string;
+  lichessGameId: string | null;
+  whitePlayer: string | null;
+  blackPlayer: string | null;
+  whiteElo?: number | null;
+  blackElo?: number | null;
+  result: string | null;
+  pgn: string | null;
+  currentFen: string | null;
+  updatedAt: string;
+  /**
+   * KS-1813: этап плей-офф (`quarter` / `semi` / `final` / `grand_final`
+   * / `round_of_16` / `winners_<stage>` / `losers_<stage>` / `playoff`).
+   * `null` для round-robin / swiss / unknown.
+   */
+  bracketStage?: string | null;
+  /**
+   * KS-1813: стабильный id пары в рамках раунда (`<stage>:<A>|<B>`,
+   * имена лексикографически отсортированы). Партии одного матча имеют
+   * один `bracketPairId`. `null` для не-playoff.
+   */
+  bracketPairId?: string | null;
+  /**
+   * KS-1813: текущий счёт по партиям в паре (`'2-1'` / `'2½-1½'`).
+   * `null` для не-playoff.
+   */
+  matchScore?: string | null;
 };
 
 export type BroadcastListResponse = {
@@ -598,6 +665,10 @@ export type BroadcastListResponse = {
 
 export type BroadcastRoundsResponse = {
   data: BroadcastRoundItem[];
+};
+
+export type BroadcastGamesResponse = {
+  data: BroadcastGameSummary[];
 };
 
 // ─── Broadcast crosstable (REST: GET /broadcasts/:id/crosstable) ─────

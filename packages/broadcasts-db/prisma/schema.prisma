@@ -61,6 +61,11 @@ model BroadcastRound {
   name           String
   startsAt       DateTime? @map("starts_at")
   status         String    @default("pending")
+  /// KS-1813: тип турнира для раунда — `round_robin | swiss | playoff | unknown`.
+  /// Определяется при upsert'е раунда `detectRoundTournamentType` по названию
+  /// раунда + `Broadcast.format` + структуре пар в `games`. Для старых
+  /// записей остаётся null (фронт рендерит как legacy).
+  tournamentType String?   @map("tournament_type")
 
   broadcast Broadcast       @relation(fields: [broadcastId], references: [id])
   games     BroadcastGame[]
@@ -82,11 +87,23 @@ model BroadcastGame {
   result        String?
   pgn           String?   @db.Text
   currentFen    String?   @map("current_fen")
+  /// KS-1813: этап плей-офф — 'quarter' | 'semi' | 'final' | 'grand_final' |
+  /// 'round_of_16' | 'winners_<stage>' | 'losers_<stage>' | 'playoff' (fallback).
+  /// Заполняется `classifyRoundBrackets` только для `tournament_type='playoff'`;
+  /// для round-robin / swiss / unknown остаётся null.
+  bracketStage  String?   @map("bracket_stage")
+  /// KS-1813: стабильный id пары игроков внутри раунда — '<stage>:<A>|<B>'
+  /// (имена отсортированы). Партии одного матча имеют один и тот же id.
+  bracketPairId String?   @map("bracket_pair_id")
+  /// KS-1813: текущий счёт матча в паре, '2-1' / '2½-1½' (ничьи дают полочки).
+  /// Пересчитывается после каждого PGN-обновления раунда.
+  matchScore    String?   @map("match_score")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   round BroadcastRound @relation(fields: [roundId], references: [id])
 
   @@index([roundId])
+  @@index([roundId, bracketPairId], map: "broadcast_games_round_id_bracket_pair_id_idx")
   @@map("broadcast_games")
 }
 

@@ -8,7 +8,13 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { BroadcastStandingsSyncService } from '../chess-results/broadcast-standings-sync.service';
-import type { CrosstableResponse } from '@kingside/shared';
+import type {
+  BroadcastGameSummary,
+  BroadcastGamesResponse,
+  BroadcastRoundItem,
+  BroadcastRoundTournamentType,
+  CrosstableResponse,
+} from '@kingside/shared';
 
 type LifecycleStatus = 'live' | 'upcoming' | 'finished';
 
@@ -41,28 +47,23 @@ function parseLifecycleFilter(raw: string | undefined): LifecycleFilter {
     : 'all';
 }
 
-type BroadcastRoundItem = {
-  id: string;
-  lichessRoundId: string;
-  name: string;
-  startsAt: string | null;
-  status: string;
-};
-
 type BroadcastRoundsResponse = { data: BroadcastRoundItem[] };
 
-type BroadcastGameItem = {
-  id: string;
-  lichessGameId: string | null;
-  whitePlayer: string | null;
-  blackPlayer: string | null;
-  result: string | null;
-  pgn: string | null;
-  currentFen: string | null;
-  updatedAt: string;
-};
+const ROUND_TOURNAMENT_TYPES: readonly BroadcastRoundTournamentType[] = [
+  'round_robin',
+  'swiss',
+  'playoff',
+  'unknown',
+];
 
-type BroadcastGamesResponse = { data: BroadcastGameItem[] };
+function normalizeRoundTournamentType(
+  raw: string | null,
+): BroadcastRoundTournamentType | null {
+  if (raw === null || raw === undefined) return null;
+  return (ROUND_TOURNAMENT_TYPES as readonly string[]).includes(raw)
+    ? (raw as BroadcastRoundTournamentType)
+    : 'unknown';
+}
 
 /**
  * Broadcast HTTP controller (ADR-021 §2.1).
@@ -596,6 +597,9 @@ export class BroadcastController {
       name: r.name,
       startsAt: r.startsAt ? r.startsAt.toISOString() : null,
       status: r.status,
+      // KS-1813: null → фронт рендерит как legacy; сохранённое значение
+      // проходит whitelist, неизвестное сводится к 'unknown'.
+      tournamentType: normalizeRoundTournamentType(r.tournamentType),
     }));
 
     return { data };
@@ -623,15 +627,22 @@ export class BroadcastController {
       orderBy: { updatedAt: 'asc' },
     });
 
-    const data: BroadcastGameItem[] = games.map((g) => ({
+    const data: BroadcastGameSummary[] = games.map((g) => ({
       id: g.id,
       lichessGameId: g.lichessGameId,
       whitePlayer: g.whitePlayer,
       blackPlayer: g.blackPlayer,
+      whiteElo: g.whiteElo,
+      blackElo: g.blackElo,
       result: g.result,
       pgn: g.pgn,
       currentFen: g.currentFen,
       updatedAt: g.updatedAt.toISOString(),
+      // KS-1813: bracket-поля заполнены только для playoff-раундов;
+      // для round-robin / swiss / unknown возвращаются как null.
+      bracketStage: g.bracketStage,
+      bracketPairId: g.bracketPairId,
+      matchScore: g.matchScore,
     }));
 
     return { data };

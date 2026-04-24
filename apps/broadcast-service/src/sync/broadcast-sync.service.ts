@@ -16,6 +16,8 @@ import {
 } from './broadcast-channels';
 import { runStaleCheck } from './stale-check';
 import { extractChessResultsTournamentId } from './extract-chess-results-id';
+import { detectRoundTournamentType } from '../crosstable/detect-round-tournament-type';
+import { classifyRoundBrackets } from '../crosstable/classify-round-brackets';
 
 /**
  * Sync-сервис Lichess broadcasts (ADR-022 §2.6 шаг 0).
@@ -683,12 +685,21 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       : isActive
         ? 'ongoing'
         : 'pending';
+    // KS-1813: предварительный детект типа турнира по name + format (без
+    // структуры пар — они появятся только после processPgnUpdate).
+    // Окончательный вердикт перезаписывает `classifyRoundBrackets` после
+    // каждого PGN-обновления раунда.
+    const tournamentType = detectRoundTournamentType({
+      roundName: round.name,
+      broadcastFormat: broadcast.format,
+    });
     await this.prisma.broadcastRound.upsert({
       where: { lichessRoundId: round.id },
       update: {
         name: round.name,
         startsAt: round.startsAt ? new Date(round.startsAt) : null,
         status,
+        tournamentType,
       },
       create: {
         broadcastId: broadcast.id,
@@ -696,6 +707,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         name: round.name,
         startsAt: round.startsAt ? new Date(round.startsAt) : null,
         status,
+        tournamentType,
       },
     });
   }
@@ -896,6 +908,18 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
           blackPlayer: game.black,
         });
       }
+    }
+
+    // KS-1813: после обновления игр раунда — пересчитать тип турнира
+    // (теперь уже со структурой пар) и, если plаyoff, проставить
+    // `bracket_stage` / `bracket_pair_id` / `match_score` на каждую
+    // партию. Для round_robin / swiss / unknown bracket-поля обнуляются.
+    try {
+      await classifyRoundBrackets(this.prisma, round.id);
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] classifyRoundBrackets failed for round=${round.id.slice(0, 8)}: ${(e as Error).message}`,
+      );
     }
   }
 
