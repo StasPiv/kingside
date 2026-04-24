@@ -10,62 +10,65 @@ datasource db {
 }
 
 model User {
-  id                      String   @id @default(uuid()) @db.Uuid
-  username                String?  @unique
-  requiresUsernameSetup   Boolean  @default(false) @map("requires_username_setup")
-  email                   String?  @unique
-  passwordHash      String?  @map("password_hash")
-  oauthProvider     String?  @map("oauth_provider")
-  oauthProviderId   String?  @map("oauth_provider_id")
-  telegramId        String?  @unique @map("telegram_id")
-  ratingBullet    Int      @default(1500) @map("rating_bullet")
-  ratingBlitz     Int      @default(1500) @map("rating_blitz")
-  ratingRapid     Int      @default(1500) @map("rating_rapid")
-  ratingClassical Int      @default(1500) @map("rating_classical")
-  ratingPuzzle    Int      @default(1500) @map("rating_puzzle")
-  ratingPuzzleDev Int      @default(350)  @map("rating_puzzle_dev")
-  puzzleStreak    Int      @default(0)    @map("puzzle_streak")
-  gamesPlayedBullet    Int @default(0) @map("games_played_bullet")
-  gamesPlayedBlitz     Int @default(0) @map("games_played_blitz")
-  gamesPlayedRapid     Int @default(0) @map("games_played_rapid")
-  gamesPlayedClassical Int @default(0) @map("games_played_classical")
-  createdAt       DateTime @default(now()) @map("created_at")
-  lastSeenAt      DateTime @default(now()) @map("last_seen_at")
-  locale          String   @default("en") @map("locale")
-  boardTheme      String   @default("default") @map("board_theme")
-  pieceSet        String   @default("standard") @map("piece_set")
-  soundEnabled    Boolean  @default(true) @map("sound_enabled")
-  isBot              Boolean  @default(false) @map("is_bot")
-  chesscomUsername   String?  @map("chesscom_username")
-  lichessUsername    String?  @map("lichess_username")
+  id                    String   @id @default(uuid()) @db.Uuid
+  username              String?  @unique
+  requiresUsernameSetup Boolean  @default(false) @map("requires_username_setup")
+  email                 String?  @unique
+  passwordHash          String?  @map("password_hash")
+  oauthProvider         String?  @map("oauth_provider")
+  oauthProviderId       String?  @map("oauth_provider_id")
+  telegramId            String?  @unique @map("telegram_id")
+  ratingBullet          Int      @default(1500) @map("rating_bullet")
+  ratingBlitz           Int      @default(1500) @map("rating_blitz")
+  ratingRapid           Int      @default(1500) @map("rating_rapid")
+  ratingClassical       Int      @default(1500) @map("rating_classical")
+  ratingPuzzle          Int      @default(1500) @map("rating_puzzle")
+  ratingPuzzleDev       Int      @default(350) @map("rating_puzzle_dev")
+  puzzleStreak          Int      @default(0) @map("puzzle_streak")
+  gamesPlayedBullet     Int      @default(0) @map("games_played_bullet")
+  gamesPlayedBlitz      Int      @default(0) @map("games_played_blitz")
+  gamesPlayedRapid      Int      @default(0) @map("games_played_rapid")
+  gamesPlayedClassical  Int      @default(0) @map("games_played_classical")
+  createdAt             DateTime @default(now()) @map("created_at")
+  lastSeenAt            DateTime @default(now()) @map("last_seen_at")
+  locale                String   @default("en") @map("locale")
+  boardTheme            String   @default("default") @map("board_theme")
+  pieceSet              String   @default("standard") @map("piece_set")
+  soundEnabled          Boolean  @default(true) @map("sound_enabled")
+  isBot                 Boolean  @default(false) @map("is_bot")
+  chesscomUsername      String?  @map("chesscom_username")
+  lichessUsername       String?  @map("lichess_username")
 
-  whiteGames       Game[]             @relation("WhitePlayer")
-  blackGames       Game[]             @relation("BlackPlayer")
-  chatMessages     ChatMessage[]
-  timeControls     UserTimeControl[]
-  puzzleAttempts   PuzzleAttempt[]
-  puzzleRushScores PuzzleRushScore[]
-  gameAnalyses     GameAnalysis[]
-  analyses         Analysis[]
-  savedFilters     SavedFilter[]
-  pgnImports       PgnImport[]
-  sentMessages        DirectMessage[]  @relation("SentMessages")
-  receivedMessages    DirectMessage[]  @relation("ReceivedMessages")
-  sentFriendships     Friendship[]     @relation("FriendshipRequester")
-  receivedFriendships Friendship[]     @relation("FriendshipAddressee")
-  blockedUsers        BlockedUser[]    @relation("Blocker")
-  blockedByUsers      BlockedUser[]    @relation("Blocked")
-  ratingHistory       RatingHistory[]
-  arenaEntries        ArenaTournamentEntry[]
-  notifications       Notification[]
-  puzzleRatingSnapshots PuzzleRatingSnapshot[]
-  chatConversations   ChatConversation[]
-  feedback            Feedback[]
-  feedbackComments    FeedbackComment[]
-  courseProgress      UserCourseProgress[]
-  lessonProgress      UserLessonProgress[]
-  lessonReviews       LessonReview[]
-  mistakes            UserMistake[]
+  whiteGames             Game[]                   @relation("WhitePlayer")
+  blackGames             Game[]                   @relation("BlackPlayer")
+  chatMessages           ChatMessage[]
+  timeControls           UserTimeControl[]
+  puzzleAttempts         PuzzleAttempt[]
+  puzzleRushScores       PuzzleRushScore[]
+  gameAnalyses           GameAnalysis[]
+  analyses               Analysis[]
+  savedFilters           SavedFilter[]
+  pgnImports             PgnImport[]
+  sentMessages           DirectMessage[]          @relation("SentMessages")
+  receivedMessages       DirectMessage[]          @relation("ReceivedMessages")
+  sentFriendships        Friendship[]             @relation("FriendshipRequester")
+  receivedFriendships    Friendship[]             @relation("FriendshipAddressee")
+  blockedUsers           BlockedUser[]            @relation("Blocker")
+  blockedByUsers         BlockedUser[]            @relation("Blocked")
+  ratingHistory          RatingHistory[]
+  arenaEntries           ArenaTournamentEntry[]
+  notifications          Notification[]
+  puzzleRatingSnapshots  PuzzleRatingSnapshot[]
+  chatConversations      ChatConversation[]
+  feedback               Feedback[]
+  feedbackComments       FeedbackComment[]
+  courseProgress         UserCourseProgress[]
+  lessonProgress         UserLessonProgress[]
+  lessonReviews          LessonReview[]
+  mistakes               UserMistake[]
+  userCourses            UserCourse[]
+  userCoursePlayProgress UserCoursePlayProgress[]
+  userLessonPlayProgress UserLessonPlayProgress[]
 
   @@unique([oauthProvider, oauthProviderId])
   @@map("users")
@@ -105,39 +108,39 @@ enum TimeControlType {
 }
 
 model Game {
-  id                String           @id @default(uuid()) @db.Uuid
-  whiteId           String           @map("white_id") @db.Uuid
-  blackId           String           @map("black_id") @db.Uuid
-  status            GameStatus       @default(waiting)
+  id                String          @id @default(uuid()) @db.Uuid
+  whiteId           String          @map("white_id") @db.Uuid
+  blackId           String          @map("black_id") @db.Uuid
+  status            GameStatus      @default(waiting)
   result            GameResult?
   termination       Termination?
-  timeControlType   TimeControlType  @map("time_control_type")
-  timeInitialSec    Int              @map("time_initial_sec")
-  timeIncrementSec  Int              @map("time_increment_sec")
+  timeControlType   TimeControlType @map("time_control_type")
+  timeInitialSec    Int             @map("time_initial_sec")
+  timeIncrementSec  Int             @map("time_increment_sec")
   pgn               String?
   eco               String?
-  finalFen          String?          @map("final_fen")
-  whiteRatingBefore Int?             @map("white_rating_before")
-  blackRatingBefore Int?             @map("black_rating_before")
-  whiteRatingAfter  Int?             @map("white_rating_after")
-  blackRatingAfter  Int?             @map("black_rating_after")
-  whiteBerserk      Boolean          @default(false) @map("white_berserk")
-  blackBerserk      Boolean          @default(false) @map("black_berserk")
-  isBot             Boolean          @default(false) @map("is_bot")
-  botLevel          Int?             @map("bot_level")
-  botClientSide     Boolean          @default(false) @map("bot_client_side")
-  createdAt         DateTime         @default(now()) @map("created_at")
-  startedAt         DateTime?        @map("started_at")
-  finishedAt        DateTime?        @map("finished_at")
-  tournamentId      String?          @map("tournament_id") @db.Uuid
+  finalFen          String?         @map("final_fen")
+  whiteRatingBefore Int?            @map("white_rating_before")
+  blackRatingBefore Int?            @map("black_rating_before")
+  whiteRatingAfter  Int?            @map("white_rating_after")
+  blackRatingAfter  Int?            @map("black_rating_after")
+  whiteBerserk      Boolean         @default(false) @map("white_berserk")
+  blackBerserk      Boolean         @default(false) @map("black_berserk")
+  isBot             Boolean         @default(false) @map("is_bot")
+  botLevel          Int?            @map("bot_level")
+  botClientSide     Boolean         @default(false) @map("bot_client_side")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  startedAt         DateTime?       @map("started_at")
+  finishedAt        DateTime?       @map("finished_at")
+  tournamentId      String?         @map("tournament_id") @db.Uuid
 
-  white        User                @relation("WhitePlayer", fields: [whiteId], references: [id])
-  black        User                @relation("BlackPlayer", fields: [blackId], references: [id])
+  white        User             @relation("WhitePlayer", fields: [whiteId], references: [id])
+  black        User             @relation("BlackPlayer", fields: [blackId], references: [id])
   moves        Move[]
   chatMessages ChatMessage[]
   analyses     GameAnalysis[]
   report       GameReport?
-  tournament   ArenaTournament?    @relation(fields: [tournamentId], references: [id])
+  tournament   ArenaTournament? @relation(fields: [tournamentId], references: [id])
   mistakes     UserMistake[]
 
   @@index([whiteId])
@@ -200,36 +203,36 @@ model UserTimeControl {
 }
 
 model Puzzle {
-  id             String   @id
-  fen            String
-  moves          String
-  rating         Int      @default(1500)
-  ratingDev      Int      @default(350) @map("rating_dev")
-  popularity     Int      @default(0)
-  nbPlays        Int      @default(0) @map("nb_plays")
-  themes         String   @default("")
-  source         String   @default("lichess")
-  createdAt      DateTime @default(now()) @map("created_at")
+  id         String   @id
+  fen        String
+  moves      String
+  rating     Int      @default(1500)
+  ratingDev  Int      @default(350) @map("rating_dev")
+  popularity Int      @default(0)
+  nbPlays    Int      @default(0) @map("nb_plays")
+  themes     String   @default("")
+  source     String   @default("lichess")
+  createdAt  DateTime @default(now()) @map("created_at")
 
   // Lichess-specific (nullable for generated)
-  gameUrl        String?  @map("game_url")
-  openingTags    String?  @map("opening_tags")
+  gameUrl     String? @map("game_url")
+  openingTags String? @map("opening_tags")
 
   // Generated-specific (nullable for lichess)
-  sourceType     String?  @map("source_type")
-  sourceId       String?  @map("source_id")
-  sourceMoveNum  Int?     @map("source_move_num")
+  sourceType     String? @map("source_type")
+  sourceId       String? @map("source_id")
+  sourceMoveNum  Int?    @map("source_move_num")
   gap            Int?
   depth          Int?
-  createdBy      String?  @map("created_by") @db.Uuid
-  isPublic       Boolean  @default(true) @map("is_public")
-  sourceMetadata String?  @map("source_metadata") @db.Text
-  acceptedMoves  String?  @map("accepted_moves")
+  createdBy      String? @map("created_by") @db.Uuid
+  isPublic       Boolean @default(true) @map("is_public")
+  sourceMetadata String? @map("source_metadata") @db.Text
+  acceptedMoves  String? @map("accepted_moves")
 
-  attempts            PuzzleAttempt[]
-  dailyPuzzles        DailyPuzzle[]
-  rushSessionPuzzles  PuzzleRushSessionPuzzle[]
-  mistakes            UserMistake[]
+  attempts           PuzzleAttempt[]
+  dailyPuzzles       DailyPuzzle[]
+  rushSessionPuzzles PuzzleRushSessionPuzzle[]
+  mistakes           UserMistake[]
 
   @@index([rating])
   @@index([themes])
@@ -239,18 +242,18 @@ model Puzzle {
 }
 
 model PuzzleAttempt {
-  id                  String   @id @default(uuid()) @db.Uuid
-  puzzleId            String   @map("puzzle_id")
-  userId              String   @map("user_id") @db.Uuid
-  solved              Boolean
-  timeMs              Int      @map("time_ms")
-  ratingBefore        Int      @map("rating_before")
-  ratingAfter         Int      @map("rating_after")
-  puzzleRatingBefore  Int?     @map("puzzle_rating_before")
-  puzzleRatingAfter   Int?     @map("puzzle_rating_after")
-  userMoves           String?  @map("user_moves")
-  hintsUsed           Int      @default(0) @map("hints_used")
-  createdAt           DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid()) @db.Uuid
+  puzzleId           String   @map("puzzle_id")
+  userId             String   @map("user_id") @db.Uuid
+  solved             Boolean
+  timeMs             Int      @map("time_ms")
+  ratingBefore       Int      @map("rating_before")
+  ratingAfter        Int      @map("rating_after")
+  puzzleRatingBefore Int?     @map("puzzle_rating_before")
+  puzzleRatingAfter  Int?     @map("puzzle_rating_after")
+  userMoves          String?  @map("user_moves")
+  hintsUsed          Int      @default(0) @map("hints_used")
+  createdAt          DateTime @default(now()) @map("created_at")
 
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
   user   User   @relation(fields: [userId], references: [id])
@@ -269,7 +272,7 @@ model PuzzleRushScore {
   timeMode  String   @map("time_mode")
   createdAt DateTime @default(now()) @map("created_at")
 
-  user           User                    @relation(fields: [userId], references: [id])
+  user           User                      @relation(fields: [userId], references: [id])
   sessionPuzzles PuzzleRushSessionPuzzle[]
 
   @@index([userId])
@@ -294,9 +297,9 @@ model PuzzleRushSessionPuzzle {
 }
 
 model DailyPuzzle {
-  id       String   @id @default(uuid()) @db.Uuid
-  puzzleId String   @map("puzzle_id")
-  date     DateTime @unique @db.Date
+  id        String   @id @default(uuid()) @db.Uuid
+  puzzleId  String   @map("puzzle_id")
+  date      DateTime @unique @db.Date
   createdAt DateTime @default(now()) @map("created_at")
 
   puzzle Puzzle @relation(fields: [puzzleId], references: [id])
@@ -305,25 +308,25 @@ model DailyPuzzle {
 }
 
 model Analysis {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  title     String
+  id              String  @id @default(uuid()) @db.Uuid
+  userId          String  @map("user_id") @db.Uuid
+  title           String
   headline        String?
-  pgn             String?  @db.Text
+  pgn             String? @db.Text
   fen             String?
   opening         String?
   event           String?
   site            String?
-  pgnDate         String?  @map("pgn_date")
+  pgnDate         String? @map("pgn_date")
   round           String?
   white           String?
   black           String?
-  whiteElo        String?  @map("white_elo")
-  blackElo        String?  @map("black_elo")
+  whiteElo        String? @map("white_elo")
+  blackElo        String? @map("black_elo")
   result          String?
-  category        String   @default("analysis")
-  tags            String   @default("")
-  currentPosition Int?     @map("current_position")
+  category        String  @default("analysis")
+  tags            String  @default("")
+  currentPosition Int?    @map("current_position")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -336,13 +339,13 @@ model Analysis {
 }
 
 model SavedFilter {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @map("user_id") @db.Uuid
   name      String
   category  String?
   tags      String?
   search    String?
-  sortOrder String?  @map("sort_order")
+  sortOrder String? @map("sort_order")
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -421,7 +424,7 @@ model GameAnalysis {
 model UserMistake {
   id         String   @id @default(uuid()) @db.Uuid
   userId     String   @map("user_id") @db.Uuid
-  source     String   // 'puzzle' | 'game_review' — см. UserMistakeSource в shared
+  source     String // 'puzzle' | 'game_review' — см. UserMistakeSource в shared
   puzzleId   String?  @map("puzzle_id")
   gameId     String?  @map("game_id") @db.Uuid
   ply        Int?
@@ -438,15 +441,15 @@ model UserMistake {
 }
 
 model GameReport {
-  id             String   @id @default(uuid()) @db.Uuid
-  gameId         String   @unique @map("game_id") @db.Uuid
-  depth          Int      @default(18)
-  whiteAccuracy  Float    @map("white_accuracy")
-  blackAccuracy  Float    @map("black_accuracy")
-  moves          String   @db.Text  // JSON array of MoveAnalysis
-  status         String   @default("pending") // pending, analyzing, complete, error
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id            String   @id @default(uuid()) @db.Uuid
+  gameId        String   @unique @map("game_id") @db.Uuid
+  depth         Int      @default(18)
+  whiteAccuracy Float    @map("white_accuracy")
+  blackAccuracy Float    @map("black_accuracy")
+  moves         String   @db.Text // JSON array of MoveAnalysis
+  status        String   @default("pending") // pending, analyzing, complete, error
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
 
   game Game @relation(fields: [gameId], references: [id])
 
@@ -536,7 +539,7 @@ model BlockedUser {
 model RatingHistory {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
-  category  String   // bullet, blitz, rapid, classical
+  category  String // bullet, blitz, rapid, classical
   rating    Int
   gameId    String?  @map("game_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at")
@@ -550,8 +553,8 @@ model RatingHistory {
 model Notification {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
-  type      String   // challenge_received, friend_request, game_started, message
-  payload   String   @db.Text  // JSON
+  type      String // challenge_received, friend_request, game_started, message
+  payload   String   @db.Text // JSON
   read      Boolean  @default(false)
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -577,33 +580,33 @@ model PuzzleRatingSnapshot {
 }
 
 model ArenaTournament {
-  id              String    @id @default(uuid()) @db.Uuid
-  name            String
-  createdBy       String    @map("created_by") @db.Uuid
-  type            String    @default("arena") // arena, swiss, round_robin
-  status          String    @default("upcoming") // upcoming, active, finished
-  timeControlType String    @map("time_control_type") // bullet, blitz, rapid
-  timeInitialSec  Int       @map("time_initial_sec")
+  id               String   @id @default(uuid()) @db.Uuid
+  name             String
+  createdBy        String   @map("created_by") @db.Uuid
+  type             String   @default("arena") // arena, swiss, round_robin
+  status           String   @default("upcoming") // upcoming, active, finished
+  timeControlType  String   @map("time_control_type") // bullet, blitz, rapid
+  timeInitialSec   Int      @map("time_initial_sec")
   timeIncrementSec Int      @map("time_increment_sec")
-  durationMin     Int       @map("duration_min")      // arena: 30-180
-  totalRounds     Int?      @map("total_rounds")       // swiss/rr
-  cycles          Int       @default(1)                // round-robin: number of circles
-  roundPauseMin   Int?      @map("round_pause_min")    // minutes between rounds
-  maxPlayers      Int?      @map("max_players")
-  pointsWin       Float     @default(1) @map("points_win")
-  pointsDraw      Float     @default(0.5) @map("points_draw")
-  pointsLoss      Float     @default(0) @map("points_loss")
-  currentRound    Int       @default(0) @map("current_round")
-  startsAt        DateTime  @map("starts_at")
-  finishesAt      DateTime  @map("finishes_at")
-  visibility      String    @default("public") // public, unlisted, private
-  inviteCode      String?   @unique @map("invite_code")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  durationMin      Int      @map("duration_min") // arena: 30-180
+  totalRounds      Int?     @map("total_rounds") // swiss/rr
+  cycles           Int      @default(1) // round-robin: number of circles
+  roundPauseMin    Int?     @map("round_pause_min") // minutes between rounds
+  maxPlayers       Int?     @map("max_players")
+  pointsWin        Float    @default(1) @map("points_win")
+  pointsDraw       Float    @default(0.5) @map("points_draw")
+  pointsLoss       Float    @default(0) @map("points_loss")
+  currentRound     Int      @default(0) @map("current_round")
+  startsAt         DateTime @map("starts_at")
+  finishesAt       DateTime @map("finishes_at")
+  visibility       String   @default("public") // public, unlisted, private
+  inviteCode       String?  @unique @map("invite_code")
+  createdAt        DateTime @default(now()) @map("created_at")
 
-  entries  ArenaTournamentEntry[]
-  games    Game[]
-  rounds   TournamentRound[]
-  invites  TournamentInvite[]
+  entries ArenaTournamentEntry[]
+  games   Game[]
+  rounds  TournamentRound[]
+  invites TournamentInvite[]
 
   @@index([status])
   @@index([startsAt])
@@ -645,14 +648,14 @@ model ArenaTournamentEntry {
 }
 
 model TournamentRound {
-  id           String   @id @default(uuid()) @db.Uuid
-  tournamentId String   @map("tournament_id") @db.Uuid
-  roundNumber  Int      @map("round_number")
-  status       String   @default("pending") // pending, active, finished
+  id           String    @id @default(uuid()) @db.Uuid
+  tournamentId String    @map("tournament_id") @db.Uuid
+  roundNumber  Int       @map("round_number")
+  status       String    @default("pending") // pending, active, finished
   startedAt    DateTime? @map("started_at")
   finishedAt   DateTime? @map("finished_at")
 
-  tournament ArenaTournament   @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  tournament ArenaTournament     @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
   pairings   TournamentPairing[]
 
   @@unique([tournamentId, roundNumber])
@@ -660,13 +663,13 @@ model TournamentRound {
 }
 
 model TournamentPairing {
-  id       String  @id @default(uuid()) @db.Uuid
-  roundId  String  @map("round_id") @db.Uuid
-  whiteId  String  @map("white_id") @db.Uuid
-  blackId  String? @map("black_id") @db.Uuid  // null = bye
-  gameId   String? @map("game_id") @db.Uuid
-  result   String? // 1-0, 0-1, 1/2-1/2, bye
-  board    Int     @default(1)
+  id      String  @id @default(uuid()) @db.Uuid
+  roundId String  @map("round_id") @db.Uuid
+  whiteId String  @map("white_id") @db.Uuid
+  blackId String? @map("black_id") @db.Uuid // null = bye
+  gameId  String? @map("game_id") @db.Uuid
+  result  String? // 1-0, 0-1, 1/2-1/2, bye
+  board   Int     @default(1)
 
   round TournamentRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
 
@@ -681,7 +684,7 @@ model ChatConversation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
-  user     User                 @relation(fields: [userId], references: [id])
+  user     User                   @relation(fields: [userId], references: [id])
   messages ChatAssistantMessage[]
 
   @@index([userId])
@@ -691,7 +694,7 @@ model ChatConversation {
 model ChatAssistantMessage {
   id             String   @id @default(uuid()) @db.Uuid
   conversationId String   @map("conversation_id") @db.Uuid
-  role           String   // user, assistant, system
+  role           String // user, assistant, system
   content        String   @db.Text
   createdAt      DateTime @default(now()) @map("created_at")
 
@@ -706,7 +709,7 @@ model Feedback {
   userId       String?  @map("user_id") @db.Uuid
   email        String?
   title        String?
-  type         String   // bug, suggestion, question
+  type         String // bug, suggestion, question
   message      String   @db.Text
   page         String?
   userAgent    String?  @map("user_agent")
@@ -764,7 +767,7 @@ model FeedbackVote {
 model Course {
   id             String   @id @default(uuid()) @db.Uuid
   slug           String   @unique
-  level          String   // "beginner" | "intermediate" | "advanced"
+  level          String // "beginner" | "intermediate" | "advanced"
   titleKey       String   @map("title_key")
   descriptionKey String   @map("description_key")
   order          Int      @default(0)
@@ -786,7 +789,7 @@ model Lesson {
   slug        String
   order       Int      @default(0)
   blockKey    String   @map("block_key")
-  kind        String   // "theory" | "tactics_set" | "endgame_set" | "opening_line" | "game_review" | "quiz"
+  kind        String // "theory" | "tactics_set" | "endgame_set" | "opening_line" | "game_review" | "quiz"
   titleKey    String   @map("title_key")
   summaryKey  String   @map("summary_key")
   estMinutes  Int      @default(10) @map("est_minutes")
@@ -810,8 +813,8 @@ model LessonStep {
   id        String   @id @default(uuid()) @db.Uuid
   lessonId  String   @map("lesson_id") @db.Uuid
   order     Int      @default(0)
-  type      String   // "text" | "position" | "puzzle" | "quiz" | "video" | "game_review"
-  payload   Json     // JSONB; shape — дискриминированный union StepPayload
+  type      String // "text" | "position" | "puzzle" | "quiz" | "video" | "game_review"
+  payload   Json // JSONB; shape — дискриминированный union StepPayload
   createdAt DateTime @default(now()) @map("created_at")
 
   lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
@@ -882,4 +885,105 @@ model LessonReview {
   @@unique([userId, lessonId])
   @@index([userId, dueAt])
   @@map("lesson_reviews")
+}
+
+// ─── User Courses (ADR-026, KS-1827 / KS-1828) ───────────────────────
+//
+// Пользовательские курсы — параллельное дерево моделям Course/Lesson/
+// LessonStep. Цели и мотивация — в docs/adr/026-user-courses.md §2.1.
+// Контент — plain-text (без i18n), шеринг через `isPublic` + слаг-ссылку.
+//
+// Каскад удаления на уровне БД:
+//   User.delete  → UserCourse[]               (owner)
+//                → UserCoursePlayProgress[]   (playing)
+//                → UserLessonPlayProgress[]   (playing)
+//   UserCourse.delete → UserLesson[] → UserLessonStep[]
+//                     → UserCoursePlayProgress[]
+//   UserLesson.delete → UserLessonStep[]
+//                     → UserLessonPlayProgress[]
+//
+// `type` в UserLessonStep — строка (не Prisma enum), потому что whitelist
+// «какие типы разрешены в user-courses» держится на API-уровне
+// (ADR-026 §2.4). Добавление 4-го типа не должно тянуть миграцию.
+
+model UserCourse {
+  id          String   @id @default(uuid()) @db.Uuid
+  ownerId     String   @map("owner_id") @db.Uuid
+  slug        String   @unique
+  title       String
+  description String?
+  isPublic    Boolean  @default(false) @map("is_public")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  owner    User                     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  lessons  UserLesson[]
+  progress UserCoursePlayProgress[]
+
+  @@index([ownerId, isPublic])
+  @@map("user_courses")
+}
+
+model UserLesson {
+  id           String   @id @default(uuid()) @db.Uuid
+  userCourseId String   @map("user_course_id") @db.Uuid
+  order        Int      @default(0)
+  title        String
+  estMinutes   Int?     @map("est_minutes")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  course   UserCourse               @relation(fields: [userCourseId], references: [id], onDelete: Cascade)
+  steps    UserLessonStep[]
+  progress UserLessonPlayProgress[]
+
+  @@index([userCourseId, order])
+  @@map("user_lessons")
+}
+
+model UserLessonStep {
+  id           String   @id @default(uuid()) @db.Uuid
+  userLessonId String   @map("user_lesson_id") @db.Uuid
+  order        Int      @default(0)
+  type         String // 'text' | 'puzzle' | 'endgame_drill' (MVP, ADR-026 §2.4)
+  payload      Json
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  lesson UserLesson @relation(fields: [userLessonId], references: [id], onDelete: Cascade)
+
+  @@index([userLessonId, order])
+  @@map("user_lesson_steps")
+}
+
+model UserCoursePlayProgress {
+  id                    String    @id @default(uuid()) @db.Uuid
+  userId                String    @map("user_id") @db.Uuid
+  userCourseId          String    @map("user_course_id") @db.Uuid
+  completedLessonsCount Int       @default(0) @map("completed_lessons_count")
+  startedAt             DateTime  @default(now()) @map("started_at")
+  lastActivityAt        DateTime  @default(now()) @map("last_activity_at")
+  completedAt           DateTime? @map("completed_at")
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course UserCourse @relation(fields: [userCourseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, userCourseId])
+  @@map("user_course_play_progress")
+}
+
+model UserLessonPlayProgress {
+  id                  String    @id @default(uuid()) @db.Uuid
+  userId              String    @map("user_id") @db.Uuid
+  userLessonId        String    @map("user_lesson_id") @db.Uuid
+  completedStepsCount Int       @default(0) @map("completed_steps_count")
+  totalSteps          Int       @default(0) @map("total_steps")
+  startedAt           DateTime  @default(now()) @map("started_at")
+  lastActivityAt      DateTime  @default(now()) @map("last_activity_at")
+  completedAt         DateTime? @map("completed_at")
+
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson UserLesson @relation(fields: [userLessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, userLessonId])
+  @@map("user_lesson_play_progress")
 }
