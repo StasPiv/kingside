@@ -48,17 +48,32 @@ async function main(): Promise<void> {
       //  - tournamentType IS NULL (старые записи до KS-1813);
       //  - tournamentType='playoff', но хотя бы одна партия без
       //    bracket_stage (KS-1819 hotfix-сценарий).
+      //
+      // Запрос — через `EXISTS` вместо `LEFT JOIN + DISTINCT`, чтобы:
+      //  (a) не ловить Postgres 42P10 «for SELECT DISTINCT, ORDER BY
+      //      expressions must appear in select list» (сравнение `r.id`
+      //      из ORDER BY и `r.id::text` из SELECT — два разных
+      //      expression'а с точки зрения планировщика);
+      //  (b) не раздувать промежуточное множество джойном, который
+      //      потом всё равно отфильтровался бы `DISTINCT`.
       rounds = await prisma.$queryRaw<
         Array<{ id: string; name: string; tournamentType: string | null }>
       >`
-        SELECT DISTINCT r.id::text AS id,
+        SELECT r.id::text AS id,
                r.name AS name,
                r.tournament_type AS "tournamentType"
           FROM broadcast_rounds r
-     LEFT JOIN broadcast_games g ON g.round_id = r.id
          WHERE r.tournament_type IS NULL
-            OR (r.tournament_type = 'playoff' AND g.bracket_stage IS NULL)
-      ORDER BY r.id
+            OR (
+              r.tournament_type = 'playoff'
+              AND EXISTS (
+                SELECT 1
+                  FROM broadcast_games g
+                 WHERE g.round_id = r.id
+                   AND g.bracket_stage IS NULL
+              )
+            )
+      ORDER BY r.id::text
       `;
     }
 
