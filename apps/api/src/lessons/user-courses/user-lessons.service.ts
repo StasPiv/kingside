@@ -11,10 +11,6 @@ import type {
   UserLessonPlayProgressDto,
   UserLessonStepDto,
   UserLessonWithStepsResponse,
-  UpdateUserStepProgressRequest,
-  CompleteUserLessonRequest,
-  UserStepType,
-  StepPayload,
 } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toLessonDto } from './user-courses.service';
@@ -195,135 +191,10 @@ export class UserLessonsService {
     });
   }
 
-  // ─── Progress (заглушки happy-path для BE-4) ─────────────────────
-
-  /**
-   * POST /lessons/user-progress/step — отметить состояние шага. В MVP
-   * ведём только счётчики: `completedStepsCount` (когда `state='done'`)
-   * и `totalSteps` (актуализируем из БД). Детальный `stepsState` —
-   * предмет BE-4 (если понадобится).
-   */
-  async updateStepProgress(
-    userId: string,
-    body: UpdateUserStepProgressRequest,
-  ): Promise<UserLessonPlayProgressDto> {
-    const lesson = await this.prisma.userLesson.findUnique({
-      where: { id: body.userLessonId },
-      include: { _count: { select: { steps: true } } },
-    });
-    if (!lesson) throw new NotFoundException('Resource not found');
-
-    const totalSteps = lesson._count.steps;
-    // Идемпотентная запись: если прогресса нет — создаём, если есть и
-    // новое состояние = 'done' — увеличиваем счётчик (но не выше total).
-    const existing = await this.prisma.userLessonPlayProgress.findUnique({
-      where: {
-        userId_userLessonId: { userId, userLessonId: body.userLessonId },
-      },
-    });
-    const now = new Date();
-
-    let progressRow;
-    if (!existing) {
-      progressRow = await this.prisma.userLessonPlayProgress.create({
-        data: {
-          userId,
-          userLessonId: body.userLessonId,
-          completedStepsCount: body.state === 'done' ? 1 : 0,
-          totalSteps,
-          lastActivityAt: now,
-        },
-      });
-    } else {
-      const completed =
-        body.state === 'done'
-          ? Math.min(existing.completedStepsCount + 1, totalSteps)
-          : existing.completedStepsCount;
-      progressRow = await this.prisma.userLessonPlayProgress.update({
-        where: { id: existing.id },
-        data: {
-          completedStepsCount: completed,
-          totalSteps,
-          lastActivityAt: now,
-        },
-      });
-    }
-    return toLessonPlayProgressDto(progressRow);
-  }
-
-  /**
-   * POST /lessons/user-progress/lesson/complete — финальное завершение
-   * урока. Простейшая логика: фиксируем completedAt, выставляем
-   * completedStepsCount = totalSteps и инкрементируем
-   * `completedLessonsCount` в прогрессе курса.
-   *
-   * Порог прохождения (`score >= threshold`) в MVP не enforced на
-   * сервере — доверяем клиенту, который сам считает свою долю успехов.
-   * Серверный threshold-гейт — задача BE-4, он же реализует
-   * SM-2-интеграцию, если включим.
-   */
-  async completeLesson(
-    userId: string,
-    body: CompleteUserLessonRequest,
-  ): Promise<UserLessonPlayProgressDto> {
-    const lesson = await this.prisma.userLesson.findUnique({
-      where: { id: body.userLessonId },
-      include: {
-        _count: { select: { steps: true } },
-        course: { select: { id: true } },
-      },
-    });
-    if (!lesson) throw new NotFoundException('Resource not found');
-    const totalSteps = lesson._count.steps;
-    const now = new Date();
-
-    const progress = await this.prisma.userLessonPlayProgress.upsert({
-      where: {
-        userId_userLessonId: { userId, userLessonId: body.userLessonId },
-      },
-      update: {
-        completedStepsCount: totalSteps,
-        totalSteps,
-        completedAt: now,
-        lastActivityAt: now,
-      },
-      create: {
-        userId,
-        userLessonId: body.userLessonId,
-        completedStepsCount: totalSteps,
-        totalSteps,
-        completedAt: now,
-        lastActivityAt: now,
-      },
-    });
-
-    // Курс-прогресс: инкрементируем completedLessonsCount при первом
-    // завершении этого урока. Повторный POST не должен удвоить счётчик —
-    // проверяем, был ли completedAt до upsert'а выше.
-    const wasAlreadyCompleted = progress.completedAt?.getTime() !== now.getTime();
-    if (!wasAlreadyCompleted) {
-      await this.prisma.userCoursePlayProgress.upsert({
-        where: {
-          userId_userCourseId: {
-            userId,
-            userCourseId: lesson.course.id,
-          },
-        },
-        update: {
-          completedLessonsCount: { increment: 1 },
-          lastActivityAt: now,
-        },
-        create: {
-          userId,
-          userCourseId: lesson.course.id,
-          completedLessonsCount: 1,
-          lastActivityAt: now,
-        },
-      });
-    }
-
-    return toLessonPlayProgressDto(progress);
-  }
+  // Прогресс вынесен в UserProgressService (KS-1831) —
+  // `POST /lessons/user-progress/lessons/:userLessonId/step` и
+  // `POST /lessons/user-progress/lessons/:userLessonId/complete`.
+  // `UserLessonsController` их больше не обрабатывает.
 }
 
 // ─── DTO mapper ──────────────────────────────────────────────────────
@@ -346,5 +217,3 @@ export function toLessonPlayProgressDto(row: {
   };
 }
 
-// Reassured imports used (type-only elsewhere).
-export type { UserStepType, StepPayload };

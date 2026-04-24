@@ -16,10 +16,6 @@ import {
   CreateUserLessonStepDto,
   ReorderUserStepsDto,
 } from './dto/user-lesson-step.dto';
-import {
-  CompleteUserLessonDto,
-  UpdateUserStepProgressDto,
-} from './dto/user-progress.dto';
 import { AuthenticatedRequest } from '../../common/authenticated-request';
 import { UserRateLimit, UserRateLimitGuard } from '../../common/user-rate-limit.guard';
 import { USER_COURSES_RATE_LIMITS } from './rate-limits';
@@ -30,15 +26,14 @@ import {
 import { UserLessonsService } from './user-lessons.service';
 
 /**
- * REST-эндпоинты уроков пользовательских курсов + прогресс (ADR-026 §2.5,
- * KS-1829).
+ * REST-эндпоинты уроков пользовательских курсов (ADR-026 §2.5,
+ * KS-1829 / KS-1831).
  *
- * Семантически контроллер объединяет три префикса — `user-lessons`,
- * `user-lesson-steps` (reorder — единственный POST здесь; PATCH/DELETE
- * шагов вынесены в `UserLessonStepsController`) и `user-progress`.
- * Задача жёстко требует 3 контроллера на 15 роутов, поэтому прогресс
- * живёт здесь; BE-4 вытащит его в отдельный UserProgressController,
- * если так будет чище. Сейчас это happy-path заглушка.
+ * Контроллер живёт на префиксе `/lessons` потому что обслуживает два
+ * префикса URL: `/lessons/user-lessons/:id/...` (CRUD урока) и
+ * `/lessons/user-lessons/:id/steps/reorder`. Сами шаги — в
+ * `UserLessonStepsController`. Прогресс — в `UserProgressController`
+ * (BE-4 вынес его из временной заглушки).
  */
 @UseGuards(JwtAuthGuard)
 @Controller('lessons')
@@ -110,30 +105,5 @@ export class UserLessonsController {
     return this.service.reorderSteps(id, body);
   }
 
-  // ─── /lessons/user-progress/* ─────────────────────────────────────
-
-  /**
-   * POST /lessons/user-progress/step — отметить состояние шага.
-   * BE-4 допишет полноценную логику; здесь happy-path.
-   */
-  @Post('user-progress/step')
-  updateStepProgress(
-    @Request() req: AuthenticatedRequest,
-    @Body() body: UpdateUserStepProgressDto,
-  ) {
-    return this.service.updateStepProgress(req.user.id, body);
-  }
-
-  /**
-   * POST /lessons/user-progress/lesson/complete — финальное завершение
-   * урока. SM-2 к пользовательским курсам не подключён (ADR-026 §2.1),
-   * поэтому поля `quality` в теле нет.
-   */
-  @Post('user-progress/lesson/complete')
-  completeLesson(
-    @Request() req: AuthenticatedRequest,
-    @Body() body: CompleteUserLessonDto,
-  ) {
-    return this.service.completeLesson(req.user.id, body);
-  }
+  // Прогресс-эндпоинты вынесены в `UserProgressController` (KS-1831).
 }

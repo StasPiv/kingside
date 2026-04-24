@@ -3,9 +3,11 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { UserCoursesController } from './user-courses.controller';
 import { UserLessonsController } from './user-lessons.controller';
 import { UserLessonStepsController } from './user-lesson-steps.controller';
+import { UserProgressController } from './user-progress.controller';
 import { UserCoursesService } from './user-courses.service';
 import { UserLessonsService } from './user-lessons.service';
 import { UserLessonStepsService } from './user-lesson-steps.service';
+import { UserProgressService } from './user-progress.service';
 import { UserCourseOwnerGuard } from './user-course-owner.guard';
 import { SlugService } from './slug.service';
 
@@ -25,11 +27,13 @@ import { SlugService } from './slug.service';
     UserCoursesController,
     UserLessonsController,
     UserLessonStepsController,
+    UserProgressController,
   ],
   providers: [
     UserCoursesService,
     UserLessonsService,
     UserLessonStepsService,
+    UserProgressService,
     UserCourseOwnerGuard,
     SlugService,
   ],
@@ -37,6 +41,7 @@ import { SlugService } from './slug.service';
     UserCoursesService,
     UserLessonsService,
     UserLessonStepsService,
+    UserProgressService,
     SlugService,
   ],
 })

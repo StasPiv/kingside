@@ -166,21 +166,22 @@ export interface ReorderUserStepsRequest {
 
 // ─── Progress update requests ────────────────────────────────────────
 
-/** POST /api/lessons/user-progress/step — отметить состояние шага. */
+/**
+ * POST /api/lessons/user-progress/lessons/:userLessonId/step — отметить
+ * состояние шага. `userLessonId` идёт в path, не в body.
+ */
 export interface UpdateUserStepProgressRequest {
-  userLessonId: string;
   stepId: string;
   /** Ограниченный набор — см. `LessonStepState` в `./lessons.ts`. */
   state: 'done' | 'failed' | 'skipped';
 }
 
 /**
- * POST /api/lessons/user-progress/lesson/complete — финальное завершение
- * урока. Без поля `quality`, т.к. SM-2 к пользовательским курсам не
- * подключён (ADR-026 §2.1).
+ * POST /api/lessons/user-progress/lessons/:userLessonId/complete —
+ * финальное завершение урока. Без поля `quality`, т.к. SM-2 к
+ * пользовательским курсам не подключён (ADR-026 §2.1).
  */
 export interface CompleteUserLessonRequest {
-  userLessonId: string;
   /** 0..1 — доля успешных шагов (порог прохождения — ADR §2.6). */
   score: number;
 }

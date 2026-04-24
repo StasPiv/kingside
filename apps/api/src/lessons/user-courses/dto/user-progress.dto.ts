@@ -1,26 +1,18 @@
-import {
-  IsIn,
-  IsNumber,
-  IsUUID,
-  Max,
-  Min,
-} from 'class-validator';
+import { IsIn, IsNumber, IsUUID, Max, Min } from 'class-validator';
 import type {
   CompleteUserLessonRequest,
   UpdateUserStepProgressRequest,
 } from '@kingside/shared';
 
 /**
- * POST /lessons/user-progress/step — отметить состояние шага
- * (ADR-026 §2.5). `stepId` — произвольная строка (в БД UserLessonStep.id
- * — UUID v4, но допускаем и lesson-level «stub» при необходимости).
- * `state` whitelist'ится по LessonStepState без `pending|in_progress`
- * (эти состояния задаются клиентом неявно).
+ * POST /lessons/user-progress/lessons/:userLessonId/step — отметить
+ * состояние шага (ADR-026 §2.5). `userLessonId` идёт в path, в body —
+ * только `stepId` и `state`.
+ *
+ * `state` whitelist'ится подмножеством `LessonStepState` без
+ * `pending|in_progress` — эти состояния не пишем, они подразумеваемые.
  */
 export class UpdateUserStepProgressDto implements UpdateUserStepProgressRequest {
-  @IsUUID()
-  userLessonId!: string;
-
   @IsUUID()
   stepId!: string;
 
@@ -29,13 +21,10 @@ export class UpdateUserStepProgressDto implements UpdateUserStepProgressRequest 
 }
 
 /**
- * POST /lessons/user-progress/lesson/complete — финальное завершение
- * урока (ADR-026 §2.5). `score` — доля успехов 0..1 (UI считает сам).
+ * POST /lessons/user-progress/lessons/:userLessonId/complete — финальное
+ * завершение урока. `score` — доля успехов 0..1 (UI считает сам).
  */
 export class CompleteUserLessonDto implements CompleteUserLessonRequest {
-  @IsUUID()
-  userLessonId!: string;
-
   @IsNumber()
   @Min(0)
   @Max(1)
