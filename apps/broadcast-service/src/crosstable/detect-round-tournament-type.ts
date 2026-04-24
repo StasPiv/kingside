@@ -30,6 +30,21 @@ export interface DetectRoundInput {
    * (раунд ещё без партий — детект идёт только по названию/формату).
    */
   games?: Array<{ whitePlayer: string | null; blackPlayer: string | null }>;
+  /**
+   * KS-1847: признак командного турнира (`Broadcast.team_table`).
+   *
+   * В team-форматах (Bundesliga, Team World Championship, TCEC Team) имя
+   * раунда штатно содержит `final`/`championship`/`winners`/`losers`
+   * как часть регламента — эти слова НЕ являются knockout-маркерами.
+   * Плюс структурный сигнал `hasMatchStructure` даёт ложное срабатывание
+   * при двухкруговке: команда A vs B играет одних и тех же игроков
+   * дважды (белыми и чёрными) — это не playoff-матч, а обычный матч
+   * командного round-robin.
+   *
+   * Значение `true` → применяем строгий whitelist
+   * `STRICT_PLAYOFF_PATTERNS` и игнорируем `hasMatchStructure`.
+   */
+  isTeamTournament?: boolean;
 }
 
 // Ключевые слова knockout-раундов. Собраны по практике Lichess/Chess.com/
@@ -58,6 +73,34 @@ const PLAYOFF_NAME_PATTERNS: RegExp[] = [
   // Тай-брейк между двумя игроками пары (Chess.com / Champions Chess Tour)
   // — тоже playoff-контекст.
   /\btie[- ]?break(?:s|er|ers)?\b/i,
+];
+
+/**
+ * Строгий whitelist knockout-маркеров для команд-турниров (KS-1847).
+ *
+ * В team-форматах `finals/championship/winners/losers/grand final` —
+ * часть обычного регламента (Bundesliga «Championship Round 5»,
+ * Chess Olympiad «Winners Group»), поэтому для `isTeamTournament=true`
+ * триггерим playoff только по маркерам, которые не встречаются в
+ * team-контексте как нейтральные бренды: явные «play-off / knockout /
+ * bracket / semi-/quarter-final / round of N / R\d+ / QF / SF / armageddon».
+ *
+ * Из индивидуального списка `PLAYOFF_NAME_PATTERNS` убраны:
+ *   `finals?`, `grand final`, `championship`, `winners?`, `losers?`,
+ *   `tie-?break` — могут быть частью team-регламента.
+ *   Одиночная `F` — слишком широкое (`Final` само по себе неоднозначно
+ *   в team-контексте).
+ */
+const STRICT_PLAYOFF_PATTERNS: RegExp[] = [
+  /\bplay[- ]?offs?\b/i,
+  /\bknock[- ]?out\b/i,
+  /\bbracket\b/i,
+  /\bsemi[- ]?final(?:s)?\b/i,
+  /\bquarter[- ]?final(?:s)?\b/i,
+  /\bround\s+of\s+\d+\b/i,
+  /(?:^|[\s(|/-])R\d{1,3}(?=[\s)|/-]|$)/,
+  /(?:^|[\s(|/])(?:QF|SF)(?:[\s)|/]|$)/,
+  /\barmageddon\b/i,
 ];
 
 const SWISS_PATTERN = /\bswiss\b/i;
@@ -124,9 +167,17 @@ function roundNameLooksLikePlayoff(name: string): boolean {
 }
 
 /**
+ * Строгий матчинг по названию раунда — для командных турниров (KS-1847).
+ * Видит только однозначные knockout-маркеры.
+ */
+function roundNameLooksLikePlayoffStrict(name: string): boolean {
+  return STRICT_PLAYOFF_PATTERNS.some((re) => re.test(name));
+}
+
+/**
  * Итоговый детект. Порядок:
- *   1. playoff-сигналы — роднит knockout-ключевики в названии ИЛИ
- *      структура «одни и те же пары в нескольких партиях» (≥ 2).
+ *   1. playoff-сигналы — knockout-ключевики в названии ИЛИ структура
+ *      «одни и те же пары в нескольких партиях» (≥ 2).
  *   2. Явный swiss в формате/названии → `swiss`.
  *   3. Явный round-robin → `round_robin`.
  *   4. `unknown` — fallback.
@@ -135,6 +186,13 @@ function roundNameLooksLikePlayoff(name: string): boolean {
  * при `format = "9-round Swiss"` считаем раунд плей-оффом — бывают
  * турниры, где Swiss-основа и knockout-финал объединены (пример в
  * тикете: «2026 Chess.com Open | Playoffs | Winners»).
+ *
+ * KS-1847: для командных турниров (`isTeamTournament=true`) применяется
+ * строгий whitelist `STRICT_PLAYOFF_PATTERNS` (без `finals`/
+ * `championship`/`winners`/`losers`/`grand_final`/tie-break — они часть
+ * team-регламента, не knockout-маркеры), и игнорируется структурный
+ * сигнал `hasMatchStructure` (двухкруговка между командами ложно
+ * триггерила playoff).
  */
 export function detectRoundTournamentType(
   input: DetectRoundInput,
@@ -142,9 +200,15 @@ export function detectRoundTournamentType(
   const name = (input.roundName ?? '').trim();
   const format = (input.broadcastFormat ?? '').trim();
   const games = input.games ?? [];
+  const isTeam = input.isTeamTournament === true;
 
-  const nameSaysPlayoff = roundNameLooksLikePlayoff(name);
-  const structureSaysMatch = hasMatchStructure(games);
+  const nameSaysPlayoff = isTeam
+    ? roundNameLooksLikePlayoffStrict(name)
+    : roundNameLooksLikePlayoff(name);
+  // Для команд-турниров структурный сигнал отключён — см. доку к
+  // `isTeamTournament` в `DetectRoundInput`.
+  const structureSaysMatch = !isTeam && hasMatchStructure(games);
+
   if (nameSaysPlayoff || structureSaysMatch) return 'playoff';
 
   // После плей-оффа идёт либо явный swiss/rr, либо unknown.

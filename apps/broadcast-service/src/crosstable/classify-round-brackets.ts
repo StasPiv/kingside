@@ -35,7 +35,9 @@ export async function classifyRoundBrackets(
   const round = await prisma.broadcastRound.findUnique({
     where: { id: roundId },
     include: {
-      broadcast: { select: { format: true } },
+      // KS-1847: нужен `teamTable` — детектор применяет строгий
+      // whitelist и игнорирует структурный сигнал для team-турниров.
+      broadcast: { select: { format: true, teamTable: true } },
       games: {
         select: { id: true, whitePlayer: true, blackPlayer: true, result: true },
       },
@@ -46,6 +48,7 @@ export async function classifyRoundBrackets(
   const detectInput: DetectRoundInput = {
     roundName: round.name,
     broadcastFormat: round.broadcast.format,
+    isTeamTournament: round.broadcast.teamTable,
     games: round.games.map((g) => ({
       whitePlayer: g.whitePlayer,
       blackPlayer: g.blackPlayer,

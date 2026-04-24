@@ -690,9 +690,14 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     // структуры пар — они появятся только после processPgnUpdate).
     // Окончательный вердикт перезаписывает `classifyRoundBrackets` после
     // каждого PGN-обновления раунда.
+    // KS-1847: для командных турниров (`Broadcast.teamTable`) детектор
+    // применяет строгий whitelist knockout-маркеров и игнорирует
+    // структурный сигнал, чтобы Bundesliga / team-championship не
+    // детектились как playoff по словам `final`/`championship`.
     const tournamentType = detectRoundTournamentType({
       roundName: round.name,
       broadcastFormat: broadcast.format,
+      isTeamTournament: broadcast.teamTable,
     });
     const upserted = await this.prisma.broadcastRound.upsert({
       where: { lichessRoundId: round.id },

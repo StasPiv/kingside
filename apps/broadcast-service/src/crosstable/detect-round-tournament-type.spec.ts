@@ -225,6 +225,182 @@ describe('detectRoundTournamentType', () => {
       detectRoundTournamentType({ roundName: '', broadcastFormat: '' }),
     ).toBe('unknown');
   });
+
+  // ── KS-1847: командные турниры (`isTeamTournament=true`) ─────────
+  //
+  // Для team-форматов слова `final/championship/winners/losers/grand
+  // final/tie-break` штатно встречаются как часть регламента и не
+  // должны детектиться как knockout. Строгий whitelist видит только
+  // однозначные knockout-маркеры.
+
+  describe('isTeamTournament=true (KS-1847)', () => {
+    it('"Championship Round 5" НЕ playoff (team-регламент)', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Championship Round 5',
+          broadcastFormat: 'Team round-robin',
+          isTeamTournament: true,
+        }),
+      ).toBe('round_robin');
+    });
+
+    it('"Final Match Day 1" НЕ playoff (team-финальный день)', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Final Match Day 1',
+          broadcastFormat: 'Team Swiss',
+          isTeamTournament: true,
+        }),
+      ).toBe('swiss');
+    });
+
+    it('"Winners Group" НЕ playoff (групповая стадия team)', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Winners Group',
+          broadcastFormat: '8-team round-robin',
+          isTeamTournament: true,
+        }),
+      ).toBe('round_robin');
+    });
+
+    it('"Grand Final" в team-формате НЕ playoff', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Grand Final',
+          broadcastFormat: 'Team round-robin',
+          isTeamTournament: true,
+        }),
+      ).toBe('round_robin');
+    });
+
+    it('"Tiebreak" в team НЕ playoff (был ложный триггер)', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Tiebreak 1',
+          broadcastFormat: 'Team Swiss',
+          isTeamTournament: true,
+        }),
+      ).toBe('swiss');
+    });
+
+    it('регрессия: "Quarterfinals" в team ВСЁ РАВНО playoff (жёсткий маркер)', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Quarterfinals',
+          broadcastFormat: 'Team Knockout',
+          isTeamTournament: true,
+        }),
+      ).toBe('playoff');
+    });
+
+    it('регрессия: "Semifinal" в team → playoff', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Semifinal',
+          broadcastFormat: null,
+          isTeamTournament: true,
+        }),
+      ).toBe('playoff');
+    });
+
+    it('регрессия: "Round of 16" в team → playoff', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Round of 16',
+          broadcastFormat: null,
+          isTeamTournament: true,
+        }),
+      ).toBe('playoff');
+    });
+
+    it('регрессия: "Playoffs | Winners" даже в team → playoff', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Playoffs | Winners',
+          broadcastFormat: 'Team Knockout',
+          isTeamTournament: true,
+        }),
+      ).toBe('playoff');
+    });
+
+    it('регрессия: "R16 Armageddon" в team → playoff', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'R16 Armageddon',
+          broadcastFormat: null,
+          isTeamTournament: true,
+        }),
+      ).toBe('playoff');
+    });
+
+    it('структурный сигнал (две партии одной пары) в team НЕ даёт playoff', () => {
+      // Двухкруговка team-round-robin: команда A и команда B сыграли
+      // две встречи — на первой доске те же игроки поменялись цветом.
+      const games = [
+        game('Magnus Carlsen', 'Hikaru Nakamura'),
+        game('Hikaru Nakamura', 'Magnus Carlsen'),
+        game('Fabi', 'Ding'),
+      ];
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Round 5',
+          broadcastFormat: 'Team round-robin',
+          isTeamTournament: true,
+          games,
+        }),
+      ).toBe('round_robin');
+    });
+  });
+
+  // ── KS-1847: контроль — одиночные турниры не затронуты ───────────
+
+  describe('регрессия одиночных турниров (isTeamTournament=false/undefined)', () => {
+    it('"Playoffs | Winners" без флага (одиночный) → playoff, как раньше', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Playoffs | Winners',
+          broadcastFormat: 'Knockout',
+        }),
+      ).toBe('playoff');
+    });
+
+    it('"Championship" в одиночном → playoff (старый whitelist)', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Championship',
+          broadcastFormat: null,
+          isTeamTournament: false,
+        }),
+      ).toBe('playoff');
+    });
+
+    it('"Winners Bracket" в одиночном → playoff', () => {
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Winners Bracket',
+          broadcastFormat: null,
+          isTeamTournament: false,
+        }),
+      ).toBe('playoff');
+    });
+
+    it('структурный сигнал в одиночном → playoff (сохранено)', () => {
+      const games = [
+        game('A', 'B'),
+        game('B', 'A'),
+        game('C', 'D'),
+      ];
+      expect(
+        detectRoundTournamentType({
+          roundName: 'Day 3',
+          broadcastFormat: '9-round Swiss',
+          isTeamTournament: false,
+          games,
+        }),
+      ).toBe('playoff');
+    });
+  });
 });
 
 describe('pairKey / countPairs / hasMatchStructure', () => {
