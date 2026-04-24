@@ -3190,3 +3190,386 @@
     font-size: 28px;
   }
 }
+
+/* ============================================================
+ * User-editor empty states + StepTypePicker (L-R5, KS-1867).
+ * KS-1848 §3.7 / FE-R3. Компоненты:
+ *   apps/web/src/components/lessons/editor/user/
+ *     AddLessonEmptyState.tsx  → .editor-empty-state--lessons
+ *     AddStepEmptyState.tsx    → .editor-empty-state--steps + picker
+ *     StepTypePicker.tsx       → .step-type-picker
+ *
+ * Задача в тикете называет классы .add-step-empty/.add-lesson-empty,
+ * но по факту FE-R3 вывел их через общий .editor-empty-state с
+ * модификаторами --lessons / --steps. Следуем JSX.
+ * ============================================================ */
+
+.editor-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 24px;
+  text-align: center;
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 12px;
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+/* Иконка через ::before — чтобы JSX не таскал иконку самостоятельно.
+   На --lessons — книжечка, на --steps — «плюс в кружочке». */
+.editor-empty-state::before {
+  display: block;
+  font-size: 36px;
+  line-height: 1;
+  margin-bottom: 2px;
+  opacity: 0.9;
+}
+
+.editor-empty-state--lessons::before {
+  content: "📘";
+}
+
+.editor-empty-state--steps::before {
+  content: "➕";
+}
+
+.editor-empty-state__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.editor-empty-state__subtitle {
+  margin: 0;
+  max-width: 520px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.editor-empty-state__cta {
+  margin-top: 4px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
+  min-height: 40px;
+}
+
+.editor-empty-state__cta:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.editor-empty-state__cta:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.editor-empty-state__cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- StepTypePicker ---------- */
+.step-type-picker {
+  width: 100%;
+  max-width: 640px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0 0;
+}
+
+.step-type-picker__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 12px;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.05s ease,
+    box-shadow 0.15s ease;
+  font: inherit;
+  min-height: 112px;
+}
+
+.step-type-picker__card:hover:not(:disabled) {
+  border-color: var(--border-accent);
+  background: var(--bg-surface);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm, 0 2px 6px rgba(0, 0, 0, 0.08));
+}
+
+.step-type-picker__card:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.step-type-picker__card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.step-type-picker__card--selected,
+.step-type-picker__card[aria-checked="true"] {
+  border-color: var(--accent-primary);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-primary);
+}
+
+.step-type-picker__card--selected:hover:not(:disabled),
+.step-type-picker__card[aria-checked="true"]:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.step-type-picker__icon {
+  font-size: 28px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.step-type-picker__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.step-type-picker__description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* Tablet — сохраняем 3 колонки, но плотнее */
+@media (max-width: 960px) {
+  .step-type-picker {
+    gap: 10px;
+  }
+  .step-type-picker__card {
+    padding: 12px 10px;
+    min-height: 104px;
+  }
+}
+
+/* Mobile ≤640 — карточки в стек, CTA на всю ширину */
+@media (max-width: 640px) {
+  .editor-empty-state {
+    padding: 22px 16px;
+    gap: 10px;
+  }
+
+  .editor-empty-state::before {
+    font-size: 32px;
+  }
+
+  .editor-empty-state__title {
+    font-size: 16px;
+  }
+
+  .editor-empty-state__subtitle {
+    font-size: 13px;
+  }
+
+  .editor-empty-state__cta {
+    width: 100%;
+    max-width: 320px;
+  }
+
+  .step-type-picker {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .step-type-picker__card {
+    flex-direction: row;
+    align-items: center;
+    text-align: left;
+    gap: 12px;
+    padding: 12px 14px;
+    min-height: 0;
+  }
+
+  .step-type-picker__icon {
+    font-size: 24px;
+    flex-shrink: 0;
+  }
+
+  .step-type-picker__title {
+    font-size: 14px;
+    flex: 1 1 auto;
+  }
+
+  .step-type-picker__description {
+    font-size: 12px;
+    flex-basis: 100%;
+    order: 3;
+  }
+}
+
+/* ============================================================
+ * SaveStatusPill — индикатор автосохранения (L-R7, KS-1869).
+ * KS-1848 §3.4 / FE-R2. Компонент:
+ *   apps/web/src/components/lessons/editor/user/SaveStatusPill.tsx
+ *
+ * 4 состояния: idle / saving / saved / error. Spinner — чистый CSS
+ * (без JS), иконка ✓ для saved, ! для error, inline-retry-кнопка.
+ * Высота — компактная 15px body, pill-форма.
+ * ============================================================ */
+
+.save-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  line-height: 1.3;
+  font-weight: 500;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-height: 26px;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.save-status-pill__label {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- idle: neutral ---------- */
+.save-status-pill--idle {
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  border-color: var(--border-subtle);
+}
+
+/* ---------- saving: info + spinner ---------- */
+.save-status-pill--saving {
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.save-status-pill__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: save-status-pill-spin 0.75s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+@keyframes save-status-pill-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* prefers-reduced-motion: оставляем статичную точку вместо вращения */
+@media (prefers-reduced-motion: reduce) {
+  .save-status-pill__spinner {
+    animation: none;
+    border-top-color: currentColor;
+    opacity: 0.6;
+  }
+}
+
+/* ---------- saved: success + check ---------- */
+.save-status-pill--saved {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: var(--success);
+}
+
+.save-status-pill__check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--success);
+  color: var(--text-on-accent, #fff);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ---------- error: danger + warn + retry ---------- */
+.save-status-pill--error {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.save-status-pill__warn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--text-on-accent, #fff);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.save-status-pill__retry {
+  margin-left: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--danger);
+  background: transparent;
+  border: 1px solid var(--danger);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.save-status-pill__retry:hover {
+  background: var(--danger);
+  color: var(--text-on-accent, #fff);
+}
+
+.save-status-pill__retry:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--danger-soft);
+}
+
+/* На узких экранах pill не должен вытягиваться в строку — позволяем
+   retry-кнопке переноситься. */
+@media (max-width: 640px) {
+  .save-status-pill {
+    flex-wrap: wrap;
+    max-width: 100%;
+  }
+}
