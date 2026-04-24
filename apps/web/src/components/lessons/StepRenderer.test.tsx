@@ -67,6 +67,20 @@ vi.mock('./steps/EndgameDrillStep', () => ({
   ),
 }));
 
+vi.mock('./steps/OpeningDrillStep', () => ({
+  OpeningDrillStep: ({
+    payload,
+  }: {
+    payload: { playerSide?: string; onDeviation?: string };
+  }) => (
+    <div
+      data-testid="lesson-opening-step-mock"
+      data-side={payload.playerSide ?? ''}
+      data-on-deviation={payload.onDeviation ?? ''}
+    />
+  ),
+}));
+
 const baseStep = {
   id: 's1',
   lessonId: 'l1',
@@ -82,6 +96,24 @@ describe('<StepRenderer>', () => {
     };
     renderWithProviders(<StepRenderer step={step} />);
     expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
+  });
+
+  it('делегирует opening_drill-шаг компоненту OpeningDrillStep', () => {
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'opening_drill',
+      payload: {
+        type: 'opening_drill',
+        pgn: '1. e4 e5',
+        playerSide: 'white',
+        onDeviation: 'show_correction',
+      },
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    expect(screen.getByTestId('lesson-opening-step-mock')).toHaveAttribute(
+      'data-side',
+      'white',
+    );
   });
 
   it('делегирует endgame_drill-шаг компоненту EndgameDrillStep', () => {

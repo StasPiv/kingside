@@ -8,6 +8,7 @@ import { PositionStep } from './steps/PositionStep';
 import { VideoStep } from './steps/VideoStep';
 import { GameReviewStep } from './steps/GameReviewStep';
 import { EndgameDrillStep } from './steps/EndgameDrillStep';
+import { OpeningDrillStep } from './steps/OpeningDrillStep';
 
 /**
  * Диспетчер рендера шагов урока (L-08).
@@ -70,6 +71,15 @@ export function StepRenderer({ step, onStepDone, hideNext }: StepRendererProps) 
     case 'endgame_drill':
       return (
         <EndgameDrillStep
+          payload={payload}
+          onStepDone={onStepDone}
+          hideNext={hideNext}
+        />
+      );
+
+    case 'opening_drill':
+      return (
+        <OpeningDrillStep
           payload={payload}
           onStepDone={onStepDone}
           hideNext={hideNext}

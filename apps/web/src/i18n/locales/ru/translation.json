@@ -1177,6 +1177,21 @@
     "skip": "Пропустить",
     "videoContinue": "Продолжить",
     "videoInvalid": "Ссылка на видео не поддерживается (разрешены только YouTube и Vimeo)",
+    "opening": {
+      "status": {
+        "playing": "Ваш ход",
+        "complete": "Линия пройдена",
+        "correction": "Ход не входит в репертуар",
+        "enginePunish": "Движок наказывает отклонение",
+        "engineLost": "Движок победил — попробуй ещё раз.",
+        "engineDrew": "Ничья — попробуй ещё раз."
+      },
+      "correction": "В репертуаре: {{san}}",
+      "stats": "Отклонений: {{deviations}} из {{total}} ходов",
+      "retry": "Попробовать снова",
+      "restart": "Начать заново",
+      "next": "Далее"
+    },
     "endgame": {
       "status": {
         "playing": "Ваш ход",

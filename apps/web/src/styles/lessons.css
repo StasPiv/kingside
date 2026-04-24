@@ -689,6 +689,93 @@
   filter: brightness(1.05);
 }
 
+/* ---------- Opening drill step (L-32, KS-1801) ---------- */
+.lesson-opening-step {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) 260px;
+  gap: 16px;
+  align-items: start;
+}
+
+.lesson-opening-step__board {
+  width: 100%;
+  max-width: 480px;
+}
+
+.lesson-opening-step__side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.lesson-opening-step__status {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.lesson-opening-step[data-status="line_complete"] .lesson-opening-step__status {
+  color: var(--success, #1f7a3a);
+}
+
+.lesson-opening-step[data-status="engine_lost"] .lesson-opening-step__status,
+.lesson-opening-step[data-status="deviated_correction"] .lesson-opening-step__status {
+  color: var(--danger, #ca3431);
+}
+
+.lesson-opening-step[data-status="engine_punish"] .lesson-opening-step__status {
+  color: var(--warning, #9a6c14);
+}
+
+.lesson-opening-step__correction {
+  padding: 8px 10px;
+  background: var(--warning-soft, #fff3d0);
+  border: 1px solid var(--warning, #9a6c14);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.lesson-opening-step__stats {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.lesson-opening-step__controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lesson-opening-step__retry,
+.lesson-opening-step__restart,
+.lesson-opening-step__next {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.lesson-opening-step__next {
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  border-color: var(--accent);
+}
+
+@media (max-width: 640px) {
+  .lesson-opening-step {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- Endgame drill step (L-24, KS-1800) ---------- */
 .lesson-endgame-step {
   display: grid;

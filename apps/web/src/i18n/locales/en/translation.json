@@ -1177,6 +1177,21 @@
     "skip": "Skip",
     "videoContinue": "Continue",
     "videoInvalid": "This video link is not supported (only YouTube and Vimeo are allowed)",
+    "opening": {
+      "status": {
+        "playing": "Your move",
+        "complete": "Line completed",
+        "correction": "Move not in repertoire",
+        "enginePunish": "Engine is punishing the deviation",
+        "engineLost": "Engine won — try again.",
+        "engineDrew": "Draw — try again."
+      },
+      "correction": "In repertoire: {{san}}",
+      "stats": "{{deviations}} deviations of {{total}} moves",
+      "retry": "Try again",
+      "restart": "Restart drill",
+      "next": "Next"
+    },
     "endgame": {
       "status": {
         "playing": "Your move",
