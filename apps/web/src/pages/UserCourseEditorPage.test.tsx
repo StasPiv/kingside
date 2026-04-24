@@ -276,4 +276,91 @@ describe('<UserCourseEditorPage>', () => {
       'text,puzzle,endgame_drill',
     );
   });
+
+  // ─── KS-1843 (FE-9): дополнение покрытия editor-page ────────────────
+
+  it('toggle isPublic чекбокса → debounced PATCH с isPublic:true', async () => {
+    mockBySlug({
+      course: mkCourse({ isPublic: false }),
+      lessons: [],
+      progress: null,
+    });
+    apiMock.update.mockResolvedValue(mkCourse({ isPublic: true }));
+
+    renderWithRouter({ initialPath: '/lessons/my/my-course/edit' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-editor')).toBeInTheDocument(),
+    );
+
+    // Включаем fake-timers только после initial-load (см. debounce-тест выше).
+    vi.useFakeTimers();
+
+    const checkbox = screen.getByTestId('user-course-is-public') as HTMLInputElement;
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.click(checkbox);
+
+    // 400мс — PATCH'а ещё нет.
+    vi.advanceTimersByTime(400);
+    expect(apiMock.update).not.toHaveBeenCalled();
+
+    // 500+ мс — PATCH.
+    vi.advanceTimersByTime(200);
+    expect(apiMock.update).toHaveBeenCalledTimes(1);
+    expect(apiMock.update.mock.calls[0][1]).toEqual({
+      title: undefined,
+      description: undefined,
+      isPublic: true,
+    });
+  });
+
+  it('Delete course (confirm=true) → DELETE + navigate /lessons', async () => {
+    mockBySlug({
+      course: mkCourse(),
+      lessons: [],
+      progress: null,
+    });
+    apiMock.delete.mockResolvedValue(undefined);
+    const confirmMock = vi.fn().mockReturnValue(true);
+    vi.stubGlobal('confirm', confirmMock);
+
+    renderWithRouter({
+      initialPath: '/lessons/my/my-course/edit',
+      lessonsPageStub: true,
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-editor')).toBeInTheDocument(),
+    );
+
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.click(screen.getByTestId('user-course-editor-delete'));
+
+    await waitFor(() => expect(apiMock.delete).toHaveBeenCalledWith('c1'));
+    await waitFor(() =>
+      expect(screen.getByTestId('lessons-page')).toBeInTheDocument(),
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it('Delete lesson → вызывает userCoursesApi.deleteLesson с id', async () => {
+    mockBySlug({
+      course: mkCourse(),
+      lessons: [mkLesson({ id: 'l1', title: 'To delete' })],
+      progress: null,
+    });
+    apiMock.deleteLesson.mockResolvedValue(undefined);
+
+    renderWithRouter({ initialPath: '/lessons/my/my-course/edit' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-editor-lesson-l1')).toBeInTheDocument(),
+    );
+
+    const { fireEvent } = await import('@testing-library/react');
+    // Клик обёрнут в `e.stopPropagation()` поверх summary — напрямую дёргаем
+    // элемент по testid, чтобы не зависеть от деталей details/summary в happy-dom.
+    fireEvent.click(screen.getByTestId('user-course-editor-lesson-delete-l1'));
+
+    await waitFor(() =>
+      expect(apiMock.deleteLesson).toHaveBeenCalledWith('l1'),
+    );
+  });
 });

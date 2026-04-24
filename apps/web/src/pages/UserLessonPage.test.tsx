@@ -296,6 +296,71 @@ describe('<UserLessonPage>', () => {
     expect(stockfishMock.prefetchArg).toBe(false);
   });
 
+  it('Complete ≥ threshold + есть следующий урок → navigate на него', async () => {
+    mockCourse({
+      course: mkCourse({ lessonCount: 2 }),
+      lessons: [
+        mkLesson({ id: 'l1', order: 0 }),
+        mkLesson({ id: 'l2', order: 1, title: 'Next' }),
+      ],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [mkStep({ id: 's1' })],
+      progress: null,
+    });
+    apiMock.updateStepProgress.mockResolvedValue({});
+    apiMock.completeLesson.mockResolvedValue({
+      userCourseId: 'c1',
+      completedLessonsCount: 1,
+      startedAt: 'x',
+      lastActivityAt: 'x',
+      completedAt: null,
+    });
+
+    // Маршрут /lessons/my/:slug/:lessonId перекрывает и l1, и l2 — для
+    // l2 рендерит страницу, но её API-моки ниже не заданы. Для проверки
+    // навигации достаточно увидеть, что URL сменился.
+    const { container } = renderWithProviders(
+      <Routes>
+        <Route
+          path="/lessons/my/:slug/:lessonId"
+          element={<UserLessonPage />}
+        />
+      </Routes>,
+      { route: '/lessons/my/my-course/l1' },
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.click(screen.getByTestId('step-renderer-s1'));
+
+    const btn = screen.getByTestId('user-lesson-complete-btn') as HTMLButtonElement;
+    await waitFor(() => expect(btn.disabled).toBe(false));
+
+    // Перед кликом переопределяем моки — после navigate страница
+    // смонтируется заново с новым lessonId, вызовет getLesson('l2').
+    apiMock.getLesson.mockReset();
+    apiMock.getLesson.mockResolvedValue({
+      lesson: mkLesson({ id: 'l2', title: 'Next' }),
+      steps: [],
+      progress: null,
+    });
+
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(apiMock.completeLesson).toHaveBeenCalledWith('l1', { score: 1 }),
+    );
+    // После успешного complete — URL сменился на /lessons/my/my-course/l2.
+    // Проверяем через getLesson('l2'): если навигация прошла, новый lesson-id
+    // будет в параметре вызова.
+    await waitFor(() => expect(apiMock.getLesson).toHaveBeenCalledWith('l2'));
+    expect(container).toBeTruthy(); // Smoke: страница не упала.
+  });
+
   it('Complete ≥ threshold → POST complete + навигация на курс (если следующий отсутствует)', async () => {
     mockCourse({
       course: mkCourse({ lessonCount: 1 }),
