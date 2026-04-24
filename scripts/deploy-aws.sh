@@ -48,6 +48,9 @@ PROD_VITE_ARCHIVE_URL="https://archive.kingside.site"
 PROD_VITE_BROADCAST_URL="https://broadcasts.kingside.site"
 PROD_GAME_URL="wss://game.kingside.site"
 PROD_GA4_ID="G-9HF8RVMK8K"
+# KS-1820: feature-flag раздела «Уроки». На проде явно выключен, во фронте
+# также есть fallback на import.meta.env.DEV (см. KS-1820 / commit 378d2b8c).
+PROD_VITE_FEATURE_LESSONS="false"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
 
 # Load .env
@@ -219,8 +222,8 @@ echo ""
 
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 if $DEPLOY_FRONTEND; then
-    echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_BROADCAST_URL=$PROD_VITE_BROADCAST_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID)..."
-    VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_BROADCAST_URL="$PROD_VITE_BROADCAST_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" npm run build --prefix "$REPO_DIR" --workspace=apps/web
+    echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_BROADCAST_URL=$PROD_VITE_BROADCAST_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID, VITE_FEATURE_LESSONS=$PROD_VITE_FEATURE_LESSONS)..."
+    VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_BROADCAST_URL="$PROD_VITE_BROADCAST_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" VITE_FEATURE_LESSONS="$PROD_VITE_FEATURE_LESSONS" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
 
     echo "[frontend] Syncing to S3..."
