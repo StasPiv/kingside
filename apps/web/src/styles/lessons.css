@@ -3573,3 +3573,1054 @@
     max-width: 100%;
   }
 }
+
+/* ============================================================
+ * UserCourseHeader — sticky шапка редактора (L-R1, KS-1863).
+ * KS-1848 §5 / FE-R7. Компонент:
+ *   apps/web/src/components/lessons/editor/user/UserCourseHeader.tsx
+ *
+ * Sticky top, подсвечивается тенью при скролле (псевдо через
+ * постепенный transition на box-shadow у :not(:first-child)
+ * невозможен — поэтому даём shadow всегда, но лёгкий).
+ * Breadcrumb компактный, h1 — как inline-edit inputable.
+ * ============================================================ */
+
+.user-course-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-canvas, var(--bg-surface));
+  padding: 12px 20px 10px;
+  margin: -12px -20px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 0 0 var(--border-subtle), 0 2px 8px -4px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.user-course-header__breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.user-course-header__breadcrumbs a {
+  color: var(--text-link);
+  text-decoration: none;
+}
+
+.user-course-header__breadcrumbs a:hover {
+  text-decoration: underline;
+}
+
+.user-course-header__sep {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.user-course-header__crumb-current {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50ch;
+}
+
+.user-course-header__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.user-course-header__title-group {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+/* h1 и input — визуально одинаковые; input скрывает свою рамку и
+   выравнивается в строке, чтобы не «прыгало» при inline-edit. */
+.user-course-header__title,
+.user-course-header__title-input {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+
+.user-course-header__title {
+  cursor: text;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.user-course-header__title:hover,
+.user-course-header__title:focus-visible {
+  background: var(--bg-muted);
+  border-color: var(--border-subtle);
+  outline: none;
+}
+
+.user-course-header__title-input {
+  padding: 4px 6px;
+  border: 1px solid var(--accent-primary);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.user-course-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .user-course-header {
+    padding: 10px 12px 8px;
+    margin: -12px -12px 12px;
+    gap: 6px;
+  }
+
+  .user-course-header__title,
+  .user-course-header__title-input {
+    font-size: 20px;
+  }
+
+  .user-course-header__row {
+    gap: 8px;
+  }
+
+  .user-course-header__actions {
+    width: 100%;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+}
+
+/* ============================================================
+ * PublishToggle + OwnerActionsMenu — спутники в шапке.
+ * Минимальный базовый стиль, чтобы header был согласован.
+ * ============================================================ */
+.publish-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  font-size: 13px;
+  color: var(--text-secondary);
+  min-height: 28px;
+}
+
+.publish-toggle__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.publish-toggle__text {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.publish-toggle--public {
+  border-color: var(--success);
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.publish-toggle--public .publish-toggle__text {
+  color: var(--success);
+}
+
+.publish-toggle__hint {
+  display: none; /* hint — только для a11y, не показываем визуально */
+}
+
+.owner-actions-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.owner-actions-menu__trigger {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.owner-actions-menu__trigger:hover {
+  border-color: var(--border-accent);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.owner-actions-menu__dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.25);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.owner-actions-menu__dropdown button {
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.owner-actions-menu__dropdown button:hover {
+  background: var(--bg-muted);
+}
+
+.owner-actions-menu__delete {
+  color: var(--danger) !important;
+}
+
+.owner-actions-menu__delete:hover {
+  background: var(--danger-soft) !important;
+}
+
+/* ============================================================
+ * CourseOutline — sidebar-дерево курса (L-R3, KS-1865).
+ * KS-1848 §3.2 / FE-R6.
+ * ============================================================ */
+
+.course-outline {
+  width: 260px;
+  flex-shrink: 0;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  position: sticky;
+  top: 72px;
+}
+
+.course-outline__header {
+  padding: 0 4px;
+}
+
+.course-outline__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.course-outline__empty {
+  margin: 0;
+  padding: 16px 8px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.course-outline__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.course-outline__item {
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.course-outline__item--active,
+.course-outline__item[data-active="true"] {
+  background: var(--accent-soft);
+}
+
+.course-outline__item[data-dragged-over="true"] {
+  background: var(--accent-soft);
+  outline: 1px dashed var(--accent-primary);
+}
+
+.course-outline__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+}
+
+.course-outline__drag-handle {
+  flex-shrink: 0;
+  width: 20px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  cursor: grab;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.course-outline__drag-handle:hover {
+  color: var(--text-primary);
+  background: var(--bg-muted);
+}
+
+.course-outline__drag-handle:active,
+.course-outline__drag-handle[data-dragging="true"] {
+  cursor: grabbing;
+  color: var(--accent-primary);
+  background: var(--accent-soft);
+}
+
+.course-outline__drag-handle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.course-outline__lesson-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 6px;
+  font: inherit;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+.course-outline__lesson-btn:hover {
+  background: var(--bg-muted);
+}
+
+.course-outline__item--active .course-outline__lesson-btn {
+  background: transparent;
+}
+
+.course-outline__lesson-btn[aria-current="true"] .course-outline__lesson-title {
+  color: var(--accent-primary);
+  font-weight: 600;
+}
+
+.course-outline__lesson-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.course-outline__lesson-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.course-outline__expand {
+  flex-shrink: 0;
+  width: 24px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.course-outline__expand:hover {
+  background: var(--bg-muted);
+  color: var(--text-primary);
+}
+
+.course-outline__steps {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0 0 0 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-left: 1px dashed var(--border-subtle);
+  margin-left: 14px;
+}
+
+.course-outline__step button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  font: inherit;
+  color: var(--text-primary);
+  transition: background 0.1s ease;
+}
+
+.course-outline__step button:hover {
+  background: var(--bg-muted);
+}
+
+.course-outline__step-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.course-outline__step-order {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.course-outline__step-type {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-outline__step--empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.course-outline__footer {
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 4px;
+}
+
+.course-outline__add-lesson {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-subtle);
+  background: transparent;
+  color: var(--text-link);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.course-outline__add-lesson:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+}
+
+.course-outline__add-lesson:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mobile: дерево не sidebar'ом, а в основном потоке */
+@media (max-width: 960px) {
+  .course-outline {
+    width: 100%;
+    max-width: 100%;
+    max-height: none;
+    position: static;
+  }
+}
+
+/* ============================================================
+ * StepCard — карточка шага с аккордеоном (L-R4, KS-1866).
+ * KS-1848 §3.5 / FE-R4.
+ * ============================================================ */
+
+.step-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  overflow: hidden;
+}
+
+.step-card:hover {
+  border-color: var(--border-accent);
+}
+
+.step-card--expanded,
+.step-card[data-expanded="true"] {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-soft);
+}
+
+.step-card[data-dragged-over="true"] {
+  border-color: var(--accent-primary);
+  background: var(--accent-soft);
+  outline: 1px dashed var(--accent-primary);
+  outline-offset: -4px;
+}
+
+.step-card__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  position: relative; /* для menu popover */
+  min-height: 48px;
+}
+
+.step-card__drag-handle {
+  flex-shrink: 0;
+  width: 24px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: grab;
+  border-radius: 4px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.step-card__drag-handle:hover {
+  color: var(--text-primary);
+  background: var(--bg-muted);
+}
+
+.step-card__drag-handle:active {
+  cursor: grabbing;
+  color: var(--accent-primary);
+}
+
+.step-card__icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  background: var(--bg-muted);
+  border-radius: 8px;
+}
+
+.step-card__title-group {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.step-card__order {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.step-card__type-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.step-card__preview {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* ---------- Status dot ---------- */
+.step-card__status-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border-mid);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.step-card__status-dot--idle {
+  background: var(--border-mid);
+}
+
+.step-card__status-dot--saving {
+  background: var(--accent-primary);
+  animation: step-card-dot-pulse 1.4s ease-in-out infinite;
+}
+
+.step-card__status-dot--saved {
+  background: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+.step-card__status-dot--error {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+@keyframes step-card-dot-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 var(--accent-soft);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 0 5px var(--accent-soft);
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-card__status-dot--saving {
+    animation: none;
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+}
+
+/* ---------- Menu trigger + popover ---------- */
+.step-card__menu-trigger,
+.step-card__chevron {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 1;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.step-card__menu-trigger:hover,
+.step-card__chevron:hover {
+  background: var(--bg-muted);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.step-card__menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 48px;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 30;
+}
+
+.step-card__menu button {
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.step-card__menu button:hover {
+  background: var(--bg-muted);
+}
+
+.step-card__menu-delete {
+  color: var(--danger) !important;
+}
+
+.step-card__menu-delete:hover {
+  background: var(--danger-soft) !important;
+}
+
+/* ---------- Accordion body ---------- */
+.step-card__body {
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: step-card-expand 0.18s ease-out;
+}
+
+@keyframes step-card-expand {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-card__body {
+    animation: none;
+  }
+}
+
+.step-card__unsupported {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--warning);
+  background: var(--warning-soft);
+  border: 1px solid var(--warning);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.step-card__preview-toggle {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.step-card__preview-toggle button {
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px dashed var(--border-subtle);
+  background: transparent;
+  color: var(--text-link);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.step-card__preview-toggle button:hover {
+  border-color: var(--accent-primary);
+  background: var(--accent-soft);
+}
+
+.step-card__preview-body {
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+/* Mobile: header растягивается на 2 строки, тап-зоны минимум 40×40 */
+@media (max-width: 640px) {
+  .step-card__header {
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    gap: 8px;
+    min-height: 56px;
+  }
+
+  .step-card__drag-handle,
+  .step-card__menu-trigger,
+  .step-card__chevron {
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+  }
+
+  .step-card__icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .step-card__preview {
+    flex-basis: 100%;
+    order: 10;
+  }
+
+  .step-card__menu {
+    right: 12px;
+    left: 12px;
+    min-width: 0;
+  }
+}
+
+/* ============================================================
+ * DeleteCourseDialog — type-to-confirm модалка (L-R6, KS-1868).
+ * KS-1848 §3.6 / FE-R7.
+ * ============================================================ */
+
+.delete-course-dialog__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 200;
+  animation: delete-dialog-overlay-in 0.15s ease-out;
+}
+
+@keyframes delete-dialog-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.delete-course-dialog {
+  width: 100%;
+  max-width: 460px;
+  background: var(--bg-surface);
+  border: 1px solid var(--danger);
+  border-radius: 14px;
+  padding: 22px 24px;
+  box-shadow: 0 16px 48px -8px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+  animation: delete-dialog-pop-in 0.18s ease-out;
+}
+
+@keyframes delete-dialog-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .delete-course-dialog__overlay,
+  .delete-course-dialog {
+    animation: none;
+  }
+}
+
+.delete-course-dialog__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--danger);
+  line-height: 1.3;
+}
+
+.delete-course-dialog__body {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.delete-course-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.delete-course-dialog__field span {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.delete-course-dialog__field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-canvas, var(--bg-surface));
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.delete-course-dialog__field input:focus {
+  outline: none;
+  border-color: var(--text-link);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Подсветка валидности: невалидно при непустом значении, валидно при DELETE */
+.delete-course-dialog__field input:not(:placeholder-shown):invalid {
+  border-color: var(--border-subtle);
+}
+
+.delete-course-dialog__field input[value=""],
+.delete-course-dialog__field input:placeholder-shown {
+  border-color: var(--border-subtle);
+}
+
+/* Правильно введено DELETE (эвристика: большая буква D + E + L + E + T + E) —
+   сложно на чистом CSS без JS-сигнала. JSX проставляет кнопке Confirm не-
+   disabled — используем его как прокси: когда кнопка доступна, подсветим
+   инпут зелёным. */
+.delete-course-dialog:has(.delete-course-dialog__confirm:not(:disabled))
+  .delete-course-dialog__field input {
+  border-color: var(--success);
+  box-shadow: 0 0 0 3px var(--success-soft);
+}
+
+/* Когда есть ввод, но DELETE неверно — красный (кнопка всё ещё disabled). */
+.delete-course-dialog:has(.delete-course-dialog__confirm:disabled)
+  .delete-course-dialog__field input:not(:placeholder-shown) {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+
+.delete-course-dialog__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.delete-course-dialog__actions button {
+  min-height: 40px;
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.delete-course-dialog__actions button:hover:not(:disabled) {
+  border-color: var(--border-accent);
+}
+
+.delete-course-dialog__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.delete-course-dialog__confirm {
+  color: var(--text-on-accent, #fff) !important;
+  background: var(--danger) !important;
+  border-color: var(--danger) !important;
+}
+
+.delete-course-dialog__confirm:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.delete-course-dialog__confirm:disabled {
+  background: var(--bg-muted) !important;
+  color: var(--text-muted) !important;
+  border-color: var(--border-subtle) !important;
+}
+
+/* Mobile — bottom sheet: модалка прилипает к низу во всю ширину */
+@media (max-width: 640px) {
+  .delete-course-dialog__overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .delete-course-dialog {
+    max-width: 100%;
+    width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding: 18px 16px 24px;
+    border-bottom: 0;
+    border-left: 0;
+    border-right: 0;
+    animation: delete-dialog-slide-up 0.22s ease-out;
+  }
+
+  @keyframes delete-dialog-slide-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+
+  .delete-course-dialog__actions {
+    flex-direction: column-reverse;
+  }
+
+  .delete-course-dialog__actions button {
+    width: 100%;
+  }
+}
