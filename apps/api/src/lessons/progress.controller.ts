@@ -38,7 +38,12 @@ export class ProgressController {
     @Request() req: AuthenticatedRequest,
     @Body() dto: CompleteLessonDto,
   ) {
-    return this.progressService.completeLesson(req.user.id, dto.lessonId, dto.score);
+    return this.progressService.completeLesson(
+      req.user.id,
+      dto.lessonId,
+      dto.score,
+      dto.quality,
+    );
   }
 
   /**

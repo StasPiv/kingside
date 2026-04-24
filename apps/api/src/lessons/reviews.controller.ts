@@ -1,14 +1,16 @@
 import { Controller, Get, Request, UseGuards } from '@nestjs/common';
+import type { ReviewsDueResponse, ReviewDueItem } from '@kingside/shared';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Sm2Service } from './sm2.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
- * REST-эндпоинт «К повторению сегодня» (ADR-025 §2.7).
+ * REST-эндпоинт «К повторению сегодня» (ADR-025 §2.7, L-22).
  *
- * Запрос выборки on-demand через индекс `(userId, dueAt)` —
- * без cron-пересчёта. UI (L-22) рисует список на базе этих данных.
+ * Запрос выборки on-demand через индекс `(userId, dueAt)` — без cron-пересчёта.
+ * UI повторений (KS-1799) рисует список строго по shape'у `ReviewDueItem`
+ * из `@kingside/shared`, чтобы не было расхождений контрактов.
  */
 @UseGuards(JwtAuthGuard)
 @Controller('lessons/reviews')
@@ -19,33 +21,16 @@ export class LessonReviewsController {
   ) {}
 
   /**
-   * GET /api/lessons/reviews/due
+   * GET /api/lessons/reviews/due — возвращает `ReviewsDueResponse`.
    *
-   * Возвращает уроки, у которых `dueAt <= now()` для текущего
-   * пользователя. Каждый элемент — достаточные для UI данные о
-   * прогрессе и SM-2-параметрах.
+   * Порядок элементов — по `dueAt ASC` (самые «просроченные» — первыми).
    */
   @Get('due')
-  async getDueReviews(@Request() req: AuthenticatedRequest): Promise<{
-    data: Array<{
-      lessonId: string;
-      lessonSlug: string;
-      courseSlug: string;
-      titleI18nKey: string;
-      summaryI18nKey: string;
-      kind: string;
-      dueAt: string;
-      interval: number;
-      repetitions: number;
-      easiness: number;
-      lastReviewedAt: string | null;
-      lastQuality: number | null;
-    }>;
-  }> {
+  async getDueReviews(@Request() req: AuthenticatedRequest): Promise<ReviewsDueResponse> {
     const userId = req.user.id;
     const due = await this.sm2.getDueReviews(userId);
     if (due.length === 0) {
-      return { data: [] };
+      return { items: [] };
     }
 
     const lessonIds = due.map((r) => r.lessonId);
@@ -55,34 +40,27 @@ export class LessonReviewsController {
         id: true,
         slug: true,
         titleKey: true,
-        summaryKey: true,
-        kind: true,
-        course: { select: { slug: true } },
+        course: { select: { slug: true, titleKey: true } },
       },
     });
     const byId = new Map(lessons.map((l) => [l.id, l]));
 
-    const data = due
-      .map((r) => {
+    const items: ReviewDueItem[] = due
+      .map((r): ReviewDueItem | null => {
         const lesson = byId.get(r.lessonId);
         if (!lesson) return null;
         return {
-          lessonId: r.lessonId,
-          lessonSlug: lesson.slug,
           courseSlug: lesson.course.slug,
-          titleI18nKey: lesson.titleKey,
-          summaryI18nKey: lesson.summaryKey,
-          kind: lesson.kind,
+          courseTitleI18nKey: lesson.course.titleKey,
+          lessonSlug: lesson.slug,
+          lessonTitleI18nKey: lesson.titleKey,
           dueAt: r.dueAt.toISOString(),
-          interval: r.interval,
-          repetitions: r.repetitions,
-          easiness: r.easiness,
           lastReviewedAt: r.lastReviewedAt?.toISOString() ?? null,
-          lastQuality: r.lastQuality,
+          intervalDays: r.interval,
         };
       })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+      .filter((x): x is ReviewDueItem => x !== null);
 
-    return { data };
+    return { items };
   }
 }

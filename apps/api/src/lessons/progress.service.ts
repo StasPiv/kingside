@@ -1,5 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { LessonStepState, UserLessonProgress } from '@kingside/shared';
+import type {
+  CompleteLessonResponse,
+  LessonStepState,
+  UserLessonProgress,
+} from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { Sm2Service } from './sm2.service';
 import { ADAPTIVE_STATE_KEY } from './adaptive-difficulty.service';
@@ -85,9 +89,13 @@ export class ProgressService {
     userId: string,
     lessonId: string,
     scoreNormalized: number,
-  ): Promise<UserLessonProgress> {
+    quality?: number,
+  ): Promise<CompleteLessonResponse> {
     if (scoreNormalized < 0 || scoreNormalized > 1) {
       throw new BadRequestException('score must be in [0, 1]');
+    }
+    if (quality !== undefined && (quality < 0 || quality > 5 || !Number.isFinite(quality))) {
+      throw new BadRequestException('quality must be an integer in [0, 5]');
     }
     const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
@@ -133,13 +141,19 @@ export class ProgressService {
     // только в первый раз (updateMany с `masteredAt: null`).
     // `scheduleReview` вызывается и при первом «освоении», и при
     // каждом последующем повторе — обновляет параметры SM-2.
+    const baseResponse: CompleteLessonResponse = this.toShared(record);
     if (score100 >= this.MASTER_THRESHOLD) {
       await this.sm2.markLessonMastered(userId, lessonId);
-      const quality = Sm2Service.scoreToQuality(score100);
-      await this.sm2.scheduleReview(userId, lessonId, quality);
+      // L-22 / KS-1809: если клиент передал явный `quality` (UI повторений:
+      // кнопки 0..5), используем его; иначе — классический маппинг из score.
+      const q = quality ?? Sm2Service.scoreToQuality(score100);
+      const review = await this.sm2.scheduleReview(userId, lessonId, q);
+      baseResponse.nextDueAt = review.dueAt.toISOString();
+      baseResponse.intervalDays = review.interval;
+      baseResponse.easeFactor = review.easiness;
     }
 
-    return this.toShared(record);
+    return baseResponse;
   }
 
   /**

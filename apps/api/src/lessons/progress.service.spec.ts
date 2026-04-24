@@ -125,6 +125,12 @@ describe('ProgressService', () => {
       prisma.userCourseProgress.upsert.mockResolvedValue({});
       prisma.lesson.count.mockResolvedValue(3);
       prisma.userLessonProgress.count.mockResolvedValue(0);
+      sm2.scheduleReview.mockResolvedValue({
+        easiness: 2.6,
+        interval: 6,
+        repetitions: 2,
+        dueAt: new Date('2026-05-01T00:00:00Z'),
+      });
     });
 
     it('400 при score вне [0, 1]', async () => {
@@ -134,6 +140,15 @@ describe('ProgressService', () => {
       await expect(service.completeLesson(userId, lessonId, -0.1)).rejects.toBeInstanceOf(
         BadRequestException,
       );
+    });
+
+    it('400 при quality вне [0, 5]', async () => {
+      await expect(
+        service.completeLesson(userId, lessonId, 0.9, 6),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.completeLesson(userId, lessonId, 0.9, -1),
+      ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('404 если урок не найден', async () => {
@@ -186,7 +201,7 @@ describe('ProgressService', () => {
       expect(prisma.userCourseProgress.update).not.toHaveBeenCalled();
     });
 
-    it('при score ≥ 0.8 → markLessonMastered + scheduleReview вызваны', async () => {
+    it('при score ≥ 0.8 → markLessonMastered + scheduleReview вызваны, ответ содержит SM-2 поля', async () => {
       prisma.userLessonProgress.findUnique.mockResolvedValue(null);
       prisma.userLessonProgress.upsert.mockResolvedValue({
         userId,
@@ -197,13 +212,33 @@ describe('ProgressService', () => {
         stepsState: {},
       });
 
-      await service.completeLesson(userId, lessonId, 0.85);
+      const res = await service.completeLesson(userId, lessonId, 0.85);
 
       expect(sm2.markLessonMastered).toHaveBeenCalledWith(userId, lessonId);
       expect(sm2.scheduleReview).toHaveBeenCalledWith(userId, lessonId, 4); // score=85 → q=4
+      expect(res.nextDueAt).toBe('2026-05-01T00:00:00.000Z');
+      expect(res.intervalDays).toBe(6);
+      expect(res.easeFactor).toBeCloseTo(2.6);
     });
 
-    it('при 0.7 ≤ score < 0.8 — SM-2 не вызывается', async () => {
+    it('quality переданный клиентом используется вместо score→quality', async () => {
+      prisma.userLessonProgress.findUnique.mockResolvedValue(null);
+      prisma.userLessonProgress.upsert.mockResolvedValue({
+        userId,
+        lessonId,
+        startedAt: new Date(),
+        completedAt: new Date(),
+        score: 85,
+        stepsState: {},
+      });
+
+      await service.completeLesson(userId, lessonId, 0.85, 5);
+
+      // score=85 маппился бы в q=4, но клиент передал 5 явно.
+      expect(sm2.scheduleReview).toHaveBeenCalledWith(userId, lessonId, 5);
+    });
+
+    it('при 0.7 ≤ score < 0.8 — SM-2 не вызывается, SM-2 поля не возвращаются', async () => {
       prisma.userLessonProgress.findUnique.mockResolvedValue(null);
       prisma.userLessonProgress.upsert.mockResolvedValue({
         userId,
@@ -214,10 +249,13 @@ describe('ProgressService', () => {
         stepsState: {},
       });
 
-      await service.completeLesson(userId, lessonId, 0.75);
+      const res = await service.completeLesson(userId, lessonId, 0.75);
 
       expect(sm2.markLessonMastered).not.toHaveBeenCalled();
       expect(sm2.scheduleReview).not.toHaveBeenCalled();
+      expect(res.nextDueAt).toBeUndefined();
+      expect(res.intervalDays).toBeUndefined();
+      expect(res.easeFactor).toBeUndefined();
     });
 
     it('ставит UserCourseProgress.completedAt когда все опубликованные уроки пройдены', async () => {

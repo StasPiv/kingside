@@ -92,19 +92,36 @@ export class CoursesService {
       throw new NotFoundException('Course not found');
     }
 
-    const lessonProgressMap = new Map<string, { completedAt: Date | null; startedAt: Date | null }>();
+    const lessonProgressMap = new Map<
+      string,
+      { completedAt: Date | null; startedAt: Date | null; masteredAt: Date | null }
+    >();
+    const reviewDueMap = new Map<string, Date>();
     if (userId) {
+      const lessonIds = course.lessons.map((l) => l.id);
       const rows = await this.prisma.userLessonProgress.findMany({
         where: {
           userId,
-          lessonId: { in: course.lessons.map((l) => l.id) },
+          lessonId: { in: lessonIds },
         },
       });
       for (const row of rows) {
         lessonProgressMap.set(row.lessonId, {
           completedAt: row.completedAt,
           startedAt: row.startedAt,
+          masteredAt: row.masteredAt,
         });
+      }
+
+      // Ближайший плановый повтор SM-2 (L-22): один LessonReview на пару
+      // (userId, lessonId) — тянем `dueAt` одним запросом по всем урокам
+      // текущего курса и отдаём на фронт как бейдж «К повторению».
+      const reviews = await this.prisma.lessonReview.findMany({
+        where: { userId, lessonId: { in: lessonIds } },
+        select: { lessonId: true, dueAt: true },
+      });
+      for (const r of reviews) {
+        reviewDueMap.set(r.lessonId, r.dueAt);
       }
     }
 
@@ -113,7 +130,7 @@ export class CoursesService {
       let state: CourseLessonSummary['progressState'] = 'not_started';
       if (prog?.completedAt) state = 'completed';
       else if (prog?.startedAt) state = 'in_progress';
-      return {
+      const summary: CourseLessonSummary = {
         id: l.id,
         slug: l.slug,
         order: l.order,
@@ -124,6 +141,14 @@ export class CoursesService {
         stepCount: l._count.steps,
         progressState: state,
       };
+      // SM-2 поля (L-22): заполняем только для авторизованных пользователей;
+      // для анонимов оставляем `undefined`, чтобы не засорять payload.
+      if (userId) {
+        summary.masteredAt = prog?.masteredAt?.toISOString() ?? null;
+        const due = reviewDueMap.get(l.id);
+        summary.dueAt = due ? due.toISOString() : null;
+      }
+      return summary;
     });
 
     let userProgress = null;

@@ -33,10 +33,16 @@ describe('ProgressController', () => {
     expect(service.updateStep).toHaveBeenCalledWith('user-1', 'L1', 'S1', 'done');
   });
 
-  it('POST /lessons/progress/lesson/complete → completeLesson(userId, lessonId, score)', async () => {
+  it('POST /lessons/progress/lesson/complete → completeLesson(userId, lessonId, score) без quality', async () => {
     service.completeLesson.mockResolvedValue({} as any);
     await controller.completeLesson(req, { lessonId: 'L1', score: 0.85 });
-    expect(service.completeLesson).toHaveBeenCalledWith('user-1', 'L1', 0.85);
+    expect(service.completeLesson).toHaveBeenCalledWith('user-1', 'L1', 0.85, undefined);
+  });
+
+  it('POST /lessons/progress/lesson/complete прокидывает quality в сервис', async () => {
+    service.completeLesson.mockResolvedValue({} as any);
+    await controller.completeLesson(req, { lessonId: 'L1', score: 0.85, quality: 5 });
+    expect(service.completeLesson).toHaveBeenCalledWith('user-1', 'L1', 0.85, 5);
   });
 
   it('POST /lessons/progress/puzzle-attempt → adaptive.recordAttempt(userId, lessonId, stepId, puzzleId, solved, timeSpent)', async () => {

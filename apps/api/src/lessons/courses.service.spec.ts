@@ -10,6 +10,7 @@ describe('CoursesService.recommendLevel (KS-1767 / ADR-024 §2.3)', () => {
       course: { findMany: jest.fn(), findUnique: jest.fn() },
       userCourseProgress: { findMany: jest.fn(), findUnique: jest.fn() },
       userLessonProgress: { findMany: jest.fn(), count: jest.fn() },
+      lessonReview: { findMany: jest.fn().mockResolvedValue([]) },
     };
     service = new CoursesService(prisma);
   });
@@ -94,5 +95,98 @@ describe('CoursesService.recommendLevel (KS-1767 / ADR-024 §2.3)', () => {
     prisma.course.findMany.mockResolvedValue([]);
     const res = await service.listCourses(null);
     expect(res.recommendedLevel).toBe('beginner');
+  });
+});
+
+describe('CoursesService.getCourseBySlug — SM-2 поля (KS-1809 / L-22)', () => {
+  let service: CoursesService;
+  let prisma: any;
+
+  const courseId = 'C1';
+  const lessonId = 'L1';
+  const userId = 'u1';
+
+  beforeEach(() => {
+    prisma = {
+      user: { findUnique: jest.fn() },
+      course: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: courseId,
+          slug: 'beginner',
+          level: 'beginner',
+          titleKey: 'c.title',
+          descriptionKey: 'c.desc',
+          order: 0,
+          isPublished: true,
+          createdAt: new Date('2026-04-01T00:00:00Z'),
+          updatedAt: new Date('2026-04-01T00:00:00Z'),
+          lessons: [
+            {
+              id: lessonId,
+              slug: 'l1',
+              order: 0,
+              blockKey: 'intro',
+              kind: 'theory',
+              titleKey: 'l.title',
+              summaryKey: 'l.summary',
+              isPublished: true,
+              _count: { steps: 3 },
+            },
+          ],
+        }),
+      },
+      userLessonProgress: {
+        findMany: jest.fn(),
+        count: jest.fn(),
+      },
+      userCourseProgress: { findUnique: jest.fn().mockResolvedValue(null) },
+      lessonReview: { findMany: jest.fn() },
+    };
+    service = new CoursesService(prisma);
+  });
+
+  it('для авторизованного — прокидывает masteredAt и dueAt в CourseLessonSummary', async () => {
+    prisma.userLessonProgress.findMany.mockResolvedValue([
+      {
+        lessonId,
+        completedAt: new Date('2026-04-10T00:00:00Z'),
+        startedAt: new Date('2026-04-09T00:00:00Z'),
+        masteredAt: new Date('2026-04-10T00:00:00Z'),
+      },
+    ]);
+    prisma.lessonReview.findMany.mockResolvedValue([
+      { lessonId, dueAt: new Date('2026-04-17T00:00:00Z') },
+    ]);
+
+    const res = await service.getCourseBySlug('beginner', userId);
+
+    expect(res.lessons[0].masteredAt).toBe('2026-04-10T00:00:00.000Z');
+    expect(res.lessons[0].dueAt).toBe('2026-04-17T00:00:00.000Z');
+    expect(res.lessons[0].progressState).toBe('completed');
+  });
+
+  it('для авторизованного без LessonReview — dueAt=null', async () => {
+    prisma.userLessonProgress.findMany.mockResolvedValue([
+      {
+        lessonId,
+        completedAt: new Date('2026-04-10T00:00:00Z'),
+        startedAt: new Date('2026-04-09T00:00:00Z'),
+        masteredAt: null,
+      },
+    ]);
+    prisma.lessonReview.findMany.mockResolvedValue([]);
+
+    const res = await service.getCourseBySlug('beginner', userId);
+
+    expect(res.lessons[0].masteredAt).toBeNull();
+    expect(res.lessons[0].dueAt).toBeNull();
+  });
+
+  it('для анонима masteredAt/dueAt отсутствуют (undefined)', async () => {
+    const res = await service.getCourseBySlug('beginner', null);
+
+    expect(res.lessons[0].masteredAt).toBeUndefined();
+    expect(res.lessons[0].dueAt).toBeUndefined();
+    expect(prisma.lessonReview.findMany).not.toHaveBeenCalled();
   });
 });

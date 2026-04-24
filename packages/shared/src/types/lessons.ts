@@ -368,6 +368,18 @@ export interface CourseLessonSummary {
   stepCount: number;
   /** Состояние прохождения пользователем. */
   progressState: 'not_started' | 'in_progress' | 'completed';
+  /**
+   * Когда урок «освоен» (score ≥ 80, ADR-025 §2.5). ISO. Передаётся
+   * только если `userId` авторизован и урок освоен. Используется для
+   * бейджа «Освоено» на `CoursePage` (L-22).
+   */
+  masteredAt?: string | null;
+  /**
+   * Ближайший плановый повтор SM-2 (`LessonReview.dueAt`). ISO.
+   * Передаётся, если урок освоен и для него есть запись в
+   * `LessonReview`. Используется для бейджа «К повторению».
+   */
+  dueAt?: string | null;
 }
 
 /** GET /api/lessons/courses/:courseSlug/lessons/:lessonSlug — урок с шагами. */
@@ -405,9 +417,29 @@ export interface CompleteLessonRequest {
   lessonId: string;
   /** Финальный балл 0..1 (обычно агрегат `stepsState`). */
   score: number;
+  /**
+   * SM-2 quality 0..5. Опциональное переопределение. Если не передан —
+   * бэкенд вычисляет из `score` через `Sm2Service.scoreToQuality`. Используется
+   * UI повторений (L-22), где ученик явно оценивает «как пошло» после
+   * повторного прохождения (0 — не помню, 5 — легко).
+   */
+  quality?: number;
 }
 
-export type CompleteLessonResponse = UserLessonProgress;
+/**
+ * Ответ на `POST /api/lessons/progress/lesson/complete`. Базово — состояние
+ * `UserLessonProgress`; при освоении урока (score ≥ 80 либо переданный
+ * `quality ≥ 3`) дополнительно отдаются параметры SM-2 для экрана
+ * результата («следующий повтор через N дней»).
+ */
+export interface CompleteLessonResponse extends UserLessonProgress {
+  /** ISO плановой даты следующего повтора SM-2. `null` если повторы не планировались. */
+  nextDueAt?: string | null;
+  /** Интервал до следующего повтора в днях (SM-2 `interval`). */
+  intervalDays?: number;
+  /** Коэффициент лёгкости SM-2 (`easiness`). */
+  easeFactor?: number;
+}
 
 /** GET /api/lessons/recommendation — рекомендованный уровень (по `ratingPuzzle`). */
 export interface CourseRecommendationResponse {
@@ -415,6 +447,34 @@ export interface CourseRecommendationResponse {
   /** На чём основана рекомендация (для UI-пояснения). */
   reason: 'rating_puzzle' | 'default';
   ratingPuzzle?: number;
+}
+
+// ─── SM-2 Reviews (L-22 / KS-1799, shared contract KS-1809) ──────────
+//
+// Источник правил — ADR-025. `LessonReview` планируется `Sm2Service` и
+// выдаётся `GET /api/lessons/reviews/due`. UI повторений (L-22) потребляет
+// именно эти типы, не лезет в `Sm2Service` напрямую.
+
+/** Одна строка списка «к повторению сегодня». */
+export interface ReviewDueItem {
+  courseSlug: string;
+  courseTitleI18nKey: string;
+  lessonSlug: string;
+  lessonTitleI18nKey: string;
+  /** ISO — когда плановый повтор стал/станет доступен. */
+  dueAt: string;
+  /** ISO — когда урок повторяли последний раз (null для нового повтора). */
+  lastReviewedAt: string | null;
+  /** Текущий SM-2 `interval` в днях. */
+  intervalDays: number;
+}
+
+/**
+ * GET /api/lessons/reviews/due — список уроков, у которых `dueAt <= now`
+ * для текущего пользователя. Используется экраном повторений (L-22).
+ */
+export interface ReviewsDueResponse {
+  items: ReviewDueItem[];
 }
 
 // ─── Level gate (L-15 / KS-1770, L-26 / KS-1804) ─────────────────────
