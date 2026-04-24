@@ -6,6 +6,7 @@ import { renderWithProviders, screen } from '../../test/test-utils';
 import {
   PlayoffBracket,
   computeLinePoints,
+  computeOrthogonalPath,
   groupGamesByPair,
   layoutBracket,
   STAGE_ORDER,
@@ -33,8 +34,8 @@ function game(over: Partial<BroadcastGameSummary>): BroadcastGameSummary {
 describe('groupGamesByPair', () => {
   it('группирует партии одной пары по bracketPairId', () => {
     const games: BroadcastGameSummary[] = [
-      game({ id: 'g1', matchScore: '1-0' }),
-      game({ id: 'g2', matchScore: '1-1' }),
+      game({ id: 'g1', matchScore: '1-0', updatedAt: '2026-04-24T10:00:00Z' }),
+      game({ id: 'g2', matchScore: '1-1', updatedAt: '2026-04-24T11:00:00Z' }),
       game({
         id: 'g3',
         bracketPairId: 'quarter:Carl|Dan',
@@ -46,8 +47,20 @@ describe('groupGamesByPair', () => {
     expect(pairs).toHaveLength(2);
     const ab = pairs.find((p) => p.pairId === 'quarter:Alice|Bob');
     expect(ab?.games).toHaveLength(2);
-    // Последний matchScore «1-1» должен перезатереть первый «1-0».
+    // matchScore берётся из партии с max updatedAt — «1-1».
     expect(ab?.matchScore).toBe('1-1');
+  });
+
+  it('matchScore берётся из партии с max updatedAt (а не «последней встреченной»)', () => {
+    // Обратный порядок массива — если код наивно берёт «последний в массиве»,
+    // тест упадёт.
+    const games: BroadcastGameSummary[] = [
+      game({ id: 'g-late', matchScore: '2-1', updatedAt: '2026-04-24T12:00:00Z' }),
+      game({ id: 'g-mid', matchScore: '1-1', updatedAt: '2026-04-24T11:00:00Z' }),
+      game({ id: 'g-early', matchScore: '1-0', updatedAt: '2026-04-24T10:00:00Z' }),
+    ];
+    const pairs = groupGamesByPair(games);
+    expect(pairs[0].matchScore).toBe('2-1');
   });
 
   it('игры без bracketPairId рендерятся как отдельные пары', () => {
@@ -229,7 +242,7 @@ describe('<PlayoffBracket>', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('links не пустой → рендерится SVG с правильным числом <line> и правильными kind-classes', () => {
+  it('links не пустой → рендерится SVG с <path>-линиями нужных kind', () => {
     const games = [
       game({ bracketPairId: 'wq:A|B', bracketStage: 'winners_quarter' }),
       game({ bracketPairId: 'ws:A|C', bracketStage: 'winners_semi' }),
@@ -243,11 +256,10 @@ describe('<PlayoffBracket>', () => {
     const svg = screen.getByTestId('playoff-bracket-links');
     expect(svg).toBeInTheDocument();
     expect(svg.tagName.toLowerCase()).toBe('svg');
-    const lines = svg.querySelectorAll('line');
-    expect(lines).toHaveLength(2);
+    const paths = svg.querySelectorAll('path');
+    expect(paths).toHaveLength(2);
     expect(svg.querySelector('[data-testid="playoff-bracket-link-winner"]')).toBeTruthy();
     expect(svg.querySelector('[data-testid="playoff-bracket-link-loser"]')).toBeTruthy();
-    // Классы задают стиль линий (сплошная/пунктир через CSS).
     expect(
       svg.querySelector('.playoff-bracket__link--winner'),
     ).toBeTruthy();
@@ -264,9 +276,8 @@ describe('<PlayoffBracket>', () => {
     ];
     renderWithProviders(<PlayoffBracket games={games} links={links} />);
     const svg = screen.queryByTestId('playoff-bracket-links');
-    // svg есть (links.length>0), но <line> нет
     expect(svg).toBeInTheDocument();
-    expect(svg?.querySelectorAll('line')).toHaveLength(0);
+    expect(svg?.querySelectorAll('path')).toHaveLength(0);
   });
 
   it('каждая пара получает data-pair-id для DOM-поиска SVG-линиями', () => {
@@ -314,5 +325,25 @@ describe('computeLinePoints', () => {
     const to = { left: 100, top: 200, right: 120, bottom: 220 };
     const pts = computeLinePoints(from, to, container);
     expect(pts).toEqual({ x1: 30, y1: 30, x2: 100, y2: 210 });
+  });
+});
+
+describe('computeOrthogonalPath', () => {
+  it('строит L-shape path с вертикалью на середине между from и to', () => {
+    const container = { left: 0, top: 0, right: 1000, bottom: 800 };
+    const from = { left: 100, top: 100, right: 200, bottom: 200 };
+    const to = { left: 400, top: 400, right: 500, bottom: 500 };
+    const d = computeOrthogonalPath(from, to, container);
+    // x1=200, y1=150, x2=400, y2=450, midX=300
+    expect(d).toBe('M 200 150 L 300 150 L 300 450 L 400 450');
+  });
+
+  it('горизонтальные пары на одной высоте → путь вырождается в прямую через ортогональные сегменты', () => {
+    const container = { left: 0, top: 0, right: 1000, bottom: 800 };
+    const from = { left: 100, top: 100, right: 200, bottom: 200 };
+    const to = { left: 400, top: 100, right: 500, bottom: 200 };
+    const d = computeOrthogonalPath(from, to, container);
+    // y1=y2=150, midX=300
+    expect(d).toBe('M 200 150 L 300 150 L 300 150 L 400 150');
   });
 });

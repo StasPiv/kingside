@@ -58,16 +58,33 @@ function stageSortKey(stage: string): number {
   return idx === -1 ? STAGE_ORDER.length + 100 : idx;
 }
 
-/** Группирует партии по паре и стадии. Экспортируется для unit-тестов. */
+/**
+ * Группирует партии по паре и стадии. Экспортируется для unit-тестов.
+ *
+ * `matchScore` берётся из партии с **максимальным `updatedAt`** внутри
+ * пары, т.к. backend (KS-1824) заполняет поле актуальным агрегатным
+ * счётом матча на момент последнего апдейта партии. Простое «последний
+ * встреченный в массиве» было ошибкой KS-1825 первой итерации — при
+ * произвольном порядке от API могли попадать ранние matchScore-значения.
+ */
 export function groupGamesByPair(games: BroadcastGameSummary[]): PairGroup[] {
   const byPair = new Map<string, PairGroup>();
+  const latestMatchScoreTs = new Map<string, string>();
   for (const g of games) {
     const pairId = g.bracketPairId ?? `__ungrouped:${g.id}`;
     const stage = g.bracketStage ?? 'playoff';
     const existing = byPair.get(pairId);
     if (existing) {
       existing.games.push(g);
-      if (g.matchScore) existing.matchScore = g.matchScore;
+      // Обновляем matchScore только если текущая партия свежее
+      // последней партии, откуда уже брали scoreSource.
+      if (g.matchScore) {
+        const prevTs = latestMatchScoreTs.get(pairId);
+        if (!prevTs || g.updatedAt > prevTs) {
+          existing.matchScore = g.matchScore;
+          latestMatchScoreTs.set(pairId, g.updatedAt);
+        }
+      }
     } else {
       byPair.set(pairId, {
         pairId,
@@ -77,6 +94,7 @@ export function groupGamesByPair(games: BroadcastGameSummary[]): PairGroup[] {
         matchScore: g.matchScore ?? null,
         games: [g],
       });
+      if (g.matchScore) latestMatchScoreTs.set(pairId, g.updatedAt);
     }
   }
   return Array.from(byPair.values());
@@ -154,6 +172,22 @@ export function computeLinePoints(
   };
 }
 
+/**
+ * Строит L-shape SVG path для соединения двух пар: горизонталь от
+ * правой стороны from до середины X, вертикаль до уровня to, горизонталь
+ * до левой стороны to. Это классический bracket-стиль, ортогональные
+ * сегменты вместо диагональной линии. Экспортируется.
+ */
+export function computeOrthogonalPath(
+  from: RectLike,
+  to: RectLike,
+  container: RectLike,
+): string {
+  const { x1, y1, x2, y2 } = computeLinePoints(from, to, container);
+  const midX = (x1 + x2) / 2;
+  return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+}
+
 export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProps) {
   const { t } = useTranslation();
   const layout = useMemo(() => layoutBracket(groupGamesByPair(games)), [games]);
@@ -162,7 +196,7 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pairRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [svgLines, setSvgLines] = useState<
-    Array<LineCoords & { key: string; kind: 'winner' | 'loser' }>
+    Array<{ key: string; kind: 'winner' | 'loser'; d: string }>
   >([]);
   const [svgSize, setSvgSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
   const hasLinks = Boolean(links && links.length > 0);
@@ -176,13 +210,12 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
       const container = containerRef.current;
       if (!container) return;
       const crect = container.getBoundingClientRect();
-      const next: Array<LineCoords & { key: string; kind: 'winner' | 'loser' }> =
-        [];
+      const next: Array<{ key: string; kind: 'winner' | 'loser'; d: string }> = [];
       for (const link of links ?? []) {
         const from = pairRefs.current.get(link.fromPairId);
         const to = pairRefs.current.get(link.toPairId);
         if (!from || !to) continue;
-        const { x1, y1, x2, y2 } = computeLinePoints(
+        const d = computeOrthogonalPath(
           from.getBoundingClientRect(),
           to.getBoundingClientRect(),
           crect,
@@ -190,10 +223,7 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
         next.push({
           key: `${link.fromPairId}->${link.toPairId}:${link.kind}`,
           kind: link.kind,
-          x1,
-          y1,
-          x2,
-          y2,
+          d,
         });
       }
       setSvgLines(next);
@@ -251,15 +281,12 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
           role="presentation"
         >
           {svgLines.map((ln) => (
-            <line
+            <path
               key={ln.key}
               data-testid={`playoff-bracket-link-${ln.kind}`}
               data-from={ln.key.split('->')[0]}
               data-to={ln.key.split('->')[1]}
-              x1={ln.x1}
-              y1={ln.y1}
-              x2={ln.x2}
-              y2={ln.y2}
+              d={ln.d}
               className={`playoff-bracket__link playoff-bracket__link--${ln.kind}`}
             />
           ))}
