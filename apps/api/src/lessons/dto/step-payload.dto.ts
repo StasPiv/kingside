@@ -23,6 +23,7 @@ import type {
   VideoStepPayload,
   EndgameDrillStepPayload,
   EndgameWinCondition,
+  OpeningDrillStepPayload,
   QuizQuestion,
   QuizOption,
   PuzzleTheme,
@@ -31,6 +32,7 @@ import { ArePositionMovesLegal, IsFen } from './position-step.validators';
 import { IsVideoUrl } from './video-step.validators';
 import { IsGameReviewXor, IsValidPgn } from './game-review-step.validators';
 import { IsEndgameWinCondition } from './endgame-drill-step.validators';
+import { IsDrillPgn } from './opening-drill-step.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
@@ -293,6 +295,32 @@ class EndgameDrillStepPayloadDto implements EndgameDrillStepPayload {
   hintsAllowed?: boolean;
 }
 
+/**
+ * Дебютный тренажёр (L-32 / KS-1801 frontend / KS-1816 backend).
+ * PGN-дерево парсится `chess.js#loadPgn`, `onDeviation` управляет
+ * реакцией на уход из теории.
+ */
+class OpeningDrillStepPayloadDto implements OpeningDrillStepPayload {
+  @IsIn(['opening_drill'])
+  type!: 'opening_drill';
+
+  @IsString()
+  @IsDrillPgn()
+  pgn!: string;
+
+  @IsIn(['white', 'black'])
+  playerSide!: 'white' | 'black';
+
+  @IsIn(['show_correction', 'engine_punish'])
+  onDeviation!: 'show_correction' | 'engine_punish';
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(20)
+  engineSkillLevel?: number;
+}
+
 // ─── Discriminated union wrapper ─────────────────────────────────────
 
 /**
@@ -308,6 +336,7 @@ export const STEP_PAYLOAD_SUBTYPES = [
   { value: GameReviewStepPayloadDto, name: 'game_review' },
   { value: VideoStepPayloadDto, name: 'video' },
   { value: EndgameDrillStepPayloadDto, name: 'endgame_drill' },
+  { value: OpeningDrillStepPayloadDto, name: 'opening_drill' },
 ] as const;
 
 export type StepPayloadDto =
@@ -317,7 +346,8 @@ export type StepPayloadDto =
   | PositionStepPayloadDto
   | GameReviewStepPayloadDto
   | VideoStepPayloadDto
-  | EndgameDrillStepPayloadDto;
+  | EndgameDrillStepPayloadDto
+  | OpeningDrillStepPayloadDto;
 
 export {
   TextStepPayloadDto,
@@ -327,6 +357,7 @@ export {
   GameReviewStepPayloadDto,
   VideoStepPayloadDto,
   EndgameDrillStepPayloadDto,
+  OpeningDrillStepPayloadDto,
   QuizQuestionDto,
   QuizOptionDto,
   PuzzleSelectionIdsDto,

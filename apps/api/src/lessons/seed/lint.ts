@@ -36,10 +36,12 @@ import {
   GameReviewStepPayloadDto,
   VideoStepPayloadDto,
   EndgameDrillStepPayloadDto,
+  OpeningDrillStepPayloadDto,
 } from '../dto/step-payload.dto';
 import { isValidFen, isLegalUciOnFen } from '../dto/position-step.validators';
 import { validateGameReviewPayload } from '../dto/game-review-step.validators';
 import { validateEndgameDrillPayload } from '../dto/endgame-drill-step.validators';
+import { validateOpeningDrillPayload } from '../dto/opening-drill-step.validators';
 import { ALLOWED_VIDEO_HOSTS, isAllowedVideoUrl } from '@kingside/shared';
 
 export interface LinterError {
@@ -55,6 +57,7 @@ const PAYLOAD_DTO_BY_TYPE = {
   game_review: GameReviewStepPayloadDto,
   video: VideoStepPayloadDto,
   endgame_drill: EndgameDrillStepPayloadDto,
+  opening_drill: OpeningDrillStepPayloadDto,
 } as const;
 
 export interface LintOptions {
@@ -288,6 +291,19 @@ function collectChessChecks(
       // Общий helper с DTO (`../dto/endgame-drill-step.validators`) —
       // рантайм-валидация API и pre-seed-линтер репортят одно и то же.
       const res = validateEndgameDrillPayload(
+        payload as unknown as Record<string, unknown>,
+        `${stepPath}.payload`,
+      );
+      for (const e of res.errors) {
+        errors.push({ path: e.path, message: e.message });
+      }
+      break;
+    }
+    case 'opening_drill': {
+      // KS-1816: PGN (chess.js#loadPgn, ≥ 1 ход в основной линии,
+      // сбалансированные скобки вариантов), playerSide, onDeviation,
+      // engineSkillLevel 0..20. Общий helper с DTO.
+      const res = validateOpeningDrillPayload(
         payload as unknown as Record<string, unknown>,
         `${stepPath}.payload`,
       );

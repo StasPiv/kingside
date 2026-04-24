@@ -48,7 +48,8 @@ export type LessonStepType =
   | 'position'
   | 'game_review'
   | 'video'
-  | 'endgame_drill';
+  | 'endgame_drill'
+  | 'opening_drill';
 
 /** Статус прохождения шага внутри урока (агрегат в `UserLessonProgress.stepsState`). */
 export type LessonStepState = 'pending' | 'in_progress' | 'done' | 'failed' | 'skipped';
@@ -244,6 +245,38 @@ export interface EndgameDrillStepPayload {
 }
 
 /**
+ * Дебютный тренажёр (L-32 / KS-1801 frontend / KS-1816 backend).
+ * Ученик играет дебют по PGN-дереву вариантов:
+ *  - `show_correction` — при отклонении показать корректный ход и
+ *    вернуть доску на предыдущую позицию;
+ *  - `engine_punish`   — при отклонении Stockfish продолжает играть
+ *    и «наказывает» ученика материально/позиционно.
+ *
+ * Shape согласован с фронтом.
+ */
+export type OpeningDeviationHandling = 'show_correction' | 'engine_punish';
+
+export interface OpeningDrillStepPayload {
+  type: 'opening_drill';
+  /**
+   * PGN-дерево дебютной линии с вариантами (в т.ч. вложенными).
+   * Должно парситься базовым `chess.js#loadPgn` (основная линия ≥ 1 хода,
+   * скобки вариантов сбалансированы).
+   */
+  pgn: string;
+  /** За какую сторону играет ученик. */
+  playerSide: 'white' | 'black';
+  /** Как реагировать на уход из теории. */
+  onDeviation: OpeningDeviationHandling;
+  /**
+   * UCI Skill Level Stockfish'а (0..20). Имеет смысл только при
+   * `onDeviation === 'engine_punish'`, но для `show_correction` не
+   * считается ошибкой — фронт может использовать значение по умолчанию.
+   */
+  engineSkillLevel?: number;
+}
+
+/**
  * Дискриминированный union по полю `type`. Сужать через `switch (payload.type)`.
  */
 export type StepPayload =
@@ -253,7 +286,8 @@ export type StepPayload =
   | PositionStepPayload
   | GameReviewStepPayload
   | VideoStepPayload
-  | EndgameDrillStepPayload;
+  | EndgameDrillStepPayload
+  | OpeningDrillStepPayload;
 
 /** Алиасы под именование в ТЗ (`TextStep`/`PuzzleStep`/`QuizStep`). */
 export type TextStep = TextStepPayload;
@@ -263,6 +297,7 @@ export type PositionStep = PositionStepPayload;
 export type GameReviewStep = GameReviewStepPayload;
 export type VideoStep = VideoStepPayload;
 export type EndgameDrillStep = EndgameDrillStepPayload;
+export type OpeningDrillStep = OpeningDrillStepPayload;
 
 // ─── Domain entities (API shape, сериализовано в JSON) ────────────────
 

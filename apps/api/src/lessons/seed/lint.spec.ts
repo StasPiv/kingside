@@ -485,7 +485,8 @@ describe('lintFixtures', () => {
           fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
           playerSide: 'white',
           skillLevel: 5,
-          winCondition: { kind: 'reach_position' },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          winCondition: { kind: 'reach_position' } as any,
         },
       },
     ];
@@ -512,6 +513,119 @@ describe('lintFixtures', () => {
     expect(errors.some((e) => e.path.includes('winCondition.amount'))).toBe(true);
   });
 
+  // ── opening_drill (KS-1816) ─────────────────────────────────────
+
+  it('opening_drill: валидный (только основная линия) — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'opening_drill',
+          pgn: '1. e4 e5 2. Nf3 Nc6',
+          playerSide: 'white',
+          onDeviation: 'show_correction',
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('opening_drill: валидный (с вложенным вариантом) — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'opening_drill',
+          pgn: '1. e4 e5 2. Nf3 (2. Nc3 (2... Nf6) Nc6) Nc6',
+          playerSide: 'black',
+          onDeviation: 'engine_punish',
+          engineSkillLevel: 8,
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('opening_drill: пустой PGN — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'opening_drill',
+          pgn: '',
+          playerSide: 'white',
+          onDeviation: 'show_correction',
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.pgn'))).toBe(true);
+  });
+
+  it('opening_drill: битый PGN (несбалансированные скобки) — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'opening_drill',
+          pgn: '1. e4 (1. d4',
+          playerSide: 'white',
+          onDeviation: 'show_correction',
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.pgn'))).toBe(true);
+  });
+
+  it('opening_drill: неверный onDeviation — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'opening_drill',
+          pgn: '1. e4 e5',
+          playerSide: 'white',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onDeviation: 'punish' as any,
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.onDeviation'))).toBe(true);
+  });
+
+  it('opening_drill: engineSkillLevel=25 — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'opening_drill',
+          pgn: '1. e4 e5',
+          playerSide: 'white',
+          onDeviation: 'engine_punish',
+          engineSkillLevel: 25,
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.engineSkillLevel'))).toBe(true);
+  });
+
   it('endgame_drill: mate с лишним fen в winCondition — ошибка', async () => {
     const course = makeCourse();
     course.lessons[0].steps = [
@@ -523,7 +637,8 @@ describe('lintFixtures', () => {
           fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
           playerSide: 'white',
           skillLevel: 5,
-          winCondition: { kind: 'mate', fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1' },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          winCondition: { kind: 'mate', fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1' } as any,
         },
       },
     ];
