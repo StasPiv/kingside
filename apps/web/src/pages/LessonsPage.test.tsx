@@ -19,6 +19,13 @@ vi.mock('../api/lessonsApi', () => ({
   },
 }));
 
+// KS-1840: `MyCoursesBlock` тянет `useAuth` и свой api-клиент — для тестов
+// `LessonsPage` это лишний шум. Заменяем заглушкой; отдельно блок покрыт
+// собственными тестами в `components/lessons/MyCoursesBlock.test.tsx`.
+vi.mock('../components/lessons/MyCoursesBlock', () => ({
+  MyCoursesBlock: () => <div data-testid="my-courses-block-mock" />,
+}));
+
 beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
   mockLessonsApi.getLevelGate.mockReset();

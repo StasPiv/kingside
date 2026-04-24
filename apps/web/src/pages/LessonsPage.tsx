@@ -12,6 +12,7 @@ import { lessonsApi } from '../api/lessonsApi';
 import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
 import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
 import { MistakesDiaryBlock } from '../components/lessons/MistakesDiaryBlock';
+import { MyCoursesBlock } from '../components/lessons/MyCoursesBlock';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -130,6 +131,9 @@ export function LessonsPage() {
       />
 
       <LevelGateBanner restrictTo="beginner" testId="lessons-page-level-gate" />
+
+      {/* KS-1840: блок «Мои курсы» между LevelGateBanner и системными курсами. */}
+      <MyCoursesBlock />
 
       {loading && (
         <div className="loading" data-testid="lessons-loading">
