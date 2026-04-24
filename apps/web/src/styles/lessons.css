@@ -2071,354 +2071,127 @@
 }
 
 /* ============================================================
- * UserCourseEditorPage — конструктор пользовательского курса
- * (L-1, KS-1844). ADR-026 §2.6 / FE-3.
+ * UserCourseEditor layout — split-pane / tabs (L-R2, KS-1864).
+ * KS-1848 §3.2/§3.3 / FE-R9.
  *
- * Desktop: стек — заголовок, форма курса, список уроков, удалить.
- * Mobile ≤640: тот же стек, но «удалить курс» переносится наверх
- * (order: -1), заголовок — sticky. Логика компонента не менялась.
+ * Компонент: apps/web/src/components/lessons/editor/user/
+ *   UserCourseEditor.tsx
+ *
+ * Раскладка:
+ *  - Desktop (≥961): CSS-grid 320px | 1fr — CourseOutline слева,
+ *    LessonOverview/AddLessonEmptyState справа. Mobile-tabs скрыты,
+ *    --mobile-hidden игнорируется (оба пейна видны).
+ *  - Tablet (641-960): grid 260px | 1fr, плотнее.
+ *  - Mobile (≤640): одна колонка, mobile-tabs видны, активный пейн
+ *    определяется `--mobile-hidden` классом (JSX переключает mobileTab).
+ *
+ * Старые L-1 классы (.user-course-editor__form, __lessons, __lesson-*,
+ * __header, __footer, __delete, __visibility, __count, __empty,
+ * __save-status, __add-lesson) удалены — L-R8 (KS-1870). Их заменили
+ * новые компоненты: UserCourseHeader, CourseOutline, LessonOverview,
+ * AddLessonEmptyState, DeleteCourseDialog (L-R1/R3/R4/R5/R6).
  * ============================================================ */
 .user-course-editor {
-  max-width: 1040px;
+  max-width: 1200px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  padding: 12px 20px 48px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
   color: var(--text-primary);
   box-sizing: border-box;
 }
 
-.user-course-editor__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.user-course-editor__header h1 {
-  margin: 0;
-  font-size: 26px;
-  font-weight: 700;
-  line-height: 1.2;
-}
-
-.user-course-editor__save-status {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  min-height: 1.2em;
-}
-
-.user-course-editor__form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-}
-
-.user-course-editor__form > label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.user-course-editor__form input:not([type="checkbox"]),
-.user-course-editor__form textarea {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 14px;
-  font-family: inherit;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  box-sizing: border-box;
-}
-
-.user-course-editor__form textarea {
-  resize: vertical;
-  min-height: 72px;
-  line-height: 1.5;
-}
-
-.user-course-editor__form input:focus,
-.user-course-editor__form textarea:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-}
-
-.user-course-editor__visibility {
-  flex-direction: row;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--text-primary);
-}
-
-.user-course-editor__visibility input[type="checkbox"] {
-  margin: 0;
-  width: 18px;
-  height: 18px;
-  accent-color: var(--accent-primary);
-  flex-shrink: 0;
-}
-
-.user-course-editor__lessons {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 18px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: 10px;
-}
-
-.user-course-editor__lessons h2 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-
-.user-course-editor__count {
-  font-weight: 400;
-  color: var(--text-secondary);
-  font-size: 15px;
-}
-
-.user-course-editor__empty {
-  margin: 0;
-  padding: 14px;
-  color: var(--text-secondary);
-  background: var(--bg-muted);
-  border: 1px dashed var(--border-subtle);
-  border-radius: 8px;
-  font-style: italic;
-  text-align: center;
-}
-
-.user-course-editor__lesson {
-  background: var(--bg-muted);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.user-course-editor__lesson[open] {
-  border-color: var(--border-accent);
-}
-
-.user-course-editor__lesson-summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  cursor: pointer;
-  list-style: none;
-  flex-wrap: wrap;
-}
-
-.user-course-editor__lesson-summary::-webkit-details-marker {
+/* Mobile-tabs. По умолчанию скрыты — показываем только на ≤640. */
+.user-course-editor__mobile-tabs {
   display: none;
 }
 
-.user-course-editor__lesson-summary::before {
-  content: "▸";
-  color: var(--text-muted);
-  font-size: 12px;
-  transition: transform 0.15s ease;
-  flex-shrink: 0;
+/* Body: grid 320/1fr на desktop, 260/1fr на tablet, 1col на mobile. */
+.user-course-editor__body {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  transition: grid-template-columns 0.2s ease;
 }
 
-.user-course-editor__lesson[open] > .user-course-editor__lesson-summary::before {
-  transform: rotate(90deg);
-}
-
-.user-course-editor__lesson-summary > input {
-  flex: 1 1 200px;
+/* Outline и main — общий baseline. На desktop/tablet оба видны; на
+   mobile --mobile-hidden их скрывает. */
+.user-course-editor__outline,
+.user-course-editor__main {
   min-width: 0;
-  padding: 6px 8px;
-  font-size: 14px;
-  color: var(--text-primary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  font-family: inherit;
+  transition: opacity 0.15s ease;
 }
 
-.user-course-editor__lesson-summary > input:focus {
-  outline: none;
-  border-color: var(--accent-primary);
+/* Tablet 641-960: grid плотнее, outline чуть уже. */
+@media (max-width: 960px) {
+  .user-course-editor {
+    padding: 12px 16px 40px;
+  }
+
+  .user-course-editor__body {
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 16px;
+  }
 }
 
-.user-course-editor__lesson-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.user-course-editor__lesson-actions button {
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  cursor: pointer;
-  font-size: 13px;
-  min-height: 32px;
-  min-width: 32px;
-}
-
-.user-course-editor__lesson-actions button:hover {
-  border-color: var(--border-accent);
-}
-
-.user-course-editor__lesson-body {
-  padding: 12px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.user-course-editor__add-lesson {
-  align-self: flex-start;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px dashed var(--border-subtle);
-  background: transparent;
-  color: var(--text-link);
-  font-size: 14px;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.user-course-editor__add-lesson:hover {
-  border-color: var(--accent-primary);
-  background: var(--accent-soft);
-}
-
-.user-course-editor__footer {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.user-course-editor__delete {
-  padding: 8px 16px;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--danger);
-  border: 1px solid var(--danger);
-  font-weight: 600;
-  font-size: 14px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-
-.user-course-editor__delete:hover {
-  background: var(--danger-soft);
-}
-
-/* Mobile ≤ 640: «удалить курс» наверх, плотные отступы */
+/* Mobile ≤640: tabs видны, grid схлопывается в 1 колонку, неактивный
+   пейн скрывается через --mobile-hidden. */
 @media (max-width: 640px) {
   .user-course-editor {
-    padding: 12px 12px 32px;
-    gap: 14px;
+    padding: 8px 12px 32px;
+    gap: 10px;
   }
 
-  .user-course-editor__header {
+  .user-course-editor__mobile-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    background: var(--bg-muted);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
     position: sticky;
-    top: 0;
-    z-index: 2;
-    background: var(--bg-canvas, var(--bg-surface));
-    padding: 8px 0;
-    margin: -8px 0 0;
-    border-bottom: 1px solid var(--border-subtle);
-    gap: 8px;
+    /* 56px — примерная высота свёрнутого sticky header L-R1 на mobile */
+    top: 56px;
+    z-index: 15;
   }
 
-  .user-course-editor__header h1 {
-    font-size: 20px;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  .user-course-editor__save-status {
-    font-size: 12px;
-  }
-
-  /* Управляющие (удалить курс) переносим наверх — сразу под заголовком */
-  .user-course-editor__footer {
-    order: -1;
-    justify-content: stretch;
-    border-top: 0;
-    padding-top: 0;
-  }
-
-  .user-course-editor__delete {
-    width: 100%;
-    min-height: 40px;
-  }
-
-  .user-course-editor__form,
-  .user-course-editor__lessons {
-    padding: 12px;
-    border-radius: 8px;
-  }
-
-  .user-course-editor__lesson-summary {
-    padding: 10px;
-    gap: 8px;
-  }
-
-  .user-course-editor__lesson-summary > input {
-    flex: 1 1 100%;
-    order: 1;
-    font-size: 15px; /* ≥16 не даём, но 15 достаточно; iOS не будет зумить если действие по тапу, а не по focus */
-  }
-
-  .user-course-editor__lesson-summary::before {
-    order: 0;
-  }
-
-  .user-course-editor__lesson-actions {
-    order: 2;
-    width: 100%;
-    justify-content: flex-end;
-  }
-
-  .user-course-editor__lesson-actions button {
+  .user-course-editor__mobile-tabs button {
+    flex: 1 1 0;
+    padding: 8px 12px;
     min-height: 36px;
-    padding: 6px 12px;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-weight: 600;
+    font-size: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
   }
 
-  .user-course-editor__lesson-body {
-    padding: 10px;
+  .user-course-editor__mobile-tabs button:hover {
+    color: var(--text-primary);
   }
 
-  .user-course-editor__add-lesson {
-    align-self: stretch;
-    text-align: center;
-    padding: 10px 14px;
+  .user-course-editor__mobile-tabs button[aria-selected="true"] {
+    background: var(--bg-surface);
+    color: var(--accent-primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
   }
 
-  /* editor-step внутри мобильного редактора — плотнее */
-  .user-course-editor__lesson-body .editor-step {
-    padding: 10px;
+  .user-course-editor__body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
   }
 
-  .user-course-editor__lesson-body .editor-step__fields {
-    grid-template-columns: 1fr;
+  /* Скрытие неактивного пейна — плавно. display:none убивает
+     transition, поэтому используем visibility + absolute flow. */
+  .user-course-editor__outline--mobile-hidden,
+  .user-course-editor__main--mobile-hidden {
+    display: none;
   }
 }
 
