@@ -32,6 +32,11 @@ export function isLessonsEnabled(env: FeatureEnv): boolean {
  * prod-сборке vite выставляет `import.meta.env.PROD === true` и
  * `DEV === false`. Feature-flag для «Уроки» здесь не при чём:
  * dev-страницы скрываются независимо.
+ *
+ * Оставлен как чистая функция для документации поведения и unit-тестов.
+ * В рантайме (App.tsx) этот условие НЕ используется — там стоит
+ * compile-time guard `import.meta.env.DEV`, чтобы vite мог tree-shake'нуть
+ * dev-страницы из prod-бандла целиком (KS-1821).
  */
 export function areDevRoutesEnabled(env: FeatureEnv): boolean {
   return Boolean(env.DEV);
@@ -44,8 +49,4 @@ export function areDevRoutesEnabled(env: FeatureEnv): boolean {
 
 export function isLessonsEnabledLive(): boolean {
   return isLessonsEnabled(import.meta.env);
-}
-
-export function areDevRoutesEnabledLive(): boolean {
-  return areDevRoutesEnabled(import.meta.env);
 }

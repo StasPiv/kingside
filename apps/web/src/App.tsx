@@ -38,16 +38,9 @@ import { LessonPage } from './pages/LessonPage';
 import { MistakesPage } from './pages/MistakesPage';
 import { MistakesPracticePage } from './pages/MistakesPracticePage';
 import { LessonEditorPage } from './pages/LessonEditorPage';
-import { DevPositionStepPage } from './pages/DevPositionStepPage';
-import { DevVideoStepPage } from './pages/DevVideoStepPage';
-import { DevGameReviewStepPage } from './pages/DevGameReviewStepPage';
-import { DevReviewsUiPage } from './pages/DevReviewsUiPage';
-import { DevEndgameDrillStepPage } from './pages/DevEndgameDrillStepPage';
-import { DevOpeningDrillStepPage } from './pages/DevOpeningDrillStepPage';
-import { DevPlayoffBracketPage } from './pages/DevPlayoffBracketPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
-import { isLessonsEnabledLive, areDevRoutesEnabledLive } from './config/featureFlags';
+import { isLessonsEnabledLive } from './config/featureFlags';
 
 // Lazy-loaded heavy pages
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
@@ -56,6 +49,16 @@ const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ 
 const ArchiveGamesByPositionPage = lazy(() =>
   import('./pages/ArchiveGamesByPositionPage').then(m => ({ default: m.ArchiveGamesByPositionPage })),
 );
+
+// KS-1821: dev-маршруты за compile-time guard `import.meta.env.DEV`.
+// Vite при prod-сборке инлайнит константу в `false`, тернарник сворачивается
+// в `null`, вложенный `import('./dev/DevRoutes')` становится мёртвым ещё до
+// rollup'а — вся поддерево dev-страниц (включая `DevReviewsUiPage`,
+// `DevPlayoffBracketPage` и т.д.) tree-shake'ается и в prod-бандл не
+// попадает ни чанком, ни ссылкой.
+const DevRoutesLazy = import.meta.env.DEV
+  ? lazy(() => import('./dev/DevRoutes'))
+  : null;
 
 function LazyFallback() {
   const { t } = useTranslation();
@@ -162,16 +165,20 @@ export function App() {
           // из старых ссылок не застревал).
           <Route path="/lessons/*" element={<Navigate to="/" replace />} />
         )}
-        {areDevRoutesEnabledLive() && (
-          <>
-            <Route path="/dev/position-step" element={<DevPositionStepPage />} />
-            <Route path="/dev/video-step" element={<DevVideoStepPage />} />
-            <Route path="/dev/game-review-step" element={<DevGameReviewStepPage />} />
-            <Route path="/dev/reviews-ui" element={<DevReviewsUiPage />} />
-            <Route path="/dev/endgame-drill" element={<DevEndgameDrillStepPage />} />
-            <Route path="/dev/opening-drill" element={<DevOpeningDrillStepPage />} />
-            <Route path="/dev/playoff-bracket" element={<DevPlayoffBracketPage />} />
-          </>
+        {/* KS-1821: compile-time guard. `DevRoutesLazy` = null в prod-сборке,
+            поэтому Route не рендерится и мёртвая ветка с импортом
+            `./dev/DevRoutes` уходит tree-shake'ом. Внутренние подпути (
+            `/dev/position-step`, `/dev/reviews-ui`, …) обрабатываются
+            суб-роутером внутри `DevRoutes`. */}
+        {DevRoutesLazy && (
+          <Route
+            path="/dev/*"
+            element={
+              <Suspense fallback={<LazyFallback />}>
+                <DevRoutesLazy />
+              </Suspense>
+            }
+          />
         )}
         <Route path="/feedback" element={<FeedbackBoardPage />} />
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />

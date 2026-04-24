@@ -2,10 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { renderWithProviders, screen, waitFor } from './test/test-utils';
 
-const flags = { lessons: true, dev: true };
+const flags = { lessons: true };
 vi.mock('./config/featureFlags', () => ({
   isLessonsEnabledLive: () => flags.lessons,
-  areDevRoutesEnabledLive: () => flags.dev,
 }));
 
 // MainLayout тянет api/auth/useChallenge/useNotifications — тяжёлое
@@ -80,7 +79,6 @@ import { App } from './App';
 
 beforeEach(() => {
   flags.lessons = true;
-  flags.dev = true;
 });
 
 afterEach(() => {
@@ -135,29 +133,23 @@ describe('App routing: lessons feature flag', () => {
 });
 
 describe('App routing: dev routes', () => {
+  // KS-1821: dev-роуты теперь за compile-time guard `import.meta.env.DEV`.
+  // В vitest (dev-режим) условие = true — роуты существуют и рендерятся.
+  // Prod-поведение (роуты удалены tree-shake'ом) тестируется smoke-тестом
+  // prod-бандла в CI (grep по именам компонентов в `dist/assets/*.js`),
+  // т.к. compile-time инлайн не перекрывается runtime-стабом в юнит-тесте.
+
   it('DEV=true → /dev/reviews-ui рендерится', async () => {
-    flags.dev = true;
     renderWithProviders(<App />, { route: '/dev/reviews-ui' });
     await waitFor(() =>
       expect(screen.getByTestId('page-dev-reviews')).toBeInTheDocument(),
     );
   });
 
-  it('DEV=false (prod-build) → /dev/reviews-ui редирект на корень', async () => {
-    flags.dev = false;
-    renderWithProviders(<App />, { route: '/dev/reviews-ui' });
-    await waitFor(() =>
-      expect(screen.getByTestId('page-features')).toBeInTheDocument(),
-    );
-    expect(screen.queryByTestId('page-dev-reviews')).not.toBeInTheDocument();
-  });
-
-  it('DEV=false → /dev/playoff-bracket тоже 404 → корень', async () => {
-    flags.dev = false;
+  it('DEV=true → /dev/playoff-bracket рендерится', async () => {
     renderWithProviders(<App />, { route: '/dev/playoff-bracket' });
     await waitFor(() =>
-      expect(screen.getByTestId('page-features')).toBeInTheDocument(),
+      expect(screen.getByTestId('page-dev-playoff')).toBeInTheDocument(),
     );
-    expect(screen.queryByTestId('page-dev-playoff')).not.toBeInTheDocument();
   });
 });

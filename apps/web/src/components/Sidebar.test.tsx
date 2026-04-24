@@ -5,7 +5,6 @@ import { renderWithProviders, screen } from '../test/test-utils';
 const flagControls = { lessons: true };
 vi.mock('../config/featureFlags', () => ({
   isLessonsEnabledLive: () => flagControls.lessons,
-  areDevRoutesEnabledLive: () => true,
 }));
 
 // FeedbackModal зависит от api-запроса, для теста сайдбара не нужен.
