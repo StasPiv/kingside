@@ -24,6 +24,15 @@ import { MemoChessboard } from '../../MemoChessboard';
  * монтируется в хвост редактора — автор сразу видит, что получится.
  */
 
+/**
+ * Полный список типов шага, поддерживаемых редактором (совпадает с
+ * реализованными кейсами `emptyStepPayload` и соответствующими
+ * `<XxxFields>`-компонентами ниже).
+ *
+ * `opening_drill` в этот массив не входит осознанно: для него нет
+ * `emptyStepPayload`-кейса и нет формы — включать его в `<select>` =
+ * ронять редактор в рантайме. Добавление поддержки — отдельная задача.
+ */
 const STEP_TYPES: LessonStepType[] = [
   'text',
   'puzzle',
@@ -40,6 +49,14 @@ interface StepEditorProps {
   onRemove: () => void;
   onMoveUp?: () => void;
   onMoveDown?: () => void;
+  /**
+   * KS-1836 (ADR-026 §2.6): ограничение набора типов шага в `<select>`.
+   * Если задан — в селекте остаются только пересечение с `STEP_TYPES`
+   * (т.е. только поддерживаемые), в порядке, заданном prop'ом. Если
+   * не задан — все поддерживаемые типы (backward-compatible, админский
+   * `LessonEditorPage` не меняет поведение).
+   */
+  restrictToTypes?: LessonStepType[];
 }
 
 export function StepEditor({
@@ -48,8 +65,16 @@ export function StepEditor({
   onRemove,
   onMoveUp,
   onMoveDown,
+  restrictToTypes,
 }: StepEditorProps) {
   const { t } = useTranslation();
+
+  const availableTypes = useMemo<LessonStepType[]>(() => {
+    if (!restrictToTypes) return STEP_TYPES;
+    const supported = new Set<LessonStepType>(STEP_TYPES);
+    // Сохраняем порядок, заданный prop'ом, фильтруя неподдерживаемые.
+    return restrictToTypes.filter((t) => supported.has(t));
+  }, [restrictToTypes]);
 
   const updatePayload = (payload: StepPayload) => {
     onChange({ ...step, payload });
@@ -75,7 +100,7 @@ export function StepEditor({
               onChange={(e) => changeType(e.target.value as LessonStepType)}
               data-testid={`editor-step-type-${step.id}`}
             >
-              {STEP_TYPES.map((tp) => (
+              {availableTypes.map((tp) => (
                 <option key={tp} value={tp}>
                   {tp}
                 </option>
