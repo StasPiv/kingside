@@ -18,6 +18,14 @@ interface ImportMetaEnv {
    * никто кроме специально авторизованных не попадёт на страницу.
    */
   readonly VITE_LESSON_EDITOR_EMAILS?: string;
+  /**
+   * Feature-flag на раздел «Уроки» (KS-1820). Строка `'true'` —
+   * раздел виден; любое другое значение (включая `undefined`) —
+   * пункт «Уроки» убирается из навигации, маршруты `/lessons/*`
+   * редиректят на `/`. На dev по умолчанию считаем флаг включённым,
+   * если переменная не задана (разработка раздела продолжается).
+   */
+  readonly VITE_FEATURE_LESSONS?: string;
 }
 
 interface ImportMeta {

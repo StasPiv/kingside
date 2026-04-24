@@ -47,6 +47,7 @@ import { DevOpeningDrillStepPage } from './pages/DevOpeningDrillStepPage';
 import { DevPlayoffBracketPage } from './pages/DevPlayoffBracketPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
+import { isLessonsEnabledLive, areDevRoutesEnabledLive } from './config/featureFlags';
 
 // Lazy-loaded heavy pages
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
@@ -146,19 +147,32 @@ export function App() {
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<PuzzleBrowserPage />} />
         <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
-        <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
-        <Route path="/lessons/editor" element={<ProtectedRoute><LessonEditorPage /></ProtectedRoute>} />
-        <Route path="/lessons/mistakes" element={<ProtectedRoute><MistakesPage /></ProtectedRoute>} />
-        <Route path="/lessons/mistakes-practice" element={<ProtectedRoute><MistakesPracticePage /></ProtectedRoute>} />
-        <Route path="/lessons/:courseSlug" element={<ProtectedRoute><CoursePage /></ProtectedRoute>} />
-        <Route path="/lessons/:courseSlug/:lessonSlug" element={<ProtectedRoute><LessonPage /></ProtectedRoute>} />
-        <Route path="/dev/position-step" element={<DevPositionStepPage />} />
-        <Route path="/dev/video-step" element={<DevVideoStepPage />} />
-        <Route path="/dev/game-review-step" element={<DevGameReviewStepPage />} />
-        <Route path="/dev/reviews-ui" element={<DevReviewsUiPage />} />
-        <Route path="/dev/endgame-drill" element={<DevEndgameDrillStepPage />} />
-        <Route path="/dev/opening-drill" element={<DevOpeningDrillStepPage />} />
-        <Route path="/dev/playoff-bracket" element={<DevPlayoffBracketPage />} />
+        {isLessonsEnabledLive() ? (
+          <>
+            <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
+            <Route path="/lessons/editor" element={<ProtectedRoute><LessonEditorPage /></ProtectedRoute>} />
+            <Route path="/lessons/mistakes" element={<ProtectedRoute><MistakesPage /></ProtectedRoute>} />
+            <Route path="/lessons/mistakes-practice" element={<ProtectedRoute><MistakesPracticePage /></ProtectedRoute>} />
+            <Route path="/lessons/:courseSlug" element={<ProtectedRoute><CoursePage /></ProtectedRoute>} />
+            <Route path="/lessons/:courseSlug/:lessonSlug" element={<ProtectedRoute><LessonPage /></ProtectedRoute>} />
+          </>
+        ) : (
+          // KS-1820: при выключенном флаге все lessons-маршруты
+          // редиректят на корень (не просто 404 — чтобы пользователь
+          // из старых ссылок не застревал).
+          <Route path="/lessons/*" element={<Navigate to="/" replace />} />
+        )}
+        {areDevRoutesEnabledLive() && (
+          <>
+            <Route path="/dev/position-step" element={<DevPositionStepPage />} />
+            <Route path="/dev/video-step" element={<DevVideoStepPage />} />
+            <Route path="/dev/game-review-step" element={<DevGameReviewStepPage />} />
+            <Route path="/dev/reviews-ui" element={<DevReviewsUiPage />} />
+            <Route path="/dev/endgame-drill" element={<DevEndgameDrillStepPage />} />
+            <Route path="/dev/opening-drill" element={<DevOpeningDrillStepPage />} />
+            <Route path="/dev/playoff-bracket" element={<DevPlayoffBracketPage />} />
+          </>
+        )}
         <Route path="/feedback" element={<FeedbackBoardPage />} />
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
         <Route path="/puzzle" element={<PuzzlePage />} />

@@ -2,14 +2,31 @@ import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FeedbackModal } from './FeedbackModal';
+import { isLessonsEnabledLive } from '../config/featureFlags';
 
-const NAV_ITEMS = [
+interface NavItem {
+  path: string;
+  icon: string;
+  i18nKey: string;
+  match: string[];
+  /** Если задан — пункт рендерится только когда хук вернул true. */
+  featureFlag?: () => boolean;
+}
+
+const NAV_ITEMS: NavItem[] = [
   { path: '/lobby', icon: '🏠', i18nKey: 'nav.home', match: ['/lobby'] },
   { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play'] },
   { path: '/tournaments', icon: '🏆', i18nKey: 'nav.tournaments', match: ['/tournaments'] },
   { path: '/puzzles', icon: '🧩', i18nKey: 'nav.puzzles', match: ['/puzzles', '/puzzle', '/daily'] },
   { path: '/puzzle-rush', icon: '⚡', i18nKey: 'nav.puzzleRush', match: ['/puzzle-rush'] },
-  { path: '/lessons', icon: '📚', i18nKey: 'nav.lessons', match: ['/lessons'] },
+  {
+    path: '/lessons',
+    icon: '📚',
+    i18nKey: 'nav.lessons',
+    match: ['/lessons'],
+    // KS-1820: скрываем раздел целиком при `VITE_FEATURE_LESSONS !== 'true'`.
+    featureFlag: isLessonsEnabledLive,
+  },
   { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
   { path: '/broadcasts', icon: '📺', i18nKey: 'nav.tv', match: ['/broadcasts'] },
   { path: '', icon: '', i18nKey: '', match: [] }, // divider
@@ -26,10 +43,15 @@ export function Sidebar() {
 
   const isActive = (match: string[]) => match.some((p) => location.pathname.startsWith(p));
 
+  const visibleItems = NAV_ITEMS.filter((it) => {
+    if (it.featureFlag && !it.featureFlag()) return false;
+    return true;
+  });
+
   return (
     <>
       <aside className="sidebar">
-        {NAV_ITEMS.map((item, i) => {
+        {visibleItems.map((item, i) => {
           if (!item.path) {
             return <div key={i} className="sidebar-divider" />;
           }
