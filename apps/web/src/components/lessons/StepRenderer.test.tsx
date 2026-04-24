@@ -53,6 +53,20 @@ vi.mock('./steps/GameReviewStep', () => ({
   ),
 }));
 
+vi.mock('./steps/EndgameDrillStep', () => ({
+  EndgameDrillStep: ({
+    payload,
+  }: {
+    payload: { fen?: string; skillLevel?: number };
+  }) => (
+    <div
+      data-testid="lesson-endgame-step-mock"
+      data-fen={payload.fen ?? ''}
+      data-skill={String(payload.skillLevel ?? '')}
+    />
+  ),
+}));
+
 const baseStep = {
   id: 's1',
   lessonId: 'l1',
@@ -68,6 +82,25 @@ describe('<StepRenderer>', () => {
     };
     renderWithProviders(<StepRenderer step={step} />);
     expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
+  });
+
+  it('делегирует endgame_drill-шаг компоненту EndgameDrillStep', () => {
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'endgame_drill',
+      payload: {
+        type: 'endgame_drill',
+        fen: '8/8/8/8/4k3/8/3P4/3K4 w - - 0 1',
+        playerSide: 'white',
+        skillLevel: 5,
+        winCondition: { kind: 'promote' },
+      },
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    expect(screen.getByTestId('lesson-endgame-step-mock')).toHaveAttribute(
+      'data-skill',
+      '5',
+    );
   });
 
   it('делегирует game_review-шаг компоненту GameReviewStep', () => {

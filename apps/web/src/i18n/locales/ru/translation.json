@@ -1177,6 +1177,24 @@
     "skip": "Пропустить",
     "videoContinue": "Продолжить",
     "videoInvalid": "Ссылка на видео не поддерживается (разрешены только YouTube и Vimeo)",
+    "endgame": {
+      "status": {
+        "playing": "Ваш ход",
+        "playerWon": "Цель достигнута!",
+        "engineWon": "Мат — попробуй ещё раз.",
+        "draw": "Ничья — попробуй ещё раз.",
+        "maxMoves": "Лимит ходов исчерпан — попробуй ещё раз.",
+        "resigned": "Сдался — попробуй ещё раз."
+      },
+      "movesCount": "Ходов: {{current}}/{{max}}",
+      "movesCountNoLimit": "Ходов: {{current}}",
+      "historyTitle": "История",
+      "backToStart": "В начало",
+      "resign": "Сдаться",
+      "hint": "Подсказка",
+      "restart": "Попробовать ещё раз",
+      "next": "Далее"
+    },
     "gameReview": {
       "checklistTitle": "Разбор партии",
       "checklist": {

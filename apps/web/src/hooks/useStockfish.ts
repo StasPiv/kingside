@@ -15,6 +15,13 @@ type UseStockfishOptions = {
   depth?: number;
   multiPv?: number;
   autoStart?: boolean;
+  /**
+   * UCI Skill Level (0..20). Ограничивает силу движка. Применяется к
+   * worker'у через `setoption name Skill Level value <N>` сразу после
+   * `uciok` (до первого `go`). Используется в уроках-тренажёрах (L-24,
+   * KS-1800) — в остальном analysis-коде опцию можно не трогать.
+   */
+  skillLevel?: number;
 };
 
 const INIT_TIMEOUT_MS = 30_000;
@@ -61,12 +68,14 @@ function parseInfoLine(line: string): EvalLine | null {
  * a Worker from within another Worker fails silently.
  */
 export function useStockfish(options: UseStockfishOptions = {}) {
-  const { depth = 20, multiPv = 3, autoStart = true } = options;
+  const { depth = 20, multiPv = 3, autoStart = true, skillLevel } = options;
 
   const depthRef = useRef(depth);
   const multiPvRef = useRef(multiPv);
+  const skillLevelRef = useRef<number | undefined>(skillLevel);
   depthRef.current = depth;
   multiPvRef.current = multiPv;
+  skillLevelRef.current = skillLevel;
 
   const [state, setState] = useState<StockfishState>('idle');
   const [lines, setLines] = useState<EvalLine[]>([]);
@@ -125,6 +134,18 @@ export function useStockfish(options: UseStockfishOptions = {}) {
         if (multi) {
           const threads = Math.max(1, (navigator.hardwareConcurrency ?? 2) - 1);
           engine.postMessage(`setoption name Threads value ${threads}`);
+        }
+        // Опция Skill Level (0..20) — ограничение силы движка для
+        // эндшпильного тренажёра (L-24, KS-1800). Отправляется перед
+        // первым `go`, чтобы быть в силе с самой первой позиции.
+        if (
+          skillLevelRef.current !== undefined &&
+          skillLevelRef.current >= 0 &&
+          skillLevelRef.current <= 20
+        ) {
+          engine.postMessage(
+            `setoption name Skill Level value ${Math.round(skillLevelRef.current)}`,
+          );
         }
         engine.postMessage('isready');
         return;

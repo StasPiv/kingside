@@ -1177,6 +1177,24 @@
     "skip": "Skip",
     "videoContinue": "Continue",
     "videoInvalid": "This video link is not supported (only YouTube and Vimeo are allowed)",
+    "endgame": {
+      "status": {
+        "playing": "Your move",
+        "playerWon": "Win condition met!",
+        "engineWon": "Checkmate — try again.",
+        "draw": "Draw — try again.",
+        "maxMoves": "Move limit reached — try again.",
+        "resigned": "You resigned — try again."
+      },
+      "movesCount": "Moves: {{current}}/{{max}}",
+      "movesCountNoLimit": "Moves: {{current}}",
+      "historyTitle": "History",
+      "backToStart": "Start",
+      "resign": "Resign",
+      "hint": "Hint",
+      "restart": "Try again",
+      "next": "Next"
+    },
     "gameReview": {
       "checklistTitle": "Reflect on the game",
       "checklist": {
