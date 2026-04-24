@@ -15,7 +15,7 @@ import { userCoursesApi } from './userCoursesApi';
 
 const mockFetch = vi.fn();
 const API = 'http://localhost:3001';
-const BASE = `${API}/api/lessons`;
+const BASE = `${API}/lessons`;
 
 function okJson<T>(payload: T, status = 200) {
   return {

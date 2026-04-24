@@ -36,7 +36,11 @@ import { api } from '../api';
  *  - `/user-progress/step`, `/user-progress/lesson/complete` — прогресс
  */
 
-const BASE = '/api/lessons';
+// NestJS-контроллеры смонтированы на `/lessons/*` (без `/api`-префикса —
+// см. `apps/web/src/api/lessonsApi.ts` как эталон). В описании задачи
+// `/api/lessons/...` был концептуальным именованием REST-endpoint'а, но
+// фактический controller path — `/lessons/user-courses/…`.
+const BASE = '/lessons';
 
 /** Фильтр списка пользовательских курсов (ADR-026 §2.5). */
 export interface ListUserCoursesParams {
