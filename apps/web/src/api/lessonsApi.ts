@@ -12,6 +12,8 @@ import type {
   PuzzleStepPayload,
   LevelGateResponse,
   ReviewsDueResponse,
+  UserMistakeAggregatesResponse,
+  UserMistakeRecommendationsResponse,
 } from '@kingside/shared';
 
 import { api } from '../api';
@@ -86,6 +88,37 @@ export const lessonsApi = {
       lessonId,
       ...payload,
     });
+  },
+
+  /**
+   * Дневник ошибок: агрегаты по темам (L-31 / KS-1802).
+   *
+   * Топ ошибок пользователя по темам. `since` (ISO) и `limit` — фильтры.
+   * Ответ сортирован по `count` убыв., при равенстве — по `lastOccurredAt`.
+   */
+  getMistakeAggregates(params?: {
+    since?: string;
+    limit?: number;
+  }): Promise<UserMistakeAggregatesResponse> {
+    const qs = new URLSearchParams();
+    if (params?.since) qs.set('since', params.since);
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return api.get<UserMistakeAggregatesResponse>(
+      `/lessons/mistakes/aggregates${suffix}`,
+    );
+  },
+
+  /**
+   * Дневник ошибок: рекомендации «потренировать темы X, Y» (L-31).
+   *
+   * Бэк возвращает готовые `PuzzleStepPayload` (тип `filter`) — фронт
+   * передаёт их в `resolvePuzzleStep(payload)` без дополнительной подготовки.
+   */
+  getMistakeRecommendations(): Promise<UserMistakeRecommendationsResponse> {
+    return api.get<UserMistakeRecommendationsResponse>(
+      '/lessons/mistakes/recommendations',
+    );
   },
 
   /**

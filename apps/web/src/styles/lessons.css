@@ -689,6 +689,210 @@
   filter: brightness(1.05);
 }
 
+/* ---------- Mistakes diary block (L-31, KS-1802) ---------- */
+.mistakes-diary-block {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--danger, #ca3431);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mistakes-diary-block__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mistakes-diary-block__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.mistakes-diary-block__total {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.mistakes-diary-block__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mistakes-diary-block__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.mistakes-diary-block__item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mistakes-diary-block__theme {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.mistakes-diary-block__meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.mistakes-diary-block__count {
+  font-weight: 600;
+  color: var(--danger, #ca3431);
+}
+
+.mistakes-diary-block__cta {
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+  transition: filter 0.15s ease;
+  white-space: nowrap;
+}
+
+.mistakes-diary-block__cta:hover {
+  filter: brightness(1.05);
+}
+
+.mistakes-diary-block__footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.mistakes-diary-block__see-all {
+  color: var(--text-link);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.mistakes-diary-block__see-all:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .mistakes-diary-block__item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mistakes-diary-block__cta {
+    text-align: center;
+  }
+}
+
+/* ---------- Mistakes page & practice page (L-31) ---------- */
+.mistakes-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.mistakes-page__header h1 {
+  margin: 6px 0;
+}
+
+.mistakes-page__back-link {
+  color: var(--text-link);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.mistakes-page__subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.mistakes-page__total {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.mistakes-page__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.mistakes-page__table th,
+.mistakes-page__table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.mistakes-page__table th {
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+}
+
+.mistakes-page__cta {
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mistakes-practice-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.mistakes-practice-page__back {
+  color: var(--text-link);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.mistakes-practice-page__meta {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.mistakes-practice-page--empty,
+.mistakes-practice-page--not-found {
+  align-items: flex-start;
+}
+
 /* ---------- Course lesson badges (L-22, KS-1799) ---------- */
 .course-lesson-badge {
   display: inline-flex;

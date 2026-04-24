@@ -6,6 +6,7 @@ const mockLessonsApi = {
   listCourses: vi.fn(),
   getLevelGate: vi.fn(),
   getReviewsDue: vi.fn(),
+  getMistakeAggregates: vi.fn(),
 };
 
 vi.mock('../api/lessonsApi', () => ({
@@ -13,6 +14,8 @@ vi.mock('../api/lessonsApi', () => ({
     listCourses: (...args: unknown[]) => mockLessonsApi.listCourses(...args),
     getLevelGate: (...args: unknown[]) => mockLessonsApi.getLevelGate(...args),
     getReviewsDue: (...args: unknown[]) => mockLessonsApi.getReviewsDue(...args),
+    getMistakeAggregates: (...args: unknown[]) =>
+      mockLessonsApi.getMistakeAggregates(...args),
   },
 }));
 
@@ -20,6 +23,7 @@ beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
   mockLessonsApi.getLevelGate.mockReset();
   mockLessonsApi.getReviewsDue.mockReset();
+  mockLessonsApi.getMistakeAggregates.mockReset();
   // По умолчанию level-gate скрыт — никаких блокеров и nextLevel.
   mockLessonsApi.getLevelGate.mockResolvedValue({
     currentLevel: 'advanced',
@@ -29,6 +33,13 @@ beforeEach(() => {
   });
   // По умолчанию reviews-due пустой — блок «К повторению сегодня» скрыт.
   mockLessonsApi.getReviewsDue.mockResolvedValue({ items: [] });
+  // По умолчанию ошибок нет — блок «Дневник ошибок» тоже скрыт.
+  mockLessonsApi.getMistakeAggregates.mockResolvedValue({
+    aggregates: [],
+    totalThemes: 0,
+    since: null,
+    limit: 5,
+  });
 });
 
 describe('LessonsPage', () => {
@@ -159,5 +170,71 @@ describe('LessonsPage', () => {
       expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('reviews-due-block')).not.toBeInTheDocument();
+  });
+
+  // ─── L-31 (KS-1802) «Дневник ошибок» ────────────────────────────────
+
+  it('блок «Дневник ошибок» рендерится с топ-темами и ссылкой «Смотреть всё»', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    mockLessonsApi.getMistakeAggregates.mockResolvedValueOnce({
+      aggregates: [
+        { theme: 'fork', count: 12, lastOccurredAt: '2026-04-22T00:00:00.000Z' },
+        { theme: 'pin', count: 7, lastOccurredAt: '2026-04-20T00:00:00.000Z' },
+        { theme: 'skewer', count: 5, lastOccurredAt: '2026-04-19T00:00:00.000Z' },
+      ],
+      totalThemes: 8, // всего больше чем показано — будет «Смотреть всё»
+      since: null,
+      limit: 5,
+    });
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mistakes-diary-block')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('mistakes-diary-item-fork')).toBeInTheDocument();
+    expect(screen.getByTestId('mistakes-diary-cta-fork')).toHaveAttribute(
+      'href',
+      '/lessons/mistakes-practice?theme=fork',
+    );
+    expect(screen.getByTestId('mistakes-diary-count-fork')).toHaveTextContent('12');
+    expect(screen.getByTestId('mistakes-diary-see-all')).toHaveAttribute(
+      'href',
+      '/lessons/mistakes',
+    );
+  });
+
+  it('блок «Дневник ошибок» скрыт при пустом списке aggregates', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() =>
+      expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mistakes-diary-block')).not.toBeInTheDocument();
+  });
+
+  it('блок «Дневник ошибок» скрыт при сетевой ошибке /mistakes/aggregates', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    mockLessonsApi.getMistakeAggregates.mockRejectedValueOnce(new Error('boom'));
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() =>
+      expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mistakes-diary-block')).not.toBeInTheDocument();
+  });
+
+  it('«Смотреть всё» не рендерится если totalThemes ≤ показанных', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    mockLessonsApi.getMistakeAggregates.mockResolvedValueOnce({
+      aggregates: [
+        { theme: 'fork', count: 3, lastOccurredAt: '2026-04-22T00:00:00.000Z' },
+      ],
+      totalThemes: 1,
+      since: null,
+      limit: 5,
+    });
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() =>
+      expect(screen.getByTestId('mistakes-diary-block')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('mistakes-diary-see-all')).not.toBeInTheDocument();
   });
 });

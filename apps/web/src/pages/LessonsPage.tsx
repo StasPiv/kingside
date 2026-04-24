@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { CourseListItem, CourseLevel, ReviewDueItem } from '@kingside/shared';
+import type {
+  CourseListItem,
+  CourseLevel,
+  ReviewDueItem,
+  UserMistakeAggregate,
+} from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
 import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
+import { MistakesDiaryBlock } from '../components/lessons/MistakesDiaryBlock';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -30,6 +36,9 @@ export function LessonsPage() {
   const [error, setError] = useState<string | null>(null);
   const [reviewsDue, setReviewsDue] = useState<ReviewDueItem[]>([]);
   const [reviewsDueErrored, setReviewsDueErrored] = useState(false);
+  const [mistakeAggregates, setMistakeAggregates] = useState<UserMistakeAggregate[]>([]);
+  const [mistakeTotalThemes, setMistakeTotalThemes] = useState(0);
+  const [mistakesErrored, setMistakesErrored] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,6 +84,27 @@ export function LessonsPage() {
     };
   }, []);
 
+  // «Дневник ошибок» (L-31, KS-1802). Топ-5 — значит запрашиваем с
+  // limit=5; полный список доступен на /lessons/mistakes.
+  useEffect(() => {
+    let cancelled = false;
+    setMistakesErrored(false);
+    lessonsApi
+      .getMistakeAggregates({ limit: 5 })
+      .then((res) => {
+        if (cancelled) return;
+        setMistakeAggregates(res.aggregates ?? []);
+        setMistakeTotalThemes(res.totalThemes ?? 0);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMistakesErrored(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const grouped = LEVEL_ORDER.map((level) => ({
     level,
     items: courses
@@ -92,6 +122,12 @@ export function LessonsPage() {
       </header>
 
       <ReviewsDueBlock items={reviewsDue} errored={reviewsDueErrored} />
+
+      <MistakesDiaryBlock
+        aggregates={mistakeAggregates}
+        totalThemes={mistakeTotalThemes}
+        errored={mistakesErrored}
+      />
 
       <LevelGateBanner restrictTo="beginner" testId="lessons-page-level-gate" />
 

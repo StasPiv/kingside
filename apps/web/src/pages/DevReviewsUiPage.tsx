@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import type { ReviewDueItem } from '@kingside/shared';
+import type { ReviewDueItem, UserMistakeAggregate } from '@kingside/shared';
 
 import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
+import { MistakesDiaryBlock } from '../components/lessons/MistakesDiaryBlock';
 
 /**
  * Dev-песочница для визуальной проверки UI повторений (KS-1799, L-22).
@@ -47,15 +48,23 @@ const ITEMS: ReviewDueItem[] = [
   },
 ];
 
+const MISTAKE_AGGREGATES: UserMistakeAggregate[] = [
+  { theme: 'fork', count: 14, lastOccurredAt: DAY_AGO },
+  { theme: 'pin', count: 9, lastOccurredAt: WEEK_AGO },
+  { theme: 'skewer', count: 7, lastOccurredAt: DAY_AGO },
+  { theme: 'mateIn2', count: 5, lastOccurredAt: DAY_AGO },
+  { theme: 'endgame', count: 3, lastOccurredAt: WEEK_AGO },
+];
+
 export function DevReviewsUiPage() {
   const [showEmpty, setShowEmpty] = useState(false);
 
   return (
     <div className="dev-reviews-ui-page" style={{ padding: 24, maxWidth: 720 }}>
-      <h1 style={{ marginTop: 0 }}>Reviews UI — dev sandbox</h1>
+      <h1 style={{ marginTop: 0 }}>Reviews &amp; Mistakes UI — dev sandbox</h1>
       <p style={{ color: '#666', marginTop: 0 }}>
-        KS-1799 (L-22). Mock для скриншотов блока «К повторению сегодня».
-        На реальном API данных пока нет — это песочница.
+        KS-1799 (L-22) / KS-1802 (L-31). Mock для скриншотов блоков
+        «К повторению сегодня» и «Дневник ошибок». На реальном API данных пока нет.
       </p>
 
       <div style={{ marginBottom: 16, display: 'flex', gap: 8 }}>
@@ -65,11 +74,16 @@ export function DevReviewsUiPage() {
           onClick={() => setShowEmpty((v) => !v)}
           style={{ padding: '6px 10px' }}
         >
-          {showEmpty ? 'Показать список' : 'Показать пустой (блок скрыт)'}
+          {showEmpty ? 'Показать списки' : 'Показать пустые (оба блока скрыты)'}
         </button>
       </div>
 
       <ReviewsDueBlock items={showEmpty ? [] : ITEMS} />
+
+      <MistakesDiaryBlock
+        aggregates={showEmpty ? [] : MISTAKE_AGGREGATES}
+        totalThemes={showEmpty ? 0 : 8}
+      />
 
       {showEmpty && (
         <p
@@ -81,7 +95,7 @@ export function DevReviewsUiPage() {
             borderRadius: '8px',
           }}
         >
-          (блок скрыт — в списке 0 уроков)
+          (оба блока скрыты — в списках 0 элементов)
         </p>
       )}
     </div>

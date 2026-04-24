@@ -35,6 +35,8 @@ import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
 import { LessonsPage } from './pages/LessonsPage';
 import { CoursePage } from './pages/CoursePage';
 import { LessonPage } from './pages/LessonPage';
+import { MistakesPage } from './pages/MistakesPage';
+import { MistakesPracticePage } from './pages/MistakesPracticePage';
 import { DevPositionStepPage } from './pages/DevPositionStepPage';
 import { DevVideoStepPage } from './pages/DevVideoStepPage';
 import { DevGameReviewStepPage } from './pages/DevGameReviewStepPage';
@@ -141,6 +143,8 @@ export function App() {
         <Route path="/puzzles" element={<PuzzleBrowserPage />} />
         <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
         <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
+        <Route path="/lessons/mistakes" element={<ProtectedRoute><MistakesPage /></ProtectedRoute>} />
+        <Route path="/lessons/mistakes-practice" element={<ProtectedRoute><MistakesPracticePage /></ProtectedRoute>} />
         <Route path="/lessons/:courseSlug" element={<ProtectedRoute><CoursePage /></ProtectedRoute>} />
         <Route path="/lessons/:courseSlug/:lessonSlug" element={<ProtectedRoute><LessonPage /></ProtectedRoute>} />
         <Route path="/dev/position-step" element={<DevPositionStepPage />} />
