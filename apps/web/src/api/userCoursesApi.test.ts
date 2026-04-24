@@ -183,8 +183,8 @@ describe('userCoursesApi — steps', () => {
   });
 });
 
-describe('userCoursesApi — progress', () => {
-  it('updateStepProgress() → POST /user-progress/step', async () => {
+describe('userCoursesApi — progress (BE-4)', () => {
+  it('updateStepProgress() → POST /user-progress/lessons/:id/step', async () => {
     mockFetch.mockResolvedValueOnce(
       okJson({
         userLessonId: 'l1',
@@ -195,22 +195,17 @@ describe('userCoursesApi — progress', () => {
         completedAt: null,
       }),
     );
-    await userCoursesApi.updateStepProgress({
-      userLessonId: 'l1',
+    await userCoursesApi.updateStepProgress('l1', {
       stepId: 's1',
       state: 'done',
     });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-progress/step`);
+    expect(url).toBe(`${BASE}/user-progress/lessons/l1/step`);
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({
-      userLessonId: 'l1',
-      stepId: 's1',
-      state: 'done',
-    });
+    expect(JSON.parse(init.body)).toEqual({ stepId: 's1', state: 'done' });
   });
 
-  it('completeLesson() → POST /user-progress/lesson/complete', async () => {
+  it('completeLesson() → POST /user-progress/lessons/:id/complete', async () => {
     mockFetch.mockResolvedValueOnce(
       okJson({
         userCourseId: 'c1',
@@ -220,11 +215,25 @@ describe('userCoursesApi — progress', () => {
         completedAt: null,
       }),
     );
-    await userCoursesApi.completeLesson({ userLessonId: 'l1', score: 0.85 });
+    await userCoursesApi.completeLesson('l1', { score: 0.85 });
     const [url, init] = lastCallArgs();
-    expect(url).toBe(`${BASE}/user-progress/lesson/complete`);
+    expect(url).toBe(`${BASE}/user-progress/lessons/l1/complete`);
     expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body)).toEqual({ userLessonId: 'l1', score: 0.85 });
+    expect(JSON.parse(init.body)).toEqual({ score: 0.85 });
+  });
+
+  it('getCourseProgress() → GET /user-progress/courses/:id', async () => {
+    mockFetch.mockResolvedValueOnce(okJson(null));
+    await userCoursesApi.getCourseProgress('c1');
+    const [url] = lastCallArgs();
+    expect(url).toBe(`${BASE}/user-progress/courses/c1`);
+  });
+
+  it('getLessonProgress() → GET /user-progress/lessons/:id', async () => {
+    mockFetch.mockResolvedValueOnce(okJson(null));
+    await userCoursesApi.getLessonProgress('l1');
+    const [url] = lastCallArgs();
+    expect(url).toBe(`${BASE}/user-progress/lessons/l1`);
   });
 });
 

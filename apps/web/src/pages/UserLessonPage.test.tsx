@@ -1,0 +1,257 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type {
+  UserCourseDto,
+  UserCourseWithLessonsResponse,
+  UserLessonDto,
+  UserLessonStepDto,
+  UserLessonWithStepsResponse,
+} from '@kingside/shared';
+import { Route, Routes } from 'react-router-dom';
+
+import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+
+/**
+ * KS-1839 (FE-5): `UserLessonPage`.
+ */
+
+const { apiMock } = vi.hoisted(() => ({
+  apiMock: {
+    getBySlug: vi.fn(),
+    getLesson: vi.fn(),
+    updateStepProgress: vi.fn(),
+    completeLesson: vi.fn(),
+  },
+}));
+
+vi.mock('../api/userCoursesApi', () => ({
+  userCoursesApi: apiMock,
+}));
+
+// StepRenderer зависит от всех шахматных компонентов — заменяем тонкой
+// заглушкой, которая выставляет onStepDone по клику.
+vi.mock('../components/lessons/StepRenderer', () => ({
+  StepRenderer: ({
+    step,
+    onStepDone,
+  }: {
+    step: { id: string };
+    onStepDone?: () => void;
+  }) => (
+    <button
+      type="button"
+      data-testid={`step-renderer-${step.id}`}
+      onClick={() => onStepDone?.()}
+    >
+      render step
+    </button>
+  ),
+}));
+
+import { UserLessonPage } from './UserLessonPage';
+
+function mkCourse(over: Partial<UserCourseDto> = {}): UserCourseDto {
+  return {
+    id: 'c1',
+    ownerId: 'user-1',
+    slug: 'my-course',
+    title: 'My course',
+    description: null,
+    isPublic: true,
+    createdAt: '2026-04-24T10:00:00Z',
+    updatedAt: '2026-04-24T10:00:00Z',
+    lessonCount: 2,
+    ...over,
+  };
+}
+
+function mkLesson(over: Partial<UserLessonDto> = {}): UserLessonDto {
+  return {
+    id: 'l1',
+    userCourseId: 'c1',
+    order: 0,
+    title: 'L1',
+    estMinutes: null,
+    stepCount: 0,
+    ...over,
+  };
+}
+
+function mkStep(over: Partial<UserLessonStepDto> = {}): UserLessonStepDto {
+  return {
+    id: 's1',
+    userLessonId: 'l1',
+    order: 0,
+    type: 'text',
+    payload: { type: 'text', bodyMarkdown: 'hi', diagrams: [] },
+    ...over,
+  };
+}
+
+function mockCourse(res: UserCourseWithLessonsResponse | 'error') {
+  if (res === 'error') apiMock.getBySlug.mockRejectedValue(new Error('404'));
+  else apiMock.getBySlug.mockResolvedValue(res);
+}
+
+function mockLesson(res: UserLessonWithStepsResponse | 'error') {
+  if (res === 'error') apiMock.getLesson.mockRejectedValue(new Error('404'));
+  else apiMock.getLesson.mockResolvedValue(res);
+}
+
+interface RouterOpts {
+  initialPath: string;
+  stubNext?: boolean;
+  stubCourse?: boolean;
+}
+
+function renderRouter({ initialPath, stubNext, stubCourse }: RouterOpts) {
+  return renderWithProviders(
+    <Routes>
+      <Route path="/lessons/my/:slug/:lessonId" element={<UserLessonPage />} />
+      {stubNext && (
+        <Route
+          path="/lessons/my/:slug/:lessonId"
+          element={<div data-testid="next-lesson-page" />}
+        />
+      )}
+      {stubCourse && (
+        <Route
+          path="/lessons/my/:slug"
+          element={<div data-testid="course-page" />}
+        />
+      )}
+    </Routes>,
+    { route: initialPath },
+  );
+}
+
+beforeEach(() => {
+  for (const fn of Object.values(apiMock)) fn.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('<UserLessonPage>', () => {
+  it('loading → ready: рендерит breadcrumbs, title, шаги', async () => {
+    mockCourse({
+      course: mkCourse(),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1', title: 'Lesson One' }),
+      steps: [mkStep({ id: 's1' }), mkStep({ id: 's2', order: 1 })],
+      progress: null,
+    });
+
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+
+    expect(screen.getByTestId('user-lesson-loading')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('user-lesson-title').textContent).toBe('Lesson One');
+    expect(screen.getByTestId('step-renderer-s1')).toBeInTheDocument();
+    expect(screen.getByTestId('step-renderer-s2')).toBeInTheDocument();
+  });
+
+  it('4xx при загрузке курса → 404', async () => {
+    mockCourse('error');
+    mockLesson({
+      lesson: mkLesson(),
+      steps: [],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-404')).toBeInTheDocument(),
+    );
+  });
+
+  it('Lesson не принадлежит курсу → 404', async () => {
+    mockCourse({
+      course: mkCourse(),
+      // Курс возвращает другие уроки, без l1
+      lessons: [mkLesson({ id: 'l-other' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [mkStep()],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-404')).toBeInTheDocument(),
+    );
+  });
+
+  it('Complete < threshold → disabled button + сообщение о пороге', async () => {
+    mockCourse({
+      course: mkCourse({ lessonCount: 1 }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      // 10 шагов, ни один не помечен → score=0 < threshold
+      steps: Array.from({ length: 10 }, (_, i) =>
+        mkStep({ id: `s${i}`, order: i }),
+      ),
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+    const btn = screen.getByTestId('user-lesson-complete-btn') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.textContent).toMatch(/70%/);
+  });
+
+  it('Complete ≥ threshold → POST complete + навигация на курс (если следующий отсутствует)', async () => {
+    mockCourse({
+      course: mkCourse({ lessonCount: 1 }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [mkStep({ id: 's1' })],
+      progress: null,
+    });
+    apiMock.updateStepProgress.mockResolvedValue({});
+    apiMock.completeLesson.mockResolvedValue({
+      userCourseId: 'c1',
+      completedLessonsCount: 1,
+      startedAt: 'x',
+      lastActivityAt: 'x',
+      completedAt: null,
+    });
+
+    renderRouter({
+      initialPath: '/lessons/my/my-course/l1',
+      stubCourse: true,
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+
+    const { fireEvent } = await import('@testing-library/react');
+    // «Пройти» шаг (mock StepRenderer → onStepDone).
+    fireEvent.click(screen.getByTestId('step-renderer-s1'));
+
+    const btn = screen.getByTestId('user-lesson-complete-btn') as HTMLButtonElement;
+    await waitFor(() => expect(btn.disabled).toBe(false));
+    fireEvent.click(btn);
+
+    await waitFor(() =>
+      expect(apiMock.completeLesson).toHaveBeenCalledWith('l1', { score: 1 }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('course-page')).toBeInTheDocument(),
+    );
+  });
+});

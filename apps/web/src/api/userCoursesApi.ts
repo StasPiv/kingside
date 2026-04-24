@@ -177,29 +177,53 @@ export const userCoursesApi = {
     );
   },
 
-  // ─── Progress ───────────────────────────────────────────────────────
+  // ─── Progress (BE-4, KS-1833) ───────────────────────────────────────
 
-  /** POST /api/lessons/user-progress/step — отметить состояние шага. */
+  /**
+   * POST /api/lessons/user-progress/lessons/:userLessonId/step —
+   * отметить состояние шага. `userLessonId` — URL-параметр, тело —
+   * только `{stepId, state}`.
+   */
   updateStepProgress(
-    body: UpdateUserStepProgressRequest,
+    userLessonId: string,
+    body: Pick<UpdateUserStepProgressRequest, 'stepId' | 'state'>,
   ): Promise<UserLessonPlayProgressDto> {
     return api.post<UserLessonPlayProgressDto>(
-      `${BASE}/user-progress/step`,
+      `${BASE}/user-progress/lessons/${encodeURIComponent(userLessonId)}/step`,
       body,
     );
   },
 
   /**
-   * POST /api/lessons/user-progress/lesson/complete — финальное
-   * завершение урока с overall `score` (SM-2 к пользовательским
-   * курсам не подключён — ADR §2.1).
+   * POST /api/lessons/user-progress/lessons/:userLessonId/complete —
+   * финальное завершение урока с overall `score` (ADR-026 §2.1 — SM-2
+   * к пользовательским курсам не подключён; `score` 0..1).
    */
   completeLesson(
-    body: CompleteUserLessonRequest,
+    userLessonId: string,
+    body: Pick<CompleteUserLessonRequest, 'score'>,
   ): Promise<UserCoursePlayProgressDto> {
     return api.post<UserCoursePlayProgressDto>(
-      `${BASE}/user-progress/lesson/complete`,
+      `${BASE}/user-progress/lessons/${encodeURIComponent(userLessonId)}/complete`,
       body,
+    );
+  },
+
+  /** GET /api/lessons/user-progress/courses/:userCourseId. */
+  getCourseProgress(
+    userCourseId: string,
+  ): Promise<UserCoursePlayProgressDto | null> {
+    return api.get<UserCoursePlayProgressDto | null>(
+      `${BASE}/user-progress/courses/${encodeURIComponent(userCourseId)}`,
+    );
+  },
+
+  /** GET /api/lessons/user-progress/lessons/:userLessonId. */
+  getLessonProgress(
+    userLessonId: string,
+  ): Promise<UserLessonPlayProgressDto | null> {
+    return api.get<UserLessonPlayProgressDto | null>(
+      `${BASE}/user-progress/lessons/${encodeURIComponent(userLessonId)}`,
     );
   },
 };
