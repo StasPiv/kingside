@@ -12,6 +12,12 @@ interface ImportMetaEnv {
   readonly VITE_TEST_MODE?: string;
   readonly VITE_AI_CHAT_ENABLED?: string;
   readonly VITE_GA4_ID?: string;
+  /**
+   * Email-whitelist для доступа к `/lessons/editor` (L-27, KS-1805).
+   * Разделитель — запятая. Нечувствителен к регистру. Если не задан —
+   * никто кроме специально авторизованных не попадёт на страницу.
+   */
+  readonly VITE_LESSON_EDITOR_EMAILS?: string;
 }
 
 interface ImportMeta {

@@ -1315,6 +1315,84 @@
         "themeNotInRecs": "This theme is not in your top problem areas for the last 30 days. Nice!"
       }
     },
+    "editor": {
+      "title": "Lesson editor",
+      "subtitle": "Build a course fixture locally and export it as a .ts file.",
+      "notLoggedIn": "Please log in to access the editor.",
+      "forbidden": "You don't have access to the lesson editor. Contact admin to be added to the whitelist.",
+      "export": "Export .ts fixture",
+      "exported": "Fixture exported.",
+      "preview": "Preview",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "remove": "Remove",
+      "course": {
+        "title": "Course",
+        "slug": "Slug",
+        "level": "Level",
+        "order": "Order",
+        "isPublished": "Published"
+      },
+      "lessons": {
+        "title": "Lessons",
+        "add": "Add lesson",
+        "empty": "No lessons yet."
+      },
+      "lesson": {
+        "title": "Lesson"
+      },
+      "steps": {
+        "title": "Steps",
+        "add": "Add step",
+        "empty": "No steps yet."
+      },
+      "step": {
+        "type": "Type",
+        "text": {
+          "body": "Markdown body",
+          "diagrams": "Diagrams",
+          "caption": "Caption",
+          "orientation": "Orientation",
+          "addDiagram": "Add diagram"
+        },
+        "puzzle": {
+          "mode": "Selection mode",
+          "ids": "Puzzle IDs (comma-separated)",
+          "themes": "Themes (comma-separated)",
+          "ratingMin": "Rating min",
+          "ratingMax": "Rating max",
+          "limit": "Limit",
+          "minSolved": "Min solved"
+        },
+        "quiz": {
+          "threshold": "Pass threshold (0..1)",
+          "promptKey": "Prompt i18n key",
+          "multi": "Multiple correct",
+          "options": "Options",
+          "correct": "Correct",
+          "explanationKey": "Explanation i18n key",
+          "addQuestion": "Add question",
+          "removeQuestion": "Remove question"
+        },
+        "position": {
+          "expected": "Expected moves (UCI, comma-separated)"
+        },
+        "gameReview": {
+          "hint": "Provide either gameId (DB id) OR pgn. Backend validator enforces XOR."
+        },
+        "video": {
+          "titleKey": "Title i18n key (optional)"
+        },
+        "endgame": {
+          "side": "Player side",
+          "skill": "Skill level (0..20)",
+          "winKind": "Win condition",
+          "targetFen": "Target FEN",
+          "amount": "Advantage (pawns)",
+          "hints": "Hints allowed"
+        }
+      }
+    },
     "review": {
       "banner": "Review mode — go through the lesson again.",
       "finishReview": "Finish review",

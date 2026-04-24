@@ -689,6 +689,262 @@
   filter: brightness(1.05);
 }
 
+/* ---------- Lesson editor (L-27, KS-1805) ---------- */
+.lesson-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.lesson-editor--denied {
+  padding: 32px;
+  text-align: center;
+}
+
+.lesson-editor__header h1 {
+  margin: 6px 0;
+}
+
+.lesson-editor__subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.lesson-editor__back {
+  color: var(--text-link);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.lesson-editor__course,
+.lesson-editor__lessons,
+.lesson-editor__lesson-editor {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.lesson-editor__course-fields,
+.lesson-editor__lesson-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.lesson-editor__course-fields label,
+.lesson-editor__lesson-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.lesson-editor__section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.lesson-editor__lesson-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lesson-editor__lesson-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.lesson-editor__lesson-item--active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.lesson-editor__lesson-select {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  color: var(--text-primary);
+  font: inherit;
+  padding: 4px 0;
+}
+
+.lesson-editor__lesson-remove,
+.editor-step__remove {
+  color: var(--danger, #ca3431);
+  background: none;
+  border: 1px solid var(--danger, #ca3431);
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.lesson-editor__step-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.editor-step {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor-step__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.editor-step__meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-weight: 600;
+}
+
+.editor-step__actions {
+  display: flex;
+  gap: 4px;
+}
+
+.editor-step__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.editor-step__fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.editor-step__fields textarea {
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: 13px;
+}
+
+.editor-diagrams,
+.editor-quiz-questions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: 8px;
+}
+
+.editor-diagram,
+.editor-quiz-question,
+.editor-quiz-option {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+  padding: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.editor-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  grid-column: 1 / -1;
+}
+
+.editor-mini-board {
+  grid-column: 1 / -1;
+  max-width: 280px;
+}
+
+.editor-step__preview {
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: 8px;
+}
+
+.editor-step__preview summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-link);
+}
+
+.editor-step__preview-body {
+  padding: 10px 0;
+}
+
+.lesson-editor__footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lesson-editor__export-btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-weight: 600;
+  font-size: 15px;
+  border: 0;
+  cursor: pointer;
+}
+
+.lesson-editor__export-btn:hover {
+  filter: brightness(1.05);
+}
+
+.lesson-editor__status {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.lesson-editor__empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+@media (max-width: 640px) {
+  .editor-step__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* ---------- Mistakes diary block (L-31, KS-1802) ---------- */
 .mistakes-diary-block {
   background: var(--bg-card);
