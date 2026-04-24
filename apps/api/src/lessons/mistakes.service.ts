@@ -158,7 +158,7 @@ export class MistakesService {
       FROM user_mistakes,
            UNNEST(themes) AS theme
       WHERE user_id = $1::uuid
-        ${sinceIso ? 'AND occurred_at >= $2' : ''}
+        ${sinceIso ? 'AND occurred_at >= $2::timestamp' : ''}
       GROUP BY theme
       ORDER BY count DESC, last_occurred_at DESC
       `,
@@ -173,7 +173,7 @@ export class MistakesService {
       FROM user_mistakes,
            UNNEST(themes) AS theme
       WHERE user_id = $1::uuid
-        ${sinceIso ? 'AND occurred_at >= $2' : ''}
+        ${sinceIso ? 'AND occurred_at >= $2::timestamp' : ''}
       `,
       ...(sinceIso ? [userId, sinceIso] : [userId]),
     );
