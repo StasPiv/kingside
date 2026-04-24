@@ -37,6 +37,7 @@ import {
   VideoStepPayloadDto,
 } from '../dto/step-payload.dto';
 import { isValidFen, isLegalUciOnFen } from '../dto/position-step.validators';
+import { ALLOWED_VIDEO_HOSTS, isAllowedVideoUrl } from '@kingside/shared';
 
 export interface LinterError {
   path: string; // напр. "beginner-basics/how-knight-moves/step-2/payload.fen"
@@ -269,14 +270,14 @@ function collectChessChecks(
       break;
     }
     case 'video': {
-      // Минимальная проверка: url должен парситься как URL.
-      try {
-        // eslint-disable-next-line no-new
-        new URL(payload.url);
-      } catch {
+      // KS-1808: URL должен быть http(s) и host — в shared-whitelist
+      // (`ALLOWED_VIDEO_HOSTS`). Тот же helper использует DTO — словарь
+      // поддерживаемых embed-хостов один и не расходится между
+      // рантайм-валидацией и pre-seed-линтером.
+      if (!isAllowedVideoUrl(payload.url)) {
         errors.push({
           path: `${stepPath}.payload.url`,
-          message: `Invalid URL: ${payload.url}`,
+          message: `Invalid video URL "${payload.url}": must be http(s) and host in {${ALLOWED_VIDEO_HOSTS.join(', ')}}`,
         });
       }
       break;

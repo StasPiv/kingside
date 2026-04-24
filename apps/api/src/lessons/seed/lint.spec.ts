@@ -253,6 +253,58 @@ describe('lintFixtures', () => {
       },
     ];
     const errors = await lintFixtures([course]);
-    expect(errors.some((e) => e.message.includes('Invalid URL'))).toBe(true);
+    expect(errors.some((e) => e.message.includes('Invalid video URL'))).toBe(true);
+  });
+
+  it('video: валидный YouTube URL — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: { type: 'video', url: 'https://www.youtube.com/watch?v=abc' },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('video: валидный Vimeo URL — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: { type: 'video', url: 'https://player.vimeo.com/video/76979871' },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('video: невалидный хост (example.com) — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: { type: 'video', url: 'https://example.com/watch?v=1' },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.url'))).toBe(true);
+  });
+
+  it('video: javascript: URL — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: { type: 'video', url: 'javascript:alert(1)' },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.url'))).toBe(true);
   });
 });

@@ -25,6 +25,7 @@ import type {
   PuzzleTheme,
 } from '@kingside/shared';
 import { ArePositionMovesLegal, IsFen } from './position-step.validators';
+import { IsVideoUrl } from './video-step.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
@@ -223,11 +224,19 @@ class GameReviewStepPayloadDto implements GameReviewStepPayload {
   pgn?: string;
 }
 
+/**
+ * Видео-шаг (L-34 / KS-1796 / KS-1808). `url` ограничен whitelist'ом
+ * хостов YouTube/Vimeo и http(s)-схемой — чтобы iframe на фронте не
+ * рендерил произвольные ресурсы. Сам словарь хостов — в
+ * `@kingside/shared` (`ALLOWED_VIDEO_HOSTS`), используется тем же
+ * helper'ом и в seed-линтере.
+ */
 class VideoStepPayloadDto implements VideoStepPayload {
   @IsIn(['video'])
   type!: 'video';
 
   @IsString()
+  @IsVideoUrl()
   url!: string;
 
   @IsOptional()
