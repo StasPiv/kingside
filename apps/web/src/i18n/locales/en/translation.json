@@ -1459,6 +1459,68 @@
       "masteredNoInterval": "Mastered — next review scheduled",
       "reset": "Interval reset — we'll ask you to review again tomorrow",
       "nextDue": "Next review: {{date}}"
+    },
+    "my": {
+      "title": "My courses",
+      "subtitle": "Courses you've created",
+      "create": "+ Create my course",
+      "createShort": "Create course",
+      "empty": "You haven't created any courses yet",
+      "emptyCta": "Create your first course",
+      "loadError": "Failed to load your courses",
+      "edit": "Edit",
+      "open": "Open",
+      "delete": "Delete",
+      "deleteConfirmTitle": "Delete course?",
+      "deleteConfirmBody": "The course \"{{title}}\" and all its lessons will be permanently deleted.",
+      "deleteConfirmAction": "Delete",
+      "deleteCancel": "Cancel",
+      "deleteError": "Failed to delete the course",
+      "makePublic": "Make public",
+      "makePrivate": "Make private",
+      "visibilityPending": "Updating visibility…",
+      "visibilityError": "Failed to update course visibility",
+      "publicBadge": "Public",
+      "privateBadge": "Private",
+      "draftBadge": "Draft",
+      "progress": "Completed {{done}}/{{total}} steps",
+      "progressPercent": "Completed {{percent}}%",
+      "lessonsCount_one": "{{count}} lesson",
+      "lessonsCount_other": "{{count}} lessons",
+      "updatedAt": "Updated {{date}}",
+      "author": "Author: {{name}}",
+      "authorYou": "Author: you",
+      "createModal": {
+        "title": "New course",
+        "fieldTitle": "Title",
+        "fieldTitlePlaceholder": "E.g. My opening repertoire",
+        "fieldDescription": "Description",
+        "fieldDescriptionPlaceholder": "Briefly describe what's inside",
+        "submit": "Create",
+        "submitting": "Creating…",
+        "cancel": "Cancel",
+        "validation": {
+          "titleRequired": "Enter a course title",
+          "titleTooLong": "Title must be at most {{max}} characters",
+          "descriptionTooLong": "Description must be at most {{max}} characters"
+        },
+        "error": "Failed to create the course"
+      },
+      "editor": {
+        "title": "Edit course",
+        "save": "Save",
+        "saving": "Saving…",
+        "saved": "Saved",
+        "saveError": "Failed to save changes",
+        "discard": "Discard changes",
+        "addLesson": "+ Add lesson",
+        "addStep": "+ Add step",
+        "unsavedHint": "You have unsaved changes",
+        "publishHint": "Publish the course to make it available to others",
+        "visibilityTitle": "Visibility",
+        "visibilityPrivateHint": "Only you can see this course",
+        "visibilityPublicHint": "The course is visible to everyone in Lessons"
+      }
     }
   }
 }
