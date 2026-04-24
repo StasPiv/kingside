@@ -1529,15 +1529,96 @@
         "save": "Сохранить",
         "saving": "Сохраняю…",
         "saved": "Сохранено",
-        "saveError": "Не удалось сохранить изменения",
+        "savedAt": "Сохранено в {{time}}",
+        "saveError": "Не удалось сохранить",
+        "saveErrorRetry": "Повторить попытку",
+        "saveIdle": "Готов к сохранению",
         "discard": "Отменить изменения",
         "addLesson": "+ Добавить урок",
+        "addLessonCta": "Добавить первый урок",
         "addStep": "+ Добавить шаг",
         "unsavedHint": "Есть несохранённые изменения",
         "publishHint": "Опубликуй курс, чтобы им могли пользоваться другие",
         "visibilityTitle": "Видимость",
         "visibilityPrivateHint": "Курс виден только вам",
-        "visibilityPublicHint": "Курс виден всем в разделе «Уроки»"
+        "visibilityPublicHint": "Курс виден всем в разделе «Уроки»",
+        "defaultLessonTitle": "Новый урок",
+        "defaultStepTitle": "Новый шаг",
+        "lessonsTitle": "Уроки",
+        "lessonsEmpty": "У курса ещё нет уроков",
+        "loadStepsError": "Не удалось загрузить шаги",
+        "addStepPicker": {
+          "title": "Добавить шаг",
+          "subtitle": "Выберите тип шага, с которого хотите начать.",
+          "confirmTitle": "Какой это будет шаг?",
+          "cancel": "Отмена"
+        },
+        "stepsEmpty": {
+          "title": "В уроке ещё нет шагов",
+          "subtitle": "Добавьте первый шаг — с него начнётся этот урок для ученика.",
+          "cta": "Добавить первый шаг"
+        },
+        "lessonsEmptyState": {
+          "title": "У курса ещё нет уроков",
+          "subtitle": "С урока начинается ваш курс. Добавьте первый — его увидит ученик.",
+          "cta": "Добавить первый урок"
+        },
+        "fields": {
+          "text": {
+            "body": "Текст урока",
+            "bodyPlaceholder": "Напишите здесь то, что хотите рассказать ученику…",
+            "diagramsTitle": "Диаграммы",
+            "diagramHint": "Добавьте диаграмму ниже, затем вставьте маркер {{diagram:N}} в текст урока там, где она должна появиться.",
+            "diagramRefHint": "Вставьте этот маркер в текст урока, где должна быть эта диаграмма.",
+            "addDiagram": "+ Добавить диаграмму",
+            "removeDiagram": "Удалить диаграмму",
+            "captionLabel": "Подпись",
+            "orientationLabel": "Ориентация"
+          },
+          "puzzle": {
+            "modeLabel": "Как выбирать задачи",
+            "modeIds": "По списку id",
+            "modeFilter": "По фильтру",
+            "idsLabel": "ID задач (через запятую)",
+            "themesLabel": "Темы (через запятую)",
+            "ratingMinLabel": "Рейтинг от",
+            "ratingMaxLabel": "Рейтинг до",
+            "limitLabel": "Сколько задач показать",
+            "minSolvedLabel": "Нужно решить минимум"
+          },
+          "endgame": {
+            "fenLabel": "Начальная позиция (FEN)",
+            "sideLabel": "За кого играет ученик",
+            "sideWhite": "Белыми",
+            "sideBlack": "Чёрными",
+            "skillLabel": "Сила соперника (0..20)",
+            "winKindLabel": "Условие победы",
+            "winKindMate": "Мат",
+            "winKindPromote": "Провести пешку в ферзи",
+            "winKindReachPosition": "Достичь позиции",
+            "winKindMaterialAdvantage": "Получить материальный перевес",
+            "targetFenLabel": "Целевая позиция (FEN)",
+            "amountLabel": "Перевес (в пешках)",
+            "maxMovesLabel": "Лимит ходов (опц.)",
+            "hintsLabel": "Разрешить подсказки"
+          }
+        },
+        "savePill": {
+          "idle": "Не изменено",
+          "saving": "Сохраняю…",
+          "saved": "Сохранено",
+          "savedAt": "Сохранено в {{time}}",
+          "error": "Ошибка сохранения",
+          "retry": "Повторить"
+        }
+      },
+      "stepType": {
+        "text": "Лекция",
+        "textDescription": "Текст с диаграммами для объяснения теории или идей.",
+        "puzzle": "Задача",
+        "puzzleDescription": "Тактическая задача — ученик ищет лучший ход.",
+        "endgameDrill": "Позиция против движка",
+        "endgameDrillDescription": "Ученик играет позицию против движка (выбираете силу и условие победы)."
       }
     }
   }

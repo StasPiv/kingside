@@ -1511,15 +1511,96 @@
         "save": "Save",
         "saving": "Saving…",
         "saved": "Saved",
-        "saveError": "Failed to save changes",
+        "savedAt": "Saved at {{time}}",
+        "saveError": "Failed to save",
+        "saveErrorRetry": "Retry",
+        "saveIdle": "Ready to save",
         "discard": "Discard changes",
         "addLesson": "+ Add lesson",
+        "addLessonCta": "Add the first lesson",
         "addStep": "+ Add step",
         "unsavedHint": "You have unsaved changes",
         "publishHint": "Publish the course to make it available to others",
         "visibilityTitle": "Visibility",
         "visibilityPrivateHint": "Only you can see this course",
-        "visibilityPublicHint": "The course is visible to everyone in Lessons"
+        "visibilityPublicHint": "The course is visible to everyone in Lessons",
+        "defaultLessonTitle": "New lesson",
+        "defaultStepTitle": "New step",
+        "lessonsTitle": "Lessons",
+        "lessonsEmpty": "No lessons yet",
+        "loadStepsError": "Failed to load steps",
+        "addStepPicker": {
+          "title": "Add a step",
+          "subtitle": "Pick the kind of step you want to start with.",
+          "confirmTitle": "What kind of step is this?",
+          "cancel": "Cancel"
+        },
+        "stepsEmpty": {
+          "title": "This lesson has no steps yet",
+          "subtitle": "Add the first step — your learner starts from here.",
+          "cta": "Add the first step"
+        },
+        "lessonsEmptyState": {
+          "title": "No lessons in this course yet",
+          "subtitle": "A course starts from a lesson. Add the first one — your learner will see it.",
+          "cta": "Add the first lesson"
+        },
+        "fields": {
+          "text": {
+            "body": "Lesson text",
+            "bodyPlaceholder": "Write what you want to tell the learner…",
+            "diagramsTitle": "Diagrams",
+            "diagramHint": "Add a diagram below, then paste the {{diagram:N}} marker into the text where it should appear.",
+            "diagramRefHint": "Paste this marker into the text where the diagram should appear.",
+            "addDiagram": "+ Add diagram",
+            "removeDiagram": "Remove diagram",
+            "captionLabel": "Caption",
+            "orientationLabel": "Orientation"
+          },
+          "puzzle": {
+            "modeLabel": "How to pick puzzles",
+            "modeIds": "By ID list",
+            "modeFilter": "By filter",
+            "idsLabel": "Puzzle IDs (comma-separated)",
+            "themesLabel": "Themes (comma-separated)",
+            "ratingMinLabel": "Rating from",
+            "ratingMaxLabel": "Rating to",
+            "limitLabel": "How many to show",
+            "minSolvedLabel": "Min solved to pass"
+          },
+          "endgame": {
+            "fenLabel": "Starting position (FEN)",
+            "sideLabel": "Learner plays",
+            "sideWhite": "White",
+            "sideBlack": "Black",
+            "skillLabel": "Opponent strength (0..20)",
+            "winKindLabel": "Win condition",
+            "winKindMate": "Checkmate",
+            "winKindPromote": "Promote a pawn",
+            "winKindReachPosition": "Reach a position",
+            "winKindMaterialAdvantage": "Gain material advantage",
+            "targetFenLabel": "Target FEN",
+            "amountLabel": "Advantage (pawns)",
+            "maxMovesLabel": "Move limit (optional)",
+            "hintsLabel": "Allow hints"
+          }
+        },
+        "savePill": {
+          "idle": "Unchanged",
+          "saving": "Saving…",
+          "saved": "Saved",
+          "savedAt": "Saved at {{time}}",
+          "error": "Failed to save",
+          "retry": "Retry"
+        }
+      },
+      "stepType": {
+        "text": "Lecture",
+        "textDescription": "Text with diagrams to explain theory or ideas.",
+        "puzzle": "Puzzle",
+        "puzzleDescription": "A tactical puzzle — the learner looks for the best move.",
+        "endgameDrill": "Position vs. engine",
+        "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition)."
       }
     }
   }
