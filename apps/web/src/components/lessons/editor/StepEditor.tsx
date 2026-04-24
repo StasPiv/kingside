@@ -193,8 +193,24 @@ function TextFields({
       </label>
       <div className="editor-diagrams">
         <h4>{t('editor.step.text.diagrams', 'Diagrams')}</h4>
+        <p className="editor-step__hint" data-testid="editor-diagrams-hint">
+          {t(
+            'editor.step.text.diagramHint',
+            'Add a diagram below, then place {{diagram:N}} marker in the markdown where you want it to appear.',
+          )}
+        </p>
         {diagrams.map((d, i) => (
           <div key={i} className="editor-diagram">
+            <div
+              className="editor-diagram__ref"
+              data-testid={`editor-diagram-ref-${i}`}
+              title={t(
+                'editor.step.text.diagramRefHint',
+                'Paste this marker into the markdown where the diagram should appear.',
+              )}
+            >
+              <code>{`{{diagram:${i}}}`}</code>
+            </div>
             <label>
               FEN
               <input
@@ -249,9 +265,24 @@ function TextFields({
         ))}
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
+            // KS-1827-bugfix: автоматически вставляем
+            // `{{diagram:N}}`-ссылку в конец markdown при добавлении
+            // новой диаграммы. До фикса редактор добавлял диаграмму в
+            // `payload.diagrams`, но `TextStep` не умел рендерить её без
+            // ссылки — пользователь вроде «добавил» диаграмму, а читатель
+            // её не видел. Автовставка делает поведение интуитивным;
+            // автор может свободно передвинуть маркер в теле markdown.
+            const newIndex = diagrams.length;
+            const currentMd = payload.bodyMarkdown ?? '';
+            const trimmed = currentMd.trimEnd();
+            const nextMd =
+              trimmed.length === 0
+                ? `{{diagram:${newIndex}}}`
+                : `${trimmed}\n\n{{diagram:${newIndex}}}`;
             onChange({
               ...payload,
+              bodyMarkdown: nextMd,
               diagrams: [
                 ...diagrams,
                 {
@@ -259,8 +290,8 @@ function TextFields({
                   orientation: 'white',
                 },
               ],
-            })
-          }
+            });
+          }}
           data-testid="editor-step-text-add-diagram"
         >
           + {t('editor.step.text.addDiagram', 'Add diagram')}

@@ -66,10 +66,32 @@ const FENCED_FEN_RE = /^```fen(?:\s+(white|black))?\s*$/i;
 /**
  * Разбирает markdown на сегменты — обычный текст и FEN-диаграммы.
  * Чистая функция, экспортируется для тестов.
+ *
+ * # Orphan-диаграммы (KS-1827-bugfix)
+ *
+ * Если `payload.diagrams[i]` объявлена, но никакой `{{diagram:i}}` на
+ * неё не ссылается в `bodyMarkdown` — такая диаграмма рендерится в
+ * конец (после всех markdown- и fenced-сегментов). До фикса
+ * неотреферированные диаграммы просто молчали, и пользователь user-
+ * курсов видел пустое тело шага, хотя визуально «добавил картинку»
+ * через редактор. Новое поведение совместимо со старым для всех
+ * корректно свёрстанных уроков (где каждая declared-диаграмма имеет
+ * ссылку) — для них список orphan'ов пустой.
  */
 export function parseTextStepSegments(payload: TextStepPayload): Segment[] {
   const source = (payload.bodyMarkdown ?? '').replace(/\r\n/g, '\n');
-  if (!source) return [];
+  const diagrams = payload.diagrams ?? [];
+  const referenced = new Set<number>();
+
+  if (!source) {
+    // Пустой markdown — показываем все declared-диаграммы как orphans.
+    return diagrams.map((d) => ({
+      kind: 'fen' as const,
+      fen: d.fen,
+      caption: d.caption,
+      orientation: d.orientation,
+    }));
+  }
 
   const lines = source.split('\n');
   const segments: Segment[] = [];
@@ -82,7 +104,7 @@ export function parseTextStepSegments(payload: TextStepPayload): Segment[] {
     const md = buf.join('\n');
     if (md.trim()) {
       // Шаг 2: внутри markdown ищем reference-плейсхолдеры.
-      processReferences(md, payload, segments);
+      processReferences(md, payload, segments, referenced);
     }
     buf = [];
   };
@@ -124,6 +146,19 @@ export function parseTextStepSegments(payload: TextStepPayload): Segment[] {
   }
   flushBuf();
 
+  // Шаг 3: orphan-диаграммы — declared, но не отреферированные. См.
+  // doc-комментарий функции. Порядок — как в `payload.diagrams`.
+  for (let idx = 0; idx < diagrams.length; idx += 1) {
+    if (referenced.has(idx)) continue;
+    const d = diagrams[idx];
+    segments.push({
+      kind: 'fen',
+      fen: d.fen,
+      caption: d.caption,
+      orientation: d.orientation,
+    });
+  }
+
   return segments;
 }
 
@@ -131,6 +166,7 @@ function processReferences(
   md: string,
   payload: TextStepPayload,
   out: Segment[],
+  referenced: Set<number>,
 ): void {
   const diagrams = payload.diagrams ?? [];
   let lastIndex = 0;
@@ -149,6 +185,7 @@ function processReferences(
         caption: diagram.caption,
         orientation: diagram.orientation,
       });
+      referenced.add(refIdx);
     }
     // Если ссылка «битая», просто пропускаем — не плодим артефакты.
     lastIndex = idx + match[0].length;

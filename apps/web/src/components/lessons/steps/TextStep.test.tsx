@@ -40,15 +40,69 @@ describe('parseTextStepSegments', () => {
     expect(segments[2]).toMatchObject({ kind: 'markdown' });
   });
 
-  it('пропускает битую ссылку {{diagram:N}} без падения', () => {
+  it('пропускает битую ссылку {{diagram:N}}; declared-диаграмма остаётся orphan (рендерится в конец)', () => {
     const payload: TextStepPayload = {
       type: 'text',
       bodyMarkdown: 'A\n\n{{diagram:99}}\n\nB',
       diagrams: [{ fen: FEN_START }],
     };
     const segments = parseTextStepSegments(payload);
-    // Битая ссылка вырезается, остаются только markdown-куски
-    expect(segments.every((s) => s.kind === 'markdown')).toBe(true);
+    // Битая ссылка `{{diagram:99}}` вырезается, остаются markdown-куски
+    // «A» и «B», а declared `diagrams[0]` дорисовывается orphan'ом в конец.
+    const kinds = segments.map((s) => s.kind);
+    expect(kinds).toEqual(['markdown', 'markdown', 'fen']);
+    expect(segments[2]).toMatchObject({ kind: 'fen', fen: FEN_START });
+  });
+
+  it('orphan-диаграмма (declared, но без {{diagram:N}}-ссылки) рендерится в конец (KS-1827-bugfix)', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      bodyMarkdown: 'Какой-то текст',
+      diagrams: [{ fen: FEN_CARO, caption: 'orphan', orientation: 'black' }],
+    };
+    const segments = parseTextStepSegments(payload);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({
+      kind: 'markdown',
+      markdown: expect.stringMatching(/Какой-то текст/),
+    });
+    expect(segments[1]).toEqual({
+      kind: 'fen',
+      fen: FEN_CARO,
+      caption: 'orphan',
+      orientation: 'black',
+    });
+  });
+
+  it('пустой markdown + declared-диаграммы → все рендерятся как orphan', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      bodyMarkdown: '',
+      diagrams: [
+        { fen: FEN_START },
+        { fen: FEN_CARO, caption: 'caro' },
+      ],
+    };
+    const segments = parseTextStepSegments(payload);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ kind: 'fen', fen: FEN_START });
+    expect(segments[1]).toMatchObject({ kind: 'fen', fen: FEN_CARO, caption: 'caro' });
+  });
+
+  it('частичная ссылка: одна диаграмма с {{diagram:0}}, вторая orphan', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      bodyMarkdown: 'intro\n\n{{diagram:0}}\n\ntail',
+      diagrams: [
+        { fen: FEN_START, caption: 'referenced' },
+        { fen: FEN_CARO, caption: 'orphan-second' },
+      ],
+    };
+    const segments = parseTextStepSegments(payload);
+    // intro → fen(0) → tail → fen(1 orphan)
+    expect(segments.map((s) => s.kind)).toEqual(['markdown', 'fen', 'markdown', 'fen']);
+    expect(segments[1]).toMatchObject({ fen: FEN_START, caption: 'referenced' });
+    expect(segments[3]).toMatchObject({ fen: FEN_CARO, caption: 'orphan-second' });
   });
 
   it('разбирает inline ```fen``` блок с орientation и caption', () => {
