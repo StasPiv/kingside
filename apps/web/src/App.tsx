@@ -39,6 +39,7 @@ import { MistakesPage } from './pages/MistakesPage';
 import { MistakesPracticePage } from './pages/MistakesPracticePage';
 import { LessonEditorPage } from './pages/LessonEditorPage';
 import { UserCourseEditorPage } from './pages/UserCourseEditorPage';
+import { UserCoursePage } from './pages/UserCoursePage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { isLessonsEnabledLive } from './config/featureFlags';
@@ -156,6 +157,7 @@ export function App() {
             <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
             <Route path="/lessons/editor" element={<ProtectedRoute><LessonEditorPage /></ProtectedRoute>} />
             <Route path="/lessons/my/:slug/edit" element={<ProtectedRoute><UserCourseEditorPage /></ProtectedRoute>} />
+            <Route path="/lessons/my/:slug" element={<UserCoursePage />} />
             <Route path="/lessons/mistakes" element={<ProtectedRoute><MistakesPage /></ProtectedRoute>} />
             <Route path="/lessons/mistakes-practice" element={<ProtectedRoute><MistakesPracticePage /></ProtectedRoute>} />
             <Route path="/lessons/:courseSlug" element={<ProtectedRoute><CoursePage /></ProtectedRoute>} />
