@@ -54,6 +54,20 @@ interface StepCardProps {
   onDuplicate: () => void;
   /** Опциональный drag-handle (FE-R8 подключит dnd). */
   dragHandleProps?: Record<string, unknown>;
+  /**
+   * FE-R8: props для drop-зоны на root-элементе карточки (onDragOver /
+   * onDragLeave / onDrop). Передаются родителем из `useReorderDnD`.
+   */
+  dropProps?: {
+    onDragOver?: (e: React.DragEvent) => void;
+    onDragLeave?: () => void;
+    onDrop?: (e: React.DragEvent) => void;
+  };
+  /**
+   * FE-R8: опц. keyboardProps для drag-handle (tabIndex/role/aria-grabbed/
+   * onKeyDown). Если не задан — handle работает только через mouse-dnd.
+   */
+  handleKeyboardProps?: Record<string, unknown>;
 }
 
 const TYPE_ICONS: Record<UserStepType, string> = {
@@ -118,6 +132,8 @@ export function StepCard({
   onDelete,
   onDuplicate,
   dragHandleProps,
+  dropProps,
+  handleKeyboardProps,
 }: StepCardProps) {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -147,6 +163,9 @@ export function StepCard({
       data-testid={`step-card-${step.id}`}
       data-step-type={step.type}
       data-expanded={expanded ? 'true' : 'false'}
+      onDragOver={dropProps?.onDragOver}
+      onDragLeave={dropProps?.onDragLeave}
+      onDrop={dropProps?.onDrop}
     >
       <header className="step-card__header">
         <button
@@ -155,6 +174,7 @@ export function StepCard({
           data-testid={`step-card-drag-${step.id}`}
           aria-label={t('editor.moveUp', 'Move up')}
           {...dragHandleProps}
+          {...handleKeyboardProps}
         >
           ⠿
         </button>
