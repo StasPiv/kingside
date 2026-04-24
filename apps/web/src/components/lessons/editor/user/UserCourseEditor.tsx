@@ -23,6 +23,13 @@ import { CourseOutline } from './CourseOutline';
 import { DeleteCourseDialog } from './DeleteCourseDialog';
 import { LessonOverview } from './LessonOverview';
 import { UserCourseHeader } from './UserCourseHeader';
+import {
+  buildPublicCourseUrl,
+  pickNextActiveLessonId,
+  resolveActiveLessonId,
+  resolveOwnerGuard,
+  swapAt,
+} from './userCourseEditorLogic';
 
 /**
  * `UserCourseEditor` — root-контейнер редактора пользовательского курса
@@ -102,14 +109,14 @@ export function UserCourseEditor() {
   }, [slug, user]);
 
   // ── Active lesson (из ?lesson=:id или первый по order) ────────────
-  const activeLessonId = useMemo(() => {
-    if (state.lessons.length === 0) return null;
-    const fromQuery = searchParams.get('lesson');
-    if (fromQuery && state.lessons.some((l) => l.id === fromQuery)) {
-      return fromQuery;
-    }
-    return state.lessons[0].id;
-  }, [searchParams, state.lessons]);
+  const activeLessonId = useMemo(
+    () =>
+      resolveActiveLessonId({
+        lessonsQuery: searchParams.get('lesson'),
+        lessons: state.lessons,
+      }),
+    [searchParams, state.lessons],
+  );
 
   const setActiveLesson = useCallback(
     (id: string) => {
@@ -180,17 +187,19 @@ export function UserCourseEditor() {
   };
 
   const deleteLesson = async (id: string) => {
+    // Решаем активного ДО мутации state, чтобы pickNextActiveLessonId
+    // видел исходный порядок уроков.
+    const nextActive =
+      activeLessonId === id
+        ? pickNextActiveLessonId(state.lessons, id)
+        : null;
     actions.deleteLesson(id);
     try {
       await userCoursesApi.deleteLesson(id);
     } catch {
       /* best-effort: если падает — на следующем refresh восстановится */
     }
-    // Если удалили активный — переключаемся на первый оставшийся.
-    if (activeLessonId === id && state.lessons.length > 1) {
-      const others = state.lessons.filter((l) => l.id !== id);
-      if (others[0]) setActiveLesson(others[0].id);
-    }
+    if (nextActive) setActiveLesson(nextActive);
   };
 
   const patchLesson = useCallback(
@@ -208,11 +217,8 @@ export function UserCourseEditor() {
     if (idx === -1) return;
     const target = idx + direction;
     if (target < 0 || target >= state.lessons.length) return;
-    const orderedIds = state.lessons.map((l) => l.id);
-    [orderedIds[idx], orderedIds[target]] = [
-      orderedIds[target],
-      orderedIds[idx],
-    ];
+    const currentIds = state.lessons.map((l) => l.id);
+    const orderedIds = swapAt(currentIds, idx, target);
     actions.reorderLessons(orderedIds);
     // PATCH обоих переставленных lesson'ов.
     userCoursesApi
@@ -268,11 +274,7 @@ export function UserCourseEditor() {
     if (idx === -1) return;
     const target = idx + direction;
     if (target < 0 || target >= steps.length) return;
-    const orderedIds = steps.map((s) => s.id);
-    [orderedIds[idx], orderedIds[target]] = [
-      orderedIds[target],
-      orderedIds[idx],
-    ];
+    const orderedIds = swapAt(steps.map((s) => s.id), idx, target);
     actions.reorderSteps(lessonId, orderedIds);
     userCoursesApi.reorderSteps(lessonId, { ids: orderedIds }).catch(() => {});
   };
@@ -316,7 +318,7 @@ export function UserCourseEditor() {
 
   const onCopyLink = () => {
     if (!state.course) return;
-    const url = `${window.location.origin}/lessons/my/${state.course.slug}`;
+    const url = buildPublicCourseUrl(window.location.origin, state.course.slug);
     if (navigator.clipboard?.writeText) {
       void navigator.clipboard.writeText(url);
     }
@@ -339,21 +341,26 @@ export function UserCourseEditor() {
   };
 
   // ── Early returns ─────────────────────────────────────────────────
-  if (!user) return <Navigate to="/login" replace />;
-  if (load.kind === 'loading') {
-    return (
-      <div className="loading" data-testid="user-course-editor-loading">
-        {t('common.loading')}
-      </div>
-    );
-  }
-  if (load.kind === 'forbidden' || !state.course) {
+  const guardVerdict = resolveOwnerGuard({
+    userId: user?.id ?? null,
+    course: state.course,
+    loadError: load.kind === 'forbidden',
+  });
+  if (guardVerdict === 'unauthorized') return <Navigate to="/login" replace />;
+  if (guardVerdict === 'forbidden') {
     return (
       <Navigate
         to="/lessons"
         replace
         state={{ toast: { kind: 'error', i18nKey: 'lessons.my.forbidden' } }}
       />
+    );
+  }
+  if (load.kind === 'loading' || !state.course) {
+    return (
+      <div className="loading" data-testid="user-course-editor-loading">
+        {t('common.loading')}
+      </div>
     );
   }
 
