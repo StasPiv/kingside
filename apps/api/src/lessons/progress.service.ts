@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import type { LessonStepState, UserLessonProgress } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { Sm2Service } from './sm2.service';
+import { ADAPTIVE_STATE_KEY } from './adaptive-difficulty.service';
 
 /**
  * Политика прогресса (ADR-024 §2.3, ADR-025):
@@ -45,8 +46,12 @@ export class ProgressService {
       where: { userId_lessonId: { userId, lessonId } },
     });
 
-    const stepsState: Record<string, LessonStepState> = {
-      ...((existing?.stepsState as Record<string, LessonStepState> | undefined) ?? {}),
+    // Сохраняем служебные ключи (`__adaptive` от KS-1803) при merge —
+    // `stepsState` в БД хранит и доменные статусы шагов, и внутренние
+    // данные адаптивной сложности. Тип делаем `unknown`, чтобы не обещать
+    // что все значения — `LessonStepState`.
+    const stepsState: Record<string, unknown> = {
+      ...((existing?.stepsState as Record<string, unknown> | undefined) ?? {}),
       [stepId]: state,
     };
 
@@ -57,11 +62,13 @@ export class ProgressService {
         lessonId,
         startedAt: new Date(),
         score: 0,
-        stepsState,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        stepsState: stepsState as any,
       },
       update: {
         // startedAt оставляем как был
-        stepsState,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        stepsState: stepsState as any,
       },
     });
 
@@ -193,7 +200,28 @@ export class ProgressService {
       startedAt: row.startedAt.toISOString(),
       completedAt: row.completedAt?.toISOString() ?? null,
       score: row.score / 100,
-      stepsState: (row.stepsState as Record<string, LessonStepState>) ?? {},
+      stepsState: stripInternalKeys(row.stepsState),
     };
   }
+}
+
+/**
+ * Убирает служебные ключи (`__adaptive`, см. KS-1803) из `stepsState`
+ * перед отдачей клиенту. Public-контракт `UserLessonProgress.stepsState`
+ * — это `Record<string, LessonStepState>`, где значения — строковые
+ * состояния шагов. Служебные данные адаптивной сложности хранятся в той
+ * же JSONB-колонке, но под отдельным ключом, и не должны просачиваться
+ * наружу.
+ */
+function stripInternalKeys(raw: unknown): Record<string, LessonStepState> {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: Record<string, LessonStepState> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (k === ADAPTIVE_STATE_KEY) continue;
+    // Только строковые значения — валидные `LessonStepState`-ы.
+    if (typeof v === 'string') {
+      out[k] = v as LessonStepState;
+    }
+  }
+  return out;
 }

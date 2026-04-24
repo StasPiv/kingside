@@ -1,10 +1,12 @@
 import { ProgressController } from './progress.controller';
 import { ProgressService } from './progress.service';
+import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
 import type { AuthenticatedRequest } from '../common/authenticated-request';
 
 describe('ProgressController', () => {
   let controller: ProgressController;
   let service: jest.Mocked<ProgressService>;
+  let adaptive: jest.Mocked<AdaptiveDifficultyService>;
 
   const req = {
     user: { id: 'user-1', username: 'u1' },
@@ -15,7 +17,10 @@ describe('ProgressController', () => {
       updateStep: jest.fn(),
       completeLesson: jest.fn(),
     } as unknown as jest.Mocked<ProgressService>;
-    controller = new ProgressController(service);
+    adaptive = {
+      recordAttempt: jest.fn(),
+    } as unknown as jest.Mocked<AdaptiveDifficultyService>;
+    controller = new ProgressController(service, adaptive);
   });
 
   it('POST /lessons/progress/step → updateStep(userId, lessonId, stepId, state)', async () => {
@@ -32,5 +37,46 @@ describe('ProgressController', () => {
     service.completeLesson.mockResolvedValue({} as any);
     await controller.completeLesson(req, { lessonId: 'L1', score: 0.85 });
     expect(service.completeLesson).toHaveBeenCalledWith('user-1', 'L1', 0.85);
+  });
+
+  it('POST /lessons/progress/puzzle-attempt → adaptive.recordAttempt(userId, lessonId, stepId, puzzleId, solved, timeSpent)', async () => {
+    adaptive.recordAttempt.mockResolvedValue({} as any);
+
+    await controller.puzzleAttempt(req, {
+      lessonId: 'L1',
+      stepId: 'S1',
+      puzzleId: 'P1',
+      solved: true,
+      timeSpent: 4200,
+    });
+
+    expect(adaptive.recordAttempt).toHaveBeenCalledWith(
+      'user-1',
+      'L1',
+      'S1',
+      'P1',
+      true,
+      4200,
+    );
+  });
+
+  it('POST /lessons/progress/puzzle-attempt без timeSpent — прокидывает undefined', async () => {
+    adaptive.recordAttempt.mockResolvedValue({} as any);
+
+    await controller.puzzleAttempt(req, {
+      lessonId: 'L1',
+      stepId: 'S1',
+      puzzleId: 'P1',
+      solved: false,
+    });
+
+    expect(adaptive.recordAttempt).toHaveBeenCalledWith(
+      'user-1',
+      'L1',
+      'S1',
+      'P1',
+      false,
+      undefined,
+    );
   });
 });

@@ -1,20 +1,27 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { PuzzleStepPayload } from '@kingside/shared';
 import { PuzzleService } from '../puzzle/puzzle.service';
+import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
 
 /**
  * Резолвер `PuzzleStepPayload` в реальный список задач (KS-1761).
  *
- * Не держит своей логики задач — делегирует в `PuzzleService`
- * (ADR-024 §2.5). Два режима:
+ * Делегирует в `PuzzleService` (ADR-024 §2.5). Два режима:
  *  - `selection.mode='ids'` — строгий список `puzzleIds` из фикстуры.
- *  - `selection.mode='filter'` — фильтр по темам+рейтингу + `limit`;
- *     источник по умолчанию `lichess` (риск «нестабильные puzzleId» в
- *     сгенерированных задачах — lessons-roadmap.md §5).
+ *  - `selection.mode='filter'` — фильтр по темам+рейтингу + `limit`.
+ *    При передаче контекста пользователя (`userId`+`lessonId`+`stepId`) —
+ *    сужаем диапазон до «плавающего» окна адаптивной сложности
+ *    (`AdaptiveDifficultyService`, L-33 / KS-1803) и возвращаем одну
+ *    следующую задачу с учётом серии успехов/провалов. Без контекста
+ *    (как раньше) — выдаём статичный список задач по всем параметрам
+ *    фильтра.
  */
 @Injectable()
 export class LessonPuzzleResolverService {
-  constructor(private readonly puzzleService: PuzzleService) {}
+  constructor(
+    private readonly puzzleService: PuzzleService,
+    private readonly adaptive: AdaptiveDifficultyService,
+  ) {}
 
   async resolve(
     payload: PuzzleStepPayload,
@@ -22,10 +29,23 @@ export class LessonPuzzleResolverService {
       excludeIds?: string[];
       source?: string;
       orderBy?: 'random' | 'rating' | 'popularity';
+      /**
+       * Контекст пользователя для адаптивной сложности. Если передан вместе
+       * с `mode='filter'` — вместо статичного `findPuzzles` обращаемся к
+       * `AdaptiveDifficultyService.getNextPuzzle` (L-33). Для `mode='ids'`
+       * этот параметр игнорируется.
+       */
+      adaptive?: { userId: string; lessonId: string; stepId: string };
     } = {},
   ) {
     if (payload.selection.mode === 'ids') {
       return this.resolveIds(payload.selection.puzzleIds);
+    }
+
+    if (options.adaptive) {
+      const { userId, lessonId, stepId } = options.adaptive;
+      const next = await this.adaptive.getNextPuzzle(userId, lessonId, stepId);
+      return next ? [next] : [];
     }
 
     return this.puzzleService.findPuzzles({

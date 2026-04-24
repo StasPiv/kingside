@@ -16,6 +16,7 @@ import { LessonPuzzleResolverService } from './puzzle-resolver.service';
 import { LevelGateService } from './level-gate.service';
 import { Sm2Service } from './sm2.service';
 import { Sm2SchedulerService } from './sm2.scheduler';
+import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
 
 /**
  * LessonsModule — тонкий слой над существующими доменами (ADR-024 §2.5,
@@ -48,6 +49,7 @@ import { Sm2SchedulerService } from './sm2.scheduler';
     LevelGateService,
     Sm2Service,
     Sm2SchedulerService,
+    AdaptiveDifficultyService,
   ],
   exports: [
     CoursesService,
@@ -56,6 +58,7 @@ import { Sm2SchedulerService } from './sm2.scheduler';
     LessonPuzzleResolverService,
     LevelGateService,
     Sm2Service,
+    AdaptiveDifficultyService,
   ],
 })
 export class LessonsModule {}

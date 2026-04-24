@@ -2,17 +2,22 @@ import { NotFoundException } from '@nestjs/common';
 import type { PuzzleStepPayload } from '@kingside/shared';
 import { LessonPuzzleResolverService } from './puzzle-resolver.service';
 import { PuzzleService } from '../puzzle/puzzle.service';
+import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
 
 describe('LessonPuzzleResolverService', () => {
   let resolver: LessonPuzzleResolverService;
   let puzzleService: jest.Mocked<PuzzleService>;
+  let adaptive: jest.Mocked<AdaptiveDifficultyService>;
 
   beforeEach(() => {
     puzzleService = {
       findPuzzles: jest.fn(),
       getPuzzle: jest.fn(),
     } as unknown as jest.Mocked<PuzzleService>;
-    resolver = new LessonPuzzleResolverService(puzzleService);
+    adaptive = {
+      getNextPuzzle: jest.fn(),
+    } as unknown as jest.Mocked<AdaptiveDifficultyService>;
+    resolver = new LessonPuzzleResolverService(puzzleService, adaptive);
   });
 
   describe("mode='ids'", () => {
@@ -69,6 +74,38 @@ describe('LessonPuzzleResolverService', () => {
           orderBy: 'random', // KS-1776: дефолт
         }),
       );
+    });
+
+    it('при передаче adaptive-контекста — делегирует в AdaptiveDifficultyService', async () => {
+      adaptive.getNextPuzzle.mockResolvedValue({ id: 'next-1' } as any);
+      const payload: PuzzleStepPayload = {
+        type: 'puzzle',
+        selection: {
+          mode: 'filter',
+          themes: ['fork'],
+          ratingMin: 1200,
+          ratingMax: 1500,
+          limit: 5,
+        },
+      };
+      const res = await resolver.resolve(payload, {
+        adaptive: { userId: 'u1', lessonId: 'l1', stepId: 's1' },
+      });
+      expect(res).toEqual([{ id: 'next-1' }]);
+      expect(adaptive.getNextPuzzle).toHaveBeenCalledWith('u1', 'l1', 's1');
+      expect(puzzleService.findPuzzles).not.toHaveBeenCalled();
+    });
+
+    it('adaptive вернул null → пустой список', async () => {
+      adaptive.getNextPuzzle.mockResolvedValue(null);
+      const payload: PuzzleStepPayload = {
+        type: 'puzzle',
+        selection: { mode: 'filter', themes: ['fork'], limit: 5 },
+      };
+      const res = await resolver.resolve(payload, {
+        adaptive: { userId: 'u1', lessonId: 'l1', stepId: 's1' },
+      });
+      expect(res).toEqual([]);
     });
 
     it('прокидывает excludeIds и позволяет переопределить source/orderBy', async () => {
