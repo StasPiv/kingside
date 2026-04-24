@@ -61,6 +61,11 @@ function detectStageKeyword(name: string): string | null {
   const roundOf = name.match(/\bround\s+of\s+(\d+)\b/i);
   if (roundOf) return `round_of_${roundOf[1]}`;
 
+  // Chess.com-стайл `R16`, `R32`, `R8` — синоним «Round of N». Матч на
+  // границе слова, case-sensitive (в именах всегда заглавная R).
+  const shortRound = name.match(/(?:^|[\s(|/-])R(\d{1,3})(?=[\s)|/-]|$)/);
+  if (shortRound) return `round_of_${shortRound[1]}`;
+
   if (/\bgrand\s+final(?:s)?\b/i.test(name)) return 'grand_final';
   if (/\bsemi[- ]?final(?:s)?\b/i.test(name) || /\bSF\b/.test(name)) return 'semi';
   if (/\bquarter[- ]?final(?:s)?\b/i.test(name) || /\bQF\b/.test(name)) return 'quarter';

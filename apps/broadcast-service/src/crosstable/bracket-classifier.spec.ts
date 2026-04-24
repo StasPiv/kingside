@@ -65,6 +65,30 @@ describe('parseBracketStage', () => {
   it('пустая строка → playoff', () => {
     expect(parseBracketStage('')).toBe('playoff');
   });
+
+  // ── KS-1819: R16 / R32 / R8 сокращения ─────────────────────────
+
+  it('R16 Armageddon → round_of_16', () => {
+    expect(parseBracketStage('R16 Armageddon')).toBe('round_of_16');
+  });
+
+  it('R8 → round_of_8', () => {
+    expect(parseBracketStage('R8')).toBe('round_of_8');
+  });
+
+  it('R32 → round_of_32', () => {
+    expect(parseBracketStage('R32')).toBe('round_of_32');
+  });
+
+  it('"Round 16" (без "of", из швейцарки) НЕ матчит R16', () => {
+    // 'Round 16' не содержит `/\bR\d+\b/` с границами R-буквы, значит
+    // откатится дальше по правилам. В playoff-контексте fallback 'playoff'.
+    expect(parseBracketStage('Round 16')).toBe('playoff');
+  });
+
+  it('"Armageddon" сам по себе → playoff (fallback — этапа нет)', () => {
+    expect(parseBracketStage('Armageddon')).toBe('playoff');
+  });
 });
 
 describe('computeMatchScore', () => {

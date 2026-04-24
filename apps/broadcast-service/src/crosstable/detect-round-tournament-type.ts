@@ -48,7 +48,16 @@ const PLAYOFF_NAME_PATTERNS: RegExp[] = [
   /\bsemi[- ]?final(?:s)?\b/i,
   /\bquarter[- ]?final(?:s)?\b/i,
   /\bround\s+of\s+\d+\b/i,
+  // Сокращения: `R16 Armageddon`, `R32`, `R8` — Chess.com-стайл именования
+  // раундов knockout-сетки. Матч — на границе слова / с разделителями.
+  /(?:^|[\s(|/-])R\d{1,3}(?=[\s)|/-]|$)/,
   /(?:^|[\s(|/])(?:QF|SF|F)(?:[\s)|/]|$)/, // abbreviations (case-sensitive — аббревиатуры всегда заглавными)
+  // Armageddon — тай-брейк формат, встречается в именах раундов knockout
+  // (Chess.com Open, FIDE Grand Prix). Само по себе — сигнал playoff.
+  /\barmageddon\b/i,
+  // Тай-брейк между двумя игроками пары (Chess.com / Champions Chess Tour)
+  // — тоже playoff-контекст.
+  /\btie[- ]?break(?:s|er|ers)?\b/i,
 ];
 
 const SWISS_PATTERN = /\bswiss\b/i;

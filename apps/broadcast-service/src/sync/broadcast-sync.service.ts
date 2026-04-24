@@ -693,7 +693,7 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
       roundName: round.name,
       broadcastFormat: broadcast.format,
     });
-    await this.prisma.broadcastRound.upsert({
+    const upserted = await this.prisma.broadcastRound.upsert({
       where: { lichessRoundId: round.id },
       update: {
         name: round.name,
@@ -710,6 +710,20 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         tournamentType,
       },
     });
+
+    // KS-1819: прогон `classifyRoundBrackets` при каждом sync-цикле раунда —
+    // не только после PGN-update. Раньше существующие партии
+    // переклассифицировались только когда приходило PGN-обновление, из-за
+    // чего уже загруженные playoff-раунды на проде оставались без
+    // bracket-полей. `classifyRoundBrackets` идемпотентен — для не-playoff
+    // он обнуляет возможные «зомби»-значения через `updateMany`.
+    try {
+      await classifyRoundBrackets(this.prisma, upserted.id);
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] classifyRoundBrackets(upsertRound) failed for round=${upserted.id.slice(0, 8)}: ${(e as Error).message}`,
+      );
+    }
   }
 
   /** Returns true if an actual Lichess fetch was performed */

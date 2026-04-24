@@ -96,6 +96,59 @@ describe('detectRoundTournamentType', () => {
     ).toBe('playoff');
   });
 
+  // ── KS-1819: Armageddon + R16/R32/R8 сокращения ──────────────────
+
+  it('"Round of 16 | Armageddon" → playoff', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round of 16 | Armageddon',
+        broadcastFormat: null,
+      }),
+    ).toBe('playoff');
+  });
+
+  it('"R16 Armageddon" → playoff (Chess.com сокращение)', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'R16 Armageddon',
+        broadcastFormat: null,
+      }),
+    ).toBe('playoff');
+  });
+
+  it('"R8" сам по себе → playoff', () => {
+    expect(
+      detectRoundTournamentType({ roundName: 'R8', broadcastFormat: null }),
+    ).toBe('playoff');
+  });
+
+  it('"Armageddon" сам по себе → playoff', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Armageddon',
+        broadcastFormat: 'Knockout',
+      }),
+    ).toBe('playoff');
+  });
+
+  it('"Tiebreak" → playoff', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Tiebreak 1',
+        broadcastFormat: null,
+      }),
+    ).toBe('playoff');
+  });
+
+  it('"Round 16" (без "of") — НЕ матчит R16-сокращение (это Round 16 швейцарки)', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round 16',
+        broadcastFormat: '11-round Swiss',
+      }),
+    ).toBe('swiss');
+  });
+
   // ── playoff по структуре пар ─────────────────────────────────────
 
   it('две партии у одной пары → playoff, даже если название нейтральное', () => {
