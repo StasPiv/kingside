@@ -47,7 +47,8 @@ export type LessonStepType =
   | 'quiz'
   | 'position'
   | 'game_review'
-  | 'video';
+  | 'video'
+  | 'endgame_drill';
 
 /** Статус прохождения шага внутри урока (агрегат в `UserLessonProgress.stepsState`). */
 export type LessonStepState = 'pending' | 'in_progress' | 'done' | 'failed' | 'skipped';
@@ -211,6 +212,38 @@ export interface VideoStepPayload {
 }
 
 /**
+ * Эндшпильный тренажёр (L-24 / KS-1800 frontend / KS-1815 backend-контракт).
+ * Ученик играет позицию против Stockfish'а с ограниченным `skillLevel`.
+ * Условие победы — дискриминированный union по `kind`:
+ *   - `mate`              — поставить мат соперником
+ *   - `promote`           — провести пешку в ферзи
+ *   - `reach_position`    — достичь указанного FEN
+ *   - `material_advantage` — материальное преимущество `amount` (в пешках)
+ *
+ * Shape согласован с frontend'ом; меняется только в связке с UI.
+ */
+export type EndgameWinCondition =
+  | { kind: 'mate' }
+  | { kind: 'promote' }
+  | { kind: 'reach_position'; fen: string }
+  | { kind: 'material_advantage'; amount: number };
+
+export interface EndgameDrillStepPayload {
+  type: 'endgame_drill';
+  /** Стартовая позиция. Валидируется через chess.js. */
+  fen: string;
+  /** За какую сторону играет ученик. */
+  playerSide: 'white' | 'black';
+  /** UCI Skill Level Stockfish'а (0..20). */
+  skillLevel: number;
+  winCondition: EndgameWinCondition;
+  /** Жёсткий лимит хода (защита от бесконечной партии). */
+  maxMoves?: number;
+  /** Разрешены ли подсказки движка. По умолчанию — false (фронт решает UX). */
+  hintsAllowed?: boolean;
+}
+
+/**
  * Дискриминированный union по полю `type`. Сужать через `switch (payload.type)`.
  */
 export type StepPayload =
@@ -219,7 +252,8 @@ export type StepPayload =
   | QuizStepPayload
   | PositionStepPayload
   | GameReviewStepPayload
-  | VideoStepPayload;
+  | VideoStepPayload
+  | EndgameDrillStepPayload;
 
 /** Алиасы под именование в ТЗ (`TextStep`/`PuzzleStep`/`QuizStep`). */
 export type TextStep = TextStepPayload;
@@ -228,6 +262,7 @@ export type QuizStep = QuizStepPayload;
 export type PositionStep = PositionStepPayload;
 export type GameReviewStep = GameReviewStepPayload;
 export type VideoStep = VideoStepPayload;
+export type EndgameDrillStep = EndgameDrillStepPayload;
 
 // ─── Domain entities (API shape, сериализовано в JSON) ────────────────
 

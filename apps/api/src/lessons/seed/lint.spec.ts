@@ -392,4 +392,142 @@ describe('lintFixtures', () => {
     const errors = await lintFixtures([course]);
     expect(errors.some((e) => e.path.endsWith('payload.url'))).toBe(true);
   });
+
+  // ── endgame_drill (KS-1815) ─────────────────────────────────────
+
+  it('endgame_drill: валидный (kind=mate) — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'endgame_drill',
+          fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+          playerSide: 'white',
+          skillLevel: 5,
+          winCondition: { kind: 'mate' },
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('endgame_drill: валидный (reach_position + fen) — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'endgame_drill',
+          fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+          playerSide: 'white',
+          skillLevel: 10,
+          winCondition: {
+            kind: 'reach_position',
+            fen: '4k3/8/8/8/4P3/8/8/4K3 b - - 0 2',
+          },
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('endgame_drill: невалидный fen — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'endgame_drill',
+          fen: 'not-a-fen',
+          playerSide: 'white',
+          skillLevel: 5,
+          winCondition: { kind: 'mate' },
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.fen'))).toBe(true);
+  });
+
+  it('endgame_drill: skillLevel вне диапазона — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'endgame_drill',
+          fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+          playerSide: 'white',
+          skillLevel: 21,
+          winCondition: { kind: 'mate' },
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.endsWith('payload.skillLevel'))).toBe(true);
+  });
+
+  it('endgame_drill: reach_position без fen — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'endgame_drill',
+          fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+          playerSide: 'white',
+          skillLevel: 5,
+          winCondition: { kind: 'reach_position' },
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.includes('winCondition.fen'))).toBe(true);
+  });
+
+  it('endgame_drill: material_advantage с amount=0 — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'endgame_drill',
+          fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+          playerSide: 'white',
+          skillLevel: 5,
+          winCondition: { kind: 'material_advantage', amount: 0 },
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.includes('winCondition.amount'))).toBe(true);
+  });
+
+  it('endgame_drill: mate с лишним fen в winCondition — ошибка', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'endgame_drill',
+          fen: '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1',
+          playerSide: 'white',
+          skillLevel: 5,
+          winCondition: { kind: 'mate', fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1' },
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.includes('winCondition.fen'))).toBe(true);
+  });
 });

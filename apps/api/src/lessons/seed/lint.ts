@@ -35,9 +35,11 @@ import {
   PositionStepPayloadDto,
   GameReviewStepPayloadDto,
   VideoStepPayloadDto,
+  EndgameDrillStepPayloadDto,
 } from '../dto/step-payload.dto';
 import { isValidFen, isLegalUciOnFen } from '../dto/position-step.validators';
 import { validateGameReviewPayload } from '../dto/game-review-step.validators';
+import { validateEndgameDrillPayload } from '../dto/endgame-drill-step.validators';
 import { ALLOWED_VIDEO_HOSTS, isAllowedVideoUrl } from '@kingside/shared';
 
 export interface LinterError {
@@ -52,6 +54,7 @@ const PAYLOAD_DTO_BY_TYPE = {
   position: PositionStepPayloadDto,
   game_review: GameReviewStepPayloadDto,
   video: VideoStepPayloadDto,
+  endgame_drill: EndgameDrillStepPayloadDto,
 } as const;
 
 export interface LintOptions {
@@ -277,6 +280,19 @@ function collectChessChecks(
           path: `${stepPath}.payload.url`,
           message: `Invalid video URL "${payload.url}": must be http(s) and host in {${ALLOWED_VIDEO_HOSTS.join(', ')}}`,
         });
+      }
+      break;
+    }
+    case 'endgame_drill': {
+      // KS-1815: FEN / playerSide / skillLevel / winCondition (XOR kind).
+      // Общий helper с DTO (`../dto/endgame-drill-step.validators`) —
+      // рантайм-валидация API и pre-seed-линтер репортят одно и то же.
+      const res = validateEndgameDrillPayload(
+        payload as unknown as Record<string, unknown>,
+        `${stepPath}.payload`,
+      );
+      for (const e of res.errors) {
+        errors.push({ path: e.path, message: e.message });
       }
       break;
     }

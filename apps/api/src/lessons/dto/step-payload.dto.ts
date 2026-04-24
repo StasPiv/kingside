@@ -21,6 +21,8 @@ import type {
   PositionStepPayload,
   GameReviewStepPayload,
   VideoStepPayload,
+  EndgameDrillStepPayload,
+  EndgameWinCondition,
   QuizQuestion,
   QuizOption,
   PuzzleTheme,
@@ -28,6 +30,7 @@ import type {
 import { ArePositionMovesLegal, IsFen } from './position-step.validators';
 import { IsVideoUrl } from './video-step.validators';
 import { IsGameReviewXor, IsValidPgn } from './game-review-step.validators';
+import { IsEndgameWinCondition } from './endgame-drill-step.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
@@ -255,6 +258,41 @@ class VideoStepPayloadDto implements VideoStepPayload {
   titleI18nKey?: string;
 }
 
+/**
+ * Эндшпильный тренажёр (L-24 / KS-1800 frontend / KS-1815 backend).
+ * `winCondition` — дискриминированный union, проверка унифицирована
+ * через `@IsEndgameWinCondition()` (та же функция используется
+ * seed-линтером).
+ */
+class EndgameDrillStepPayloadDto implements EndgameDrillStepPayload {
+  @IsIn(['endgame_drill'])
+  type!: 'endgame_drill';
+
+  @IsString()
+  @IsFen()
+  fen!: string;
+
+  @IsIn(['white', 'black'])
+  playerSide!: 'white' | 'black';
+
+  @IsInt()
+  @Min(0)
+  @Max(20)
+  skillLevel!: number;
+
+  @IsEndgameWinCondition()
+  winCondition!: EndgameWinCondition;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  maxMoves?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  hintsAllowed?: boolean;
+}
+
 // ─── Discriminated union wrapper ─────────────────────────────────────
 
 /**
@@ -269,6 +307,7 @@ export const STEP_PAYLOAD_SUBTYPES = [
   { value: PositionStepPayloadDto, name: 'position' },
   { value: GameReviewStepPayloadDto, name: 'game_review' },
   { value: VideoStepPayloadDto, name: 'video' },
+  { value: EndgameDrillStepPayloadDto, name: 'endgame_drill' },
 ] as const;
 
 export type StepPayloadDto =
@@ -277,7 +316,8 @@ export type StepPayloadDto =
   | QuizStepPayloadDto
   | PositionStepPayloadDto
   | GameReviewStepPayloadDto
-  | VideoStepPayloadDto;
+  | VideoStepPayloadDto
+  | EndgameDrillStepPayloadDto;
 
 export {
   TextStepPayloadDto,
@@ -286,6 +326,7 @@ export {
   PositionStepPayloadDto,
   GameReviewStepPayloadDto,
   VideoStepPayloadDto,
+  EndgameDrillStepPayloadDto,
   QuizQuestionDto,
   QuizOptionDto,
   PuzzleSelectionIdsDto,
