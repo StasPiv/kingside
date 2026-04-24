@@ -236,11 +236,96 @@ describe('lintFixtures', () => {
       },
     ];
     const errors = await lintFixtures([course]);
-    // chess.js loadPgn для "not-a-pgn" выдаёт пустую игру без ошибок, но
-    // если дать явно битый синтаксис, он кидает. Всё же проверим, что
-    // линтер хотя бы не падает и сделает check. Если ошибок нет — тест
-    // не падает; основная цель — что метод НЕ бросает.
-    expect(Array.isArray(errors)).toBe(true);
+    expect(
+      errors.some(
+        (e) => e.path.endsWith('payload') && e.message.toLowerCase().includes('pgn'),
+      ),
+    ).toBe(true);
+  });
+
+  it('game_review с валидным gameId (UUID) — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'game_review',
+          gameId: '11111111-1111-4111-8111-111111111111',
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('game_review с валидным pgn — ok', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'game_review',
+          pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6',
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
+  });
+
+  it('game_review пустой payload — ошибка XOR', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: { type: 'game_review' },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(
+      errors.some(
+        (e) =>
+          e.path.endsWith('payload') && e.message.toLowerCase().includes('exactly one'),
+      ),
+    ).toBe(true);
+  });
+
+  it('game_review с обоими полями — ошибка XOR', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'game_review',
+          gameId: '11111111-1111-4111-8111-111111111111',
+          pgn: '1. e4 e5',
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(
+      errors.some(
+        (e) =>
+          e.path.endsWith('payload') && e.message.toLowerCase().includes('exactly one'),
+      ),
+    ).toBe(true);
+  });
+
+  it('game_review с невалидным UUID — ошибка на gameId', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: { type: 'game_review', gameId: 'not-a-uuid' },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.message.toLowerCase().includes('uuid'))).toBe(true);
   });
 
   it('video: битый URL — ошибка', async () => {

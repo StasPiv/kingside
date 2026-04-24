@@ -9,6 +9,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   Min,
   ValidateNested,
@@ -26,6 +27,7 @@ import type {
 } from '@kingside/shared';
 import { ArePositionMovesLegal, IsFen } from './position-step.validators';
 import { IsVideoUrl } from './video-step.validators';
+import { IsGameReviewXor, IsValidPgn } from './game-review-step.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
@@ -211,16 +213,25 @@ class PositionStepPayloadDto implements PositionStepPayload {
   orientation?: 'white' | 'black';
 }
 
+/**
+ * Разбор партии (L-30 / KS-1811). Автор шага обязан указать ровно один
+ * источник партии: `gameId` (UUID записи игры в нашей БД) ИЛИ `pgn`
+ * (непустая строка, парсящаяся `chess.js#loadPgn`). Пустой payload
+ * запрещён на уровне DTO и seed-линтера — UX-ветка «empty + импорт»
+ * на фронте не соответствует контенту урока.
+ */
 class GameReviewStepPayloadDto implements GameReviewStepPayload {
   @IsIn(['game_review'])
+  @IsGameReviewXor()
   type!: 'game_review';
 
   @IsOptional()
-  @IsString()
+  @IsUUID()
   gameId?: string;
 
   @IsOptional()
   @IsString()
+  @IsValidPgn()
   pgn?: string;
 }
 

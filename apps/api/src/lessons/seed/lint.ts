@@ -37,6 +37,7 @@ import {
   VideoStepPayloadDto,
 } from '../dto/step-payload.dto';
 import { isValidFen, isLegalUciOnFen } from '../dto/position-step.validators';
+import { validateGameReviewPayload } from '../dto/game-review-step.validators';
 import { ALLOWED_VIDEO_HOSTS, isAllowedVideoUrl } from '@kingside/shared';
 
 export interface LinterError {
@@ -256,16 +257,13 @@ function collectChessChecks(
       break;
     }
     case 'game_review': {
-      if (payload.pgn) {
-        const chess = new Chess();
-        try {
-          chess.loadPgn(payload.pgn);
-        } catch (e) {
-          errors.push({
-            path: `${stepPath}.payload.pgn`,
-            message: `PGN parse failed: ${(e as Error).message}`,
-          });
-        }
+      // KS-1811: XOR gameId/pgn + строгая проверка PGN (chess.js#loadPgn +
+      // ≥ 1 ход). Хелпер общий с DTO (`../dto/game-review-step.validators`),
+      // чтобы словарь ошибок был одинаковым у рантайм-валидации API и
+      // pre-seed-линтера.
+      const res = validateGameReviewPayload(payload);
+      for (const msg of res.errors) {
+        errors.push({ path: `${stepPath}.payload`, message: msg });
       }
       break;
     }
