@@ -9,12 +9,15 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { BroadcastStandingsSyncService } from '../chess-results/broadcast-standings-sync.service';
 import type {
+  BracketLink,
+  BroadcastBracketResponse,
   BroadcastGameSummary,
   BroadcastGamesResponse,
   BroadcastRoundItem,
   BroadcastRoundTournamentType,
   CrosstableResponse,
 } from '@kingside/shared';
+import { computeAdvanceLinks } from '../crosstable/compute-advance-links';
 
 type LifecycleStatus = 'live' | 'upcoming' | 'finished';
 
@@ -646,5 +649,110 @@ export class BroadcastController {
     }));
 
     return { data };
+  }
+
+  /**
+   * GET /:id/bracket — агрегированный ответ для фронт-сетки плей-офф
+   * (KS-1824). Возвращает все партии всех playoff-раундов броадкаста
+   * с заполненными bracket-полями. Для не-playoff броадкастов —
+   * пустой `games[]` (контракт: фронт рендерит свой crosstable, а
+   * bracket-endpoint явно сообщает «сетки нет»).
+   *
+   * Cache-Control — тот же, что у `/crosstable`: короткое окно, чтобы
+   * live-обновления Standings не били напрямую в БД, но и не отставали
+   * сильно от реальной картины.
+   */
+  @Get(':id/bracket')
+  @Header('Cache-Control', 'public, max-age=30, stale-while-revalidate=60')
+  async getBroadcastBracket(
+    @Param('id') id: string,
+  ): Promise<BroadcastBracketResponse> {
+    assertUuid(id, 'Broadcast');
+    const broadcast = await this.prisma.broadcast.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!broadcast) {
+      throw new NotFoundException(`Broadcast ${id} not found`);
+    }
+
+    // Тянем раунды + их игры одним запросом. Для не-playoff раундов
+    // игры не нужны — но фильтровать на уровне Prisma join'а неудобно,
+    // поэтому фильтруем уже в памяти. Объёмы скромные (десятки раундов,
+    // сотни партий максимум).
+    const rounds = await this.prisma.broadcastRound.findMany({
+      where: { broadcastId: broadcast.id },
+      orderBy: { startsAt: 'asc' },
+      include: {
+        games: { orderBy: { updatedAt: 'asc' } },
+      },
+    });
+
+    const roundTypes = rounds.map((r) =>
+      normalizeRoundTournamentType(r.tournamentType),
+    );
+    const hasPlayoff = roundTypes.some((t) => t === 'playoff');
+
+    let tournamentType: BroadcastRoundTournamentType | null;
+    let games: BroadcastGameSummary[];
+    let links: BracketLink[] = [];
+    if (hasPlayoff) {
+      tournamentType = 'playoff';
+      // Берём только партии playoff-раундов — гибридные турниры
+      // (Swiss → Playoffs) отдадут только knockout-часть.
+      const playoffGamesRaw = rounds
+        .filter(
+          (r) => normalizeRoundTournamentType(r.tournamentType) === 'playoff',
+        )
+        .flatMap((r) => r.games);
+      games = playoffGamesRaw.map(
+        (g): BroadcastGameSummary => ({
+          id: g.id,
+          lichessGameId: g.lichessGameId,
+          whitePlayer: g.whitePlayer,
+          blackPlayer: g.blackPlayer,
+          whiteElo: g.whiteElo,
+          blackElo: g.blackElo,
+          result: g.result,
+          pgn: g.pgn,
+          currentFen: g.currentFen,
+          updatedAt: g.updatedAt.toISOString(),
+          bracketStage: g.bracketStage,
+          bracketPairId: g.bracketPairId,
+          matchScore: g.matchScore,
+          advanceToPairId: g.advanceToPairId,
+          loserToPairId: g.loserToPairId,
+        }),
+      );
+
+      // Дедуплицированные рёбра — вычисляем заново по уникальным парам,
+      // не полагаясь на то, что sync-цикл уже записал advance/loser в БД
+      // (для свежих раундов запрос может прилететь раньше ближайшего
+      // sync-цикла). `computeAdvanceLinks` идемпотентен и быстр.
+      const pairs = playoffGamesRaw
+        .filter(
+          (g): g is typeof g & { bracketPairId: string; bracketStage: string } =>
+            g.bracketPairId !== null && g.bracketStage !== null,
+        )
+        .map((g) => ({
+          bracketPairId: g.bracketPairId,
+          bracketStage: g.bracketStage,
+        }));
+      links = computeAdvanceLinks(pairs).links;
+    } else {
+      // Нет playoff-раундов → возвращаем первый не-null тип (обычно он
+      // общий для всех раундов), иначе null. Клиент трактует null как
+      // 'unknown' (sync ещё не прошёл после KS-1813).
+      tournamentType = roundTypes.find((t) => t !== null) ?? null;
+      games = [];
+      links = [];
+    }
+
+    return {
+      broadcastId: broadcast.id,
+      tournamentType,
+      games,
+      links,
+    };
   }
 }

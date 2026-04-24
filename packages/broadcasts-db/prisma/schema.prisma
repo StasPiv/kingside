@@ -98,6 +98,15 @@ model BroadcastGame {
   /// KS-1813: текущий счёт матча в паре, '2-1' / '2½-1½' (ничьи дают полочки).
   /// Пересчитывается после каждого PGN-обновления раунда.
   matchScore    String?   @map("match_score")
+  /// KS-1824: пара следующего раунда для ПОБЕДИТЕЛЯ этого матча
+  /// (winners_quarter → winners_semi, winners_final → grand_final,
+  /// grand_final → grand_final_reset). null для последних стадий или
+  /// не-playoff.
+  advanceToPairId String? @map("advance_to_pair_id")
+  /// KS-1824: для double-elimination — пара в losers-сетке, куда попадает
+  /// ПРОИГРАВШИЙ winners-матча. null для losers-сетки, одиночных сеток
+  /// и не-playoff.
+  loserToPairId   String? @map("loser_to_pair_id")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
   round BroadcastRound @relation(fields: [roundId], references: [id])

@@ -461,4 +461,326 @@ describe('BroadcastController', () => {
       );
     });
   });
+
+  // ── KS-1824: GET /:id/bracket — агрегированная сетка плей-офф ────
+
+  describe('GET /:id/bracket', () => {
+    const broadcastId = '11111111-1111-1111-1111-111111111111';
+
+    function bracketBuild(rounds: unknown[]) {
+      return build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([]),
+          findUnique: jest.fn().mockResolvedValue({ id: broadcastId }),
+          count: jest.fn().mockResolvedValue(0),
+        },
+        broadcastRound: {
+          findMany: jest.fn().mockResolvedValue(rounds),
+          findUnique: jest.fn().mockResolvedValue(null),
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+      });
+    }
+
+    it('404 когда broadcast не найден', async () => {
+      const { controller } = build({
+        broadcast: {
+          findMany: jest.fn().mockResolvedValue([]),
+          findUnique: jest.fn().mockResolvedValue(null),
+          count: jest.fn().mockResolvedValue(0),
+        },
+      });
+      await expect(controller.getBroadcastBracket(broadcastId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('404 на не-UUID (assertUuid отбивает до БД)', async () => {
+      const { controller, prisma } = build();
+      await expect(controller.getBroadcastBracket('not-a-uuid')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(prisma.broadcast.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('playoff-раунды → tournamentType=playoff, games со всех playoff-раундов с bracket-полями + advance-поля прокинуты, links[] содержит semi→final', async () => {
+      const { controller } = bracketBuild([
+        {
+          id: 'r-sf',
+          tournamentType: 'playoff',
+          games: [
+            {
+              id: 'g-sf-1',
+              lichessGameId: 'lg1',
+              whitePlayer: 'Alice',
+              blackPlayer: 'Bob',
+              whiteElo: 2700,
+              blackElo: 2710,
+              result: '1-0',
+              pgn: '1. e4',
+              currentFen: 'fen1',
+              updatedAt: new Date('2026-04-24T08:00:00Z'),
+              bracketStage: 'semi',
+              bracketPairId: 'semi:alice|bob',
+              matchScore: '1-0',
+              advanceToPairId: 'final:bob|carol',
+              loserToPairId: null,
+            },
+          ],
+        },
+        {
+          id: 'r-final',
+          tournamentType: 'playoff',
+          games: [
+            {
+              id: 'g-final-1',
+              lichessGameId: 'lg2',
+              whitePlayer: 'Bob',
+              blackPlayer: 'Carol',
+              whiteElo: 2710,
+              blackElo: 2720,
+              result: '0-1',
+              pgn: '1. d4',
+              currentFen: 'fen2',
+              updatedAt: new Date('2026-04-24T09:00:00Z'),
+              bracketStage: 'final',
+              bracketPairId: 'final:bob|carol',
+              matchScore: '0-1',
+              advanceToPairId: null,
+              loserToPairId: null,
+            },
+          ],
+        },
+      ]);
+
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.broadcastId).toBe(broadcastId);
+      expect(res.tournamentType).toBe('playoff');
+      expect(res.games).toHaveLength(2);
+      expect(res.games[0].bracketStage).toBe('semi');
+      expect(res.games[0].bracketPairId).toBe('semi:alice|bob');
+      // advanceToPairId прокинут из БД в summary.
+      expect(res.games[0].advanceToPairId).toBe('final:bob|carol');
+      expect(res.games[1].bracketStage).toBe('final');
+      expect(res.games[1].matchScore).toBe('0-1');
+      // 1 semi + 1 final: computeAdvanceLinks кладёт одну пару semi
+      // в bucket[0] → final-пара на bucket[0]. Результат — одно
+      // ребро winner: semi:alice|bob → final:bob|carol.
+      expect(res.links).toEqual([
+        {
+          fromPairId: 'semi:alice|bob',
+          toPairId: 'final:bob|carol',
+          kind: 'winner',
+        },
+      ]);
+    });
+
+    it('double-elim сетка из winners/losers/grand_final → links[] содержит winner- и loser-рёбра', async () => {
+      // 2 winners_quarter → 1 winners_semi → grand_final
+      // 2 losers_quarter (пары проигравших) → losers_semi → grand_final
+      const games = [
+        {
+          id: 'g-wq1',
+          bracketStage: 'winners_quarter',
+          bracketPairId: 'winners_quarter:a|b',
+          matchScore: '0-0',
+          advanceToPairId: 'winners_semi:ab|cd',
+          loserToPairId: 'losers_quarter:p|q',
+        },
+        {
+          id: 'g-wq2',
+          bracketStage: 'winners_quarter',
+          bracketPairId: 'winners_quarter:c|d',
+          matchScore: '0-0',
+          advanceToPairId: 'winners_semi:ab|cd',
+          loserToPairId: 'losers_quarter:r|s',
+        },
+        {
+          id: 'g-ws',
+          bracketStage: 'winners_semi',
+          bracketPairId: 'winners_semi:ab|cd',
+          matchScore: '0-0',
+          advanceToPairId: 'grand_final:f1|f2',
+          loserToPairId: null,
+        },
+        {
+          id: 'g-lq1',
+          bracketStage: 'losers_quarter',
+          bracketPairId: 'losers_quarter:p|q',
+          matchScore: '0-0',
+          advanceToPairId: 'losers_semi:pq|rs',
+          loserToPairId: null,
+        },
+        {
+          id: 'g-lq2',
+          bracketStage: 'losers_quarter',
+          bracketPairId: 'losers_quarter:r|s',
+          matchScore: '0-0',
+          advanceToPairId: 'losers_semi:pq|rs',
+          loserToPairId: null,
+        },
+        {
+          id: 'g-ls',
+          bracketStage: 'losers_semi',
+          bracketPairId: 'losers_semi:pq|rs',
+          matchScore: '0-0',
+          advanceToPairId: 'grand_final:f1|f2',
+          loserToPairId: null,
+        },
+        {
+          id: 'g-gf',
+          bracketStage: 'grand_final',
+          bracketPairId: 'grand_final:f1|f2',
+          matchScore: '0-0',
+          advanceToPairId: null,
+          loserToPairId: null,
+        },
+      ].map((g) => ({
+        lichessGameId: null,
+        whitePlayer: null,
+        blackPlayer: null,
+        whiteElo: null,
+        blackElo: null,
+        result: null,
+        pgn: null,
+        currentFen: null,
+        updatedAt: new Date('2026-04-24T12:00:00Z'),
+        ...g,
+      }));
+
+      const { controller } = bracketBuild([
+        { id: 'r1', tournamentType: 'playoff', games },
+      ]);
+
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.tournamentType).toBe('playoff');
+      expect(res.games).toHaveLength(7);
+      // Winner-рёбра: QF→SF (2), SF(winners)→GF, QF(losers)→SF(losers) (2), SF(losers)→GF.
+      const winnerLinks = res.links.filter((l) => l.kind === 'winner');
+      expect(winnerLinks.length).toBeGreaterThanOrEqual(5);
+      // Loser-рёбра: 2 winners_quarter → losers_quarter + 1
+      // winners_semi → losers_semi (proigравший SF тоже «падает» в
+      // losers-сетку по совпадению size). Итого 3.
+      const loserLinks = res.links.filter((l) => l.kind === 'loser');
+      expect(loserLinks).toHaveLength(3);
+      expect(
+        loserLinks.some(
+          (l) =>
+            l.fromPairId === 'winners_quarter:a|b' &&
+            l.toPairId === 'losers_quarter:p|q',
+        ),
+      ).toBe(true);
+      expect(
+        loserLinks.some(
+          (l) =>
+            l.fromPairId === 'winners_semi:ab|cd' &&
+            l.toPairId === 'losers_semi:pq|rs',
+        ),
+      ).toBe(true);
+    });
+
+    it('гибрид Swiss + Playoffs → только партии playoff-раундов в games[]', async () => {
+      const { controller } = bracketBuild([
+        {
+          id: 'r-swiss',
+          tournamentType: 'swiss',
+          games: [
+            {
+              id: 'g-sw',
+              lichessGameId: 'lg-sw',
+              whitePlayer: 'X',
+              blackPlayer: 'Y',
+              whiteElo: null,
+              blackElo: null,
+              result: '1-0',
+              pgn: null,
+              currentFen: null,
+              updatedAt: new Date(),
+              bracketStage: null,
+              bracketPairId: null,
+              matchScore: null,
+            },
+          ],
+        },
+        {
+          id: 'r-ko',
+          tournamentType: 'playoff',
+          games: [
+            {
+              id: 'g-ko',
+              lichessGameId: 'lg-ko',
+              whitePlayer: 'A',
+              blackPlayer: 'B',
+              whiteElo: null,
+              blackElo: null,
+              result: '1-0',
+              pgn: null,
+              currentFen: null,
+              updatedAt: new Date(),
+              bracketStage: 'final',
+              bracketPairId: 'final:a|b',
+              matchScore: '1-0',
+            },
+          ],
+        },
+      ]);
+
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.tournamentType).toBe('playoff');
+      expect(res.games.map((g) => g.id)).toEqual(['g-ko']);
+    });
+
+    it('round-robin броадкаст → tournamentType=round_robin, games=[], links=[]', async () => {
+      const { controller } = bracketBuild([
+        {
+          id: 'r1',
+          tournamentType: 'round_robin',
+          games: [{ id: 'g1', /* не важно */ updatedAt: new Date() }],
+        },
+      ]);
+
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.tournamentType).toBe('round_robin');
+      expect(res.games).toEqual([]);
+      expect(res.links).toEqual([]);
+    });
+
+    it('swiss броадкаст → tournamentType=swiss, games=[], links=[]', async () => {
+      const { controller } = bracketBuild([
+        { id: 'r1', tournamentType: 'swiss', games: [] },
+      ]);
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.tournamentType).toBe('swiss');
+      expect(res.games).toEqual([]);
+      expect(res.links).toEqual([]);
+    });
+
+    it('все раунды с tournamentType=null → tournamentType=null, games=[], links=[]', async () => {
+      const { controller } = bracketBuild([
+        { id: 'r1', tournamentType: null, games: [] },
+      ]);
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.tournamentType).toBeNull();
+      expect(res.games).toEqual([]);
+      expect(res.links).toEqual([]);
+    });
+
+    it('неизвестный tournament_type в БД нормализуется в unknown, links=[]', async () => {
+      const { controller } = bracketBuild([
+        { id: 'r1', tournamentType: 'garbage', games: [] },
+      ]);
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.tournamentType).toBe('unknown');
+      expect(res.games).toEqual([]);
+      expect(res.links).toEqual([]);
+    });
+
+    it('нет раундов → tournamentType=null, games=[], links=[]', async () => {
+      const { controller } = bracketBuild([]);
+      const res = await controller.getBroadcastBracket(broadcastId);
+      expect(res.tournamentType).toBeNull();
+      expect(res.games).toEqual([]);
+      expect(res.links).toEqual([]);
+    });
+  });
 });

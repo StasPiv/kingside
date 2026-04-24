@@ -18,6 +18,7 @@ import { runStaleCheck } from './stale-check';
 import { extractChessResultsTournamentId } from './extract-chess-results-id';
 import { detectRoundTournamentType } from '../crosstable/detect-round-tournament-type';
 import { classifyRoundBrackets } from '../crosstable/classify-round-brackets';
+import { applyBracketLinks } from '../crosstable/apply-bracket-links';
 
 /**
  * Sync-сервис Lichess broadcasts (ADR-022 §2.6 шаг 0).
@@ -724,6 +725,18 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
         `[broadcast-sync] classifyRoundBrackets(upsertRound) failed for round=${upserted.id.slice(0, 8)}: ${(e as Error).message}`,
       );
     }
+
+    // KS-1824: после того как раунд классифицирован, пересчитываем
+    // links между парами на уровне всего броадкаста (advance / loser).
+    // Одной пары мало: `winners_semi` может появиться позже, и только
+    // увидев обе стадии, `computeAdvanceLinks` сможет связать их.
+    try {
+      await applyBracketLinks(this.prisma, broadcast.id);
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] applyBracketLinks(upsertRound) failed for broadcast=${broadcast.id.slice(0, 8)}: ${(e as Error).message}`,
+      );
+    }
   }
 
   /** Returns true if an actual Lichess fetch was performed */
@@ -933,6 +946,16 @@ export class BroadcastSyncService implements OnModuleInit, OnModuleDestroy {
     } catch (e: unknown) {
       this.logger.warn(
         `[broadcast-sync] classifyRoundBrackets failed for round=${round.id.slice(0, 8)}: ${(e as Error).message}`,
+      );
+    }
+
+    // KS-1824: пересчитать связи между парами всего броадкаста после
+    // того, как появились новые партии / изменились stage'ы.
+    try {
+      await applyBracketLinks(this.prisma, round.broadcastId);
+    } catch (e: unknown) {
+      this.logger.warn(
+        `[broadcast-sync] applyBracketLinks(processPgnUpdate) failed for broadcast=${round.broadcastId.slice(0, 8)}: ${(e as Error).message}`,
       );
     }
   }

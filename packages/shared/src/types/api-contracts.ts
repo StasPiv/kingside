@@ -654,6 +654,19 @@ export type BroadcastGameSummary = {
    * `null` для не-playoff.
    */
   matchScore?: string | null;
+  /**
+   * KS-1824: `bracketPairId` пары следующего раунда, в которую переходит
+   * ПОБЕДИТЕЛЬ этой пары. Вычисляется на бэке (`computeAdvanceLinks`) и
+   * пишется в БД при sync-цикле; `null` для последних стадий или
+   * не-playoff.
+   */
+  advanceToPairId?: string | null;
+  /**
+   * KS-1824: для double-elimination — `bracketPairId` пары в losers-сетке,
+   * куда попадает ПРОИГРАВШИЙ winners-матча. `null` для самой losers-сетки,
+   * одиночных сеток и не-playoff.
+   */
+  loserToPairId?: string | null;
 };
 
 export type BroadcastListResponse = {
@@ -670,6 +683,55 @@ export type BroadcastRoundsResponse = {
 export type BroadcastGamesResponse = {
   data: BroadcastGameSummary[];
 };
+
+/**
+ * Ребро сетки плей-офф (KS-1824). Описывает переход между парами:
+ *   - `kind='winner'` — ПОБЕДИТЕЛЬ пары `fromPairId` идёт в
+ *     `toPairId` (основной прогресс сетки).
+ *   - `kind='loser'` — ПРОИГРАВШИЙ пары `fromPairId` идёт в
+ *     `toPairId` (характерно для double-elimination: выбывший
+ *     из winners-сетки попадает в losers-сетку).
+ *
+ * Строится фронтом как список рёбер к нарисованной сетке; каждая
+ * запись дублируется полем `advanceToPairId`/`loserToPairId` в
+ * `BroadcastGameSummary` для удобного per-game доступа, но явный
+ * `links[]` избавляет фронт от повторной дедупликации.
+ */
+export interface BracketLink {
+  fromPairId: string;
+  toPairId: string;
+  kind: 'winner' | 'loser';
+}
+
+/**
+ * GET /broadcasts/:id/bracket — агрегированный ответ для фронт-сетки
+ * плей-офф (KS-1824). Возвращает все партии всех playoff-раундов
+ * броадкаста с заполненными bracket-полями и связями между парами
+ * одним запросом, чтобы фронт не дёргал N отдельных
+ * `/rounds/:roundId/games`.
+ *
+ * Контракт:
+ *   - `tournamentType='playoff'` — хотя бы у одного раунда броадкаста
+ *     определён `tournament_type='playoff'`. `games[]` содержит партии
+ *     всех playoff-раундов (все с `bracketStage`/`bracketPairId`/
+ *     `matchScore`/`advanceToPairId`/`loserToPairId`). `links[]` —
+ *     уникальные рёбра сетки (дедуплицированные по
+ *     `fromPairId+toPairId+kind`). Гибридные турниры (Swiss → Playoffs)
+ *     отдают только playoff-часть.
+ *   - `tournamentType` ∈ {`round_robin`, `swiss`, `unknown`, `null`}
+ *     — плей-офф-раундов нет. `games: []`, `links: []` — фронт должен
+ *     fallback'ом рендерить свою cross-table. Пустые массивы вместо
+ *     полного списка — чтобы не возить лишние данные ради раундов,
+ *     которые фронт всё равно не использует на этой вкладке.
+ *   - `null` — у всех раундов `tournament_type IS NULL` (т.е. sync
+ *     пока не прошёл после KS-1813); клиент трактует как `'unknown'`.
+ */
+export interface BroadcastBracketResponse {
+  broadcastId: string;
+  tournamentType: BroadcastRoundTournamentType | null;
+  games: BroadcastGameSummary[];
+  links: BracketLink[];
+}
 
 // ─── Broadcast crosstable (REST: GET /broadcasts/:id/crosstable) ─────
 // KS-1726 / ADR-023 §2.4 — типы для type-aware crosstable из chess-results.com.
