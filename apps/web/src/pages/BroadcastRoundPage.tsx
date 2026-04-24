@@ -9,7 +9,10 @@ import type {
 } from '@kingside/shared';
 import { broadcastApi } from '../api/broadcastApi';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
-import { PlayoffBracket } from '../components/broadcast/PlayoffBracket';
+// KS-1823: условный рендер `PlayoffBracket` на странице раунда был
+// регрессией (вкладка Rounds всегда должна показывать доски партий).
+// Компонент остаётся в репо — он будет использован на вкладке
+// Standings в KS-1825. Из BroadcastRoundPage импорт удалён.
 
 /** Extract last move SAN from PGN for sound */
 function loadPgnSafe(chess: InstanceType<typeof Chess>, pgn: string): boolean {
@@ -229,11 +232,6 @@ export function BroadcastRoundPage() {
 
       {games.length === 0 ? (
         <div className="broadcasts-empty">{t('broadcastRound.noGames', 'No games in this round')}</div>
-      ) : currentRound?.tournamentType === 'playoff' ? (
-        // KS-1814: для playoff-раундов рендерим сетку, не сводную.
-        // Для round_robin / swiss / unknown / null — остаётся старый
-        // `broadcast-boards-grid` (регрессий нет).
-        <PlayoffBracket games={games} onGameClick={handleGameClick} />
       ) : (
         <div className="broadcast-games-section">
           <div className="broadcast-boards-grid">
