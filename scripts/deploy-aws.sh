@@ -383,6 +383,38 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     docker tag kingside-archive-service:latest "${ECR_URI_ARCHIVE_SERVICE}:latest"
     docker push "${ECR_URI_ARCHIVE_SERVICE}:latest" 2>&1 | tail -3
 
+    # KS-1822: Prisma migrations для archive-db (отдельная БД archive_kingside,
+    # ADR-018). До KS-1822 миграции этой БД не катились автоматически — повторение
+    # инцидента 24.04 с broadcasts-db было только делом времени. Шаг симметричен
+    # api- и broadcast-service-блокам (KS-1817). Дублирование VPC_ID/subnet/sg —
+    # принято, общий helper — follow-up рефакторинг.
+    # Одного migrate-таска достаточно на оба ECS-сервиса: archive-service и
+    # archive-importer используют один образ и одну БД (ADR-019).
+    ARCHIVE_SVC_STATUS=$(aws ecs describe-services \
+        --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE" \
+        --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
+    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
+        echo "[archive-service] Running Prisma migrations (archive-db)..."
+        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=cidr-block,Values=10.0.0.0/16" --query 'Vpcs[0].VpcId' --output text)
+        MIGRATE_SUBNET=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" --query 'Subnets[0].SubnetId' --output text)
+        MIGRATE_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[0].GroupId' --output text)
+        MIGRATE_TASK=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" --task-definition kingside-archive-service --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
+            --overrides '{"containerOverrides":[{"name":"kingside-archive-service","command":["sh","-c","cd /app/packages/archive-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+        aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
+        MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+        if [ "$MIGRATE_EXIT" != "0" ]; then
+            echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+            exit 1
+        fi
+        echo "  Migrations applied."
+    else
+        echo "[archive-service] HTTP service not ACTIVE (status=$ARCHIVE_SVC_STATUS) — skipping migrate step."
+    fi
+
     for svc in "$ECS_SERVICE_ARCHIVE_SERVICE" "$ECS_SERVICE_ARCHIVE_IMPORTER"; do
         SVC_STATUS=$(aws ecs describe-services \
             --cluster "$ECS_CLUSTER" --services "$svc" \
@@ -397,6 +429,24 @@ if $DEPLOY_ARCHIVE_SERVICE; then
             echo "[archive-service] ECS service '$svc' not found (status=$SVC_STATUS). Skipping."
         fi
     done
+
+    # KS-1822: post-deploy smoke-gate. `GET /tree?fen=<startpos>` реально трогает
+    # Prisma-select на position-table, поэтому ловит регрессии схемы (которые
+    # /_/health пропускает — тот только `SELECT 1`). FEN стартовой позиции зашит
+    # константой, URL-encoded inline (jq нет в ряде окружений деплоя).
+    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
+        SMOKE_FEN_ENC="rnbqkbnr%2Fpppppppp%2F8%2F8%2F8%2F8%2FPPPPPPPP%2FRNBQKBNR+w+KQkq+-+0+1"
+        echo "[archive-service] Waiting for rollout to stabilize..."
+        aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_SERVICE"
+        echo "[archive-service] Smoke-check /tree?fen=<startpos>..."
+        SMOKE_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "https://archive.kingside.site/tree?fen=${SMOKE_FEN_ENC}" || echo "000")
+        if [ "$SMOKE_CODE" != "200" ]; then
+            echo "  ERROR: smoke /tree returned $SMOKE_CODE (expected 200). Likely DB schema regression or service unavailable."
+            echo "  Rollback: aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_ARCHIVE_SERVICE --task-definition <previous-revision>"
+            exit 1
+        fi
+        echo "  Smoke /tree OK (HTTP 200)."
+    fi
 fi
 
 # Save deployed commit
