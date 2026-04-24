@@ -16,7 +16,6 @@ import type {
 import { userCoursesApi } from '../../../../api/userCoursesApi';
 import { useAuth } from '../../../../context/AuthContext';
 import { useAutoSave } from '../../../../hooks/useAutoSave';
-import { useReorderDnD } from '../../../../hooks/useReorderDnD';
 import { useUserCourseState } from '../../../../hooks/useUserCourseState';
 import { emptyStepPayload } from '../../../../types/editor';
 import { AddLessonEmptyState } from './AddLessonEmptyState';
@@ -231,11 +230,11 @@ export function UserCourseEditor() {
   };
 
   /**
-   * FE-R8: произвольная перестановка уроков из DnD. Применяет новый
-   * порядок оптимистично + PATCH каждого урока с новым `order`.
-   * Backend не имеет batch-reorder для уроков (есть только для шагов
-   * через `/user-lessons/:id/steps/reorder`); параллельные PATCH
-   * приемлемы — не более десятков уроков на курс.
+   * FE-R13: произвольная перестановка уроков из DnD (`@dnd-kit`).
+   * Применяет новый порядок оптимистично + PATCH каждого урока с
+   * новым `order`. Backend не имеет batch-reorder для уроков (есть
+   * только для шагов через `/user-lessons/:id/steps/reorder`);
+   * параллельные PATCH приемлемы — не более десятков уроков на курс.
    */
   const reorderLessonsByIds = useCallback(
     (orderedIds: string[]) => {
@@ -248,7 +247,7 @@ export function UserCourseEditor() {
   );
 
   /**
-   * FE-R8: произвольная перестановка шагов активного урока из DnD.
+   * FE-R13: произвольная перестановка шагов активного урока из DnD.
    * `userCoursesApi.reorderSteps` — батч-эндпоинт (BE-3 ADR §2.5),
    * одна транзакция на сервере.
    */
@@ -261,17 +260,6 @@ export function UserCourseEditor() {
     },
     [actions],
   );
-
-  // FE-R8: HTML5 DnD для уроков. Drag-handle ⠿ в outline становится
-  // draggable, drop-зоны на каждой строке списка.
-  const lessonIds = useMemo(
-    () => state.lessons.map((l) => l.id),
-    [state.lessons],
-  );
-  const lessonsDnD = useReorderDnD({
-    items: lessonIds,
-    onReorder: reorderLessonsByIds,
-  });
 
   // ── Step actions ──────────────────────────────────────────────────
   const addStep = async (lessonId: string, type: UserStepType) => {
@@ -480,34 +468,7 @@ export function UserCourseEditor() {
                 return next;
               });
             }}
-            renderLessonDragHandle={(lesson) => {
-              const dragProps = lessonsDnD.getDragProps(lesson.id);
-              const dropProps = lessonsDnD.getDropProps(lesson.id);
-              const keyboardProps = lessonsDnD.getKeyboardProps(lesson.id);
-              return (
-                <button
-                  type="button"
-                  className="course-outline__drag-handle"
-                  data-testid={`course-outline-drag-${lesson.id}`}
-                  data-dnd-dragging={
-                    lessonsDnD.dragState.draggingId === lesson.id
-                      ? 'true'
-                      : undefined
-                  }
-                  data-dnd-over={
-                    lessonsDnD.dragState.overId === lesson.id
-                      ? 'true'
-                      : undefined
-                  }
-                  aria-label={t('editor.moveUp', 'Move up')}
-                  {...dragProps}
-                  {...dropProps}
-                  {...keyboardProps}
-                >
-                  ⠿
-                </button>
-              );
-            }}
+            onReorderLessons={reorderLessonsByIds}
           />
         </div>
 
