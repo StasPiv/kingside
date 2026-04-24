@@ -87,6 +87,17 @@ export function CourseOutline({
   // приоритет — это «escape-hatch» для специфичных layout'ов и для
   // старого FE-R6 теста).
   const dndEnabled = !!onReorderLessons && !renderLessonDragHandle;
+  /**
+   * KS-1861-FIX: внутри `<SortableItem>` любой tap на вложенный
+   * интерактивный элемент (select-lesson, expand, step-button)
+   * всплывает в TouchSensor dnd-kit'а и блокирует синтетический click
+   * на mobile. dnd-kit подписывается через нативный addEventListener
+   * — нужно остановить именно native bubbling.
+   */
+  const stopPointerPropagation = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.nativeEvent.stopPropagation();
+  };
 
   /**
    * Render одной строки урока. Если `handle` передан — это
@@ -148,6 +159,7 @@ export function CourseOutline({
             data-testid={`course-outline-lesson-select-${lesson.id}`}
             aria-current={active ? 'true' : undefined}
             onClick={() => onSelectLesson(lesson.id)}
+            onPointerDown={stopPointerPropagation}
           >
             <span className="course-outline__lesson-title">
               {lesson.title}
@@ -169,6 +181,7 @@ export function CourseOutline({
             aria-expanded={expanded}
             aria-label={t('editor.preview', 'Preview')}
             onClick={() => onToggleLessonExpand(lesson.id)}
+            onPointerDown={stopPointerPropagation}
           >
             {expanded ? '▾' : '▸'}
           </button>
@@ -187,6 +200,7 @@ export function CourseOutline({
                 <button
                   type="button"
                   onClick={() => onSelectStep(lesson.id, step.id)}
+                  onPointerDown={stopPointerPropagation}
                 >
                   <span
                     className="course-outline__step-icon"

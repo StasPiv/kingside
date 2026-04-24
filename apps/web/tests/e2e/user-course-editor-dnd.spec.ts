@@ -286,4 +286,88 @@ test.describe('UserCourseEditor DnD (dnd-kit)', () => {
 
     await cleanupCourse(tokens, fixture.courseId);
   });
+
+  test('mobile + desktop: tap по interactive children внутри SortableItem открывает меню/chevron (regression KS-1861-FIX)', async ({
+    page,
+  }) => {
+    // Регрессия после KS-1861: на mobile (TouchSensor long-press) tap
+    // по `[⋯]` / chevron / preview-toggle блокировался dnd-kit'ом и
+    // не диспатчил click. Фикс — `e.nativeEvent.stopPropagation()` в
+    // onPointerDown этих кнопок (StepCard / CourseOutline /
+    // LessonOverview reorder ↑↓). Тест проверяет happy-path через
+    // touchscreen.tap (mobile) и mouse.click (desktop).
+    const tokens = await devBypassLogin(`e2e-dnd-tap-${Date.now()}`);
+    const fixture = await createCourseWithSteps(
+      tokens,
+      `KS-1861-FIX tap ${Date.now()}`,
+    );
+    await seedAuth(page, tokens);
+    await page.goto(
+      `/lessons/my/${fixture.slug}/edit?lesson=${fixture.lessonId}`,
+    );
+    await expect(page.getByTestId('user-course-editor')).toBeVisible({
+      timeout: 15_000,
+    });
+
+    // На mobile по умолчанию открыт outline-tab; шаги — в editor.
+    const isMobile = await page.evaluate(() => window.innerWidth < 900);
+    if (isMobile) {
+      await page.getByTestId('user-course-editor-tab-editor').click();
+    }
+    const stepId = fixture.stepIds[0];
+    await expect(
+      page.getByTestId(`lesson-overview-step-item-${stepId}`),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const trigger = page.getByTestId(`step-card-menu-trigger-${stepId}`);
+    const tbox = await trigger.boundingBox();
+    if (!tbox) throw new Error('no trigger boundingBox');
+    const hasTouch = await page.evaluate(() => 'ontouchstart' in window);
+
+    // 1) Открытие меню: `[⋯]`
+    if (hasTouch) {
+      await page.touchscreen.tap(
+        tbox.x + tbox.width / 2,
+        tbox.y + tbox.height / 2,
+      );
+    } else {
+      await trigger.click();
+    }
+    await expect(
+      page.getByTestId(`step-card-menu-${stepId}`),
+    ).toBeVisible({ timeout: 2_000 });
+
+    // 2) Закрытие меню — повторный tap по trigger.
+    if (hasTouch) {
+      await page.touchscreen.tap(
+        tbox.x + tbox.width / 2,
+        tbox.y + tbox.height / 2,
+      );
+    } else {
+      await trigger.click();
+    }
+    await expect(
+      page.getByTestId(`step-card-menu-${stepId}`),
+    ).toHaveCount(0, { timeout: 1_000 });
+
+    // 3) Chevron — раскрытие/сворачивание StepCard.
+    const card = page.getByTestId(`step-card-${stepId}`);
+    const beforeExpand = await card.getAttribute('data-expanded');
+    const chevron = page.getByTestId(`step-card-chevron-${stepId}`);
+    const cbox = await chevron.boundingBox();
+    if (!cbox) throw new Error('no chevron boundingBox');
+    if (hasTouch) {
+      await page.touchscreen.tap(
+        cbox.x + cbox.width / 2,
+        cbox.y + cbox.height / 2,
+      );
+    } else {
+      await chevron.click();
+    }
+    await page.waitForTimeout(200);
+    const afterExpand = await card.getAttribute('data-expanded');
+    expect(afterExpand).not.toBe(beforeExpand);
+
+    await cleanupCourse(tokens, fixture.courseId);
+  });
 });

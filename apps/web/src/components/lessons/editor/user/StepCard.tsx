@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   StepPayload,
@@ -139,6 +139,29 @@ export function StepCard({
   const [menuOpen, setMenuOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  /**
+   * KS-1861-FIX: StepCard живёт внутри `<SortableItem>` из
+   * `@dnd-kit/sortable`. Drag-handle ⠿ получает activator-listeners
+   * от TouchSensor'а; на iOS/Android long-press по любому потомку
+   * sortable-`<li>` интерпретировался браузером как начало
+   * pointer-interaction и блокировал синтетический `click` на
+   * вложенных кнопках (меню `⋯`, chevron, preview-toggle).
+   *
+   * dnd-kit регистрирует pointer-listener'ы напрямую через
+   * `addEventListener` (не через React) — synthetic
+   * `e.stopPropagation()` их не остановит. Используем
+   * `e.nativeEvent.stopPropagation()` чтобы native bubbling
+   * не дошёл ни до handle activator, ни до document-level
+   * перехватчиков dnd-kit.
+   */
+  const stopPointerPropagation = useCallback(
+    (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.nativeEvent.stopPropagation();
+    },
+    [],
+  );
+
   const isSupported = isUserStepType(step.type);
   const icon = isSupported ? TYPE_ICONS[step.type] : '❓';
   const typeLabel = isSupported
@@ -204,6 +227,7 @@ export function StepCard({
           className="step-card__menu-trigger"
           data-testid={`step-card-menu-trigger-${step.id}`}
           onClick={() => setMenuOpen((v) => !v)}
+          onPointerDown={stopPointerPropagation}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
           aria-label={t('editor.step.menu', 'Step actions')}
@@ -224,6 +248,7 @@ export function StepCard({
                 setMenuOpen(false);
                 onDuplicate();
               }}
+              onPointerDown={stopPointerPropagation}
             >
               {t('editor.step.duplicate', 'Duplicate')}
             </button>
@@ -236,6 +261,7 @@ export function StepCard({
                 setMenuOpen(false);
                 onDelete();
               }}
+              onPointerDown={stopPointerPropagation}
             >
               {t('editor.remove', 'Remove')}
             </button>
@@ -246,6 +272,7 @@ export function StepCard({
           className="step-card__chevron"
           data-testid={`step-card-chevron-${step.id}`}
           onClick={onToggleExpand}
+          onPointerDown={stopPointerPropagation}
           aria-expanded={expanded}
           aria-label={t('editor.preview', 'Preview')}
         >
@@ -286,6 +313,7 @@ export function StepCard({
             <button
               type="button"
               onClick={() => setPreviewOpen((v) => !v)}
+              onPointerDown={stopPointerPropagation}
               data-testid={`step-card-preview-toggle-${step.id}`}
               aria-expanded={previewOpen}
             >

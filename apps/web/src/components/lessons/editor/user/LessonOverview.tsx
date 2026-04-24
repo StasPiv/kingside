@@ -178,6 +178,10 @@ export function LessonOverview({
                             type="button"
                             disabled={busy || i === 0}
                             onClick={() => onMoveStep(step.id, -1)}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              e.nativeEvent.stopPropagation();
+                            }}
                             data-testid={`lesson-overview-step-up-${step.id}`}
                             aria-label={t('editor.moveUp', 'Move up')}
                           >
@@ -187,6 +191,10 @@ export function LessonOverview({
                             type="button"
                             disabled={busy || i === steps.length - 1}
                             onClick={() => onMoveStep(step.id, 1)}
+                            onPointerDown={(e) => {
+                              e.stopPropagation();
+                              e.nativeEvent.stopPropagation();
+                            }}
                             data-testid={`lesson-overview-step-down-${step.id}`}
                             aria-label={t('editor.moveDown', 'Move down')}
                           >
