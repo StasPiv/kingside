@@ -1,10 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent } from '@testing-library/react';
-import type { BroadcastGameSummary } from '@kingside/shared';
+import type { BracketLink, BroadcastGameSummary } from '@kingside/shared';
 
 import { renderWithProviders, screen } from '../../test/test-utils';
 import {
   PlayoffBracket,
+  computeLinePoints,
   groupGamesByPair,
   layoutBracket,
   STAGE_ORDER,
@@ -203,5 +204,115 @@ describe('<PlayoffBracket>', () => {
     expect(
       screen.getByTestId('playoff-pair-score-quarter:X|Y'),
     ).toHaveTextContent('—');
+  });
+
+  // ─── KS-1825: links + SVG overlay ──────────────────────────────────
+
+  it('links не задан → SVG-overlay не рендерится (fallback KS-1814)', () => {
+    renderWithProviders(
+      <PlayoffBracket games={[game({ bracketPairId: 'q:A|B' })]} />,
+    );
+    expect(
+      screen.queryByTestId('playoff-bracket-links'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('links=[] → SVG-overlay не рендерится', () => {
+    renderWithProviders(
+      <PlayoffBracket
+        games={[game({ bracketPairId: 'q:A|B' })]}
+        links={[]}
+      />,
+    );
+    expect(
+      screen.queryByTestId('playoff-bracket-links'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('links не пустой → рендерится SVG с правильным числом <line> и правильными kind-classes', () => {
+    const games = [
+      game({ bracketPairId: 'wq:A|B', bracketStage: 'winners_quarter' }),
+      game({ bracketPairId: 'ws:A|C', bracketStage: 'winners_semi' }),
+      game({ bracketPairId: 'ls:B|D', bracketStage: 'losers_semi' }),
+    ];
+    const links: BracketLink[] = [
+      { fromPairId: 'wq:A|B', toPairId: 'ws:A|C', kind: 'winner' },
+      { fromPairId: 'wq:A|B', toPairId: 'ls:B|D', kind: 'loser' },
+    ];
+    renderWithProviders(<PlayoffBracket games={games} links={links} />);
+    const svg = screen.getByTestId('playoff-bracket-links');
+    expect(svg).toBeInTheDocument();
+    expect(svg.tagName.toLowerCase()).toBe('svg');
+    const lines = svg.querySelectorAll('line');
+    expect(lines).toHaveLength(2);
+    expect(svg.querySelector('[data-testid="playoff-bracket-link-winner"]')).toBeTruthy();
+    expect(svg.querySelector('[data-testid="playoff-bracket-link-loser"]')).toBeTruthy();
+    // Классы задают стиль линий (сплошная/пунктир через CSS).
+    expect(
+      svg.querySelector('.playoff-bracket__link--winner'),
+    ).toBeTruthy();
+    expect(
+      svg.querySelector('.playoff-bracket__link--loser'),
+    ).toBeTruthy();
+  });
+
+  it('link с несуществующим fromPairId/toPairId — игнорируется', () => {
+    const games = [game({ bracketPairId: 'wq:A|B', bracketStage: 'winners_quarter' })];
+    const links: BracketLink[] = [
+      { fromPairId: 'wq:A|B', toPairId: 'does-not-exist', kind: 'winner' },
+      { fromPairId: 'also-missing', toPairId: 'wq:A|B', kind: 'loser' },
+    ];
+    renderWithProviders(<PlayoffBracket games={games} links={links} />);
+    const svg = screen.queryByTestId('playoff-bracket-links');
+    // svg есть (links.length>0), но <line> нет
+    expect(svg).toBeInTheDocument();
+    expect(svg?.querySelectorAll('line')).toHaveLength(0);
+  });
+
+  it('каждая пара получает data-pair-id для DOM-поиска SVG-линиями', () => {
+    renderWithProviders(
+      <PlayoffBracket
+        games={[
+          game({ id: 'g1', bracketPairId: 'p:A|B' }),
+          game({ id: 'g2', bracketPairId: 'p:C|D' }),
+        ]}
+      />,
+    );
+    expect(
+      document.querySelector('[data-pair-id="p:A|B"]'),
+    ).toBeTruthy();
+    expect(
+      document.querySelector('[data-pair-id="p:C|D"]'),
+    ).toBeTruthy();
+  });
+});
+
+describe('computeLinePoints', () => {
+  it('вычисляет координаты линии «центр правой — центр левой» относительно контейнера', () => {
+    // Контейнер 1000×800, начало (100, 50)
+    const container = { left: 100, top: 50, right: 1100, bottom: 850 };
+    // from пара 200×100 на (150, 100) — абсолютные координаты
+    const from = { left: 150, top: 100, right: 350, bottom: 200 };
+    // to пара 200×100 на (500, 400)
+    const to = { left: 500, top: 400, right: 700, bottom: 500 };
+    const pts = computeLinePoints(from, to, container);
+    expect(pts).toEqual({
+      // x1 = from.right - container.left = 350 - 100 = 250
+      x1: 250,
+      // y1 = (from.top + from.bottom) / 2 - container.top = 150 - 50 = 100
+      y1: 100,
+      // x2 = to.left - container.left = 500 - 100 = 400
+      x2: 400,
+      // y2 = (to.top + to.bottom) / 2 - container.top = 450 - 50 = 400
+      y2: 400,
+    });
+  });
+
+  it('контейнер в (0,0) → координаты = абсолютные', () => {
+    const container = { left: 0, top: 0, right: 1000, bottom: 800 };
+    const from = { left: 10, top: 20, right: 30, bottom: 40 };
+    const to = { left: 100, top: 200, right: 120, bottom: 220 };
+    const pts = computeLinePoints(from, to, container);
+    expect(pts).toEqual({ x1: 30, y1: 30, x2: 100, y2: 210 });
   });
 });

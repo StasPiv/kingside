@@ -1324,12 +1324,14 @@
 }
 
 
-/* ---------- Playoff bracket (KS-1814) ---------- */
+/* ---------- Playoff bracket (KS-1814 + KS-1825 links) ---------- */
 .playoff-bracket {
   display: flex;
   flex-direction: column;
   gap: 20px;
   padding: 12px;
+  /* KS-1825: контейнер для SVG-overlay с линиями между парами. */
+  position: relative;
 }
 
 .playoff-bracket--empty {
@@ -1339,10 +1341,36 @@
   text-align: center;
 }
 
+.playoff-bracket__links {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 0;
+}
+
+.playoff-bracket__link {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.playoff-bracket__link--winner {
+  stroke: var(--success, #1f7a3a);
+}
+
+.playoff-bracket__link--loser {
+  stroke: var(--warning, #9a6c14);
+  stroke-dasharray: 6 4;
+}
+
 .playoff-bracket__track {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Контент над SVG-overlay. */
+  position: relative;
+  z-index: 1;
 }
 
 .playoff-bracket__track--winners,
@@ -1499,5 +1527,12 @@
 
   .playoff-bracket__pair-player:last-child {
     text-align: center;
+  }
+
+  /* KS-1825: при стековой раскладке линии между стадиями мешают
+     (пары становятся ровно один под другим, горизонтальные линии
+     рвут визуальный поток). Проще скрыть SVG-overlay. */
+  .playoff-bracket__links {
+    display: none;
   }
 }

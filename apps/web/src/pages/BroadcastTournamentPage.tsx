@@ -4,7 +4,7 @@ import { Chess } from 'chess.js';
 import { Chessboard } from 'react-chessboard';
 import { useTranslation } from 'react-i18next';
 import { broadcastApi } from '../api/broadcastApi';
-import { BroadcastCrosstable } from '../components/broadcast/BroadcastCrosstable';
+import { BroadcastStandings } from '../components/broadcast/BroadcastStandings';
 
 // Types
 type BroadcastMeta = {
@@ -196,7 +196,7 @@ function LichessBroadcastLobby({ broadcast, tournamentId }: { broadcast: Broadca
         {/* Standings */}
         {activeTab === 'standings' && (
           <div className="broadcast-tab-panel">
-            <BroadcastCrosstable broadcastId={tournamentId} broadcastTitle={broadcast.title} />
+            <BroadcastStandings broadcastId={tournamentId} broadcastTitle={broadcast.title} />
           </div>
         )}
 
