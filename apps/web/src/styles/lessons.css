@@ -509,6 +509,24 @@
 .lesson-text-step__diagram {
   margin: 0;
   align-self: flex-start;
+  /* Ограничиваем ширину диаграммы — чтобы inline-диаграммы markdown
+     не расползались на всю ширину контента (консистентно с PuzzleBoard,
+     который тоже квадратный и ограничен контейнером). Inline style
+     `width: diagramSize` остаётся в приоритете (без !important), если
+     он применён; иначе CSS-fallback срабатывает. */
+  width: 100%;
+  max-width: 360px;
+  box-sizing: border-box;
+}
+
+/* Root react-chessboard внутри figure — всегда 100% ширины figure и
+   квадрат (aspect 1:1). Страховка на случай, если inline-style figure
+   потеряется или react-chessboard растянется сам по себе. */
+.lesson-text-step__diagram > :first-child {
+  width: 100% !important;
+  max-width: 100% !important;
+  aspect-ratio: 1 / 1;
+  box-sizing: border-box;
 }
 
 .lesson-text-step__caption {
