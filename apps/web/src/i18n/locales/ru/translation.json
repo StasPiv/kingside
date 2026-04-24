@@ -1219,7 +1219,9 @@
       "blocker": {
         "course": "Осталось уроков: {{count}}",
         "rating": "Puzzle-рейтинг: {{current}}/{{required}}",
-        "games": "Сыграно партий: {{current}}/{{required}}"
+        "games": "Сыграно партий: {{current}}/{{required}}",
+        "rapidRating": "Rapid-рейтинг: {{current}}/{{required}}",
+        "puzzlesSolved": "Решено задач: {{current}}/{{required}}"
       }
     },
     "backToList": "Все курсы",

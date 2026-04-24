@@ -9,11 +9,12 @@ import type {
 import { lessonsApi } from '../../api/lessonsApi';
 
 /**
- * Плашка прогресса по уровням обучения (L-15 / KS-1770 / KS-1781).
+ * Плашка прогресса по уровням обучения (L-15 / KS-1770 / KS-1781 / L-26 KS-1804).
  *
- * Дёргает `GET /lessons/level-gate`. При `unlocked=true` показывает
- * «Можно перейти на <next>», иначе — список блокеров (курс / puzzle-
- * рейтинг / сыграно партий).
+ * Дёргает `GET /lessons/level-gate[?from=<level>]`. При `unlocked=true`
+ * показывает «Можно перейти на <next>», иначе — список блокеров
+ * (курс / puzzle-рейтинг / сыграно партий / rapid-рейтинг / решено
+ * puzzle).
  *
  * Молча скрывается, если бэк ответил ошибкой / нет следующего уровня /
  * пользователь не аутентифицирован — плашка не должна ломать страницу.
@@ -21,17 +22,29 @@ import { lessonsApi } from '../../api/lessonsApi';
  * `restrictTo` ограничивает рендер по `currentLevel` (`LessonsPage`
  * показывает только для уровня `beginner`, `CoursePage` — для конкретного
  * уровня курса). Без него плашка показывается для любого `currentLevel`.
+ *
+ * `from` — параметр запроса (`?from=<level>`). `CoursePage` передаёт
+ * уровень своего курса, чтобы плашка показывала условия перехода именно
+ * от этого уровня. Без него бэк использует текущий уровень игрока.
  */
 
 interface LevelGateBannerProps {
   /** Если задан — рендер только когда `currentLevel === restrictTo`. */
   restrictTo?: CourseLevel;
+  /**
+   * Явный уровень «откуда считаем переход». Пробрасывается в
+   * `?from=<level>` при запросе. Нужен на `CoursePage` конкретного
+   * курса — чтобы плашка не «перескочила» на beginner → intermediate,
+   * если игрок открыл страницу курса intermediate, находясь на beginner.
+   */
+  from?: CourseLevel;
   /** data-testid для отладки/тестов. По умолчанию `level-gate`. */
   testId?: string;
 }
 
 export function LevelGateBanner({
   restrictTo,
+  from,
   testId = 'level-gate',
 }: LevelGateBannerProps) {
   const { t } = useTranslation();
@@ -44,7 +57,7 @@ export function LevelGateBanner({
     setLoading(true);
     setErrored(false);
     lessonsApi
-      .getLevelGate()
+      .getLevelGate(from)
       .then((res) => {
         if (cancelled) return;
         setData(res);
@@ -59,7 +72,7 @@ export function LevelGateBanner({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [from]);
 
   if (loading) return null;
   if (errored || !data) return null;
@@ -135,7 +148,23 @@ function renderBlocker(
         required: b.required ?? 0,
         defaultValue: 'Games played: {{current}}/{{required}}',
       });
-    default:
-      return b.kind;
+    case 'rapid_rating':
+      return t('lessons.levelGate.blocker.rapidRating', {
+        current: b.current ?? 0,
+        required: b.required ?? 0,
+        defaultValue: 'Rapid rating: {{current}}/{{required}}',
+      });
+    case 'puzzles_solved':
+      return t('lessons.levelGate.blocker.puzzlesSolved', {
+        current: b.current ?? 0,
+        required: b.required ?? 0,
+        defaultValue: 'Puzzles solved: {{current}}/{{required}}',
+      });
+    default: {
+      // exhaustive-check: новый тип блокера должен быть добавлен явно.
+      const _exhaustive: never = b.kind;
+      void _exhaustive;
+      return (b as LevelGateBlocker).kind;
+    }
   }
 }

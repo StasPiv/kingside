@@ -1217,7 +1217,9 @@
       "blocker": {
         "course": "Lessons remaining: {{count}}",
         "rating": "Puzzle rating: {{current}}/{{required}}",
-        "games": "Games played: {{current}}/{{required}}"
+        "games": "Games played: {{current}}/{{required}}",
+        "rapidRating": "Rapid rating: {{current}}/{{required}}",
+        "puzzlesSolved": "Puzzles solved: {{current}}/{{required}}"
       }
     },
     "backToList": "All courses",

@@ -88,12 +88,23 @@ export const lessonsApi = {
   },
 
   /**
-   * Level-gate (L-15 / KS-1770 / KS-1781). Возвращает текущий уровень,
-   * следующий уровень и список блокеров перехода. Бэкенд считает по
-   * прогрессу курса, ratingPuzzle и сыгранным партиям.
+   * Level-gate (L-15 / KS-1770 / KS-1781 / L-26 KS-1804).
+   *
+   * Возвращает текущий уровень, следующий уровень и список блокеров
+   * перехода. Бэкенд считает пороги по прогрессу курса, ratingPuzzle,
+   * сыгранным партиям, rapid-рейтингу и количеству решённых puzzle
+   * (последние два — для перехода intermediate → advanced).
+   *
+   * `from` задаёт «от какого уровня считать». Без него бэк использует
+   * текущий уровень игрока (автодетект по `ratingPuzzle`). `CoursePage`
+   * конкретного курса передаёт явный `from`, чтобы плашка показывала
+   * условия перехода именно из уровня этого курса — даже если игрок
+   * уже на более высоком уровне (педагогически: «что осталось до
+   * следующей ступени» считается относительно курса).
    */
-  getLevelGate(): Promise<LevelGateResponse> {
-    return api.get<LevelGateResponse>('/lessons/level-gate');
+  getLevelGate(from?: CourseLevel): Promise<LevelGateResponse> {
+    const qs = from ? `?from=${encodeURIComponent(from)}` : '';
+    return api.get<LevelGateResponse>(`/lessons/level-gate${qs}`);
   },
 
   /**

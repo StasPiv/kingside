@@ -117,7 +117,11 @@ export function CoursePage() {
         </div>
       </header>
 
-      <LevelGateBanner restrictTo={course.level} testId="course-page-level-gate" />
+      <LevelGateBanner
+        restrictTo={course.level}
+        from={course.level}
+        testId="course-page-level-gate"
+      />
 
       {sortedLessons.length === 0 ? (
         <div className="lessons-empty" data-testid="course-no-lessons">
