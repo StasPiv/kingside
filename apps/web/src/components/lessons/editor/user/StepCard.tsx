@@ -1,4 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   StepPayload,
@@ -138,6 +146,12 @@ export function StepCard({
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuPos, setMenuPos] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
 
   /**
    * KS-1861-FIX: StepCard живёт внутри `<SortableItem>` из
@@ -161,6 +175,58 @@ export function StepCard({
     },
     [],
   );
+
+  /**
+   * KS-1872: меню рендерим в портал на `document.body`. У `.step-card`
+   * установлен `overflow: hidden` (нужен для скруглённого `__body`
+   * внутри card), и `__menu` с `position: absolute; top: 100%`
+   * выходил за границу карточки — в DOM он был, но клиппился родителем
+   * и был не виден пользователю. Portal + `position: fixed` обходят
+   * `overflow: hidden` независимо от вложенности.
+   *
+   * Координаты — viewport-relative от `triggerRef.getBoundingClientRect`,
+   * пересчёт при каждом open. `useLayoutEffect` чтобы избежать flash
+   * на нулевых координатах в момент первого рендера.
+   */
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setMenuPos(null);
+      return;
+    }
+    const el = triggerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setMenuPos({
+      top: rect.bottom + 4,
+      right: window.innerWidth - rect.right,
+    });
+  }, [menuOpen]);
+
+  /**
+   * KS-1872: click-outside для портального popover'а. В обычном CSS-
+   * варианте меню исчезало при повторном tap'е по trigger (toggle);
+   * после переноса в портал нужен явный outside-click handler — иначе
+   * меню висело бы поверх всей страницы пока пользователь снова не
+   * нажмёт на trigger.
+   */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e: MouseEvent) => {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    // capture-phase, чтобы перехватить клик до того как dnd-kit или
+    // другие компоненты возможно `stopPropagation`-нут его.
+    document.addEventListener('mousedown', onDocClick, true);
+    document.addEventListener('touchstart', onDocClick, true);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick, true);
+      document.removeEventListener('touchstart', onDocClick, true);
+    };
+  }, [menuOpen]);
 
   const isSupported = isUserStepType(step.type);
   const icon = isSupported ? TYPE_ICONS[step.type] : '❓';
@@ -224,6 +290,7 @@ export function StepCard({
         />
         <button
           type="button"
+          ref={triggerRef}
           className="step-card__menu-trigger"
           data-testid={`step-card-menu-trigger-${step.id}`}
           onClick={() => setMenuOpen((v) => !v)}
@@ -234,39 +301,48 @@ export function StepCard({
         >
           ⋯
         </button>
-        {menuOpen && (
-          <div
-            className="step-card__menu"
-            role="menu"
-            data-testid={`step-card-menu-${step.id}`}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              data-testid={`step-card-menu-duplicate-${step.id}`}
-              onClick={() => {
-                setMenuOpen(false);
-                onDuplicate();
+        {menuOpen &&
+          menuPos &&
+          createPortal(
+            <div
+              ref={menuRef}
+              className="step-card__menu step-card__menu--portal"
+              role="menu"
+              data-testid={`step-card-menu-${step.id}`}
+              style={{
+                position: 'fixed',
+                top: menuPos.top,
+                right: menuPos.right,
               }}
-              onPointerDown={stopPointerPropagation}
             >
-              {t('editor.step.duplicate', 'Duplicate')}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="step-card__menu-delete"
-              data-testid={`step-card-menu-delete-${step.id}`}
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete();
-              }}
-              onPointerDown={stopPointerPropagation}
-            >
-              {t('editor.remove', 'Remove')}
-            </button>
-          </div>
-        )}
+              <button
+                type="button"
+                role="menuitem"
+                data-testid={`step-card-menu-duplicate-${step.id}`}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDuplicate();
+                }}
+                onPointerDown={stopPointerPropagation}
+              >
+                {t('editor.step.duplicate', 'Duplicate')}
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="step-card__menu-delete"
+                data-testid={`step-card-menu-delete-${step.id}`}
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete();
+                }}
+                onPointerDown={stopPointerPropagation}
+              >
+                {t('editor.remove', 'Remove')}
+              </button>
+            </div>,
+            document.body,
+          )}
         <button
           type="button"
           className="step-card__chevron"
