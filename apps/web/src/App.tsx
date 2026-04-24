@@ -38,7 +38,7 @@ import { LessonPage } from './pages/LessonPage';
 import { MistakesPage } from './pages/MistakesPage';
 import { MistakesPracticePage } from './pages/MistakesPracticePage';
 import { LessonEditorPage } from './pages/LessonEditorPage';
-import { UserCourseEditorPage } from './pages/UserCourseEditorPage';
+import { UserCourseEditor } from './components/lessons/editor/user/UserCourseEditor';
 import { UserCoursePage } from './pages/UserCoursePage';
 import { UserLessonPage } from './pages/UserLessonPage';
 import { useAuth } from './context/AuthContext';
@@ -157,7 +157,7 @@ export function App() {
           <>
             <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
             <Route path="/lessons/editor" element={<ProtectedRoute><LessonEditorPage /></ProtectedRoute>} />
-            <Route path="/lessons/my/:slug/edit" element={<ProtectedRoute><UserCourseEditorPage /></ProtectedRoute>} />
+            <Route path="/lessons/my/:slug/edit" element={<ProtectedRoute><UserCourseEditor /></ProtectedRoute>} />
             <Route path="/lessons/my/:slug" element={<UserCoursePage />} />
             <Route path="/lessons/my/:slug/:lessonId" element={<ProtectedRoute><UserLessonPage /></ProtectedRoute>} />
             <Route path="/lessons/mistakes" element={<ProtectedRoute><MistakesPage /></ProtectedRoute>} />
