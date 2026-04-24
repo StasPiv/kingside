@@ -1175,6 +1175,8 @@
     "stepUnknown": "Unknown step type",
     "next": "Next",
     "skip": "Skip",
+    "videoContinue": "Continue",
+    "videoInvalid": "This video link is not supported (only YouTube and Vimeo are allowed)",
     "puzzleProgress": "Puzzle {{current}}/{{total}}",
     "puzzleCounters": "Solved {{solved}} • Failed {{failed}} • Need {{min}}",
     "puzzleCorrect": "Correct!",

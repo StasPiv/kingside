@@ -38,6 +38,12 @@ vi.mock('./steps/PositionStep', () => ({
   ),
 }));
 
+vi.mock('./steps/VideoStep', () => ({
+  VideoStep: ({ payload }: { payload: { url?: string } }) => (
+    <div data-testid="lesson-video-step-mock" data-url={payload.url ?? ''} />
+  ),
+}));
+
 const baseStep = {
   id: 's1',
   lessonId: 'l1',
@@ -55,24 +61,33 @@ describe('<StepRenderer>', () => {
     expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
   });
 
-  it.each([
-    'game_review',
-    'video',
-  ] as const)(
-    'для шага типа %s показывает stub с пометкой «coming soon»',
-    (type) => {
-      const step: LessonStep = {
-        ...baseStep,
-        type,
-        // payload-форма различается, но для stub-рендера важен только type
-        payload: { type } as LessonStep['payload'],
-      };
-      renderWithProviders(<StepRenderer step={step} />);
-      expect(
-        screen.getByTestId(`lesson-step-stub-${type}`),
-      ).toBeInTheDocument();
-    },
-  );
+  it('для шага типа game_review показывает stub с пометкой «coming soon»', () => {
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'game_review',
+      payload: { type: 'game_review' } as LessonStep['payload'],
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    expect(
+      screen.getByTestId('lesson-step-stub-game_review'),
+    ).toBeInTheDocument();
+  });
+
+  it('делегирует video-шаг компоненту VideoStep', () => {
+    const step: LessonStep = {
+      ...baseStep,
+      type: 'video',
+      payload: {
+        type: 'video',
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+      },
+    };
+    renderWithProviders(<StepRenderer step={step} />);
+    expect(screen.getByTestId('lesson-video-step-mock')).toHaveAttribute(
+      'data-url',
+      'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    );
+  });
 
   it('делегирует position-шаг компоненту PositionStep', () => {
     const step: LessonStep = {
@@ -122,12 +137,12 @@ describe('<StepRenderer>', () => {
     );
   });
 
-  it('пробрасывает onStepDone в кнопку stub (video)', () => {
+  it('пробрасывает onStepDone в кнопку stub (game_review)', () => {
     const onStepDone = vi.fn();
     const step: LessonStep = {
       ...baseStep,
-      type: 'video',
-      payload: { type: 'video', url: 'https://example.com/video.mp4' },
+      type: 'game_review',
+      payload: { type: 'game_review' } as LessonStep['payload'],
     };
     renderWithProviders(
       <StepRenderer step={step} onStepDone={onStepDone} />,
@@ -139,8 +154,8 @@ describe('<StepRenderer>', () => {
   it('hideNext убирает кнопку у stub', () => {
     const step: LessonStep = {
       ...baseStep,
-      type: 'quiz',
-      payload: { type: 'quiz', questions: [] },
+      type: 'game_review',
+      payload: { type: 'game_review' } as LessonStep['payload'],
     };
     renderWithProviders(<StepRenderer step={step} hideNext />);
     expect(screen.queryByTestId('lesson-step-stub-next')).toBeNull();

@@ -1175,6 +1175,8 @@
     "stepUnknown": "Неизвестный тип шага",
     "next": "Далее",
     "skip": "Пропустить",
+    "videoContinue": "Продолжить",
+    "videoInvalid": "Ссылка на видео не поддерживается (разрешены только YouTube и Vimeo)",
     "puzzleProgress": "Задача {{current}} из {{total}}",
     "puzzleCounters": "Решено {{solved}} • Ошибок {{failed}} • Нужно {{min}}",
     "puzzleCorrect": "Верно!",

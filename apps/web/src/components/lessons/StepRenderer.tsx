@@ -5,14 +5,15 @@ import { TextStep } from './steps/TextStep';
 import { PuzzleStep } from './steps/PuzzleStep';
 import { QuizStep } from './steps/QuizStep';
 import { PositionStep } from './steps/PositionStep';
+import { VideoStep } from './steps/VideoStep';
 
 /**
  * Диспетчер рендера шагов урока (L-08).
  *
  * Сужает дискриминированный union `step.payload.type` и делегирует
  * рендер конкретному компоненту. Реализованы `text`, `puzzle`, `quiz`,
- * `position`. Остальные (`game_review`, `video`) рендерят stub
- * «coming soon» и появятся в итерации 3.
+ * `position`, `video`. Остался `game_review` — stub «coming soon»,
+ * появится в итерации 3.
  *
  * Колбэк `onStepDone` пробрасывается в child-компоненты для отметки
  * прохождения шага. Реальная привязка к `useLessonProgress` — задача
@@ -51,8 +52,12 @@ export function StepRenderer({ step, onStepDone, hideNext }: StepRendererProps) 
         <PositionStep payload={payload} onStepDone={onStepDone} hideNext={hideNext} />
       );
 
-    case 'game_review':
     case 'video':
+      return (
+        <VideoStep payload={payload} onStepDone={onStepDone} hideNext={hideNext} />
+      );
+
+    case 'game_review':
       return (
         <div
           className={`lesson-step-stub lesson-step-stub--${payload.type}`}
