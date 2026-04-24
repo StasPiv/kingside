@@ -8,6 +8,8 @@
 
 import { createInterface } from 'readline';
 import { spawn } from 'child_process';
+import nodeHttp from 'node:http';
+import { URL } from 'node:url';
 
 const TOKEN = process.env.WEBHOOK_AUTH_TOKEN || '';
 const AGENT = process.env.AGENT_NAME || '';
@@ -106,20 +108,47 @@ const TOOLS = [
     }, required: ['path'] } },
 ];
 
+// Используем node:http вместо глобального fetch — у fetch (undici) в Node 20
+// headersTimeout/bodyTimeout дефолтом 300с, длинные операции (deploy, npm build,
+// docker_compose) дольше — fetch падает 'fetch failed', скрипт на хосте
+// продолжает работать и отвечает в закрытый сокет ('Broken pipe' в webhook).
+// http.request таких таймаутов не навязывает.
 async function http(url, opts = {}) {
-  const res = await fetch(url, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(opts.headers || {}),
-    },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  const method = (opts.method || 'GET').toUpperCase();
+  const u = new URL(url);
+  const bodyStr = opts.body ? JSON.stringify(opts.body) : undefined;
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(opts.headers || {}),
+  };
+  if (bodyStr) headers['Content-Length'] = Buffer.byteLength(bodyStr);
+
+  return new Promise((resolve) => {
+    const req = nodeHttp.request({
+      method,
+      hostname: u.hostname,
+      port: u.port || 80,
+      path: u.pathname + u.search,
+      headers,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let data;
+        try { data = JSON.parse(text); } catch { data = text; }
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          resolve({ error: `${res.statusCode}`, detail: data });
+        } else {
+          resolve(data);
+        }
+      });
+      res.on('error', (e) => resolve({ error: 'response_error', detail: e.message }));
+    });
+    req.on('error', (e) => resolve({ error: 'request_error', detail: e.message }));
+    if (bodyStr) req.write(bodyStr);
+    req.end();
   });
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { data = text; }
-  if (!res.ok) return { error: `${res.status}`, detail: data };
-  return data;
 }
 
 async function webhookPost(path, body) {

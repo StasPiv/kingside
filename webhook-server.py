@@ -46,6 +46,26 @@ for _f in os.listdir(_LOCKS_DIR):
         pass
 
 
+def _json_with_ts(raw_or_dict):
+    """Добавляет поле ts (unix-время) к JSON-строке или dict для записи в agents.log.
+    Если переданная строка не JSON — возвращает её как есть (stderr, пустые строки).
+    """
+    now = time.time()
+    if isinstance(raw_or_dict, dict):
+        return json.dumps({**raw_or_dict, "ts": now}) + "\n"
+    raw = raw_or_dict
+    stripped = raw.strip()
+    if not stripped:
+        return raw
+    try:
+        data = json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        return raw
+    if "ts" not in data:
+        data["ts"] = now
+    return json.dumps(data) + "\n"
+
+
 def _set_busy(agent: str, task: str = ""):
     """Создаёт lock-файл — агент занят."""
     path = os.path.join(_LOCKS_DIR, f"{agent}.lock")
@@ -274,7 +294,7 @@ class AgentDaemon:
         try:
             for line in iter(proc.stdout.readline, ""):
                 with open(log_file, "a") as lf:
-                    lf.write(line)
+                    lf.write(_json_with_ts(line))
                 line_s = line.strip()
                 if not line_s:
                     continue
@@ -291,7 +311,7 @@ class AgentDaemon:
                     _save_session(self.name, sid)
                     # Обновляем agent_init в логе с реальным session_id
                     with open(log_file, "a") as lf:
-                        lf.write(json.dumps({"type": "agent_init", "agent": self.name, "session_id": sid}) + "\n")
+                        lf.write(_json_with_ts({"type": "agent_init", "agent": self.name, "session_id": sid}))
 
                 # Отслеживаем tool_use: если агент вызвал agent_message/telegram_send
                 # с правильным адресатом — считаем что ответ отправителю дан.
@@ -1235,7 +1255,7 @@ def launch_agent(key, summary, agent, prompt=None):
 
     log_file = os.path.join(LOG_DIR, "agents.log")
     with open(log_file, "a") as lf:
-        lf.write(json.dumps({"type": "agent_msg", "agent": agent.upper(), "task": key}) + "\n")
+        lf.write(_json_with_ts({"type": "agent_msg", "agent": agent.upper(), "task": key}))
 
     send_to_agent(agent, prompt)
     log(f"Сообщение отправлено daemon {agent} для {key}")
@@ -1423,12 +1443,12 @@ def _log_user_prompt(agent: str, text: str, source: str = "web"):
     """Записывает пользовательский промпт в agents.log для отображения в /logs."""
     log_file = os.path.join(LOG_DIR, "agents.log")
     with open(log_file, "a") as lf:
-        lf.write(json.dumps({
+        lf.write(_json_with_ts({
             "type": "user_prompt",
             "agent": agent,
             "text": text,
             "source": source,
-        }) + "\n")
+        }))
 
 
 # ---------------------------------------------------------------------------
@@ -1685,6 +1705,20 @@ def _esc(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _inject_ts_attr(html: str, ts) -> str:
+    """Вставляет data-ts="<unix_ts>" в каждый <div class="ev ...">.
+    Нужно чтобы клиент при (ре)загрузке страницы показывал реальное время события,
+    а не `new Date()` на момент получения SSE.
+    """
+    if ts is None:
+        return html
+    try:
+        ts_f = float(ts)
+    except (TypeError, ValueError):
+        return html
+    return re.sub(r'<div class="(ev[^"]*)"', f'<div data-ts="{ts_f}" class="\\1"', html)
+
+
 def _stream_logs_sse(wfile):
     """SSE-стрим: читает agents.log и шлёт форматированные события."""
     log_file = os.path.join(LOG_DIR, "agents.log")
@@ -1720,6 +1754,7 @@ def _stream_logs_sse(wfile):
                 data = json.loads(line.strip())
                 formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
                 if formatted:
+                    formatted = _inject_ts_attr(formatted, data.get("ts"))
                     sse_data = "\n".join(f"data: {line}" for line in formatted.split("\n"))
                     wfile.write(f"{sse_data}\n\n".encode())
             except (json.JSONDecodeError, ValueError):
@@ -1736,6 +1771,7 @@ def _stream_logs_sse(wfile):
                 data = json.loads(line.strip())
                 formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
                 if formatted:
+                    formatted = _inject_ts_attr(formatted, data.get("ts"))
                     sse_data = "\n".join(f"data: {line}" for line in formatted.split("\n"))
                     wfile.write(f"{sse_data}\n\n".encode())
                     wfile.flush()
@@ -1904,9 +1940,14 @@ const tokenQS = authToken ? '?token=' + encodeURIComponent(authToken) : '';
 
 const es = new EventSource('/logs/stream' + tokenQS);
 es.onmessage = (e) => {
-  const ts = new Date().toLocaleTimeString('en-GB', {hour12: false});
   const div = document.createElement('div');
-  div.innerHTML = e.data.replace(/^(<div class="ev[^"]*">)/, '$1<span class="ts">' + ts + '</span>');
+  div.innerHTML = e.data;
+  div.querySelectorAll('.ev').forEach(ev => {
+    const tsAttr = ev.getAttribute('data-ts');
+    const tsMs = tsAttr ? parseFloat(tsAttr) * 1000 : Date.now();
+    const tsStr = new Date(tsMs).toLocaleTimeString('en-GB', {hour12: false});
+    ev.insertAdjacentHTML('afterbegin', '<span class="ts">' + tsStr + '</span>');
+  });
   div.querySelectorAll('.text-body').forEach(el => {
     el.innerHTML = marked.parse(el.textContent);
   });
@@ -2949,11 +2990,9 @@ def shutdown_daemons():
 
 
 if __name__ == "__main__":
-    # Ротация лога агентов при старте
+    # Лог агентов не ротируется на старте — переписка с агентами сохраняется
+    # между рестартами webhook-сервера. Ротация (если понадобится) — вручную.
     agents_log = os.path.join(LOG_DIR, "agents.log")
-    if os.path.exists(agents_log) and os.path.getsize(agents_log) > 0:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        os.rename(agents_log, os.path.join(LOG_DIR, f"agents_{ts}.log"))
     open(agents_log, "a").close()
 
     # Telegram polling
