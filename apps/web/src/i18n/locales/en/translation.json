@@ -1177,6 +1177,24 @@
     "skip": "Skip",
     "videoContinue": "Continue",
     "videoInvalid": "This video link is not supported (only YouTube and Vimeo are allowed)",
+    "gameReview": {
+      "checklistTitle": "Reflect on the game",
+      "checklist": {
+        "keyMistake": "Where was the key mistake?",
+        "opponentPlan": "What was the opponent's plan?",
+        "bestMove": "What was the best move?"
+      },
+      "markDone": "Step done",
+      "needAllChecks": "Answer all questions to finish this step",
+      "openFullAnalysis": "Open full analysis",
+      "pgnHint": "This step uses an embedded PGN. Save it in the Workshop to run a full WASM analysis.",
+      "openWorkshop": "Open in Workshop",
+      "emptyHint": "Pick a game from your library or import one from Lichess/chess.com.",
+      "importLichess": "Import from Lichess",
+      "importChesscom": "Import from chess.com",
+      "openLibrary": "My games",
+      "importDoneNote": "Games imported. Open them in Workshop and return here for the review step."
+    },
     "puzzleProgress": "Puzzle {{current}}/{{total}}",
     "puzzleCounters": "Solved {{solved}} • Failed {{failed}} • Need {{min}}",
     "puzzleCorrect": "Correct!",

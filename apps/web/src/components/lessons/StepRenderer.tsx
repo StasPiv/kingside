@@ -6,14 +6,14 @@ import { PuzzleStep } from './steps/PuzzleStep';
 import { QuizStep } from './steps/QuizStep';
 import { PositionStep } from './steps/PositionStep';
 import { VideoStep } from './steps/VideoStep';
+import { GameReviewStep } from './steps/GameReviewStep';
 
 /**
  * Диспетчер рендера шагов урока (L-08).
  *
  * Сужает дискриминированный union `step.payload.type` и делегирует
- * рендер конкретному компоненту. Реализованы `text`, `puzzle`, `quiz`,
- * `position`, `video`. Остался `game_review` — stub «coming soon»,
- * появится в итерации 3.
+ * рендер конкретному компоненту. Реализованы все 6 типов: `text`,
+ * `puzzle`, `quiz`, `position`, `video`, `game_review`.
  *
  * Колбэк `onStepDone` пробрасывается в child-компоненты для отметки
  * прохождения шага. Реальная привязка к `useLessonProgress` — задача
@@ -59,27 +59,11 @@ export function StepRenderer({ step, onStepDone, hideNext }: StepRendererProps) 
 
     case 'game_review':
       return (
-        <div
-          className={`lesson-step-stub lesson-step-stub--${payload.type}`}
-          data-testid={`lesson-step-stub-${payload.type}`}
-        >
-          <p>
-            {t('lessons.stepNotImplemented', {
-              type: t(`lessons.stepType.${payload.type}`, payload.type),
-              defaultValue: '“{{type}}” steps will be available soon',
-            })}
-          </p>
-          {!hideNext && (
-            <button
-              type="button"
-              className="lesson-step-stub__next"
-              data-testid="lesson-step-stub-next"
-              onClick={() => onStepDone?.()}
-            >
-              {t('lessons.skip', 'Skip')}
-            </button>
-          )}
-        </div>
+        <GameReviewStep
+          payload={payload}
+          onStepDone={onStepDone}
+          hideNext={hideNext}
+        />
       );
 
     default: {

@@ -1177,6 +1177,24 @@
     "skip": "Пропустить",
     "videoContinue": "Продолжить",
     "videoInvalid": "Ссылка на видео не поддерживается (разрешены только YouTube и Vimeo)",
+    "gameReview": {
+      "checklistTitle": "Разбор партии",
+      "checklist": {
+        "keyMistake": "Где была ключевая ошибка?",
+        "opponentPlan": "Какой план был у противника?",
+        "bestMove": "Какой ход был лучшим?"
+      },
+      "markDone": "Шаг пройден",
+      "needAllChecks": "Ответь на все вопросы, чтобы завершить шаг",
+      "openFullAnalysis": "Открыть полный разбор",
+      "pgnHint": "Шаг использует встроенный PGN. Чтобы получить полный wasm-разбор, сохрани партию в мастерскую.",
+      "openWorkshop": "Открыть в мастерской",
+      "emptyHint": "Выбери партию из своей библиотеки или импортируй с Lichess/chess.com.",
+      "importLichess": "Импорт с Lichess",
+      "importChesscom": "Импорт с chess.com",
+      "openLibrary": "Мои партии",
+      "importDoneNote": "Партии импортированы. Открой их в мастерской и вернись к шагу."
+    },
     "puzzleProgress": "Задача {{current}} из {{total}}",
     "puzzleCounters": "Решено {{solved}} • Ошибок {{failed}} • Нужно {{min}}",
     "puzzleCorrect": "Верно!",

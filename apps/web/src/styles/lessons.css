@@ -594,6 +594,162 @@
   filter: brightness(1.05);
 }
 
+/* ---------- Game review step (L-30, KS-1795) ---------- */
+.lesson-game-review-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lesson-game-review-step__analysis,
+.lesson-game-review-step__pgn,
+.lesson-game-review-step__empty {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lesson-game-review-step__pgn-text {
+  max-height: 280px;
+  overflow: auto;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lesson-game-review-step__pgn-hint,
+.lesson-game-review-step__empty-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.lesson-game-review-step__deep-link {
+  margin: 0;
+  font-size: 14px;
+}
+
+.lesson-game-review-step__empty-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.lesson-game-review-step__import-btn {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.lesson-game-review-step__import-btn:hover {
+  border-color: var(--accent);
+}
+
+.lesson-game-review-step__library-link {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px dashed var(--border-subtle);
+  color: var(--text-link);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.lesson-game-review-step__empty-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--success);
+}
+
+.lesson-game-review-step__checklist {
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lesson-game-review-step__checklist-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lesson-game-review-step__checklist-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lesson-game-review-step__checklist-item label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.lesson-game-review-step__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.lesson-game-review-step__done {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--accent);
+  color: var(--accent-contrast, #fff);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: filter 0.15s ease, opacity 0.15s ease;
+}
+
+.lesson-game-review-step__done:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.lesson-game-review-step__done:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+
+.lesson-game-review-step__done-hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .lesson-game-review-step__done {
+    width: 100%;
+  }
+
+  .lesson-game-review-step__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 /* ---------- Quiz step ---------- */
 .lesson-quiz-step {
   display: flex;

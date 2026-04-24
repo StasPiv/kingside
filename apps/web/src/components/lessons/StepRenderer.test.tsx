@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen } from '../../test/test-utils';
 import { StepRenderer } from './StepRenderer';
 import type { LessonStep } from '@kingside/shared';
@@ -44,6 +43,16 @@ vi.mock('./steps/VideoStep', () => ({
   ),
 }));
 
+vi.mock('./steps/GameReviewStep', () => ({
+  GameReviewStep: ({ payload }: { payload: { gameId?: string; pgn?: string } }) => (
+    <div
+      data-testid="lesson-game-review-step-mock"
+      data-game-id={payload.gameId ?? ''}
+      data-pgn-len={String((payload.pgn ?? '').length)}
+    />
+  ),
+}));
+
 const baseStep = {
   id: 's1',
   lessonId: 'l1',
@@ -61,16 +70,16 @@ describe('<StepRenderer>', () => {
     expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
   });
 
-  it('для шага типа game_review показывает stub с пометкой «coming soon»', () => {
+  it('делегирует game_review-шаг компоненту GameReviewStep', () => {
     const step: LessonStep = {
       ...baseStep,
       type: 'game_review',
-      payload: { type: 'game_review' } as LessonStep['payload'],
+      payload: { type: 'game_review', gameId: 'g123' },
     };
     renderWithProviders(<StepRenderer step={step} />);
     expect(
-      screen.getByTestId('lesson-step-stub-game_review'),
-    ).toBeInTheDocument();
+      screen.getByTestId('lesson-game-review-step-mock'),
+    ).toHaveAttribute('data-game-id', 'g123');
   });
 
   it('делегирует video-шаг компоненту VideoStep', () => {
@@ -137,27 +146,18 @@ describe('<StepRenderer>', () => {
     );
   });
 
-  it('пробрасывает onStepDone в кнопку stub (game_review)', () => {
-    const onStepDone = vi.fn();
-    const step: LessonStep = {
+  it('неизвестный тип шага → stepUnknown stub', () => {
+    // Синтетический payload с неизвестным type — для покрытия default-ветки
+    // exhaustive-check. LessonStep['type'] строго типизирован; приводим как
+    // unknown для теста защиты от невалидных данных с бэка.
+    const step = {
       ...baseStep,
-      type: 'game_review',
-      payload: { type: 'game_review' } as LessonStep['payload'],
-    };
-    renderWithProviders(
-      <StepRenderer step={step} onStepDone={onStepDone} />,
-    );
-    fireEvent.click(screen.getByTestId('lesson-step-stub-next'));
-    expect(onStepDone).toHaveBeenCalledTimes(1);
-  });
-
-  it('hideNext убирает кнопку у stub', () => {
-    const step: LessonStep = {
-      ...baseStep,
-      type: 'game_review',
-      payload: { type: 'game_review' } as LessonStep['payload'],
-    };
-    renderWithProviders(<StepRenderer step={step} hideNext />);
-    expect(screen.queryByTestId('lesson-step-stub-next')).toBeNull();
+      type: 'something-new',
+      payload: { type: 'something-new' },
+    } as unknown as LessonStep;
+    renderWithProviders(<StepRenderer step={step} />);
+    expect(
+      screen.getByTestId('lesson-step-stub-unknown'),
+    ).toBeInTheDocument();
   });
 });
