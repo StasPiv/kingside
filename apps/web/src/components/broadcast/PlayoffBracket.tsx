@@ -2,6 +2,8 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { BracketLink, BroadcastGameSummary } from '@kingside/shared';
 
+import { BroadcastBoardCard } from './BroadcastBoardCard';
+
 /**
  * Сетка плей-офф (KS-1814 / KS-1825).
  *
@@ -59,45 +61,203 @@ function stageSortKey(stage: string): number {
 }
 
 /**
+ * Форматирует число очков с возможной половинкой: 1.5 → "1½", 0.5 → "½",
+ * 2 → "2". Экспортируется для тестов.
+ */
+export function formatHalfScore(n: number): string {
+  const whole = Math.floor(n);
+  const hasHalf = Math.abs(n - whole - 0.5) < 1e-6;
+  if (hasHalf) return whole === 0 ? '½' : `${whole}½`;
+  return `${whole}`;
+}
+
+/**
+ * Агрегирует счёт матча из списка партий пары.
+ *
+ * Очки считаются от лица `anchorWhitePlayer` / `anchorBlackPlayer` —
+ * зафиксированных имён первой партии пары. В последующих партиях цвета
+ * обычно чередуются (Abdu vs Sevian: g1 Sevian-W vs Abdu-B, g2 Abdu-W vs
+ * Sevian-B, …), поэтому нужно сопоставлять игроков по имени, а не по
+ * полю `result` напрямую.
+ *
+ * Возвращает строку вида `"2-1"`, `"1½-½"`, `"2-0"` или `null`, если
+ * ни одной законченной партии нет (все `*`).
+ *
+ * Экспортируется для unit-тестов.
+ *
+ * Игры с нераспознанным `result` игнорируются (в т.ч. `"*"` — in progress).
+ *
+ * # Почему считаем на фронте, а не полагаемся на `game.matchScore` от backend
+ *
+ * Первая итерация KS-1825 читала backend-поле `matchScore`, предполагая, что
+ * KS-1824 кладёт туда агрегат. На prod-данных (chess.com open playoffs) поле
+ * оказалось заполнено per-game счётом отдельной партии, а не суммой матча —
+ * в скриншотах пара из 3 партий показывала «1-0» вместо «1-2». Считать из
+ * `games[]` на клиенте — надёжнее (и работает в dev-песочнице
+ * `DevPlayoffBracketPage`, где backend не участвует).
+ */
+export function computeMatchScore(
+  anchorWhitePlayer: string | null,
+  anchorBlackPlayer: string | null,
+  games: BroadcastGameSummary[],
+): string | null {
+  let ptsWhite = 0;
+  let ptsBlack = 0;
+  let counted = 0;
+  for (const g of games) {
+    if (!g.result) continue;
+    const r = g.result.replace(/½/g, '1/2');
+    let gWhitePts: number;
+    let gBlackPts: number;
+    if (r === '1-0') {
+      gWhitePts = 1;
+      gBlackPts = 0;
+    } else if (r === '0-1') {
+      gWhitePts = 0;
+      gBlackPts = 1;
+    } else if (r === '1/2-1/2') {
+      gWhitePts = 0.5;
+      gBlackPts = 0.5;
+    } else {
+      // '*' или нераспознанное значение — пропускаем.
+      continue;
+    }
+    counted++;
+    // Сопоставить game-white / game-black → pair-white / pair-black.
+    // Если у пары anchor'ы не заданы (null), считаем что white одной
+    // партии = white anchor (fallback для тестовых данных без имён).
+    const gameWhiteIsPairWhite =
+      anchorWhitePlayer == null ||
+      g.whitePlayer === anchorWhitePlayer ||
+      // Blacks matching тоже означает, что white=white (two-way check).
+      (anchorBlackPlayer != null && g.blackPlayer === anchorBlackPlayer);
+    if (gameWhiteIsPairWhite) {
+      ptsWhite += gWhitePts;
+      ptsBlack += gBlackPts;
+    } else {
+      ptsWhite += gBlackPts;
+      ptsBlack += gWhitePts;
+    }
+  }
+  if (counted === 0) return null;
+  return `${formatHalfScore(ptsWhite)}-${formatHalfScore(ptsBlack)}`;
+}
+
+/**
  * Группирует партии по паре и стадии. Экспортируется для unit-тестов.
  *
- * `matchScore` берётся из партии с **максимальным `updatedAt`** внутри
- * пары, т.к. backend (KS-1824) заполняет поле актуальным агрегатным
- * счётом матча на момент последнего апдейта партии. Простое «последний
- * встреченный в массиве» было ошибкой KS-1825 первой итерации — при
- * произвольном порядке от API могли попадать ранние matchScore-значения.
+ * `matchScore` считается на клиенте через {@link computeMatchScore} из
+ * списка партий пары. Anchor white/black берётся из первой партии, ибо
+ * в последующих партиях цвета чередуются и имена в полях
+ * `whitePlayer`/`blackPlayer` меняются местами.
+ *
+ * Backend-поле `game.matchScore` сейчас игнорируется (см. doc
+ * `computeMatchScore`).
  */
 export function groupGamesByPair(games: BroadcastGameSummary[]): PairGroup[] {
   const byPair = new Map<string, PairGroup>();
-  const latestMatchScoreTs = new Map<string, string>();
   for (const g of games) {
     const pairId = g.bracketPairId ?? `__ungrouped:${g.id}`;
     const stage = g.bracketStage ?? 'playoff';
     const existing = byPair.get(pairId);
     if (existing) {
       existing.games.push(g);
-      // Обновляем matchScore только если текущая партия свежее
-      // последней партии, откуда уже брали scoreSource.
-      if (g.matchScore) {
-        const prevTs = latestMatchScoreTs.get(pairId);
-        if (!prevTs || g.updatedAt > prevTs) {
-          existing.matchScore = g.matchScore;
-          latestMatchScoreTs.set(pairId, g.updatedAt);
-        }
-      }
     } else {
       byPair.set(pairId, {
         pairId,
         stage,
         whitePlayer: g.whitePlayer,
         blackPlayer: g.blackPlayer,
-        matchScore: g.matchScore ?? null,
+        matchScore: null,
         games: [g],
       });
-      if (g.matchScore) latestMatchScoreTs.set(pairId, g.updatedAt);
     }
   }
+  // После группировки пересчитываем matchScore для каждой пары из полного
+  // списка партий (одним проходом, вне цикла вставки).
+  for (const pair of byPair.values()) {
+    pair.matchScore = computeMatchScore(
+      pair.whitePlayer,
+      pair.blackPlayer,
+      pair.games,
+    );
+  }
   return Array.from(byPair.values());
+}
+
+/**
+ * Определяет победителя пары по агрегированному счёту игр. Возвращает
+ * имя победителя (совпадает с `pair.whitePlayer` или `pair.blackPlayer`)
+ * или `null`, если матч не сыгран / ничья / счёт не определён.
+ * Экспортируется для тестов.
+ */
+export function determineWinner(pair: PairGroup): string | null {
+  let ptsWhite = 0;
+  let ptsBlack = 0;
+  let counted = 0;
+  for (const g of pair.games) {
+    if (!g.result) continue;
+    const r = g.result.replace(/½/g, '1/2');
+    let gw: number;
+    let gb: number;
+    if (r === '1-0') { gw = 1; gb = 0; }
+    else if (r === '0-1') { gw = 0; gb = 1; }
+    else if (r === '1/2-1/2') { gw = 0.5; gb = 0.5; }
+    else continue;
+    counted++;
+    const isPairWhite =
+      pair.whitePlayer == null ||
+      g.whitePlayer === pair.whitePlayer ||
+      (pair.blackPlayer != null && g.blackPlayer === pair.blackPlayer);
+    if (isPairWhite) { ptsWhite += gw; ptsBlack += gb; }
+    else { ptsWhite += gb; ptsBlack += gw; }
+  }
+  if (counted === 0) return null;
+  if (ptsWhite > ptsBlack) return pair.whitePlayer;
+  if (ptsBlack > ptsWhite) return pair.blackPlayer;
+  return null;
+}
+
+/**
+ * Деривирует «winner»-линии между стадиями на основе игр.
+ *
+ * # Почему это делается на фронте, а не берётся из backend `links`
+ *
+ * На prod-данных (chess.com open playoffs) backend отдавал links, где QF-пара
+ * `abdu|lazavik` имела родителями R16-пары `abdu|sevian` И `carlsen|sargsyan`.
+ * Abdu действительно прошёл из первой, но Lazavik пришёл из R16 `lazavik|yu`
+ * (а не из R16 с Carlsen — Carlsen проходит в другую QF). То есть backend-линки
+ * выглядят сгенерированными попарно по индексу (1↔2, 3↔4, …), а не по реальному
+ * игроку-победителю. Это ломает дерево визуально: пары следующей стадии
+ * центрируются между не теми R16-парами.
+ *
+ * На фронте: для каждой пары в стадии `i` определяем победителя →
+ * находим пару в стадии `i+1`, содержащую этого игрока → линия `winner`.
+ * Экспортируется для тестов.
+ */
+export function deriveWinnerLinks(layout: BracketLayout[]): BracketLink[] {
+  const links: BracketLink[] = [];
+  for (const track of layout) {
+    for (let i = 0; i < track.stages.length - 1; i++) {
+      const src = track.stages[i];
+      const dst = track.stages[i + 1];
+      for (const srcPair of src.pairs) {
+        const winner = determineWinner(srcPair);
+        if (!winner) continue;
+        const dstPair = dst.pairs.find(
+          (p) => p.whitePlayer === winner || p.blackPlayer === winner,
+        );
+        if (dstPair) {
+          links.push({
+            fromPairId: srcPair.pairId,
+            toPairId: dstPair.pairId,
+            kind: 'winner',
+          });
+        }
+      }
+    }
+  }
+  return links;
 }
 
 /** Раскладка пар по дорожкам (winners / losers / main) и стадиям. */
@@ -131,6 +291,52 @@ export function layoutBracket(pairs: PairGroup[]): BracketLayout[] {
   if (winners.length > 0) result.push({ label: 'winners', stages: toStages(winners) });
   if (losers.length > 0) result.push({ label: 'losers', stages: toStages(losers) });
   if (main.length > 0) result.push({ label: 'main', stages: toStages(main) });
+
+  // Tree-layout каскадом: самой поздней стадии оставляем insertion-порядок
+  // (от backend — он обычно отражает порядок в сетке). Для каждой более
+  // ранней стадии parent-паре назначается слот `childSlot * 2 + j`, где
+  // j — индекс parent'а среди близнецов (их обычно двое — выигравший и
+  // проигравший-branch, у single-elim winners — оба из предыдущего раунда).
+  // Сортируем каждую стадию по слоту → получаем классическое bracket-дерево.
+  const allLinks = deriveWinnerLinks(result);
+  for (const track of result) {
+    if (track.stages.length === 0) continue;
+    const slot = new Map<string, number>();
+    const last = track.stages[track.stages.length - 1];
+    last.pairs.forEach((p, i) => slot.set(p.pairId, i));
+    for (let i = track.stages.length - 2; i >= 0; i--) {
+      const stage = track.stages[i];
+      const parentsOfChild = new Map<string, PairGroup[]>();
+      for (const p of stage.pairs) {
+        const link = allLinks.find(
+          (l) => l.fromPairId === p.pairId && l.kind === 'winner',
+        );
+        const childId = link?.toPairId ?? '__orphan__';
+        const arr = parentsOfChild.get(childId) ?? [];
+        arr.push(p);
+        parentsOfChild.set(childId, arr);
+      }
+      // Обрабатываем детей в порядке слота, чтобы orphan'ы попадали в конец.
+      const childrenByChildSlot = Array.from(parentsOfChild.keys()).sort(
+        (a, b) =>
+          (slot.get(a) ?? Number.POSITIVE_INFINITY) -
+          (slot.get(b) ?? Number.POSITIVE_INFINITY),
+      );
+      let orphanCursor = 1e6;
+      for (const childId of childrenByChildSlot) {
+        const childSlot = slot.get(childId);
+        const parents = parentsOfChild.get(childId)!;
+        if (childSlot === undefined) {
+          parents.forEach((p) => slot.set(p.pairId, orphanCursor++));
+        } else {
+          parents.forEach((p, j) => slot.set(p.pairId, childSlot * 2 + j));
+        }
+      }
+      stage.pairs.sort(
+        (a, b) => (slot.get(a.pairId) ?? 0) - (slot.get(b.pairId) ?? 0),
+      );
+    }
+  }
   return result;
 }
 
@@ -192,6 +398,14 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
   const { t } = useTranslation();
   const layout = useMemo(() => layoutBracket(groupGamesByPair(games)), [games]);
 
+  // Prop `links` (если задан — даже пустым) имеет приоритет (для тестов
+  // и dev-песочницы). В обычном случае BroadcastStandings не передаёт
+  // prop, и линии выводятся из игр функцией `deriveWinnerLinks`.
+  const effectiveLinks = useMemo(
+    () => (links !== undefined ? links : deriveWinnerLinks(layout)),
+    [links, layout],
+  );
+
   // ─── SVG links overlay ──────────────────────────────────────────────
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pairRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -199,7 +413,7 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
     Array<{ key: string; kind: 'winner' | 'loser'; d: string }>
   >([]);
   const [svgSize, setSvgSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
-  const hasLinks = Boolean(links && links.length > 0);
+  const hasLinks = effectiveLinks.length > 0;
 
   useLayoutEffect(() => {
     if (!hasLinks) {
@@ -211,7 +425,7 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
       if (!container) return;
       const crect = container.getBoundingClientRect();
       const next: Array<{ key: string; kind: 'winner' | 'loser'; d: string }> = [];
-      for (const link of links ?? []) {
+      for (const link of effectiveLinks) {
         const from = pairRefs.current.get(link.fromPairId);
         const to = pairRefs.current.get(link.toPairId);
         if (!from || !to) continue;
@@ -246,7 +460,7 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
       ro.disconnect();
       window.removeEventListener('resize', onResize);
     };
-  }, [layout, links, hasLinks]);
+  }, [layout, effectiveLinks, hasLinks]);
 
   const setPairRef = (pairId: string) => (el: HTMLDivElement | null) => {
     if (el) pairRefs.current.set(pairId, el);
@@ -347,42 +561,18 @@ export function PlayoffBracket({ games, links, onGameClick }: PlayoffBracketProp
                             defaultValue: '{{count}} games',
                           })}
                         </summary>
-                        <ul className="playoff-bracket__game-list">
+                        <div className="playoff-bracket__boards">
                           {pair.games
                             .slice()
                             .sort((a, b) => a.updatedAt.localeCompare(b.updatedAt))
-                            .map((game, idx) => (
-                              <li
+                            .map((game) => (
+                              <BroadcastBoardCard
                                 key={game.id}
-                                className="playoff-bracket__game"
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => onGameClick?.(game)}
-                                  disabled={!game.pgn}
-                                  data-testid={`playoff-game-${game.id}`}
-                                >
-                                  <span>
-                                    {t(
-                                      'broadcastRound.playoff.gameNo',
-                                      {
-                                        n: idx + 1,
-                                        defaultValue: 'Game {{n}}',
-                                      },
-                                    )}
-                                  </span>
-                                  <span className="playoff-bracket__game-result">
-                                    {game.result && game.result !== '*'
-                                      ? game.result
-                                      : t(
-                                          'broadcastRound.playoff.inProgress',
-                                          'live',
-                                        )}
-                                  </span>
-                                </button>
-                              </li>
+                                game={game}
+                                onGameClick={onGameClick}
+                              />
                             ))}
-                        </ul>
+                        </div>
                       </details>
                     </div>
                   ))}

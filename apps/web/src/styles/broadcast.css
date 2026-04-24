@@ -1423,10 +1423,19 @@
   color: var(--text-primary);
 }
 
+/* KS-1825 v3: пары в стадии распределяются по вертикали через
+   `space-around` — это даёт классическую bracket-раскладку, где пара
+   следующей стадии визуально центрируется между двумя парами-родителями
+   предыдущей стадии (R16 1/16, 3/16, … → QF 1/8, 3/8, …).
+   `flex: 1` на контейнере пар нужен, чтобы он занял всю высоту колонки
+   (колонки уравнены через grid `align-items: stretch`). */
 .playoff-bracket__pairs {
   display: flex;
   flex-direction: column;
+  justify-content: space-around;
   gap: 8px;
+  flex: 1;
+  min-height: 0;
 }
 
 .playoff-bracket__pair {
@@ -1506,6 +1515,16 @@
 
 .playoff-bracket__game button:not(:disabled):hover {
   border-color: var(--accent);
+}
+
+/* KS-1825 v2: внутри раскрытой пары рендерим мини-доски того же типа,
+   что и на странице тура. Грид — 1 колонка по умолчанию (пары в сетке
+   достаточно узкие), перестраивается на 2+ если пара шире 440px. */
+.playoff-bracket__boards {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
 }
 
 .playoff-bracket__game-result {

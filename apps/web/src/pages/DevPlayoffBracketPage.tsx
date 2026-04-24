@@ -30,123 +30,112 @@ function mkGame(
   };
 }
 
-// 8 пар в winners quarter → 4 в winners semi → 2 в winners final → grand_final
+// 4 пары в winners quarter → 2 в winners semi → 1 winners final → grand_final
 // Плюс losers ветка с параллельной структурой. Это упрощённая сетка
 // (без всех пар double-elim, чтобы скрин был читаем).
+//
+// matchScore теперь агрегируется клиентом из `result` партий (KS-1825 v2,
+// см. `computeMatchScore`). Поэтому мок содержит по 2-3 партии на пару с
+// чередованием цветов — это даёт realistic-скор в песочнице.
+function pairGames(
+  base: string,
+  p1: string,
+  p2: string,
+  stage: string,
+  results: Array<{ whiteIsP1: boolean; result: string }>,
+): BroadcastGameSummary[] {
+  return results.map((r, i) =>
+    mkGame(`${base}-${i + 1}`, {
+      whitePlayer: r.whiteIsP1 ? p1 : p2,
+      blackPlayer: r.whiteIsP1 ? p2 : p1,
+      bracketStage: stage,
+      bracketPairId: `${stage}:${p1}|${p2}`,
+      result: r.result,
+      pgn: r.result === '*' ? null : '1. e4',
+    }),
+  );
+}
+
 const MOCK_GAMES: BroadcastGameSummary[] = [
-  // Winners quarter (4 пары)
-  mkGame('wq1', {
-    whitePlayer: 'Carlsen',
-    blackPlayer: 'Caruana',
-    bracketStage: 'winners_quarter',
-    bracketPairId: 'wq:Carlsen|Caruana',
-    matchScore: '2-0',
-  }),
-  mkGame('wq2', {
-    whitePlayer: 'Nakamura',
-    blackPlayer: 'Firouzja',
-    bracketStage: 'winners_quarter',
-    bracketPairId: 'wq:Firouzja|Nakamura',
-    matchScore: '2-1',
-  }),
-  mkGame('wq3', {
-    whitePlayer: 'Ding',
-    blackPlayer: 'Abdusattorov',
-    bracketStage: 'winners_quarter',
-    bracketPairId: 'wq:Abdusattorov|Ding',
-    matchScore: '1½-½',
-  }),
-  mkGame('wq4', {
-    whitePlayer: 'Gukesh',
-    blackPlayer: 'Erigaisi',
-    bracketStage: 'winners_quarter',
-    bracketPairId: 'wq:Erigaisi|Gukesh',
-    matchScore: '2-0',
-  }),
+  // Winners quarter (4 пары, 2 партии каждая)
+  ...pairGames('wq1', 'Carlsen', 'Caruana', 'winners_quarter', [
+    { whiteIsP1: true, result: '1-0' },
+    { whiteIsP1: false, result: '0-1' }, // Carlsen (black) won
+  ]),
+  ...pairGames('wq2', 'Firouzja', 'Nakamura', 'winners_quarter', [
+    { whiteIsP1: true, result: '0-1' }, // Nakamura (black) won
+    { whiteIsP1: false, result: '1-0' }, // Nakamura (white) won
+    { whiteIsP1: true, result: '1/2-1/2' },
+  ]),
+  ...pairGames('wq3', 'Abdusattorov', 'Ding', 'winners_quarter', [
+    { whiteIsP1: true, result: '1/2-1/2' },
+    { whiteIsP1: false, result: '0-1' }, // Abdu (black) won
+  ]),
+  ...pairGames('wq4', 'Erigaisi', 'Gukesh', 'winners_quarter', [
+    { whiteIsP1: false, result: '1-0' }, // Gukesh (white) won
+    { whiteIsP1: true, result: '0-1' }, // Gukesh (black) won
+  ]),
   // Winners semi (2 пары)
-  mkGame('ws1', {
-    whitePlayer: 'Carlsen',
-    blackPlayer: 'Nakamura',
-    bracketStage: 'winners_semi',
-    bracketPairId: 'ws:Carlsen|Nakamura',
-    matchScore: '2½-1½',
-  }),
-  mkGame('ws2', {
-    whitePlayer: 'Abdusattorov',
-    blackPlayer: 'Gukesh',
-    bracketStage: 'winners_semi',
-    bracketPairId: 'ws:Abdusattorov|Gukesh',
-    matchScore: '2-0',
-  }),
-  // Winners final
-  mkGame('wf', {
-    whitePlayer: 'Carlsen',
-    blackPlayer: 'Abdusattorov',
-    bracketStage: 'winners_final',
-    bracketPairId: 'wf:Abdusattorov|Carlsen',
-    matchScore: '2-2',
-    result: '*',
-  }),
+  ...pairGames('ws1', 'Carlsen', 'Nakamura', 'winners_semi', [
+    { whiteIsP1: true, result: '1/2-1/2' },
+    { whiteIsP1: false, result: '0-1' }, // Carlsen (black) won
+    { whiteIsP1: true, result: '1/2-1/2' },
+    { whiteIsP1: false, result: '1/2-1/2' },
+  ]),
+  ...pairGames('ws2', 'Abdusattorov', 'Gukesh', 'winners_semi', [
+    { whiteIsP1: true, result: '1-0' },
+    { whiteIsP1: false, result: '0-1' }, // Abdu won
+  ]),
+  // Winners final — в процессе (одна партия ещё идёт)
+  ...pairGames('wf', 'Abdusattorov', 'Carlsen', 'winners_final', [
+    { whiteIsP1: true, result: '1/2-1/2' },
+    { whiteIsP1: false, result: '1/2-1/2' },
+    { whiteIsP1: true, result: '*' },
+  ]),
   // Losers (упрощённо)
-  mkGame('lq1', {
-    whitePlayer: 'Caruana',
-    blackPlayer: 'Firouzja',
-    bracketStage: 'losers_quarter',
-    bracketPairId: 'lq:Caruana|Firouzja',
-    matchScore: '2-1',
-  }),
-  mkGame('lq2', {
-    whitePlayer: 'Ding',
-    blackPlayer: 'Erigaisi',
-    bracketStage: 'losers_quarter',
-    bracketPairId: 'lq:Ding|Erigaisi',
-    matchScore: '2-0',
-  }),
-  mkGame('ls1', {
-    whitePlayer: 'Caruana',
-    blackPlayer: 'Ding',
-    bracketStage: 'losers_semi',
-    bracketPairId: 'ls:Caruana|Ding',
-    matchScore: '2-1',
-  }),
-  mkGame('lf', {
-    whitePlayer: 'Caruana',
-    blackPlayer: 'Nakamura',
-    bracketStage: 'losers_final',
-    bracketPairId: 'lf:Caruana|Nakamura',
-    matchScore: '1-1',
-    result: '*',
-  }),
-  // Grand final
-  mkGame('gf', {
-    whitePlayer: 'TBD',
-    blackPlayer: 'TBD',
-    bracketStage: 'grand_final',
-    bracketPairId: 'gf',
-    matchScore: '—',
-    result: '*',
-  }),
+  ...pairGames('lq1', 'Caruana', 'Firouzja', 'losers_quarter', [
+    { whiteIsP1: true, result: '1-0' },
+    { whiteIsP1: false, result: '1-0' }, // Firouzja (white) won
+    { whiteIsP1: true, result: '1-0' }, // Caruana won
+  ]),
+  ...pairGames('lq2', 'Ding', 'Erigaisi', 'losers_quarter', [
+    { whiteIsP1: true, result: '1-0' },
+    { whiteIsP1: false, result: '0-1' }, // Ding (black) won
+  ]),
+  ...pairGames('ls1', 'Caruana', 'Ding', 'losers_semi', [
+    { whiteIsP1: true, result: '1-0' },
+    { whiteIsP1: false, result: '1-0' }, // Ding (white) won
+    { whiteIsP1: true, result: '1/2-1/2' },
+  ]),
+  ...pairGames('lf', 'Caruana', 'Nakamura', 'losers_final', [
+    { whiteIsP1: true, result: '1/2-1/2' },
+    { whiteIsP1: false, result: '*' },
+  ]),
+  // Grand final — все партии «*»
+  ...pairGames('gf', 'TBD1', 'TBD2', 'grand_final', [
+    { whiteIsP1: true, result: '*' },
+  ]),
 ];
 
 const MOCK_LINKS: BracketLink[] = [
   // Winners chain
-  { fromPairId: 'wq:Carlsen|Caruana', toPairId: 'ws:Carlsen|Nakamura', kind: 'winner' },
-  { fromPairId: 'wq:Firouzja|Nakamura', toPairId: 'ws:Carlsen|Nakamura', kind: 'winner' },
-  { fromPairId: 'wq:Abdusattorov|Ding', toPairId: 'ws:Abdusattorov|Gukesh', kind: 'winner' },
-  { fromPairId: 'wq:Erigaisi|Gukesh', toPairId: 'ws:Abdusattorov|Gukesh', kind: 'winner' },
-  { fromPairId: 'ws:Carlsen|Nakamura', toPairId: 'wf:Abdusattorov|Carlsen', kind: 'winner' },
-  { fromPairId: 'ws:Abdusattorov|Gukesh', toPairId: 'wf:Abdusattorov|Carlsen', kind: 'winner' },
+  { fromPairId: 'winners_quarter:Carlsen|Caruana', toPairId: 'winners_semi:Carlsen|Nakamura', kind: 'winner' },
+  { fromPairId: 'winners_quarter:Firouzja|Nakamura', toPairId: 'winners_semi:Carlsen|Nakamura', kind: 'winner' },
+  { fromPairId: 'winners_quarter:Abdusattorov|Ding', toPairId: 'winners_semi:Abdusattorov|Gukesh', kind: 'winner' },
+  { fromPairId: 'winners_quarter:Erigaisi|Gukesh', toPairId: 'winners_semi:Abdusattorov|Gukesh', kind: 'winner' },
+  { fromPairId: 'winners_semi:Carlsen|Nakamura', toPairId: 'winners_final:Abdusattorov|Carlsen', kind: 'winner' },
+  { fromPairId: 'winners_semi:Abdusattorov|Gukesh', toPairId: 'winners_final:Abdusattorov|Carlsen', kind: 'winner' },
   // Winners → grand final
-  { fromPairId: 'wf:Abdusattorov|Carlsen', toPairId: 'gf', kind: 'winner' },
+  { fromPairId: 'winners_final:Abdusattorov|Carlsen', toPairId: 'grand_final:TBD1|TBD2', kind: 'winner' },
   // Losers chain
-  { fromPairId: 'lq:Caruana|Firouzja', toPairId: 'ls:Caruana|Ding', kind: 'winner' },
-  { fromPairId: 'lq:Ding|Erigaisi', toPairId: 'ls:Caruana|Ding', kind: 'winner' },
-  { fromPairId: 'ls:Caruana|Ding', toPairId: 'lf:Caruana|Nakamura', kind: 'winner' },
-  { fromPairId: 'lf:Caruana|Nakamura', toPairId: 'gf', kind: 'winner' },
+  { fromPairId: 'losers_quarter:Caruana|Firouzja', toPairId: 'losers_semi:Caruana|Ding', kind: 'winner' },
+  { fromPairId: 'losers_quarter:Ding|Erigaisi', toPairId: 'losers_semi:Caruana|Ding', kind: 'winner' },
+  { fromPairId: 'losers_semi:Caruana|Ding', toPairId: 'losers_final:Caruana|Nakamura', kind: 'winner' },
+  { fromPairId: 'losers_final:Caruana|Nakamura', toPairId: 'grand_final:TBD1|TBD2', kind: 'winner' },
   // Winners → losers (double-elim drop)
-  { fromPairId: 'wq:Carlsen|Caruana', toPairId: 'lq:Caruana|Firouzja', kind: 'loser' },
-  { fromPairId: 'wq:Abdusattorov|Ding', toPairId: 'lq:Ding|Erigaisi', kind: 'loser' },
-  { fromPairId: 'ws:Carlsen|Nakamura', toPairId: 'lf:Caruana|Nakamura', kind: 'loser' },
+  { fromPairId: 'winners_quarter:Carlsen|Caruana', toPairId: 'losers_quarter:Caruana|Firouzja', kind: 'loser' },
+  { fromPairId: 'winners_quarter:Abdusattorov|Ding', toPairId: 'losers_quarter:Ding|Erigaisi', kind: 'loser' },
+  { fromPairId: 'winners_semi:Carlsen|Nakamura', toPairId: 'losers_final:Caruana|Nakamura', kind: 'loser' },
 ];
 
 export function DevPlayoffBracketPage() {

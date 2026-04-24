@@ -86,7 +86,7 @@ describe('<BroadcastStandings>', () => {
     expect(screen.getByTestId('broadcast-standings-loading')).toBeInTheDocument();
   });
 
-  it('tournamentType=playoff → PlayoffBracket с games/links из ответа', async () => {
+  it('tournamentType=playoff → PlayoffBracket с играми (links от backend игнорируются — деривируются на клиенте)', async () => {
     mockBracketResponse('playoff', 3, 2);
     renderWithProviders(
       <BroadcastStandings broadcastId="bc-1" broadcastTitle="T" />,
@@ -98,9 +98,10 @@ describe('<BroadcastStandings>', () => {
       'data-games-count',
       '3',
     );
+    // Prop `links` НЕ передаётся — компонент сам их выведет.
     expect(screen.getByTestId('playoff-bracket-mock')).toHaveAttribute(
       'data-links-count',
-      '2',
+      '0',
     );
     expect(screen.queryByTestId('crosstable-mock')).not.toBeInTheDocument();
   });

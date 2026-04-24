@@ -82,12 +82,11 @@ export function BroadcastStandings({
   }
 
   if (!errored && bracket?.tournamentType === 'playoff' && bracket.games.length > 0) {
+    // `bracket.links` от backend игнорируем — на prod-данных они содержат
+    // мусорные связи (R16-пары спарены по индексу, а не по реальному
+    // игроку-победителю). `PlayoffBracket` сам деривирует линии из игр.
     return (
-      <PlayoffBracket
-        games={bracket.games}
-        links={bracket.links}
-        onGameClick={handleGameClick}
-      />
+      <PlayoffBracket games={bracket.games} onGameClick={handleGameClick} />
     );
   }
 
