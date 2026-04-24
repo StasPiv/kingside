@@ -2392,3 +2392,486 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================
+ * UserCoursePage / UserLessonPage — просмотр пользовательских
+ * курсов и уроков (L-3, KS-1846). ADR-026 §6 Этап 3 / FE-4, FE-5.
+ *
+ * Layout UserCoursePage: header с бейджем isPublic + описание +
+ * прогресс → owner-actions блоком → список уроков-карточек.
+ * Layout UserLessonPage: breadcrumbs → sticky header с прогресс-
+ * баром → список шагов (общий .lesson-step-list) → footer.
+ * Карточки уроков/курсов используют .lessons-course-card с
+ * модификатором --user (акцентная левая полоса — отличает
+ * пользовательский контент от системного).
+ *
+ * Sidebar со списком шагов на desktop (требование задачи) —
+ * невозможен чистым CSS без правок JSX: UserLessonPage.tsx
+ * не содержит <aside>-структуры, sticky header + nav по якорям
+ * работают как легковесная замена. При появлении sidebar в JSX
+ * стили подстроятся под существующий .lesson-sidebar-*.
+ * ============================================================ */
+
+/* Модификатор карточки курса: пользовательский vs системный.
+   Левая акцентная полоса + слегка иной оттенок рамки — узнаётся
+   с одного взгляда в общей сетке .lessons-course-grid. */
+.lessons-course-card--user {
+  border-color: var(--accent-primary);
+  box-shadow: inset 3px 0 0 0 var(--accent-primary);
+}
+
+.lessons-course-card--user:hover {
+  border-color: var(--accent-primary);
+  box-shadow:
+    inset 3px 0 0 0 var(--accent-primary),
+    var(--shadow-md);
+}
+
+/* ---------- UserCoursePage ---------- */
+.user-course-page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.user-course-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.user-course-page__meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.user-course-page__meta h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.user-course-page__badges {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.user-course-page__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.user-course-page__badge--public {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success);
+}
+
+.user-course-page__badge--private {
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border-color: var(--border-subtle);
+}
+
+.user-course-page__description {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.user-course-page__progress {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Owner actions — выделены отдельным блоком (карточка с рамкой) */
+.user-course-page__owner-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 10px;
+}
+
+.user-course-page__owner-actions::before {
+  content: "⚙";
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.user-course-page__owner-actions button {
+  padding: 6px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  min-height: 36px;
+}
+
+.user-course-page__owner-actions button:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  background: var(--accent-soft);
+}
+
+.user-course-page__owner-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.user-course-page__delete {
+  color: var(--danger) !important;
+  border-color: var(--danger) !important;
+}
+
+.user-course-page__delete:hover:not(:disabled) {
+  background: var(--danger-soft) !important;
+  border-color: var(--danger) !important;
+}
+
+.user-course-page__owner-error {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+}
+
+/* Секция «уроки» */
+.user-course-page__lessons {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.user-course-page__lessons h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.user-course-page__count {
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.user-course-page__empty {
+  margin: 0;
+  padding: 24px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 10px;
+}
+
+.user-course-page__lesson-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  counter-reset: ucp-lesson;
+}
+
+.user-course-page__lesson-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.user-course-page__lesson-card:hover {
+  border-color: var(--border-accent);
+  border-left-color: var(--accent-primary);
+}
+
+.user-course-page__lesson-card::before {
+  counter-increment: ucp-lesson;
+  content: counter(ucp-lesson);
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-muted);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+
+.user-course-page__lesson-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.user-course-page__lesson-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.user-course-page__lesson-steps {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.user-course-page__lesson-cta {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--accent-primary);
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.user-course-page__lesson-cta:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* 404-стейт пользовательского курса */
+.user-course-404,
+.user-lesson-404 {
+  max-width: 640px;
+  margin: 64px auto;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  color: var(--text-primary);
+}
+
+.user-course-404 h1,
+.user-lesson-404 h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.user-course-404 p {
+  margin: 0 0 16px;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.user-course-404 a,
+.user-lesson-404 a {
+  color: var(--text-link);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.user-course-404 a:hover,
+.user-lesson-404 a:hover {
+  text-decoration: underline;
+}
+
+/* ---------- UserLessonPage ---------- */
+.user-lesson-page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  color: var(--text-primary);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.user-lesson-page__breadcrumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.user-lesson-page__breadcrumbs a {
+  color: var(--text-link);
+  text-decoration: none;
+}
+
+.user-lesson-page__breadcrumbs a:hover {
+  text-decoration: underline;
+}
+
+.user-lesson-page__sep {
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.user-lesson-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.user-lesson-page__header h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+/* Прогресс урока — текст + прогресс-бар, согласованы с .lesson-progress */
+.user-lesson-page__progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+
+/* Tablet (641-960): без sidebar, более плотные отступы */
+@media (max-width: 960px) {
+  .user-course-page,
+  .user-lesson-page {
+    padding: 20px 18px 40px;
+  }
+}
+
+/* Mobile (≤ 640): аккордеон-поведение для карточек уроков,
+   owner-actions растягиваются, бейджи под заголовком */
+@media (max-width: 640px) {
+  .user-course-page,
+  .user-lesson-page {
+    padding: 16px 12px 40px;
+    gap: 16px;
+  }
+
+  .user-course-page__meta h1 {
+    font-size: 22px;
+    flex-basis: 100%;
+  }
+
+  .user-course-page__badges {
+    flex-basis: 100%;
+  }
+
+  .user-course-page__lessons h2 {
+    font-size: 18px;
+  }
+
+  .user-course-page__owner-actions {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+
+  .user-course-page__owner-actions button {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    text-align: center;
+    justify-content: center;
+  }
+
+  /* Delete всегда на отдельной строке — избегаем случайного нажатия */
+  .user-course-page__delete {
+    flex-basis: 100% !important;
+  }
+
+  /* Карточка урока складывается в 2 строки: номер+заголовок, затем CTA */
+  .user-course-page__lesson-card {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .user-course-page__lesson-meta {
+    flex-basis: calc(100% - 40px);
+  }
+
+  .user-course-page__lesson-cta {
+    flex-basis: 100%;
+    justify-content: center;
+    padding: 10px 14px;
+  }
+
+  .user-lesson-page__header h1 {
+    font-size: 20px;
+  }
+
+  .user-lesson-page__header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg-canvas, var(--bg-surface));
+    padding: 8px 0 10px;
+    margin: -8px 0 0;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .user-course-404,
+  .user-lesson-404 {
+    margin: 32px 12px;
+    padding: 24px 16px;
+  }
+}
