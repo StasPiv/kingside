@@ -1771,6 +1771,17 @@
   gap: 14px;
 }
 
+/* Доска внутри PuzzleStep в урокe — ограничиваем ширину, иначе
+   PuzzleBoard растягивается на всю ширину контейнера шага (≈920px
+   на desktop) и доска визуально огромная. На mobile общее правило
+   `width: 100% !important` (в @media max-width:640) даёт полную
+   ширину контейнера, max-width 480px его не уменьшит. */
+.lesson-puzzle-step .board-container {
+  width: 100%;
+  max-width: 480px;
+  align-self: flex-start;
+}
+
 .lesson-puzzle-step__header {
   display: flex;
   justify-content: space-between;
