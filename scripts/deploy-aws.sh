@@ -315,10 +315,49 @@ if $DEPLOY_BROADCAST_SERVICE; then
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
 
     if [ "$SVC_STATUS" = "ACTIVE" ]; then
+        # KS-1817: Prisma migrations для broadcasts-db (отдельная БД broadcasts_kingside).
+        # До KS-1817 миграции этой БД накатывались вручную → 24.04 миграция 20260424093000
+        # не приехала вместе с деплоем KS-1813 и /rounds падал 500. Шаг симметричен api-блоку
+        # (строки 252-268), дублирование VPC_ID/subnet/sg — принято: выносить общий helper —
+        # follow-up рефакторинг.
+        echo "[broadcast-service] Running Prisma migrations (broadcasts-db)..."
+        VPC_ID=$(aws ec2 describe-vpcs --filters "Name=cidr-block,Values=10.0.0.0/16" --query 'Vpcs[0].VpcId' --output text)
+        MIGRATE_SUBNET=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=cidr-block,Values=10.0.1.0/24" --query 'Subnets[0].SubnetId' --output text)
+        MIGRATE_SG=$(aws ec2 describe-security-groups --filters "Name=group-name,Values=kingside-ecs-sg" "Name=vpc-id,Values=$VPC_ID" --query 'SecurityGroups[0].GroupId' --output text)
+        MIGRATE_TASK=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" --task-definition kingside-broadcast-service --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$MIGRATE_SUBNET],securityGroups=[$MIGRATE_SG],assignPublicIp=ENABLED}" \
+            --overrides '{"containerOverrides":[{"name":"kingside-broadcast-service","command":["sh","-c","cd /app/packages/broadcasts-db && npx prisma migrate deploy --schema=./prisma/schema.prisma"]}]}' \
+            --query 'tasks[0].taskArn' --output text)
+        aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK"
+        MIGRATE_EXIT=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$MIGRATE_TASK" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+        if [ "$MIGRATE_EXIT" != "0" ]; then
+            echo "  ERROR: Prisma migrate failed (exit $MIGRATE_EXIT). Aborting deploy."
+            exit 1
+        fi
+        echo "  Migrations applied."
+
         echo "[broadcast-service] Updating ECS service..."
         aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_BROADCAST_SERVICE" \
             --force-new-deployment --query 'service.deployments[0].status' --output text
         echo "  ECS service update initiated."
+
+        # KS-1817: post-deploy smoke-gate. Ждём rollout до stable (max ~10 min),
+        # затем curl на реальный broadcast. Если /rounds != 200 — зафейлить деплой,
+        # оператор может откатить через update-service --task-definition <prev-rev>.
+        # SMOKE_BROADCAST_ID можно переопределить через env, дефолт — 2026 Chess.com Open.
+        SMOKE_BROADCAST_ID="${SMOKE_BROADCAST_ID:-f427e6de-10d7-42b9-9aec-58154a92d270}"
+        echo "[broadcast-service] Waiting for rollout to stabilize..."
+        aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_BROADCAST_SERVICE"
+        echo "[broadcast-service] Smoke-check /rounds on broadcast $SMOKE_BROADCAST_ID..."
+        SMOKE_CODE=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "https://broadcasts.kingside.site/${SMOKE_BROADCAST_ID}/rounds" || echo "000")
+        if [ "$SMOKE_CODE" != "200" ]; then
+            echo "  ERROR: smoke /rounds returned $SMOKE_CODE (expected 200). Likely DB schema regression or service unavailable."
+            echo "  Rollback: aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE_BROADCAST_SERVICE --task-definition <previous-revision>"
+            exit 1
+        fi
+        echo "  Smoke /rounds OK (HTTP 200)."
     else
         echo "[broadcast-service] ECS service '$ECS_SERVICE_BROADCAST_SERVICE' not found (status=$SVC_STATUS)."
         echo "[broadcast-service] Run scripts/broadcast-service-aws-setup.sh after first image push to register task-def + create service."
