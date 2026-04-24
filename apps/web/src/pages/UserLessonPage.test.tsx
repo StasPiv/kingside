@@ -47,6 +47,29 @@ vi.mock('../components/lessons/StepRenderer', () => ({
   ),
 }));
 
+// `useStockfish` в тестах подменяем заглушкой — worker-init в jsdom
+// падает; а для контракта FE-8 достаточно проверить, что prefetch
+// передан с корректным значением.
+const { stockfishMock } = vi.hoisted(() => ({
+  stockfishMock: { prefetchArg: null as boolean | null },
+}));
+vi.mock('../hooks/useStockfish', () => ({
+  useStockfish: (opts: { prefetch?: boolean } = {}) => {
+    stockfishMock.prefetchArg = opts.prefetch ?? false;
+    return {
+      state: 'idle' as const,
+      lines: [],
+      analysisFen: null,
+      bestMove: null,
+      evaluate: vi.fn(),
+      stop: vi.fn(),
+      init: vi.fn(),
+      cleanup: vi.fn(),
+      isReady: true,
+    };
+  },
+}));
+
 import { UserLessonPage } from './UserLessonPage';
 
 function mkCourse(over: Partial<UserCourseDto> = {}): UserCourseDto {
@@ -126,6 +149,7 @@ function renderRouter({ initialPath, stubNext, stubCourse }: RouterOpts) {
 
 beforeEach(() => {
   for (const fn of Object.values(apiMock)) fn.mockReset();
+  stockfishMock.prefetchArg = null;
 });
 
 afterEach(() => {
@@ -209,6 +233,67 @@ describe('<UserLessonPage>', () => {
     const btn = screen.getByTestId('user-lesson-complete-btn') as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     expect(btn.textContent).toMatch(/70%/);
+  });
+
+  it('KS-1842: есть endgame_drill → useStockfish получает prefetch=true', async () => {
+    mockCourse({
+      course: mkCourse({ lessonCount: 1 }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [
+        mkStep({ id: 's1', type: 'text' }),
+        mkStep({
+          id: 's2',
+          type: 'endgame_drill',
+          order: 1,
+          payload: {
+            type: 'endgame_drill',
+            fen: '8/8/8/8/4k3/8/3P4/3K4 w - - 0 1',
+            playerSide: 'white',
+            skillLevel: 5,
+            winCondition: { kind: 'promote' },
+          },
+        }),
+      ],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+    expect(stockfishMock.prefetchArg).toBe(true);
+  });
+
+  it('KS-1842: без endgame_drill → useStockfish получает prefetch=false (без регрессии)', async () => {
+    mockCourse({
+      course: mkCourse({ lessonCount: 1 }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [
+        mkStep({ id: 's1', type: 'text' }),
+        mkStep({
+          id: 's2',
+          type: 'puzzle',
+          order: 1,
+          payload: {
+            type: 'puzzle',
+            selection: { mode: 'ids', puzzleIds: [] },
+          },
+        }),
+      ],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+    expect(stockfishMock.prefetchArg).toBe(false);
   });
 
   it('Complete ≥ threshold → POST complete + навигация на курс (если следующий отсутствует)', async () => {

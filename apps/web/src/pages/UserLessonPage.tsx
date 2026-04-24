@@ -11,6 +11,7 @@ import type {
 
 import { userCoursesApi } from '../api/userCoursesApi';
 import { StepRenderer } from '../components/lessons/StepRenderer';
+import { useStockfish } from '../hooks/useStockfish';
 import { useUserLessonProgress } from '../hooks/useUserLessonProgress';
 
 /**
@@ -123,6 +124,20 @@ export function UserLessonPage() {
     userLessonId: state.kind === 'ready' ? state.lesson.id : null,
     totalSteps,
   });
+
+  // KS-1842 (ADR-026 §2.9): если в уроке есть endgame_drill — префетчим
+  // Stockfish WASM сразу при появлении шагов, чтобы к моменту когда
+  // пользователь дойдёт до drill'а движок уже был загружен. Worker
+  // монтируется на странице и отдельный от тех, что создаст
+  // `<EndgameDrillStep>` (browser HTTP-кеш переиспользует engine JS
+  // и WASM — вот где приходит 1-2 сек экономии).
+  const hasEndgameDrill = useMemo(
+    () =>
+      state.kind === 'ready' &&
+      state.steps.some((s) => s.type === 'endgame_drill'),
+    [state],
+  );
+  useStockfish({ prefetch: hasEndgameDrill });
 
   const canComplete = progress.score >= progress.threshold;
 

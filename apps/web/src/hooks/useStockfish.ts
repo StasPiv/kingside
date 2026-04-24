@@ -22,6 +22,19 @@ type UseStockfishOptions = {
    * KS-1800) — в остальном analysis-коде опцию можно не трогать.
    */
   skillLevel?: number;
+  /**
+   * KS-1842 (ADR-026 §2.9): префетч движка при монтировании. Если
+   * `true` — хук сразу вызывает `init()`, не дожидаясь первого
+   * `evaluate`. Это запускает загрузку worker-файла и инициализацию
+   * WASM, чтобы к моменту, когда пользователь доходит до шага с
+   * движком (напр. `endgame_drill`), engine был уже `ready`.
+   *
+   * По умолчанию `false` — все существующие потребители (`AnalysisPage`,
+   * `BroadcastGamePage`, `WatchGamePage`, `EndgameDrillStep`,
+   * `OpeningDrillStep`) продолжают ленивую инициализацию через
+   * `evaluate()` и НЕ регрессируют.
+   */
+  prefetch?: boolean;
 };
 
 const INIT_TIMEOUT_MS = 30_000;
@@ -68,7 +81,13 @@ function parseInfoLine(line: string): EvalLine | null {
  * a Worker from within another Worker fails silently.
  */
 export function useStockfish(options: UseStockfishOptions = {}) {
-  const { depth = 20, multiPv = 3, autoStart = true, skillLevel } = options;
+  const {
+    depth = 20,
+    multiPv = 3,
+    autoStart = true,
+    skillLevel,
+    prefetch = false,
+  } = options;
 
   const depthRef = useRef(depth);
   const multiPvRef = useRef(multiPv);
@@ -248,6 +267,23 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   useEffect(() => {
     return cleanup;
   }, [cleanup]);
+
+  // KS-1842: префетч движка при монтировании. Если `prefetch=true` и
+  // worker ещё не создан — запускаем `init()`, чтобы загрузка и UCI-
+  // инициализация шли параллельно с остальной работой пользователя
+  // (скроллинг предыдущих шагов урока). Флаг игнорируется на повторных
+  // рендерах, чтобы не пересоздавать движок — guard-условие
+  // `!engineRef.current`. Ленивая инициализация через `evaluate()`
+  // продолжает работать независимо (для `prefetch=false` поведение
+  // не меняется — регрессии не допущены).
+  useEffect(() => {
+    if (!prefetch) return;
+    if (engineRef.current) return;
+    init();
+    // init-cleanup уже навешен отдельным useEffect выше — здесь ничего
+    // отменять не надо.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefetch]);
 
   const evaluate = useCallback(
     (fen: string) => {
