@@ -816,7 +816,26 @@
     "showing": "Показано {{count}} из {{total}}",
     "searchPlaceholder": "Поиск по имени...",
     "searchHint": "Введите минимум 2 символа",
-    "loadMore": "Загрузить ещё"
+    "loadMore": "Загрузить ещё",
+    "tabs": {
+      "authors": "Авторы"
+    },
+    "authors": {
+      "sortLabel": "Сортировка",
+      "showing": "Показано {{shown}} из {{total}}",
+      "empty": "Авторов курсов пока нет",
+      "error": "Не удалось загрузить авторов",
+      "retry": "Повторить",
+      "col": {
+        "author": "Автор",
+        "courses": "Курсов",
+        "updated": "Обновлён"
+      },
+      "sort": {
+        "courses": "По числу курсов",
+        "recent": "По свежести"
+      }
+    }
   },
   "playerProfile": {
     "notFound": "Игрок не найден",
@@ -1538,6 +1557,20 @@
       "masteredNoInterval": "Освоено — следующий повтор запланирован",
       "reset": "Интервал сброшен — попросим повторить завтра",
       "nextDue": "Следующий повтор: {{date}}"
+    },
+    "latestCourses": {
+      "title": "Последние курсы",
+      "newBadge": "НОВОЕ",
+      "author": "от {{username}}"
+    },
+    "courseAuthors": {
+      "title": "Авторы курсов",
+      "coursesCount_one": "{{count}} курс",
+      "coursesCount_few": "{{count}} курса",
+      "coursesCount_many": "{{count}} курсов",
+      "coursesCount_other": "{{count}} курсов",
+      "latest": "Последний: {{title}}",
+      "allAuthors": "Все авторы"
     },
     "my": {
       "title": "Мои курсы",

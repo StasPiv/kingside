@@ -32,6 +32,15 @@ vi.mock('../components/lessons/EnrolledCoursesBlock', () => ({
   EnrolledCoursesBlock: () => <div data-testid="enrolled-courses-block-mock" />,
 }));
 
+// KS-1919: моки на новые блоки «Latest courses» и «Course authors» —
+// собственные тесты в `components/lessons/{Latest,CourseAuthors}*.test.tsx`.
+vi.mock('../components/lessons/LatestCoursesBlock', () => ({
+  LatestCoursesBlock: () => <div data-testid="latest-courses-block-mock" />,
+}));
+vi.mock('../components/lessons/CourseAuthorsBlock', () => ({
+  CourseAuthorsBlock: () => <div data-testid="course-authors-block-mock" />,
+}));
+
 beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
   mockLessonsApi.getLevelGate.mockReset();

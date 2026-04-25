@@ -814,7 +814,26 @@
     "showing": "Showing {{count}} of {{total}}",
     "searchPlaceholder": "Search by username...",
     "searchHint": "Enter at least 2 characters",
-    "loadMore": "Load More"
+    "loadMore": "Load More",
+    "tabs": {
+      "authors": "Authors"
+    },
+    "authors": {
+      "sortLabel": "Sort",
+      "showing": "Showing {{shown}} of {{total}}",
+      "empty": "No course authors yet",
+      "error": "Failed to load authors",
+      "retry": "Try again",
+      "col": {
+        "author": "Author",
+        "courses": "Courses",
+        "updated": "Last updated"
+      },
+      "sort": {
+        "courses": "Most courses",
+        "recent": "Recently updated"
+      }
+    }
   },
   "playerProfile": {
     "notFound": "Player not found",
@@ -1522,6 +1541,18 @@
       "masteredNoInterval": "Mastered — next review scheduled",
       "reset": "Interval reset — we'll ask you to review again tomorrow",
       "nextDue": "Next review: {{date}}"
+    },
+    "latestCourses": {
+      "title": "Latest courses",
+      "newBadge": "NEW",
+      "author": "by {{username}}"
+    },
+    "courseAuthors": {
+      "title": "Course authors",
+      "coursesCount_one": "{{count}} course",
+      "coursesCount_other": "{{count}} courses",
+      "latest": "Last: {{title}}",
+      "allAuthors": "All authors"
     },
     "my": {
       "title": "My courses",

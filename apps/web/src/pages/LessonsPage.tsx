@@ -14,6 +14,8 @@ import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
 import { MistakesDiaryBlock } from '../components/lessons/MistakesDiaryBlock';
 import { MyCoursesBlock } from '../components/lessons/MyCoursesBlock';
 import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock';
+import { LatestCoursesBlock } from '../components/lessons/LatestCoursesBlock';
+import { CourseAuthorsBlock } from '../components/lessons/CourseAuthorsBlock';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -139,6 +141,14 @@ export function LessonsPage() {
       {/* KS-1890: блок «Курсы, которые я прохожу» — чужие enrolled-not-owned
           курсы. Скрывается, если список пуст. */}
       <EnrolledCoursesBlock />
+
+      {/* KS-1919 / ADR-030 §2.1: лента последних публичных курсов
+          (исключая свои). Скрывается при пустом / loading / error. */}
+      <LatestCoursesBlock />
+
+      {/* KS-1919 / ADR-030 §2.2: топ-12 авторов по числу публичных
+          курсов. С кнопкой «All authors» → /players?tab=authors. */}
+      <CourseAuthorsBlock />
 
       {loading && (
         <div className="loading" data-testid="lessons-loading">

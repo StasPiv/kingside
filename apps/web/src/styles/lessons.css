@@ -1286,6 +1286,307 @@
   border-radius: 6px;
 }
 
+/* KS-1919: лента «Latest courses» на /lessons. ADR-030 §2.1. */
+.latest-courses-block {
+  margin: 16px 0;
+}
+
+.latest-courses-block__header {
+  margin-bottom: 8px;
+}
+
+.latest-courses-block__header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.latest-courses-block__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.latest-courses-block__card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  transition: border-color 120ms ease;
+}
+
+.latest-courses-block__card:hover {
+  border-color: var(--accent, #4d8aff);
+}
+
+.latest-courses-block__link {
+  display: block;
+  padding: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.latest-courses-block__card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.latest-courses-block__card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.latest-courses-block__badge-new {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--success-contrast, #fff);
+  background: var(--success, #2e7d32);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.latest-courses-block__card-description {
+  margin: 6px 0 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.latest-courses-block__card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.latest-courses-block__card-author {
+  font-style: italic;
+}
+
+/* KS-1919: блок «Course authors» на /lessons. ADR-030 §2.2. */
+.course-authors-block {
+  margin: 16px 0;
+}
+
+.course-authors-block__header {
+  margin-bottom: 8px;
+}
+
+.course-authors-block__header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.course-authors-block__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.course-authors-block__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.course-authors-block__card-main {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.course-authors-block__avatar {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.course-authors-block__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.course-authors-block__avatar-fallback {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.course-authors-block__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.course-authors-block__username {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.course-authors-block__username:hover {
+  color: var(--accent, #4d8aff);
+}
+
+.course-authors-block__count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.course-authors-block__teaser {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-top: 1px dashed var(--border-subtle);
+  padding-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.course-authors-block__teaser:hover {
+  color: var(--accent, #4d8aff);
+}
+
+.course-authors-block__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.course-authors-block__all-link {
+  font-size: 13px;
+  color: var(--accent, #4d8aff);
+  text-decoration: none;
+}
+
+.course-authors-block__all-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .latest-courses-block__grid,
+  .course-authors-block__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* KS-1920: таб «Authors» на /players. */
+.players-authors-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.players-authors-tab__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.players-authors-tab__sort {
+  display: inline-flex;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.players-authors-tab__sort-btn {
+  padding: 6px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.players-authors-tab__sort-btn.active {
+  background: var(--accent, #4d8aff);
+  color: var(--accent-contrast, #fff);
+}
+
+.players-authors-tab__total {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.players-authors-tab__avatar {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-muted);
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.players-authors-tab__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.players-authors-tab__avatar-fallback {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.players-authors-tab__count {
+  font-variant-numeric: tabular-nums;
+}
+
+.players-authors-tab__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--danger-soft, rgba(202, 52, 49, 0.1));
+  border: 1px solid var(--danger, #ca3431);
+  border-radius: 6px;
+  color: var(--danger, #ca3431);
+}
+
+.players-authors-tab__sentinel td {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 8px;
+}
+
 /* KS-1909: карточка авторской задачи (custom puzzle) в редакторе. */
 .custom-puzzle-list {
   grid-column: 1 / -1;

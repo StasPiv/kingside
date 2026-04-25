@@ -12,7 +12,9 @@ import type {
   SearchPlayerItem,
 } from '@kingside/shared';
 
-type Tab = 'top' | 'online' | 'search';
+import { PlayersAuthorsTab } from './PlayersAuthorsTab';
+
+type Tab = 'top' | 'online' | 'search' | 'authors';
 
 const RATING_TYPES: RatingType[] = ['bullet', 'blitz', 'rapid', 'classical', 'puzzle'];
 
@@ -24,7 +26,7 @@ const RATING_LABELS: Record<RatingType, string> = {
   puzzle: '🧩 Puzzle',
 };
 
-const VALID_TABS: Tab[] = ['top', 'online', 'search'];
+const VALID_TABS: Tab[] = ['top', 'online', 'search', 'authors'];
 
 function isValidTab(v: string | null): v is Tab {
   return v != null && VALID_TABS.includes(v as Tab);
@@ -212,6 +214,13 @@ export function PlayersPage() {
         >
           {t('players.tabSearch')}
         </button>
+        <button
+          className={`players-tab${tab === 'authors' ? ' active' : ''}`}
+          onClick={() => setTab('authors')}
+          data-testid="players-tab-authors"
+        >
+          {t('players.tabs.authors', 'Authors')}
+        </button>
       </div>
 
       {/* Top Players Tab */}
@@ -398,6 +407,9 @@ export function PlayersPage() {
           )}
         </div>
       )}
+
+      {/* KS-1920 / ADR-030 §2.3: четвёртый таб «Авторы курсов» */}
+      {tab === 'authors' && <PlayersAuthorsTab />}
     </div>
   );
 }

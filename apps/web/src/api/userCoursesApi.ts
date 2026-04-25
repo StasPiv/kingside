@@ -1,5 +1,6 @@
 import type {
   CompleteUserLessonRequest,
+  CourseAuthorListResponse,
   CreateUserCourseRequest,
   CreateUserLessonRequest,
   CreateUserLessonStepRequest,
@@ -70,6 +71,43 @@ export const userCoursesApi = {
   list(params?: ListUserCoursesParams): Promise<UserCourseListResponse> {
     const qs = toQueryString({ scope: params?.scope });
     return api.get<UserCourseListResponse>(`${BASE}/user-courses${qs}`);
+  },
+
+  /**
+   * GET /api/lessons/user-courses?mine=0&limit=N — последние публичные
+   * курсы любых авторов (KS-1918 / KS-1919). Sort `updatedAt DESC`
+   * на BE. Без авторизации не отдаёт чужие курсы — JWT нужен.
+   */
+  listLatest(opts: { limit: number }): Promise<UserCourseListResponse> {
+    const qs = toQueryString({
+      mine: '0',
+      limit: String(opts.limit),
+    });
+    return api.get<UserCourseListResponse>(`${BASE}/user-courses${qs}`);
+  },
+
+  /**
+   * GET /api/lessons/user-courses/authors — авторы с публичными
+   * курсами (KS-1918 / KS-1919 + KS-1920). Без JWT (публичная
+   * витрина), кеш 5 минут на BE с инвалидацией при publish/unpublish.
+   *
+   * - `sort: 'courses'` → publicCoursesCount DESC, lastCourseUpdatedAt DESC.
+   * - `sort: 'recent'`  → lastCourseUpdatedAt DESC.
+   * - `limit` 1..50 (default 50), `offset` 0..1000 (default 0).
+   */
+  listAuthors(opts: {
+    sort?: 'courses' | 'recent';
+    limit?: number;
+    offset?: number;
+  }): Promise<CourseAuthorListResponse> {
+    const qs = toQueryString({
+      sort: opts.sort,
+      limit: opts.limit !== undefined ? String(opts.limit) : undefined,
+      offset: opts.offset !== undefined ? String(opts.offset) : undefined,
+    });
+    return api.get<CourseAuthorListResponse>(
+      `${BASE}/user-courses/authors${qs}`,
+    );
   },
 
   /**
