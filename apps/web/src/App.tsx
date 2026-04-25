@@ -37,8 +37,9 @@ import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
 import { LessonsPage } from './pages/LessonsPage';
 import { CoursePage } from './pages/CoursePage';
 import { LessonPage } from './pages/LessonPage';
-import { MistakesPage } from './pages/MistakesPage';
-import { MistakesPracticePage } from './pages/MistakesPracticePage';
+// KS-1928 / ADR-032: Дневник ошибок переехал в /puzzles namespace.
+import { PuzzleMistakesPage } from './pages/PuzzleMistakesPage';
+import { PuzzleMistakesPracticePage } from './pages/PuzzleMistakesPracticePage';
 import { LessonEditorPage } from './pages/LessonEditorPage';
 import { UserCourseEditor } from './components/lessons/editor/user/UserCourseEditor';
 import { UserCoursePage } from './pages/UserCoursePage';
@@ -86,6 +87,20 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (user) return <Navigate to="/lobby" replace />;
   return <>{children}</>;
+}
+
+/**
+ * KS-1928 / ADR-032: 301-redirect с сохранением query.
+ * Для переездов URL'ов между namespace-ами (например
+ * `/lessons/mistakes?theme=pin` → `/puzzles/mistakes?theme=pin`).
+ *
+ * `<Navigate replace>` сам по себе query не сохраняет — нужна явная
+ * подмешка `location.search` в target.
+ */
+function RedirectWithQuery({ to }: { to: string }) {
+  const location = useLocation();
+  const target = location.search ? `${to}${location.search}` : to;
+  return <Navigate to={target} replace />;
 }
 
 function HomePage() {
@@ -157,6 +172,9 @@ export function App() {
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
         <Route path="/puzzles" element={<PuzzleBrowserPage />} />
         <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
+        {/* KS-1928 / ADR-032: дневник ошибок в puzzle namespace. */}
+        <Route path="/puzzles/mistakes" element={<ProtectedRoute><PuzzleMistakesPage /></ProtectedRoute>} />
+        <Route path="/puzzles/mistakes-practice" element={<ProtectedRoute><PuzzleMistakesPracticePage /></ProtectedRoute>} />
         {isLessonsEnabledLive() ? (
           <>
             <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
@@ -166,8 +184,17 @@ export function App() {
             <Route path="/lessons/my/:slug/edit" element={<ProtectedRoute><UserCourseEditor /></ProtectedRoute>} />
             <Route path="/lessons/my/:slug" element={<UserCoursePage />} />
             <Route path="/lessons/my/:slug/:lessonId" element={<ProtectedRoute><UserLessonPage /></ProtectedRoute>} />
-            <Route path="/lessons/mistakes" element={<ProtectedRoute><MistakesPage /></ProtectedRoute>} />
-            <Route path="/lessons/mistakes-practice" element={<ProtectedRoute><MistakesPracticePage /></ProtectedRoute>} />
+            {/* KS-1928 / ADR-032: 301-redirect старого расположения дневника
+                ошибок в /puzzles namespace. Сохраняем query (например ?theme=pin)
+                через `useLocation().search`. */}
+            <Route
+              path="/lessons/mistakes"
+              element={<RedirectWithQuery to="/puzzles/mistakes" />}
+            />
+            <Route
+              path="/lessons/mistakes-practice"
+              element={<RedirectWithQuery to="/puzzles/mistakes-practice" />}
+            />
             <Route path="/lessons/:courseSlug" element={<ProtectedRoute><CoursePage /></ProtectedRoute>} />
             <Route path="/lessons/:courseSlug/:lessonSlug" element={<ProtectedRoute><LessonPage /></ProtectedRoute>} />
           </>

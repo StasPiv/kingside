@@ -6,15 +6,18 @@ import type {
   UserMistakeRecommendationsResponse,
 } from '@kingside/shared';
 
-import { lessonsApi } from '../api/lessonsApi';
+import { puzzleMistakesApi } from '../api/puzzleMistakesApi';
 import { PuzzleStep } from '../components/lessons/steps/PuzzleStep';
 
 /**
- * Страница `/lessons/mistakes-practice?theme=<theme>` (L-31 / KS-1802).
+ * Страница `/puzzles/mistakes-practice?theme=<theme>` (KS-1928 /
+ * ADR-032 §3). Тренировка по теме из дневника ошибок.
  *
- * Тренировка по теме из дневника ошибок. Берёт готовый
- * `PuzzleStepPayload` (тип `filter`) из
- * `GET /lessons/mistakes/recommendations` и подставляет в существующий
+ * Ранее жила на `/lessons/mistakes-practice`; старый маршрут
+ * редиректит сюда через `<Navigate replace>` с сохранением query.
+ *
+ * Берёт готовый `PuzzleStepPayload` (тип `filter`) из
+ * `GET /puzzle/mistakes/recommendations` и подставляет в существующий
  * `PuzzleStep` (API L-06 — ничего нового не дублируем).
  *
  * Если в recommendations нет запрошенной темы (не вошла в топ-3 за
@@ -22,7 +25,7 @@ import { PuzzleStep } from '../components/lessons/steps/PuzzleStep';
  * сейчас нечем» + ссылку назад.
  */
 
-export function MistakesPracticePage() {
+export function PuzzleMistakesPracticePage() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const theme = searchParams.get('theme') ?? '';
@@ -43,8 +46,8 @@ export function MistakesPracticePage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    lessonsApi
-      .getMistakeRecommendations()
+    puzzleMistakesApi
+      .getRecommendations()
       .then((res) => {
         if (cancelled) return;
         const match = res.recommendations.find((r) => r.theme === theme) ?? null;
@@ -57,7 +60,7 @@ export function MistakesPracticePage() {
       })
       .catch(() => {
         if (cancelled) return;
-        setError(t('lessons.mistakes.loadError', 'Failed to load mistakes'));
+        setError(t('puzzle.mistakes.loadError', 'Failed to load mistakes'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -75,12 +78,12 @@ export function MistakesPracticePage() {
       >
         <p>
           {t(
-            'lessons.mistakes.practice.noTheme',
+            'puzzle.mistakes.practice.noTheme',
             'Pick a theme from the mistakes diary.',
           )}
         </p>
-        <Link to="/lessons" data-testid="mistakes-practice-back">
-          {t('lessons.backToList', 'All courses')}
+        <Link to="/puzzles" data-testid="mistakes-practice-back">
+          {t('puzzleStats.backToPuzzles', 'Back to Puzzles')}
         </Link>
       </div>
     );
@@ -111,12 +114,12 @@ export function MistakesPracticePage() {
         <h1>{t(`puzzleBrowser.themes.${theme}`, theme)}</h1>
         <p>
           {t(
-            'lessons.mistakes.practice.themeNotInRecs',
+            'puzzle.mistakes.practice.themeNotInRecs',
             'This theme is not in your top problem areas for the last 30 days. Nice!',
           )}
         </p>
-        <Link to="/lessons" data-testid="mistakes-practice-back">
-          {t('lessons.backToList', 'All courses')}
+        <Link to="/puzzles" data-testid="mistakes-practice-back">
+          {t('puzzleStats.backToPuzzles', 'Back to Puzzles')}
         </Link>
       </div>
     );
@@ -130,20 +133,20 @@ export function MistakesPracticePage() {
     >
       <header className="mistakes-practice-page__header">
         <Link
-          to="/lessons"
+          to="/puzzles"
           className="mistakes-practice-page__back"
           data-testid="mistakes-practice-back"
         >
-          ← {t('lessons.backToList', 'All courses')}
+          ← {t('puzzleStats.backToPuzzles', 'Back to Puzzles')}
         </Link>
         <h1>
-          {t('lessons.mistakes.practice.title', {
+          {t('puzzle.mistakes.practice.title', {
             theme: t(`puzzleBrowser.themes.${recommendation.theme}`, recommendation.theme),
             defaultValue: 'Training: {{theme}}',
           })}
         </h1>
         <p className="mistakes-practice-page__meta">
-          {t('lessons.mistakes.practice.windowInfo', {
+          {t('puzzle.mistakes.practice.windowInfo', {
             count: recommendation.mistakeCount,
             windowDays: responseMeta?.windowDays ?? 30,
             defaultValue:

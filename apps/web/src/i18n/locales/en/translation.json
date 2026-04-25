@@ -553,6 +553,32 @@
     "tryAgain": "Try Again",
     "loadError": "Failed to load puzzle",
     "backToPuzzles": "Back to Puzzles",
+    "mistakes": {
+      "title": "Mistakes diary",
+      "fullTitle": "All mistakes",
+      "fullSubtitle": "Themes you got wrong most often. Train the top ones to close gaps.",
+      "emptyFull": "No mistakes recorded yet. Keep solving puzzles.",
+      "loadError": "Failed to load mistakes",
+      "totalThemes_one": "{{count}} theme",
+      "totalThemes_other": "{{count}} themes",
+      "count_one": "{{count}} mistake",
+      "count_other": "{{count}} mistakes",
+      "lastOccurred": "Last: {{date}}",
+      "lastOccurredUnknown": "recently",
+      "train": "Train",
+      "seeAll": "See all",
+      "col": {
+        "theme": "Theme",
+        "count": "Mistakes",
+        "lastOccurred": "Last occurred"
+      },
+      "practice": {
+        "title": "Training: {{theme}}",
+        "windowInfo": "{{count}} mistakes over last {{windowDays}} days",
+        "noTheme": "Pick a theme from the mistakes diary.",
+        "themeNotInRecs": "This theme is not in your top problem areas for the last 30 days. Nice!"
+      }
+    },
     "daily": {
       "title": "Daily Puzzle",
       "completed": "Today's puzzle completed!",
@@ -1376,32 +1402,6 @@
       "lastReviewed": "Last review: {{date}}",
       "firstReview": "First review",
       "empty": "No lessons to review today"
-    },
-    "mistakes": {
-      "title": "Mistakes diary",
-      "fullTitle": "All mistakes",
-      "fullSubtitle": "Themes you got wrong most often. Train the top ones to close gaps.",
-      "emptyFull": "No mistakes recorded yet. Keep solving puzzles.",
-      "loadError": "Failed to load mistakes",
-      "totalThemes_one": "{{count}} theme",
-      "totalThemes_other": "{{count}} themes",
-      "count_one": "{{count}} mistake",
-      "count_other": "{{count}} mistakes",
-      "lastOccurred": "Last: {{date}}",
-      "lastOccurredUnknown": "recently",
-      "train": "Train",
-      "seeAll": "See all",
-      "col": {
-        "theme": "Theme",
-        "count": "Mistakes",
-        "lastOccurred": "Last occurred"
-      },
-      "practice": {
-        "title": "Training: {{theme}}",
-        "windowInfo": "{{count}} mistakes over last {{windowDays}} days",
-        "noTheme": "Pick a theme from the mistakes diary.",
-        "themeNotInRecs": "This theme is not in your top problem areas for the last 30 days. Nice!"
-      }
     },
     "editor": {
       "title": "Lesson editor",

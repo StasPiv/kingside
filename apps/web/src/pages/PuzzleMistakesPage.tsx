@@ -3,20 +3,21 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { UserMistakeAggregate } from '@kingside/shared';
 
-import { lessonsApi } from '../api/lessonsApi';
+import { puzzleMistakesApi } from '../api/puzzleMistakesApi';
 
 /**
- * Страница `/lessons/mistakes` — полный список тем дневника ошибок (L-31).
+ * Страница `/puzzles/mistakes` — полный список тем дневника ошибок
+ * (KS-1928 / ADR-032 §3).
  *
- * Отличие от блока на `LessonsPage` — здесь нет ограничения «топ-5»,
- * показываются все темы из `GET /lessons/mistakes/aggregates`, без
- * параметров (limit по умолчанию backend сам ставит).
+ * Ранее жила на `/lessons/mistakes`; маршрут редиректит на новый
+ * через `<Navigate replace>` в App.tsx с сохранением query.
  *
- * Клик «Потренировать» ведёт на ту же страницу
- * `/lessons/mistakes-practice?theme=<...>`.
+ * Отличие от блока на `/puzzles/stats` — здесь нет ограничения
+ * «топ-5», показываются все темы из `GET /puzzle/mistakes/aggregates`,
+ * без параметров (limit по умолчанию backend сам ставит).
  */
 
-export function MistakesPage() {
+export function PuzzleMistakesPage() {
   const { t, i18n } = useTranslation();
   const [aggregates, setAggregates] = useState<UserMistakeAggregate[]>([]);
   const [totalThemes, setTotalThemes] = useState(0);
@@ -27,8 +28,8 @@ export function MistakesPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    lessonsApi
-      .getMistakeAggregates()
+    puzzleMistakesApi
+      .getAggregates()
       .then((res) => {
         if (cancelled) return;
         setAggregates(res.aggregates);
@@ -36,7 +37,7 @@ export function MistakesPage() {
       })
       .catch(() => {
         if (cancelled) return;
-        setError(t('lessons.mistakes.loadError', 'Failed to load mistakes'));
+        setError(t('puzzle.mistakes.loadError', 'Failed to load mistakes'));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -50,16 +51,16 @@ export function MistakesPage() {
     <div className="mistakes-page" data-testid="mistakes-page">
       <header className="mistakes-page__header">
         <Link
-          to="/lessons"
+          to="/puzzles"
           className="mistakes-page__back-link"
           data-testid="mistakes-page-back"
         >
-          ← {t('lessons.backToList', 'All courses')}
+          ← {t('puzzleStats.backToPuzzles', 'Back to Puzzles')}
         </Link>
-        <h1>{t('lessons.mistakes.fullTitle', 'All mistakes')}</h1>
+        <h1>{t('puzzle.mistakes.fullTitle', 'All mistakes')}</h1>
         <p className="mistakes-page__subtitle">
           {t(
-            'lessons.mistakes.fullSubtitle',
+            'puzzle.mistakes.fullSubtitle',
             'Themes you got wrong most often. Train the top ones to close gaps.',
           )}
         </p>
@@ -80,7 +81,7 @@ export function MistakesPage() {
       {!loading && !error && aggregates.length === 0 && (
         <div className="lessons-empty" data-testid="mistakes-empty">
           {t(
-            'lessons.mistakes.emptyFull',
+            'puzzle.mistakes.emptyFull',
             'No mistakes recorded yet. Keep solving puzzles.',
           )}
         </div>
@@ -89,7 +90,7 @@ export function MistakesPage() {
       {!loading && !error && aggregates.length > 0 && (
         <>
           <p className="mistakes-page__total" data-testid="mistakes-page-total">
-            {t('lessons.mistakes.totalThemes', {
+            {t('puzzle.mistakes.totalThemes', {
               count: totalThemes,
               defaultValue: '{{count}} themes',
             })}
@@ -97,9 +98,9 @@ export function MistakesPage() {
           <table className="mistakes-page__table" data-testid="mistakes-page-table">
             <thead>
               <tr>
-                <th>{t('lessons.mistakes.col.theme', 'Theme')}</th>
-                <th>{t('lessons.mistakes.col.count', 'Mistakes')}</th>
-                <th>{t('lessons.mistakes.col.lastOccurred', 'Last occurred')}</th>
+                <th>{t('puzzle.mistakes.col.theme', 'Theme')}</th>
+                <th>{t('puzzle.mistakes.col.count', 'Mistakes')}</th>
+                <th>{t('puzzle.mistakes.col.lastOccurred', 'Last occurred')}</th>
                 <th></th>
               </tr>
             </thead>
@@ -119,11 +120,11 @@ export function MistakesPage() {
                   </td>
                   <td>
                     <Link
-                      to={`/lessons/mistakes-practice?theme=${encodeURIComponent(agg.theme)}`}
+                      to={`/puzzles/mistakes-practice?theme=${encodeURIComponent(agg.theme)}`}
                       className="mistakes-page__cta"
                       data-testid={`mistakes-page-cta-${agg.theme}`}
                     >
-                      {t('lessons.mistakes.train', 'Train')}
+                      {t('puzzle.mistakes.train', 'Train')}
                     </Link>
                   </td>
                 </tr>

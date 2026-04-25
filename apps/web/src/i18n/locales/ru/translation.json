@@ -555,6 +555,36 @@
     "tryAgain": "Попробовать снова",
     "loadError": "Не удалось загрузить задачу",
     "backToPuzzles": "Назад к задачам",
+    "mistakes": {
+      "title": "Дневник ошибок",
+      "fullTitle": "Все ошибки",
+      "fullSubtitle": "Темы, в которых ты ошибался чаще всего. Начни с верхних — закроешь пробелы.",
+      "emptyFull": "Пока нет зафиксированных ошибок. Решай задачи — дневник заполнится.",
+      "loadError": "Не удалось загрузить дневник ошибок",
+      "totalThemes_one": "{{count}} тема",
+      "totalThemes_few": "{{count}} темы",
+      "totalThemes_many": "{{count}} тем",
+      "totalThemes_other": "{{count}} тем",
+      "count_one": "{{count}} ошибка",
+      "count_few": "{{count}} ошибки",
+      "count_many": "{{count}} ошибок",
+      "count_other": "{{count}} ошибок",
+      "lastOccurred": "Последняя: {{date}}",
+      "lastOccurredUnknown": "недавно",
+      "train": "Потренировать",
+      "seeAll": "Смотреть всё",
+      "col": {
+        "theme": "Тема",
+        "count": "Ошибок",
+        "lastOccurred": "Последняя ошибка"
+      },
+      "practice": {
+        "title": "Тренировка: {{theme}}",
+        "windowInfo": "{{count}} ошибок за последние {{windowDays}} дней",
+        "noTheme": "Выбери тему в дневнике ошибок.",
+        "themeNotInRecs": "Этой темы нет в твоих топ-проблемных за последние 30 дней. Молодец!"
+      }
+    },
     "daily": {
       "title": "Задача дня",
       "completed": "Задача дня решена!",
@@ -1386,36 +1416,6 @@
       "lastReviewed": "Последний раз: {{date}}",
       "firstReview": "Впервые повторяешь",
       "empty": "Нет уроков для повторения сегодня"
-    },
-    "mistakes": {
-      "title": "Дневник ошибок",
-      "fullTitle": "Все ошибки",
-      "fullSubtitle": "Темы, в которых ты ошибался чаще всего. Начни с верхних — закроешь пробелы.",
-      "emptyFull": "Пока нет зафиксированных ошибок. Решай задачи — дневник заполнится.",
-      "loadError": "Не удалось загрузить дневник ошибок",
-      "totalThemes_one": "{{count}} тема",
-      "totalThemes_few": "{{count}} темы",
-      "totalThemes_many": "{{count}} тем",
-      "totalThemes_other": "{{count}} тем",
-      "count_one": "{{count}} ошибка",
-      "count_few": "{{count}} ошибки",
-      "count_many": "{{count}} ошибок",
-      "count_other": "{{count}} ошибок",
-      "lastOccurred": "Последняя: {{date}}",
-      "lastOccurredUnknown": "недавно",
-      "train": "Потренировать",
-      "seeAll": "Смотреть всё",
-      "col": {
-        "theme": "Тема",
-        "count": "Ошибок",
-        "lastOccurred": "Последняя ошибка"
-      },
-      "practice": {
-        "title": "Тренировка: {{theme}}",
-        "windowInfo": "{{count}} ошибок за последние {{windowDays}} дней",
-        "noTheme": "Выбери тему в дневнике ошибок.",
-        "themeNotInRecs": "Этой темы нет в твоих топ-проблемных за последние 30 дней. Молодец!"
-      }
     },
     "editor": {
       "title": "Редактор уроков",

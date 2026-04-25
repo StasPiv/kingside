@@ -12,8 +12,6 @@ import type {
   PuzzleStepPayload,
   LevelGateResponse,
   ReviewsDueResponse,
-  UserMistakeAggregatesResponse,
-  UserMistakeRecommendationsResponse,
 } from '@kingside/shared';
 
 import { api } from '../api';
@@ -91,35 +89,10 @@ export const lessonsApi = {
   },
 
   /**
-   * Дневник ошибок: агрегаты по темам (L-31 / KS-1802).
-   *
-   * Топ ошибок пользователя по темам. `since` (ISO) и `limit` — фильтры.
-   * Ответ сортирован по `count` убыв., при равенстве — по `lastOccurredAt`.
+   * KS-1928 / ADR-032: методы дневника ошибок (`getMistakeAggregates`,
+   * `getMistakeRecommendations`) переехали в `puzzleMistakesApi.ts`.
+   * BE-эндпоинты — `/puzzle/mistakes/*`.
    */
-  getMistakeAggregates(params?: {
-    since?: string;
-    limit?: number;
-  }): Promise<UserMistakeAggregatesResponse> {
-    const qs = new URLSearchParams();
-    if (params?.since) qs.set('since', params.since);
-    if (params?.limit !== undefined) qs.set('limit', String(params.limit));
-    const suffix = qs.toString() ? `?${qs.toString()}` : '';
-    return api.get<UserMistakeAggregatesResponse>(
-      `/lessons/mistakes/aggregates${suffix}`,
-    );
-  },
-
-  /**
-   * Дневник ошибок: рекомендации «потренировать темы X, Y» (L-31).
-   *
-   * Бэк возвращает готовые `PuzzleStepPayload` (тип `filter`) — фронт
-   * передаёт их в `resolvePuzzleStep(payload)` без дополнительной подготовки.
-   */
-  getMistakeRecommendations(): Promise<UserMistakeRecommendationsResponse> {
-    return api.get<UserMistakeRecommendationsResponse>(
-      '/lessons/mistakes/recommendations',
-    );
-  },
 
   /**
    * SM-2 «К повторению сегодня» (L-22 / KS-1799). Бэк — KS-1798.

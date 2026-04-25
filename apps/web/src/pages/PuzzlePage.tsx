@@ -6,6 +6,7 @@ import { puzzleApi } from '../api-puzzle';
 import { api } from '../api';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { HelpButton } from '../components/HelpButton';
+import { MistakesDiaryHint } from '../components/puzzle/MistakesDiaryHint';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { useAuth } from '../context/AuthContext';
 import type { PuzzleDto } from '@kingside/shared';
@@ -559,6 +560,11 @@ export function PuzzlePage() {
           </button>
         </div>
       </div>
+
+      {/* KS-1928 / ADR-032 §5: compact hint «Слабые темы» под доской.
+          Self-fetching: скрыт при пустом списке / без auth / ошибке.
+          Чипы ведут в /puzzles/mistakes-practice?theme=<...>. */}
+      <MistakesDiaryHint />
     </div>
   );
 }

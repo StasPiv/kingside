@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { MistakesDiaryBlock } from '../components/puzzle/MistakesDiaryBlock';
 
 type PuzzleStats = {
   rating: number;
@@ -192,6 +193,11 @@ export function PuzzleStatsPage() {
           </div>
         </div>
       )}
+
+      {/* KS-1928 / ADR-032 §3: «Слабые темы» — переехал из /lessons.
+          Self-fetching блок: скрывается при пустом списке / без auth /
+          ошибке API. */}
+      <MistakesDiaryBlock />
 
       {/* Recent Attempts */}
       {attempts.length > 0 && (

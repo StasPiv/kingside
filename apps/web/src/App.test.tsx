@@ -49,6 +49,19 @@ vi.mock('./pages/PuzzlePage', () => ({
   PuzzlePage: () => <div>Puzzle</div>,
 }));
 
+// KS-1928: новые puzzle-mistakes страницы — мокаем для проверки 301-redirects.
+vi.mock('./pages/PuzzleMistakesPage', () => ({
+  PuzzleMistakesPage: () => <div>Puzzle Mistakes</div>,
+}));
+
+vi.mock('./pages/PuzzleMistakesPracticePage', () => ({
+  PuzzleMistakesPracticePage: () => {
+    const { useSearchParams } = require('react-router-dom');
+    const [params] = useSearchParams();
+    return <div>Puzzle Mistakes Practice theme={params.get('theme') ?? ''}</div>;
+  },
+}));
+
 vi.mock('./pages/PuzzleRushPage', () => ({
   PuzzleRushPage: () => <div>Puzzle Rush</div>,
 }));
@@ -261,5 +274,44 @@ describe('App routing', () => {
     renderApp('/lobby'); // redirected to /login
     fireEvent.click(screen.getByText('Leaderboard Nav'));
     expect(screen.getByText('Rush Leaderboard')).toBeInTheDocument();
+  });
+
+  // KS-1928 / ADR-032: 301-redirect /lessons/mistakes* → /puzzles/mistakes*
+  describe('KS-1928 mistakes redirect', () => {
+    beforeEach(() => {
+      mockUseAuth.mockReturnValue({
+        user: { id: 'u1', username: 'Test' },
+        loading: false,
+        token: 'tok',
+        login: vi.fn(),
+        register: vi.fn(),
+        logout: vi.fn(),
+      });
+    });
+
+    it('/lessons/mistakes → /puzzles/mistakes', () => {
+      renderApp('/lessons/mistakes');
+      expect(screen.getByText('Puzzle Mistakes')).toBeInTheDocument();
+    });
+
+    it('/lessons/mistakes-practice?theme=fork → /puzzles/mistakes-practice сохраняя query', () => {
+      renderApp('/lessons/mistakes-practice?theme=fork');
+      // theme=fork должен дойти до новой страницы.
+      expect(
+        screen.getByText('Puzzle Mistakes Practice theme=fork'),
+      ).toBeInTheDocument();
+    });
+
+    it('/lessons/mistakes-practice без query → /puzzles/mistakes-practice без query', () => {
+      renderApp('/lessons/mistakes-practice');
+      expect(
+        screen.getByText('Puzzle Mistakes Practice theme='),
+      ).toBeInTheDocument();
+    });
+
+    it('/puzzles/mistakes ходит напрямую (без редиректа)', () => {
+      renderApp('/puzzles/mistakes');
+      expect(screen.getByText('Puzzle Mistakes')).toBeInTheDocument();
+    });
   });
 });
