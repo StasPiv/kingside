@@ -2456,6 +2456,48 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* KS-1882: банер «Курс пройден» — показывается, когда BE
+   зафиксировал completedAt на агрегате прогресса. */
+.user-course-page__completed-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--success-soft, #dff7e6);
+  color: var(--success, #2e7d32);
+  border: 1px solid var(--success, #2e7d32);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.user-course-page__completed-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  background: var(--success, #2e7d32);
+  color: var(--success-contrast, #fff);
+  border-radius: 50%;
+}
+
+.user-course-page__completed-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.user-course-page__completed-text strong {
+  font-size: 15px;
+}
+
+.user-course-page__completed-date {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
 /* Owner actions — выделены отдельным блоком (карточка с рамкой) */
 .user-course-page__owner-actions {
   display: flex;
@@ -3034,6 +3076,29 @@
   color: var(--text-secondary);
   background: var(--bg-muted);
   border-color: var(--border-subtle);
+}
+
+/* KS-1882: badge «Пройден» в карточке курса (/lessons). */
+.my-courses-block__card-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.my-courses-block__badge--completed {
+  color: var(--success-contrast, #fff);
+  background: var(--success, #2e7d32);
+  border-color: var(--success, #2e7d32);
+  font-weight: 600;
+}
+
+.my-courses-block__badge--completed::before {
+  display: none;
+}
+
+.my-courses-block__card--completed {
+  border-color: var(--success, #2e7d32);
 }
 
 .my-courses-block__card-description {

@@ -168,6 +168,50 @@ describe('<UserCoursePage>', () => {
     expect(screen.getByTestId('user-course-lesson-l2')).toBeInTheDocument();
   });
 
+  /**
+   * KS-1882: completion-банер на странице курса.
+   * Когда BE проставил `progress.completedAt` (KS-1881) — вместо
+   * прогресс-текста показываем баннер «Course completed».
+   */
+  it('KS-1882 — progress.completedAt → виден completion-banner, прогресс-текста нет', async () => {
+    mockBySlug({
+      course: mkCourse({ lessonCount: 3 }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: mkProgress({
+        completedLessonsCount: 3,
+        completedAt: '2026-04-22T10:00:00Z',
+      }),
+    });
+
+    renderRouter({ initialPath: '/lessons/my/my-course' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-page')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('user-course-completed-banner'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('user-course-progress'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('KS-1882 — completedAt = null → старый прогресс-текст, баннера нет', async () => {
+    mockBySlug({
+      course: mkCourse({ lessonCount: 3 }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: mkProgress({ completedLessonsCount: 1, completedAt: null }),
+    });
+
+    renderRouter({ initialPath: '/lessons/my/my-course' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-page')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('user-course-progress')).toBeInTheDocument();
+    expect(
+      screen.queryByTestId('user-course-completed-banner'),
+    ).not.toBeInTheDocument();
+  });
+
   it('lessons сортируются по order', async () => {
     mockBySlug({
       course: mkCourse(),

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { UserCourseDto } from '@kingside/shared';
+import type {
+  UserCourseDto,
+  UserCoursePlayProgressDto,
+} from '@kingside/shared';
 
 import { userCoursesApi } from '../../api/userCoursesApi';
 import { useAuth } from '../../context/AuthContext';
@@ -29,6 +32,9 @@ export function MyCoursesBlock() {
   const { user } = useAuth();
 
   const [courses, setCourses] = useState<UserCourseDto[] | null>(null);
+  const [progressByCourseId, setProgressByCourseId] = useState<
+    Record<string, UserCoursePlayProgressDto | null>
+  >({});
   const [errored, setErrored] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
@@ -51,6 +57,34 @@ export function MyCoursesBlock() {
       cancelled = true;
     };
   }, [user]);
+
+  // KS-1882: для completion-индикатора нужен `progress.completedAt`
+  // каждого курса. List-DTO его не содержит, поэтому подтягиваем
+  // прогресс параллельно по `getCourseProgress` отдельным эффектом
+  // (после получения списка). Если запрос провалится или вернёт null
+  // — карточка просто без иконки. Нагрузка в худшем случае — N
+  // запросов на N курсов пользователя; для типичного 5–10 курсов
+  // это незаметно.
+  useEffect(() => {
+    if (!courses || courses.length === 0) return;
+    let cancelled = false;
+    Promise.all(
+      courses.map((c) =>
+        userCoursesApi
+          .getCourseProgress(c.id)
+          .then((p) => [c.id, p] as const)
+          .catch(() => [c.id, null] as const),
+      ),
+    ).then((entries) => {
+      if (cancelled) return;
+      const next: Record<string, UserCoursePlayProgressDto | null> = {};
+      for (const [id, p] of entries) next[id] = p;
+      setProgressByCourseId(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [courses]);
 
   const handleCreate = async () => {
     setCreateError(null);
@@ -133,43 +167,58 @@ export function MyCoursesBlock() {
           className="my-courses-block__grid"
           data-testid="my-courses-grid"
         >
-          {courses.map((c) => (
-            <li
-              key={c.id}
-              className="my-courses-block__card"
-              data-testid={`my-courses-card-${c.id}`}
-            >
-              <Link
-                to={`/lessons/my/${c.slug}`}
-                className="my-courses-block__link"
+          {courses.map((c) => {
+            const courseProgress = progressByCourseId[c.id];
+            const isCompleted = Boolean(courseProgress?.completedAt);
+            return (
+              <li
+                key={c.id}
+                className={`my-courses-block__card${isCompleted ? ' my-courses-block__card--completed' : ''}`}
+                data-testid={`my-courses-card-${c.id}`}
               >
-                <header className="my-courses-block__card-header">
-                  <h3 className="my-courses-block__card-title">{c.title}</h3>
-                  <span
-                    className={`my-courses-block__badge my-courses-block__badge--${c.isPublic ? 'public' : 'private'}`}
-                    data-testid={`my-courses-badge-${c.id}`}
-                  >
-                    {c.isPublic
-                      ? t('lessons.my.publicBadge', 'Public')
-                      : t('lessons.my.privateBadge', 'Private')}
-                  </span>
-                </header>
-                {c.description && (
-                  <p className="my-courses-block__card-description">
-                    {c.description}
-                  </p>
-                )}
-                <footer className="my-courses-block__card-footer">
-                  <span>
-                    {t('lessons.my.lessonsCount', {
-                      count: c.lessonCount,
-                      defaultValue: '{{count}} lessons',
-                    })}
-                  </span>
-                </footer>
-              </Link>
-            </li>
-          ))}
+                <Link
+                  to={`/lessons/my/${c.slug}`}
+                  className="my-courses-block__link"
+                >
+                  <header className="my-courses-block__card-header">
+                    <h3 className="my-courses-block__card-title">{c.title}</h3>
+                    <div className="my-courses-block__card-badges">
+                      {isCompleted && (
+                        <span
+                          className="my-courses-block__badge my-courses-block__badge--completed"
+                          data-testid={`my-courses-completed-${c.id}`}
+                          title={t('lessons.completed.banner', 'Course completed')}
+                        >
+                          ✓ {t('lessons.completed.shortBadge', 'Done')}
+                        </span>
+                      )}
+                      <span
+                        className={`my-courses-block__badge my-courses-block__badge--${c.isPublic ? 'public' : 'private'}`}
+                        data-testid={`my-courses-badge-${c.id}`}
+                      >
+                        {c.isPublic
+                          ? t('lessons.my.publicBadge', 'Public')
+                          : t('lessons.my.privateBadge', 'Private')}
+                      </span>
+                    </div>
+                  </header>
+                  {c.description && (
+                    <p className="my-courses-block__card-description">
+                      {c.description}
+                    </p>
+                  )}
+                  <footer className="my-courses-block__card-footer">
+                    <span>
+                      {t('lessons.my.lessonsCount', {
+                        count: c.lessonCount,
+                        defaultValue: '{{count}} lessons',
+                      })}
+                    </span>
+                  </footer>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

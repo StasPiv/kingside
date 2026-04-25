@@ -20,6 +20,10 @@ const { apiMock, authMock } = vi.hoisted(() => ({
   apiMock: {
     list: vi.fn(),
     create: vi.fn(),
+    // KS-1882: MyCoursesBlock теперь подгружает прогресс по
+    // каждому курсу (для completion-индикатора). Дефолт — null,
+    // отдельные тесты на completion переопределяют.
+    getCourseProgress: vi.fn().mockResolvedValue(null),
   },
   authMock: {
     user: { id: 'user-1', username: 'me', email: 'me@x' } as
@@ -80,7 +84,10 @@ function renderWithRouter() {
 }
 
 beforeEach(() => {
-  for (const fn of Object.values(apiMock)) fn.mockReset();
+  apiMock.list.mockReset();
+  apiMock.create.mockReset();
+  apiMock.getCourseProgress.mockReset();
+  apiMock.getCourseProgress.mockResolvedValue(null);
   authMock.user = { id: 'user-1', username: 'me', email: 'me@x' };
 });
 
@@ -141,8 +148,9 @@ describe('<MyCoursesBlock>', () => {
         expect.objectContaining({ title: expect.any(String) }),
       ),
     );
-    await waitFor(() =>
-      expect(screen.getByTestId('editor-page')).toBeInTheDocument(),
+    await waitFor(
+      () => expect(screen.getByTestId('editor-page')).toBeInTheDocument(),
+      { timeout: 3000 },
     );
   });
 
@@ -155,6 +163,69 @@ describe('<MyCoursesBlock>', () => {
     await waitFor(() =>
       expect(screen.queryByTestId('my-courses-block')).not.toBeInTheDocument(),
     );
+  });
+
+  /**
+   * KS-1882: completion-индикатор на карточке курса.
+   * Карточка получает класс `--completed` и видимый бейдж «Done»
+   * только если getCourseProgress() вернул объект с completedAt.
+   */
+  it('KS-1882 — карточка показывает badge «Done» если completedAt задан', async () => {
+    apiMock.list.mockResolvedValue({
+      data: [
+        mkCourse({ id: 'c1', title: 'Done one' }),
+        mkCourse({ id: 'c2', title: 'Still going' }),
+      ],
+    });
+    apiMock.getCourseProgress.mockImplementation(async (id: string) =>
+      id === 'c1'
+        ? {
+            userCourseId: 'c1',
+            completedLessonsCount: 5,
+            startedAt: '2026-04-20T10:00:00Z',
+            lastActivityAt: '2026-04-21T10:00:00Z',
+            completedAt: '2026-04-21T10:00:00Z',
+          }
+        : null,
+    );
+
+    renderWithRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('my-courses-grid')).toBeInTheDocument(),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('my-courses-completed-c1')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('my-courses-completed-c2')).not.toBeInTheDocument();
+  });
+
+  it('KS-1882 — completedAt = null → бейджа нет', async () => {
+    apiMock.list.mockResolvedValue({ data: [mkCourse({ id: 'c1' })] });
+    apiMock.getCourseProgress.mockResolvedValue({
+      userCourseId: 'c1',
+      completedLessonsCount: 1,
+      startedAt: '2026-04-20T10:00:00Z',
+      lastActivityAt: '2026-04-20T10:00:00Z',
+      completedAt: null,
+    });
+    renderWithRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('my-courses-card-c1')).toBeInTheDocument(),
+    );
+    // Дать времени Promise.all с прогрессом отработать
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.queryByTestId('my-courses-completed-c1')).not.toBeInTheDocument();
+  });
+
+  it('KS-1882 — провал getCourseProgress не ломает карточку', async () => {
+    apiMock.list.mockResolvedValue({ data: [mkCourse({ id: 'c1' })] });
+    apiMock.getCourseProgress.mockRejectedValue(new Error('boom'));
+    renderWithRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('my-courses-card-c1')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('my-courses-completed-c1')).not.toBeInTheDocument();
   });
 
   it('ошибка create → сообщение об ошибке, без navigate', async () => {

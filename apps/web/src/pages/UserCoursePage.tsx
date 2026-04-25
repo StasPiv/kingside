@@ -119,17 +119,45 @@ export function UserCoursePage() {
         {course.description && (
           <p className="user-course-page__description">{course.description}</p>
         )}
-        {progress && (
-          <p
-            className="user-course-page__progress"
-            data-testid="user-course-progress"
+        {progress && progress.completedAt ? (
+          // KS-1882: банер «Курс пройден» — отображается, когда BE
+          // зафиксировал `completedAt` на агрегате (KS-1881). При
+          // добавлении нового урока в курс backend сбрасывает
+          // completedAt → банер пропадает автоматически.
+          <div
+            className="user-course-page__completed-banner"
+            data-testid="user-course-completed-banner"
+            role="status"
           >
-            {t('lessons.my.progress', {
-              count: course.lessonCount,
-              done: progress.completedLessonsCount,
-              defaultValue: 'Completed {{done}}/{{count}} lessons',
-            })}
-          </p>
+            <span
+              className="user-course-page__completed-icon"
+              aria-hidden="true"
+            >
+              ✓
+            </span>
+            <div className="user-course-page__completed-text">
+              <strong>{t('lessons.completed.banner', 'Course completed')}</strong>
+              <span className="user-course-page__completed-date">
+                {t('lessons.completed.date', {
+                  date: new Date(progress.completedAt).toLocaleDateString(),
+                  defaultValue: 'on {{date}}',
+                })}
+              </span>
+            </div>
+          </div>
+        ) : (
+          progress && (
+            <p
+              className="user-course-page__progress"
+              data-testid="user-course-progress"
+            >
+              {t('lessons.my.progress', {
+                count: course.lessonCount,
+                done: progress.completedLessonsCount,
+                defaultValue: 'Completed {{done}}/{{count}} lessons',
+              })}
+            </p>
+          )
         )}
       </header>
 

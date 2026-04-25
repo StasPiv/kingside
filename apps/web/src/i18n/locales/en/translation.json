@@ -1470,6 +1470,11 @@
         }
       }
     },
+    "completed": {
+      "banner": "Course completed",
+      "date": "on {{date}}",
+      "shortBadge": "Done"
+    },
     "review": {
       "banner": "Review mode — go through the lesson again.",
       "finishReview": "Finish review",
