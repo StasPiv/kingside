@@ -2186,6 +2186,18 @@
   align-self: flex-start;
 }
 
+/* KS-1910: баннер «Авторская задача — рейтинг не меняется» для
+   custom puzzle. Информационный, не критичный — мягкая подложка. */
+.lesson-puzzle-step__custom-note {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 6px;
+}
+
 .lesson-puzzle-step__header {
   display: flex;
   justify-content: space-between;

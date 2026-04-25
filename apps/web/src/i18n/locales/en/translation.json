@@ -1267,6 +1267,9 @@
     "puzzleStepNeedMore": "Need more correct",
     "puzzleEmpty": "No puzzles available for this step",
     "puzzleLoadError": "Failed to load puzzles",
+    "puzzle": {
+      "customNote": "Author's puzzle — rating doesn't change"
+    },
     "positionCorrect": "Correct!",
     "positionIncorrect": "Not quite — try again",
     "positionHint": "Show hint",

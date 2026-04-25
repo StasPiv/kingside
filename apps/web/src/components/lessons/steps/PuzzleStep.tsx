@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import type { PuzzleDto, PuzzleStepPayload } from '@kingside/shared';
+import type {
+  CustomPuzzle,
+  PuzzleDto,
+  PuzzleStepPayload,
+  PuzzleTheme,
+} from '@kingside/shared';
 
 import { puzzleApi } from '../../../api-puzzle';
 import { lessonsApi } from '../../../api/lessonsApi';
@@ -17,15 +22,64 @@ import { useAuth } from '../../../context/AuthContext';
  * разбирает `payload.selection`:
  *   • mode 'ids'    → задачи в порядке `puzzleIds`
  *   • mode 'filter' → ≤ `limit` уникальных задач по темам+рейтингу
+ *   • mode 'custom' → авторские задачи прямо из payload (ADR-029,
+ *     KS-1910). Никаких сетевых запросов, рейтинг не считается.
  *
  * Попытки идут в существующий `PuzzleAttempt` через `puzzleApi.submitAttempt`
- * (никаких новых таблиц — Gherkin: «не дублируем»).
+ * (никаких новых таблиц — Gherkin: «не дублируем»). Для custom puzzle
+ * `submitAttempt` пропускается (`isCustom===true`) — в БД её нет,
+ * Glicko-2-update'ы ей не нужны.
  *
  * Шаг считается пройденным, когда количество правильно решённых задач
  * достигает `payload.minSolved` (по умолчанию = всем задачам набора).
  * После прохождения порога вызывается `onStepDone()` — интеграция с
  * `useLessonProgress` (L-11) на стороне `LessonPage`.
+ *
+ * # Custom puzzle: firstMoveIsUser (ADR-029 §5.6)
+ *
+ * Для системных Lichess puzzle первый ход в `moves` — setup, его
+ * runner проигрывает автоматически с задержкой 300 ms; пользователь
+ * играет со второго хода. Для custom puzzle (`firstMoveIsUser===true`)
+ * первый ход — это ход ученика: setup-блок пропускается, доска ждёт
+ * хода пользователя сразу.
  */
+
+/**
+ * Локальный тип-расширение `PuzzleDto` для runner'а: позволяет custom
+ * puzzle нести `orientation`, явно заданную автором в payload, не
+ * расширяя shared-DTO ради FE-only поля.
+ */
+type RunnerPuzzle = PuzzleDto & { customOrientation?: 'white' | 'black' };
+
+/**
+ * Маппит `CustomPuzzle` (из `payload.selection.customPuzzles`) в
+ * `RunnerPuzzle` для существующего runner-кода. ADR-029 §5:
+ * - `id` искусственный, в БД нет;
+ * - `rating === null`, `isCustom = true` → `submitAttempt` skip;
+ * - `firstMoveIsUser = true` → setup-ход не воспроизводится.
+ */
+export function customToInMemoryPuzzle(
+  custom: CustomPuzzle,
+  index: number,
+): RunnerPuzzle {
+  return {
+    id: `custom:${index}`,
+    fen: custom.fen,
+    moves: custom.solutionMoves.join(' '),
+    rating: null,
+    ratingDeviation: 0,
+    popularity: 0,
+    nbPlays: 0,
+    // `CustomPuzzle.themes` — свободные строки, не PuzzleTheme[];
+    // в runner используются только для отображения, cast безопасен.
+    themes: ((custom.themes ?? []) as unknown) as PuzzleTheme[],
+    gameUrl: '',
+    openingTags: '',
+    isCustom: true,
+    firstMoveIsUser: true,
+    customOrientation: custom.orientation,
+  };
+}
 
 interface PuzzleStepProps {
   payload: PuzzleStepPayload;
@@ -52,7 +106,7 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
   const playSoundRef = useRef(playSound);
   playSoundRef.current = playSound;
 
-  const [puzzles, setPuzzles] = useState<PuzzleDto[] | null>(null);
+  const [puzzles, setPuzzles] = useState<RunnerPuzzle[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [index, setIndex] = useState(0);
@@ -117,7 +171,14 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
 
   const boardOrientation = useMemo<'white' | 'black'>(() => {
     if (!currentPuzzle) return 'white';
+    // Custom: автор может задать orientation вручную (ADR-029 §5).
+    if (currentPuzzle.customOrientation) return currentPuzzle.customOrientation;
     const setup = new Chess(currentPuzzle.fen);
+    // Custom firstMoveIsUser=true: setup-ход не воспроизводится,
+    // игрок ходит цветом sideToMove из FEN.
+    if (currentPuzzle.firstMoveIsUser) {
+      return setup.turn() === 'w' ? 'white' : 'black';
+    }
     if (currentMoves.length <= 1) {
       return setup.turn() === 'w' ? 'white' : 'black';
     }
@@ -149,6 +210,9 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
     startTimeRef.current = Date.now();
 
     if (!currentPuzzle) return;
+    // KS-1910: для custom puzzle (`firstMoveIsUser=true`) первый ход —
+    // ход ученика, setup-блок пропускается. ADR-029 §5.6.
+    if (currentPuzzle.firstMoveIsUser) return;
     if (currentMoves.length > 1) {
       // Setup-ход — короткая задержка для UX (как в PuzzlePage).
       const uci = currentMoves[0];
@@ -170,9 +234,14 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
 
   // ─── Запись попытки ──────────────────────────────────────────────
   const submitAttempt = useCallback(
-    async (puzzle: PuzzleDto, solved: boolean) => {
+    async (puzzle: RunnerPuzzle, solved: boolean) => {
       if (attemptSubmittedRef.current) return;
       attemptSubmittedRef.current = true;
+      // KS-1910 / ADR-029 §5.2: для custom puzzle id искусственный,
+      // в БД её нет — submitAttempt пропускаем (BE отбил бы 404, но
+      // primary path всё равно skip на FE). Glicko-2 / счётчик puzzle
+      // / mistakes — ничего этого custom не делает.
+      if (puzzle.isCustom) return;
       if (!user) return; // гости: попытки не пишем (как в PuzzlePage)
       const timeMs = Date.now() - startTimeRef.current;
       const userMoves = userMovesRef.current.join(' ');
@@ -328,6 +397,19 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
         </span>
       </header>
 
+      {currentPuzzle.isCustom && (
+        <p
+          className="lesson-puzzle-step__custom-note"
+          data-testid="lesson-puzzle-step-custom-note"
+          role="status"
+        >
+          {t(
+            'lessons.puzzle.customNote',
+            "Author's puzzle — rating doesn't change",
+          )}
+        </p>
+      )}
+
       <PuzzleBoard
         game={game}
         boardOrientation={boardOrientation}
@@ -386,19 +468,30 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 /**
- * Резолвит `payload` в массив `PuzzleDto` через батч-эндпоинт
- * `POST /lessons/puzzle-step/resolve` (KS-1777). Backend сам разбирает
- * `selection.mode` ('ids' | 'filter'). Экспортируется для тестов.
+ * Резолвит `payload` в массив puzzle для runner'а.
  *
- * Для `mode='ids'` с пустым списком — короткое замыкание без сетевого
- * вызова (бэк бы тоже вернул `[]`, но экономим раунд-трип).
+ * - `mode='ids'`    → батч-эндпоинт `POST /lessons/puzzle-step/resolve`
+ *                     (KS-1777). Пустой список → `[]` без сетевого
+ *                     вызова (бэк бы тоже вернул `[]`).
+ * - `mode='filter'` → тот же эндпоинт. Backend сам разбирает темы,
+ *                     рейтинг, лимит.
+ * - `mode='custom'` → синхронный mapping `customPuzzles` через
+ *                     `customToInMemoryPuzzle()`. Никаких сетевых
+ *                     запросов (ADR-029 §5).
+ *
+ * Экспортируется для тестов.
  */
 export async function resolvePuzzles(
   payload: PuzzleStepPayload,
-): Promise<PuzzleDto[]> {
+): Promise<RunnerPuzzle[]> {
   const { selection } = payload;
   if (selection.mode === 'ids' && selection.puzzleIds.length === 0) {
     return [];
+  }
+  if (selection.mode === 'custom') {
+    return selection.customPuzzles.map((cp, i) =>
+      customToInMemoryPuzzle(cp, i),
+    );
   }
   return lessonsApi.resolvePuzzleStep(payload);
 }

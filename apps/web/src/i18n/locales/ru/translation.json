@@ -1260,6 +1260,9 @@
       "openLibrary": "Мои партии",
       "importDoneNote": "Партии импортированы. Открой их в мастерской и вернись к шагу."
     },
+    "puzzle": {
+      "customNote": "Авторская задача — рейтинг не меняется"
+    },
     "puzzleProgress": "Задача {{current}} из {{total}}",
     "puzzleCounters": "Решено {{solved}} • Ошибок {{failed}} • Нужно {{min}}",
     "puzzleCorrect": "Верно!",
