@@ -4,7 +4,8 @@ import { Chess } from 'chess.js';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
-import { MistakesService } from '../lessons/mistakes.service';
+// KS-1927: MistakesService переехал из `lessons/` в `puzzle/` (ADR-032 §4).
+import { MistakesService } from './mistakes.service';
 
 @Injectable()
 export class PuzzleService {

@@ -29,7 +29,8 @@ import { FeedbackModule } from './feedback/feedback.module';
 import { AdminModule } from './admin/admin.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { LessonsModule } from './lessons/lessons.module';
-import { MistakesModule } from './lessons/mistakes.module';
+// KS-1927: MistakesModule переехал в `puzzle/` namespace (ADR-032 §4).
+import { MistakesModule } from './puzzle/mistakes.module';
 import { UserCoursesModule } from './lessons/user-courses/user-courses.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';

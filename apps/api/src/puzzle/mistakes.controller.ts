@@ -11,21 +11,28 @@ import { AuthenticatedRequest } from '../common/authenticated-request';
 import { MistakesService } from './mistakes.service';
 
 /**
- * REST-эндпоинты дневника ошибок (L-31, KS-1802).
+ * REST-эндпоинты дневника ошибок (L-31, KS-1802; relocated KS-1927 /
+ * ADR-032 §4).
  *
- * URL-префикс выбран сознательно плоским — `/lessons/mistakes/*`, —
- * чтобы фронт бил по тому же namespace'у, что и остальные уроки.
+ * URL-префикс — `/puzzle/mistakes/*`, рядом с существующим
+ * `@Controller('puzzle')`. Дневник ошибок концептуально про задачи
+ * (Lichess puzzles + game mistakes), а не про учебные «уроки», поэтому
+ * namespace `puzzle/` точнее. Старый префикс `/lessons/mistakes/*`
+ * больше не зарегистрирован — Nest роутер вернёт 404; редирект для
+ * legacy-клиентов делает фронт (KS-1928), не бэкенд.
  *
- * Глобальный префикс `/api` выставляется в `main.ts`, поэтому публичные
- * пути: `/api/lessons/mistakes/aggregates`, `/api/lessons/mistakes/recommendations`.
+ * Глобальный префикс `/api` выставляется в `main.ts`, поэтому
+ * публичные пути:
+ *   `/api/puzzle/mistakes/aggregates`,
+ *   `/api/puzzle/mistakes/recommendations`.
  */
 @UseGuards(JwtAuthGuard)
-@Controller('lessons/mistakes')
+@Controller('puzzle/mistakes')
 export class MistakesController {
   constructor(private readonly service: MistakesService) {}
 
   /**
-   * GET /api/lessons/mistakes/aggregates?since=ISO&limit=N
+   * GET /api/puzzle/mistakes/aggregates?since=ISO&limit=N
    *
    * Темы, по которым пользователь чаще всего ошибался. `since` — опциональный
    * cutoff (ISO-8601). `limit` — верхняя граница размера списка (default/max
@@ -46,7 +53,7 @@ export class MistakesController {
   }
 
   /**
-   * GET /api/lessons/mistakes/recommendations
+   * GET /api/puzzle/mistakes/recommendations
    *
    * Топ-3 тем за последние 30 дней → готовые `PuzzleStep`-payload'ы.
    */

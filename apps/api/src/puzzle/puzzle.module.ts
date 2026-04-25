@@ -5,7 +5,8 @@ import { PuzzleController } from './puzzle.controller';
 import { PuzzleService } from './puzzle.service';
 import { PuzzleRatingService } from './puzzle-rating.service';
 import { GlickoRatingService } from './glicko-rating.service';
-import { MistakesModule } from '../lessons/mistakes.module';
+// KS-1927: MistakesModule переехал из `lessons/` в `puzzle/` (ADR-032 §4).
+import { MistakesModule } from './mistakes.module';
 
 @Module({
   imports: [MistakesModule],
