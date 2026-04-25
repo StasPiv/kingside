@@ -1251,6 +1251,51 @@
   }
 }
 
+/* KS-1906: тот же FEN-input + кнопка для шага endgame_drill. */
+.editor-endgame__fen-label {
+  grid-column: 1 / -1;
+}
+
+.editor-endgame__fen-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.editor-endgame__fen-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: 12px;
+}
+
+.editor-endgame__edit-board {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.editor-endgame__edit-board:hover {
+  background: var(--accent, #4d8aff);
+  color: var(--accent-contrast, #fff);
+  border-color: var(--accent, #4d8aff);
+}
+
+@media (max-width: 640px) {
+  .editor-endgame__fen-row {
+    flex-direction: column;
+  }
+  .editor-endgame__edit-board {
+    align-self: flex-start;
+  }
+}
+
 .editor-hint {
   margin: 0;
   color: var(--text-secondary);

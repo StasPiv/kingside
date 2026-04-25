@@ -1,11 +1,23 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { StepPayload } from '@kingside/shared';
+
+import { SetPositionModal } from '../../../SetPositionModal';
 
 /**
  * `EndgameDrillFields` — форма редактирования `EndgameDrillStepPayload`
  * (KS-1849 / FE-R1). FEN стартовой позиции + сторона ученика +
  * сила движка (Skill Level 0..20) + условие победы + лимит ходов +
  * флаг подсказок. Вынесено из `StepEditor.tsx`.
+ *
+ * # Board Editor для FEN (KS-1906)
+ *
+ * Рядом с FEN-инпутом — кнопка «Edit on board», открывает
+ * `<SetPositionModal>` (тот же редактор позиций что в `AnalysisPage`
+ * и в `TextFields` после KS-1875). Apply пишет новый FEN в
+ * `payload.fen` через тот же `onChange`-механизм, что и ручной ввод
+ * в input. Cancel/Close ничего не меняет. `SetPositionModal`
+ * переиспользуется как есть — никаких правок.
  */
 
 interface EndgameDrillFieldsProps {
@@ -18,14 +30,27 @@ export function EndgameDrillFields({
   onChange,
 }: EndgameDrillFieldsProps) {
   const { t } = useTranslation();
+  const [boardEditorOpen, setBoardEditorOpen] = useState(false);
+
   return (
     <div className="editor-step__fields">
-      <label>
+      <label className="editor-endgame__fen-label">
         FEN
-        <input
-          value={payload.fen}
-          onChange={(e) => onChange({ ...payload, fen: e.target.value })}
-        />
+        <div className="editor-endgame__fen-row">
+          <input
+            value={payload.fen}
+            onChange={(e) => onChange({ ...payload, fen: e.target.value })}
+            data-testid="editor-endgame-fen"
+          />
+          <button
+            type="button"
+            className="editor-endgame__edit-board"
+            onClick={() => setBoardEditorOpen(true)}
+            data-testid="editor-endgame-edit-board"
+          >
+            {t('editor.step.text.editBoard', 'Edit on board')}
+          </button>
+        </div>
       </label>
       <label>
         {t('editor.step.endgame.side', 'Player side')}
@@ -145,6 +170,17 @@ export function EndgameDrillFields({
         />
         {t('editor.step.endgame.hints', 'Hints allowed')}
       </label>
+
+      {boardEditorOpen && (
+        <SetPositionModal
+          initialFen={payload.fen}
+          onApply={(fen) => {
+            onChange({ ...payload, fen });
+            setBoardEditorOpen(false);
+          }}
+          onClose={() => setBoardEditorOpen(false)}
+        />
+      )}
     </div>
   );
 }
