@@ -9,7 +9,9 @@
  *
  * Алгоритм (см. ADR §3.2):
  *   1. FEN парсится `new Chess(fen)` — иначе 400.
- *   2. `solutionMoves` — непустой массив 1..40 UCI-ходов.
+ *   2. `solutionMoves` — массив 0..40 UCI-ходов (KS-1911: пустой
+ *      допустим как промежуточный draft автора; runtime-инвариант
+ *      «нужен хотя бы 1 ход» проверяется в runner'е, не в DTO).
  *   3. UCI-формат `[a-h][1-8][a-h][1-8][qrbn]?`.
  *   4. **Пошаговая legality**: применяем ходы по очереди от стартового
  *      FEN; на каждый — `chess.move({from,to,promotion})`. Любой
@@ -80,18 +82,15 @@ export function validateCustomPuzzle(
   }
 
   // ─── solutionMoves ──────────────────────────────────────────────
+  // KS-1911: нижняя граница снята (`0..N`), пустой массив валиден —
+  // это промежуточный draft автора. Runtime-проверка «не пускать
+  // студента в шаг с 0 ходов» — задача runner'а, не DTO.
   const moves = p.solutionMoves;
-  const minMoves = 1;
   const maxMoves = USER_COURSES_LIMITS.customPuzzleSolutionMoves;
   if (!Array.isArray(moves)) {
     errors.push({
       path: q('solutionMoves'),
       message: 'solutionMoves must be an array of UCI strings',
-    });
-  } else if (moves.length < minMoves) {
-    errors.push({
-      path: q('solutionMoves'),
-      message: `solutionMoves must contain at least ${minMoves} move`,
     });
   } else if (moves.length > maxMoves) {
     errors.push({
@@ -215,27 +214,24 @@ export function validateCustomPuzzle(
 }
 
 /**
- * Проверка массива `customPuzzles` — длина 1..N + delegate в
+ * Проверка массива `customPuzzles` — длина 0..N + delegate в
  * `validateCustomPuzzle` для каждого элемента.
+ *
+ * KS-1911: нижняя граница снята. Пустой массив валиден — это
+ * промежуточный draft автора (autosave при смене mode на 'custom').
+ * Runtime-проверка «не пускать студента в шаг с 0 puzzle» — задача
+ * runner'а, не DTO.
  */
 export function validateCustomPuzzlesArray(
   raw: unknown,
   pathPrefix = 'customPuzzles',
 ): CustomPuzzleValidationResult {
   const errors: CustomPuzzleValidationResult['errors'] = [];
-  const min = 1;
   const max = USER_COURSES_LIMITS.customPuzzlesPerStep;
   if (!Array.isArray(raw)) {
     errors.push({
       path: pathPrefix,
       message: 'customPuzzles must be an array',
-    });
-    return { ok: false, errors };
-  }
-  if (raw.length < min) {
-    errors.push({
-      path: pathPrefix,
-      message: `customPuzzles must contain at least ${min} puzzle`,
     });
     return { ok: false, errors };
   }

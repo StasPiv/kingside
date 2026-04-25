@@ -99,14 +99,16 @@ describe('validateCustomPuzzle (ADR-029)', () => {
 
   // ─── негативы: solutionMoves ────────────────────────────────
 
-  it('пустой solutionMoves → ошибка «at least 1 move»', () => {
+  // KS-1911: пустой `solutionMoves` валиден как draft автора.
+  // Runtime-инвариант «нужен хотя бы 1 ход» проверяется в runner'е
+  // при попытке студента открыть шаг, не в DTO при autosave.
+  it('пустой solutionMoves — валиден (draft, KS-1911)', () => {
     const r = validateCustomPuzzle({
       fen: STARTPOS,
       solutionMoves: [],
     });
-    expect(r.ok).toBe(false);
-    const err = r.errors.find((e) => e.path === 'customPuzzle.solutionMoves');
-    expect(err?.message).toMatch(/at least 1 move/);
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
   });
 
   it(`${USER_COURSES_LIMITS.customPuzzleSolutionMoves + 1} ходов → ошибка about максимум`, () => {
@@ -270,10 +272,11 @@ describe('validateCustomPuzzlesArray (ADR-029)', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('пустой массив → ошибка «at least 1 puzzle»', () => {
+  // KS-1911: пустой массив валиден (draft автора при смене mode на 'custom').
+  it('пустой массив customPuzzles — валиден (draft, KS-1911)', () => {
     const r = validateCustomPuzzlesArray([]);
-    expect(r.ok).toBe(false);
-    expect(r.errors[0].message).toMatch(/at least 1 puzzle/);
+    expect(r.ok).toBe(true);
+    expect(r.errors).toEqual([]);
   });
 
   it('не массив → ошибка', () => {
@@ -367,13 +370,27 @@ describe('PuzzleStepPayloadDto — mode=custom (KS-1908)', () => {
     expect(errors.some((m) => /puzzleIds/.test(m))).toBe(true);
   });
 
-  it('mode=custom с пустым customPuzzles → ошибка', async () => {
+  // KS-1911 главный сценарий-регрессия: autosave при смене mode на 'custom'
+  // ставит `customPuzzles: []`. Раньше PATCH валился 400 «at least 1 puzzle»
+  // и UI ломался. Теперь — валиден.
+  it('mode=custom с пустым customPuzzles — валиден (autosave-draft, KS-1911)', async () => {
     const errors = await validatePayload({
       type: 'puzzle',
       selection: { mode: 'custom', customPuzzles: [] },
     });
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some((m) => /at least 1 puzzle/.test(m))).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  // KS-1911: пустой `solutionMoves` внутри одной puzzle — также draft.
+  it('mode=custom: одна puzzle с пустым solutionMoves — валиден (KS-1911)', async () => {
+    const errors = await validatePayload({
+      type: 'puzzle',
+      selection: {
+        mode: 'custom',
+        customPuzzles: [{ fen: STARTPOS, solutionMoves: [] }],
+      },
+    });
+    expect(errors).toEqual([]);
   });
 
   it(`mode=custom с ${USER_COURSES_LIMITS.customPuzzlesPerStep + 1} puzzle → ошибка лимита`, async () => {
