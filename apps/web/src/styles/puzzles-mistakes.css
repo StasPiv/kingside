@@ -1,0 +1,329 @@
+/* ============================================================
+ * KS-1929 — Mistakes Diary в разделе паззлов (ADR-032 §5)
+ *
+ * Два места:
+ *   • Compact hint под доской на /puzzle (solve)
+ *   • Full-блок на /puzzles/stats под другими stat-секциями
+ *
+ * Базовые стили `.mistakes-diary-block` уже описаны в lessons.css
+ * (KS-1802). Здесь — адаптация под контекст puzzle-stats и
+ * compact-вариант.
+ *
+ * Frontend (KS-1928) либо добавит prop `variant="compact"` (тогда
+ * каскад `.mistakes-diary-block--compact`), либо отдельный
+ * компонент `MistakesDiaryHint` с классом `.mistakes-diary-hint`.
+ * Поддерживаем оба варианта стилей — нагрузка минимальна.
+ *
+ * Локальные токены — переиспользуем lobby-tokens из KS-1925
+ * (`--lobby-radius-*`, `--lobby-transition`, `--lobby-shadow-*`).
+ * ============================================================ */
+
+/* ---------- 1. Full-блок на /puzzles/stats ---------- */
+/* Цель: тот же визуальный язык, что у других stat-секций
+   (var(--c-1e293b) surface, var(--c-7c83ff) accent). Существующая
+   красная левая полоса из lessons.css слишком выделяется в этом
+   контексте — приглушаем до accent-soft. */
+.puzzle-stats-page .mistakes-diary-block {
+  background: var(--c-1e293b);
+  border: 1px solid var(--c-334155);
+  border-left: 4px solid var(--accent-primary);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-top: 8px;
+}
+
+.puzzle-stats-page .mistakes-diary-block__title {
+  font-size: 16px;
+  color: var(--c-cbd5e1);
+  font-weight: 600;
+}
+
+.puzzle-stats-page .mistakes-diary-block__total {
+  color: var(--c-94a3b8);
+}
+
+.puzzle-stats-page .mistakes-diary-block__item {
+  background: var(--c-0f172a);
+  border: 1px solid var(--c-334155);
+  transition:
+    transform var(--lobby-transition, 0.15s ease-out),
+    border-color var(--lobby-transition, 0.15s ease-out),
+    box-shadow var(--lobby-transition, 0.15s ease-out);
+}
+
+.puzzle-stats-page .mistakes-diary-block__item:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent-primary);
+  box-shadow: 0 4px 12px var(--ov-black-30);
+}
+
+.puzzle-stats-page .mistakes-diary-block__theme {
+  color: var(--c-e2e8f0);
+}
+
+.puzzle-stats-page .mistakes-diary-block__count {
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+.puzzle-stats-page .mistakes-diary-block__cta {
+  background: var(--accent-primary);
+  color: var(--c-fff);
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  transition:
+    background var(--lobby-transition, 0.15s ease-out),
+    transform var(--lobby-transition, 0.15s ease-out);
+}
+
+.puzzle-stats-page .mistakes-diary-block__cta:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  text-decoration: none;
+  filter: none;
+}
+
+.puzzle-stats-page .mistakes-diary-block__cta:active {
+  transform: scale(0.98);
+}
+
+.puzzle-stats-page .mistakes-diary-block__see-all {
+  color: var(--accent-primary);
+}
+
+/* ---------- 2. Compact hint на /puzzle (solve) ----------
+   Поддерживаем оба возможных корневых класса от FE: модификатор
+   `.mistakes-diary-block--compact` и отдельный `.mistakes-diary-hint`. */
+
+.mistakes-diary-block--compact,
+.mistakes-diary-hint {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-left: none;
+  padding: 8px 0 4px;
+  margin: 0;
+  /* Приглушённый: не должен дёргать взгляд от доски */
+  color: var(--text-secondary);
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__header,
+.mistakes-diary-hint__header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__title,
+.mistakes-diary-hint__title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__total,
+.mistakes-diary-hint__total {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Список chip-ов в строку */
+.mistakes-diary-block--compact .mistakes-diary-block__list,
+.mistakes-diary-hint__chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Сам chip — встречается либо как __item внутри compact, либо как
+   отдельный анкор `.mistakes-diary-hint__chip`. */
+.mistakes-diary-block--compact .mistakes-diary-block__item,
+.mistakes-diary-hint__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--ov-white-05);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background var(--lobby-transition, 0.15s ease-out),
+    border-color var(--lobby-transition, 0.15s ease-out),
+    color var(--lobby-transition, 0.15s ease-out),
+    transform var(--lobby-transition, 0.15s ease-out);
+  cursor: pointer;
+}
+
+/* Внутри compact-варианта `__item` — не flex-row с CTA, а chip;
+   убираем структурные стили из базового item и приводим к chip. */
+.mistakes-diary-block--compact .mistakes-diary-block__item {
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 4px;
+  border-left: none;
+  background: var(--ov-white-05);
+}
+
+/* В compact-варианте элементы внутри item должны быть в строку */
+.mistakes-diary-block--compact .mistakes-diary-block__item-text {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__theme {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 600;
+  /* счётчик в скобках без явных скобок в JSX — можно через CSS */
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__count::before {
+  content: "(";
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__count::after {
+  content: ")";
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__meta {
+  display: inline;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Скрываем «last occurred» в compact — лишняя информация */
+.mistakes-diary-block--compact .mistakes-diary-block__last {
+  display: none;
+}
+
+/* CTA-кнопка в compact-варианте (если FE оставит её) сворачивается в
+   стрелку или скрывается — chip уже сам ссылка */
+.mistakes-diary-block--compact .mistakes-diary-block__cta {
+  display: none;
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__footer,
+.mistakes-diary-hint__footer {
+  margin-top: 4px;
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__see-all,
+.mistakes-diary-hint__see-all {
+  font-size: 11px;
+  color: var(--text-link);
+  text-decoration: none;
+}
+
+/* Hover: usual elevation + link-underline */
+.mistakes-diary-block--compact .mistakes-diary-block__item:hover,
+.mistakes-diary-hint__chip:hover {
+  background: var(--ov-accent-10);
+  border-color: var(--ov-accent-35);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+  text-decoration: underline;
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__item:hover .mistakes-diary-block__theme,
+.mistakes-diary-hint__chip:hover .mistakes-diary-hint__theme {
+  color: var(--text-primary);
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__item:focus-visible,
+.mistakes-diary-hint__chip:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--ov-accent-25);
+  text-decoration: none;
+}
+
+.mistakes-diary-block--compact .mistakes-diary-block__item:active,
+.mistakes-diary-hint__chip:active {
+  transform: scale(0.98);
+}
+
+.mistakes-diary-hint__see-all:hover {
+  text-decoration: underline;
+}
+
+/* ---------- 3. Mobile (≤640px) — chips в две строки ---------- */
+@media (max-width: 640px) {
+  .mistakes-diary-block--compact .mistakes-diary-block__list,
+  .mistakes-diary-hint__chips {
+    /* flex-wrap уже в base; гарантируем что не превращается в
+       вертикальный stack из-за каскада base-стилей */
+    flex-wrap: wrap;
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  /* Chip ограничиваем по ширине так, чтобы помещалось ~2 в строку */
+  .mistakes-diary-block--compact .mistakes-diary-block__item,
+  .mistakes-diary-hint__chip {
+    flex-direction: row;
+    align-items: center;
+    max-width: calc(50% - 3px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Full-блок на /puzzles/stats — на mobile элементы списка
+     стек'ом (тут полагаемся на base media-query из lessons.css —
+     ничего не переопределяем) */
+}
+
+/* ---------- 4. Размещение compact hint под доской ---------- */
+/* Контейнер hint, если FE завернёт его в отдельный slot после доски */
+.puzzle-board-area .mistakes-diary-block--compact,
+.puzzle-board-area .mistakes-diary-hint,
+.puzzle-page .mistakes-diary-block--compact,
+.puzzle-page .mistakes-diary-hint {
+  max-width: 560px;
+  width: 100%;
+  margin: 12px auto 0;
+}
+
+/* ---------- 5. prefers-reduced-motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .puzzle-stats-page .mistakes-diary-block__item,
+  .puzzle-stats-page .mistakes-diary-block__cta,
+  .mistakes-diary-block--compact .mistakes-diary-block__item,
+  .mistakes-diary-hint__chip {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .puzzle-stats-page .mistakes-diary-block__item:hover,
+  .puzzle-stats-page .mistakes-diary-block__cta:hover,
+  .puzzle-stats-page .mistakes-diary-block__cta:active,
+  .mistakes-diary-block--compact .mistakes-diary-block__item:hover,
+  .mistakes-diary-block--compact .mistakes-diary-block__item:active,
+  .mistakes-diary-hint__chip:hover,
+  .mistakes-diary-hint__chip:active {
+    transform: none !important;
+  }
+}
