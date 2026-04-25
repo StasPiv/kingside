@@ -17,7 +17,7 @@
  * системных и пользовательских шагов (ADR-026 Приложение A).
  */
 
-import type { StepPayload } from './lessons.js';
+import type { LessonStepState, StepPayload } from './lessons.js';
 
 // ─── Discriminators ───────────────────────────────────────────────────
 
@@ -104,6 +104,20 @@ export interface UserLessonPlayProgressDto {
   userLessonId: string;
   completedStepsCount: number;
   totalSteps: number;
+  /**
+   * Поштучное состояние шагов урока (KS-1879). Ключ — `stepId`,
+   * значение — `LessonStepState` (`pending` означает «явно не отмечен»;
+   * сервер обычно сюда `pending` не пишет, шаги без записи считаются
+   * `pending` по умолчанию). Используется фронтом для восстановления
+   * прогресса при повторном открытии урока — без него `completedStepsCount`
+   * показывает только агрегат, без понимания «какие именно шаги
+   * сделаны».
+   *
+   * Backward-compat: для строк, существующих в БД до миграции
+   * KS-1879, поле возвращается как `{}` (default `'{}'::jsonb` на
+   * уровне Postgres).
+   */
+  stepsState: Record<string, LessonStepState>;
   /** ISO-8601. */
   startedAt: string;
   /** ISO-8601. */

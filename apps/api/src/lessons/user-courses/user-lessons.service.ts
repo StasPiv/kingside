@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import type {
   CreateUserLessonStepRequest,
+  LessonStepState,
   ReorderUserStepsRequest,
   UpdateUserLessonRequest,
   UserLessonDto,
@@ -203,6 +204,10 @@ export function toLessonPlayProgressDto(row: {
   userLessonId: string;
   completedStepsCount: number;
   totalSteps: number;
+  // Postgres JSONB → Prisma `JsonValue`. На уровне сервиса мы пишем
+  // только Record<string, LessonStepState>, поэтому нормализуем сюда.
+  // Принимаем `unknown` чтобы не тянуть `Prisma.JsonValue` в shared.
+  stepsState?: unknown;
   startedAt: Date;
   lastActivityAt: Date;
   completedAt: Date | null;
@@ -211,9 +216,37 @@ export function toLessonPlayProgressDto(row: {
     userLessonId: row.userLessonId,
     completedStepsCount: row.completedStepsCount,
     totalSteps: row.totalSteps,
+    stepsState: normalizeStepsState(row.stepsState),
     startedAt: row.startedAt.toISOString(),
     lastActivityAt: row.lastActivityAt.toISOString(),
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
   };
+}
+
+/**
+ * Приводит JSON из БД к `Record<string, LessonStepState>`. Любой мусор
+ * (null, не-объект, неизвестное значение состояния) → пустой объект /
+ * отбрасывается. Поле `stepsState` появилось в KS-1879; для записей,
+ * созданных до миграции, default `'{}'::jsonb` вернёт пустой объект.
+ */
+const VALID_STATES: ReadonlySet<LessonStepState> = new Set([
+  'pending',
+  'in_progress',
+  'done',
+  'failed',
+  'skipped',
+]);
+
+export function normalizeStepsState(
+  raw: unknown,
+): Record<string, LessonStepState> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, LessonStepState> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && VALID_STATES.has(v as LessonStepState)) {
+      out[k] = v as LessonStepState;
+    }
+  }
+  return out;
 }
 

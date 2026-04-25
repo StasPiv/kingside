@@ -133,6 +133,16 @@ describe('UserCourses Prisma schema contract (KS-1828)', () => {
       expect(block).toMatch(/totalSteps\s+Int/);
       expect(block).toMatch(/lastActivityAt\s+DateTime/);
     });
+
+    // KS-1879: per-step state for idempotent step-progress + UI restore.
+    // Default `'{}'` важен для backward-compat — при добавлении колонки
+    // в существующую таблицу старые строки получают пустой объект
+    // вместо NULL, и сервис может работать с ними без миграции данных.
+    it('UserLessonPlayProgress содержит stepsState Json @default("{}")', () => {
+      const block = extractModelBlock(schema, 'UserLessonPlayProgress');
+      expect(block).toMatch(/stepsState\s+Json\s+@default\("\{\}"\)/);
+      expect(block).toContain('@map("steps_state")');
+    });
   });
 
   describe('миграция SQL', () => {

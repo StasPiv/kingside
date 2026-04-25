@@ -977,6 +977,14 @@ model UserLessonPlayProgress {
   userLessonId        String    @map("user_lesson_id") @db.Uuid
   completedStepsCount Int       @default(0) @map("completed_steps_count")
   totalSteps          Int       @default(0) @map("total_steps")
+  // Поштучное состояние шагов урока:
+  // `{ [stepId]: 'pending' | 'done' | 'failed' | 'skipped' }` (KS-1879).
+  // Источник правды для идемпотентности `updateStepProgress` по `stepId`
+  // и восстановления прогресса при повторном открытии урока. Поле
+  // `completedStepsCount` — это count('done') из этого объекта, а не
+  // отдельный инкремент. `default("{}")` обеспечивает backward-compat
+  // для записей, созданных до миграции.
+  stepsState          Json      @default("{}") @map("steps_state")
   startedAt           DateTime  @default(now()) @map("started_at")
   lastActivityAt      DateTime  @default(now()) @map("last_activity_at")
   completedAt         DateTime? @map("completed_at")

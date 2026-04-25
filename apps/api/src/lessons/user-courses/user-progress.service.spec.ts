@@ -1,7 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { UserProgressService } from './user-progress.service';
 
-describe('UserProgressService (KS-1831)', () => {
+describe('UserProgressService (KS-1831 / KS-1879)', () => {
   let service: UserProgressService;
   let prisma: any;
 
@@ -12,6 +12,7 @@ describe('UserProgressService (KS-1831)', () => {
     prisma = {
       userCourse: { findUnique: jest.fn() },
       userLesson: { findUnique: jest.fn() },
+      userLessonStep: { findMany: jest.fn().mockResolvedValue([]) },
       userCoursePlayProgress: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
@@ -87,7 +88,7 @@ describe('UserProgressService (KS-1831)', () => {
       await expect(service.getCourseProgress(OWNER, 'c1')).resolves.toBeNull();
     });
 
-    it('getLessonProgress: маппинг ок', async () => {
+    it('getLessonProgress: маппинг ок (включая stepsState из БД)', async () => {
       prisma.userLesson.findUnique.mockResolvedValue({
         userCourseId: 'c1',
         _count: { steps: 4 },
@@ -97,6 +98,7 @@ describe('UserProgressService (KS-1831)', () => {
         userLessonId: 'l1',
         completedStepsCount: 2,
         totalSteps: 4,
+        stepsState: { sA: 'done', sB: 'done', sC: 'pending' },
         startedAt: new Date(),
         lastActivityAt: new Date(),
         completedAt: null,
@@ -106,11 +108,60 @@ describe('UserProgressService (KS-1831)', () => {
         userLessonId: 'l1',
         completedStepsCount: 2,
         totalSteps: 4,
+        stepsState: { sA: 'done', sB: 'done', sC: 'pending' },
       });
+    });
+
+    // Backward-compat (KS-1879): записи, созданные до миграции,
+    // имеют дефолт `'{}'::jsonb`. Также тестируем устойчивость к мусору
+    // (null / число / массив / неизвестный state) — должно нормализоваться
+    // в пустой объект, не упасть.
+    it.each([
+      ['null', null],
+      ['пустой объект', {}],
+      ['массив', ['done']],
+      ['число', 42],
+      ['строка', 'done'],
+    ])('getLessonProgress: stepsState=%s → нормализуется в {}', async (_name, raw) => {
+      prisma.userLesson.findUnique.mockResolvedValue({
+        userCourseId: 'c1',
+        _count: { steps: 1 },
+        course: { ownerId: OWNER, isPublic: false },
+      });
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        userLessonId: 'l1',
+        completedStepsCount: 0,
+        totalSteps: 1,
+        stepsState: raw,
+        startedAt: new Date(),
+        lastActivityAt: new Date(),
+        completedAt: null,
+      });
+      const r = await service.getLessonProgress(OWNER, 'l1');
+      expect(r!.stepsState).toEqual({});
+    });
+
+    it('getLessonProgress: неизвестные значения state выбрасываются из stepsState', async () => {
+      prisma.userLesson.findUnique.mockResolvedValue({
+        userCourseId: 'c1',
+        _count: { steps: 3 },
+        course: { ownerId: OWNER, isPublic: false },
+      });
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        userLessonId: 'l1',
+        completedStepsCount: 1,
+        totalSteps: 3,
+        stepsState: { sA: 'done', sB: 'garbage', sC: 'pending' },
+        startedAt: new Date(),
+        lastActivityAt: new Date(),
+        completedAt: null,
+      });
+      const r = await service.getLessonProgress(OWNER, 'l1');
+      expect(r!.stepsState).toEqual({ sA: 'done', sC: 'pending' });
     });
   });
 
-  // ─── updateStepProgress ────────────────────────────────────────────
+  // ─── updateStepProgress (KS-1879: идемпотентность по stepId) ───────
 
   describe('updateStepProgress', () => {
     const okLesson = () => ({
@@ -119,7 +170,7 @@ describe('UserProgressService (KS-1831)', () => {
       course: { ownerId: OWNER, isPublic: false },
     });
 
-    it('первый done → создаёт запись с 1/3', async () => {
+    it('первый done → создаёт запись с counter=1 и stepsState={[stepId]:done}', async () => {
       prisma.userLesson.findUnique.mockResolvedValue(okLesson());
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue(null);
       prisma.userLessonPlayProgress.create.mockImplementation(async ({ data }: any) => ({
@@ -127,68 +178,167 @@ describe('UserProgressService (KS-1831)', () => {
       }));
       prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
 
-      const r = await service.updateStepProgress(OWNER, 'l1', 's1', 'done');
+      const r = await service.updateStepProgress(OWNER, 'l1', 'sA', 'done');
       expect(r.completedStepsCount).toBe(1);
       expect(r.totalSteps).toBe(3);
+      expect(r.stepsState).toEqual({ sA: 'done' });
+
+      const createArg = prisma.userLessonPlayProgress.create.mock.calls[0][0].data;
+      expect(createArg.stepsState).toEqual({ sA: 'done' });
+      expect(createArg.completedStepsCount).toBe(1);
     });
 
-    it('done дважды подряд → +2 (без дедупликации по stepId в MVP)', async () => {
+    // Главный сценарий KS-1879 (Gherkin: «Идемпотентность step-done»):
+    // повторный POST с тем же stepId не растит счётчик.
+    it('done×2 для одного stepId → счётчик не растёт (идемпотентность)', async () => {
       prisma.userLesson.findUnique.mockResolvedValue(okLesson());
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
-        id: 'p1', completedStepsCount: 1, totalSteps: 3,
+        id: 'p1',
+        completedStepsCount: 1,
+        totalSteps: 3,
+        stepsState: { sA: 'done' },
       });
       prisma.userLessonPlayProgress.update.mockImplementation(async ({ data }: any) => ({
         userLessonId: 'l1',
         completedStepsCount: data.completedStepsCount,
         totalSteps: data.totalSteps,
+        stepsState: data.stepsState,
         startedAt: new Date(),
         lastActivityAt: data.lastActivityAt,
         completedAt: null,
       }));
       prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
 
-      const r = await service.updateStepProgress(OWNER, 'l1', 's2', 'done');
+      const r = await service.updateStepProgress(OWNER, 'l1', 'sA', 'done');
+      expect(r.completedStepsCount).toBe(1);
+      expect(r.stepsState).toEqual({ sA: 'done' });
+    });
+
+    it('done разных stepId → счётчик растёт по числу done в stepsState', async () => {
+      prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        id: 'p1',
+        completedStepsCount: 1,
+        totalSteps: 3,
+        stepsState: { sA: 'done' },
+      });
+      prisma.userLessonPlayProgress.update.mockImplementation(async ({ data }: any) => ({
+        userLessonId: 'l1',
+        completedStepsCount: data.completedStepsCount,
+        totalSteps: data.totalSteps,
+        stepsState: data.stepsState,
+        startedAt: new Date(),
+        lastActivityAt: data.lastActivityAt,
+        completedAt: null,
+      }));
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
+
+      const r = await service.updateStepProgress(OWNER, 'l1', 'sB', 'done');
       expect(r.completedStepsCount).toBe(2);
+      expect(r.stepsState).toEqual({ sA: 'done', sB: 'done' });
     });
 
-    it('done не поднимает счётчик выше totalSteps', async () => {
+    it('done не поднимает счётчик выше totalSteps (clamp)', async () => {
       prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      // В stepsState уже 3 done — максимум для урока с totalSteps=3.
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
-        id: 'p1', completedStepsCount: 3, totalSteps: 3,
+        id: 'p1',
+        completedStepsCount: 3,
+        totalSteps: 3,
+        stepsState: { sA: 'done', sB: 'done', sC: 'done' },
       });
       prisma.userLessonPlayProgress.update.mockImplementation(async ({ data }: any) => ({
         userLessonId: 'l1',
         completedStepsCount: data.completedStepsCount,
         totalSteps: data.totalSteps,
+        stepsState: data.stepsState,
         startedAt: new Date(),
         lastActivityAt: data.lastActivityAt,
         completedAt: null,
       }));
       prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
 
-      const r = await service.updateStepProgress(OWNER, 'l1', 's4', 'done');
+      // «Осиротевший» stepId (например, шаг был удалён автором, но
+      // клиент ещё не пере-загрузил список) — пишется в stepsState,
+      // но счётчик clamp'ится до totalSteps=3.
+      const r = await service.updateStepProgress(OWNER, 'l1', 'sZombie', 'done');
       expect(r.completedStepsCount).toBe(3);
     });
 
-    it('failed/skipped — счётчик не растёт', async () => {
+    it('failed/skipped — счётчик пересчитывается из stepsState', async () => {
+      // Если в stepsState уже sA=done, и приходит sA=failed — done
+      // в счётчике становится 0 (state перезаписан).
       for (const state of ['failed', 'skipped'] as const) {
         prisma.userLesson.findUnique.mockResolvedValue(okLesson());
         prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
-          id: 'p1', completedStepsCount: 1, totalSteps: 3,
+          id: 'p1',
+          completedStepsCount: 1,
+          totalSteps: 3,
+          stepsState: { sA: 'done' },
         });
         prisma.userLessonPlayProgress.update.mockImplementation(async ({ data }: any) => ({
           userLessonId: 'l1',
           completedStepsCount: data.completedStepsCount,
           totalSteps: data.totalSteps,
+          stepsState: data.stepsState,
           startedAt: new Date(),
           lastActivityAt: data.lastActivityAt,
           completedAt: null,
         }));
         prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
 
-        const r = await service.updateStepProgress(OWNER, 'l1', 's1', state);
-        expect(r.completedStepsCount).toBe(1);
+        const r = await service.updateStepProgress(OWNER, 'l1', 'sA', state);
+        expect(r.completedStepsCount).toBe(0);
+        expect(r.stepsState).toEqual({ sA: state });
       }
+    });
+
+    it('failed/skipped другого stepId — done-счётчик не трогается', async () => {
+      prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        id: 'p1',
+        completedStepsCount: 1,
+        totalSteps: 3,
+        stepsState: { sA: 'done' },
+      });
+      prisma.userLessonPlayProgress.update.mockImplementation(async ({ data }: any) => ({
+        userLessonId: 'l1',
+        completedStepsCount: data.completedStepsCount,
+        totalSteps: data.totalSteps,
+        stepsState: data.stepsState,
+        startedAt: new Date(),
+        lastActivityAt: data.lastActivityAt,
+        completedAt: null,
+      }));
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
+
+      const r = await service.updateStepProgress(OWNER, 'l1', 'sB', 'failed');
+      expect(r.completedStepsCount).toBe(1);
+      expect(r.stepsState).toEqual({ sA: 'done', sB: 'failed' });
+    });
+
+    it('Backward-compat: запись без stepsState (старая) — обрабатывается как пустой объект', async () => {
+      prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        id: 'p1',
+        completedStepsCount: 0,
+        totalSteps: 3,
+        // stepsState отсутствует (либо null, либо undefined у старой записи)
+      });
+      prisma.userLessonPlayProgress.update.mockImplementation(async ({ data }: any) => ({
+        userLessonId: 'l1',
+        completedStepsCount: data.completedStepsCount,
+        totalSteps: data.totalSteps,
+        stepsState: data.stepsState,
+        startedAt: new Date(),
+        lastActivityAt: data.lastActivityAt,
+        completedAt: null,
+      }));
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
+
+      const r = await service.updateStepProgress(OWNER, 'l1', 'sA', 'done');
+      expect(r.completedStepsCount).toBe(1);
+      expect(r.stepsState).toEqual({ sA: 'done' });
     });
 
     it('чужой на приватный урок → 404', async () => {
@@ -209,13 +359,14 @@ describe('UserProgressService (KS-1831)', () => {
         userLessonId: 'l1',
         completedStepsCount: 1,
         totalSteps: 3,
+        stepsState: { sA: 'done' },
         startedAt: new Date(),
         lastActivityAt: new Date(),
         completedAt: null,
       });
       prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
 
-      await service.updateStepProgress(OWNER, 'l1', 's1', 'done');
+      await service.updateStepProgress(OWNER, 'l1', 'sA', 'done');
       const upsert = prisma.userCoursePlayProgress.upsert.mock.calls[0][0];
       expect(upsert.update).not.toHaveProperty('completedLessonsCount');
       expect(upsert.create.completedLessonsCount).toBe(0);
@@ -227,43 +378,82 @@ describe('UserProgressService (KS-1831)', () => {
   describe('completeLesson', () => {
     const okLesson = () => ({
       userCourseId: 'c1',
-      _count: { steps: 4 },
+      _count: { steps: 3 },
       course: { ownerId: OWNER, isPublic: false },
     });
 
-    it('первый complete: upsert прогресса + инкремент completedLessonsCount курса', async () => {
+    it('первый complete: upsert прогресса + инкремент completedLessonsCount + stepsState=все done', async () => {
       prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      prisma.userLessonStep.findMany.mockResolvedValue([
+        { id: 'sA' }, { id: 'sB' }, { id: 'sC' },
+      ]);
       // completedAt = null (ещё не завершён) → inc = true
-      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({ completedAt: null });
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        completedAt: null,
+        stepsState: {},
+      });
       const now = new Date();
-      prisma.userLessonPlayProgress.upsert.mockResolvedValue({
+      prisma.userLessonPlayProgress.upsert.mockImplementation(async ({ create }: any) => ({
         userLessonId: 'l1',
-        completedStepsCount: 4,
-        totalSteps: 4,
+        completedStepsCount: create.completedStepsCount,
+        totalSteps: create.totalSteps,
+        stepsState: create.stepsState,
         startedAt: now,
         lastActivityAt: now,
         completedAt: now,
-      });
+      }));
       prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
 
       const r = await service.completeLesson(OWNER, 'l1', 1);
       expect(r.completedAt).not.toBeNull();
+      expect(r.stepsState).toEqual({ sA: 'done', sB: 'done', sC: 'done' });
 
-      // inc=true → в update есть { increment: 1 } на completedLessonsCount
       const upsert = prisma.userCoursePlayProgress.upsert.mock.calls[0][0];
       expect(upsert.update.completedLessonsCount).toEqual({ increment: 1 });
       expect(upsert.create.completedLessonsCount).toBe(1);
     });
 
+    // KS-1879: completeLesson не перетирает уже отмеченные failed/skipped.
+    it('сохраняет failed/skipped в stepsState, добивает остальные до done', async () => {
+      prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      prisma.userLessonStep.findMany.mockResolvedValue([
+        { id: 'sA' }, { id: 'sB' }, { id: 'sC' },
+      ]);
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        completedAt: null,
+        stepsState: { sA: 'failed', sB: 'skipped' }, // sC ещё pending
+      });
+      prisma.userLessonPlayProgress.upsert.mockImplementation(async ({ update }: any) => ({
+        userLessonId: 'l1',
+        completedStepsCount: update.completedStepsCount,
+        totalSteps: update.totalSteps,
+        stepsState: update.stepsState,
+        startedAt: new Date(),
+        lastActivityAt: new Date(),
+        completedAt: new Date(),
+      }));
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
+
+      const r = await service.completeLesson(OWNER, 'l1', 0.6);
+      expect(r.stepsState).toEqual({
+        sA: 'failed',
+        sB: 'skipped',
+        sC: 'done',
+      });
+    });
+
     it('повторный complete (был completedAt): счётчик курса НЕ инкрементируется', async () => {
       prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      prisma.userLessonStep.findMany.mockResolvedValue([{ id: 'sA' }]);
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
         completedAt: new Date('2026-04-01'),
+        stepsState: { sA: 'done' },
       });
       prisma.userLessonPlayProgress.upsert.mockResolvedValue({
         userLessonId: 'l1',
-        completedStepsCount: 4,
-        totalSteps: 4,
+        completedStepsCount: 3,
+        totalSteps: 3,
+        stepsState: { sA: 'done' },
         startedAt: new Date(),
         lastActivityAt: new Date(),
         completedAt: new Date(),
@@ -294,11 +484,16 @@ describe('UserProgressService (KS-1831)', () => {
       expect((prisma as any).lessonReview).toBeUndefined();
 
       prisma.userLesson.findUnique.mockResolvedValue(okLesson());
-      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({ completedAt: null });
+      prisma.userLessonStep.findMany.mockResolvedValue([]);
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        completedAt: null,
+        stepsState: {},
+      });
       prisma.userLessonPlayProgress.upsert.mockResolvedValue({
         userLessonId: 'l1',
-        completedStepsCount: 4,
-        totalSteps: 4,
+        completedStepsCount: 0,
+        totalSteps: 0,
+        stepsState: {},
         startedAt: new Date(),
         lastActivityAt: new Date(),
         completedAt: new Date(),
@@ -329,6 +524,37 @@ describe('UserProgressService (KS-1831)', () => {
       const call = prisma.userCoursePlayProgress.upsert.mock.calls[0][0];
       expect(call.update.completedLessonsCount).toEqual({ increment: 1 });
       expect(call.create.completedLessonsCount).toBe(1);
+    });
+  });
+
+  // ─── DTO snapshot (KS-1879 Gherkin: «Восстановление stepsState») ───
+
+  describe('DTO snapshot', () => {
+    it('GET lessonProgress отдаёт DTO с stepsState (две done + одна pending)', async () => {
+      prisma.userLesson.findUnique.mockResolvedValue({
+        userCourseId: 'c1',
+        _count: { steps: 3 },
+        course: { ownerId: OWNER, isPublic: false },
+      });
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        userLessonId: 'l1',
+        completedStepsCount: 2,
+        totalSteps: 3,
+        stepsState: { sA: 'done', sB: 'done', sC: 'pending' },
+        startedAt: new Date('2026-04-01T10:00:00.000Z'),
+        lastActivityAt: new Date('2026-04-01T10:30:00.000Z'),
+        completedAt: null,
+      });
+      const r = await service.getLessonProgress(OWNER, 'l1');
+      expect(r).toEqual({
+        userLessonId: 'l1',
+        completedStepsCount: 2,
+        totalSteps: 3,
+        stepsState: { sA: 'done', sB: 'done', sC: 'pending' },
+        startedAt: '2026-04-01T10:00:00.000Z',
+        lastActivityAt: '2026-04-01T10:30:00.000Z',
+        completedAt: null,
+      });
     });
   });
 });

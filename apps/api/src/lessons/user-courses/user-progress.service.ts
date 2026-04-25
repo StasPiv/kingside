@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
+  LessonStepState,
   UserCoursePlayProgressDto,
   UserLessonPlayProgressDto,
 } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toCoursePlayProgressDto } from './user-courses.service';
-import { toLessonPlayProgressDto } from './user-lessons.service';
+import {
+  normalizeStepsState,
+  toLessonPlayProgressDto,
+} from './user-lessons.service';
 
 /**
  * UserProgressService — прогресс прохождения пользовательских курсов
@@ -15,7 +19,12 @@ import { toLessonPlayProgressDto } from './user-lessons.service';
  *  - нет SM-2-записей (ADR-026 §7 — `LessonReview` к user-courses не
  *    подключаем; для «своих» курсов «к повторению» не имеет смысла);
  *  - счётчики компактные: `completedStepsCount/totalSteps` у урока и
- *    `completedLessonsCount` у курса, без JSON-агрегата `stepsState`;
+ *    `completedLessonsCount` у курса. С KS-1879 рядом со счётчиком
+ *    держим JSON-агрегат `stepsState` (`{ [stepId]: LessonStepState }`)
+ *    — он обеспечивает идемпотентность `updateStepProgress` по `stepId`
+ *    и восстановление UI-прогресса при повторном открытии урока;
+ *    `completedStepsCount` пересчитывается как `count('done')` из этого
+ *    объекта, а не отдельным инкрементом;
  *  - доступ: `owner ИЛИ isPublic` — играть можно и чужой публичный,
  *    но прогресс всегда привязан к `req.user.id`.
  *
@@ -55,22 +64,24 @@ export class UserProgressService {
   // ─── Write ────────────────────────────────────────────────────────
 
   /**
-   * Отметить состояние шага (done/failed/skipped). В MVP храним только
-   * счётчик `completedStepsCount` (без JSON-детализации `stepsState`
-   * системного `UserLessonProgress` — для user-courses достаточно
-   * счётчика для прогресс-бара; если позже понадобится детализация —
-   * добавим отдельно).
+   * Отметить состояние шага (done/failed/skipped). Идемпотентно по
+   * `stepId` (KS-1879):
+   *  - state кладётся в `stepsState[stepId]` с upsert'ом;
+   *  - `completedStepsCount` пересчитывается как количество `done` в
+   *    `stepsState`, а не отдельным инкрементом — двойной POST `done`
+   *    с тем же `stepId` → счётчик не растёт;
+   *  - `failed`/`skipped` после `done` для того же шага честно
+   *    «понижает» состояние и счётчик пересчитывается соответственно
+   *    (контракт допускает обе стороны переходов; завершённый урок
+   *    реально завершается отдельным `completeLesson`).
    *
-   * Идемпотентность: один и тот же `done` дважды подряд НЕ удваивает
-   * счётчик — clamping'ом до `totalSteps`. Но гарантировать «уникальный
-   * stepId» без доп. структуры мы не можем: клиент, отправивший
-   * два разных stepId из одного урока с состоянием `done`, честно
-   * получит +2 к счётчику. Это ожидаемое поведение для MVP.
+   * Шаги, которых нет в `stepsState`, считаются `pending` по умолчанию
+   * — фронт не обязан слать «pending» явно.
    */
   async updateStepProgress(
     userId: string,
     userLessonId: string,
-    _stepId: string,
+    stepId: string,
     state: 'done' | 'failed' | 'skipped',
   ): Promise<UserLessonPlayProgressDto> {
     const lesson = await this.assertLessonAccessible(userId, userLessonId);
@@ -82,27 +93,38 @@ export class UserProgressService {
       where: { userId_userLessonId: { userId, userLessonId } },
     });
 
+    const prevStepsState = normalizeStepsState(existing?.stepsState);
+    const nextStepsState: Record<string, LessonStepState> = {
+      ...prevStepsState,
+      [stepId]: state,
+    };
+    // Идемпотентность по stepId: счётчик — это count('done'), а не
+    // инкремент. Дополнительно clamping до totalSteps как защита от
+    // «осиротевших» stepId в JSON (например, шаг удалили автором).
+    const doneCount = Object.values(nextStepsState).filter(
+      (s) => s === 'done',
+    ).length;
+    const completedStepsCount = Math.min(doneCount, totalSteps);
+
     let row;
     if (!existing) {
       row = await this.prisma.userLessonPlayProgress.create({
         data: {
           userId,
           userLessonId,
-          completedStepsCount: state === 'done' ? 1 : 0,
+          completedStepsCount,
           totalSteps,
+          stepsState: nextStepsState,
           lastActivityAt: now,
         },
       });
     } else {
-      const completed =
-        state === 'done'
-          ? Math.min(existing.completedStepsCount + 1, totalSteps)
-          : existing.completedStepsCount;
       row = await this.prisma.userLessonPlayProgress.update({
         where: { id: existing.id },
         data: {
-          completedStepsCount: completed,
+          completedStepsCount,
           totalSteps,
+          stepsState: nextStepsState,
           lastActivityAt: now,
         },
       });
@@ -124,6 +146,13 @@ export class UserProgressService {
    * Порог (score >= X) в MVP не enforced — доверяем клиенту. Серверный
    * threshold-гейт можно добавить позже, когда будет продуктовое
    * требование.
+   *
+   * KS-1879: при завершении заполняем `stepsState` финальным снимком —
+   * все известные `stepId` урока выставляем в `done` (с сохранением
+   * пользовательских `failed`/`skipped`, если такие были — их не
+   * перетираем, только pending-шаги становятся done). Это даёт фронту
+   * корректный snapshot для отрисовки «всё пройдено» при повторном
+   * открытии и согласует `count('done')` с `completedStepsCount`.
    */
   async completeLesson(
     userId: string,
@@ -135,19 +164,41 @@ export class UserProgressService {
     const totalSteps = lesson.stepCount;
     const now = new Date();
 
+    // Список stepId урока — нужен, чтобы записать в stepsState `done`
+    // для всех шагов. Если шагов нет (пустой урок) — `stepsState`
+    // останется как был.
+    const steps = await this.prisma.userLessonStep.findMany({
+      where: { userLessonId },
+      select: { id: true },
+    });
+
     // Проверяем, был ли урок уже завершён ДО апдейта — чтобы решить,
     // инкрементить ли counter курса.
     const before = await this.prisma.userLessonPlayProgress.findUnique({
       where: { userId_userLessonId: { userId, userLessonId } },
-      select: { completedAt: true },
+      select: { completedAt: true, stepsState: true },
     });
     const wasAlreadyCompleted = before?.completedAt != null;
+
+    // Финальный snapshot: пользовательские failed/skipped не
+    // перетираем (если ученик пометил шаг failed и всё-таки нажал
+    // «Завершить» — UI решил, что в среднем порог пройден; снимать
+    // факт failed не наше дело). Pending-шаги становятся done.
+    const prev = normalizeStepsState(before?.stepsState);
+    const finalStepsState: Record<string, LessonStepState> = { ...prev };
+    for (const s of steps) {
+      const cur = finalStepsState[s.id];
+      if (cur !== 'failed' && cur !== 'skipped') {
+        finalStepsState[s.id] = 'done';
+      }
+    }
 
     const row = await this.prisma.userLessonPlayProgress.upsert({
       where: { userId_userLessonId: { userId, userLessonId } },
       update: {
         completedStepsCount: totalSteps,
         totalSteps,
+        stepsState: finalStepsState,
         completedAt: now,
         lastActivityAt: now,
       },
@@ -156,6 +207,7 @@ export class UserProgressService {
         userLessonId,
         completedStepsCount: totalSteps,
         totalSteps,
+        stepsState: finalStepsState,
         completedAt: now,
         lastActivityAt: now,
       },
