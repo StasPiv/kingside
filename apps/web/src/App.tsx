@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
 import { FeaturesPage } from './pages/FeaturesPage';
+import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
@@ -136,6 +137,8 @@ export function App() {
       <Route element={<MainLayout />}>
         <Route index element={<HomePage />} />
         <Route path="/features" element={<FeaturesPage />} />
+        {/* KS-1895: публичная документация — без ProtectedRoute */}
+        <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
