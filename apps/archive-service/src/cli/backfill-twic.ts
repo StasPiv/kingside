@@ -58,10 +58,10 @@ import {
   type ArchiveSourceRow,
   type ImportResult,
 } from '../archive-import/sources/twic.importer';
+import { acquireLock } from '../archive-import/archive-import-lock';
 
 const PROGRESS_TAG = '[cli:backfill-twic]';
 const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
-const LOCK_TTL_SEC = 30 * 60;
 
 /** Per-issue lock — scheduler-lock `archive:import:lock:twic` НЕ трогаем. */
 export function lockKeyFor(issue: number): string {
@@ -127,9 +127,17 @@ export function parseArgs(
 
 export interface BackfillTwicDeps {
   prisma: Pick<PrismaClient, 'archiveSource' | 'archiveImport'>;
-  redis: Pick<Redis, 'set' | 'del' | 'publish'>;
+  // KS-1898: добавлены `eval` (Lua release/extend) и `get` (для symmetry
+  // с lock-helper'ом). `del` оставлен — публичная поверхность ioredis,
+  // не убираем.
+  redis: Pick<Redis, 'set' | 'del' | 'publish' | 'get' | 'eval'>;
   makeImporter: (source: ArchiveSourceRow) => Pick<TwicImporter, 'runAdHoc'>;
   logger: Pick<Logger, 'log' | 'warn' | 'error'>;
+  /** KS-1898: подмена heartbeat-таймеров (только для тестов). */
+  lockHeartbeatOpts?: {
+    setInterval?: (cb: () => void, ms: number) => unknown;
+    clearInterval?: (h: unknown) => void;
+  };
 }
 
 export interface BackfillTwicOutcome {
@@ -190,10 +198,19 @@ export async function runBackfillTwic(
   }
 
   const lockKey = lockKeyFor(args.issue);
-  const acquired = await redis
-    .set(lockKey, `${process.pid}:${Date.now()}:backfill`, 'EX', LOCK_TTL_SEC, 'NX')
-    .catch(() => null);
-  if (acquired !== 'OK') {
+  // KS-1898: короткий TTL (60s default) + heartbeat (30s) + UUID-токен
+  // в value + Lua release. После SIGKILL ECS-таска ключ отпускается за
+  // ≤60 сек, а не висит до старого 30-минутного TTL.
+  const lock = await acquireLock({
+    redis,
+    key: lockKey,
+    role: 'backfill',
+    issue: args.issue,
+    logger,
+    setInterval: deps.lockHeartbeatOpts?.setInterval,
+    clearInterval: deps.lockHeartbeatOpts?.clearInterval,
+  });
+  if (!lock) {
     logger.warn(
       `${PROGRESS_TAG} lock "${lockKey}" held — another backfill for issue=${args.issue} is in-flight; ` +
         `try again in a minute`,
@@ -247,9 +264,13 @@ export async function runBackfillTwic(
       lockHeld: false,
     };
   } finally {
-    await redis.del(lockKey).catch(() => {
+    // KS-1898: token-safe release через Lua. Heartbeat останавливается
+    // внутри release(). Если наш TTL истёк и ключ перехвачен — Lua
+    // вернёт 0, DEL не сделает.
+    await lock.release().catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.warn(
-        `${PROGRESS_TAG} failed to release ${lockKey} (will TTL-expire in ${LOCK_TTL_SEC}s)`,
+        `${PROGRESS_TAG} failed to release ${lockKey} (relying on TTL=${lock.ttlMs}ms): ${msg}`,
       );
     });
   }

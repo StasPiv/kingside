@@ -36,11 +36,16 @@ import {
   type ImportResult,
 } from '../archive-import/sources/twic.importer';
 import { acquireLockWithWait } from './lock-acquirer';
+import {
+  attachHeartbeat,
+  buildLockValue,
+  resolveLockTimings,
+} from '../archive-import/archive-import-lock';
+import { randomUUID } from 'node:crypto';
 
 const PROGRESS_TAG = '[cli:import-twic-issue]';
 const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
 const LOCK_KEY = 'archive:import:lock:twic';
-const LOCK_TTL_SEC = 30 * 60;
 /**
  * KS-1896: вместо мгновенного падения CLI ждёт освобождения lock'а до
  * 30 минут (нормальный TWIC-импорт занимает 12-18 минут — scheduled
@@ -98,7 +103,10 @@ export function parseArgs(argv: readonly string[]): ImportTwicIssueArgs {
  */
 export interface ImportTwicIssueDeps {
   prisma: PrismaClient;
-  redis: Pick<Redis, 'set' | 'del' | 'publish' | 'get'>;
+  // KS-1898: добавлен `eval` (Lua release/extend) — `del` больше не
+  // нужен в финале, но оставлен для обратной совместимости тестов
+  // и публичной поверхности `RedisService`.
+  redis: Pick<Redis, 'set' | 'del' | 'publish' | 'get' | 'eval'>;
   makeImporter: (source: ArchiveSourceRow) => Pick<TwicImporter, 'runAdHoc'>;
   logger: Pick<Logger, 'log' | 'warn' | 'error'>;
   /** KS-1896: подмена `now`/`sleep` и параметров timeout'а (только для тестов). */
@@ -107,6 +115,11 @@ export interface ImportTwicIssueDeps {
     pollIntervalMs?: number;
     sleep?: (ms: number) => Promise<void>;
     now?: () => number;
+  };
+  /** KS-1898: подмена heartbeat-таймеров (только для тестов). */
+  lockHeartbeatOpts?: {
+    setInterval?: (cb: () => void, ms: number) => unknown;
+    clearInterval?: (h: unknown) => void;
   };
 }
 
@@ -130,11 +143,16 @@ export async function runImportTwicIssue(
     throw new Error('archive_sources row with code="twic" not found');
   }
 
-  // KS-1896: значение lock'а — `<pid>:<ts>:adhoc:<issue>`. Issue в
-  // value позволяет отличить «другой adhoc запустил тот же issue»
-  // (duplicate-self → падать сразу) от «scheduler/другой issue»
-  // (ждать). Старое значение было `<pid>:<ts>:adhoc` без issue.
-  const lockValue = `${process.pid}:${Date.now()}:adhoc:${args.issue}`;
+  // KS-1898: значение lock'а — `<token>:adhoc:<issue>:<pid>`. Token —
+  // UUID, защищает release/heartbeat от false-release при race
+  // (Lua-скрипт сравнивает целое value). Meta-поля сохраняют
+  // совместимость с KS-1896 duplicate-self detection (matcher
+  // `:adhoc:<issue>:`).
+  const token = randomUUID();
+  const lockValue = buildLockValue(token, 'adhoc', args.issue, process.pid);
+  const { ttlMs: lockTtlMs, heartbeatMs: lockHeartbeatMs } = resolveLockTimings(
+    {},
+  );
 
   // ARCHIVE_IMPORTER_LOCK_NO_WAIT=1 → старое поведение «упасть сразу».
   // Полезно для отладки и `cli-bootstrap` smoke-тестов в CI.
@@ -143,34 +161,36 @@ export async function runImportTwicIssue(
   const waitTimeoutMs = noWait ? 0 : (deps.lockWaitOpts?.waitTimeoutMs ?? LOCK_WAIT_TIMEOUT_MS);
   const pollIntervalMs = deps.lockWaitOpts?.pollIntervalMs ?? LOCK_POLL_INTERVAL_MS;
 
-  const lock = await acquireLockWithWait({
+  const wait = await acquireLockWithWait({
     redis,
     lockKey: LOCK_KEY,
     lockValue,
-    lockTtlSec: LOCK_TTL_SEC,
+    // KS-1898: TTL передаём в секундах — `acquireLockWithWait` использует
+    // `EX <sec>`. Точность округлим до секунды (clamp до 1).
+    lockTtlSec: Math.max(1, Math.floor(lockTtlMs / 1000)),
     waitTimeoutMs,
     pollIntervalMs,
     isDuplicateSelf: (holder) =>
-      holder !== null && holder.endsWith(`:adhoc:${args.issue}`),
+      // KS-1896 + KS-1898: holder теперь `<token>:adhoc:<issue>:<pid>`.
+      // Проверяем, что role=adhoc и issue совпадает (без зависимости
+      // от token/pid).
+      holder !== null && holder.includes(`:adhoc:${args.issue}:`),
     logger,
     now: deps.lockWaitOpts?.now,
     sleep: deps.lockWaitOpts?.sleep,
   });
 
-  if (!lock.acquired) {
-    if (lock.reason === 'duplicate-self') {
-      // Двойной запуск adhoc на тот же issue — пользовательская ошибка,
-      // эскалировать. Прежний lock из-за ошибки оператора всё равно
-      // отрабатывает в первом процессе.
+  if (!wait.acquired) {
+    if (wait.reason === 'duplicate-self') {
       throw new Error(
         `lock "${LOCK_KEY}" already held by another adhoc CLI for the same issue ${args.issue} ` +
-          `(holder=${lock.heldBy ?? 'unknown'}); refusing to wait — looks like a duplicate run`,
+          `(holder=${wait.heldBy ?? 'unknown'}); refusing to wait — looks like a duplicate run`,
       );
     }
-    if (lock.reason === 'timeout') {
+    if (wait.reason === 'timeout') {
       throw new LockTimeoutError(
-        `lock "${LOCK_KEY}" still held after ${Math.floor(lock.waitedMs / 1000)}s ` +
-          `(${lock.attempts} attempts, last holder=${lock.heldBy ?? 'unknown'}); aborting`,
+        `lock "${LOCK_KEY}" still held after ${Math.floor(wait.waitedMs / 1000)}s ` +
+          `(${wait.attempts} attempts, last holder=${wait.heldBy ?? 'unknown'}); aborting`,
       );
     }
     // 'no-wait-disabled' → старое сообщение, чтобы существующие
@@ -180,12 +200,27 @@ export async function runImportTwicIssue(
         `try again in a minute (set ARCHIVE_IMPORTER_LOCK_NO_WAIT=0 or unset to enable wait)`,
     );
   }
-  if (lock.waitedMs > 0) {
+  if (wait.waitedMs > 0) {
     logger.log(
-      `${PROGRESS_TAG} acquired lock "${LOCK_KEY}" after ${Math.floor(lock.waitedMs / 1000)}s ` +
-        `(${lock.attempts} attempt${lock.attempts === 1 ? '' : 's'})`,
+      `${PROGRESS_TAG} acquired lock "${LOCK_KEY}" after ${Math.floor(wait.waitedMs / 1000)}s ` +
+        `(${wait.attempts} attempt${wait.attempts === 1 ? '' : 's'})`,
     );
   }
+
+  // KS-1898: SET уже сделал acquireLockWithWait. Привязываем heartbeat
+  // (PEXPIRE через Lua) + token-safe release к этому value. После
+  // SIGKILL Redis сам выпустит ключ через ≤ttlMs (без cleanup).
+  const lock = attachHeartbeat({
+    redis,
+    key: LOCK_KEY,
+    token,
+    value: lockValue,
+    ttlMs: lockTtlMs,
+    heartbeatMs: lockHeartbeatMs,
+    logger,
+    setInterval: deps.lockHeartbeatOpts?.setInterval,
+    clearInterval: deps.lockHeartbeatOpts?.clearInterval,
+  });
 
   try {
     const importer = makeImporter({
@@ -223,8 +258,14 @@ export async function runImportTwicIssue(
 
     return result;
   } finally {
-    await redis.del(LOCK_KEY).catch(() => {
-      logger.warn(`${PROGRESS_TAG} failed to release ${LOCK_KEY} (will TTL-expire in ${LOCK_TTL_SEC}s)`);
+    // KS-1898: token-safe release. Если наш TTL истёк и ключ
+    // перехвачен другим процессом, Lua вернёт 0 и DEL не сделает —
+    // не сорвём чужой импорт. Heartbeat останавливается внутри release().
+    await lock.release().catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.warn(
+        `${PROGRESS_TAG} failed to release ${LOCK_KEY} (relying on TTL=${lockTtlMs}ms): ${msg}`,
+      );
     });
   }
 }

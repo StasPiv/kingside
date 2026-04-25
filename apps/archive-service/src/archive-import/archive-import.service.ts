@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { acquireLock } from './archive-import-lock';
 import { ArchivePositionWriterService } from './archive-position-writer.service';
 import { PositionIndexerService } from './position-indexer.service';
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
@@ -93,7 +94,6 @@ export const TICK_ONCE_TIMEOUT_MS = 8 * 60 * 1000;
  */
 
 const TICK_INTERVAL_MS = 60_000;
-const LOCK_TTL_SEC = 30 * 60;
 const LOCK_KEY_PREFIX = 'archive:import:lock';
 
 type SourceKind = 'twic';
@@ -320,10 +320,16 @@ export class ArchiveImportService implements OnModuleInit {
     error?: string;
   }> {
     const lockKey = `${LOCK_KEY_PREFIX}:${source.code}`;
-    const acquired = await this.redis
-      .set(lockKey, `${process.pid}:${Date.now()}`, 'EX', LOCK_TTL_SEC, 'NX')
-      .catch(() => null);
-    if (acquired !== 'OK') {
+    // KS-1898: короткий TTL (60s) + heartbeat (30s) вместо длинного
+    // TTL и надежды на cleanup. После SIGKILL в ECS ключ освобождается
+    // за ≤60 сек, а не висит до старого 30-минутного TTL.
+    const lock = await acquireLock({
+      redis: this.redis,
+      key: lockKey,
+      role: 'scheduler',
+      logger: this.logger,
+    });
+    if (!lock) {
       this.logger.log(`${source.code}: lock held, skipping`);
       return { result: null, lockHeld: true };
     }
@@ -369,7 +375,10 @@ export class ArchiveImportService implements OnModuleInit {
         })
         .catch(() => {});
     } finally {
-      await this.redis.del(lockKey).catch(() => {});
+      // KS-1898: release через Lua с проверкой токена — если ключ
+      // уже перехватили (наш TTL истёк, кто-то взял), DEL не сделаем.
+      // Heartbeat останавливается внутри release().
+      await lock.release().catch(() => {});
     }
     return { result: capturedResult, lockHeld: false, error: capturedError };
   }

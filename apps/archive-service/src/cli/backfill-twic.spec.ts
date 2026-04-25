@@ -119,9 +119,12 @@ function makeDeps(
     runAdHoc: jest.Mock;
     publish: jest.Mock;
     set: jest.Mock;
+    eval: jest.Mock;
     del: jest.Mock;
     sourceFindFirst: jest.Mock;
     importFindFirst: jest.Mock;
+    setInterval: jest.Mock;
+    clearInterval: jest.Mock;
   };
 } {
   const source =
@@ -145,22 +148,43 @@ function makeDeps(
   const set = jest
     .fn()
     .mockResolvedValue(overrides.lockAcquired === false ? null : 'OK');
+  // KS-1898: Lua release/extend; 1 = lock был наш и удалён.
+  const eval_ = jest.fn().mockResolvedValue(1);
+  const get = jest.fn().mockResolvedValue(null);
   const del = jest.fn().mockResolvedValue(1);
   const sourceFindFirst = jest.fn().mockResolvedValue(source);
   const importFindFirst = jest.fn().mockResolvedValue(existingImport);
+  // KS-1898: fake heartbeat timers — interval не запустится в реальном
+  // event loop'е, но handle создаётся, чтобы release мог его «остановить».
+  const setIntervalFn = jest.fn(() => 1);
+  const clearIntervalFn = jest.fn();
 
   const deps: BackfillTwicDeps = {
     prisma: {
       archiveSource: { findFirst: sourceFindFirst },
       archiveImport: { findFirst: importFindFirst },
     } as never,
-    redis: { set, del, publish } as never,
+    redis: { set, get, del, publish, eval: eval_ } as never,
     makeImporter: () => ({ runAdHoc }) as never,
     logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
+    lockHeartbeatOpts: {
+      setInterval: setIntervalFn,
+      clearInterval: clearIntervalFn,
+    },
   };
   return {
     deps,
-    spies: { runAdHoc, publish, set, del, sourceFindFirst, importFindFirst },
+    spies: {
+      runAdHoc,
+      publish,
+      set,
+      eval: eval_,
+      del,
+      sourceFindFirst,
+      importFindFirst,
+      setInterval: setIntervalFn,
+      clearInterval: clearIntervalFn,
+    },
   };
 }
 
@@ -179,17 +203,26 @@ describe('runBackfillTwic — happy path', () => {
     expect(outcome.lockHeld).toBe(false);
 
     // Per-issue lock, не scheduler-lock.
+    // KS-1898: lock-value формат `<uuid>:backfill:<issue>:<pid>`,
+    // TTL 60s через PX (короткий, для быстрого SIGKILL-cleanup).
     expect(spies.set).toHaveBeenCalledWith(
       'archive:import:lock:twic:backfill:1638',
-      expect.stringMatching(/^\d+:\d+:backfill$/),
-      'EX',
-      30 * 60,
+      expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:backfill:1638:\d+$/,
+      ),
+      'PX',
+      60_000,
       'NX',
     );
     expect(spies.runAdHoc).toHaveBeenCalledWith(1638);
     expect(spies.publish).toHaveBeenCalledWith('archive:imported', 'twic:1638');
-    expect(spies.del).toHaveBeenCalledWith(
+    // KS-1898: release через Lua (EVAL), не DEL.
+    expect(spies.del).not.toHaveBeenCalled();
+    expect(spies.eval).toHaveBeenCalledWith(
+      expect.stringContaining('redis.call("DEL"'),
+      1,
       'archive:import:lock:twic:backfill:1638',
+      expect.stringMatching(/:backfill:1638:\d+$/),
     );
   });
 
@@ -213,9 +246,9 @@ describe('runBackfillTwic — happy path', () => {
 
     expect(outcome.result?.gamesAdded).toBe(0);
     expect(spies.publish).not.toHaveBeenCalled();
-    expect(spies.del).toHaveBeenCalledWith(
-      'archive:import:lock:twic:backfill:1638',
-    );
+    // KS-1898: release через EVAL, не DEL.
+    expect(spies.del).not.toHaveBeenCalled();
+    expect(spies.eval).toHaveBeenCalled();
   });
 });
 
@@ -298,7 +331,9 @@ describe('runBackfillTwic — Redis-lock', () => {
     expect(outcome.result).toBeNull();
     expect(spies.runAdHoc).not.toHaveBeenCalled();
     expect(spies.publish).not.toHaveBeenCalled();
-    // del не вызываем — лок держит другой процесс.
+    // KS-1898: release не вызываем — лок держит другой процесс,
+    // мы вообще ничего в Redis не писали.
+    expect(spies.eval).not.toHaveBeenCalled();
     expect(spies.del).not.toHaveBeenCalled();
   });
 
@@ -310,8 +345,12 @@ describe('runBackfillTwic — Redis-lock', () => {
       runBackfillTwic(deps, { issue: 1638, force: false }),
     ).rejects.toThrow(/boom/);
 
-    expect(spies.del).toHaveBeenCalledWith(
+    // KS-1898: release через EVAL.
+    expect(spies.eval).toHaveBeenCalledWith(
+      expect.stringContaining('redis.call("DEL"'),
+      1,
       'archive:import:lock:twic:backfill:1638',
+      expect.anything(),
     );
   });
 
@@ -322,20 +361,39 @@ describe('runBackfillTwic — Redis-lock', () => {
     await runBackfillTwic(a.deps, { issue: 1638, force: false });
     await runBackfillTwic(b.deps, { issue: 1639, force: false });
 
+    // KS-1898: SET с PX 60_000 (короткий TTL).
     expect(a.spies.set).toHaveBeenCalledWith(
       'archive:import:lock:twic:backfill:1638',
       expect.anything(),
-      'EX',
-      30 * 60,
+      'PX',
+      60_000,
       'NX',
     );
     expect(b.spies.set).toHaveBeenCalledWith(
       'archive:import:lock:twic:backfill:1639',
       expect.anything(),
-      'EX',
-      30 * 60,
+      'PX',
+      60_000,
       'NX',
     );
+  });
+
+  // KS-1898: heartbeat запускается на acquire и останавливается на release.
+  it('heartbeat: setInterval вызван 1×, clearInterval вызван 1× (release)', async () => {
+    const { deps, spies } = makeDeps();
+    await runBackfillTwic(deps, { issue: 1638, force: false });
+    expect(spies.setInterval).toHaveBeenCalledTimes(1);
+    expect(spies.setInterval).toHaveBeenCalledWith(expect.any(Function), 30_000);
+    expect(spies.clearInterval).toHaveBeenCalledTimes(1);
+  });
+
+  // KS-1898: token-safe release. Если перехватили — release возвращает
+  // false, импорт всё равно успешный, ошибка не пробрасывается.
+  it('release при перехвате (eval=0) → не падает, импорт успешен', async () => {
+    const { deps, spies } = makeDeps();
+    spies.eval.mockResolvedValueOnce(0);
+    const outcome = await runBackfillTwic(deps, { issue: 1638, force: false });
+    expect(outcome.result?.status).toBe('ok');
   });
 });
 
