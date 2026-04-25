@@ -1533,6 +1533,13 @@
       "lessonsCount_few": "{{count}} урока",
       "lessonsCount_many": "{{count}} уроков",
       "lessonsCount_other": "{{count}} уроков",
+      "stats": {
+        "title": "Статистика",
+        "enrolledLabel": "Записано",
+        "completedLabel": "Прошли",
+        "inProgressLabel": "В процессе",
+        "compact": "{{enrolled}} записано · {{completed}} прошли"
+      },
       "updatedAt": "Обновлён {{date}}",
       "author": "Автор: {{name}}",
       "authorYou": "Автор: вы",

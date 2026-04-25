@@ -2498,6 +2498,68 @@
   opacity: 0.85;
 }
 
+/* KS-1886: блок Statistics на странице курса для owner'а. */
+.user-course-page__stats {
+  padding: 12px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.user-course-page__stats-title {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.user-course-page__stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.user-course-page__stats-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.user-course-page__stats-item dt {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.user-course-page__stats-item dd {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.user-course-page__stats-percent {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Компактный счётчик в карточке курса (MyCoursesBlock). */
+.my-courses-block__card-stats {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 /* Owner actions — выделены отдельным блоком (карточка с рамкой) */
 .user-course-page__owner-actions {
   display: flex;

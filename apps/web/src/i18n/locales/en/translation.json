@@ -1513,6 +1513,13 @@
       "progressPercent": "Completed {{percent}}%",
       "lessonsCount_one": "{{count}} lesson",
       "lessonsCount_other": "{{count}} lessons",
+      "stats": {
+        "title": "Statistics",
+        "enrolledLabel": "Enrolled",
+        "completedLabel": "Completed",
+        "inProgressLabel": "In progress",
+        "compact": "{{enrolled}} enrolled · {{completed}} completed"
+      },
       "updatedAt": "Updated {{date}}",
       "author": "Author: {{name}}",
       "authorYou": "Author: you",

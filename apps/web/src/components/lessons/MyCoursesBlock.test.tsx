@@ -218,6 +218,33 @@ describe('<MyCoursesBlock>', () => {
     expect(screen.queryByTestId('my-courses-completed-c1')).not.toBeInTheDocument();
   });
 
+  /**
+   * KS-1886: компактный счётчик `stats` в карточке курса. BE
+   * отдаёт `stats` на UserCourseDto только владельцу. FE рендерит
+   * его без дополнительной проверки isOwner — серверная фильтрация
+   * достаточна.
+   */
+  it('KS-1886 — карточка показывает компактный счётчик при наличии stats', async () => {
+    apiMock.list.mockResolvedValue({
+      data: [
+        mkCourse({
+          id: 'c1',
+          stats: { enrolledCount: 5, completedCount: 2, inProgressCount: 3 },
+        }),
+        mkCourse({ id: 'c2' }), // без stats — счётчика быть не должно
+      ],
+    });
+    renderWithRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('my-courses-grid')).toBeInTheDocument(),
+    );
+    const stats = screen.getByTestId('my-courses-stats-c1');
+    expect(stats).toBeInTheDocument();
+    expect(stats.textContent).toContain('5');
+    expect(stats.textContent).toContain('2');
+    expect(screen.queryByTestId('my-courses-stats-c2')).not.toBeInTheDocument();
+  });
+
   it('KS-1882 — провал getCourseProgress не ломает карточку', async () => {
     apiMock.list.mockResolvedValue({ data: [mkCourse({ id: 'c1' })] });
     apiMock.getCourseProgress.mockRejectedValue(new Error('boom'));

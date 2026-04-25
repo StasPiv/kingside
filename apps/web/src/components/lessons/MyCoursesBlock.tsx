@@ -214,6 +214,21 @@ export function MyCoursesBlock() {
                         defaultValue: '{{count}} lessons',
                       })}
                     </span>
+                    {/* KS-1886: компактный счётчик прохождений —
+                        BE отдаёт `stats` только владельцу. */}
+                    {c.stats && (
+                      <span
+                        className="my-courses-block__card-stats"
+                        data-testid={`my-courses-stats-${c.id}`}
+                      >
+                        {t('lessons.my.stats.compact', {
+                          enrolled: c.stats.enrolledCount,
+                          completed: c.stats.completedCount,
+                          defaultValue:
+                            '{{enrolled}} enrolled · {{completed}} completed',
+                        })}
+                      </span>
+                    )}
                   </footer>
                 </Link>
               </li>

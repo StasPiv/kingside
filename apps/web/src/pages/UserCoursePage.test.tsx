@@ -212,6 +212,78 @@ describe('<UserCoursePage>', () => {
     ).not.toBeInTheDocument();
   });
 
+  /**
+   * KS-1886: блок Statistics — виден только владельцу при наличии
+   * `course.stats` (BE отдаёт его только owner'у). Не-owner и
+   * `stats === undefined` → блок скрыт.
+   */
+  it('KS-1886 — owner видит блок Statistics со счётчиками', async () => {
+    mockBySlug({
+      course: mkCourse({
+        ownerId: 'user-1',
+        stats: { enrolledCount: 5, completedCount: 2, inProgressCount: 3 },
+      }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-page')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('user-course-stats')).toBeInTheDocument();
+    expect(screen.getByTestId('user-course-stats-enrolled').textContent).toContain('5');
+    // 2/5 = 40%
+    expect(screen.getByTestId('user-course-stats-completed').textContent).toContain('2');
+    expect(screen.getByTestId('user-course-stats-completed').textContent).toContain('40');
+    expect(screen.getByTestId('user-course-stats-in-progress').textContent).toContain('3');
+  });
+
+  it('KS-1886 — student (не-owner) → блок Statistics скрыт', async () => {
+    authMock.current = { id: 'student-1', username: 'st', email: 's@x' };
+    mockBySlug({
+      course: mkCourse({ ownerId: 'user-1', isPublic: true }),
+      // stats не приходит для не-owner'а
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-page')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('user-course-stats')).not.toBeInTheDocument();
+  });
+
+  it("KS-1886 — stats отсутствует у owner'а → блок скрыт", async () => {
+    mockBySlug({
+      course: mkCourse({ ownerId: 'user-1' }), // без stats
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-page')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('user-course-stats')).not.toBeInTheDocument();
+  });
+
+  it('KS-1886 — enrolledCount = 0 → percent скрыт (защита от деления на 0)', async () => {
+    mockBySlug({
+      course: mkCourse({
+        ownerId: 'user-1',
+        stats: { enrolledCount: 0, completedCount: 0, inProgressCount: 0 },
+      }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-course-page')).toBeInTheDocument(),
+    );
+    const completed = screen.getByTestId('user-course-stats-completed');
+    expect(completed.textContent).toContain('0');
+    expect(completed.textContent).not.toContain('%');
+  });
+
   it('lessons сортируются по order', async () => {
     mockBySlug({
       course: mkCourse(),

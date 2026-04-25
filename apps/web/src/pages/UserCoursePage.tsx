@@ -161,6 +161,52 @@ export function UserCoursePage() {
         )}
       </header>
 
+      {/* KS-1886: блок Statistics — виден только владельцу. BE
+          отдаёт `course.stats` исключительно owner'у; дополнительно
+          проверяем `isOwner` чтобы не показывать при гонке кеша. */}
+      {isOwner && course.stats && (
+        <section
+          className="user-course-page__stats"
+          data-testid="user-course-stats"
+          aria-label={t('lessons.my.stats.title', 'Statistics')}
+        >
+          <h3 className="user-course-page__stats-title">
+            {t('lessons.my.stats.title', 'Statistics')}
+          </h3>
+          <dl className="user-course-page__stats-grid">
+            <div className="user-course-page__stats-item">
+              <dt>{t('lessons.my.stats.enrolledLabel', 'Enrolled')}</dt>
+              <dd data-testid="user-course-stats-enrolled">
+                {course.stats.enrolledCount}
+              </dd>
+            </div>
+            <div className="user-course-page__stats-item">
+              <dt>{t('lessons.my.stats.completedLabel', 'Completed')}</dt>
+              <dd data-testid="user-course-stats-completed">
+                {course.stats.completedCount}
+                {course.stats.enrolledCount > 0 && (
+                  <span className="user-course-page__stats-percent">
+                    {' '}
+                    ({Math.round(
+                      (course.stats.completedCount /
+                        course.stats.enrolledCount) *
+                        100,
+                    )}
+                    %)
+                  </span>
+                )}
+              </dd>
+            </div>
+            <div className="user-course-page__stats-item">
+              <dt>{t('lessons.my.stats.inProgressLabel', 'In progress')}</dt>
+              <dd data-testid="user-course-stats-in-progress">
+                {course.stats.inProgressCount}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
       {isOwner && (
         <OwnerActions
           course={course}
