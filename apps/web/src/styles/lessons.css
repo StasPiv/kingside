@@ -2027,6 +2027,62 @@
   cursor: not-allowed;
 }
 
+/* KS-1892: empty-state для урока без шагов. Дружелюбный блок с
+   подсказкой и кнопкой возврата к курсу — чтобы пустая страница
+   не выглядела как баг. */
+.user-lesson-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  margin: 24px 0;
+  background: var(--bg-card);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 10px;
+  text-align: center;
+}
+
+.user-lesson-empty__icon {
+  font-size: 48px;
+  line-height: 1;
+}
+
+.user-lesson-empty__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.user-lesson-empty__body {
+  margin: 0;
+  max-width: 480px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.user-lesson-empty__back {
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: var(--accent-contrast, #fff);
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--accent-primary);
+}
+
+.user-lesson-empty__back:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
 /* KS-1891: визуальный признак "уже пройдено" на кнопке «Далее» в
    TextStep при повторном открытии завершённого урока. Сохраняем
    кликабельность (markStep идемпотентен), но визуально пассивный. */

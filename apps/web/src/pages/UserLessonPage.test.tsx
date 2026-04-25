@@ -211,6 +211,63 @@ describe('<UserLessonPage>', () => {
     );
   });
 
+  /**
+   * KS-1892: empty-state для урока без шагов. Студент мог открыть
+   * только что добавленный автором урок, у которого ещё нет шагов.
+   * Показываем дружелюбный блок и скрываем кнопку «Complete».
+   */
+  it('KS-1892 — урок без шагов → empty-state + ссылка на курс, без кнопки Complete', async () => {
+    mockCourse({
+      course: mkCourse({ slug: 'my-course' }),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1', title: 'Empty lesson' }),
+      steps: [],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('user-lesson-no-steps')).toBeInTheDocument();
+    const back = screen.getByTestId('user-lesson-empty-back');
+    expect(back).toBeInTheDocument();
+    expect(back.getAttribute('href')).toBe('/lessons/my/my-course');
+    // Кнопка завершения и прогресс-индикатор скрыты для пустого урока.
+    expect(
+      screen.queryByTestId('user-lesson-complete-btn'),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('user-lesson-progress'),
+    ).not.toBeInTheDocument();
+    // Шаги не рендерятся, очевидно.
+    expect(
+      screen.queryByTestId('user-lesson-step-list'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('KS-1892 — регрессия: непустой урок рендерит шаги и кнопку Complete как раньше', async () => {
+    mockCourse({
+      course: mkCourse(),
+      lessons: [mkLesson({ id: 'l1' })],
+      progress: null,
+    });
+    mockLesson({
+      lesson: mkLesson({ id: 'l1' }),
+      steps: [mkStep({ id: 's1' })],
+      progress: null,
+    });
+    renderRouter({ initialPath: '/lessons/my/my-course/l1' });
+    await waitFor(() =>
+      expect(screen.getByTestId('user-lesson-page')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('user-lesson-no-steps')).not.toBeInTheDocument();
+    expect(screen.getByTestId('user-lesson-complete-btn')).toBeInTheDocument();
+    expect(screen.getByTestId('user-lesson-progress')).toBeInTheDocument();
+  });
+
   it('Complete < threshold → disabled button + сообщение о пороге', async () => {
     mockCourse({
       course: mkCourse({ lessonCount: 1 }),

@@ -233,22 +233,54 @@ export function UserLessonPage() {
 
       <header className="user-lesson-page__header">
         <h1 data-testid="user-lesson-title">{lesson.title}</h1>
-        <div className="user-lesson-page__progress" data-testid="user-lesson-progress">
-          {t('lessons.progressFull', {
-            completed: progress.doneCount,
-            total: progress.totalSteps,
-            percent: donePercent,
-            defaultValue: '{{completed}}/{{total}} ({{percent}}%)',
-          })}
-        </div>
+        {steps.length > 0 && (
+          <div
+            className="user-lesson-page__progress"
+            data-testid="user-lesson-progress"
+          >
+            {t('lessons.progressFull', {
+              completed: progress.doneCount,
+              total: progress.totalSteps,
+              percent: donePercent,
+              defaultValue: '{{completed}}/{{total}} ({{percent}}%)',
+            })}
+          </div>
+        )}
       </header>
 
       {steps.length === 0 ? (
+        // KS-1892: empty-state для урока без шагов. Студент мог
+        // открыть только что добавленный автором урок, у которого
+        // ещё нет шагов. Показываем дружелюбный блок с подсказкой
+        // и кнопкой возврата к курсу — чтобы пустая лента не
+        // выглядела как баг.
         <div
-          className="lessons-empty"
+          className="user-lesson-empty"
           data-testid="user-lesson-no-steps"
+          role="status"
         >
-          {t('lessons.noSteps', 'No steps in this lesson yet')}
+          <div
+            className="user-lesson-empty__icon"
+            aria-hidden="true"
+          >
+            📭
+          </div>
+          <h2 className="user-lesson-empty__title">
+            {t('lessons.emptyLesson.title', 'This lesson has no steps yet')}
+          </h2>
+          <p className="user-lesson-empty__body">
+            {t(
+              'lessons.emptyLesson.body',
+              "The author hasn't added any steps yet. Check back later.",
+            )}
+          </p>
+          <Link
+            to={`/lessons/my/${courseSlug}`}
+            className="user-lesson-empty__back"
+            data-testid="user-lesson-empty-back"
+          >
+            {t('lessons.emptyLesson.back', 'Back to course')}
+          </Link>
         </div>
       ) : (
         <ol className="lesson-step-list" data-testid="user-lesson-step-list">
@@ -280,6 +312,10 @@ export function UserLessonPage() {
         </ol>
       )}
 
+      {/* KS-1892: для пустого урока (без шагов) кнопку «Complete»
+          не показываем — нечего завершать. Возврат — через
+          empty-state выше. */}
+      {steps.length > 0 && (
       <footer className="lesson-footer">
         <button
           type="button"
@@ -315,6 +351,7 @@ export function UserLessonPage() {
           </p>
         )}
       </footer>
+      )}
     </div>
   );
 }

@@ -1199,6 +1199,11 @@
     "stepUnknown": "Unknown step type",
     "next": "Next",
     "stepDone": "Done ✓",
+    "emptyLesson": {
+      "title": "This lesson has no steps yet",
+      "body": "The author hasn't added any steps yet. Check back later.",
+      "back": "Back to course"
+    },
     "skip": "Skip",
     "videoContinue": "Continue",
     "videoInvalid": "This video link is not supported (only YouTube and Vimeo are allowed)",
