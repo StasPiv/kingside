@@ -117,6 +117,46 @@ export interface UserEnrolledCoursesListResponse {
   data: UserEnrolledCourseDto[];
 }
 
+/**
+ * Автор пользовательских курсов на витрине лобби `/lessons` и в табе
+ * Authors на `/players` (ADR-030 / KS-1918).
+ *
+ * Считается агрегатом по `UserCourse where isPublic=true`, group by
+ * `ownerId`. Все поля — деривативные, отдельной таблицы «author» в БД
+ * нет.
+ */
+export interface CourseAuthorDto {
+  user: {
+    id: string;
+    username: string;
+    /** Опционально — добавится, когда поле появится в `User`-схеме. */
+    displayName?: string | null;
+    /** Опционально — то же. */
+    avatarUrl?: string | null;
+  };
+  /** Сколько публичных курсов у автора. */
+  publicCoursesCount: number;
+  /** ISO-8601 от MAX(updatedAt) последнего публичного курса автора. */
+  lastCourseUpdatedAt: string;
+  /** Slug последнего обновлённого публичного курса (для прямой ссылки). */
+  latestCourseSlug: string;
+  /** Title последнего обновлённого публичного курса (teaser). */
+  latestCourseTitle: string;
+}
+
+/**
+ * GET /api/lessons/user-courses/authors — список авторов с агрегатом.
+ * Публичный (без JWT). Sort/limit/offset параметризуются query.
+ */
+export interface CourseAuthorListResponse {
+  data: CourseAuthorDto[];
+  /**
+   * Всего авторов с публичными курсами (для UI «Showing N of M»).
+   * Не равно `data.length` при пагинации.
+   */
+  total: number;
+}
+
 /** GET /api/lessons/user-courses/:slug — курс + список уроков (короткий). */
 export interface UserCourseWithLessonsResponse {
   course: UserCourseDto;

@@ -14,6 +14,7 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import {
   CreateUserCourseDto,
+  ListUserCoursesQueryDto,
   UpdateUserCourseDto,
 } from './dto/user-course.dto';
 import {
@@ -47,20 +48,30 @@ export class UserCoursesController {
   constructor(private readonly service: UserCoursesService) {}
 
   /**
-   * GET /lessons/user-courses?mine=1/0
+   * GET /lessons/user-courses?mine=1/0&limit=N&offset=M
    *
    * `mine=1` (default) — список своих курсов; `mine=0` — список
-   * публичных (в MVP — без фильтров/каталога, ADR §2.6). Ответ —
+   * публичных. KS-1918: добавлены `limit` (1..50, default 50) и
+   * `offset` (0..1000, default 0) для ленты публичных курсов на лобби
+   * `/lessons` (ADR-030 §2.1) и для будущего `/lessons/community`.
+   * Sort `updatedAt DESC` — без изменений. Ответ —
    * `UserCourseListResponse`.
    */
   @Get()
   list(
     @Request() req: AuthenticatedRequest,
-    @Query('mine') mine?: string,
+    @Query() query: ListUserCoursesQueryDto,
   ) {
     // mine по умолчанию true — главная точка входа автора.
-    const minePath = mine === undefined ? true : mine !== '0' && mine !== 'false';
-    return this.service.list(req.user.id, { mine: minePath });
+    const minePath =
+      query.mine === undefined
+        ? true
+        : query.mine !== '0' && query.mine !== 'false';
+    return this.service.list(req.user.id, {
+      mine: minePath,
+      limit: query.limit,
+      offset: query.offset,
+    });
   }
 
   /**

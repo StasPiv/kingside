@@ -5,6 +5,9 @@ describe('UserCoursesService (KS-1829)', () => {
   let service: UserCoursesService;
   let prisma: any;
   let slug: { generateUnique: jest.Mock; validateExplicit: jest.Mock };
+  // KS-1918: CacheService — getOrSet/invalidate. По умолчанию getOrSet
+  // сразу зовёт compute, чтобы существующие кейсы не зависели от кеша.
+  let cache: { getOrSet: jest.Mock; invalidate: jest.Mock };
 
   const OWNER = 'owner-1';
 
@@ -21,6 +24,14 @@ describe('UserCoursesService (KS-1829)', () => {
         update: jest.fn(),
         delete: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
+        // KS-1918: listAuthors делает groupBy + второй findMany по
+        // публичным курсам выбранных ownerId. Default — пустой
+        // массив, конкретные кейсы переопределяют.
+        groupBy: jest.fn().mockResolvedValue([]),
+      },
+      user: {
+        // KS-1918: метаданные авторов (id, username) для DTO.
+        findMany: jest.fn().mockResolvedValue([]),
       },
       userLesson: {
         findFirst: jest.fn(),
@@ -45,7 +56,11 @@ describe('UserCoursesService (KS-1829)', () => {
         }),
       ),
     };
-    service = new UserCoursesService(prisma, slug as any);
+    cache = {
+      getOrSet: jest.fn().mockImplementation(async (_k, _t, fn) => fn()),
+      invalidate: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new UserCoursesService(prisma, slug as any, cache as any);
   });
 
   // ─── list ──────────────────────────────────────────────────────────
@@ -83,6 +98,42 @@ describe('UserCoursesService (KS-1829)', () => {
       ]);
       const r = await service.list(OWNER, { mine: true });
       expect(r.data[0].lessonCount).toBe(3);
+    });
+
+    // ─── KS-1918: limit/offset на ?mine=0 (лента публичных) ─────
+    describe('limit/offset (KS-1918)', () => {
+      it('default — take=50, skip=0 (старое поведение, без query)', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([]);
+        await service.list(OWNER, { mine: false });
+        const call = prisma.userCourse.findMany.mock.calls[0][0];
+        expect(call.take).toBe(50);
+        expect(call.skip).toBe(0);
+      });
+
+      it('limit=5, offset=10 — переданы в Prisma как take/skip', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([]);
+        await service.list(OWNER, { mine: false, limit: 5, offset: 10 });
+        const call = prisma.userCourse.findMany.mock.calls[0][0];
+        expect(call.take).toBe(5);
+        expect(call.skip).toBe(10);
+        // Sort и where не сломались.
+        expect(call.where).toEqual({ isPublic: true });
+        expect(call.orderBy).toEqual({ updatedAt: 'desc' });
+      });
+
+      it('clamp: limit=0 → 1; limit=999 → 50; offset=-5 → 0; offset=99999 → 1000', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([]);
+        await service.list(OWNER, { mine: false, limit: 0, offset: -5 });
+        let call = prisma.userCourse.findMany.mock.calls[0][0];
+        expect(call.take).toBe(1);
+        expect(call.skip).toBe(0);
+
+        prisma.userCourse.findMany.mockClear();
+        await service.list(OWNER, { mine: false, limit: 999, offset: 99999 });
+        call = prisma.userCourse.findMany.mock.calls[0][0];
+        expect(call.take).toBe(50);
+        expect(call.skip).toBe(1000);
+      });
     });
 
     // ─── KS-1885: stats в списке ────────────────────────────────
@@ -468,6 +519,202 @@ describe('UserCoursesService (KS-1829)', () => {
       ]);
       const r = await service.listPublicByOwner(AUTHOR);
       expect(r.data[0].lessonCount).toBe(7);
+    });
+  });
+
+  // ─── listAuthors (KS-1918, ADR-030 §3.2) ──────────────────────────
+
+  describe('listAuthors', () => {
+    /**
+     * Удобный helper для построения трёх authors-фикстур одинаковой
+     * структуры. Уникальные ownerId 'u1'/'u2'/'u3' с разным числом
+     * курсов и updatedAt, чтобы проверять оба sort'а.
+     */
+    function setupThreeAuthors() {
+      // groupBy → агрегаты.
+      prisma.userCourse.groupBy.mockResolvedValue([
+        { ownerId: 'u1', _count: { id: 3 }, _max: { updatedAt: new Date('2026-04-10') } },
+        { ownerId: 'u2', _count: { id: 1 }, _max: { updatedAt: new Date('2026-04-15') } },
+        { ownerId: 'u3', _count: { id: 5 }, _max: { updatedAt: new Date('2026-04-05') } },
+      ]);
+      // Все публичные курсы по этим ownerId — отсортированные DESC,
+      // первый по каждому ownerId = latest.
+      prisma.userCourse.findMany.mockResolvedValue([
+        { ownerId: 'u3', slug: 'u3-latest', title: 'U3 Latest', updatedAt: new Date('2026-04-05') },
+        { ownerId: 'u3', slug: 'u3-old', title: 'U3 Old', updatedAt: new Date('2026-03-01') },
+        { ownerId: 'u1', slug: 'u1-latest', title: 'U1 Latest', updatedAt: new Date('2026-04-10') },
+        { ownerId: 'u2', slug: 'u2-latest', title: 'U2 Latest', updatedAt: new Date('2026-04-15') },
+      ]);
+      prisma.user.findMany.mockResolvedValue([
+        { id: 'u1', username: 'alice' },
+        { id: 'u2', username: 'bob' },
+        { id: 'u3', username: 'claire' },
+      ]);
+    }
+
+    it('sort=courses (default): publicCoursesCount DESC, при равенстве lastCourseUpdatedAt DESC', async () => {
+      setupThreeAuthors();
+      const r = await service.listAuthors({ sort: 'courses' });
+      expect(r.data.map((d) => d.user.username)).toEqual(['claire', 'alice', 'bob']);
+      expect(r.data.map((d) => d.publicCoursesCount)).toEqual([5, 3, 1]);
+      expect(r.total).toBe(3);
+    });
+
+    it('sort=recent: lastCourseUpdatedAt DESC', async () => {
+      setupThreeAuthors();
+      const r = await service.listAuthors({ sort: 'recent' });
+      expect(r.data.map((d) => d.user.username)).toEqual(['bob', 'alice', 'claire']);
+    });
+
+    it('latestCourseSlug/Title — самый свежий публичный курс автора', async () => {
+      setupThreeAuthors();
+      const r = await service.listAuthors({ sort: 'courses' });
+      const claire = r.data.find((d) => d.user.username === 'claire')!;
+      expect(claire.latestCourseSlug).toBe('u3-latest');
+      expect(claire.latestCourseTitle).toBe('U3 Latest');
+      // lastCourseUpdatedAt — это `_max.updatedAt` из groupBy (то же,
+      // что у latest курса).
+      expect(claire.lastCourseUpdatedAt).toBe(
+        new Date('2026-04-05').toISOString(),
+      );
+    });
+
+    // ADR §3.2: фильтр where: { isPublic: true } — приватные курсы
+    // не должны учитываться в counter.
+    it('groupBy запрашивается с where: { isPublic: true }', async () => {
+      prisma.userCourse.groupBy.mockResolvedValue([]);
+      await service.listAuthors({});
+      const call = prisma.userCourse.groupBy.mock.calls[0][0];
+      expect(call.where).toEqual({ isPublic: true });
+      expect(call.by).toEqual(['ownerId']);
+      // findMany по latest courses — тоже только публичные.
+      // (Пустой groupBy → findMany не вызывается; ничего не проверяем.)
+    });
+
+    it('пустой результат → data:[], total:0', async () => {
+      prisma.userCourse.groupBy.mockResolvedValue([]);
+      const r = await service.listAuthors({});
+      expect(r).toEqual({ data: [], total: 0 });
+      // findMany по latest courses не вызывается, если ownerId пуст.
+      expect(prisma.userCourse.findMany).not.toHaveBeenCalled();
+    });
+
+    it('user без username (OAuth до setup) — отбрасывается', async () => {
+      prisma.userCourse.groupBy.mockResolvedValue([
+        { ownerId: 'u1', _count: { id: 1 }, _max: { updatedAt: new Date('2026-04-01') } },
+        { ownerId: 'u2', _count: { id: 1 }, _max: { updatedAt: new Date('2026-04-01') } },
+      ]);
+      prisma.userCourse.findMany.mockResolvedValue([
+        { ownerId: 'u1', slug: 'a', title: 'A', updatedAt: new Date('2026-04-01') },
+        { ownerId: 'u2', slug: 'b', title: 'B', updatedAt: new Date('2026-04-01') },
+      ]);
+      prisma.user.findMany.mockResolvedValue([
+        { id: 'u1', username: 'alice' },
+        { id: 'u2', username: null }, // ещё не сделал username setup
+      ]);
+      const r = await service.listAuthors({});
+      expect(r.data).toHaveLength(1);
+      expect(r.data[0].user.username).toBe('alice');
+    });
+
+    it('limit/offset применяются после sort', async () => {
+      setupThreeAuthors();
+      const r = await service.listAuthors({ sort: 'courses', limit: 1, offset: 1 });
+      expect(r.data).toHaveLength(1);
+      expect(r.data[0].user.username).toBe('alice'); // 2-й по 'courses'
+      expect(r.total).toBe(3); // total — общее число авторов
+    });
+
+    // ─── Кеш (KS-1918 §3) ──────────────────────────────────────
+
+    it('cache.getOrSet вызывается с ключом lessons:authors:<sort>:<limit>:<offset> и TTL 300s', async () => {
+      prisma.userCourse.groupBy.mockResolvedValue([]);
+      await service.listAuthors({ sort: 'recent', limit: 12, offset: 5 });
+      expect(cache.getOrSet).toHaveBeenCalledWith(
+        'lessons:authors:recent:12:5',
+        300,
+        expect.any(Function),
+      );
+    });
+
+    it('cache hit → БД не дёргается', async () => {
+      const cached = { data: [], total: 0 };
+      cache.getOrSet.mockImplementationOnce(async () => cached);
+      const r = await service.listAuthors({});
+      expect(r).toBe(cached);
+      expect(prisma.userCourse.groupBy).not.toHaveBeenCalled();
+      expect(prisma.userCourse.findMany).not.toHaveBeenCalled();
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    it('default параметры → ключ кеша lessons:authors:courses:50:0', async () => {
+      prisma.userCourse.groupBy.mockResolvedValue([]);
+      await service.listAuthors({});
+      expect(cache.getOrSet).toHaveBeenCalledWith(
+        'lessons:authors:courses:50:0',
+        300,
+        expect.any(Function),
+      );
+    });
+  });
+
+  // ─── KS-1918: invalidation кеша authors при мутациях ──────────────
+
+  describe('authors-cache invalidation (KS-1918)', () => {
+    it('update курса → cache.invalidate("lessons:authors:*")', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER });
+      prisma.userCourse.update.mockResolvedValue({
+        id: 'c1',
+        ownerId: OWNER,
+        slug: 's',
+        title: 't',
+        description: null,
+        isPublic: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { lessons: 0 },
+      });
+      await service.update(OWNER, 'c1', { isPublic: true });
+      expect(cache.invalidate).toHaveBeenCalledWith('lessons:authors:*');
+    });
+
+    it('delete курса → cache.invalidate', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER });
+      prisma.userCourse.delete.mockResolvedValue({});
+      await service.delete(OWNER, 'c1');
+      expect(cache.invalidate).toHaveBeenCalledWith('lessons:authors:*');
+    });
+
+    it('create публичного курса (isPublic=true) → invalidate', async () => {
+      prisma.userCourse.create.mockResolvedValue({
+        id: 'c1',
+        ownerId: OWNER,
+        slug: 'a',
+        title: 'A',
+        description: null,
+        isPublic: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { lessons: 0 },
+      });
+      await service.create(OWNER, { title: 'A', isPublic: true });
+      expect(cache.invalidate).toHaveBeenCalledWith('lessons:authors:*');
+    });
+
+    it('create приватного курса (isPublic=false default) → НЕ invalidate', async () => {
+      prisma.userCourse.create.mockResolvedValue({
+        id: 'c1',
+        ownerId: OWNER,
+        slug: 'a',
+        title: 'A',
+        description: null,
+        isPublic: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { lessons: 0 },
+      });
+      await service.create(OWNER, { title: 'A' });
+      expect(cache.invalidate).not.toHaveBeenCalled();
     });
   });
 

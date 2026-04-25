@@ -1,8 +1,13 @@
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
+  IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import type {
@@ -62,4 +67,62 @@ export class UpdateUserCourseDto implements UpdateUserCourseRequest {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
+}
+
+/**
+ * KS-1918 / ADR-030 §2.1: query-параметры для `GET /lessons/user-courses`.
+ * Используются и для `mine=1` (для будущей пагинации в редакторе), и
+ * для `mine=0` (лента публичных курсов на лобби).
+ *
+ * Дефолты: `limit=50, offset=0` — то же поведение, что было до
+ * KS-1918 (когда параметров не было). Существующие тесты на `mine=0`
+ * без query'ев должны остаться зелёными.
+ */
+export class ListUserCoursesQueryDto {
+  @IsOptional()
+  @IsString()
+  mine?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  offset?: number;
+}
+
+/**
+ * KS-1918 / ADR-030 §3.2: query для
+ * `GET /lessons/user-courses/authors`.
+ */
+export class ListCourseAuthorsQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  offset?: number;
+
+  /**
+   * `'courses'` — `publicCoursesCount DESC, lastCourseUpdatedAt DESC`
+   *   (продуктивные авторы первыми, при равенстве — недавно активные).
+   * `'recent'`  — `lastCourseUpdatedAt DESC` (только по дате).
+   */
+  @IsOptional()
+  @IsIn(['courses', 'recent'])
+  sort?: 'courses' | 'recent';
 }

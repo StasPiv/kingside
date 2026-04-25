@@ -9,6 +9,8 @@ import type {
   CreateUserLessonRequest,
   ReorderUserLessonsRequest,
   UpdateUserCourseRequest,
+  CourseAuthorDto,
+  CourseAuthorListResponse,
   UserCourseDto,
   UserCourseListResponse,
   UserCoursePlayProgressDto,
@@ -19,8 +21,13 @@ import type {
   UserLessonDto,
 } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
+import { CacheService } from '../../common/cache.service';
 import { SlugService } from './slug.service';
 import { USER_COURSES_LIMITS } from './user-courses-limits';
+
+/** KS-1918: префикс кеша для `/lessons/user-courses/authors`. */
+const AUTHORS_CACHE_PREFIX = 'lessons:authors';
+const AUTHORS_CACHE_TTL_SEC = 5 * 60;
 
 /**
  * UserCoursesService — CRUD пользовательского курса (ADR-026 §2.5,
@@ -40,6 +47,7 @@ export class UserCoursesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly slug: SlugService,
+    private readonly cache: CacheService,
   ) {}
 
   // ─── Listings ────────────────────────────────────────────────────
@@ -52,12 +60,22 @@ export class UserCoursesService {
    */
   async list(
     userId: string,
-    opts: { mine: boolean },
+    opts: { mine: boolean; limit?: number; offset?: number },
   ): Promise<UserCourseListResponse> {
+    // KS-1918: limit/offset нужны для ленты публичных курсов на
+    // лобби `/lessons` (ADR-030 §2.1) и для будущего `/lessons/community`.
+    // Дефолты: 50/0 (тот же объём, что отдавался раньше — до пагинации).
+    // Clamp здесь дополнительный к Pipe-валидации в DTO query: если
+    // сервис вызвали напрямую (тесты, e2e), границы всё равно
+    // соблюдаются.
+    const take = clampInt(opts.limit ?? 50, 1, 50);
+    const skip = clampInt(opts.offset ?? 0, 0, 1000);
     const rows = await this.prisma.userCourse.findMany({
       where: opts.mine ? { ownerId: userId } : { isPublic: true },
       orderBy: { updatedAt: 'desc' },
       include: { _count: { select: { lessons: true } } },
+      take,
+      skip,
     });
 
     // KS-1885: stats только владельцам. Чтобы не делать 2N count'ов
@@ -101,6 +119,144 @@ export class UserCoursesService {
       // авторских метрик.
       data: rows.map((r) => toCourseDto(r)),
     };
+  }
+
+  /**
+   * KS-1918 / ADR-030 §3.2: список авторов с агрегатом по их публичным
+   * курсам — для `CourseAuthorsBlock` на `/lessons` и таба Authors на
+   * `/players`. Без auth (публичная витрина).
+   *
+   * SQL-логика (см. ADR §3.2):
+   *   1. `groupBy({by:['ownerId']})` по `userCourse where isPublic=true`
+   *      с `_count.id` (число публичных курсов автора) и
+   *      `_max.updatedAt` (для sort'а 'recent' и поля `lastCourseUpdatedAt`).
+   *      Существующий индекс `(isPublic, updatedAt)` покрывает план.
+   *   2. Загружаем все публичные курсы для собранного списка ownerId
+   *      одним `findMany`, отсортированные `updatedAt DESC` — берём
+   *      первый по каждому ownerId как `latestCourse{Slug,Title}`.
+   *      Distinct-on в Prisma нет, делаем groupBy в JS на одном
+   *      запросе — это дешевле, чем N коррелированных subquery.
+   *   3. Параллельно `user.findMany({where:{id IN ownerIds}})` для
+   *      имени/аватара (схема User пока не имеет avatarUrl/displayName,
+   *      эти поля в DTO остаются undefined; добавим, когда появятся).
+   *   4. Sort + slice по `limit/offset`. Сортировка в JS — авторов
+   *      обычно <100, индекс-supported orderBy на groupBy в Prisma
+   *      ограничен (`_count` сортируется только по одному ключу).
+   *
+   * Кеширование: Redis 5 мин по ключу
+   * `lessons:authors:<sort>:<limit>:<offset>`. Инвалидация — при
+   * любых мутациях `UserCourse`, которые могут затронуть `isPublic`
+   * (`create({isPublic:true})`, `update({isPublic:...})`, `delete`) —
+   * см. `invalidateAuthorsCache()`.
+   */
+  async listAuthors(
+    opts: { sort?: 'courses' | 'recent'; limit?: number; offset?: number } = {},
+  ): Promise<CourseAuthorListResponse> {
+    const sort = opts.sort ?? 'courses';
+    const limit = clampInt(opts.limit ?? 50, 1, 50);
+    const offset = clampInt(opts.offset ?? 0, 0, 1000);
+    const cacheKey = `${AUTHORS_CACHE_PREFIX}:${sort}:${limit}:${offset}`;
+
+    return this.cache.getOrSet(cacheKey, AUTHORS_CACHE_TTL_SEC, () =>
+      this.computeAuthors({ sort, limit, offset }),
+    );
+  }
+
+  private async computeAuthors(opts: {
+    sort: 'courses' | 'recent';
+    limit: number;
+    offset: number;
+  }): Promise<CourseAuthorListResponse> {
+    const groups = await this.prisma.userCourse.groupBy({
+      by: ['ownerId'],
+      where: { isPublic: true },
+      _count: { id: true },
+      _max: { updatedAt: true },
+    });
+
+    if (groups.length === 0) return { data: [], total: 0 };
+
+    const ownerIds = groups.map((g) => g.ownerId);
+
+    // Параллелим: все публичные курсы по нашим owner'ам (для latest)
+    // + user-метаданные. Каждый запрос идёт по индексу — overhead
+    // последовательного await'а не оправдан.
+    const [publicCourses, users] = await Promise.all([
+      this.prisma.userCourse.findMany({
+        where: { ownerId: { in: ownerIds }, isPublic: true },
+        orderBy: { updatedAt: 'desc' },
+        select: { ownerId: true, slug: true, title: true, updatedAt: true },
+      }),
+      this.prisma.user.findMany({
+        where: { id: { in: ownerIds } },
+        select: { id: true, username: true },
+      }),
+    ]);
+
+    // Latest course per ownerId — берём первый (массив отсортирован
+    // updatedAt DESC, так что первый по ownerId = самый свежий).
+    const latestByOwner = new Map<
+      string,
+      { slug: string; title: string; updatedAt: Date }
+    >();
+    for (const c of publicCourses) {
+      if (!latestByOwner.has(c.ownerId)) {
+        latestByOwner.set(c.ownerId, {
+          slug: c.slug,
+          title: c.title,
+          updatedAt: c.updatedAt,
+        });
+      }
+    }
+
+    const userById = new Map<string, { id: string; username: string | null }>();
+    for (const u of users) userById.set(u.id, u);
+
+    // Сборка DTO. Если у user'а нет username (теоретически возможно
+    // у OAuth-юзера до setup'а), пропускаем — без username нет smysla
+    // показывать карточку.
+    const dtos: CourseAuthorDto[] = [];
+    for (const g of groups) {
+      const u = userById.get(g.ownerId);
+      const latest = latestByOwner.get(g.ownerId);
+      if (!u || !u.username || !latest || !g._max.updatedAt) continue;
+      dtos.push({
+        user: { id: u.id, username: u.username },
+        publicCoursesCount: g._count.id,
+        lastCourseUpdatedAt: g._max.updatedAt.toISOString(),
+        latestCourseSlug: latest.slug,
+        latestCourseTitle: latest.title,
+      });
+    }
+
+    // Sort: 'courses' — по числу курсов desc, при равенстве — recent.
+    // 'recent' — только по дате.
+    dtos.sort((a, b) => {
+      if (opts.sort === 'recent') {
+        return b.lastCourseUpdatedAt.localeCompare(a.lastCourseUpdatedAt);
+      }
+      const byCount = b.publicCoursesCount - a.publicCoursesCount;
+      if (byCount !== 0) return byCount;
+      return b.lastCourseUpdatedAt.localeCompare(a.lastCourseUpdatedAt);
+    });
+
+    return {
+      data: dtos.slice(opts.offset, opts.offset + opts.limit),
+      total: dtos.length,
+    };
+  }
+
+  /**
+   * KS-1918: инвалидирует кеш `/lessons/user-courses/authors`. Ключи
+   * формы `lessons:authors:<sort>:<limit>:<offset>` —
+   * `cache.invalidate('lessons:authors:*')` сделает SCAN+DEL.
+   *
+   * Вызывается после мутаций, которые могут поменять список авторов
+   * с публичными курсами или агрегаты по ним: создание публичного
+   * курса, любое `update` (в т.ч. с `isPublic`-toggle) и `delete`.
+   */
+  private async invalidateAuthorsCache(): Promise<void> {
+    await this.cache.invalidate(`${AUTHORS_CACHE_PREFIX}:*`);
   }
 
   /**
@@ -314,6 +470,12 @@ export class UserCoursesService {
         },
         include: { _count: { select: { lessons: true } } },
       });
+      // KS-1918: создание публичного курса добавляет автора в
+      // listAuthors-выборку (если у него их не было) или поднимает
+      // counter. По умолчанию `isPublic=false` — только условный вызов.
+      if (created.isPublic) {
+        await this.invalidateAuthorsCache().catch(() => {});
+      }
       return toCourseDto(created);
     } catch (e) {
       // Случилась коллизия — в случае явного slug это «занят», в случае
@@ -350,12 +512,20 @@ export class UserCoursesService {
       },
       include: { _count: { select: { lessons: true } } },
     });
+    // KS-1918: при изменении любого поля курса (особенно `isPublic`,
+    // `title` — последний теасер из listAuthors) инвалидируем кеш
+    // авторов. Делаем безусловно — мутации курсов не частые, перебдеть
+    // безопаснее, чем разойтись с реальностью на 5 минут.
+    await this.invalidateAuthorsCache().catch(() => {});
     return toCourseDto(updated);
   }
 
   async delete(ownerId: string, courseId: string): Promise<void> {
     await this.assertOwner(ownerId, courseId);
     await this.prisma.userCourse.delete({ where: { id: courseId } });
+    // KS-1918: удаление публичного курса может убрать последнего
+    // публичного курса автора → автор должен пропасть из листинга.
+    await this.invalidateAuthorsCache().catch(() => {});
   }
 
   /**
@@ -508,6 +678,20 @@ export class UserCoursesService {
       throw new ForbiddenException('Resource not found');
     }
   }
+}
+
+// ─── Internal helpers ────────────────────────────────────────────────
+
+/**
+ * Clamp + integer-coerce. Используется как defensive-проверка лимитов
+ * в сервисе, дополнительно к ValidationPipe DTO query-параметров.
+ */
+function clampInt(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  const n = Math.trunc(value);
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
 }
 
 // ─── DTO mappers ──────────────────────────────────────────────────────

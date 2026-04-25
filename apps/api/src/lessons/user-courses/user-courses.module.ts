@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { UserCoursesController } from './user-courses.controller';
+import { UserCoursesPublicController } from './user-courses-public.controller';
 import { UserLessonsController } from './user-lessons.controller';
 import { UserLessonStepsController } from './user-lesson-steps.controller';
 import { UserProgressController } from './user-progress.controller';
@@ -24,6 +25,10 @@ import { SlugService } from './slug.service';
 @Module({
   imports: [PrismaModule],
   controllers: [
+    // KS-1918: PublicController зарегистрирован ПЕРЕД
+    // UserCoursesController — чтобы `/authors` matched как литерал,
+    // а не подцепился `:slug`-роутом приватного контроллера.
+    UserCoursesPublicController,
     UserCoursesController,
     UserLessonsController,
     UserLessonStepsController,
