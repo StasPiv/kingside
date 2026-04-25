@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { RatingHistoryChart } from '../components/RatingHistoryChart';
+import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
 import type { PlayerProfileResponse } from '@kingside/shared';
 
 type FriendStatus = 'none' | 'pending' | 'friends' | 'loading';
@@ -258,6 +259,12 @@ export function PlayerProfilePage() {
       {/* Rating History Chart */}
       <div className="player-profile-section">
         <RatingHistoryChart userId={profile.id} />
+      </div>
+
+      {/* KS-1915: публичные курсы автора (если есть). Блок сам
+          скрывается при пустом списке / ошибке. */}
+      <div className="player-profile-section">
+        <AuthorCoursesBlock username={profile.username} />
       </div>
 
       {/* Puzzle Rush */}

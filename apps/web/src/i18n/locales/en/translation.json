@@ -820,6 +820,7 @@
     "notFound": "Player not found",
     "loadError": "Failed to load player profile",
     "backToPlayers": "← Back to Players",
+    "coursesTitle": "Author's courses",
     "online": "Online",
     "offline": "Offline",
     "joined": "Joined {{date}}",
