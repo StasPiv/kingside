@@ -185,3 +185,144 @@ describe('useUserLessonProgress', () => {
     expect(apiMock.updateStepProgress).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * KS-1880: восстановление stepsState из сервера при первом открытии
+ * урока. Без фикса хук всегда стартовал с {}, и завершённые уроки
+ * показывали 0% / все шаги pending.
+ */
+describe('useUserLessonProgress · initial stepsState (KS-1880)', () => {
+  it('инициализируется с переданным initialStepsState — score сразу не нулевой', () => {
+    const { result } = renderHook(() =>
+      useUserLessonProgress({
+        userLessonId: 'l1',
+        totalSteps: 3,
+        initialStepsState: { a: 'done', b: 'done', c: 'pending' },
+      }),
+    );
+    expect(result.current.stepsState).toEqual({
+      a: 'done',
+      b: 'done',
+      c: 'pending',
+    });
+    expect(result.current.doneCount).toBe(2);
+    expect(result.current.score).toBeCloseTo(2 / 3);
+  });
+
+  it('завершённый урок (все done) — score = 1, выше threshold', () => {
+    const { result } = renderHook(() =>
+      useUserLessonProgress({
+        userLessonId: 'l1',
+        totalSteps: 2,
+        initialStepsState: { a: 'done', b: 'done' },
+      }),
+    );
+    expect(result.current.score).toBe(1);
+    expect(result.current.score >= result.current.threshold).toBe(true);
+  });
+
+  it('сервер вернул пустой stepsState (никогда не открывал) → state = {} / score = 0', () => {
+    const { result } = renderHook(() =>
+      useUserLessonProgress({
+        userLessonId: 'l1',
+        totalSteps: 3,
+        initialStepsState: undefined,
+      }),
+    );
+    expect(result.current.stepsState).toEqual({});
+    expect(result.current.score).toBe(0);
+  });
+
+  it('смена userLessonId с новым initialStepsState → state перечитан', () => {
+    const { result, rerender } = renderHook(
+      ({ id, seed }: { id: string; seed?: Record<string, 'done' | 'pending'> }) =>
+        useUserLessonProgress({
+          userLessonId: id,
+          totalSteps: 2,
+          initialStepsState: seed,
+        }),
+      {
+        initialProps: { id: 'l1', seed: { a: 'done', b: 'done' } as Record<string, 'done' | 'pending'> },
+      },
+    );
+    expect(result.current.stepsState).toEqual({ a: 'done', b: 'done' });
+
+    rerender({ id: 'l2', seed: { x: 'pending' } });
+    expect(result.current.stepsState).toEqual({ x: 'pending' });
+    expect(result.current.score).toBe(0);
+  });
+
+  it('flushStep мерджит response.stepsState поверх локального — авторитативный сервер', async () => {
+    apiMock.updateStepProgress.mockResolvedValue({
+      userLessonId: 'l1',
+      completedStepsCount: 2,
+      totalSteps: 3,
+      // server: a уже done, и помимо нашего step'а b добавился c (другой клиент)
+      stepsState: { a: 'done', b: 'done', c: 'done' },
+      startedAt: 'x',
+      lastActivityAt: 'x',
+      completedAt: null,
+    });
+
+    const { result } = renderHook(() =>
+      useUserLessonProgress({
+        userLessonId: 'l1',
+        totalSteps: 3,
+        initialStepsState: { a: 'done' },
+      }),
+    );
+    act(() => {
+      result.current.markStep('b', 'done');
+    });
+    expect(result.current.stepsState).toEqual({ a: 'done', b: 'done' });
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+    });
+
+    // После flush — серверный c подхватился, локальные тоже целы.
+    expect(result.current.stepsState).toEqual({
+      a: 'done',
+      b: 'done',
+      c: 'done',
+    });
+  });
+
+  it('flushStep НЕ затирает pending-локальные правки серверным snapshot', async () => {
+    // Сервер ответит на первый flush с состоянием БЕЗ b (старый snapshot
+    // до того, как мы успели b отправить). Локальный state с b должен
+    // сохраниться, т.к. b сейчас pending в очереди.
+    apiMock.updateStepProgress.mockImplementation(async (_id: string, payload: { stepId: string; state: string }) => ({
+      userLessonId: 'l1',
+      completedStepsCount: payload.stepId === 'a' ? 1 : 2,
+      totalSteps: 3,
+      stepsState: payload.stepId === 'a' ? { a: 'done' } : { a: 'done', b: 'done' },
+      startedAt: 'x',
+      lastActivityAt: 'x',
+      completedAt: null,
+    }));
+
+    const { result } = renderHook(() =>
+      useUserLessonProgress({ userLessonId: 'l1', totalSteps: 3 }),
+    );
+    act(() => {
+      result.current.markStep('a', 'done');
+    });
+    // Имитируем гонку: ещё одна локальная правка пока первая в полёте.
+    act(() => {
+      result.current.markStep('b', 'done');
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // b остался — он либо ещё pending (и сохранён), либо тоже flushнут
+    // и сервер вернул {a, b}.
+    expect(result.current.stepsState.a).toBe('done');
+    expect(result.current.stepsState.b).toBe('done');
+  });
+});

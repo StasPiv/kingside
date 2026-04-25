@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
   LessonStep,
+  LessonStepState,
   UserCourseWithLessonsResponse,
   UserLessonDto,
   UserLessonStepDto,
@@ -61,6 +62,13 @@ type LoadState =
       /** Список всех уроков курса — нужен для «следующий урок»-навигации. */
       courseLessons: UserLessonDto[];
       courseSlug: string;
+      /**
+       * Серверный seed `stepsState` для прогресс-хука (KS-1880). Если
+       * пользователь уже открывал/проходил урок — backend возвращает
+       * текущее состояние шагов, его и подсасываем как initialStepsState.
+       * `undefined` — никогда не открывал, хук стартует с пустого `{}`.
+       */
+      initialStepsState: Record<string, LessonStepState> | undefined;
     };
 
 export function UserLessonPage() {
@@ -94,6 +102,15 @@ export function UserLessonPage() {
             setState({ kind: 'not_found' });
             return;
           }
+          // KS-1880: serverProgress.stepsState нужен для восстановления
+          // прогресса при повторном открытии урока. Передаём его в hook
+          // через `initialStepsState` (см. ниже useUserLessonProgress).
+          // null/undefined → пустой state, хук стартует чистым.
+          const serverStepsState = lessonRes.progress?.stepsState;
+          const initialStepsState =
+            serverStepsState && Object.keys(serverStepsState).length > 0
+              ? serverStepsState
+              : undefined;
           setState({
             kind: 'ready',
             lesson: lessonRes.lesson,
@@ -105,6 +122,7 @@ export function UserLessonPage() {
               .slice()
               .sort((a, b) => a.order - b.order),
             courseSlug: courseRes.course.slug,
+            initialStepsState,
           });
         },
       )
@@ -120,9 +138,15 @@ export function UserLessonPage() {
   // Hook работает с текущим lessonId — даже до ready-state.
   // `userLessonId` в hook'е — string|null, поэтому ok.
   const totalSteps = state.kind === 'ready' ? state.steps.length : 0;
+  // KS-1880: при ready подаём серверный seed (если есть). Передаётся
+  // ровно один раз вместе с userLessonId — хук применит его в эффекте
+  // смены lesson'а.
+  const initialStepsState =
+    state.kind === 'ready' ? state.initialStepsState : undefined;
   const progress = useUserLessonProgress({
     userLessonId: state.kind === 'ready' ? state.lesson.id : null,
     totalSteps,
+    initialStepsState,
   });
 
   // KS-1842 (ADR-026 §2.9): если в уроке есть endgame_drill — префетчим

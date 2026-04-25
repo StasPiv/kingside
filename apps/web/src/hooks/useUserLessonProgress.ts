@@ -110,7 +110,33 @@ export function useUserLessonProgress({
       pendingTimersRef.current.delete(stepId);
       if (!payload || !userLessonId) return;
       try {
-        await userCoursesApi.updateStepProgress(userLessonId, payload);
+        const response = await userCoursesApi.updateStepProgress(
+          userLessonId,
+          payload,
+        );
+        // KS-1880: серверный `stepsState` — авторитативный (после
+        // `KS-1879` BE отдаёт его в ответе на step-mutate). Мерджим
+        // его поверх локального, ИСКЛЮЧАЯ те шаги, для которых сейчас
+        // есть pending-запрос — иначе свежие локальные правки
+        // затрутся устаревшим snapshot'ом сервера. На случай гонки
+        // между клиентами это даёт нам новые состояния от других
+        // сессий, не ломая текущий ввод пользователя.
+        const serverStepsState = response?.stepsState;
+        if (serverStepsState && typeof serverStepsState === 'object') {
+          setStepsState((prev) => {
+            const next: Record<string, LessonStepState> = { ...prev };
+            const pending = pendingPayloadsRef.current;
+            let changed = false;
+            for (const [sid, state] of Object.entries(serverStepsState)) {
+              if (pending.has(sid)) continue;
+              if (next[sid] !== state) {
+                next[sid] = state as LessonStepState;
+                changed = true;
+              }
+            }
+            return changed ? next : prev;
+          });
+        }
         setLastSyncError(null);
       } catch (err) {
         setLastSyncError(err instanceof Error ? err : new Error(String(err)));
