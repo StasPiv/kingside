@@ -12,6 +12,7 @@ import type {
   UserCourseDto,
   UserCourseListResponse,
   UserCoursePlayProgressDto,
+  UserCourseStatsDto,
   UserCourseWithLessonsResponse,
   UserLessonDto,
 } from '@kingside/shared';
@@ -56,7 +57,21 @@ export class UserCoursesService {
       orderBy: { updatedAt: 'desc' },
       include: { _count: { select: { lessons: true } } },
     });
-    return { data: rows.map(toCourseDto) };
+
+    // KS-1885: stats только владельцам. Чтобы не делать 2N count'ов
+    // (по 2 на каждую карточку), батчим всех owner'ских курсов в
+    // ровно два `groupBy` (один общий enrolled, один completed) с
+    // фильтром `userCourseId IN (...)`. Оба запроса бьют по индексу
+    // `user_course_play_progress (user_id, user_course_id)` — план
+    // постгрес'а это IndexOnlyScan.
+    const ownedIds = rows.filter((r) => r.ownerId === userId).map((r) => r.id);
+    const statsByCourseId = await this.computeStatsForCourses(ownedIds);
+
+    return {
+      data: rows.map((r) =>
+        toCourseDto(r, { stats: statsByCourseId.get(r.id) }),
+      ),
+    };
   }
 
   // ─── Read one ─────────────────────────────────────────────────────
@@ -88,11 +103,92 @@ export class UserCoursesService {
       where: { userId_userCourseId: { userId, userCourseId: course.id } },
     });
 
+    // KS-1885: статистика прохождений только владельцу. Здесь — два
+    // count'а по тому же индексу `(user_id, user_course_id)` (он
+    // covering для `where user_course_id = ?` через подзапрос на
+    // partial). Параллелим, чтобы не серилизовать round-trip'ы.
+    const isOwner = course.ownerId === userId;
+    const stats = isOwner ? await this.computeStatsForCourse(course.id) : undefined;
+
     return {
-      course: toCourseDto(course),
+      course: toCourseDto(course, { stats }),
       lessons: course.lessons.map(toLessonDto),
       progress: progress ? toCoursePlayProgressDto(progress) : null,
     };
+  }
+
+  /**
+   * Считает `UserCourseStatsDto` для одного курса двумя count'ами
+   * (общий enrolled + completed). Без `groupBy`, потому что для одной
+   * сущности он избыточен — два узких COUNT'а по индексу дают тот же
+   * план без overhead'а группировки.
+   */
+  private async computeStatsForCourse(
+    userCourseId: string,
+  ): Promise<UserCourseStatsDto> {
+    const [enrolledCount, completedCount] = await Promise.all([
+      this.prisma.userCoursePlayProgress.count({ where: { userCourseId } }),
+      this.prisma.userCoursePlayProgress.count({
+        where: { userCourseId, completedAt: { not: null } },
+      }),
+    ]);
+    return {
+      enrolledCount,
+      completedCount,
+      inProgressCount: Math.max(enrolledCount - completedCount, 0),
+    };
+  }
+
+  /**
+   * Батчевая версия `computeStatsForCourse` для списка `mine=true`:
+   * ровно два `groupBy` независимо от длины списка. Возвращает Map
+   * `userCourseId → stats` только для тех id, по которым в БД есть
+   * хотя бы одна запись прогресса; для остальных вызывающий должен
+   * подставить нули (см. использование в `list`).
+   */
+  private async computeStatsForCourses(
+    userCourseIds: string[],
+  ): Promise<Map<string, UserCourseStatsDto>> {
+    const out = new Map<string, UserCourseStatsDto>();
+    if (userCourseIds.length === 0) return out;
+
+    const [enrolledGroups, completedGroups] = await Promise.all([
+      this.prisma.userCoursePlayProgress.groupBy({
+        by: ['userCourseId'],
+        where: { userCourseId: { in: userCourseIds } },
+        _count: { userCourseId: true },
+      }),
+      this.prisma.userCoursePlayProgress.groupBy({
+        by: ['userCourseId'],
+        where: {
+          userCourseId: { in: userCourseIds },
+          completedAt: { not: null },
+        },
+        _count: { userCourseId: true },
+      }),
+    ]);
+
+    const completedByCourseId = new Map<string, number>();
+    for (const g of completedGroups) {
+      completedByCourseId.set(g.userCourseId, g._count.userCourseId);
+    }
+
+    // Включаем все ownedIds — даже без записей прогресса, чтобы автору
+    // отдавать честные нули (а не отсутствие поля). Иначе UI не сможет
+    // отличить «никто не записан» от «не-owner».
+    for (const id of userCourseIds) {
+      out.set(id, { enrolledCount: 0, completedCount: 0, inProgressCount: 0 });
+    }
+    for (const g of enrolledGroups) {
+      const enrolled = g._count.userCourseId;
+      const completed = completedByCourseId.get(g.userCourseId) ?? 0;
+      out.set(g.userCourseId, {
+        enrolledCount: enrolled,
+        completedCount: completed,
+        inProgressCount: Math.max(enrolled - completed, 0),
+      });
+    }
+    return out;
   }
 
   // ─── Mutations ───────────────────────────────────────────────────
@@ -351,6 +447,11 @@ export function toCourseDto(
     updatedAt: Date;
     _count?: { lessons: number };
   },
+  // KS-1885: stats передаёт сервис, маппер сам не знает про owner-чек.
+  // Если `stats` undefined — поле не попадёт в JSON-ответ (для
+  // не-владельцев). Передавать `undefined` явно — нормальный API
+  // contract, не путаемся с `null`.
+  opts?: { stats?: UserCourseStatsDto },
 ): UserCourseDto {
   return {
     id: row.id,
@@ -362,6 +463,7 @@ export function toCourseDto(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     lessonCount: row._count?.lessons ?? 0,
+    ...(opts?.stats ? { stats: opts.stats } : {}),
   };
 }
 

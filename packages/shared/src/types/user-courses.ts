@@ -45,6 +45,26 @@ export interface UserCourseDto {
   updatedAt: string;
   /** Денормализованный счётчик уроков (для карточек в списке). */
   lessonCount: number;
+  /**
+   * Метрики прохождений (KS-1885). Поле возвращается ТОЛЬКО владельцу
+   * курса (или admin'у в будущем). Не-владельцу — `undefined`, чтобы
+   * не утекали пользовательские агрегаты с публичных курсов.
+   *
+   * Считается как:
+   *   - `enrolledCount`     = COUNT(UserCoursePlayProgress) по `userCourseId`
+   *   - `completedCount`    = COUNT(...)  WHERE `completedAt IS NOT NULL`
+   *   - `inProgressCount`   = `enrolledCount - completedCount`
+   *
+   * Свежесть — на момент запроса. Кешируем на FE столько же, сколько
+   * сам DTO; refresh — re-fetch.
+   */
+  stats?: UserCourseStatsDto;
+}
+
+export interface UserCourseStatsDto {
+  enrolledCount: number;
+  completedCount: number;
+  inProgressCount: number;
 }
 
 export interface UserLessonDto {

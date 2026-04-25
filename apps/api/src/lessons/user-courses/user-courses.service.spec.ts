@@ -32,6 +32,9 @@ describe('UserCoursesService (KS-1829)', () => {
       userCoursePlayProgress: {
         findUnique: jest.fn(),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        // KS-1885: stats запрашиваются через count (single) и groupBy (list).
+        count: jest.fn().mockResolvedValue(0),
+        groupBy: jest.fn().mockResolvedValue([]),
       },
       $transaction: jest.fn((cb) =>
         cb({
@@ -78,6 +81,141 @@ describe('UserCoursesService (KS-1829)', () => {
       ]);
       const r = await service.list(OWNER, { mine: true });
       expect(r.data[0].lessonCount).toBe(3);
+    });
+
+    // ─── KS-1885: stats в списке ────────────────────────────────
+    describe('stats в списке (KS-1885)', () => {
+      const ownedRow = (id: string) => ({
+        id,
+        ownerId: OWNER,
+        slug: id,
+        title: 't',
+        description: null,
+        isPublic: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { lessons: 0 },
+      });
+
+      it('mine=true: stats каждой карточки приходит из batched groupBy', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([
+          ownedRow('c1'),
+          ownedRow('c2'),
+        ]);
+        prisma.userCoursePlayProgress.groupBy
+          .mockResolvedValueOnce([
+            { userCourseId: 'c1', _count: { userCourseId: 4 } },
+            { userCourseId: 'c2', _count: { userCourseId: 1 } },
+          ]) // enrolled
+          .mockResolvedValueOnce([
+            { userCourseId: 'c1', _count: { userCourseId: 1 } },
+          ]); // completed
+
+        const r = await service.list(OWNER, { mine: true });
+
+        expect(r.data[0].stats).toEqual({
+          enrolledCount: 4,
+          completedCount: 1,
+          inProgressCount: 3,
+        });
+        expect(r.data[1].stats).toEqual({
+          enrolledCount: 1,
+          completedCount: 0,
+          inProgressCount: 1,
+        });
+      });
+
+      it('mine=true: курс без записей прогресса → stats нулевые (не undefined)', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([ownedRow('c1')]);
+        prisma.userCoursePlayProgress.groupBy.mockResolvedValue([]);
+
+        const r = await service.list(OWNER, { mine: true });
+
+        expect(r.data[0].stats).toEqual({
+          enrolledCount: 0,
+          completedCount: 0,
+          inProgressCount: 0,
+        });
+      });
+
+      it('mine=false (публичные): stats не возвращаются для не-owner записей', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([
+          {
+            id: 'c1',
+            ownerId: 'someone-else',
+            slug: 's1',
+            title: 't',
+            description: null,
+            isPublic: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            _count: { lessons: 0 },
+          },
+        ]);
+
+        const r = await service.list(OWNER, { mine: false });
+        expect(r.data[0].stats).toBeUndefined();
+        // groupBy не должен дёргаться, если ownedIds пуст.
+        expect(prisma.userCoursePlayProgress.groupBy).not.toHaveBeenCalled();
+      });
+
+      it('mine=false с собственным курсом среди публичных → stats есть только для своих', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([
+          {
+            id: 'mine',
+            ownerId: OWNER,
+            slug: 'm',
+            title: 't',
+            description: null,
+            isPublic: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            _count: { lessons: 0 },
+          },
+          {
+            id: 'foreign',
+            ownerId: 'other',
+            slug: 'f',
+            title: 't',
+            description: null,
+            isPublic: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            _count: { lessons: 0 },
+          },
+        ]);
+        prisma.userCoursePlayProgress.groupBy
+          .mockResolvedValueOnce([
+            { userCourseId: 'mine', _count: { userCourseId: 2 } },
+          ])
+          .mockResolvedValueOnce([]);
+
+        const r = await service.list(OWNER, { mine: false });
+
+        const mine = r.data.find((d) => d.id === 'mine');
+        const foreign = r.data.find((d) => d.id === 'foreign');
+        expect(mine!.stats).toEqual({
+          enrolledCount: 2,
+          completedCount: 0,
+          inProgressCount: 2,
+        });
+        expect(foreign!.stats).toBeUndefined();
+      });
+
+      it('батч: ровно 2 groupBy, независимо от числа курсов', async () => {
+        prisma.userCourse.findMany.mockResolvedValue([
+          ownedRow('c1'),
+          ownedRow('c2'),
+          ownedRow('c3'),
+          ownedRow('c4'),
+          ownedRow('c5'),
+        ]);
+        prisma.userCoursePlayProgress.groupBy.mockResolvedValue([]);
+
+        await service.list(OWNER, { mine: true });
+
+        expect(prisma.userCoursePlayProgress.groupBy).toHaveBeenCalledTimes(2);
+      });
     });
   });
 
@@ -141,6 +279,96 @@ describe('UserCoursesService (KS-1829)', () => {
       prisma.userCoursePlayProgress.findUnique.mockResolvedValue(null);
       const r = await service.getBySlug(OWNER, 's');
       expect(r.progress).toBeNull();
+    });
+
+    // ─── KS-1885: stats для автора ───────────────────────────────
+    describe('stats для автора (KS-1885)', () => {
+      const ownerCourseRow = (overrides: Partial<{ ownerId: string }> = {}) => ({
+        id: 'c1',
+        ownerId: OWNER,
+        slug: 's',
+        title: 't',
+        description: null,
+        isPublic: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        _count: { lessons: 0 },
+        lessons: [],
+        ...overrides,
+      });
+
+      // Gherkin: «Автор смотрит свой курс»
+      it('owner получает stats { enrolledCount, completedCount, inProgressCount }', async () => {
+        prisma.userCourse.findUnique.mockResolvedValue(ownerCourseRow());
+        prisma.userCoursePlayProgress.findUnique.mockResolvedValue(null);
+        // 5 enrolled, 2 completed → 3 in-progress.
+        prisma.userCoursePlayProgress.count
+          .mockResolvedValueOnce(5)  // enrolled
+          .mockResolvedValueOnce(2); // completed
+
+        const r = await service.getBySlug(OWNER, 's');
+
+        expect(r.course.stats).toEqual({
+          enrolledCount: 5,
+          completedCount: 2,
+          inProgressCount: 3,
+        });
+      });
+
+      // Gherkin: «Не-автор смотрит публичный курс»
+      it('не-owner на публичный курс → stats отсутствует', async () => {
+        prisma.userCourse.findUnique.mockResolvedValue(ownerCourseRow());
+        prisma.userCoursePlayProgress.findUnique.mockResolvedValue(null);
+
+        const r = await service.getBySlug('some-student', 's');
+
+        expect(r.course.stats).toBeUndefined();
+        // count для stats не должен дёргаться — защита от утечек агрегатов.
+        expect(prisma.userCoursePlayProgress.count).not.toHaveBeenCalled();
+      });
+
+      it('owner с пустым курсом → stats нули', async () => {
+        prisma.userCourse.findUnique.mockResolvedValue(ownerCourseRow());
+        prisma.userCoursePlayProgress.findUnique.mockResolvedValue(null);
+        prisma.userCoursePlayProgress.count
+          .mockResolvedValueOnce(0)
+          .mockResolvedValueOnce(0);
+
+        const r = await service.getBySlug(OWNER, 's');
+
+        expect(r.course.stats).toEqual({
+          enrolledCount: 0,
+          completedCount: 0,
+          inProgressCount: 0,
+        });
+      });
+
+      it('count-запросы используют where: { userCourseId } (по индексу)', async () => {
+        prisma.userCourse.findUnique.mockResolvedValue(ownerCourseRow());
+        prisma.userCoursePlayProgress.findUnique.mockResolvedValue(null);
+        prisma.userCoursePlayProgress.count.mockResolvedValue(0);
+
+        await service.getBySlug(OWNER, 's');
+
+        const calls = prisma.userCoursePlayProgress.count.mock.calls;
+        expect(calls[0][0]).toEqual({ where: { userCourseId: 'c1' } });
+        expect(calls[1][0]).toEqual({
+          where: { userCourseId: 'c1', completedAt: { not: null } },
+        });
+      });
+
+      it('inProgressCount = max(enrolled - completed, 0) — clamp от рассинхрона', async () => {
+        // Если completed > enrolled (теоретически невозможно — completed
+        // is a subset, но защищаемся от рассинхрона миграций).
+        prisma.userCourse.findUnique.mockResolvedValue(ownerCourseRow());
+        prisma.userCoursePlayProgress.findUnique.mockResolvedValue(null);
+        prisma.userCoursePlayProgress.count
+          .mockResolvedValueOnce(2)  // enrolled
+          .mockResolvedValueOnce(5); // completed (impossible, but clamp)
+
+        const r = await service.getBySlug(OWNER, 's');
+        expect(r.course.stats?.inProgressCount).toBe(0);
+      });
     });
   });
 
