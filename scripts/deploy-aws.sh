@@ -43,6 +43,37 @@
 #   3. Сломанная revision остаётся как артефакт. Почистить при желании:
 #        aws ecs deregister-task-definition --task-definition "${FAM}:${REV}"
 # =====================================================================
+#
+# =====================================================================
+# KS-1897: archive-service — несколько task-def family на одном образе
+# =====================================================================
+# Образ kingside-archive-service используется четырьмя task-def family:
+#   - kingside-archive-service           — ECS service (HTTP, /tree)
+#   - kingside-archive-importer          — наследие ADR-019 (нет потребителя)
+#   - kingside-archive-importer-oneshot  — EventBridge daily (kingside-archive-importer-daily)
+#   - kingside-archive-importer-adhoc    — adhoc batch / dev (manual aws ecs run-task)
+#
+# До KS-1897 deploy-pipeline обновлял revision только для тех family, у которых
+# есть ECS service (`update-service` ветка). Остальные оставались на :latest и
+# полагались на Fargate fresh-pull. Минусы:
+#   1. Изменения env/secrets/CPU/memory в task-def-шаблоне не доходили до
+#      EventBridge и adhoc-запусков до явного manual register-task-definition.
+#   2. Если atomic put-image :latest падал на полпути, отката на pinned SHA
+#      не было — task-def указывал на :latest без revision-фоллбэка.
+#   3. Расхождение текущих task-def шаблонов с шаблоном HTTP-сервиса.
+#
+# С KS-1897 на каждом scope=archive-service деплое:
+#   а) Регистрируем новый revision для каждой из ARCHIVE_TD_FAMILIES с image=:<sha>
+#      (идемпотентно: если последний revision уже на нужном image, повторно
+#      не регистрируем).
+#   б) Обновляем EventBridge Schedule kingside-archive-importer-daily на ARN
+#      свежего oneshot-revision.
+#   в) ECS update-service по-прежнему запускается только для существующих
+#      ACTIVE сервисов (архитектурно сейчас это только HTTP).
+#   г) Атомарный move :latest → :<sha> делается ПОСЛЕ всех регистраций и
+#      успешных gate'ов (migrate / services-stable / smoke). Pinned SHA в
+#      task-def family даёт фоллбэк, если :latest развалится.
+# =====================================================================
 
 set -euo pipefail
 
@@ -72,6 +103,18 @@ TD_FAMILY_GAME="kingside-game-service"
 TD_FAMILY_BROADCAST_SERVICE="kingside-broadcast-service"
 TD_FAMILY_ARCHIVE_SERVICE="kingside-archive-service"
 TD_FAMILY_ARCHIVE_IMPORTER="kingside-archive-importer"
+# KS-1897: все task-def family использующие образ kingside-archive-service.
+# Регистрируются на pinned SHA при каждом scope=archive-service деплое
+# (см. шапку файла, секцию KS-1897).
+ARCHIVE_TD_FAMILIES=(
+    "kingside-archive-service"            # ECS service (HTTP, /tree)
+    "kingside-archive-importer"           # legacy ADR-019, нет потребителя (см. C-следствие KS-1897)
+    "kingside-archive-importer-oneshot"   # EventBridge schedule kingside-archive-importer-daily
+    "kingside-archive-importer-adhoc"     # adhoc batch / dev (manual aws ecs run-task)
+)
+# EventBridge Scheduler, таргетящий kingside-archive-importer-oneshot.
+# После регистрации новой revision oneshot обновляем target ARN расписания.
+ES_SCHEDULE_ARCHIVE_DAILY="kingside-archive-importer-daily"
 # ADR-021: отдельный сервис для REST+WS broadcasts на broadcasts.kingside.site.
 # ADR-022 (KS-1709): kingside-broadcast-worker удалён, sync-цикл выполняется внутри broadcast-service.
 ECS_SERVICE_BROADCAST_SERVICE="kingside-broadcast-service"
@@ -191,6 +234,57 @@ register_new_task_def_with_image() {
     aws ecs register-task-definition --cli-input-json "file://$tmp" \
         --query 'taskDefinition.taskDefinitionArn' --output text
     rm -f "$tmp"
+}
+
+# KS-1897: идемпотентная обёртка над register_new_task_def_with_image.
+# Если последний active revision указанной family уже использует целевой image
+# (например, повторный запуск deploy на том же SHA), не создаёт лишний revision —
+# возвращает ARN существующего. Иначе регистрирует новый и возвращает его ARN.
+# Это нужно чтобы дeploy archive-service был идемпотентным по всем
+# ARCHIVE_TD_FAMILIES без накопления одинаковых revision'ов.
+register_or_get_task_def() {
+    local family=$1
+    local new_image=$2
+    local current_image current_arn
+    current_image=$(aws ecs describe-task-definition --task-definition "$family" \
+        --query 'taskDefinition.containerDefinitions[0].image' --output text 2>/dev/null || echo "")
+    if [ -n "$current_image" ] && [ "$current_image" = "$new_image" ]; then
+        current_arn=$(aws ecs describe-task-definition --task-definition "$family" \
+            --query 'taskDefinition.taskDefinitionArn' --output text 2>/dev/null || echo "")
+        if [ -n "$current_arn" ] && [ "$current_arn" != "None" ]; then
+            echo "$current_arn"
+            return 0
+        fi
+    fi
+    register_new_task_def_with_image "$family" "$new_image"
+}
+
+# KS-1897: переключает target task-def у EventBridge Scheduler на новую revision.
+# AWS Scheduler требует полный объект расписания на update-schedule (имя, cron,
+# FlexibleTimeWindow, Target). Получаем текущее через get-schedule, заменяем
+# Target.EcsParameters.TaskDefinitionArn, чистим read-only поля, отдаём update.
+# Идемпотентность: если ARN уже совпадает с целевым — пропускаем вызов.
+update_eventbridge_schedule_task_def() {
+    local schedule_name=$1
+    local new_td_arn=$2
+    ensure_jq
+    local current_arn
+    current_arn=$(aws scheduler get-schedule --name "$schedule_name" \
+        --query 'Target.EcsParameters.TaskDefinitionArn' --output text 2>/dev/null || echo "")
+    if [ "$current_arn" = "$new_td_arn" ]; then
+        echo "  EventBridge $schedule_name already on target revision (no-op)."
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp)
+    aws scheduler get-schedule --name "$schedule_name" --output json \
+        | jq --arg arn "$new_td_arn" '
+            .Target.EcsParameters.TaskDefinitionArn = $arn
+            | del(.Arn, .CreationDate, .LastModificationDate)
+          ' > "$tmp"
+    aws scheduler update-schedule --cli-input-json "file://$tmp" >/dev/null
+    rm -f "$tmp"
+    echo "  EventBridge $schedule_name → $new_td_arn"
 }
 
 # KS-1826: атомарно двигает `:latest` в ECR на manifest указанного тега.
@@ -568,20 +662,20 @@ if $DEPLOY_BROADCAST_SERVICE; then
 fi
 
 # --- Archive Service (apps/archive-service): docker build → ECR push под :<sha> →
-#     migrate → update ОБЕИХ revisions → services-stable → smoke → put-image :latest ---
-# ADR-019: единый образ kingside-archive-service обслуживает два ECS-сервиса:
-#   - kingside-archive-service — HTTP (node dist/main.js, порт 3003)
-#   - kingside-archive-importer — importer/scheduler (node dist/importer-main.js, порт 3004)
-# Оба используют один ECR-образ, но у каждого ECS-сервиса своя task-def family
-# (kingside-archive-service и kingside-archive-importer).
+#     register-task-def для всех ARCHIVE_TD_FAMILIES → migrate → update ECS-services →
+#     services-stable → smoke → EventBridge update → put-image :latest ---
+# ADR-019: единый образ kingside-archive-service.
+# ADR-020: importer переведён с continuous ECS-service на EventBridge Schedule.
+# KS-1897: на проде используются 4 task-def family с этим образом — все обновляем.
 #
-# KS-1826: регистрируем новые revisions для ОБЕИХ family (HTTP и importer), чтобы
-# оба сервиса переехали на один и тот же тестируемый :<sha>. Двигаем :latest в ECR
-# только после того как HTTP-rollout стал stable И smoke /tree прошёл.
-# Importer-сервис тоже update-service'им: он запущен continuously и тянет новые
-# digests; если мы оставим его на прежней task-def с image=:latest, то в момент
-# между put-image :latest и следующим force-new-deployment importer окажется
-# рассинхронизирован с HTTP. Явно прописываем image=:<sha> и перекатываем оба.
+# Семантика по семействам:
+#   - kingside-archive-service           — ECS service (HTTP, /tree). update-service.
+#   - kingside-archive-importer          — наследие; никем не используется. Только
+#                                          register revision (синхронно с другими).
+#   - kingside-archive-importer-oneshot  — EventBridge daily target. После
+#                                          register обновляем target ARN расписания.
+#   - kingside-archive-importer-adhoc    — adhoc batch / dev (ручной aws ecs run-task,
+#                                          подхватывает свежий :latest). Только register.
 if $DEPLOY_ARCHIVE_SERVICE; then
     NEW_IMAGE="${ECR_URI_ARCHIVE_SERVICE}:${DEPLOY_SHA}"
 
@@ -603,21 +697,31 @@ if $DEPLOY_ARCHIVE_SERVICE; then
         --cluster "$ECS_CLUSTER" --services "$ECS_SERVICE_ARCHIVE_IMPORTER" \
         --query 'services[0].status' --output text 2>/dev/null || echo "MISSING")
 
-    NEW_TD_HTTP_ARN=""
-    NEW_TD_IMPORTER_ARN=""
+    # KS-1897: регистрируем новый revision для каждой ARCHIVE_TD_FAMILIES
+    # независимо от наличия ECS service у family. ECS update-service ниже
+    # запускается только для существующих ACTIVE сервисов — а EventBridge и
+    # adhoc просто получают свежий task-def и тянут pinned :<sha>.
+    declare -A NEW_TD_ARNS
+    for fam in "${ARCHIVE_TD_FAMILIES[@]}"; do
+        echo "[archive-service] Registering task-def revision ($fam) with image=:${DEPLOY_SHA}..."
+        NEW_TD_ARNS[$fam]=$(register_or_get_task_def "$fam" "$NEW_IMAGE")
+        if [ -z "${NEW_TD_ARNS[$fam]}" ] || [ "${NEW_TD_ARNS[$fam]}" = "None" ]; then
+            echo "  ERROR: failed to register task-def for $fam. Aborting deploy."
+            echo "  :latest NOT moved — остаётся на предыдущем удачном digest."
+            exit 1
+        fi
+        echo "  task-def: ${NEW_TD_ARNS[$fam]}"
+    done
+
+    NEW_TD_HTTP_ARN="${NEW_TD_ARNS[$TD_FAMILY_ARCHIVE_SERVICE]}"
+    NEW_TD_IMPORTER_ARN="${NEW_TD_ARNS[$TD_FAMILY_ARCHIVE_IMPORTER]}"
 
     if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
-        echo "[archive-service] Registering new task-def revision ($TD_FAMILY_ARCHIVE_SERVICE) with image=:${DEPLOY_SHA}..."
-        NEW_TD_HTTP_ARN=$(register_new_task_def_with_image "$TD_FAMILY_ARCHIVE_SERVICE" "$NEW_IMAGE")
-        echo "  task-def: $NEW_TD_HTTP_ARN"
-
         # KS-1822: Prisma migrations для archive-db (отдельная БД archive_kingside,
-        # ADR-018). До KS-1822 миграции этой БД не катились автоматически — повторение
-        # инцидента 24.04 с broadcasts-db было только делом времени. Шаг симметричен
-        # api- и broadcast-service-блокам (KS-1817).
-        # Одного migrate-таска достаточно на оба ECS-сервиса: archive-service и
-        # archive-importer используют один образ и одну БД (ADR-019).
-        echo "[archive-service] Running Prisma migrations (archive-db) on new revision..."
+        # ADR-018). Симметрично api- и broadcast-service-блокам (KS-1817).
+        # Одного migrate-таска достаточно: все archive task-def family ездят на
+        # одном образе и работают с одной БД (ADR-019).
+        echo "[archive-service] Running Prisma migrations (archive-db) on new HTTP revision..."
         ensure_migrate_network
         MIGRATE_TASK=$(aws ecs run-task \
             --cluster "$ECS_CLUSTER" --task-definition "$NEW_TD_HTTP_ARN" --launch-type FARGATE \
@@ -637,14 +741,11 @@ if $DEPLOY_ARCHIVE_SERVICE; then
         echo "[archive-service] HTTP service not ACTIVE (status=$ARCHIVE_SVC_STATUS) — skipping migrate step."
     fi
 
-    if [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ]; then
-        echo "[archive-service] Registering new task-def revision ($TD_FAMILY_ARCHIVE_IMPORTER) with image=:${DEPLOY_SHA}..."
-        NEW_TD_IMPORTER_ARN=$(register_new_task_def_with_image "$TD_FAMILY_ARCHIVE_IMPORTER" "$NEW_IMAGE")
-        echo "  task-def: $NEW_TD_IMPORTER_ARN"
-    fi
-
-    # Rolling update обоих ECS-сервисов на свои новые revisions.
-    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ] && [ -n "$NEW_TD_HTTP_ARN" ]; then
+    # Rolling update ECS-сервисов. Сейчас ACTIVE только HTTP-сервис; importer-сервис
+    # MISSING после ADR-020 (заменён EventBridge Scheduler). Логика update-service
+    # оставлена условной для обратной совместимости — если importer-сервис когда-нибудь
+    # вернётся continuous, его revision уже зарегистрирован выше.
+    if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
         echo "[archive-service] Updating ECS service $ECS_SERVICE_ARCHIVE_SERVICE to new revision..."
         aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_ARCHIVE_SERVICE" \
             --task-definition "$NEW_TD_HTTP_ARN" \
@@ -654,14 +755,14 @@ if $DEPLOY_ARCHIVE_SERVICE; then
         echo "[archive-service] ECS service '$ECS_SERVICE_ARCHIVE_SERVICE' not found (status=$ARCHIVE_SVC_STATUS). Skipping."
     fi
 
-    if [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ] && [ -n "$NEW_TD_IMPORTER_ARN" ]; then
+    if [ "$ARCHIVE_IMPORTER_STATUS" = "ACTIVE" ]; then
         echo "[archive-service] Updating ECS service $ECS_SERVICE_ARCHIVE_IMPORTER to new revision..."
         aws ecs update-service --cluster "$ECS_CLUSTER" --service "$ECS_SERVICE_ARCHIVE_IMPORTER" \
             --task-definition "$NEW_TD_IMPORTER_ARN" \
             --force-new-deployment --query 'service.deployments[0].status' --output text
         echo "  ECS service $ECS_SERVICE_ARCHIVE_IMPORTER update initiated."
     else
-        echo "[archive-service] ECS service '$ECS_SERVICE_ARCHIVE_IMPORTER' not found (status=$ARCHIVE_IMPORTER_STATUS). Skipping."
+        echo "[archive-service] ECS service '$ECS_SERVICE_ARCHIVE_IMPORTER' not found (status=$ARCHIVE_IMPORTER_STATUS). Skipping update-service."
     fi
 
     # KS-1822: post-deploy smoke-gate. `GET /tree?fen=<startpos>` реально трогает
@@ -699,6 +800,20 @@ if $DEPLOY_ARCHIVE_SERVICE; then
             exit 1
         fi
         echo "  Importer rollout stable."
+    fi
+
+    # KS-1897: переключаем EventBridge Scheduler kingside-archive-importer-daily
+    # на новый revision oneshot-family. Делается ПОСЛЕ smoke /tree — если HTTP
+    # rollout развалился, scheduler остаётся на прежнем revision и завтрашний
+    # запуск пойдёт со стабильного образа.
+    ONESHOT_NEW_ARN="${NEW_TD_ARNS[kingside-archive-importer-oneshot]:-}"
+    if [ -n "$ONESHOT_NEW_ARN" ]; then
+        echo "[archive-service] Updating EventBridge Scheduler $ES_SCHEDULE_ARCHIVE_DAILY to new oneshot revision..."
+        if ! update_eventbridge_schedule_task_def "$ES_SCHEDULE_ARCHIVE_DAILY" "$ONESHOT_NEW_ARN"; then
+            echo "  ERROR: EventBridge update failed. :latest NOT moved."
+            echo "  Schedule осталась на прежнем revision; завтрашний запуск пойдёт со старого образа."
+            exit 1
+        fi
     fi
 
     # Все gate'ы archive-service'а прошли → атомарно двигаем :latest.
