@@ -125,9 +125,9 @@ export function UserCoursePage() {
             data-testid="user-course-progress"
           >
             {t('lessons.my.progress', {
+              count: course.lessonCount,
               done: progress.completedLessonsCount,
-              total: course.lessonCount,
-              defaultValue: 'Completed {{done}}/{{total}} lessons',
+              defaultValue: 'Completed {{done}}/{{count}} lessons',
             })}
           </p>
         )}

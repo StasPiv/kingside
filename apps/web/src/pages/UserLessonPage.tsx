@@ -211,10 +211,10 @@ export function UserLessonPage() {
         <h1 data-testid="user-lesson-title">{lesson.title}</h1>
         <div className="user-lesson-page__progress" data-testid="user-lesson-progress">
           {t('lessons.progressFull', {
-            done: progress.doneCount,
+            completed: progress.doneCount,
             total: progress.totalSteps,
             percent: donePercent,
-            defaultValue: '{{done}}/{{total}} steps ({{percent}}%)',
+            defaultValue: '{{completed}}/{{total}} ({{percent}}%)',
           })}
         </div>
       </header>
