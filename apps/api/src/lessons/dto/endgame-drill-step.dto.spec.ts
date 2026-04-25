@@ -206,6 +206,34 @@ describe('EndgameDrillStepPayloadDto (KS-1815)', () => {
     expect(errors.some((m) => m.startsWith('winCondition:'))).toBe(true);
   });
 
+  // KS-1877: частая ошибка клиента — прислать строковый литерал.
+  // shared-тип `EndgameWinCondition` — объект-union по `kind`; строка
+  // не валидна и должна давать читабельное сообщение про ожидаемую форму.
+  it('winCondition как строка ("mate") → ошибка с подсказкой про { kind }', async () => {
+    const errors = await validatePayload({
+      type: 'endgame_drill',
+      fen: VALID_FEN,
+      playerSide: 'white',
+      skillLevel: 5,
+      winCondition: 'mate' as unknown as { kind: 'mate' },
+    });
+    expect(errors.some((m) => m.startsWith('winCondition:'))).toBe(true);
+    const wcMsg = errors.find((m) => m.startsWith('winCondition:')) ?? '';
+    expect(wcMsg).toContain('object');
+    expect(wcMsg).toContain('kind');
+  });
+
+  it('winCondition как массив → ошибка', async () => {
+    const errors = await validatePayload({
+      type: 'endgame_drill',
+      fen: VALID_FEN,
+      playerSide: 'white',
+      skillLevel: 5,
+      winCondition: ['mate'] as unknown as { kind: 'mate' },
+    });
+    expect(errors.some((m) => m.startsWith('winCondition:'))).toBe(true);
+  });
+
   it('winCondition.kind неизвестен → ошибка', async () => {
     const errors = await validatePayload({
       type: 'endgame_drill',

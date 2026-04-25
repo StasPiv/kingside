@@ -47,8 +47,17 @@ export function validateEndgameWinCondition(
   path = 'winCondition',
 ): EndgameValidationResult {
   const errors: EndgameValidationResult['errors'] = [];
-  if (!wc || typeof wc !== 'object') {
-    errors.push({ path, message: 'winCondition must be an object' });
+  if (!wc || typeof wc !== 'object' || Array.isArray(wc)) {
+    // KS-1877: частая ошибка клиента — прислать строковый литерал
+    // (`winCondition: 'mate'`) вместо объекта. В сообщении явно
+    // показываем ожидаемую форму и список допустимых kind'ов, чтобы
+    // автор запроса понял, что чинить, без чтения исходников DTO.
+    errors.push({
+      path,
+      message:
+        'winCondition must be an object with discriminator field "kind" ' +
+        '(e.g. { kind: "mate" }). Allowed kinds: mate | promote | reach_position | material_advantage',
+    });
     return { ok: false, errors };
   }
   const obj = wc as Record<string, unknown>;
