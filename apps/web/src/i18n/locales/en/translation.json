@@ -1481,6 +1481,9 @@
       "date": "on {{date}}",
       "shortBadge": "Done"
     },
+    "enrolled": {
+      "title": "Courses I'm taking"
+    },
     "review": {
       "banner": "Review mode — go through the lesson again.",
       "finishReview": "Finish review",

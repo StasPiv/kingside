@@ -12,6 +12,7 @@ import type {
   UserCourseListResponse,
   UserCoursePlayProgressDto,
   UserCourseWithLessonsResponse,
+  UserEnrolledCoursesListResponse,
   UserLessonDto,
   UserLessonPlayProgressDto,
   UserLessonStepDto,
@@ -69,6 +70,17 @@ export const userCoursesApi = {
   list(params?: ListUserCoursesParams): Promise<UserCourseListResponse> {
     const qs = toQueryString({ scope: params?.scope });
     return api.get<UserCourseListResponse>(`${BASE}/user-courses${qs}`);
+  },
+
+  /**
+   * GET /api/lessons/user-courses/enrolled — курсы, которые юзер
+   * проходит (или прошёл), но НЕ владеет ими (KS-1889 / KS-1890).
+   * DTO включает `progress` сразу, без N+1.
+   */
+  listEnrolled(): Promise<UserEnrolledCoursesListResponse> {
+    return api.get<UserEnrolledCoursesListResponse>(
+      `${BASE}/user-courses/enrolled`,
+    );
   },
 
   /** GET /api/lessons/user-courses/:slug — курс + уроки + прогресс. */

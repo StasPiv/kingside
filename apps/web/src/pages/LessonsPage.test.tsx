@@ -26,6 +26,12 @@ vi.mock('../components/lessons/MyCoursesBlock', () => ({
   MyCoursesBlock: () => <div data-testid="my-courses-block-mock" />,
 }));
 
+// KS-1890: то же для нового блока «Курсы, которые я прохожу» —
+// собственный тест в `components/lessons/EnrolledCoursesBlock.test.tsx`.
+vi.mock('../components/lessons/EnrolledCoursesBlock', () => ({
+  EnrolledCoursesBlock: () => <div data-testid="enrolled-courses-block-mock" />,
+}));
+
 beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
   mockLessonsApi.getLevelGate.mockReset();

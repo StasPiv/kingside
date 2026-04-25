@@ -13,6 +13,7 @@ import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
 import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
 import { MistakesDiaryBlock } from '../components/lessons/MistakesDiaryBlock';
 import { MyCoursesBlock } from '../components/lessons/MyCoursesBlock';
+import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -134,6 +135,10 @@ export function LessonsPage() {
 
       {/* KS-1840: блок «Мои курсы» между LevelGateBanner и системными курсами. */}
       <MyCoursesBlock />
+
+      {/* KS-1890: блок «Курсы, которые я прохожу» — чужие enrolled-not-owned
+          курсы. Скрывается, если список пуст. */}
+      <EnrolledCoursesBlock />
 
       {loading && (
         <div className="loading" data-testid="lessons-loading">
