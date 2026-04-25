@@ -140,4 +140,48 @@ describe('<CommunityStripBlock>', () => {
       screen.queryByTestId('community-strip-block'),
     ).not.toBeInTheDocument();
   });
+
+  // ─── KS-1924: skeleton + анти-flicker ─────────────────────────────
+
+  it('skeleton не показывается, если данные пришли быстрее 200мс', async () => {
+    apiMock.listLatest.mockResolvedValueOnce({ data: [mkCourse()] });
+    renderRouter();
+    await waitFor(() =>
+      expect(screen.getByTestId('community-strip-block')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('community-strip-skeleton'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('skeleton показывается через ~200мс если ответ задерживается', async () => {
+    let resolve: (v: { data: import('@kingside/shared').UserCourseDto[] }) => void =
+      () => {};
+    apiMock.listLatest.mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    renderRouter();
+    // Сразу после mount skeleton ещё не успел подняться.
+    expect(
+      screen.queryByTestId('community-strip-skeleton'),
+    ).not.toBeInTheDocument();
+    // Дожидаемся подъёма флага (taймer 200мс) — реальный ход времени.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByTestId('community-strip-skeleton'),
+        ).toBeInTheDocument(),
+      { timeout: 800 },
+    );
+    // После ответа — skeleton уходит, рендерится контент.
+    resolve({ data: [mkCourse()] });
+    await waitFor(() =>
+      expect(screen.getByTestId('community-strip-block')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('community-strip-skeleton'),
+    ).not.toBeInTheDocument();
+  });
 });

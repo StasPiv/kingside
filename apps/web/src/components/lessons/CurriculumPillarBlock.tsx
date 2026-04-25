@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { CourseLevel, CourseListItem } from '@kingside/shared';
 
+import { useDelayedFlag } from '../../hooks/useDelayedFlag';
+
 /**
  * `CurriculumPillarBlock` — обёртка над системными уровневыми
  * курсами (KS-1923, ADR-031 §2): отдельный pillar L3
@@ -38,8 +40,24 @@ export function CurriculumPillarBlock({
   emptyText,
 }: CurriculumPillarBlockProps) {
   const { t } = useTranslation();
+  // KS-1924: анти-flicker. Skeleton рисуем только если loading >200мс.
+  // На быстром API сразу пропускаем сразу к `ready`.
+  const showSkeleton = useDelayedFlag(loading, 200);
 
   if (loading) {
+    if (!showSkeleton) {
+      // Маленький «пустой» плейсхолдер, чтобы не создавать layout-shift,
+      // когда данные ещё в полёте (<200мс): тот же data-state="loading",
+      // но без визуального skeleton'а.
+      return (
+        <section
+          className="curriculum-pillar-block curriculum-pillar-block--loading"
+          data-testid="curriculum-pillar-block"
+          data-state="loading"
+          aria-busy="true"
+        />
+      );
+    }
     return (
       <section
         className="curriculum-pillar-block curriculum-pillar-block--loading"

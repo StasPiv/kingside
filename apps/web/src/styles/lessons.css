@@ -5666,3 +5666,96 @@
     width: 100%;
   }
 }
+
+/* ─── KS-1924: skeleton states + lazy mount placeholders ───────────
+   Минимальные стили — финальная стилистика skeleton'ов (shimmer и
+   палитра) в KS-1925 у layout. Здесь только размеры и заглушки,
+   чтобы не было layout-shift. */
+
+.my-courses-block__grid--skeleton {
+  pointer-events: none;
+}
+
+.my-courses-block__card--skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-height: 120px;
+  background: var(--bg-card, #f1f5f9);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 10px;
+}
+
+.my-courses-block__skeleton-heading {
+  width: 30%;
+  height: 18px;
+  margin: 4px 0;
+  background: var(--bg-muted, #e2e8f0);
+  border-radius: 4px;
+}
+
+.my-courses-block__skeleton-title {
+  width: 70%;
+  height: 16px;
+  background: var(--bg-muted, #e2e8f0);
+  border-radius: 4px;
+}
+
+.my-courses-block__skeleton-line {
+  width: 100%;
+  height: 12px;
+  background: var(--bg-muted, #e2e8f0);
+  border-radius: 4px;
+}
+
+.my-courses-block__skeleton-line--short {
+  width: 50%;
+}
+
+.community-strip-block--skeleton,
+.community-strip-block--placeholder {
+  pointer-events: none;
+}
+
+.community-strip-block__list--skeleton {
+  pointer-events: none;
+}
+
+.community-strip-block__card--skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  min-width: 200px;
+  min-height: 90px;
+  background: var(--bg-card, #f1f5f9);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 10px;
+}
+
+.community-strip-block__skeleton-heading {
+  width: 30%;
+  height: 18px;
+  margin: 4px 0;
+  background: var(--bg-muted, #e2e8f0);
+  border-radius: 4px;
+}
+
+.community-strip-block__skeleton-title {
+  width: 70%;
+  height: 14px;
+  background: var(--bg-muted, #e2e8f0);
+  border-radius: 4px;
+}
+
+.community-strip-block__skeleton-line {
+  width: 100%;
+  height: 10px;
+  background: var(--bg-muted, #e2e8f0);
+  border-radius: 4px;
+}
+
+.curriculum-pillar-block--placeholder {
+  min-height: 200px;
+}

@@ -17,6 +17,7 @@ import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock
 import { LessonsHero } from '../components/lessons/LessonsHero';
 import { CommunityStripBlock } from '../components/lessons/CommunityStripBlock';
 import { CurriculumPillarBlock } from '../components/lessons/CurriculumPillarBlock';
+import { LazySection } from '../components/lessons/LazySection';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -150,20 +151,65 @@ export function LessonsPage() {
       <EnrolledCoursesBlock />
 
       {/* KS-1923 / ADR-031 §2: L3 Curriculum pillar — структурированный
-          путь Beginner → Intermediate → Advanced. */}
-      <CurriculumPillarBlock
-        groups={grouped}
-        recommendedLevel={recommendedLevel}
-        loading={loading}
-        error={error}
-        emptyText={t('lessons.empty', 'No courses available yet')}
-      />
+          путь Beginner → Intermediate → Advanced.
+          KS-1924: lazy-mount через IntersectionObserver. До пересечения
+          с viewport (rootMargin=200px) — компактный плейсхолдер той
+          же высоты, чтобы избежать layout-shift. */}
+      <LazySection
+        testId="curriculum-pillar-lazy"
+        fallback={
+          <section
+            className="curriculum-pillar-block curriculum-pillar-block--placeholder"
+            data-testid="curriculum-pillar-placeholder"
+            aria-busy="true"
+          >
+            <div className="curriculum-pillar-block__skeleton-title" />
+            <div className="curriculum-pillar-block__skeleton-row" />
+            <div className="curriculum-pillar-block__skeleton-row" />
+          </section>
+        }
+      >
+        <CurriculumPillarBlock
+          groups={grouped}
+          recommendedLevel={recommendedLevel}
+          loading={loading}
+          error={error}
+          emptyText={t('lessons.empty', 'No courses available yet')}
+        />
+      </LazySection>
 
       {/* KS-1923 / ADR-031 §3: L4 Discovery — компактная полоса
           последних public курсов с CTA «Все курсы и авторы»
           → /lessons/discover. Полные сетки LatestCoursesBlock и
-          CourseAuthorsBlock переехали туда. */}
-      <CommunityStripBlock />
+          CourseAuthorsBlock переехали туда.
+          KS-1924: lazy-mount — `userCoursesApi.listLatest` запрос
+          уходит только когда секция близка к viewport. */}
+      <LazySection
+        testId="community-strip-lazy"
+        fallback={
+          <section
+            className="community-strip-block community-strip-block--placeholder"
+            data-testid="community-strip-placeholder"
+            aria-busy="true"
+          >
+            <div className="community-strip-block__skeleton-heading" />
+            <ul className="community-strip-block__list community-strip-block__list--skeleton">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <li
+                  key={i}
+                  className="community-strip-block__card community-strip-block__card--skeleton"
+                  aria-hidden="true"
+                >
+                  <div className="community-strip-block__skeleton-title" />
+                  <div className="community-strip-block__skeleton-line" />
+                </li>
+              ))}
+            </ul>
+          </section>
+        }
+      >
+        <CommunityStripBlock />
+      </LazySection>
     </div>
   );
 }

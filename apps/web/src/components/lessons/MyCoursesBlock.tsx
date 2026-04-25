@@ -8,6 +8,7 @@ import type {
 
 import { userCoursesApi } from '../../api/userCoursesApi';
 import { useAuth } from '../../context/AuthContext';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 
 /**
  * `MyCoursesBlock` — блок «Мои курсы» на странице `/lessons`
@@ -115,6 +116,10 @@ export function MyCoursesBlock() {
 
   const isEmpty = courses !== null && courses.length === 0;
   const isLoading = courses === null;
+  // KS-1924: анти-flicker. Skeleton рисуем только если загрузка
+  // длится >200мс — иначе пользователь увидит «вспышку» перед
+  // настоящим контентом.
+  const showSkeleton = useDelayedFlag(isLoading, 200);
 
   return (
     <section
@@ -147,10 +152,24 @@ export function MyCoursesBlock() {
         </p>
       )}
 
-      {isLoading && (
-        <div className="my-courses-block__loading" data-testid="my-courses-loading">
-          {t('common.loading')}
-        </div>
+      {isLoading && showSkeleton && (
+        <ul
+          className="my-courses-block__grid my-courses-block__grid--skeleton"
+          data-testid="my-courses-skeleton"
+          aria-busy="true"
+        >
+          {[0, 1, 2].map((i) => (
+            <li
+              key={i}
+              className="my-courses-block__card my-courses-block__card--skeleton"
+              aria-hidden="true"
+            >
+              <div className="my-courses-block__skeleton-title" />
+              <div className="my-courses-block__skeleton-line" />
+              <div className="my-courses-block__skeleton-line my-courses-block__skeleton-line--short" />
+            </li>
+          ))}
+        </ul>
       )}
 
       {isEmpty && (

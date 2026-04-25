@@ -5,6 +5,7 @@ import type { UserCourseDto } from '@kingside/shared';
 
 import { userCoursesApi } from '../../api/userCoursesApi';
 import { useAuth } from '../../context/AuthContext';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 
 /**
  * `CommunityStripBlock` — компактная горизонтальная полоса
@@ -63,8 +64,44 @@ export function CommunityStripBlock() {
     return courses.filter((c) => c.ownerId !== user.id);
   }, [courses, user]);
 
+  // KS-1924: анти-flicker. Skeleton-полоса видна только если данные
+  // грузятся дольше 200мс — на быстром API сразу пропускаем.
+  const isLoading = filtered === null;
+  const showSkeleton = useDelayedFlag(isLoading, 200);
+
   if (errored) return null;
-  if (filtered === null || filtered.length === 0) return null;
+
+  if (isLoading) {
+    if (!showSkeleton) return null;
+    return (
+      <section
+        className="community-strip-block community-strip-block--skeleton"
+        data-testid="community-strip-skeleton"
+        aria-busy="true"
+        aria-label={t('lessons.community.title', 'New from community')}
+      >
+        <header className="community-strip-block__header">
+          <div className="community-strip-block__skeleton-heading" />
+        </header>
+        <ul
+          className="community-strip-block__list community-strip-block__list--skeleton"
+        >
+          {[0, 1, 2, 3, 4].map((i) => (
+            <li
+              key={i}
+              className="community-strip-block__card community-strip-block__card--skeleton"
+              aria-hidden="true"
+            >
+              <div className="community-strip-block__skeleton-title" />
+              <div className="community-strip-block__skeleton-line" />
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+
+  if (filtered.length === 0) return null;
 
   return (
     <section

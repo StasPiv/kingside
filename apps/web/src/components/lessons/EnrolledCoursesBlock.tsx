@@ -5,6 +5,7 @@ import type { UserEnrolledCourseDto } from '@kingside/shared';
 
 import { userCoursesApi } from '../../api/userCoursesApi';
 import { useAuth } from '../../context/AuthContext';
+import { useDelayedFlag } from '../../hooks/useDelayedFlag';
 
 /**
  * `EnrolledCoursesBlock` — блок «Курсы, которые я прохожу» на странице
@@ -64,15 +65,51 @@ export function EnrolledCoursesBlock() {
     };
   }, [user]);
 
+  // KS-1924: анти-flicker. Skeleton показываем только при долгой
+  // загрузке (>200мс). Если данные пришли быстро — никакой вспышки.
+  const isLoading = courses === null;
+  const showSkeleton = useDelayedFlag(isLoading && !!user, 200);
+
   // Гости не видят блок.
   if (!user) return null;
 
   // Тихо: ошибка не должна прятать соседние блоки на /lessons.
   if (errored) return null;
 
-  // Скрываем блок до первого ответа (loading) и при пустом списке —
-  // не плодим лишний UI (DoD).
-  if (courses === null || courses.length === 0) return null;
+  // Skeleton-state (только если ждём долго): три карточки-плейсхолдера.
+  if (isLoading) {
+    if (!showSkeleton) return null;
+    return (
+      <section
+        className="my-courses-block my-courses-block--skeleton"
+        data-testid="enrolled-courses-skeleton"
+        aria-busy="true"
+        aria-label={t('lessons.enrolled.title', "Courses I'm taking")}
+      >
+        <header className="my-courses-block__header">
+          <div className="my-courses-block__skeleton-heading" />
+        </header>
+        <ul
+          className="my-courses-block__grid my-courses-block__grid--skeleton"
+        >
+          {[0, 1, 2].map((i) => (
+            <li
+              key={i}
+              className="my-courses-block__card my-courses-block__card--skeleton"
+              aria-hidden="true"
+            >
+              <div className="my-courses-block__skeleton-title" />
+              <div className="my-courses-block__skeleton-line" />
+              <div className="my-courses-block__skeleton-line my-courses-block__skeleton-line--short" />
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
+
+  // Пустой список — блок не нужен (DoD).
+  if (courses.length === 0) return null;
 
   return (
     <section

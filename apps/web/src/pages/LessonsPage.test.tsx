@@ -44,6 +44,15 @@ vi.mock('../components/lessons/CommunityStripBlock', () => ({
   CommunityStripBlock: () => <div data-testid="community-strip-block-mock" />,
 }));
 
+// KS-1924: LazySection использует IntersectionObserver. В happy-dom IO
+// отсутствует — без стаба секции остаются в `pending` и нижние блоки
+// не рендерятся. Для тестов LessonsPage заменяем LazySection на
+// прозрачную обёртку, которая всегда рендерит children. Поведение
+// самой LazySection покрыто отдельно в `components/lessons/LazySection.test.tsx`.
+vi.mock('../components/lessons/LazySection', () => ({
+  LazySection: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
   mockLessonsApi.getLevelGate.mockReset();
