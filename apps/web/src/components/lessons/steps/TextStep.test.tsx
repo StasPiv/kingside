@@ -185,6 +185,59 @@ describe('<TextStep>', () => {
     expect(onStepDone).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * KS-1891: при повторном открытии завершённого урока кнопка «Далее»
+   * показывает «Done ✓» и получает класс-модификатор --done. Click
+   * сохранён — markStep идемпотентен (KS-1879).
+   */
+  it('KS-1891 — stepState=done → кнопка «Done ✓» с классом --done', () => {
+    renderWithProviders(
+      <TextStep
+        payload={{ type: 'text', bodyMarkdown: 'Already passed' }}
+        stepState="done"
+      />,
+    );
+    const btn = screen.getByTestId('lesson-text-step-next');
+    expect(btn.textContent).toContain('Done');
+    expect(btn.className).toContain('lesson-text-step__next--done');
+    expect(btn.getAttribute('data-step-state')).toBe('done');
+  });
+
+  it('KS-1891 — stepState=pending → обычная кнопка «Next», без --done', () => {
+    renderWithProviders(
+      <TextStep
+        payload={{ type: 'text', bodyMarkdown: 'Fresh' }}
+        stepState="pending"
+      />,
+    );
+    const btn = screen.getByTestId('lesson-text-step-next');
+    expect(btn.textContent).toContain('Next');
+    expect(btn.className).not.toContain('--done');
+  });
+
+  it('KS-1891 — stepState отсутствует (back-compat) → обычная кнопка', () => {
+    renderWithProviders(
+      <TextStep payload={{ type: 'text', bodyMarkdown: 'Legacy' }} />,
+    );
+    const btn = screen.getByTestId('lesson-text-step-next');
+    expect(btn.textContent).toContain('Next');
+    expect(btn.className).not.toContain('--done');
+    expect(btn.getAttribute('data-step-state')).toBe('pending');
+  });
+
+  it('KS-1891 — повторный клик по done-кнопке всё равно вызывает onStepDone (idempotent)', () => {
+    const onStepDone = vi.fn();
+    renderWithProviders(
+      <TextStep
+        payload={{ type: 'text', bodyMarkdown: 'Done' }}
+        stepState="done"
+        onStepDone={onStepDone}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('lesson-text-step-next'));
+    expect(onStepDone).toHaveBeenCalledTimes(1);
+  });
+
   it('hideNext скрывает кнопку «Далее»', () => {
     renderWithProviders(
       <TextStep

@@ -1198,6 +1198,7 @@
     "stepNotImplemented": "“{{type}}” steps will be available soon",
     "stepUnknown": "Unknown step type",
     "next": "Next",
+    "stepDone": "Done ✓",
     "skip": "Skip",
     "videoContinue": "Continue",
     "videoInvalid": "This video link is not supported (only YouTube and Vimeo are allowed)",

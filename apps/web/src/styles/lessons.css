@@ -2027,6 +2027,22 @@
   cursor: not-allowed;
 }
 
+/* KS-1891: визуальный признак "уже пройдено" на кнопке «Далее» в
+   TextStep при повторном открытии завершённого урока. Сохраняем
+   кликабельность (markStep идемпотентен), но визуально пассивный. */
+.lesson-text-step__next--done {
+  background: var(--bg-elevated);
+  border-color: var(--border-mid);
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.lesson-text-step__next--done:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-mid);
+  color: var(--text-primary);
+}
+
 /* "Вторичные" кнопки — retry у квиза: outline */
 .lesson-quiz-step__retry {
   background: transparent;

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TextStepPayload } from '@kingside/shared';
+import type { LessonStepState, TextStepPayload } from '@kingside/shared';
 
 import { MemoChessboard } from '../../MemoChessboard';
 import { renderMarkdown } from '../../../utils/simpleMarkdown';
@@ -219,6 +219,14 @@ interface TextStepProps {
   diagramSize?: number;
   /** Скрыть кнопку «Далее» (например, для последнего шага без перехода). */
   hideNext?: boolean;
+  /**
+   * Текущее состояние шага (KS-1891). Если `done`, кнопка
+   * «Далее» переключается в визуально пассивный вид «Пройдено ✓»
+   * — пользователю наглядно видно что шаг уже зачтён. Клик
+   * остаётся (markStep идемпотентен — KS-1879). Для остальных
+   * состояний / `undefined` — обычный active-стиль как раньше.
+   */
+  stepState?: LessonStepState;
 }
 
 export function TextStep({
@@ -226,8 +234,10 @@ export function TextStep({
   onStepDone,
   diagramSize = 320,
   hideNext = false,
+  stepState,
 }: TextStepProps) {
   const { t } = useTranslation();
+  const isDone = stepState === 'done';
 
   const segments = useMemo(() => parseTextStepSegments(payload), [payload]);
 
@@ -309,11 +319,19 @@ export function TextStep({
         <div className="lesson-text-step__actions">
           <button
             type="button"
-            className="lesson-text-step__next"
+            className={`lesson-text-step__next${isDone ? ' lesson-text-step__next--done' : ''}`}
             data-testid="lesson-text-step-next"
+            data-step-state={stepState ?? 'pending'}
+            aria-label={
+              isDone
+                ? t('lessons.stepDone', 'Done ✓')
+                : t('lessons.next', 'Next')
+            }
             onClick={() => onStepDone?.()}
           >
-            {t('lessons.next', 'Next')}
+            {isDone
+              ? t('lessons.stepDone', 'Done ✓')
+              : t('lessons.next', 'Next')}
           </button>
         </div>
       )}

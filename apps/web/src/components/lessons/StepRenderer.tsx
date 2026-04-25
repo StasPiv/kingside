@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import type { LessonStep } from '@kingside/shared';
+import type { LessonStep, LessonStepState } from '@kingside/shared';
 
 import { TextStep } from './steps/TextStep';
 import { PuzzleStep } from './steps/PuzzleStep';
@@ -27,16 +27,29 @@ export interface StepRendererProps {
   onStepDone?: () => void;
   /** Скрыть кнопку «Далее» (последний шаг → действие «Завершить урок»). */
   hideNext?: boolean;
+  /**
+   * Текущее состояние шага из `useUserLessonProgress.stepsState`
+   * (KS-1891). Используется для визуального отличия done-шага от
+   * pending — TextStep показывает «Пройдено ✓» вместо «Далее».
+   * Для интерактивных шагов (puzzle/endgame_drill) пока не
+   * пробрасывается дальше — у них своя кнопка после решения.
+   */
+  stepState?: LessonStepState;
 }
 
-export function StepRenderer({ step, onStepDone, hideNext }: StepRendererProps) {
+export function StepRenderer({ step, onStepDone, hideNext, stepState }: StepRendererProps) {
   const { t } = useTranslation();
   const { payload } = step;
 
   switch (payload.type) {
     case 'text':
       return (
-        <TextStep payload={payload} onStepDone={onStepDone} hideNext={hideNext} />
+        <TextStep
+          payload={payload}
+          onStepDone={onStepDone}
+          hideNext={hideNext}
+          stepState={stepState}
+        />
       );
 
     case 'puzzle':

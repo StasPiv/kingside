@@ -269,6 +269,11 @@ export function UserLessonPage() {
                 step={step}
                 hideNext={idx === steps.length - 1}
                 onStepDone={() => progress.markStep(step.id, 'done')}
+                // KS-1891: передаём текущее состояние шага, чтобы
+                // TextStep показал «Пройдено ✓» при повторном
+                // открытии завершённого урока (KS-1880 восстанавливает
+                // stepsState с сервера).
+                stepState={progress.stepsState[step.id]}
               />
             </li>
           ))}
