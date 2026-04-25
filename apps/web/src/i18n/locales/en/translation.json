@@ -367,7 +367,8 @@
   },
   "common": {
     "loading": "Loading...",
-    "all": "All"
+    "all": "All",
+    "dismiss": "Dismiss"
   },
   "auth": {
     "login": {
@@ -1268,7 +1269,8 @@
     "puzzleEmpty": "No puzzles available for this step",
     "puzzleLoadError": "Failed to load puzzles",
     "puzzle": {
-      "customNote": "Author's puzzle — rating doesn't change"
+      "customNote": "Author's puzzle — rating doesn't change",
+      "customEmpty": "This step has no puzzles yet. Ask the course author to add some."
     },
     "positionCorrect": "Correct!",
     "positionIncorrect": "Not quite — try again",
@@ -1452,6 +1454,7 @@
           "custom": {
             "modeLabel": "custom",
             "addPuzzle": "+ Add custom puzzle",
+            "emptyHint": "Click «+ Add custom puzzle» to add your first authored puzzle.",
             "maxPuzzles": "Limit reached (max 20 puzzles)",
             "cardTitle": "Custom puzzle #{{index}}",
             "delete": "⌫ Delete this puzzle",
@@ -1579,6 +1582,7 @@
         "saved": "Saved",
         "savedAt": "Saved at {{time}}",
         "saveError": "Failed to save",
+        "stepSaveError": "Could not save changes — {{message}}",
         "saveErrorRetry": "Retry",
         "saveIdle": "Ready to save",
         "discard": "Discard changes",

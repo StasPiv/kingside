@@ -141,9 +141,21 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
       .then((list) => {
         if (cancelled) return;
         if (list.length === 0) {
-          setLoadError(
-            tRef.current('lessons.puzzleEmpty', 'No puzzles available for this step'),
-          );
+          // KS-1912: для mode='custom' даём свой текст — это шаг
+          // без авторских данных, не «нет задач из БД». Не помечаем
+          // step done — нечего проходить.
+          if (payload.selection.mode === 'custom') {
+            setLoadError(
+              tRef.current(
+                'lessons.puzzle.customEmpty',
+                'This step has no puzzles yet. Ask the course author to add some.',
+              ),
+            );
+          } else {
+            setLoadError(
+              tRef.current('lessons.puzzleEmpty', 'No puzzles available for this step'),
+            );
+          }
           return;
         }
         setPuzzles(list);
@@ -489,9 +501,12 @@ export async function resolvePuzzles(
     return [];
   }
   if (selection.mode === 'custom') {
-    return selection.customPuzzles.map((cp, i) =>
-      customToInMemoryPuzzle(cp, i),
-    );
+    // KS-1912: пропускаем puzzle с пустым solutionMoves — без хода
+    // решения runner некуда вести ученика. Если все puzzle такие
+    // (или customPuzzles пуст) — runner покажет empty-state.
+    return selection.customPuzzles
+      .filter((cp) => cp.solutionMoves.length > 0)
+      .map((cp, i) => customToInMemoryPuzzle(cp, i));
   }
   return lessonsApi.resolvePuzzleStep(payload);
 }

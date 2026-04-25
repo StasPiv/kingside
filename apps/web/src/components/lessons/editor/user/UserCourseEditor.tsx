@@ -72,6 +72,15 @@ export function UserCourseEditor() {
   const [load, setLoad] = useState<LoadState>({ kind: 'loading' });
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>('outline');
+  /**
+   * KS-1912: видимая ошибка автосейва шага. До этого fix'а
+   * `userCoursesApi.updateStep().catch(() => {})` глотал любую
+   * 4xx — пользователь не видел что сохранение упало (например,
+   * 400 «customPuzzles must contain at least 1 element»). Теперь
+   * последняя ошибка показывается в alert-bar над списком шагов
+   * и не разрушает страницу.
+   */
+  const [stepSaveError, setStepSaveError] = useState<string | null>(null);
   const [expandedStepIds, setExpandedStepIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -297,7 +306,20 @@ export function UserCourseEditor() {
     payload: StepPayload,
   ) => {
     actions.updateStep(lessonId, stepId, { payload });
-    userCoursesApi.updateStep(stepId, { payload }).catch(() => {});
+    setStepSaveError(null);
+    userCoursesApi.updateStep(stepId, { payload }).catch((err: unknown) => {
+      // KS-1912: показываем ошибку, не редиректим. До фикса
+      // promise-rejection здесь приводил к «пустой странице» через
+      // глобальный fail-path; теперь UI остаётся в редакторе и
+      // отображает alert-bar с возможностью dismiss.
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : t('lessons.my.editor.saveError', 'Could not save step');
+      setStepSaveError(message);
+    });
   };
 
   const moveStep = (lessonId: string, stepId: string, direction: -1 | 1) => {
@@ -415,6 +437,30 @@ export function UserCourseEditor() {
         onCopyLink={onCopyLink}
         onDelete={() => setDeleteOpen(true)}
       />
+
+      {stepSaveError && (
+        <div
+          className="user-course-editor__save-error"
+          data-testid="user-course-editor-step-save-error"
+          role="alert"
+        >
+          <span>
+            {t(
+              'lessons.my.editor.stepSaveError',
+              'Could not save changes — {{message}}',
+              { message: stepSaveError },
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setStepSaveError(null)}
+            data-testid="user-course-editor-step-save-error-dismiss"
+            aria-label={t('common.dismiss', 'Dismiss')}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Mobile-tabs; на desktop CSS (L-R2) скроет их и покажет split-pane
           одновременно. Здесь для jsdom-совместимости оба варианта присутствуют

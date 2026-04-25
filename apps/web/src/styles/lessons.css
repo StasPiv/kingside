@@ -1251,6 +1251,41 @@
   }
 }
 
+/* KS-1912: видимая ошибка автосейва шага в верху редактора курса. */
+.user-course-editor__save-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: var(--danger-soft, rgba(202, 52, 49, 0.1));
+  border: 1px solid var(--danger, #ca3431);
+  border-radius: 6px;
+  color: var(--danger, #ca3431);
+  font-size: 13px;
+}
+
+.user-course-editor__save-error button {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+}
+
+/* KS-1912: hint в editor когда customPuzzles пуст. */
+.custom-puzzle-list__empty-hint {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-subtle);
+  border-radius: 6px;
+}
+
 /* KS-1909: карточка авторской задачи (custom puzzle) в редакторе. */
 .custom-puzzle-list {
   grid-column: 1 / -1;

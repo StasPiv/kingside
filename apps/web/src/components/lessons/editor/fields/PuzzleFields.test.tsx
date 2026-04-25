@@ -73,6 +73,38 @@ describe('<PuzzleFields> custom mode (KS-1909)', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('KS-1912: empty-hint виден при customPuzzles=[]', () => {
+    renderWithProviders(
+      <PuzzleFields
+        payload={mkPayload({ mode: 'custom', customPuzzles: [] })}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByTestId('editor-step-puzzle-custom-empty-hint'),
+    ).toBeInTheDocument();
+  });
+
+  it('KS-1912: empty-hint скрыт при наличии хотя бы одной карточки', () => {
+    renderWithProviders(
+      <PuzzleFields
+        payload={mkPayload({
+          mode: 'custom',
+          customPuzzles: [
+            {
+              fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+              solutionMoves: ['e2e4'],
+            },
+          ],
+        })}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByTestId('editor-step-puzzle-custom-empty-hint'),
+    ).not.toBeInTheDocument();
+  });
+
   it('клик «+ Add custom puzzle» добавляет дефолтный CustomPuzzle в payload', () => {
     const onChange = vi.fn();
     renderWithProviders(

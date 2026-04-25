@@ -176,6 +176,17 @@ export function PuzzleFields({ payload, onChange }: PuzzleFieldsProps) {
           className="custom-puzzle-list"
           data-testid="editor-step-puzzle-custom-list"
         >
+          {payload.selection.customPuzzles.length === 0 && (
+            <p
+              className="custom-puzzle-list__empty-hint"
+              data-testid="editor-step-puzzle-custom-empty-hint"
+            >
+              {t(
+                'editor.step.puzzle.custom.emptyHint',
+                'Click «+ Add custom puzzle» to add your first authored puzzle.',
+              )}
+            </p>
+          )}
           {payload.selection.customPuzzles.map((cp, i) => (
             <CustomPuzzleField
               key={i}

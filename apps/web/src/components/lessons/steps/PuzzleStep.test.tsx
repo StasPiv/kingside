@@ -449,6 +449,78 @@ describe('<PuzzleStep>', () => {
       expect(mockPuzzleApi.submitAttempt).not.toHaveBeenCalled();
     });
 
+    it('KS-1912: пустой customPuzzles → empty-state, не падает, banner НЕ виден', async () => {
+      renderWithProviders(
+        <PuzzleStep
+          payload={{
+            type: 'puzzle',
+            selection: { mode: 'custom', customPuzzles: [] },
+          }}
+        />,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('lesson-puzzle-step-error'),
+        ).toBeInTheDocument(),
+      );
+      // Текст empty-state — про авторскую задачу, не «нет задач из БД».
+      expect(
+        screen.getByTestId('lesson-puzzle-step-error').textContent,
+      ).toMatch(/no puzzles yet|не наполнен|нет задач/i);
+      expect(
+        screen.queryByTestId('lesson-puzzle-step-custom-note'),
+      ).not.toBeInTheDocument();
+      expect(mockLessonsApi.resolvePuzzleStep).not.toHaveBeenCalled();
+    });
+
+    it('KS-1912: customPuzzles с пустым solutionMoves пропускается, оставляет валидные', async () => {
+      const onStepDone = vi.fn();
+      renderWithProviders(
+        <PuzzleStep
+          payload={{
+            type: 'puzzle',
+            selection: {
+              mode: 'custom',
+              customPuzzles: [
+                { fen: STARTING_FEN, solutionMoves: [] }, // пропускается
+                { fen: STARTING_FEN, solutionMoves: ['e2e4'] }, // остаётся
+              ],
+            },
+          }}
+          onStepDone={onStepDone}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('puzzle-board-mock')).toBeInTheDocument(),
+      );
+      // Один отрендеренный puzzle (тот, что с непустым solutionMoves).
+      expect(
+        screen.getByTestId('lesson-puzzle-step-progress').textContent,
+      ).toMatch(/1\/1|1 of 1/i);
+    });
+
+    it('KS-1912: все customPuzzles с пустым solutionMoves → empty-state', async () => {
+      renderWithProviders(
+        <PuzzleStep
+          payload={{
+            type: 'puzzle',
+            selection: {
+              mode: 'custom',
+              customPuzzles: [
+                { fen: STARTING_FEN, solutionMoves: [] },
+                { fen: STARTING_FEN, solutionMoves: [] },
+              ],
+            },
+          }}
+        />,
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('lesson-puzzle-step-error'),
+        ).toBeInTheDocument(),
+      );
+    });
+
     it('Регрессия: mode="ids" → banner НЕ виден', async () => {
       mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([
         makePuzzle({ id: 'p1', moves: 'e2e4' }),
