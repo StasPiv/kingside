@@ -3,6 +3,7 @@ import { I18nService } from 'nestjs-i18n';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CacheService } from '../common/cache.service';
+import { UserCoursesService } from '../lessons/user-courses/user-courses.service';
 import type {
   RatingType,
   TopPlayerItem,
@@ -10,6 +11,7 @@ import type {
   OnlinePlayersResponse,
   PlayerProfileResponse,
   SearchPlayersResponse,
+  UserCourseListResponse,
 } from '@kingside/shared';
 
 const RATING_FIELD_MAP: Record<RatingType, string> = {
@@ -37,6 +39,7 @@ export class PlayerService {
     private readonly redis: RedisService,
     private readonly i18n: I18nService,
     private readonly cache: CacheService,
+    private readonly userCourses: UserCoursesService,
   ) {}
 
   async getTopPlayers(
@@ -300,6 +303,29 @@ export class PlayerService {
       recentGames: recentGamesData,
       puzzleRush,
     };
+  }
+
+  /**
+   * KS-1914: список публичных user-курсов автора по `username`.
+   * Используется на странице профиля автора. Эндпоинт публичный
+   * (как остальные `/players/...`), поэтому DTO без `stats` —
+   * приватные авторские метрики не утекают.
+   *
+   * Возвращает 404, если пользователя с таким `username` нет —
+   * единый код для всех профильных эндпоинтов (см.
+   * `getPlayerProfile`).
+   */
+  async getPublicCoursesByUsername(
+    username: string,
+  ): Promise<UserCourseListResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { username },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new NotFoundException(this.i18n.t('messages.user.notFound'));
+    }
+    return this.userCourses.listPublicByOwner(user.id);
   }
 
   async searchPlayers(

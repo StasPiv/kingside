@@ -396,6 +396,81 @@ describe('UserCoursesService (KS-1829)', () => {
     });
   });
 
+  // ─── listPublicByOwner (KS-1914) ───────────────────────────────────
+
+  describe('listPublicByOwner', () => {
+    const AUTHOR = 'author-1';
+
+    function row(id: string, isPublic: boolean) {
+      return {
+        id,
+        ownerId: AUTHOR,
+        slug: `s-${id}`,
+        title: id,
+        description: null,
+        isPublic,
+        createdAt: new Date('2026-04-01'),
+        updatedAt: new Date('2026-04-02'),
+        _count: { lessons: 1 },
+      };
+    }
+
+    it('фильтр where: { ownerId, isPublic: true } и orderBy updatedAt DESC', async () => {
+      prisma.userCourse.findMany.mockResolvedValue([]);
+
+      await service.listPublicByOwner(AUTHOR);
+
+      expect(prisma.userCourse.findMany).toHaveBeenCalledWith({
+        where: { ownerId: AUTHOR, isPublic: true },
+        orderBy: { updatedAt: 'desc' },
+        include: { _count: { select: { lessons: true } } },
+      });
+    });
+
+    it('возвращает только публичные курсы (приватные отсекаются фильтром БД)', async () => {
+      prisma.userCourse.findMany.mockResolvedValue([
+        row('a', true),
+        row('b', true),
+        row('c', true),
+      ]);
+
+      const r = await service.listPublicByOwner(AUTHOR);
+
+      expect(r.data).toHaveLength(3);
+      expect(r.data.every((c) => c.isPublic)).toBe(true);
+    });
+
+    it('у автора без курсов — пустой массив', async () => {
+      prisma.userCourse.findMany.mockResolvedValue([]);
+
+      const r = await service.listPublicByOwner(AUTHOR);
+      expect(r.data).toEqual([]);
+    });
+
+    // KS-1885 параллель: на этом эндпоинте студент видит чужой профиль —
+    // авторские метрики (`stats`) не должны утекать.
+    it('stats отсутствуют в DTO + count/groupBy НЕ вызываются', async () => {
+      prisma.userCourse.findMany.mockResolvedValue([row('a', true)]);
+
+      const r = await service.listPublicByOwner(AUTHOR);
+
+      const raw = r.data[0] as unknown as Record<string, unknown>;
+      expect(raw.stats).toBeUndefined();
+      expect('stats' in r.data[0]).toBe(false);
+      // Защита: stats-запросы не должны идти на этот путь.
+      expect(prisma.userCoursePlayProgress.count).not.toHaveBeenCalled();
+      expect(prisma.userCoursePlayProgress.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('маппит lessonCount из _count', async () => {
+      prisma.userCourse.findMany.mockResolvedValue([
+        { ...row('a', true), _count: { lessons: 7 } },
+      ]);
+      const r = await service.listPublicByOwner(AUTHOR);
+      expect(r.data[0].lessonCount).toBe(7);
+    });
+  });
+
   // ─── getBySlug ─────────────────────────────────────────────────────
 
   describe('getBySlug', () => {

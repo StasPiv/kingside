@@ -33,4 +33,19 @@ export class PlayerController {
   getPlayerProfile(@Param('username') username: string) {
     return this.playerService.getPlayerProfile(username);
   }
+
+  /**
+   * KS-1914: публичные user-курсы автора (для блока на странице
+   * профиля). Без auth — как и остальные `/players/...`. Сортировка
+   * `updatedAt DESC`, без пагинации (у автора <20 курсов в MVP).
+   * Приватные курсы НЕ возвращаются. `stats` отсутствуют (приватные
+   * авторские метрики, см. KS-1885).
+   *
+   * Маршрут объявлен ПОСЛЕ `:username`, но `:username/courses` имеет
+   * более специфичный путь — Nest роутер выберет его первым.
+   */
+  @Get(':username/courses')
+  getPublicCoursesByUsername(@Param('username') username: string) {
+    return this.playerService.getPublicCoursesByUsername(username);
+  }
 }

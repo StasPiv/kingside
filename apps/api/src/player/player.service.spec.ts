@@ -4,6 +4,7 @@ import { PlayerService } from './player.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CacheService } from '../common/cache.service';
+import { UserCoursesService } from '../lessons/user-courses/user-courses.service';
 import { I18nService } from 'nestjs-i18n';
 
 describe('PlayerService', () => {
@@ -13,6 +14,9 @@ describe('PlayerService', () => {
     game: { count: jest.Mock; findMany: jest.Mock };
     puzzleRushScore: { findFirst: jest.Mock; count: jest.Mock };
   };
+  // KS-1914: PlayerService.getPublicCoursesByUsername делегирует
+  // в UserCoursesService.listPublicByOwner — мокаем целиком метод.
+  let userCourses: { listPublicByOwner: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -30,6 +34,9 @@ describe('PlayerService', () => {
         count: jest.fn().mockResolvedValue(0),
       },
     };
+    userCourses = {
+      listPublicByOwner: jest.fn().mockResolvedValue({ data: [] }),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -44,6 +51,7 @@ describe('PlayerService', () => {
           provide: CacheService,
           useValue: { getOrSet: (_k: string, _t: number, fn: () => Promise<unknown>) => fn() },
         },
+        { provide: UserCoursesService, useValue: userCourses },
       ],
     }).compile();
 
@@ -227,6 +235,55 @@ describe('PlayerService', () => {
       prisma.user.findUnique.mockResolvedValue(null);
 
       await expect(service.getPlayerProfile('nonexistent')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // KS-1914: список публичных user-курсов автора по `username`.
+  describe('getPublicCoursesByUsername', () => {
+    it('резолвит username → userId и делегирует в UserCoursesService.listPublicByOwner', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+      userCourses.listPublicByOwner.mockResolvedValue({
+        data: [
+          {
+            id: 'c1',
+            ownerId: 'u1',
+            slug: 'a',
+            title: 'A',
+            description: null,
+            isPublic: true,
+            createdAt: '2026-04-01T00:00:00.000Z',
+            updatedAt: '2026-04-02T00:00:00.000Z',
+            lessonCount: 1,
+          },
+        ],
+      });
+
+      const r = await service.getPublicCoursesByUsername('alice');
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { username: 'alice' },
+        select: { id: true },
+      });
+      expect(userCourses.listPublicByOwner).toHaveBeenCalledWith('u1');
+      expect(r.data).toHaveLength(1);
+      expect(r.data[0].slug).toBe('a');
+    });
+
+    it('несуществующий username → NotFoundException, listPublicByOwner НЕ вызван', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.getPublicCoursesByUsername('ghost'),
+      ).rejects.toThrow(NotFoundException);
+      expect(userCourses.listPublicByOwner).not.toHaveBeenCalled();
+    });
+
+    it('у автора нет курсов → пустой data', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+      userCourses.listPublicByOwner.mockResolvedValue({ data: [] });
+
+      const r = await service.getPublicCoursesByUsername('alice');
+      expect(r.data).toEqual([]);
     });
   });
 

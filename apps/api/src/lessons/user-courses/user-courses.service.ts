@@ -77,6 +77,33 @@ export class UserCoursesService {
   }
 
   /**
+   * KS-1914: список публичных курсов одного автора. Используется на
+   * странице профиля автора (`GET /players/:username/courses`).
+   * Эндпоинт публичный, без auth, поэтому `stats` не возвращаем —
+   * это авторские метрики (см. KS-1885). Сортировка та же, что у
+   * `list({mine:false})`: `updatedAt DESC`.
+   *
+   * Один запрос без stats-batched-groupBy (не вызываем
+   * `computeStatsForCourses`) — просто `findMany` с `_count.lessons`.
+   * У автора обычно <20 курсов, пагинации в MVP не делаем.
+   */
+  async listPublicByOwner(
+    ownerId: string,
+  ): Promise<UserCourseListResponse> {
+    const rows = await this.prisma.userCourse.findMany({
+      where: { ownerId, isPublic: true },
+      orderBy: { updatedAt: 'desc' },
+      include: { _count: { select: { lessons: true } } },
+    });
+    return {
+      // Без `opts.stats` → DTO без `stats`-поля (поле опциональное в
+      // shared). Не-владелец видит карточку курса без приватных
+      // авторских метрик.
+      data: rows.map((r) => toCourseDto(r)),
+    };
+  }
+
+  /**
    * KS-1889: «Курсы, которые я прохожу». Возвращает чужие курсы
    * (`course.ownerId !== userId`), у которых у текущего пользователя
    * есть запись `UserCoursePlayProgress`. Прогресс вшит прямо в DTO,
