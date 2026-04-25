@@ -13,6 +13,8 @@ import { Pool, type PoolClient, type PoolConfig } from 'pg';
 import { from as copyFrom } from 'pg-copy-streams';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve as resolvePath } from 'node:path';
 import {
   serializePositionRowCsv,
   type PositionRow,
@@ -20,34 +22,52 @@ import {
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
 
 /**
- * Определяет нужен ли SSL для `pg.Pool`.
+ * Определяет нужен ли SSL для `pg.Pool` и в каком виде.
  *
- * Политика (secure-by-default, KS-1640):
+ * Политика (secure-by-default, KS-1640 + KS-1893):
  *   1. Явное "нет" (`ARCHIVE_IMPORTER_PG_SSL=0|false|off`, `sslmode=disable`
- *      в URL или `PGSSLMODE=disable`) — SSL выключен, даже если хост не
- *      local. Полезно для диагностики.
+ *      в URL или `PGSSLMODE=disable`) — SSL выключен. Полезно для диагностики.
  *   2. Явное "да" (`sslmode=...` в URL != disable, `PGSSLMODE=...` != disable,
  *      `ARCHIVE_IMPORTER_PG_SSL=1|true|...`) — SSL включён.
  *   3. Ничего не задано → смотрим хост из URL:
  *      - `localhost` / `127.0.0.1` / `::1` / `host.docker.internal` → SSL off
  *        (локальный docker-compose, dev).
- *      - любой другой (RDS, managed PG, remote) → SSL on с
- *        `{ rejectUnauthorized: false }`.
+ *      - любой другой (RDS, managed PG, remote) → SSL on.
  *
- * Раньше (до KS-1640) по умолчанию SSL было off — и на RDS без явного
- * `sslmode=require` в ARCHIVE_DATABASE_URL прод валился с `no pg_hba.conf entry`,
- * что замалчивалось silent-fail'ом в backfill.ts (тоже фикс этой задачи).
+ * Что именно возвращается для удалённых хостов (KS-1893):
+ *   а) Если `ARCHIVE_IMPORTER_PG_SSL_NO_VERIFY=1|true|...` — `{
+ *      rejectUnauthorized: false }`. Это hotfix-выключатель: верификация
+ *      цепочки полностью отключается. На случай, когда CA bundle
+ *      недоступен или сломан, и нужно вернуть импорт за минуты.
+ *   б) Иначе пытаемся загрузить AWS RDS CA bundle (полный
+ *      `global-bundle.pem`, лежит в `apps/archive-service/certs/`,
+ *      собирается в образ через nest-cli `assets`). Если файл найден —
+ *      `{ ca, rejectUnauthorized: true }` — настоящая `verify-full`
+ *      проверка против AWS-доверенных корней. Путь можно
+ *      переопределить через `ARCHIVE_IMPORTER_PG_CA_PATH`.
+ *   в) Если файл не найден (например, локальный CLI без билда + кто-то
+ *      пытается смотреть на RDS из dev-машины) — fallback на `{
+ *      rejectUnauthorized: false }` с warn-логом, чтобы CLI не падал
+ *      молча на boot. Production-билд должен иметь файл; если нет —
+ *      это deployment-bug, а не runtime.
  *
- * `rejectUnauthorized: false` — RDS presents a CA-bundle, которого нет
- * в системных корнях Node runtime'а; так же ведёт себя `sslmode=require`
- * у libpq. Если понадобится строгая проверка — добавить путь к CA через
- * отдельный env (ADR-013 §10.D) — отложено до прод-сертификат-стори.
+ * Регрессия KS-1893: `pg-connection-string` 2.12 для `sslmode=require`
+ * перестал ставить `rejectUnauthorized: false` и теперь оставляет ssl
+ * как `{}`, что в Node TLS = `verify-full` против системного trust store.
+ * В системе нет AWS RDS root, отсюда `self-signed certificate in
+ * certificate chain`. Простое перезаписывание `ssl` в нашем PoolConfig
+ * НЕ помогает: `pg/connection-parameters.js` делает `Object.assign({},
+ * config, parse(config.connectionString))` — parse() имеет приоритет.
+ * Поэтому `buildPoolConfig` (см. ниже) ещё и **вычищает sslmode и
+ * прочие ssl* из URL** перед передачей в Pool — чтобы наш `ssl` не был
+ * перезатёрт.
  *
  * Экспортируется для unit-тестов.
  */
 export function resolveSslConfig(
   connectionString: string,
   env: NodeJS.ProcessEnv = process.env,
+  loadCa: () => Buffer | null = loadRdsCaBundle,
 ): PoolConfig['ssl'] {
   const urlMode = extractSslMode(connectionString);
   const envMode = (env.PGSSLMODE ?? '').toLowerCase();
@@ -58,16 +78,32 @@ export function resolveSslConfig(
   if (urlMode === 'disable' || envMode === 'disable') return false;
 
   // Любой из трёх сигналов включает SSL.
-  if (urlMode) return { rejectUnauthorized: false };
-  if (envMode) return { rejectUnauthorized: false };
-  if (explicit) return { rejectUnauthorized: false };
+  const sslOn =
+    !!urlMode || !!envMode || !!explicit || !isLocalHost(connectionString);
+  if (!sslOn) return false;
 
-  // Ничего не задано → смотрим хост. Удалённый хост (RDS, managed PG) —
-  // SSL on; локальный dev — off. Fallback при нераспознанном URL — off
-  // (сохраняет старое поведение, не ломает случайные кейсы без хоста).
-  return isLocalHost(connectionString)
-    ? false
-    : { rejectUnauthorized: false };
+  // Hotfix-выключатель верификации: для случаев, когда CA bundle сломан/
+  // недоступен и надо немедленно вернуть импорт. Devops может выставить
+  // через env, не пересобирая образ.
+  const noVerify = (env.ARCHIVE_IMPORTER_PG_SSL_NO_VERIFY ?? '').toLowerCase();
+  if (noVerify === '1' || noVerify === 'true' || noVerify === 'on') {
+    return { rejectUnauthorized: false };
+  }
+
+  // sslmode=no-verify в URL — тоже честный no-verify (legacy, KS-1640).
+  if (urlMode === 'no-verify' || envMode === 'no-verify') {
+    return { rejectUnauthorized: false };
+  }
+
+  // Основной путь: CA bundle от AWS RDS, full verify.
+  const ca = loadCa();
+  if (ca) {
+    return { ca, rejectUnauthorized: true };
+  }
+
+  // CA не найден — мягкий fallback. Лучше работающий импорт без
+  // верификации, чем падение на boot. В лог уйдёт warn (см. ensurePool).
+  return { rejectUnauthorized: false };
 }
 
 function extractSslMode(connectionString: string): string | null {
@@ -83,23 +119,17 @@ const LOCAL_HOSTS = new Set([
 ]);
 
 /**
- * true если хост в URL — локальный. Используется как fallback для secure-
- * by-default SSL: если ARCHIVE_DATABASE_URL без `sslmode`, но указывает на RDS/
- * managed-PG, SSL всё равно включится. Плюс явный `sslmode=disable`
- * остаётся уважаемым override'ом для диагностики.
+ * true если хост в URL — локальный.
  *
  * Экспортируется для тестов.
  */
 export function isLocalHost(connectionString: string): boolean {
   try {
-    // URL не понимает `postgresql://` без ощутимого хоста в Node < 16 —
-    // вырезаем host вручную: `scheme://[user[:pass]@]host[:port][/...]`.
     const stripped = connectionString.replace(/^[a-z]+:\/\//i, '');
     const hostPart = stripped.split(/[/?#]/, 1)[0];
     const afterAuth = hostPart.includes('@')
       ? hostPart.slice(hostPart.lastIndexOf('@') + 1)
       : hostPart;
-    // IPv6 в URL: `[::1]:5432` — вырезаем скобки.
     const host = afterAuth.startsWith('[')
       ? afterAuth.slice(1, afterAuth.indexOf(']'))
       : afterAuth.split(':', 1)[0];
@@ -107,6 +137,118 @@ export function isLocalHost(connectionString: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Удаляет `sslmode`, `sslcert`, `sslkey`, `sslrootcert`, `uselibpqcompat`
+ * и подобные ssl-параметры из query string подключения. Это нужно,
+ * чтобы `pg-connection-string` не выставил свой `ssl` объект, который
+ * `pg/connection-parameters.js` потом мерджит ПОВЕРХ нашего PoolConfig
+ * через `Object.assign({}, config, parse(connectionString))` —
+ * перезаписывая ssl, который мы только что аккуратно собрали.
+ *
+ * После этой функции в URL остаются нерелевантные query-параметры
+ * (например, `application_name`), а ssl-конфигурация полностью
+ * принадлежит `resolveSslConfig`.
+ *
+ * Экспортируется для unit-тестов.
+ */
+export function stripSslParamsFromUrl(connectionString: string): string {
+  // Поддерживаем и без query, и с пустым query.
+  const qIdx = connectionString.indexOf('?');
+  if (qIdx < 0) return connectionString;
+  const base = connectionString.slice(0, qIdx);
+  const query = connectionString.slice(qIdx + 1);
+  if (!query) return base;
+  const SSL_KEYS = new Set([
+    'sslmode',
+    'sslcert',
+    'sslkey',
+    'sslrootcert',
+    'sslpassword',
+    'sslcrl',
+    'uselibpqcompat',
+  ]);
+  const kept = query
+    .split('&')
+    .filter((kv) => {
+      const eq = kv.indexOf('=');
+      const key = (eq < 0 ? kv : kv.slice(0, eq)).toLowerCase();
+      return !SSL_KEYS.has(key);
+    })
+    .join('&');
+  return kept ? `${base}?${kept}` : base;
+}
+
+let cachedCa: Buffer | null | undefined; // undefined = не загружали ещё; null = пробовали и не нашли
+
+/**
+ * Загружает AWS RDS CA bundle из файла. Первый успех кешируется в
+ * `cachedCa`, повторные вызовы не читают диск.
+ *
+ * Порядок lookup'а:
+ *   1. `ARCHIVE_IMPORTER_PG_CA_PATH` — явный путь из env (devops).
+ *   2. `__dirname/../certs/rds-ca.pem` — production layout (dist рядом
+ *      с certs/, скопированными nest-cli `assets`).
+ *   3. `__dirname/../../certs/rds-ca.pem` — dev layout (src/archive-import
+ *      рядом с certs/).
+ *
+ * Возвращает `null`, если файл не найден ни по одному пути. Не бросает —
+ * вызывающий код решает, fallback'нуть на no-verify или упасть.
+ *
+ * Экспортируется для тестов; они могут сбросить cache через
+ * `resetRdsCaBundleCacheForTests()`.
+ */
+export function loadRdsCaBundle(): Buffer | null {
+  if (cachedCa !== undefined) return cachedCa;
+
+  const candidates: string[] = [];
+  const fromEnv = process.env.ARCHIVE_IMPORTER_PG_CA_PATH;
+  if (fromEnv) candidates.push(fromEnv);
+  candidates.push(resolvePath(__dirname, '..', 'certs', 'rds-ca.pem'));
+  candidates.push(resolvePath(__dirname, '..', '..', 'certs', 'rds-ca.pem'));
+
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      try {
+        cachedCa = readFileSync(p);
+        return cachedCa;
+      } catch {
+        // следующий кандидат
+      }
+    }
+  }
+  cachedCa = null;
+  return null;
+}
+
+/** Сброс кеша CA — только для тестов. */
+export function resetRdsCaBundleCacheForTests(): void {
+  cachedCa = undefined;
+}
+
+/**
+ * Финальный конструктор `PoolConfig` для writer'а. Держит вместе три
+ * связанных решения, чтобы они не разъезжались:
+ *  - какой ssl-конфиг применять (`resolveSslConfig`);
+ *  - какой URL передавать в `pg.Pool` (без ssl-параметров — иначе
+ *    `pg-connection-string.parse` затрёт наш ssl);
+ *  - константные параметры `application_name`, `max`.
+ *
+ * Экспортируется для тестов: спека проверяет, что для `sslmode=require`
+ * Pool получит `ssl: { ca, rejectUnauthorized: true }` И URL без `sslmode`.
+ */
+export function buildPoolConfig(
+  connectionString: string,
+  env: NodeJS.ProcessEnv = process.env,
+  loadCa: () => Buffer | null = loadRdsCaBundle,
+): PoolConfig {
+  return {
+    connectionString: stripSslParamsFromUrl(connectionString),
+    max: 4,
+    application_name: 'archive-importer',
+    ssl: resolveSslConfig(connectionString, env, loadCa),
+  };
 }
 
 /** Имя временной staging-таблицы. Уникально на соединение — изолировано. */
@@ -162,14 +304,24 @@ export class ArchivePositionWriterService implements OnModuleDestroy {
     if (!connectionString) {
       throw new Error('ARCHIVE_DATABASE_URL is not set');
     }
-    this.pool = new Pool({
-      connectionString,
-      max: 4,
-      application_name: 'archive-importer',
-      // KS-1619: без этого pg.Pool не включает SSL в облаке (Prisma тянет
-      // SSL по дефолту сам, pg — нет), и RDS отбивает запрос на pg_hba.
-      ssl: resolveSslConfig(connectionString),
-    });
+    const config = buildPoolConfig(connectionString);
+
+    // Diagnostic-line при старте: без CA на удалённом хосте — это
+    // означает деградацию до no-verify, deployment-bug. Логируем,
+    // чтобы регрессия не уходила в тишину.
+    if (
+      typeof config.ssl === 'object' &&
+      config.ssl !== null &&
+      config.ssl.rejectUnauthorized === false &&
+      !isLocalHost(connectionString)
+    ) {
+      this.logger.warn(
+        'pg.Pool created with rejectUnauthorized=false on a remote host. ' +
+          'AWS RDS CA bundle was not found (apps/archive-service/certs/rds-ca.pem). ' +
+          'Add the bundle to the image or set ARCHIVE_IMPORTER_PG_CA_PATH.',
+      );
+    }
+    this.pool = new Pool(config);
     return this.pool;
   }
 
