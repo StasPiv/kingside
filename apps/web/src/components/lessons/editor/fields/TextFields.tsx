@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { StepPayload } from '@kingside/shared';
 
 import { MarkdownTextEditor } from './MarkdownTextEditor';
+import { SetPositionModal } from '../../../SetPositionModal';
 
 /**
  * `TextFields` — форма редактирования `TextStepPayload` (markdown + diagrams).
@@ -28,6 +30,15 @@ import { MarkdownTextEditor } from './MarkdownTextEditor';
  * рендерит диаграмму только если на неё есть ссылка из markdown либо
  * fenced-block — без автовставки юзер-редактора сохранял «невидимую»
  * диаграмму. Автор может свободно передвинуть маркер в теле md.
+ *
+ * # Board Editor для FEN (KS-1875)
+ *
+ * Каждая диаграмма имеет рядом с FEN-инпутом кнопку «Edit on board» —
+ * она открывает `<SetPositionModal>` (тот же редактор позиций, что
+ * используется в `AnalysisPage`). Apply пишет новый FEN в
+ * `payload.diagrams[editingIdx].fen` через тот же `onChange`-механизм,
+ * что и ручной ввод в input. Cancel/Close ничего не меняет.
+ * `SetPositionModal` переиспользуется как есть — никаких правок.
  */
 
 interface TextFieldsProps {
@@ -38,6 +49,14 @@ interface TextFieldsProps {
 export function TextFields({ payload, onChange }: TextFieldsProps) {
   const { t } = useTranslation();
   const diagrams = payload.diagrams ?? [];
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+
+  const updateDiagramFen = (idx: number, fen: string) => {
+    const next = diagrams.slice();
+    if (!next[idx]) return;
+    next[idx] = { ...next[idx], fen };
+    onChange({ ...payload, diagrams: next });
+  };
 
   return (
     <div className="editor-step__fields">
@@ -71,17 +90,27 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
             >
               <code>{`{{diagram:${i}}}`}</code>
             </div>
-            <label>
+            <label className="editor-diagram__fen-label">
               FEN
-              <input
-                value={d.fen}
-                onChange={(e) => {
-                  const next = diagrams.slice();
-                  next[i] = { ...next[i], fen: e.target.value };
-                  onChange({ ...payload, diagrams: next });
-                }}
-                data-testid={`editor-diagram-fen-${i}`}
-              />
+              <div className="editor-diagram__fen-row">
+                <input
+                  value={d.fen}
+                  onChange={(e) => {
+                    const next = diagrams.slice();
+                    next[i] = { ...next[i], fen: e.target.value };
+                    onChange({ ...payload, diagrams: next });
+                  }}
+                  data-testid={`editor-diagram-fen-${i}`}
+                />
+                <button
+                  type="button"
+                  className="editor-diagram__edit-board"
+                  onClick={() => setEditingIdx(i)}
+                  data-testid={`editor-diagram-edit-board-${i}`}
+                >
+                  {t('editor.step.text.editBoard', 'Edit on board')}
+                </button>
+              </div>
             </label>
             <label>
               {t('editor.step.text.caption', 'Caption')}
@@ -150,6 +179,17 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
           + {t('editor.step.text.addDiagram', 'Add diagram')}
         </button>
       </div>
+
+      {editingIdx !== null && diagrams[editingIdx] && (
+        <SetPositionModal
+          initialFen={diagrams[editingIdx].fen}
+          onApply={(fen) => {
+            updateDiagramFen(editingIdx, fen);
+            setEditingIdx(null);
+          }}
+          onClose={() => setEditingIdx(null)}
+        />
+      )}
     </div>
   );
 }

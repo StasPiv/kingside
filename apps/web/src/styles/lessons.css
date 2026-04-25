@@ -1206,6 +1206,51 @@
   border-radius: 6px;
 }
 
+/* KS-1875: FEN-инпут с кнопкой Edit on board справа. */
+.editor-diagram__fen-label {
+  grid-column: 1 / -1;
+}
+
+.editor-diagram__fen-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.editor-diagram__fen-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: 12px;
+}
+
+.editor-diagram__edit-board {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.editor-diagram__edit-board:hover {
+  background: var(--accent, #4d8aff);
+  color: var(--accent-contrast, #fff);
+  border-color: var(--accent, #4d8aff);
+}
+
+@media (max-width: 640px) {
+  .editor-diagram__fen-row {
+    flex-direction: column;
+  }
+  .editor-diagram__edit-board {
+    align-self: flex-start;
+  }
+}
+
 .editor-hint {
   margin: 0;
   color: var(--text-secondary);

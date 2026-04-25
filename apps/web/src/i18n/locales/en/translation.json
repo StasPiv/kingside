@@ -1411,6 +1411,7 @@
           "caption": "Caption",
           "orientation": "Orientation",
           "addDiagram": "Add diagram",
+          "editBoard": "Edit on board",
           "toolbar": {
             "label": "Markdown formatting",
             "heading2": "Heading (large)",

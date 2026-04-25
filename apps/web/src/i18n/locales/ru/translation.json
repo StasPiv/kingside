@@ -1425,6 +1425,7 @@
           "caption": "Подпись",
           "orientation": "Ориентация",
           "addDiagram": "Добавить диаграмму",
+          "editBoard": "Расставить на доске",
           "toolbar": {
             "label": "Форматирование markdown",
             "heading2": "Заголовок (крупный)",
