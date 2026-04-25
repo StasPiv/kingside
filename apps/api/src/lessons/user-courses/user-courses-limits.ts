@@ -11,6 +11,17 @@ export const USER_COURSES_LIMITS = {
   lessonsPerCourse: 30,
   /** Максимум шагов в одном уроке. */
   stepsPerLesson: 50,
+  // ─── Custom puzzle (ADR-029, KS-1908) ─────────────────────────
+  /** Максимум авторских задач в одном `puzzle`-шаге (mode=custom). */
+  customPuzzlesPerStep: 20,
+  /** Максимум ходов в `solutionMoves` одной авторской задачи. */
+  customPuzzleSolutionMoves: 40,
+  /** Максимум авторских тегов в одной задаче (`themes[]`). */
+  customPuzzleThemes: 5,
+  /** Максимальная длина одного тега. */
+  customPuzzleThemeLength: 30,
+  /** Максимальная длина авторской подписи (`caption`). */
+  customPuzzleCaptionLength: 200,
 } as const;
 
 /**

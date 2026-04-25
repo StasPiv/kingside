@@ -18,6 +18,7 @@ import {
   TextStepPayloadDto,
   EndgameDrillStepPayloadDto,
   PuzzleSelectionIdsDto,
+  PuzzleSelectionCustomDto,
 } from '../../dto/step-payload.dto';
 import { ALLOWED_USER_STEP_TYPES } from '../user-courses-limits';
 
@@ -83,6 +84,14 @@ export class UserPuzzleStepPayloadDto implements PuzzleStepPayload {
   @IsIn(['puzzle'])
   type!: 'puzzle';
 
+  /**
+   * KS-1908 / ADR-029: третий вариант `mode='custom'` — авторские
+   * задачи. Используем системный `PuzzleSelectionCustomDto` как
+   * есть: лимит `customPuzzlesPerStep=20` уже совпадает с
+   * пользовательскими ограничениями (ADR-029 §2.5), отдельный класс
+   * не нужен — в отличие от `filter`, где `limit` у пользователей
+   * меньше (1..20 vs 1..100).
+   */
   @ValidateNested()
   @Type(() => Object, {
     discriminator: {
@@ -90,11 +99,15 @@ export class UserPuzzleStepPayloadDto implements PuzzleStepPayload {
       subTypes: [
         { value: PuzzleSelectionIdsDto, name: 'ids' },
         { value: UserPuzzleSelectionFilterDto, name: 'filter' },
+        { value: PuzzleSelectionCustomDto, name: 'custom' },
       ],
     },
     keepDiscriminatorProperty: true,
   })
-  selection!: PuzzleSelectionIdsDto | UserPuzzleSelectionFilterDto;
+  selection!:
+    | PuzzleSelectionIdsDto
+    | UserPuzzleSelectionFilterDto
+    | PuzzleSelectionCustomDto;
 
   @IsOptional()
   @IsInt()

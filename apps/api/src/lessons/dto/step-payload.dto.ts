@@ -27,12 +27,14 @@ import type {
   QuizQuestion,
   QuizOption,
   PuzzleTheme,
+  CustomPuzzle,
 } from '@kingside/shared';
 import { ArePositionMovesLegal, IsFen } from './position-step.validators';
 import { IsVideoUrl } from './video-step.validators';
 import { IsGameReviewXor, IsValidPgn } from './game-review-step.validators';
 import { IsEndgameWinCondition } from './endgame-drill-step.validators';
 import { IsDrillPgn } from './opening-drill-step.validators';
+import { IsCustomPuzzlesArray } from './custom-puzzle.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
@@ -103,16 +105,36 @@ class PuzzleSelectionFilterDto {
   limit!: number;
 }
 
+/**
+ * KS-1908 / ADR-029: третий вариант selection — авторские задачи.
+ * `customPuzzles` — массив самодостаточных описаний (FEN +
+ * solutionMoves + опц. orientation/themes/caption). chess.js-валидация
+ * пошагово делается в `@IsCustomPuzzlesArray()`. Длина массива и
+ * каждого `solutionMoves` ограничены в `USER_COURSES_LIMITS`.
+ */
+class PuzzleSelectionCustomDto {
+  @IsIn(['custom'])
+  mode!: 'custom';
+
+  @IsCustomPuzzlesArray()
+  customPuzzles!: CustomPuzzle[];
+}
+
 class PuzzleStepPayloadDto implements PuzzleStepPayload {
   @IsIn(['puzzle'])
   type!: 'puzzle';
 
   /**
-   * Дискриминируется по полю `mode` (`ids` | `filter`). Для class-validator мы
-   * валидируем оба варианта через union: если у объекта `mode==='ids'` —
-   * ожидаем `puzzleIds`, иначе — фильтр. Проверка выполняется в
-   * {@link validateSelection} ниже (класс-валидатор не умеет discriminated union
-   * без кастомного decorator'а).
+   * Дискриминируется по полю `mode` (`ids` | `filter` | `custom`).
+   * KS-1908 / ADR-029: добавлен `custom` — авторские задачи прямо в
+   * payload, без ссылок на системную puzzle-БД.
+   *
+   * class-transformer выбирает subType по совпадению `mode`-значения
+   * со `name` варианта; неизвестный `mode` оставит объект без
+   * вложенной валидации, и валидаторы родителя пропустят его как
+   * «непрошедший discriminator». Семантически это валит шаг через
+   * родительский DTO (поле `selection` не получит инстанса своего
+   * подкласса).
    */
   @ValidateNested()
   @Type(() => Object, {
@@ -121,11 +143,15 @@ class PuzzleStepPayloadDto implements PuzzleStepPayload {
       subTypes: [
         { value: PuzzleSelectionIdsDto, name: 'ids' },
         { value: PuzzleSelectionFilterDto, name: 'filter' },
+        { value: PuzzleSelectionCustomDto, name: 'custom' },
       ],
     },
     keepDiscriminatorProperty: true,
   })
-  selection!: PuzzleSelectionIdsDto | PuzzleSelectionFilterDto;
+  selection!:
+    | PuzzleSelectionIdsDto
+    | PuzzleSelectionFilterDto
+    | PuzzleSelectionCustomDto;
 
   @IsOptional()
   @IsInt()
@@ -362,4 +388,5 @@ export {
   QuizOptionDto,
   PuzzleSelectionIdsDto,
   PuzzleSelectionFilterDto,
+  PuzzleSelectionCustomDto,
 };

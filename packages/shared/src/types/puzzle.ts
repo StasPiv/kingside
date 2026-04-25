@@ -64,7 +64,13 @@ export type PuzzleDto = {
   id: string;
   fen: string;
   moves: string;
-  rating: number;
+  /**
+   * KS-1908 / ADR-029: для **custom puzzle** (авторских задач в шагах
+   * пользовательских курсов) рейтинг отсутствует — `null`. Для системных
+   * (Lichess) puzzle — целое число (Glicko-2). Glicko-2-update'ы при
+   * `rating === null` не вызываются (`isCustom === true`).
+   */
+  rating: number | null;
   ratingDeviation: number;
   popularity: number;
   nbPlays: number;
@@ -72,6 +78,19 @@ export type PuzzleDto = {
   gameUrl: string;
   openingTags: string;
   source?: string;
+  /**
+   * KS-1908 / ADR-029 §5.2: маркер «авторская задача из user-курса».
+   * При `true` runner НЕ вызывает `puzzleApi.submitAttempt`, в
+   * `PuzzleAttempt`/`MistakeSpec` записи не пишутся, рейтинг не идёт.
+   * Для системных puzzle поле отсутствует (или `false`).
+   */
+  isCustom?: boolean;
+  /**
+   * KS-1908 / ADR-029 §5.6: для custom puzzle первый ход в `moves` —
+   * это ход ученика (а не setup, как у Lichess). При `true` runner
+   * пропускает блок «применить setup-ход с задержкой 300 ms».
+   */
+  firstMoveIsUser?: boolean;
 };
 
 export type PuzzleAttemptResult = 'solved' | 'failed';

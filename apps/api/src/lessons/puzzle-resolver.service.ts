@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type { PuzzleStepPayload } from '@kingside/shared';
 import { PuzzleService } from '../puzzle/puzzle.service';
 import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
@@ -40,6 +44,18 @@ export class LessonPuzzleResolverService {
   ) {
     if (payload.selection.mode === 'ids') {
       return this.resolveIds(payload.selection.puzzleIds);
+    }
+
+    // KS-1908 / ADR-029: custom puzzle резолвится клиентом — он сам
+    // достаёт `customPuzzles` из payload и не зовёт `/puzzle-step/resolve`.
+    // Если запрос всё-таки сюда дошёл (баг клиента или попытка обхода),
+    // отвечаем 400 с понятным текстом — иначе TS-narrowing ниже
+    // упадёт в `payload.selection.themes` для custom-варианта.
+    if (payload.selection.mode === 'custom') {
+      throw new BadRequestException(
+        'Custom puzzles (mode="custom") are resolved client-side; ' +
+          '/lessons/puzzle-step/resolve must not be called for them.',
+      );
     }
 
     if (options.adaptive) {

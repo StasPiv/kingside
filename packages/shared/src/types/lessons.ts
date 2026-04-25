@@ -57,8 +57,12 @@ export type LessonStepState = 'pending' | 'in_progress' | 'done' | 'failed' | 's
 // ─── Step payloads (discriminated union by `type`) ───────────────────
 
 /**
- * Курируемый набор задач внутри `PuzzleStep`. В MVP поддерживается один
- * из двух режимов: либо явный список id, либо фильтр `themes+rating`.
+ * Курируемый набор задач внутри `PuzzleStep`. Три режима:
+ *  - `ids` — явный список id из системной puzzle-БД (Lichess).
+ *  - `filter` — фильтр `themes + rating` по той же системной БД.
+ *  - `custom` — авторские задачи, заданные прямо в payload (ADR-029).
+ *    Не ссылаются на `puzzles` таблицу; рейтинг не считается;
+ *    `submitAttempt` не вызывается. См. `CustomPuzzle` ниже.
  */
 export type PuzzleStepSelection =
   | {
@@ -72,7 +76,46 @@ export type PuzzleStepSelection =
       ratingMax?: number;
       /** Сколько задач выдавать в рамках шага. */
       limit: number;
+    }
+  | {
+      mode: 'custom';
+      /**
+       * Авторские задачи. 1..20 на шаг (лимит см.
+       * `USER_COURSES_LIMITS.customPuzzlesPerStep` в API). Хранятся
+       * прямо в payload, в системную puzzle-БД не пишутся.
+       */
+      customPuzzles: CustomPuzzle[];
     };
+
+/**
+ * Custom puzzle — авторская задача в шаге пользовательского курса
+ * (ADR-029). Самодостаточна: всё что нужно для рендера и проверки
+ * решения — внутри объекта.
+ */
+export interface CustomPuzzle {
+  /** Стартовый FEN. Валидируется chess.js при сохранении шага. */
+  fen: string;
+  /**
+   * Последовательность ходов решения в UCI: `['e2e4','e7e5',...]`.
+   * Первый ход — ход ученика (в отличие от системного `puzzle.moves`,
+   * где первый — setup). Чётность обработана в runner'е через
+   * `PuzzleDto.firstMoveIsUser`. Длина 1..40 (см. лимиты ADR §2.5).
+   */
+  solutionMoves: string[];
+  /**
+   * Какой цвет внизу при рендере доски. По умолчанию — сторона,
+   * которая ходит в стартовом FEN (определяется runner'ом).
+   */
+  orientation?: 'white' | 'black';
+  /**
+   * Опциональные авторские теги (UI-подсказка, не валидируются как
+   * `PuzzleTheme` enum). Не идут в leaderboard/recommendations.
+   * 0..5 тегов, длина каждого 1..30 символов.
+   */
+  themes?: string[];
+  /** Опциональная авторская подпись над доской. 0..200 символов. */
+  caption?: string;
+}
 
 /**
  * Статья + FEN-диаграммы (read-only). Контент — markdown.
