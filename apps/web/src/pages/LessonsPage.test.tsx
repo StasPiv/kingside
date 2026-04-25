@@ -41,6 +41,11 @@ vi.mock('../components/lessons/CourseAuthorsBlock', () => ({
   CourseAuthorsBlock: () => <div data-testid="course-authors-block-mock" />,
 }));
 
+// KS-1922: контекстный hero — собственные тесты в LessonsHero.test.tsx.
+vi.mock('../components/lessons/LessonsHero', () => ({
+  LessonsHero: () => <div data-testid="lessons-hero-mock" />,
+}));
+
 beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
   mockLessonsApi.getLevelGate.mockReset();

@@ -1286,6 +1286,148 @@
   border-radius: 6px;
 }
 
+/* KS-1922 / ADR-031 §4.1: контекстный hero. Минимальные стили —
+   финальная стилистика в KS-1925 у layout. */
+.lessons-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 24px;
+  margin: 16px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.lessons-hero__eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.lessons-hero__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+}
+
+.lessons-hero__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.lessons-hero__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  position: relative;
+  height: 22px;
+  background: var(--bg-muted);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.lessons-hero__progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent, #4d8aff);
+  border-radius: 999px;
+  transition: width 240ms ease;
+}
+
+.lessons-hero__progress-text {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.lessons-hero__cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.lessons-hero__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 8px;
+  padding: 10px 18px;
+  background: var(--accent, #4d8aff);
+  color: var(--accent-contrast, #fff);
+  font-weight: 600;
+  border: 1px solid var(--accent, #4d8aff);
+  border-radius: 8px;
+  text-decoration: none;
+  align-self: flex-start;
+}
+
+.lessons-hero__cta:hover {
+  background: var(--accent-hover, #3970d8);
+}
+
+.lessons-hero__cta--secondary {
+  background: transparent;
+  color: var(--accent, #4d8aff);
+}
+
+.lessons-hero__link {
+  font-size: 13px;
+  color: var(--accent, #4d8aff);
+  text-decoration: none;
+}
+
+.lessons-hero__link:hover {
+  text-decoration: underline;
+}
+
+/* Skeleton-варианты — финал в KS-1925, здесь — фиксированный
+   footprint чтобы не было layout shift при переходе loading→content. */
+.lessons-hero--loading {
+  min-height: 180px;
+}
+
+.lessons-hero__skeleton-block,
+.lessons-hero__skeleton-line,
+.lessons-hero__skeleton-cta {
+  background: var(--bg-muted);
+  border-radius: 6px;
+}
+
+.lessons-hero__skeleton-block {
+  width: 80px;
+  height: 16px;
+}
+
+.lessons-hero__skeleton-line {
+  width: 60%;
+  height: 24px;
+  margin-top: 8px;
+}
+
+.lessons-hero__skeleton-line--short {
+  width: 35%;
+  height: 14px;
+}
+
+.lessons-hero__skeleton-cta {
+  width: 140px;
+  height: 38px;
+  margin-top: 10px;
+}
+
 /* KS-1919: лента «Latest courses» на /lessons. ADR-030 §2.1. */
 .latest-courses-block {
   margin: 16px 0;

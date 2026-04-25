@@ -1542,6 +1542,35 @@
       "reset": "Interval reset — we'll ask you to review again tomorrow",
       "nextDue": "Next review: {{date}}"
     },
+    "hero": {
+      "continue": {
+        "eyebrow": "Continue learning",
+        "progressLabel": "Progress",
+        "cta": "Resume course"
+      },
+      "author": {
+        "eyebrow": "Your courses",
+        "title_one": "{{count}} course",
+        "title_other": "{{count}} courses",
+        "subtitle": "{{publicCount}} public · {{privateCount}} private",
+        "cta": "Open editor",
+        "create": "+ Create new course"
+      },
+      "start": {
+        "eyebrow": "Welcome back",
+        "title": "Start with the Beginner course",
+        "subtitle": "A structured path through chess fundamentals.",
+        "cta": "Browse Beginner curriculum"
+      },
+      "guest": {
+        "eyebrow": "Lessons",
+        "title": "Learn chess with structured courses and community puzzles",
+        "subtitle": "Sign in to track your progress, save courses, and continue where you left off.",
+        "signIn": "Sign in",
+        "register": "Create account",
+        "browse": "Browse Beginner →"
+      }
+    },
     "latestCourses": {
       "title": "Latest courses",
       "newBadge": "NEW",

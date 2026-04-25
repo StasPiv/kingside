@@ -16,6 +16,7 @@ import { MyCoursesBlock } from '../components/lessons/MyCoursesBlock';
 import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock';
 import { LatestCoursesBlock } from '../components/lessons/LatestCoursesBlock';
 import { CourseAuthorsBlock } from '../components/lessons/CourseAuthorsBlock';
+import { LessonsHero } from '../components/lessons/LessonsHero';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -124,6 +125,11 @@ export function LessonsPage() {
           {t('lessons.subtitle', 'Structured chess curriculum')}
         </p>
       </header>
+
+      {/* KS-1922 / ADR-031 §4.1: контекстный hero — 5 вариантов
+          (continue / author / start / guest / loading) в зависимости
+          от состояния пользователя. */}
+      <LessonsHero />
 
       <ReviewsDueBlock items={reviewsDue} errored={reviewsDueErrored} />
 
