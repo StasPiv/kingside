@@ -47,11 +47,12 @@
 # =====================================================================
 # KS-1897: archive-service — несколько task-def family на одном образе
 # =====================================================================
-# Образ kingside-archive-service используется четырьмя task-def family:
+# Образ kingside-archive-service используется тремя task-def family:
 #   - kingside-archive-service           — ECS service (HTTP, /tree)
-#   - kingside-archive-importer          — наследие ADR-019 (нет потребителя)
 #   - kingside-archive-importer-oneshot  — EventBridge daily (kingside-archive-importer-daily)
 #   - kingside-archive-importer-adhoc    — adhoc batch / dev (manual aws ecs run-task)
+# Legacy family kingside-archive-importer (наследие ADR-019, без потребителя)
+# дерегистрирована в C-следствии KS-1897 после первой выкатки B.
 #
 # До KS-1897 deploy-pipeline обновлял revision только для тех family, у которых
 # есть ECS service (`update-service` ветка). Остальные оставались на :latest и
@@ -106,9 +107,10 @@ TD_FAMILY_ARCHIVE_IMPORTER="kingside-archive-importer"
 # KS-1897: все task-def family использующие образ kingside-archive-service.
 # Регистрируются на pinned SHA при каждом scope=archive-service деплое
 # (см. шапку файла, секцию KS-1897).
+# Legacy family `kingside-archive-importer` (ADR-019, без потребителя) дерегистрирована
+# в C-следствии KS-1897 после первой успешной выкатки B (revision 6 и 7 → INACTIVE).
 ARCHIVE_TD_FAMILIES=(
     "kingside-archive-service"            # ECS service (HTTP, /tree)
-    "kingside-archive-importer"           # legacy ADR-019, нет потребителя (см. C-следствие KS-1897)
     "kingside-archive-importer-oneshot"   # EventBridge schedule kingside-archive-importer-daily
     "kingside-archive-importer-adhoc"     # adhoc batch / dev (manual aws ecs run-task)
 )
@@ -666,12 +668,12 @@ fi
 #     services-stable → smoke → EventBridge update → put-image :latest ---
 # ADR-019: единый образ kingside-archive-service.
 # ADR-020: importer переведён с continuous ECS-service на EventBridge Schedule.
-# KS-1897: на проде используются 4 task-def family с этим образом — все обновляем.
+# KS-1897: на проде используются 3 task-def family с этим образом — все обновляем.
+# C-следствие KS-1897: legacy family kingside-archive-importer (без потребителя)
+# дерегистрирована, в массив не входит.
 #
 # Семантика по семействам:
 #   - kingside-archive-service           — ECS service (HTTP, /tree). update-service.
-#   - kingside-archive-importer          — наследие; никем не используется. Только
-#                                          register revision (синхронно с другими).
 #   - kingside-archive-importer-oneshot  — EventBridge daily target. После
 #                                          register обновляем target ARN расписания.
 #   - kingside-archive-importer-adhoc    — adhoc batch / dev (ручной aws ecs run-task,
@@ -714,7 +716,11 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     done
 
     NEW_TD_HTTP_ARN="${NEW_TD_ARNS[$TD_FAMILY_ARCHIVE_SERVICE]}"
-    NEW_TD_IMPORTER_ARN="${NEW_TD_ARNS[$TD_FAMILY_ARCHIVE_IMPORTER]}"
+    # KS-1897 C-следствие: family kingside-archive-importer дерегистрирована,
+    # в массив не входит → ARN пустой. Логика update-service ниже под условием
+    # ARCHIVE_IMPORTER_STATUS=ACTIVE никогда не сработает (его и не было), но
+    # ветка оставлена для возможного возврата continuous-сервиса в будущем.
+    NEW_TD_IMPORTER_ARN="${NEW_TD_ARNS[$TD_FAMILY_ARCHIVE_IMPORTER]:-}"
 
     if [ "$ARCHIVE_SVC_STATUS" = "ACTIVE" ]; then
         # KS-1822: Prisma migrations для archive-db (отдельная БД archive_kingside,
