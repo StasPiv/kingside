@@ -1424,7 +1424,26 @@
           "diagrams": "Диаграммы",
           "caption": "Подпись",
           "orientation": "Ориентация",
-          "addDiagram": "Добавить диаграмму"
+          "addDiagram": "Добавить диаграмму",
+          "toolbar": {
+            "label": "Форматирование markdown",
+            "heading2": "Заголовок (крупный)",
+            "heading3": "Заголовок (мелкий)",
+            "headingSample": "Заголовок",
+            "bold": "Жирный",
+            "boldSample": "жирный текст",
+            "italic": "Курсив",
+            "italicSample": "курсив",
+            "code": "Inline-код",
+            "codeSample": "код",
+            "bulletList": "Маркированный список",
+            "numberedList": "Нумерованный список",
+            "listSample": "пункт списка",
+            "link": "Ссылка",
+            "linkSample": "название",
+            "codeBlock": "Блок кода",
+            "codeBlockSample": "код"
+          }
         },
         "puzzle": {
           "mode": "Режим подборки",

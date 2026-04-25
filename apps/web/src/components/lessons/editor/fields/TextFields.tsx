@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import type { StepPayload } from '@kingside/shared';
 
+import { MarkdownTextEditor } from './MarkdownTextEditor';
+
 /**
  * `TextFields` — форма редактирования `TextStepPayload` (markdown + diagrams).
  *
@@ -8,6 +10,16 @@ import type { StepPayload } from '@kingside/shared';
  * Публичный API `StepEditor` не меняется — это просто разделение файлов
  * чтобы новые user-course-поля могли переиспользовать / ограничивать
  * состав в FE-R4/R5, не распухая StepEditor.tsx до 1500+ строк.
+ *
+ * # WYSIWYG для тела (KS-1874)
+ *
+ * Markdown-тело лекции редактируется через `<MarkdownTextEditor>` —
+ * собственный лёгкий toolbar поверх textarea. Это сохраняет контракт:
+ * `payload.bodyMarkdown` — строка markdown, плейсхолдеры
+ * `{{diagram:N}}` и fenced ```` ```fen ```` блоки в textarea — обычный
+ * текст, никакого экранирования и трансформаций. Toolbar генерит
+ * только тот синтаксис, который понимает read-only рендерер
+ * `simpleMarkdown.tsx`.
  *
  * # Автовставка {{diagram:N}} (KS-1827 bugfix)
  *
@@ -29,15 +41,16 @@ export function TextFields({ payload, onChange }: TextFieldsProps) {
 
   return (
     <div className="editor-step__fields">
-      <label>
-        {t('editor.step.text.body', 'Markdown body')}
-        <textarea
+      <div className="editor-step__body">
+        <span className="editor-step__body-label">
+          {t('editor.step.text.body', 'Markdown body')}
+        </span>
+        <MarkdownTextEditor
           value={payload.bodyMarkdown ?? ''}
-          onChange={(e) => onChange({ ...payload, bodyMarkdown: e.target.value })}
-          rows={8}
-          data-testid="editor-step-text-body"
+          onChange={(v) => onChange({ ...payload, bodyMarkdown: v })}
+          minRows={20}
         />
-      </label>
+      </div>
       <div className="editor-diagrams">
         <h4>{t('editor.step.text.diagrams', 'Diagrams')}</h4>
         <p className="editor-step__hint" data-testid="editor-diagrams-hint">

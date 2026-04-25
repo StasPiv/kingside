@@ -1410,7 +1410,26 @@
           "diagrams": "Diagrams",
           "caption": "Caption",
           "orientation": "Orientation",
-          "addDiagram": "Add diagram"
+          "addDiagram": "Add diagram",
+          "toolbar": {
+            "label": "Markdown formatting",
+            "heading2": "Heading (large)",
+            "heading3": "Heading (small)",
+            "headingSample": "Heading",
+            "bold": "Bold",
+            "boldSample": "bold text",
+            "italic": "Italic",
+            "italicSample": "italic text",
+            "code": "Inline code",
+            "codeSample": "code",
+            "bulletList": "Bullet list",
+            "numberedList": "Numbered list",
+            "listSample": "list item",
+            "link": "Link",
+            "linkSample": "label",
+            "codeBlock": "Code block",
+            "codeBlockSample": "code"
+          }
         },
         "puzzle": {
           "mode": "Selection mode",

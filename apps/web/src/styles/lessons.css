@@ -1082,6 +1082,108 @@
   font-size: 13px;
 }
 
+/* KS-1874: WYSIWYG-toolbar для тела text-шага. */
+.editor-step__body {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.editor-step__body-label {
+  font-weight: 500;
+}
+
+.editor-md {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+
+.editor-md__toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.editor-md__btn {
+  flex: 0 0 auto;
+  min-width: 32px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.editor-md__btn:hover {
+  background: var(--bg-muted);
+  border-color: var(--accent, #4d8aff);
+}
+
+.editor-md__btn:active {
+  transform: translateY(1px);
+}
+
+.editor-md__textarea {
+  width: 100%;
+  min-height: calc(20 * 1.5em);
+  max-height: 60vh;
+  padding: 10px;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  box-sizing: border-box;
+}
+
+.editor-md__textarea:focus {
+  outline: 2px solid var(--accent, #4d8aff);
+  outline-offset: -2px;
+}
+
+@media (max-width: 640px) {
+  .editor-md__toolbar {
+    padding: 4px;
+    gap: 3px;
+  }
+  .editor-md__btn {
+    min-width: 28px;
+    height: 26px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+  .editor-md__textarea {
+    min-height: calc(16 * 1.5em);
+    max-height: 50vh;
+    font-size: 12px;
+  }
+}
+
 .editor-diagrams,
 .editor-quiz-questions {
   grid-column: 1 / -1;
