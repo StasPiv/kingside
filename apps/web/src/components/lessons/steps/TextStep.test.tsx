@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen } from '../../../test/test-utils';
-import { TextStep, parseTextStepSegments } from './TextStep';
+import { TextStep, parseTextStepSegments, TEXT_STEP_AUTO_DONE_MS } from './TextStep';
 import type { TextStepPayload } from '@kingside/shared';
 
 vi.mock('react-chessboard', () => ({
@@ -202,5 +202,93 @@ describe('<TextStep>', () => {
     expect(screen.getByTestId('lesson-text-step-i18n-stub')).toHaveTextContent(
       'Lessons',
     );
+  });
+});
+
+/**
+ * KS-1878: text-step как read-once-content авто-маркируется done через
+ * `TEXT_STEP_AUTO_DONE_MS` после mount. Это критично для text-only
+ * уроков: на последнем шаге `hideNext=true` и пользователю нечем было
+ * пометить шаг done, score замирал ниже threshold'а 70%.
+ */
+describe('<TextStep> auto-done (KS-1878)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('вызывает onStepDone через TEXT_STEP_AUTO_DONE_MS после mount', () => {
+    const onStepDone = vi.fn();
+    renderWithProviders(
+      <TextStep payload={{ type: 'text', bodyMarkdown: 'Read me' }} onStepDone={onStepDone} />,
+    );
+    expect(onStepDone).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(TEXT_STEP_AUTO_DONE_MS - 1);
+    });
+    expect(onStepDone).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(onStepDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('срабатывает и при hideNext=true (главный сценарий бага: последний text-шаг)', () => {
+    const onStepDone = vi.fn();
+    renderWithProviders(
+      <TextStep
+        payload={{ type: 'text', bodyMarkdown: 'Last step body' }}
+        onStepDone={onStepDone}
+        hideNext
+      />,
+    );
+    // Кнопки «Далее» нет, но шаг всё равно должен пометиться done.
+    expect(screen.queryByTestId('lesson-text-step-next')).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(TEXT_STEP_AUTO_DONE_MS);
+    });
+    expect(onStepDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('не падает и не вызывает callback, если onStepDone не передан (preview в редакторе)', () => {
+    renderWithProviders(<TextStep payload={{ type: 'text', bodyMarkdown: 'Preview' }} />);
+    // Просто прокручиваем таймер — не должно быть ошибок.
+    expect(() => {
+      act(() => {
+        vi.advanceTimersByTime(TEXT_STEP_AUTO_DONE_MS * 2);
+      });
+    }).not.toThrow();
+  });
+
+  it('cleanup отменяет таймер при unmount (быстрое снятие шага не зачитывается)', () => {
+    const onStepDone = vi.fn();
+    const { unmount } = renderWithProviders(
+      <TextStep payload={{ type: 'text', bodyMarkdown: 'mounted' }} onStepDone={onStepDone} />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(TEXT_STEP_AUTO_DONE_MS / 2);
+    });
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(TEXT_STEP_AUTO_DONE_MS);
+    });
+    expect(onStepDone).not.toHaveBeenCalled();
+  });
+
+  it('явный клик «Далее» до таймера тоже работает — оба пути вызывают onStepDone (идемпотентно в useUserLessonProgress)', () => {
+    const onStepDone = vi.fn();
+    renderWithProviders(
+      <TextStep payload={{ type: 'text', bodyMarkdown: 'click then wait' }} onStepDone={onStepDone} />,
+    );
+    fireEvent.click(screen.getByTestId('lesson-text-step-next'));
+    expect(onStepDone).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(TEXT_STEP_AUTO_DONE_MS);
+    });
+    // Второй раз — от auto-done. В реальности `markStep('done')`
+    // идемпотентен и second call ничего не делает.
+    expect(onStepDone).toHaveBeenCalledTimes(2);
   });
 });
