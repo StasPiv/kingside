@@ -63,6 +63,18 @@
   min-width: 0; /* предотвращает overflow в grid */
 }
 
+/* KS-1905: ненавязчивый banner про fallback на русский, когда EN
+   версия ещё не задеплоена. */
+.docs-fallback-banner {
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
 .docs-content {
   max-width: 760px;
   font-size: 15px;
