@@ -229,6 +229,20 @@ export class UserCoursesService {
         },
         include: { _count: { select: { steps: true } } },
       });
+
+      // KS-1881: добавление нового урока инвалидирует «курс пройден»
+      // у всех студентов, у кого `completedAt` стоял (общее число
+      // уроков выросло — старая 100%-отметка больше не отражает
+      // реальность). Сбрасываем `completedAt` в null атомарно в той
+      // же транзакции, чтобы не было окна, когда курс одновременно
+      // содержит «новый урок» и помечен у студента «пройдено».
+      // `completedLessonsCount` оставляем как есть — он не врёт, просто
+      // теперь меньше нового total.
+      await tx.userCoursePlayProgress.updateMany({
+        where: { userCourseId: courseId, completedAt: { not: null } },
+        data: { completedAt: null },
+      });
+
       return toLessonDto(created);
     });
   }

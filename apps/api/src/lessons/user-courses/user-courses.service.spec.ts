@@ -31,10 +31,12 @@ describe('UserCoursesService (KS-1829)', () => {
       },
       userCoursePlayProgress: {
         findUnique: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       $transaction: jest.fn((cb) =>
         cb({
           userLesson: prisma.userLesson,
+          userCoursePlayProgress: prisma.userCoursePlayProgress,
         }),
       ),
     };
@@ -301,6 +303,44 @@ describe('UserCoursesService (KS-1829)', () => {
         id: 'l', ...data, estMinutes: data.estMinutes ?? null, _count: { steps: 0 },
       }));
       await expect(service.addLesson(OWNER, 'c1', { title: 'L' })).resolves.toBeDefined();
+    });
+
+    // KS-1881: добавление урока инвалидирует «курс пройден» у всех
+    // студентов, у кого `completedAt` стоял.
+    it('сбрасывает completedAt у всех студентов с пройденным курсом', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER });
+      prisma.userLesson.findFirst.mockResolvedValue(null);
+      prisma.userLesson.create.mockImplementation(async ({ data }: any) => ({
+        id: 'l1', ...data, estMinutes: null, _count: { steps: 0 },
+      }));
+
+      await service.addLesson(OWNER, 'c1', { title: 'L' });
+
+      expect(prisma.userCoursePlayProgress.updateMany).toHaveBeenCalledWith({
+        where: { userCourseId: 'c1', completedAt: { not: null } },
+        data: { completedAt: null },
+      });
+    });
+
+    it('reset выполняется ВНУТРИ транзакции вместе с create урока', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER });
+      prisma.userLesson.findFirst.mockResolvedValue(null);
+      prisma.userLesson.create.mockImplementation(async ({ data }: any) => ({
+        id: 'l1', ...data, estMinutes: null, _count: { steps: 0 },
+      }));
+
+      await service.addLesson(OWNER, 'c1', { title: 'L' });
+
+      // updateMany вызвался через `tx` (тот же объект, что в callback'е $transaction).
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.userCoursePlayProgress.updateMany).toHaveBeenCalledTimes(1);
+      // create урока вызван до updateMany — порядок важен:
+      // если бы reset был раньше, новый урок попал бы в курс уже без
+      // completedAt, что концептуально то же; но мы фиксируем порядок
+      // «создал → инвалидировал», как в коде.
+      const createCallOrder = prisma.userLesson.create.mock.invocationCallOrder[0];
+      const updateManyOrder = prisma.userCoursePlayProgress.updateMany.mock.invocationCallOrder[0];
+      expect(createCallOrder).toBeLessThan(updateManyOrder);
     });
   });
 

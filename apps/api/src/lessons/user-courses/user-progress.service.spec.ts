@@ -11,11 +11,21 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
   beforeEach(() => {
     prisma = {
       userCourse: { findUnique: jest.fn() },
-      userLesson: { findUnique: jest.fn() },
+      userLesson: {
+        findUnique: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+      },
       userLessonStep: { findMany: jest.fn().mockResolvedValue([]) },
       userCoursePlayProgress: {
         findUnique: jest.fn(),
-        upsert: jest.fn(),
+        // Default: «свежая» запись без completedAt — чтобы тесты, которые
+        // не специфицируют upsert.mockResolvedValue, не выводили
+        // touchUserCourseProgress в ветку «set completedAt».
+        upsert: jest.fn().mockResolvedValue({
+          completedLessonsCount: 0,
+          completedAt: null,
+        }),
+        update: jest.fn(),
       },
       userLessonPlayProgress: {
         findUnique: jest.fn(),
@@ -511,7 +521,10 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
 
   describe('touchUserCourseProgress', () => {
     it('без инкремента — обновляет только lastActivityAt', async () => {
-      prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+        completedLessonsCount: 0,
+        completedAt: null,
+      });
       await service.touchUserCourseProgress(OWNER, 'c1', { incrementCompleted: false });
       const call = prisma.userCoursePlayProgress.upsert.mock.calls[0][0];
       expect(call.update).not.toHaveProperty('completedLessonsCount');
@@ -519,11 +532,195 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
     });
 
     it('с инкрементом — increment:1 в update, 1 в create', async () => {
-      prisma.userCoursePlayProgress.upsert.mockResolvedValue({});
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+        completedLessonsCount: 1,
+        completedAt: null,
+      });
       await service.touchUserCourseProgress(OWNER, 'c1', { incrementCompleted: true });
       const call = prisma.userCoursePlayProgress.upsert.mock.calls[0][0];
       expect(call.update.completedLessonsCount).toEqual({ increment: 1 });
       expect(call.create.completedLessonsCount).toBe(1);
+    });
+
+    // KS-1881: логика «курс пройден».
+    describe('completedAt маркер курса (KS-1881)', () => {
+      it('completedLessonsCount достиг totalLessonsInCourse → ставит completedAt', async () => {
+        prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+          completedLessonsCount: 2,
+          completedAt: null,
+        });
+        await service.touchUserCourseProgress(OWNER, 'c1', {
+          incrementCompleted: true,
+          totalLessonsInCourse: 2,
+        });
+        expect(prisma.userCoursePlayProgress.update).toHaveBeenCalledWith({
+          where: { userId_userCourseId: { userId: OWNER, userCourseId: 'c1' } },
+          data: { completedAt: expect.any(Date) },
+        });
+      });
+
+      it('completedLessonsCount меньше total → completedAt не ставится', async () => {
+        prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+          completedLessonsCount: 1,
+          completedAt: null,
+        });
+        await service.touchUserCourseProgress(OWNER, 'c1', {
+          incrementCompleted: true,
+          totalLessonsInCourse: 2,
+        });
+        expect(prisma.userCoursePlayProgress.update).not.toHaveBeenCalled();
+      });
+
+      it('completedAt уже стоит → не двигаем (идемпотентность)', async () => {
+        prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+          completedLessonsCount: 2,
+          completedAt: new Date('2026-04-01T00:00:00Z'),
+        });
+        await service.touchUserCourseProgress(OWNER, 'c1', {
+          incrementCompleted: false,
+          totalLessonsInCourse: 2,
+        });
+        expect(prisma.userCoursePlayProgress.update).not.toHaveBeenCalled();
+      });
+
+      it('totalLessonsInCourse не передан → completedAt не ставится (старое поведение)', async () => {
+        prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+          completedLessonsCount: 5,
+          completedAt: null,
+        });
+        await service.touchUserCourseProgress(OWNER, 'c1', {
+          incrementCompleted: false,
+        });
+        expect(prisma.userCoursePlayProgress.update).not.toHaveBeenCalled();
+      });
+
+      it('total=0 (пустой курс) → completedAt не ставится', async () => {
+        prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+          completedLessonsCount: 0,
+          completedAt: null,
+        });
+        await service.touchUserCourseProgress(OWNER, 'c1', {
+          incrementCompleted: false,
+          totalLessonsInCourse: 0,
+        });
+        expect(prisma.userCoursePlayProgress.update).not.toHaveBeenCalled();
+      });
+
+      it('count > total (например, урок удалили после complete) → ставит completedAt', async () => {
+        // completedLessonsCount=3 в БД (когда-то было 3 урока), теперь
+        // total=2. Условие `count >= total` → курс должен быть completed.
+        prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+          completedLessonsCount: 3,
+          completedAt: null,
+        });
+        await service.touchUserCourseProgress(OWNER, 'c1', {
+          incrementCompleted: false,
+          totalLessonsInCourse: 2,
+        });
+        expect(prisma.userCoursePlayProgress.update).toHaveBeenCalled();
+      });
+    });
+  });
+
+  // ─── completeLesson + course completedAt (KS-1881 e2e) ─────────────
+
+  describe('completeLesson → course.completedAt (KS-1881)', () => {
+    const lesson = (steps = 3) => ({
+      userCourseId: 'c1',
+      _count: { steps },
+      course: { ownerId: OWNER, isPublic: false },
+    });
+
+    function setupCompleteLesson(opts: {
+      lessonsInCourse: number;
+      coursePrevCompletedAt: Date | null;
+      newCompletedLessonsCount: number;
+    }) {
+      prisma.userLesson.findUnique.mockResolvedValue(lesson(1));
+      prisma.userLessonStep.findMany.mockResolvedValue([{ id: 'sA' }]);
+      prisma.userLesson.count.mockResolvedValue(opts.lessonsInCourse);
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        completedAt: null,
+        stepsState: {},
+      });
+      prisma.userLessonPlayProgress.upsert.mockResolvedValue({
+        userLessonId: 'l1',
+        completedStepsCount: 1,
+        totalSteps: 1,
+        stepsState: { sA: 'done' },
+        startedAt: new Date(),
+        lastActivityAt: new Date(),
+        completedAt: new Date(),
+      });
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+        completedLessonsCount: opts.newCompletedLessonsCount,
+        completedAt: opts.coursePrevCompletedAt,
+      });
+    }
+
+    // Gherkin: «Курс из 2 уроков пройден»
+    it('второй урок завершает курс → completedAt ставится', async () => {
+      setupCompleteLesson({
+        lessonsInCourse: 2,
+        coursePrevCompletedAt: null,
+        newCompletedLessonsCount: 2,
+      });
+      await service.completeLesson(OWNER, 'l1', 1);
+      expect(prisma.userCoursePlayProgress.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { completedAt: expect.any(Date) } }),
+      );
+    });
+
+    // Gherkin: «Курс ещё не пройден»
+    it('пройден только 1 из 2 уроков → completedAt не ставится', async () => {
+      setupCompleteLesson({
+        lessonsInCourse: 2,
+        coursePrevCompletedAt: null,
+        newCompletedLessonsCount: 1,
+      });
+      await service.completeLesson(OWNER, 'l1', 1);
+      expect(prisma.userCoursePlayProgress.update).not.toHaveBeenCalled();
+    });
+
+    // Regression: курс с одним уроком становится completed на первом же complete.
+    it('курс из 1 урока — completedAt ставится сразу', async () => {
+      setupCompleteLesson({
+        lessonsInCourse: 1,
+        coursePrevCompletedAt: null,
+        newCompletedLessonsCount: 1,
+      });
+      await service.completeLesson(OWNER, 'l1', 1);
+      expect(prisma.userCoursePlayProgress.update).toHaveBeenCalled();
+    });
+
+    // Gherkin: «Идемпотентность» — повторный complete не двигает дату.
+    it('повторный complete уже пройденного курса → completedAt не обновляется', async () => {
+      const T1 = new Date('2026-04-01T00:00:00Z');
+      // completedAt урока уже стоит → wasAlreadyCompleted=true → incrementCompleted=false.
+      prisma.userLesson.findUnique.mockResolvedValue(lesson(1));
+      prisma.userLessonStep.findMany.mockResolvedValue([{ id: 'sA' }]);
+      prisma.userLesson.count.mockResolvedValue(2);
+      prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+        completedAt: T1,
+        stepsState: { sA: 'done' },
+      });
+      prisma.userLessonPlayProgress.upsert.mockResolvedValue({
+        userLessonId: 'l1',
+        completedStepsCount: 1,
+        totalSteps: 1,
+        stepsState: { sA: 'done' },
+        startedAt: T1,
+        lastActivityAt: T1,
+        completedAt: T1,
+      });
+      prisma.userCoursePlayProgress.upsert.mockResolvedValue({
+        completedLessonsCount: 2,
+        completedAt: T1, // курс уже пройден ранее
+      });
+
+      await service.completeLesson(OWNER, 'l1', 1);
+      // Идемпотентность: completedAt уже T1, повторно update не вызван.
+      expect(prisma.userCoursePlayProgress.update).not.toHaveBeenCalled();
     });
   });
 

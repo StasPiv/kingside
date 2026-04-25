@@ -213,8 +213,17 @@ export class UserProgressService {
       },
     });
 
+    // KS-1881: для маркера «курс пройден» нужно знать актуальное число
+    // уроков курса (учителю могли добавить/удалить урок между прогонами).
+    // Считаем по `userLesson.count` — это источник правды; кэшированного
+    // `lessonCount` на курсе у нас нет.
+    const totalLessonsInCourse = await this.prisma.userLesson.count({
+      where: { userCourseId: lesson.userCourseId },
+    });
+
     await this.touchUserCourseProgress(userId, lesson.userCourseId, {
       incrementCompleted: !wasAlreadyCompleted,
+      totalLessonsInCourse,
     });
 
     return toLessonPlayProgressDto(row);
@@ -225,14 +234,22 @@ export class UserProgressService {
    * `completedLessonsCount`. Прогресс курса создаётся лениво при первом
    * обращении (upsert), чтобы GET до старта прохождения мог честно
    * вернуть null, а первое движение инициировало запись.
+   *
+   * KS-1881: когда `totalLessonsInCourse` передан, после upsert'а
+   * проверяем «весь курс пройден» (`completedLessonsCount >= total`)
+   * и единожды выставляем `completedAt = now`. Идемпотентно — если
+   * `completedAt` уже стоит, вторично не двигаем (timestamp фиксируется
+   * на момент первого достижения 100%). Сброс `completedAt` при
+   * добавлении нового урока выполняется в `UserCoursesService.addLesson`,
+   * сюда логику reset'а не тащим — это другая ответственность.
    */
   async touchUserCourseProgress(
     userId: string,
     userCourseId: string,
-    opts: { incrementCompleted: boolean },
+    opts: { incrementCompleted: boolean; totalLessonsInCourse?: number },
   ): Promise<void> {
     const now = new Date();
-    await this.prisma.userCoursePlayProgress.upsert({
+    const row = await this.prisma.userCoursePlayProgress.upsert({
       where: { userId_userCourseId: { userId, userCourseId } },
       update: {
         lastActivityAt: now,
@@ -247,6 +264,28 @@ export class UserProgressService {
         lastActivityAt: now,
       },
     });
+
+    // Маркер «курс пройден». Условия (все три):
+    //  1. Передан `totalLessonsInCourse` (вызывающий знает фактическое
+    //     число уроков и хочет, чтобы мы решили). `updateStepProgress`
+    //     не передаёт — там не достижим переход в completed (только
+    //     внутри `completeLesson` это происходит).
+    //  2. Курс не пустой (`total > 0`) — у курса без уроков нет
+    //     осмысленного «100%» состояния.
+    //  3. Достигнут или превышен порог, и дата ещё не выставлена
+    //     (идемпотентность: ставим один раз).
+    const total = opts.totalLessonsInCourse;
+    if (
+      total !== undefined &&
+      total > 0 &&
+      row.completedLessonsCount >= total &&
+      row.completedAt === null
+    ) {
+      await this.prisma.userCoursePlayProgress.update({
+        where: { userId_userCourseId: { userId, userCourseId } },
+        data: { completedAt: now },
+      });
+    }
   }
 
   // ─── Access helpers ──────────────────────────────────────────────
