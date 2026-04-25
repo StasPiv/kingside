@@ -74,3 +74,13 @@ export type BoardTheme = typeof BOARD_THEMES[number];
 
 export const PIECE_SETS = ['standard', 'cburnett', 'alpha', 'merida'] as const;
 export type PieceSet = typeof PIECE_SETS[number];
+
+/**
+ * Минимальная доля сделанных шагов (`count('done') / totalSteps`),
+ * которой достаточно, чтобы урок пользовательского курса считался
+ * пройденным. Серверный gate в `UserProgressService.completeLesson`
+ * (KS-1883). Один источник истины для бэка и UI — клиент использует
+ * это же значение для активации кнопки «Завершить урок» в
+ * `useUserLessonProgress`.
+ */
+export const USER_LESSON_COMPLETION_THRESHOLD = 0.7;

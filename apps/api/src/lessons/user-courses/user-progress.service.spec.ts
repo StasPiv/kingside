@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { UserProgressService } from './user-progress.service';
 
 describe('UserProgressService (KS-1831 / KS-1879)', () => {
@@ -397,10 +397,11 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
       prisma.userLessonStep.findMany.mockResolvedValue([
         { id: 'sA' }, { id: 'sB' }, { id: 'sC' },
       ]);
-      // completedAt = null (ещё не завершён) → inc = true
+      // KS-1883: пред-state должен пройти серверный threshold ≥0.7
+      // (3/3=1.0). completedAt=null → inc=true.
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
         completedAt: null,
-        stepsState: {},
+        stepsState: { sA: 'done', sB: 'done', sC: 'done' },
       });
       const now = new Date();
       prisma.userLessonPlayProgress.upsert.mockImplementation(async ({ create }: any) => ({
@@ -424,14 +425,21 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
     });
 
     // KS-1879: completeLesson не перетирает уже отмеченные failed/skipped.
+    // KS-1883: чтобы пройти server gate, в pre-state должно быть достаточно
+    // done. Берём 4-шаговый урок: 3 done + 1 failed = 0.75 ≥ 0.7.
     it('сохраняет failed/skipped в stepsState, добивает остальные до done', async () => {
-      prisma.userLesson.findUnique.mockResolvedValue(okLesson());
+      prisma.userLesson.findUnique.mockResolvedValue({
+        userCourseId: 'c1',
+        _count: { steps: 4 },
+        course: { ownerId: OWNER, isPublic: false },
+      });
       prisma.userLessonStep.findMany.mockResolvedValue([
-        { id: 'sA' }, { id: 'sB' }, { id: 'sC' },
+        { id: 'sA' }, { id: 'sB' }, { id: 'sC' }, { id: 'sD' },
       ]);
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
         completedAt: null,
-        stepsState: { sA: 'failed', sB: 'skipped' }, // sC ещё pending
+        // 3/4 done = 0.75 ≥ threshold 0.7. sD=failed — не должен перетереться.
+        stepsState: { sA: 'done', sB: 'done', sC: 'done', sD: 'failed' },
       });
       prisma.userLessonPlayProgress.upsert.mockImplementation(async ({ update }: any) => ({
         userLessonId: 'l1',
@@ -446,9 +454,10 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
 
       const r = await service.completeLesson(OWNER, 'l1', 0.6);
       expect(r.stepsState).toEqual({
-        sA: 'failed',
-        sB: 'skipped',
+        sA: 'done',
+        sB: 'done',
         sC: 'done',
+        sD: 'failed', // failed сохранился, не перетёрт в done
       });
     });
 
@@ -495,9 +504,10 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
 
       prisma.userLesson.findUnique.mockResolvedValue(okLesson());
       prisma.userLessonStep.findMany.mockResolvedValue([]);
+      // KS-1883: pre-state всё done (3/3=1.0), чтобы пройти server gate.
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
         completedAt: null,
-        stepsState: {},
+        stepsState: { sA: 'done', sB: 'done', sC: 'done' },
       });
       prisma.userLessonPlayProgress.upsert.mockResolvedValue({
         userLessonId: 'l1',
@@ -514,6 +524,158 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
       // Если в будущем кто-то добавит lessonReview.upsert — тест сразу
       // упадёт (expect внизу не сработает на undefined). Для текущего
       // контракта достаточно проверки выше.
+    });
+
+    // ─── KS-1883: server-enforced threshold ≥0.7 ──────────────────────
+    //
+    // Клиентский `score` в payload игнорируется — gate считает по
+    // `count('done')` в реально сохранённом stepsState.
+    describe('threshold gate (KS-1883)', () => {
+      const threeStepLesson = () => ({
+        userCourseId: 'c1',
+        _count: { steps: 4 },
+        course: { ownerId: OWNER, isPublic: false },
+      });
+
+      function setupForGate(stepsState: Record<string, string>) {
+        prisma.userLesson.findUnique.mockResolvedValue(threeStepLesson());
+        prisma.userLessonStep.findMany.mockResolvedValue([
+          { id: 'sA' }, { id: 'sB' }, { id: 'sC' }, { id: 'sD' },
+        ]);
+        prisma.userLesson.count.mockResolvedValue(1);
+        prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+          completedAt: null,
+          stepsState,
+        });
+        prisma.userLessonPlayProgress.upsert.mockImplementation(async ({ create }: any) => ({
+          userLessonId: 'l1',
+          completedStepsCount: create?.completedStepsCount ?? 0,
+          totalSteps: create?.totalSteps ?? 4,
+          stepsState: create?.stepsState ?? stepsState,
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          completedAt: new Date(),
+        }));
+      }
+
+      // Gherkin: «Попытка обойти threshold через API» — клиент шлёт score=1
+      // при реальном serverScore=0.25.
+      it('1/4 done (0.25) и клиентский score=1.0 → 400, completedAt не ставится', async () => {
+        setupForGate({ sA: 'done' });
+
+        await expect(service.completeLesson(OWNER, 'l1', 1.0)).rejects.toThrow(
+          BadRequestException,
+        );
+        expect(prisma.userLessonPlayProgress.upsert).not.toHaveBeenCalled();
+        expect(prisma.userCoursePlayProgress.upsert).not.toHaveBeenCalled();
+      });
+
+      it('сообщение об ошибке содержит фактический score и порог', async () => {
+        setupForGate({ sA: 'done' });
+        try {
+          await service.completeLesson(OWNER, 'l1', 1.0);
+          fail('expected BadRequestException');
+        } catch (e) {
+          const msg = (e as Error).message;
+          expect(msg).toContain('25%');   // serverScore = 1/4
+          expect(msg).toContain('1/4');
+          expect(msg).toContain('70%');   // threshold
+        }
+      });
+
+      it('2/4 done (0.5) → 400 (ниже порога)', async () => {
+        setupForGate({ sA: 'done', sB: 'done' });
+        await expect(service.completeLesson(OWNER, 'l1', 1.0)).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+
+      // Gherkin: «Легитимное complete» (3/4 = 0.75 ≥ 0.7).
+      it('3/4 done (0.75) → 201, completedAt ставится', async () => {
+        setupForGate({ sA: 'done', sB: 'done', sC: 'done' });
+        const r = await service.completeLesson(OWNER, 'l1', 0); // клиентский score игнорируется
+        expect(r.completedAt).not.toBeNull();
+      });
+
+      // Edge case из DoD задачи: точно 0.7 → проходит.
+      // 7/10 = 0.7 ровно. Для этого нужен 10-шаговый урок.
+      it('edge: ровно 0.7 (7/10) → проходит', async () => {
+        prisma.userLesson.findUnique.mockResolvedValue({
+          userCourseId: 'c1',
+          _count: { steps: 10 },
+          course: { ownerId: OWNER, isPublic: false },
+        });
+        prisma.userLessonStep.findMany.mockResolvedValue(
+          Array.from({ length: 10 }, (_, i) => ({ id: `s${i}` })),
+        );
+        prisma.userLesson.count.mockResolvedValue(1);
+        const stepsState: Record<string, string> = {};
+        for (let i = 0; i < 7; i++) stepsState[`s${i}`] = 'done';
+        prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+          completedAt: null,
+          stepsState,
+        });
+        prisma.userLessonPlayProgress.upsert.mockImplementation(async ({ create }: any) => ({
+          userLessonId: 'l1',
+          completedStepsCount: create.completedStepsCount,
+          totalSteps: create.totalSteps,
+          stepsState: create.stepsState,
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          completedAt: new Date(),
+        }));
+
+        await expect(service.completeLesson(OWNER, 'l1', 0)).resolves.toBeDefined();
+      });
+
+      it('пустой урок (totalSteps=0) → gate пропускает (degenerate-кейс)', async () => {
+        prisma.userLesson.findUnique.mockResolvedValue({
+          userCourseId: 'c1',
+          _count: { steps: 0 },
+          course: { ownerId: OWNER, isPublic: false },
+        });
+        prisma.userLessonStep.findMany.mockResolvedValue([]);
+        prisma.userLesson.count.mockResolvedValue(1);
+        prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+          completedAt: null,
+          stepsState: {},
+        });
+        prisma.userLessonPlayProgress.upsert.mockImplementation(async ({ create }: any) => ({
+          userLessonId: 'l1',
+          completedStepsCount: 0,
+          totalSteps: 0,
+          stepsState: {},
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          completedAt: new Date(),
+        }));
+        await expect(service.completeLesson(OWNER, 'l1', 0)).resolves.toBeDefined();
+      });
+
+      // Idempotent: уже завершённый урок не должен снова падать в gate
+      // (например, после complete автор удалил шаги — повторный POST
+      // /complete должен оставаться 200, не 400).
+      it('уже завершённый урок (wasAlreadyCompleted) → gate пропускает', async () => {
+        prisma.userLesson.findUnique.mockResolvedValue(threeStepLesson());
+        prisma.userLessonStep.findMany.mockResolvedValue([
+          { id: 'sA' }, { id: 'sB' }, { id: 'sC' }, { id: 'sD' },
+        ]);
+        prisma.userLesson.count.mockResolvedValue(1);
+        prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
+          completedAt: new Date('2026-04-01'),
+          stepsState: { sA: 'done' }, // 1/4 < 0.7, но уже completed
+        });
+        prisma.userLessonPlayProgress.upsert.mockResolvedValue({
+          userLessonId: 'l1',
+          completedStepsCount: 4,
+          totalSteps: 4,
+          stepsState: { sA: 'done', sB: 'done', sC: 'done', sD: 'done' },
+          startedAt: new Date(),
+          lastActivityAt: new Date(),
+          completedAt: new Date(),
+        });
+        await expect(service.completeLesson(OWNER, 'l1', 0)).resolves.toBeDefined();
+      });
     });
   });
 
@@ -639,9 +801,10 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
       prisma.userLesson.findUnique.mockResolvedValue(lesson(1));
       prisma.userLessonStep.findMany.mockResolvedValue([{ id: 'sA' }]);
       prisma.userLesson.count.mockResolvedValue(opts.lessonsInCourse);
+      // KS-1883: pre-state должен пройти server gate. 1/1=1.0 ≥ 0.7.
       prisma.userLessonPlayProgress.findUnique.mockResolvedValue({
         completedAt: null,
-        stepsState: {},
+        stepsState: { sA: 'done' },
       });
       prisma.userLessonPlayProgress.upsert.mockResolvedValue({
         userLessonId: 'l1',

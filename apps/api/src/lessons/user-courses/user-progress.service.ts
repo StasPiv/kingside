@@ -1,9 +1,14 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import type {
   LessonStepState,
   UserCoursePlayProgressDto,
   UserLessonPlayProgressDto,
 } from '@kingside/shared';
+import { USER_LESSON_COMPLETION_THRESHOLD } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toCoursePlayProgressDto } from './user-courses.service';
 import {
@@ -180,12 +185,37 @@ export class UserProgressService {
     });
     const wasAlreadyCompleted = before?.completedAt != null;
 
+    // KS-1883: серверный enforcement порога прохождения. Клиентский
+    // `score` в payload ИГНОРИРУЕТСЯ — авторизованный пользователь мог
+    // бы прислать `{score: 1}` через curl и закрыть урок без работы.
+    // Считаем serverScore по `count('done')` в реально сохранённом
+    // `stepsState` (KS-1879), это объективный показатель прогресса
+    // на момент запроса. Для пустого урока (totalSteps=0) гейт не
+    // применяем — degenerate-кейс, контента нет, считаем «нечего
+    // блокировать». Уже завершённый урок повторно проверять смысла
+    // нет (idempotent — повторный POST `complete` не должен ломаться,
+    // даже если автор удалил шаги между прогонами).
+    const prevStepsState = normalizeStepsState(before?.stepsState);
+    if (!wasAlreadyCompleted && totalSteps > 0) {
+      const doneCount = Object.values(prevStepsState).filter(
+        (s) => s === 'done',
+      ).length;
+      const serverScore = doneCount / totalSteps;
+      if (serverScore < USER_LESSON_COMPLETION_THRESHOLD) {
+        const pct = (n: number) => `${(n * 100).toFixed(0)}%`;
+        throw new BadRequestException(
+          `Lesson not completable: server score ${pct(serverScore)} ` +
+            `(${doneCount}/${totalSteps}) is below threshold ` +
+            `${pct(USER_LESSON_COMPLETION_THRESHOLD)}`,
+        );
+      }
+    }
+
     // Финальный snapshot: пользовательские failed/skipped не
     // перетираем (если ученик пометил шаг failed и всё-таки нажал
     // «Завершить» — UI решил, что в среднем порог пройден; снимать
     // факт failed не наше дело). Pending-шаги становятся done.
-    const prev = normalizeStepsState(before?.stepsState);
-    const finalStepsState: Record<string, LessonStepState> = { ...prev };
+    const finalStepsState: Record<string, LessonStepState> = { ...prevStepsState };
     for (const s of steps) {
       const cur = finalStepsState[s.id];
       if (cur !== 'failed' && cur !== 'skipped') {
