@@ -10,6 +10,7 @@
     "seed:lessons": "npx ts-node src/lessons/seed/seed-lessons.ts",
     "seed:lessons:lint": "npx ts-node src/lessons/seed/lint-lessons.ts",
     "seed:sample-puzzles": "npx ts-node src/lessons/seed/seed-sample-puzzles.ts",
+    "seed:user-courses": "npx ts-node src/lessons/seed/seed-user-courses.ts",
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.config.ts --runInBand",
     "prisma:generate": "prisma generate --schema=../../packages/db/prisma/schema.prisma",
