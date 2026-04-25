@@ -35,11 +35,31 @@ import {
   type ArchiveSourceRow,
   type ImportResult,
 } from '../archive-import/sources/twic.importer';
+import { acquireLockWithWait } from './lock-acquirer';
 
 const PROGRESS_TAG = '[cli:import-twic-issue]';
 const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
 const LOCK_KEY = 'archive:import:lock:twic';
 const LOCK_TTL_SEC = 30 * 60;
+/**
+ * KS-1896: вместо мгновенного падения CLI ждёт освобождения lock'а до
+ * 30 минут (нормальный TWIC-импорт занимает 12-18 минут — scheduled
+ * importer + adhoc подряд должны помещаться в окно). Если не уложились
+ * — реальная эскалация, exit 2.
+ */
+const LOCK_WAIT_TIMEOUT_MS = 30 * 60 * 1000;
+const LOCK_POLL_INTERVAL_MS = 30 * 1000;
+
+/**
+ * Маркер, что lock не удалось взять за `LOCK_WAIT_TIMEOUT_MS` —
+ * `main()` маппит в exit code 2 (отдельно от обычной фатальной ошибки).
+ */
+export class LockTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LockTimeoutError';
+  }
+}
 
 export interface ImportTwicIssueArgs {
   issue: number;
@@ -71,12 +91,23 @@ export function parseArgs(argv: readonly string[]): ImportTwicIssueArgs {
 /**
  * Минимальный DI-surface для тестирования. `main()` собирает его через
  * `NestFactory.createApplicationContext`; тест подсовывает моки.
+ *
+ * KS-1896: `redis` теперь требует ещё и `get` — для проверки holder'а
+ * во время wait-loop'а. `lockWaitOpts` — hooks для тестов (быстрый
+ * sleep/now); в продовом `main()` не передаются и берутся дефолты.
  */
 export interface ImportTwicIssueDeps {
   prisma: PrismaClient;
-  redis: Pick<Redis, 'set' | 'del' | 'publish'>;
+  redis: Pick<Redis, 'set' | 'del' | 'publish' | 'get'>;
   makeImporter: (source: ArchiveSourceRow) => Pick<TwicImporter, 'runAdHoc'>;
   logger: Pick<Logger, 'log' | 'warn' | 'error'>;
+  /** KS-1896: подмена `now`/`sleep` и параметров timeout'а (только для тестов). */
+  lockWaitOpts?: {
+    waitTimeoutMs?: number;
+    pollIntervalMs?: number;
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+  };
 }
 
 /**
@@ -99,12 +130,60 @@ export async function runImportTwicIssue(
     throw new Error('archive_sources row with code="twic" not found');
   }
 
-  const acquired = await redis
-    .set(LOCK_KEY, `${process.pid}:${Date.now()}:adhoc`, 'EX', LOCK_TTL_SEC, 'NX')
-    .catch(() => null);
-  if (acquired !== 'OK') {
+  // KS-1896: значение lock'а — `<pid>:<ts>:adhoc:<issue>`. Issue в
+  // value позволяет отличить «другой adhoc запустил тот же issue»
+  // (duplicate-self → падать сразу) от «scheduler/другой issue»
+  // (ждать). Старое значение было `<pid>:<ts>:adhoc` без issue.
+  const lockValue = `${process.pid}:${Date.now()}:adhoc:${args.issue}`;
+
+  // ARCHIVE_IMPORTER_LOCK_NO_WAIT=1 → старое поведение «упасть сразу».
+  // Полезно для отладки и `cli-bootstrap` smoke-тестов в CI.
+  const noWaitEnv = (process.env.ARCHIVE_IMPORTER_LOCK_NO_WAIT ?? '').toLowerCase();
+  const noWait = noWaitEnv === '1' || noWaitEnv === 'true' || noWaitEnv === 'on';
+  const waitTimeoutMs = noWait ? 0 : (deps.lockWaitOpts?.waitTimeoutMs ?? LOCK_WAIT_TIMEOUT_MS);
+  const pollIntervalMs = deps.lockWaitOpts?.pollIntervalMs ?? LOCK_POLL_INTERVAL_MS;
+
+  const lock = await acquireLockWithWait({
+    redis,
+    lockKey: LOCK_KEY,
+    lockValue,
+    lockTtlSec: LOCK_TTL_SEC,
+    waitTimeoutMs,
+    pollIntervalMs,
+    isDuplicateSelf: (holder) =>
+      holder !== null && holder.endsWith(`:adhoc:${args.issue}`),
+    logger,
+    now: deps.lockWaitOpts?.now,
+    sleep: deps.lockWaitOpts?.sleep,
+  });
+
+  if (!lock.acquired) {
+    if (lock.reason === 'duplicate-self') {
+      // Двойной запуск adhoc на тот же issue — пользовательская ошибка,
+      // эскалировать. Прежний lock из-за ошибки оператора всё равно
+      // отрабатывает в первом процессе.
+      throw new Error(
+        `lock "${LOCK_KEY}" already held by another adhoc CLI for the same issue ${args.issue} ` +
+          `(holder=${lock.heldBy ?? 'unknown'}); refusing to wait — looks like a duplicate run`,
+      );
+    }
+    if (lock.reason === 'timeout') {
+      throw new LockTimeoutError(
+        `lock "${LOCK_KEY}" still held after ${Math.floor(lock.waitedMs / 1000)}s ` +
+          `(${lock.attempts} attempts, last holder=${lock.heldBy ?? 'unknown'}); aborting`,
+      );
+    }
+    // 'no-wait-disabled' → старое сообщение, чтобы существующие
+    // оркестраторы / парсеры логов не сломались.
     throw new Error(
-      `lock "${LOCK_KEY}" is held — scheduler or another CLI is importing twic right now; try again in a minute`,
+      `lock "${LOCK_KEY}" is held — scheduler or another CLI is importing twic right now; ` +
+        `try again in a minute (set ARCHIVE_IMPORTER_LOCK_NO_WAIT=0 or unset to enable wait)`,
+    );
+  }
+  if (lock.waitedMs > 0) {
+    logger.log(
+      `${PROGRESS_TAG} acquired lock "${LOCK_KEY}" after ${Math.floor(lock.waitedMs / 1000)}s ` +
+        `(${lock.attempts} attempt${lock.attempts === 1 ? '' : 's'})`,
     );
   }
 
@@ -189,8 +268,16 @@ async function main(): Promise<void> {
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error(`${PROGRESS_TAG} Fatal error: ${msg}`);
-    exitCode = 1;
+    if (err instanceof LockTimeoutError) {
+      // KS-1896: lock не отпустили за `LOCK_WAIT_TIMEOUT_MS`. Это
+      // эскалация — оператору нужен отдельный exit-code, чтобы оркестратор
+      // (CI / bash-loop) мог отличить «таймаут lock'а» от «импорт упал».
+      logger.error(`${PROGRESS_TAG} Lock wait timed out: ${msg}`);
+      exitCode = 2;
+    } else {
+      logger.error(`${PROGRESS_TAG} Fatal error: ${msg}`);
+      exitCode = 1;
+    }
   } finally {
     await app.close().catch((err) => {
       logger.warn(`app.close failed: ${(err as Error).message}`);
