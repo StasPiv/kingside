@@ -31,6 +31,8 @@ describe('UserCoursesService (KS-1829)', () => {
       },
       userCoursePlayProgress: {
         findUnique: jest.fn(),
+        // KS-1889: listEnrolled читает прогрессы с include(course).
+        findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         // KS-1885: stats запрашиваются через count (single) и groupBy (list).
         count: jest.fn().mockResolvedValue(0),
@@ -216,6 +218,181 @@ describe('UserCoursesService (KS-1829)', () => {
 
         expect(prisma.userCoursePlayProgress.groupBy).toHaveBeenCalledTimes(2);
       });
+    });
+  });
+
+  // ─── listEnrolled (KS-1889) ────────────────────────────────────────
+
+  describe('listEnrolled', () => {
+    const STUDENT = 'student-1';
+
+    function progressRow(opts: {
+      courseId: string;
+      ownerId: string;
+      isPublic?: boolean;
+      slug: string;
+      title?: string;
+      lessonCount?: number;
+      completedLessonsCount?: number;
+      completedAt?: Date | null;
+      lastActivityAt?: Date;
+    }) {
+      return {
+        userId: STUDENT,
+        userCourseId: opts.courseId,
+        completedLessonsCount: opts.completedLessonsCount ?? 0,
+        startedAt: new Date('2026-04-01'),
+        lastActivityAt: opts.lastActivityAt ?? new Date('2026-04-10'),
+        completedAt: opts.completedAt ?? null,
+        course: {
+          id: opts.courseId,
+          ownerId: opts.ownerId,
+          slug: opts.slug,
+          title: opts.title ?? 'Course',
+          description: null,
+          isPublic: opts.isPublic ?? true,
+          createdAt: new Date('2026-04-01'),
+          updatedAt: new Date('2026-04-02'),
+          _count: { lessons: opts.lessonCount ?? 1 },
+        },
+      };
+    }
+
+    // Gherkin: «Студент видит свои enrolled курсы»
+    it('пройден чужой курс A + начат чужой курс B → оба видны с прогрессом', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([
+        progressRow({
+          courseId: 'a',
+          ownerId: 'author-a',
+          slug: 'course-a',
+          title: 'Course A',
+          lessonCount: 4,
+          completedLessonsCount: 4,
+          completedAt: new Date('2026-04-12T10:00:00Z'),
+          lastActivityAt: new Date('2026-04-12T10:00:00Z'),
+        }),
+        progressRow({
+          courseId: 'b',
+          ownerId: 'author-b',
+          slug: 'course-b',
+          title: 'Course B',
+          lessonCount: 3,
+          completedLessonsCount: 1,
+          completedAt: null,
+          lastActivityAt: new Date('2026-04-11T10:00:00Z'),
+        }),
+      ]);
+
+      const r = await service.listEnrolled(STUDENT);
+
+      expect(r.data).toHaveLength(2);
+      expect(r.data[0].slug).toBe('course-a');
+      expect(r.data[0].progress.completedAt).not.toBeNull();
+      expect(r.data[0].progress.completedLessonsCount).toBe(4);
+      expect(r.data[0].lessonCount).toBe(4);
+      expect(r.data[1].slug).toBe('course-b');
+      expect(r.data[1].progress.completedAt).toBeNull();
+      expect(r.data[1].progress.completedLessonsCount).toBe(1);
+      expect(r.data[1].lessonCount).toBe(3);
+    });
+
+    // Gherkin: «Свои курсы не попадают в enrolled»
+    it('фильтр where: { ownerId: { not: userId } } исключает свои курсы', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([]);
+
+      await service.listEnrolled(STUDENT);
+
+      expect(prisma.userCoursePlayProgress.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: STUDENT,
+            course: { ownerId: { not: STUDENT } },
+          },
+        }),
+      );
+    });
+
+    it('сортировка по lastActivityAt DESC', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([]);
+      await service.listEnrolled(STUDENT);
+      expect(prisma.userCoursePlayProgress.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { lastActivityAt: 'desc' },
+        }),
+      );
+    });
+
+    it('include подтягивает course с _count.lessons (без второго запроса)', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([]);
+      await service.listEnrolled(STUDENT);
+      expect(prisma.userCoursePlayProgress.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          include: {
+            course: {
+              include: { _count: { select: { lessons: true } } },
+            },
+          },
+        }),
+      );
+    });
+
+    it('пустой результат → data: []', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([]);
+      const r = await service.listEnrolled(STUDENT);
+      expect(r.data).toEqual([]);
+    });
+
+    // KS-1885: stats — авторские метрики, в студенческой вкладке их быть не должно.
+    it('stats не включается в DTO записи', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([
+        progressRow({
+          courseId: 'a',
+          ownerId: 'author-a',
+          slug: 'course-a',
+        }),
+      ]);
+      const r = await service.listEnrolled(STUDENT);
+      // `stats` отсутствует в типе UserEnrolledCourseDto (Omit), но и
+      // в runtime'е ничего лишнего не приходит — проверяем оба факта:
+      // ключа нет в объекте, и count/groupBy не вызывались.
+      const raw = r.data[0] as unknown as Record<string, unknown>;
+      expect(raw.stats).toBeUndefined();
+      expect('stats' in r.data[0]).toBe(false);
+      expect(prisma.userCoursePlayProgress.count).not.toHaveBeenCalled();
+      expect(prisma.userCoursePlayProgress.groupBy).not.toHaveBeenCalled();
+    });
+
+    // Edge: автор перевёл публичный курс в приватный после того, как
+    // студент его начал — запись progress остаётся, курс в выборке
+    // тоже. Возвращаем как есть; FE сам решит про индикацию.
+    it('приватный чужой курс с записью прогресса попадает в DTO как есть', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([
+        progressRow({
+          courseId: 'priv',
+          ownerId: 'author-x',
+          slug: 'now-private',
+          isPublic: false,
+          completedLessonsCount: 2,
+          completedAt: new Date('2026-04-05'),
+        }),
+      ]);
+      const r = await service.listEnrolled(STUDENT);
+      expect(r.data).toHaveLength(1);
+      expect(r.data[0].isPublic).toBe(false);
+      expect(r.data[0].progress.completedAt).not.toBeNull();
+    });
+
+    it('один запрос к БД (без N+1)', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([
+        progressRow({ courseId: 'a', ownerId: 'x', slug: 'a' }),
+        progressRow({ courseId: 'b', ownerId: 'y', slug: 'b' }),
+        progressRow({ courseId: 'c', ownerId: 'z', slug: 'c' }),
+      ]);
+      await service.listEnrolled(STUDENT);
+      expect(prisma.userCoursePlayProgress.findMany).toHaveBeenCalledTimes(1);
+      // Никаких дополнительных findUnique / count — всё в одном запросе.
+      expect(prisma.userCourse.findUnique).not.toHaveBeenCalled();
+      expect(prisma.userCourse.findMany).not.toHaveBeenCalled();
     });
   });
 

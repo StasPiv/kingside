@@ -64,6 +64,20 @@ export class UserCoursesController {
   }
 
   /**
+   * GET /lessons/user-courses/enrolled — «Курсы, которые я прохожу»
+   * (KS-1889). Чужие курсы (`ownerId !== currentUser`), по которым у
+   * пользователя есть запись прогресса. Прогресс вшит в каждую
+   * запись DTO. Без stats (это студенческая вкладка, см. KS-1885).
+   *
+   * ВАЖНО: маршрут объявлен ДО `@Get(':slug')` — иначе Nest принял бы
+   * `enrolled` за slug курса.
+   */
+  @Get('enrolled')
+  listEnrolled(@Request() req: AuthenticatedRequest) {
+    return this.service.listEnrolled(req.user.id);
+  }
+
+  /**
    * GET /lessons/user-courses/:slug — курс + короткий список уроков +
    * прогресс текущего пользователя. Guard разрешает owner или публичный
    * (isPublic=true). Для приватного чужого — 404.

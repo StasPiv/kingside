@@ -92,6 +92,31 @@ export interface UserCourseListResponse {
   data: UserCourseDto[];
 }
 
+/**
+ * Запись секции «Курсы, которые я прохожу» (KS-1889).
+ *
+ * Это всегда чужие курсы (`course.ownerId !== currentUserId`), у
+ * которых у текущего пользователя есть `UserCoursePlayProgress`.
+ * Прогресс встроен прямо в DTO — фронт без второго запроса умеет
+ * показать бейдж «✓ Пройден» (KS-1882) и долю прохождения.
+ *
+ * Отличия от `UserCourseDto`:
+ *   - `stats` всегда отсутствует — это студенческая вкладка, авторские
+ *     метрики прохождений тут не нужны (security-параллель: stats
+ *     приватны для не-owner'ов, см. KS-1885);
+ *   - `progress` гарантированно есть (запись в выборку попала именно
+ *     потому, что у юзера progress существует).
+ */
+export interface UserEnrolledCourseDto
+  extends Omit<UserCourseDto, 'stats'> {
+  progress: UserCoursePlayProgressDto;
+}
+
+/** GET /api/lessons/user-courses/enrolled — список enrolled-not-owned. */
+export interface UserEnrolledCoursesListResponse {
+  data: UserEnrolledCourseDto[];
+}
+
 /** GET /api/lessons/user-courses/:slug — курс + список уроков (короткий). */
 export interface UserCourseWithLessonsResponse {
   course: UserCourseDto;

@@ -14,6 +14,8 @@ import type {
   UserCoursePlayProgressDto,
   UserCourseStatsDto,
   UserCourseWithLessonsResponse,
+  UserEnrolledCourseDto,
+  UserEnrolledCoursesListResponse,
   UserLessonDto,
 } from '@kingside/shared';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -70,6 +72,54 @@ export class UserCoursesService {
     return {
       data: rows.map((r) =>
         toCourseDto(r, { stats: statsByCourseId.get(r.id) }),
+      ),
+    };
+  }
+
+  /**
+   * KS-1889: «Курсы, которые я прохожу». Возвращает чужие курсы
+   * (`course.ownerId !== userId`), у которых у текущего пользователя
+   * есть запись `UserCoursePlayProgress`. Прогресс вшит прямо в DTO,
+   * чтобы у фронта не было второго запроса на бейдж/прогресс-бар.
+   *
+   * Один запрос, без N+1: `userCoursePlayProgress.findMany` с
+   * `include: { course }`. Фильтр `ownerId: { not: userId }` отсекает
+   * собственные курсы автора, прошедшего свой же курс.
+   *
+   * `stats` намеренно НЕ кладём — это студенческая вкладка, авторские
+   * метрики прохождений не должны утекать через неё (см. KS-1885).
+   *
+   * Сортировка `lastActivityAt DESC` — наверху недавние, сценарий
+   * «вернуться к тому, что недавно проходил».
+   *
+   * Приватные курсы могут попасть в выборку, если автор перевёл
+   * публичный курс в приватный после того, как студент его начал —
+   * запись `UserCoursePlayProgress` не удаляется при изменении
+   * `isPublic`. Возвращаем такие курсы как есть; фронт сам решит,
+   * показывать ли пометку «теперь приватный».
+   */
+  async listEnrolled(
+    userId: string,
+  ): Promise<UserEnrolledCoursesListResponse> {
+    const rows = await this.prisma.userCoursePlayProgress.findMany({
+      where: {
+        userId,
+        course: { ownerId: { not: userId } },
+      },
+      orderBy: { lastActivityAt: 'desc' },
+      include: {
+        course: {
+          include: { _count: { select: { lessons: true } } },
+        },
+      },
+    });
+
+    return {
+      data: rows.map(
+        (row): UserEnrolledCourseDto => ({
+          ...toCourseDto(row.course), // без stats — opts не передаём
+          progress: toCoursePlayProgressDto(row),
+        }),
       ),
     };
   }
