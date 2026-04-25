@@ -1445,7 +1445,28 @@
           "ratingMin": "Rating min",
           "ratingMax": "Rating max",
           "limit": "Limit",
-          "minSolved": "Min solved"
+          "minSolved": "Min solved",
+          "custom": {
+            "modeLabel": "custom",
+            "addPuzzle": "+ Add custom puzzle",
+            "maxPuzzles": "Limit reached (max 20 puzzles)",
+            "cardTitle": "Custom puzzle #{{index}}",
+            "delete": "⌫ Delete this puzzle",
+            "setPosition": "Set Position",
+            "recordSolution": "Record Solution",
+            "yourTurn": "Your turn — {{color}}",
+            "opponentTurn": "Opponent — {{color}}",
+            "tagYou": "(student)",
+            "tagOpp": "(opponent)",
+            "undo": "↶ Undo last",
+            "reset": "Reset solution",
+            "illegalMove": "Illegal move",
+            "noSolution": "No solution recorded yet",
+            "solutionTooLong": "Solution too long (max 40 moves)",
+            "orientation": "Orientation",
+            "caption": "Caption",
+            "themes": "Themes (comma-separated)"
+          }
         },
         "quiz": {
           "threshold": "Pass threshold (0..1)",

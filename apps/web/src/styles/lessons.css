@@ -1251,6 +1251,218 @@
   }
 }
 
+/* KS-1909: карточка авторской задачи (custom puzzle) в редакторе. */
+.custom-puzzle-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.custom-puzzle-list__footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.custom-puzzle-list__limit {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.custom-puzzle-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-puzzle-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.custom-puzzle-card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.custom-puzzle-card__delete {
+  font-size: 12px;
+  color: var(--danger, #ca3431);
+  background: transparent;
+  border: 1px solid var(--danger, #ca3431);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.custom-puzzle-card__mode-toggle {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.custom-puzzle-card__mode-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.custom-puzzle-card__fen-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.custom-puzzle-card__fen-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.custom-puzzle-card__fen-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: 12px;
+}
+
+.custom-puzzle-card__edit-board {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.custom-puzzle-card__edit-board:hover {
+  background: var(--accent, #4d8aff);
+  color: var(--accent-contrast, #fff);
+  border-color: var(--accent, #4d8aff);
+}
+
+.custom-puzzle-card__body {
+  display: grid;
+  grid-template-columns: minmax(200px, 320px) minmax(200px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.custom-puzzle-card__board {
+  width: 100%;
+  max-width: 320px;
+}
+
+.custom-puzzle-card__moves {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.custom-puzzle-card__next-turn {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.custom-puzzle-card__warning {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.custom-puzzle-card__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--danger, #ca3431);
+}
+
+.custom-puzzle-card__move-list {
+  margin: 0;
+  padding-left: 24px;
+  font-size: 13px;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+}
+
+.custom-puzzle-card__move-list code {
+  font-family: inherit;
+}
+
+.custom-puzzle-card__move-tag {
+  font-family: var(--font-system, sans-serif);
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 6px;
+}
+
+.custom-puzzle-card__uci-row {
+  display: flex;
+  gap: 6px;
+}
+
+.custom-puzzle-card__uci-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'JetBrains Mono', Menlo, monospace;
+  font-size: 12px;
+}
+
+.custom-puzzle-card__uci-row button {
+  padding: 4px 10px;
+}
+
+.custom-puzzle-card__solution-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.custom-puzzle-card__solution-actions button {
+  font-size: 12px;
+  padding: 4px 8px;
+}
+
+.custom-puzzle-card__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.custom-puzzle-card__meta label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .custom-puzzle-card__body {
+    grid-template-columns: 1fr;
+  }
+  .custom-puzzle-card__fen-row {
+    flex-direction: column;
+  }
+  .custom-puzzle-card__edit-board {
+    align-self: flex-start;
+  }
+}
+
 /* KS-1906: тот же FEN-input + кнопка для шага endgame_drill. */
 .editor-endgame__fen-label {
   grid-column: 1 / -1;
