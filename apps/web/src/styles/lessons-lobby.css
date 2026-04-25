@@ -1,0 +1,764 @@
+/* ============================================================
+ * KS-1925 — Lobby visual system (ADR-031 §4.3)
+ *
+ * Содержит:
+ *   • S/M/L размерную иерархию карточек (.card--lg/md/sm)
+ *   • 5 вариантов Hero (.lobby-hero / --p1..--p4 / --skeleton)
+ *   • Curriculum pillar progression-rail
+ *   • Mobile horizontal strips (.lobby-strip)
+ *   • Skeleton + shimmer
+ *   • Hover-state и микро-интеракции с уважением prefers-reduced-motion
+ *
+ * Все цвета — через токены из tokens.css; новые семантические
+ * персоны мапим на существующую палитру:
+ *   P1 (action / accent)        → indigo accent
+ *   P2 (onboarding-warm)        → warm amber
+ *   P3 (neutral-invite)         → cool slate
+ *   P4 (author-pearl)           → pearl / surface
+ *
+ * JSX-структуру компонентов не трогаем — стили применяются как
+ * через новые классы (для будущего hero/pillar/strip), так и
+ * каскадом к существующим блокам (.my-courses-block,
+ * .latest-courses-block, .course-authors-block).
+ * ============================================================ */
+
+/* ---------- 0. Локальные семантические токены секции ---------- */
+:root {
+  --lobby-radius-lg: 18px;
+  --lobby-radius-md: 14px;
+  --lobby-radius-sm: 10px;
+
+  --lobby-easing: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --lobby-transition: 0.15s ease-out;
+
+  --lobby-shadow-rest: 0 2px 8px var(--ov-black-25);
+  --lobby-shadow-hover: 0 12px 28px var(--ov-black-40);
+
+  /* Persona surface gradients */
+  --lobby-p1-from: var(--c-7c83ff);
+  --lobby-p1-to: var(--c-4f46e5);
+  --lobby-p1-text: var(--c-fff);
+
+  --lobby-p2-from: #ffb74d;
+  --lobby-p2-to: #f59e0b;
+  --lobby-p2-text: var(--c-1a1a2e);
+
+  --lobby-p3-from: #4a6fa5;
+  --lobby-p3-to: #2a3a6a;
+  --lobby-p3-text: var(--c-fff);
+
+  --lobby-p4-from: #e8e8f0;
+  --lobby-p4-to: #c8d0e0;
+  --lobby-p4-text: var(--c-1a1a2e);
+}
+
+:root[data-theme="light"] {
+  --lobby-shadow-rest: 0 2px 8px var(--ov-black-15);
+  --lobby-shadow-hover: 0 12px 28px var(--ov-black-25);
+
+  --lobby-p4-from: #f8f9ff;
+  --lobby-p4-to: #e6e8f5;
+}
+
+/* ---------- 1. Универсальная карточка S/M/L ---------- */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-deep);
+  border: 1px solid transparent;
+  border-radius: var(--lobby-radius-md);
+  box-shadow: var(--lobby-shadow-rest);
+  transition:
+    transform var(--lobby-transition),
+    box-shadow var(--lobby-transition),
+    border-color var(--lobby-transition),
+    background var(--lobby-transition);
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.card--lg {
+  border-radius: var(--lobby-radius-lg);
+  min-height: 320px;
+  padding: 28px;
+  width: 100%;
+}
+
+.card--md {
+  width: 100%;
+  min-width: 0;
+  min-height: 180px;
+  padding: 20px;
+}
+
+.card--sm {
+  flex: 0 0 auto;
+  width: 160px;
+  min-height: 140px;
+  padding: 14px;
+  border-radius: var(--lobby-radius-sm);
+}
+
+.card--clickable {
+  cursor: pointer;
+}
+
+.card--clickable:hover {
+  transform: translateY(-2px);
+  border-color: var(--ov-accent-35);
+  box-shadow: var(--lobby-shadow-hover);
+}
+
+.card--clickable:active {
+  transform: translateY(0);
+}
+
+.card--clickable:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow:
+    var(--lobby-shadow-hover),
+    0 0 0 3px var(--ov-accent-35);
+}
+
+/* ---------- 2. Lobby Hero (5 вариантов) ---------- */
+.lobby-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(220px, 320px) 1fr;
+  gap: 28px;
+  align-items: center;
+  padding: 32px 36px;
+  border-radius: var(--lobby-radius-lg);
+  border: 1px solid var(--ov-white-08);
+  box-shadow: var(--lobby-shadow-rest);
+  background: linear-gradient(
+    135deg,
+    var(--lobby-p1-from) 0%,
+    var(--lobby-p1-to) 100%
+  );
+  color: var(--lobby-p1-text);
+  overflow: hidden;
+  isolation: isolate;
+  min-height: 320px;
+  margin-bottom: 28px;
+}
+
+/* декоративный «glow» позади mini-board */
+.lobby-hero::before {
+  content: "";
+  position: absolute;
+  inset: -40% -10% auto auto;
+  width: 60%;
+  height: 180%;
+  background: radial-gradient(
+    closest-side,
+    var(--ov-white-15),
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.lobby-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.lobby-hero__board-preview {
+  width: 100%;
+  max-width: 280px;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    var(--c-f0d9b5) 0%,
+    var(--c-f0d9b5) 50%,
+    var(--c-b58863) 50%,
+    var(--c-b58863) 100%
+  );
+  background-size: 25% 25%;
+  background-image:
+    linear-gradient(45deg, var(--c-b58863) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--c-b58863) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--c-b58863) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--c-b58863) 75%);
+  background-color: var(--c-f0d9b5);
+  background-position:
+    0 0,
+    0 12.5%,
+    12.5% -12.5%,
+    -12.5% 0;
+  box-shadow:
+    0 18px 40px var(--ov-black-50),
+    0 0 0 6px var(--ov-white-10);
+  transform: rotate(-3deg);
+  transition: transform var(--lobby-transition);
+}
+
+.lobby-hero__board-preview:hover {
+  transform: rotate(-1deg) scale(1.02);
+}
+
+.lobby-hero__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.lobby-hero__eyebrow {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ov-white-15);
+  color: inherit;
+  align-self: flex-start;
+}
+
+.lobby-hero__title {
+  font-size: 32px;
+  font-weight: 800;
+  line-height: 1.15;
+  margin: 0;
+  color: inherit;
+}
+
+.lobby-hero__subtitle {
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0;
+  opacity: 0.85;
+}
+
+.lobby-hero__cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.lobby-hero__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 28px;
+  border-radius: 12px;
+  border: none;
+  background: var(--c-fff);
+  color: var(--c-1a1a2e);
+  font-size: 16px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform var(--lobby-transition),
+    background var(--lobby-transition),
+    box-shadow var(--lobby-transition);
+  box-shadow: 0 4px 12px var(--ov-black-30);
+}
+
+.lobby-hero__cta:hover {
+  background: var(--c-e0e0ff);
+  box-shadow: 0 8px 20px var(--ov-black-40);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.lobby-hero__cta:active {
+  transform: scale(0.98);
+}
+
+.lobby-hero__cta--ghost {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--ov-white-35);
+  box-shadow: none;
+}
+
+.lobby-hero__cta--ghost:hover {
+  background: var(--ov-white-10);
+  color: inherit;
+}
+
+/* --- варианты персон --- */
+.lobby-hero--p1 {
+  background: linear-gradient(
+    135deg,
+    var(--lobby-p1-from) 0%,
+    var(--lobby-p1-to) 100%
+  );
+  color: var(--lobby-p1-text);
+}
+
+.lobby-hero--p2 {
+  background: linear-gradient(
+    135deg,
+    var(--lobby-p2-from) 0%,
+    var(--lobby-p2-to) 100%
+  );
+  color: var(--lobby-p2-text);
+}
+
+.lobby-hero--p2 .lobby-hero__cta {
+  background: var(--c-1a1a2e);
+  color: var(--c-fff);
+}
+
+.lobby-hero--p2 .lobby-hero__cta:hover {
+  background: var(--c-2a2a4e);
+}
+
+.lobby-hero--p3 {
+  background: linear-gradient(
+    135deg,
+    var(--lobby-p3-from) 0%,
+    var(--lobby-p3-to) 100%
+  );
+  color: var(--lobby-p3-text);
+}
+
+.lobby-hero--p4 {
+  background: linear-gradient(
+    135deg,
+    var(--lobby-p4-from) 0%,
+    var(--lobby-p4-to) 100%
+  );
+  color: var(--lobby-p4-text);
+  border-color: var(--ov-black-08);
+}
+
+.lobby-hero--p4 .lobby-hero__cta {
+  background: var(--accent-primary);
+  color: var(--c-fff);
+}
+
+.lobby-hero--p4 .lobby-hero__cta:hover {
+  background: var(--accent-hover);
+}
+
+.lobby-hero--p4 .lobby-hero__eyebrow {
+  background: var(--ov-black-15);
+}
+
+/* --- skeleton hero --- */
+.lobby-hero--skeleton {
+  background: var(--bg-deep);
+  color: transparent;
+  border-color: var(--ov-white-08);
+}
+
+.lobby-hero--skeleton::before {
+  display: none;
+}
+
+/* ---------- 3. Curriculum pillar (Beginner → Intermediate → Advanced) ---------- */
+.curriculum-pillar {
+  position: relative;
+  padding: 24px 28px;
+  border-radius: var(--lobby-radius-lg);
+  background: linear-gradient(
+    135deg,
+    var(--bg-deep) 0%,
+    var(--bg-surface) 100%
+  );
+  border: 1px solid var(--ov-accent-15);
+  box-shadow: var(--lobby-shadow-rest);
+  margin-bottom: 28px;
+}
+
+.curriculum-pillar__title {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 6px;
+  color: var(--text-primary);
+}
+
+.curriculum-pillar__subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+}
+
+.curriculum-pillar__rail {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-items: stretch;
+  gap: 16px;
+}
+
+/* линия-«рейл», соединяющая точки */
+.curriculum-pillar__rail::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 8%;
+  right: 8%;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--accent-primary) 0%,
+    var(--ov-accent-30) 50%,
+    var(--ov-accent-15) 100%
+  );
+  z-index: 0;
+}
+
+.curriculum-pillar__step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 0 8px;
+  z-index: 1;
+}
+
+.curriculum-pillar__dot {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-deep);
+  border: 2px solid var(--ov-accent-30);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 12px;
+  transition:
+    transform var(--lobby-transition),
+    border-color var(--lobby-transition),
+    background var(--lobby-transition),
+    color var(--lobby-transition);
+}
+
+.curriculum-pillar__step--active .curriculum-pillar__dot {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: var(--c-fff);
+  box-shadow: 0 0 0 6px var(--ov-accent-25);
+  transform: scale(1.1);
+}
+
+.curriculum-pillar__step--done .curriculum-pillar__dot {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--c-fff);
+}
+
+.curriculum-pillar__step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px;
+}
+
+.curriculum-pillar__step-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.curriculum-pillar__step--active .curriculum-pillar__step-title {
+  color: var(--accent-primary);
+}
+
+/* ---------- 4. Mobile horizontal strips ---------- */
+/* Базовый strip — может применяться на любом размере экрана */
+.lobby-strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+  scrollbar-width: thin;
+}
+
+.lobby-strip > * {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+/* На мобайле основные «сетки»-блоки превращаются в горизонтальные ленты.
+   Применяется к существующим компонентам через cascade — JSX не меняем. */
+@media (max-width: 640px) {
+  .my-courses-block__grid,
+  .latest-courses-block__grid,
+  .course-authors-block__grid,
+  .lessons-course-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 12px;
+    padding: 4px 16px 12px;
+    margin-left: -16px;
+    margin-right: -16px;
+    grid-template-columns: none;
+  }
+
+  .my-courses-block__grid > *,
+  .latest-courses-block__grid > *,
+  .course-authors-block__grid > *,
+  .lessons-course-grid > * {
+    flex: 0 0 78%;
+    max-width: 320px;
+    scroll-snap-align: start;
+  }
+
+  /* CommunityStripBlock — компактнее */
+  .lobby-strip--community > * {
+    flex-basis: 160px;
+  }
+}
+
+/* ---------- 5. Skeleton + shimmer ---------- */
+@keyframes lobby-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  position: relative;
+  background: var(--bg-surface);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ov-white-08) 30%,
+    var(--ov-white-15) 50%,
+    var(--ov-white-08) 70%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: lobby-shimmer 1.6s linear infinite;
+  border-radius: 6px;
+  color: transparent;
+  user-select: none;
+  pointer-events: none;
+}
+
+.skeleton--text {
+  height: 12px;
+  width: 80%;
+  border-radius: 4px;
+  margin: 6px 0;
+}
+
+.skeleton--text-lg {
+  height: 22px;
+  width: 60%;
+  border-radius: 6px;
+  margin: 8px 0;
+}
+
+.skeleton--card-lg {
+  height: 320px;
+  width: 100%;
+  border-radius: var(--lobby-radius-lg);
+}
+
+.skeleton--card-md {
+  height: 180px;
+  width: 100%;
+  border-radius: var(--lobby-radius-md);
+}
+
+.skeleton--card-sm {
+  height: 140px;
+  width: 160px;
+  border-radius: var(--lobby-radius-sm);
+}
+
+.skeleton--circle {
+  border-radius: 50%;
+}
+
+/* ---------- 6. Hover-state и микро-интеракции (улучшения существующих блоков) ---------- */
+/* Применяем к существующим карточкам без изменения JSX. */
+.my-courses-block__card,
+.latest-courses-block__card,
+.course-authors-block__card,
+.lessons-course-card {
+  transition:
+    transform var(--lobby-transition),
+    box-shadow var(--lobby-transition),
+    border-color var(--lobby-transition),
+    background var(--lobby-transition);
+  will-change: transform;
+}
+
+.my-courses-block__card:hover,
+.latest-courses-block__card:hover,
+.course-authors-block__card:hover,
+.lessons-course-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lobby-shadow-hover);
+}
+
+/* CTA-кнопка лобби — единый стиль для primary действий */
+.lobby-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent-primary);
+  color: var(--c-fff);
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    transform var(--lobby-transition),
+    background var(--lobby-transition),
+    box-shadow var(--lobby-transition);
+}
+
+.lobby-cta:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 6px 16px var(--ov-accent-35);
+  transform: translateY(-1px);
+  text-decoration: none;
+  color: var(--c-fff);
+}
+
+.lobby-cta:active {
+  transform: scale(0.98);
+}
+
+.lobby-cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--ov-accent-35);
+}
+
+.lobby-cta--ghost {
+  background: transparent;
+  color: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+}
+
+.lobby-cta--ghost:hover {
+  background: var(--ov-accent-10);
+  color: var(--accent-primary);
+}
+
+/* ---------- 7. Breakpoints для card-сеток ---------- */
+/* Mobile-first: < 640px → single column / strip (см. блок 4)
+   640–1024px       → 2 колонки
+   ≥ 1024px         → 3–4 колонки */
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .lessons-course-grid,
+  .my-courses-block__grid,
+  .latest-courses-block__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1025px) {
+  .lessons-course-grid,
+  .my-courses-block__grid,
+  .latest-courses-block__grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+}
+
+/* ---------- 8. Адаптив hero ---------- */
+@media (max-width: 768px) {
+  .lobby-hero {
+    grid-template-columns: 1fr;
+    padding: 24px 22px;
+    min-height: 0;
+    text-align: left;
+  }
+
+  .lobby-hero__board-preview {
+    max-width: 200px;
+    transform: rotate(-2deg);
+  }
+
+  .lobby-hero__title {
+    font-size: 24px;
+  }
+
+  .lobby-hero__subtitle {
+    font-size: 14px;
+  }
+
+  .curriculum-pillar {
+    padding: 20px 18px;
+  }
+
+  .curriculum-pillar__rail {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .curriculum-pillar__rail::before {
+    display: none;
+  }
+
+  .curriculum-pillar__step {
+    flex-direction: row;
+    text-align: left;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .curriculum-pillar__dot {
+    margin-bottom: 0;
+    flex-shrink: 0;
+  }
+}
+
+/* ---------- 9. Уважение prefers-reduced-motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card--clickable,
+  .lobby-hero__cta,
+  .lobby-hero__board-preview,
+  .lobby-cta,
+  .my-courses-block__card,
+  .latest-courses-block__card,
+  .course-authors-block__card,
+  .lessons-course-card,
+  .curriculum-pillar__dot {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .skeleton {
+    animation: none !important;
+    background-image: none;
+    background-color: var(--bg-surface);
+  }
+
+  .card--clickable:hover,
+  .my-courses-block__card:hover,
+  .latest-courses-block__card:hover,
+  .course-authors-block__card:hover,
+  .lessons-course-card:hover,
+  .lobby-hero__cta:hover,
+  .lobby-hero__board-preview:hover,
+  .lobby-cta:hover {
+    transform: none !important;
+  }
+}
