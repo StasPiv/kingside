@@ -101,6 +101,79 @@ describe('<StepCard>', () => {
     expect(screen.getByTestId('step-card-preview-s1').textContent).toMatch(/2 ID/);
   });
 
+  /**
+   * KS-1913 (P0): preview puzzle-шага не должен крашиться на
+   * `mode='custom'`. До фикса `payload.selection.themes.join(',')`
+   * падал с TypeError, потому что у custom-варианта нет `themes`.
+   */
+  it('KS-1913 preview: mode="filter" с темами → строка тем', () => {
+    const step = mkStep({
+      type: 'puzzle',
+      payload: {
+        type: 'puzzle',
+        selection: {
+          mode: 'filter',
+          themes: ['fork', 'pin'],
+          limit: 3,
+        },
+      },
+    });
+    render({ step });
+    expect(screen.getByTestId('step-card-preview-s1').textContent).toMatch(
+      /fork.*pin/i,
+    );
+  });
+
+  it('KS-1913 preview: mode="custom" с N puzzle → «Custom puzzles (N)», не падает', () => {
+    const step = mkStep({
+      type: 'puzzle',
+      payload: {
+        type: 'puzzle',
+        selection: {
+          mode: 'custom',
+          customPuzzles: [
+            {
+              fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+              solutionMoves: ['e2e4'],
+            },
+            {
+              fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+              solutionMoves: ['d2d4'],
+            },
+          ],
+        },
+      },
+    });
+    render({ step });
+    const txt = screen.getByTestId('step-card-preview-s1').textContent ?? '';
+    expect(txt).toMatch(/2/);
+    expect(txt.toLowerCase()).toMatch(/custom puzzles|свои задачи/);
+  });
+
+  it('KS-1913 preview: mode="custom" с пустым customPuzzles → «Custom puzzles (0)», не падает', () => {
+    const step = mkStep({
+      type: 'puzzle',
+      payload: {
+        type: 'puzzle',
+        selection: { mode: 'custom', customPuzzles: [] },
+      },
+    });
+    render({ step });
+    const txt = screen.getByTestId('step-card-preview-s1').textContent ?? '';
+    expect(txt).toMatch(/0/);
+    expect(txt.toLowerCase()).toMatch(/custom puzzles|свои задачи/);
+  });
+
+  it('KS-1913 preview: mode="ids" с пустым puzzleIds → preview-span не рендерится, нет TypeError', () => {
+    const step = mkStep({
+      type: 'puzzle',
+      payload: { type: 'puzzle', selection: { mode: 'ids', puzzleIds: [] } },
+    });
+    // Главное — render не падает на (puzzleIds ?? []).join(...).
+    expect(() => render({ step })).not.toThrow();
+    expect(screen.queryByTestId('step-card-preview-s1')).not.toBeInTheDocument();
+  });
+
   it('expanded=true + type=endgame_drill → EndgameDrillFields', () => {
     const step = mkStep({
       type: 'endgame_drill',

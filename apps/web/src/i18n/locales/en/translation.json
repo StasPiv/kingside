@@ -1455,6 +1455,7 @@
             "modeLabel": "custom",
             "addPuzzle": "+ Add custom puzzle",
             "emptyHint": "Click «+ Add custom puzzle» to add your first authored puzzle.",
+            "previewCount": "Custom puzzles ({{count}})",
             "maxPuzzles": "Limit reached (max 20 puzzles)",
             "cardTitle": "Custom puzzle #{{index}}",
             "delete": "⌫ Delete this puzzle",

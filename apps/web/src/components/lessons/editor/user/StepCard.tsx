@@ -97,7 +97,17 @@ function isUserStepType(type: string): type is UserStepType {
   return type === 'text' || type === 'puzzle' || type === 'endgame_drill';
 }
 
-function payloadPreview(payload: StepPayload): string {
+/**
+ * KS-1913: payloadPreview принимает `t` для i18n-перевода тегов
+ * (например, «Custom puzzles (N)»). Все обращения к массивам в
+ * `selection` защищены `?? []` — чтобы добавление четвёртого
+ * `mode` в `PuzzleStepSelection` не уронило preview через
+ * undefined.join().
+ */
+function payloadPreview(
+  payload: StepPayload,
+  t: (key: string, defaultValueOrOpts?: string | Record<string, unknown>) => string,
+): string {
   if (payload.type === 'text') {
     const raw = (payload.bodyMarkdown ?? '').trim();
     if (!raw) return '';
@@ -114,12 +124,26 @@ function payloadPreview(payload: StepPayload): string {
       : cleaned;
   }
   if (payload.type === 'puzzle') {
-    if (payload.selection.mode === 'ids') {
-      const n = payload.selection.puzzleIds.length;
+    const sel = payload.selection;
+    if (sel.mode === 'ids') {
+      const n = (sel.puzzleIds ?? []).length;
       return n === 0 ? '' : `${n} ID`;
     }
-    const themes = payload.selection.themes.join(', ');
-    return themes || '';
+    if (sel.mode === 'filter') {
+      const themes = (sel.themes ?? []).join(', ');
+      return themes || '';
+    }
+    if (sel.mode === 'custom') {
+      const n = (sel.customPuzzles ?? []).length;
+      return t('editor.step.puzzle.custom.previewCount', {
+        count: n,
+        defaultValue: 'Custom puzzles ({{count}})',
+      });
+    }
+    // exhaustive-check: новый mode должен быть добавлен явно.
+    const _exhaustive: never = sel;
+    void _exhaustive;
+    return '';
   }
   if (payload.type === 'endgame_drill') {
     const fen = payload.fen.split(' ')[0] ?? '';
@@ -233,7 +257,10 @@ export function StepCard({
   const typeLabel = isSupported
     ? t(TYPE_LABEL_KEY[step.type], step.type)
     : step.type;
-  const preview = useMemo(() => payloadPreview(step.payload), [step.payload]);
+  const preview = useMemo(
+    () => payloadPreview(step.payload, t),
+    [step.payload, t],
+  );
 
   const syntheticRendererStep = useMemo(
     () => ({
