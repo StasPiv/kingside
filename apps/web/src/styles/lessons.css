@@ -1286,6 +1286,182 @@
   border-radius: 6px;
 }
 
+/* KS-1923: страница /lessons/discover. */
+.discover-courses-page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px 80px;
+}
+
+.discover-courses-page__breadcrumb {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.discover-courses-page__breadcrumb a {
+  color: var(--accent, #4d8aff);
+  text-decoration: none;
+}
+
+.discover-courses-page__sep {
+  margin: 0 6px;
+}
+
+.discover-courses-page__header h1 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.discover-courses-page__subtitle {
+  margin: 6px 0 16px;
+  color: var(--text-secondary);
+}
+
+/* KS-1923: компактная полоса «Новое от сообщества» на /lessons. */
+.community-strip-block {
+  margin: 16px 0;
+}
+
+.community-strip-block__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.community-strip-block__header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.community-strip-block__view-all {
+  font-size: 13px;
+  color: var(--accent, #4d8aff);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.community-strip-block__view-all:hover {
+  text-decoration: underline;
+}
+
+.community-strip-block__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.community-strip-block__card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.community-strip-block__card:hover {
+  border-color: var(--accent, #4d8aff);
+}
+
+.community-strip-block__link {
+  display: block;
+  padding: 10px 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.community-strip-block__card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.community-strip-block__card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.community-strip-block__badge-new {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--success-contrast, #fff);
+  background: var(--success, #2e7d32);
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.community-strip-block__card-footer {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 640px) {
+  .community-strip-block__list {
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    overflow-x: auto;
+    grid-auto-flow: column;
+    grid-auto-columns: 70%;
+    grid-template-columns: none;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+}
+
+/* KS-1923: Curriculum pillar — обёртка системных курсов. */
+.curriculum-pillar-block {
+  margin: 24px 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.curriculum-pillar-block__header {
+  margin-bottom: 12px;
+}
+
+.curriculum-pillar-block__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.curriculum-pillar-block__subtitle {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.curriculum-pillar-block--loading {
+  min-height: 200px;
+}
+
+.curriculum-pillar-block__skeleton-title,
+.curriculum-pillar-block__skeleton-row {
+  background: var(--bg-muted);
+  border-radius: 6px;
+}
+
+.curriculum-pillar-block__skeleton-title {
+  width: 40%;
+  height: 24px;
+  margin-bottom: 12px;
+}
+
+.curriculum-pillar-block__skeleton-row {
+  width: 100%;
+  height: 80px;
+  margin-bottom: 8px;
+}
+
 /* KS-1922 / ADR-031 §4.1: контекстный hero. Минимальные стили —
    финальная стилистика в KS-1925 у layout. */
 .lessons-hero {

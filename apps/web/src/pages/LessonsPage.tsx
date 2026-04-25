@@ -14,9 +14,9 @@ import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
 import { MistakesDiaryBlock } from '../components/lessons/MistakesDiaryBlock';
 import { MyCoursesBlock } from '../components/lessons/MyCoursesBlock';
 import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock';
-import { LatestCoursesBlock } from '../components/lessons/LatestCoursesBlock';
-import { CourseAuthorsBlock } from '../components/lessons/CourseAuthorsBlock';
 import { LessonsHero } from '../components/lessons/LessonsHero';
+import { CommunityStripBlock } from '../components/lessons/CommunityStripBlock';
+import { CurriculumPillarBlock } from '../components/lessons/CurriculumPillarBlock';
 
 /**
  * Страница `/lessons` — список курсов (L-07).
@@ -141,94 +141,29 @@ export function LessonsPage() {
 
       <LevelGateBanner restrictTo="beginner" testId="lessons-page-level-gate" />
 
-      {/* KS-1840: блок «Мои курсы» между LevelGateBanner и системными курсами. */}
+      {/* ADR-031 §5: порядок L2 Personal/Daily/Active learning. */}
+      {/* KS-1840: «Мои курсы» — скрыт при отсутствии своих курсов. */}
       <MyCoursesBlock />
 
-      {/* KS-1890: блок «Курсы, которые я прохожу» — чужие enrolled-not-owned
-          курсы. Скрывается, если список пуст. */}
+      {/* KS-1890: «Курсы, которые я прохожу» — скрыт при отсутствии
+          enrolled. */}
       <EnrolledCoursesBlock />
 
-      {/* KS-1919 / ADR-030 §2.1: лента последних публичных курсов
-          (исключая свои). Скрывается при пустом / loading / error. */}
-      <LatestCoursesBlock />
+      {/* KS-1923 / ADR-031 §2: L3 Curriculum pillar — структурированный
+          путь Beginner → Intermediate → Advanced. */}
+      <CurriculumPillarBlock
+        groups={grouped}
+        recommendedLevel={recommendedLevel}
+        loading={loading}
+        error={error}
+        emptyText={t('lessons.empty', 'No courses available yet')}
+      />
 
-      {/* KS-1919 / ADR-030 §2.2: топ-12 авторов по числу публичных
-          курсов. С кнопкой «All authors» → /players?tab=authors. */}
-      <CourseAuthorsBlock />
-
-      {loading && (
-        <div className="loading" data-testid="lessons-loading">
-          {t('common.loading')}
-        </div>
-      )}
-
-      {error && (
-        <div className="error" data-testid="lessons-error">
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && grouped.length === 0 && (
-        <div className="lessons-empty" data-testid="lessons-empty">
-          {t('lessons.empty', 'No courses available yet')}
-        </div>
-      )}
-
-      {!loading && !error &&
-        grouped.map(({ level, items }) => (
-          <section
-            key={level}
-            className="lessons-level-section"
-            data-testid={`lessons-level-${level}`}
-          >
-            <h2 className="lessons-level-title">
-              {t(levelLabelKey(level))}
-              {recommendedLevel === level && (
-                <span
-                  className="lessons-recommended-badge"
-                  data-testid="lessons-recommended-badge"
-                >
-                  {t('lessons.recommendedForYou', 'Recommended for you')}
-                </span>
-              )}
-            </h2>
-            <ul className="lessons-course-grid">
-              {items.map((course) => (
-                <li key={course.id} className="lessons-course-card">
-                  <Link
-                    to={`/lessons/${course.slug}`}
-                    className="lessons-course-link"
-                    data-testid={`course-link-${course.slug}`}
-                  >
-                    <h3 className="lessons-course-title">
-                      {t(course.titleI18nKey, course.slug)}
-                    </h3>
-                    <p className="lessons-course-description">
-                      {t(course.descriptionI18nKey, '')}
-                    </p>
-                    <div className="lessons-course-meta">
-                      <span>
-                        {t('lessons.lessonCount', {
-                          count: course.lessonCount,
-                          defaultValue: '{{count}} lessons',
-                        })}
-                      </span>
-                      {course.progress && (
-                        <span className="lessons-course-progress">
-                          {t('lessons.progressShort', {
-                            completed: course.progress.lessonsCompleted,
-                            total: course.lessonCount,
-                            defaultValue: '{{completed}}/{{total}}',
-                          })}
-                        </span>
-                      )}
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
+      {/* KS-1923 / ADR-031 §3: L4 Discovery — компактная полоса
+          последних public курсов с CTA «Все курсы и авторы»
+          → /lessons/discover. Полные сетки LatestCoursesBlock и
+          CourseAuthorsBlock переехали туда. */}
+      <CommunityStripBlock />
     </div>
   );
 }

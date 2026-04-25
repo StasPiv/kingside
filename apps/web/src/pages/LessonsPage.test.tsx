@@ -32,18 +32,16 @@ vi.mock('../components/lessons/EnrolledCoursesBlock', () => ({
   EnrolledCoursesBlock: () => <div data-testid="enrolled-courses-block-mock" />,
 }));
 
-// KS-1919: моки на новые блоки «Latest courses» и «Course authors» —
-// собственные тесты в `components/lessons/{Latest,CourseAuthors}*.test.tsx`.
-vi.mock('../components/lessons/LatestCoursesBlock', () => ({
-  LatestCoursesBlock: () => <div data-testid="latest-courses-block-mock" />,
-}));
-vi.mock('../components/lessons/CourseAuthorsBlock', () => ({
-  CourseAuthorsBlock: () => <div data-testid="course-authors-block-mock" />,
-}));
-
 // KS-1922: контекстный hero — собственные тесты в LessonsHero.test.tsx.
 vi.mock('../components/lessons/LessonsHero', () => ({
   LessonsHero: () => <div data-testid="lessons-hero-mock" />,
+}));
+
+// KS-1923: блоки «New from community» (compact strip) тянут `useAuth` и api —
+// для тестов LessonsPage это лишний шум. Собственный тест в
+// `components/lessons/CommunityStripBlock.test.tsx`.
+vi.mock('../components/lessons/CommunityStripBlock', () => ({
+  CommunityStripBlock: () => <div data-testid="community-strip-block-mock" />,
 }));
 
 beforeEach(() => {
@@ -69,11 +67,24 @@ beforeEach(() => {
   });
 });
 
+/**
+ * KS-1923: loading/empty/error состояния системного списка курсов теперь
+ * рендерятся внутри `<CurriculumPillarBlock>` с `data-state`. Для удобства
+ * тестов оставляем тот же набор сценариев, но проверяем именно блок.
+ */
+function pillarState(): string | null {
+  const block = screen.queryByTestId('curriculum-pillar-block');
+  return block ? block.getAttribute('data-state') : null;
+}
+
 describe('LessonsPage', () => {
   it('показывает индикатор загрузки до получения данных', () => {
     mockLessonsApi.listCourses.mockReturnValue(new Promise(() => {}));
     renderWithProviders(<LessonsPage />, { route: '/lessons' });
-    expect(screen.getByTestId('lessons-loading')).toBeInTheDocument();
+    expect(pillarState()).toBe('loading');
+    expect(
+      screen.getByTestId('curriculum-pillar-block').getAttribute('aria-busy'),
+    ).toBe('true');
   });
 
   it('рендерит курсы, сгруппированные по уровню, и бейдж рекомендации', async () => {
@@ -122,17 +133,13 @@ describe('LessonsPage', () => {
   it('рендерит сообщение об ошибке при сбое загрузки', async () => {
     mockLessonsApi.listCourses.mockRejectedValueOnce(new Error('boom'));
     renderWithProviders(<LessonsPage />, { route: '/lessons' });
-    await waitFor(() =>
-      expect(screen.getByTestId('lessons-error')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(pillarState()).toBe('error'));
   });
 
   it('рендерит пустое состояние, если курсов нет', async () => {
     mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
     renderWithProviders(<LessonsPage />, { route: '/lessons' });
-    await waitFor(() =>
-      expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(pillarState()).toBe('empty'));
   });
 
   // ─── L-22 (KS-1799) «К повторению сегодня» ───────────────────────────
@@ -183,9 +190,7 @@ describe('LessonsPage', () => {
     mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
     // getReviewsDue вернёт пустой список (дефолтный mock)
     renderWithProviders(<LessonsPage />, { route: '/lessons' });
-    await waitFor(() =>
-      expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(pillarState()).toBe('empty'));
     expect(screen.queryByTestId('reviews-due-block')).not.toBeInTheDocument();
   });
 
@@ -193,9 +198,7 @@ describe('LessonsPage', () => {
     mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
     mockLessonsApi.getReviewsDue.mockRejectedValueOnce(new Error('boom'));
     renderWithProviders(<LessonsPage />, { route: '/lessons' });
-    await waitFor(() =>
-      expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(pillarState()).toBe('empty'));
     expect(screen.queryByTestId('reviews-due-block')).not.toBeInTheDocument();
   });
 
@@ -232,9 +235,7 @@ describe('LessonsPage', () => {
   it('блок «Дневник ошибок» скрыт при пустом списке aggregates', async () => {
     mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
     renderWithProviders(<LessonsPage />, { route: '/lessons' });
-    await waitFor(() =>
-      expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(pillarState()).toBe('empty'));
     expect(screen.queryByTestId('mistakes-diary-block')).not.toBeInTheDocument();
   });
 
@@ -242,9 +243,7 @@ describe('LessonsPage', () => {
     mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
     mockLessonsApi.getMistakeAggregates.mockRejectedValueOnce(new Error('boom'));
     renderWithProviders(<LessonsPage />, { route: '/lessons' });
-    await waitFor(() =>
-      expect(screen.getByTestId('lessons-empty')).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(pillarState()).toBe('empty'));
     expect(screen.queryByTestId('mistakes-diary-block')).not.toBeInTheDocument();
   });
 

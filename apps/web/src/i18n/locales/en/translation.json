@@ -1542,6 +1542,19 @@
       "reset": "Interval reset — we'll ask you to review again tomorrow",
       "nextDue": "Next review: {{date}}"
     },
+    "discover": {
+      "title": "Discover courses",
+      "breadcrumb": "Discover",
+      "subtitle": "Latest community courses and the authors behind them."
+    },
+    "community": {
+      "title": "New from community",
+      "viewAll": "All courses & authors →"
+    },
+    "curriculum": {
+      "title": "Structured chess curriculum",
+      "subtitle": "Beginner → Intermediate → Advanced. Curated by the Kingside team."
+    },
     "hero": {
       "continue": {
         "eyebrow": "Continue learning",

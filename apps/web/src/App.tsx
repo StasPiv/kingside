@@ -5,6 +5,7 @@ import { MainLayout } from './layouts/MainLayout';
 import { LoginPage } from './pages/LoginPage';
 import { FeaturesPage } from './pages/FeaturesPage';
 import { DocsUserCoursesPage } from './pages/DocsUserCoursesPage';
+import { DiscoverCoursesPage } from './pages/DiscoverCoursesPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { LobbyPage } from './pages/LobbyPage';
 import { GamePage } from './pages/GamePage';
@@ -159,6 +160,8 @@ export function App() {
         {isLessonsEnabledLive() ? (
           <>
             <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
+            {/* KS-1923 / ADR-031 §3: Discover-страница, без auth (каталог открыт гостям). */}
+            <Route path="/lessons/discover" element={<DiscoverCoursesPage />} />
             <Route path="/lessons/editor" element={<ProtectedRoute><LessonEditorPage /></ProtectedRoute>} />
             <Route path="/lessons/my/:slug/edit" element={<ProtectedRoute><UserCourseEditor /></ProtectedRoute>} />
             <Route path="/lessons/my/:slug" element={<UserCoursePage />} />
