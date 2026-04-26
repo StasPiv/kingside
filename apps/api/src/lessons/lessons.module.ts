@@ -12,6 +12,7 @@ import { LessonReviewsController } from './reviews.controller';
 import { ActiveCoursesController } from './active-courses.controller';
 import { LessonsAdminController } from './admin/lessons-admin.controller';
 import { LessonsAdminLessonsController } from './admin/lessons-admin-lessons.controller';
+import { LessonsAdminStepsController } from './admin/lessons-admin-steps.controller';
 import { CoursesService } from './courses.service';
 import { LessonsService } from './lessons.service';
 import { ProgressService } from './progress.service';
@@ -49,6 +50,7 @@ import { LessonsAdminService } from './admin/lessons-admin.service';
     ActiveCoursesController,
     LessonsAdminController,
     LessonsAdminLessonsController,
+    LessonsAdminStepsController,
   ],
   providers: [
     CoursesService,

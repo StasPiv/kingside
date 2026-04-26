@@ -29,6 +29,15 @@ describe('LessonsAdminService — courses (KS-1967)', () => {
         count: jest.fn().mockResolvedValue(0),
         aggregate: jest.fn().mockResolvedValue({ _max: { order: null } }),
       },
+      lessonStep: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        aggregate: jest.fn().mockResolvedValue({ _max: { order: null } }),
+      },
       $transaction: jest.fn(async (ops: any) => Promise.all(ops)),
     };
     service = new LessonsAdminService(prisma);
@@ -455,6 +464,176 @@ describe('LessonsAdminService — courses (KS-1967)', () => {
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       const calls = prisma.lesson.update.mock.calls;
+      expect(calls).toHaveLength(3);
+      expect(calls[0][0]).toEqual({ where: { id: 'c' }, data: { order: 0 } });
+      expect(calls[1][0]).toEqual({ where: { id: 'a' }, data: { order: 1 } });
+      expect(calls[2][0]).toEqual({ where: { id: 'b' }, data: { order: 2 } });
+    });
+  });
+
+  // ═══ Steps (KS-1969 / B-7) ═════════════════════════════════════════
+
+  describe('createStep', () => {
+    const lessonId = 'lesson-1';
+    const textPayload = { type: 'text' as const, bodyMarkdown: '# Hi' };
+
+    it('урок не найден → 404', async () => {
+      prisma.lesson.findUnique.mockResolvedValue(null);
+      await expect(
+        service.createStep(lessonId, { type: 'text', payload: textPayload } as any),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.lessonStep.create).not.toHaveBeenCalled();
+    });
+
+    it('type не совпадает с payload.type → 400', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: lessonId });
+      await expect(
+        service.createStep(lessonId, {
+          type: 'puzzle',
+          payload: textPayload,
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.lessonStep.create).not.toHaveBeenCalled();
+    });
+
+    it('order не передан → max(order)+1 в рамках урока', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: lessonId });
+      prisma.lessonStep.aggregate.mockResolvedValue({ _max: { order: 4 } });
+      prisma.lessonStep.create.mockImplementation(({ data }: any) => ({ id: 'S1', ...data }));
+
+      await service.createStep(lessonId, {
+        type: 'text',
+        payload: textPayload,
+      } as any);
+
+      expect(prisma.lessonStep.aggregate).toHaveBeenCalledWith({
+        where: { lessonId },
+        _max: { order: true },
+      });
+      expect(prisma.lessonStep.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          lessonId,
+          order: 5,
+          type: 'text',
+          payload: textPayload,
+        }),
+      });
+    });
+
+    it('первый шаг (max=null) → order=0; явный order не перезаписывается', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: lessonId });
+      prisma.lessonStep.aggregate.mockResolvedValue({ _max: { order: null } });
+      prisma.lessonStep.create.mockImplementation(({ data }: any) => ({ id: 'S1', ...data }));
+
+      await service.createStep(lessonId, {
+        type: 'text', payload: textPayload, order: 12,
+      } as any);
+
+      expect(prisma.lessonStep.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ order: 12 }),
+      });
+    });
+  });
+
+  describe('updateStep', () => {
+    it('не найден → 404', async () => {
+      prisma.lessonStep.findUnique.mockResolvedValue(null);
+      await expect(service.updateStep('x', { order: 1 } as any)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.lessonStep.update).not.toHaveBeenCalled();
+    });
+
+    it('смена type без payload → 400', async () => {
+      prisma.lessonStep.findUnique.mockResolvedValue({ id: 'S1', type: 'text' });
+      await expect(
+        service.updateStep('S1', { type: 'quiz' } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('type меняется и payload передан, но они не совпадают → 400', async () => {
+      prisma.lessonStep.findUnique.mockResolvedValue({ id: 'S1', type: 'text' });
+      await expect(
+        service.updateStep('S1', {
+          type: 'quiz',
+          payload: { type: 'text', bodyMarkdown: 'x' },
+        } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('изменение только order — корректный update', async () => {
+      prisma.lessonStep.findUnique.mockResolvedValue({ id: 'S1', type: 'text' });
+      prisma.lessonStep.update.mockImplementation(({ data }: any) => ({ id: 'S1', ...data }));
+      await service.updateStep('S1', { order: 7 } as any);
+      expect(prisma.lessonStep.update).toHaveBeenCalledWith({
+        where: { id: 'S1' }, data: { order: 7 },
+      });
+    });
+
+    it('смена type с правильным payload — type+payload идут в update', async () => {
+      prisma.lessonStep.findUnique.mockResolvedValue({ id: 'S1', type: 'text' });
+      prisma.lessonStep.update.mockImplementation(({ data }: any) => ({ id: 'S1', ...data }));
+      const newPayload = { type: 'quiz', questions: [], passThreshold: 0.7 };
+      await service.updateStep('S1', { type: 'quiz', payload: newPayload } as any);
+      expect(prisma.lessonStep.update).toHaveBeenCalledWith({
+        where: { id: 'S1' },
+        data: { type: 'quiz', payload: newPayload },
+      });
+    });
+  });
+
+  describe('deleteStep', () => {
+    it('не найден → 404', async () => {
+      prisma.lessonStep.findUnique.mockResolvedValue(null);
+      await expect(service.deleteStep('x')).rejects.toThrow(NotFoundException);
+      expect(prisma.lessonStep.delete).not.toHaveBeenCalled();
+    });
+
+    it('найден → delete', async () => {
+      prisma.lessonStep.findUnique.mockResolvedValue({ id: 'S1' });
+      prisma.lessonStep.delete.mockResolvedValue({ id: 'S1' });
+      await service.deleteStep('S1');
+      expect(prisma.lessonStep.delete).toHaveBeenCalledWith({ where: { id: 'S1' } });
+    });
+  });
+
+  describe('reorderSteps', () => {
+    const lessonId = 'lesson-1';
+
+    it('урок не найден → 404', async () => {
+      prisma.lesson.findUnique.mockResolvedValue(null);
+      await expect(
+        service.reorderSteps(lessonId, { ids: ['a'] } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('ids неполные → 400', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: lessonId });
+      prisma.lessonStep.count.mockResolvedValue(3);
+      await expect(
+        service.reorderSteps(lessonId, { ids: ['a', 'b'] } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('id из чужого урока → 400', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: lessonId });
+      prisma.lessonStep.count.mockResolvedValue(2);
+      prisma.lessonStep.findMany.mockResolvedValue([{ id: 'a' }]);
+      await expect(
+        service.reorderSteps(lessonId, { ids: ['a', 'foreign'] } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('happy path — транзакционно перезаписывает order 0..N-1', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: lessonId });
+      prisma.lessonStep.count.mockResolvedValue(3);
+      prisma.lessonStep.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+      prisma.lessonStep.update.mockResolvedValue({});
+
+      await service.reorderSteps(lessonId, { ids: ['c', 'a', 'b'] } as any);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const calls = prisma.lessonStep.update.mock.calls;
       expect(calls).toHaveLength(3);
       expect(calls[0][0]).toEqual({ where: { id: 'c' }, data: { order: 0 } });
       expect(calls[1][0]).toEqual({ where: { id: 'a' }, data: { order: 1 } });

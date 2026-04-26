@@ -17,6 +17,11 @@ import {
   ReorderAdminLessonsDto,
   UpdateAdminLessonDto,
 } from './dto/admin-lesson.dto';
+import {
+  CreateAdminStepDto,
+  ReorderAdminStepsDto,
+  UpdateAdminStepDto,
+} from './dto/admin-step.dto';
 
 /**
  * KS-1962/B-5: сервис админ-CRUD для system courses.
@@ -299,6 +304,106 @@ export class LessonsAdminService {
     );
   }
 
+  // ═══ Steps (KS-1969 / B-7) ═════════════════════════════════════════
+
+  async createStep(lessonId: string, dto: CreateAdminStepDto) {
+    await this.assertLessonExists(lessonId);
+
+    if (dto.type !== dto.payload.type) {
+      throw new BadRequestException(
+        `Step type "${dto.type}" does not match payload.type "${dto.payload.type}"`,
+      );
+    }
+
+    const order = dto.order ?? (await this.computeNextStepOrder(lessonId));
+
+    return this.prisma.lessonStep.create({
+      data: {
+        lessonId,
+        order,
+        type: dto.type,
+        payload: dto.payload as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
+
+  async updateStep(id: string, dto: UpdateAdminStepDto) {
+    const existing = await this.prisma.lessonStep.findUnique({
+      where: { id },
+      select: { id: true, type: true },
+    });
+    if (!existing) throw new NotFoundException('Step not found');
+
+    // §3.4 концепта: при смене type новый payload обязателен —
+    // иначе старая форма payload может оказаться несовместимой с
+    // новым type, и шаг сломает рендер на FE.
+    if (dto.type !== undefined && dto.type !== existing.type && dto.payload === undefined) {
+      throw new BadRequestException(
+        'payload is required when changing step type',
+      );
+    }
+
+    // Если оба переданы — должны совпадать (как и при create).
+    if (
+      dto.type !== undefined &&
+      dto.payload !== undefined &&
+      dto.type !== dto.payload.type
+    ) {
+      throw new BadRequestException(
+        `type "${dto.type}" does not match payload.type "${dto.payload.type}"`,
+      );
+    }
+
+    const data: Prisma.LessonStepUpdateInput = {};
+    if (dto.order !== undefined) data.order = dto.order;
+    if (dto.type !== undefined) data.type = dto.type;
+    if (dto.payload !== undefined) {
+      data.payload = dto.payload as unknown as Prisma.InputJsonValue;
+    }
+
+    return this.prisma.lessonStep.update({ where: { id }, data });
+  }
+
+  async deleteStep(id: string) {
+    const existing = await this.prisma.lessonStep.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Step not found');
+    await this.prisma.lessonStep.delete({ where: { id } });
+  }
+
+  async reorderSteps(lessonId: string, dto: ReorderAdminStepsDto) {
+    await this.assertLessonExists(lessonId);
+
+    const ids = dto.ids;
+    const total = await this.prisma.lessonStep.count({ where: { lessonId } });
+    if (ids.length !== total) {
+      throw new BadRequestException(
+        `ids must cover all steps of the lesson (got ${ids.length}, total ${total})`,
+      );
+    }
+
+    const existing = await this.prisma.lessonStep.findMany({
+      where: { id: { in: ids }, lessonId },
+      select: { id: true },
+    });
+    if (existing.length !== ids.length) {
+      throw new BadRequestException(
+        'Some ids do not match steps of this lesson',
+      );
+    }
+
+    await this.prisma.$transaction(
+      ids.map((id, idx) =>
+        this.prisma.lessonStep.update({
+          where: { id },
+          data: { order: idx },
+        }),
+      ),
+    );
+  }
+
   // ─── Internals ───────────────────────────────────────────────────
 
   private async assertCourseExists(id: string): Promise<void> {
@@ -327,6 +432,14 @@ export class LessonsAdminService {
   private async computeNextLessonOrder(courseId: string): Promise<number> {
     const max = await this.prisma.lesson.aggregate({
       where: { courseId },
+      _max: { order: true },
+    });
+    return (max._max.order ?? -1) + 1;
+  }
+
+  private async computeNextStepOrder(lessonId: string): Promise<number> {
+    const max = await this.prisma.lessonStep.aggregate({
+      where: { lessonId },
       _max: { order: true },
     });
     return (max._max.order ?? -1) + 1;
