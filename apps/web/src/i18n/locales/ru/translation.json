@@ -1350,18 +1350,6 @@
     "completeSuccess": "Урок завершён!",
     "completeError": "Не удалось зачесть урок",
     "syncError": "Прогресс не сохранён — повторим попытку",
-    "levelGate": {
-      "unlocked": "Можно перейти на уровень «{{level}}»",
-      "unlockedHint": "Все условия выполнены.",
-      "locked": "Чтобы открыть уровень «{{level}}»:",
-      "blocker": {
-        "course": "Осталось уроков: {{count}}",
-        "rating": "Puzzle-рейтинг: {{current}}/{{required}}",
-        "games": "Сыграно партий: {{current}}/{{required}}",
-        "rapidRating": "Rapid-рейтинг: {{current}}/{{required}}",
-        "puzzlesSolved": "Решено задач: {{current}}/{{required}}"
-      }
-    },
     "backToList": "Все курсы",
     "recommendedForYou": "Рекомендуем для вас",
     "lessonCount_one": "{{count}} урок",
@@ -1591,8 +1579,8 @@
           "days_other": "{{count}} дней назад"
         }
       },
-      "multi": {
-        "eyebrow": "Продолжить",
+      "multipleActive": {
+        "eyebrow": "Продолжай учиться",
         "title_one": "У тебя {{count}} курс в работе",
         "title_few": "У тебя {{count}} курса в работе",
         "title_many": "У тебя {{count}} курсов в работе",
@@ -1609,7 +1597,7 @@
         "cta": "Открыть редактор",
         "create": "+ Создать новый курс"
       },
-      "start": {
+      "welcome": {
         "eyebrow": "С возвращением",
         "title": "Начни с курса для начинающих",
         "subtitle": "Структурированный путь по основам шахмат.",

@@ -204,10 +204,10 @@ export function LessonsHero() {
         data-state="multi"
       >
         <div className="lessons-hero__eyebrow">
-          {t('lessons.hero.multi.eyebrow', 'Continue learning')}
+          {t('lessons.hero.multipleActive.eyebrow', 'Continue learning')}
         </div>
         <h2 className="lessons-hero__title" data-testid="lessons-hero-multi-title">
-          {t('lessons.hero.multi.title', {
+          {t('lessons.hero.multipleActive.title', {
             count: state.count,
             defaultValue: 'You have {{count}} courses in progress',
           })}
@@ -217,7 +217,7 @@ export function LessonsHero() {
           className="lessons-hero__cta"
           data-testid="lessons-hero-cta"
         >
-          {t('lessons.hero.multi.cta', 'View my active courses')}
+          {t('lessons.hero.multipleActive.cta', 'View my active courses')}
         </Link>
       </section>
     );
@@ -283,16 +283,16 @@ export function LessonsHero() {
         data-state="start"
       >
         <div className="lessons-hero__eyebrow">
-          {t('lessons.hero.start.eyebrow', 'Welcome back')}
+          {t('lessons.hero.welcome.eyebrow', 'Welcome back')}
           {user && `, ${user.username}`}
         </div>
         <h2 className="lessons-hero__title">
-          {t('lessons.hero.start.title', 'Start with the Beginner course')}
+          {t('lessons.hero.welcome.title', 'Start with the Beginner course')}
         </h2>
         <p className="lessons-hero__subtitle">
           {beginnerSubtitle ??
             t(
-              'lessons.hero.start.subtitle',
+              'lessons.hero.welcome.subtitle',
               'A structured path through chess fundamentals.',
             )}
         </p>
@@ -302,7 +302,7 @@ export function LessonsHero() {
             className="lessons-hero__cta"
             data-testid="lessons-hero-cta"
           >
-            {t('lessons.hero.start.cta', 'Open Beginner course')}
+            {t('lessons.hero.welcome.cta', 'Open Beginner course')}
           </Link>
         ) : (
           <a
@@ -310,7 +310,7 @@ export function LessonsHero() {
             className="lessons-hero__cta"
             data-testid="lessons-hero-cta"
           >
-            {t('lessons.hero.start.cta', 'Open Beginner course')}
+            {t('lessons.hero.welcome.cta', 'Open Beginner course')}
           </a>
         )}
       </section>

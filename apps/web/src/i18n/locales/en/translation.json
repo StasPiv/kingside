@@ -1342,16 +1342,20 @@
     "completeSuccess": "Lesson completed!",
     "completeError": "Failed to mark lesson as completed",
     "syncError": "Progress could not be saved — will retry",
-    "levelGate": {
-      "unlocked": "You can move to {{level}} level",
-      "unlockedHint": "All requirements met.",
-      "locked": "To unlock {{level}} level:",
-      "blocker": {
-        "course": "Lessons remaining: {{count}}",
-        "rating": "Puzzle rating: {{current}}/{{required}}",
-        "games": "Games played: {{current}}/{{required}}",
-        "rapidRating": "Rapid rating: {{current}}/{{required}}",
-        "puzzlesSolved": "Puzzles solved: {{current}}/{{required}}"
+    "mate-patterns": {
+      "title": "Basic mates in 1 move",
+      "description": "Learn to deliver mate in one move using common patterns.",
+      "intro": {
+        "title": "Introduction",
+        "summary": "Recognize the squares the king can escape to."
+      },
+      "practice": {
+        "title": "Practice",
+        "summary": "Solve mate-in-one puzzles."
+      },
+      "check": {
+        "title": "Check yourself",
+        "summary": "Final test on basic mate patterns."
       }
     },
     "backToList": "All courses",
@@ -1571,11 +1575,11 @@
           "days_other": "{{count}} days ago"
         }
       },
-      "multi": {
-        "eyebrow": "Continue learning",
+      "multipleActive": {
+        "eyebrow": "Keep going",
         "title_one": "You have {{count}} course in progress",
         "title_other": "You have {{count}} courses in progress",
-        "cta": "View my active courses"
+        "cta": "Open my active courses"
       },
       "author": {
         "eyebrow": "Your courses",
@@ -1585,7 +1589,7 @@
         "cta": "Open editor",
         "create": "+ Create new course"
       },
-      "start": {
+      "welcome": {
         "eyebrow": "Welcome back",
         "title": "Start with the Beginner course",
         "subtitle": "A structured path through chess fundamentals.",
