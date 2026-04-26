@@ -770,6 +770,13 @@ model Course {
   level            String // "beginner" | "intermediate" | "advanced"
   titleKey         String   @map("title_key")
   descriptionKey   String   @map("description_key")
+  // KS-1964: inline-поля admin API. Имеют приоритет над i18n-ключами;
+  // если null — UI/сервис берёт `*Key` как fallback (см. B-3/B-4).
+  title            String?
+  description      String?
+  audience         String?
+  hook             String?
+  outcome          String?
   coverUrl         String?  @map("cover_url")
   difficulty       Int      @default(2) // 1=easy, 2=medium, 3=hard
   estimatedMinutes Int?     @map("estimated_minutes")
@@ -799,6 +806,9 @@ model Lesson {
   kind        String // "theory" | "tactics_set" | "endgame_set" | "opening_line" | "game_review" | "quiz"
   titleKey    String   @map("title_key")
   summaryKey  String   @map("summary_key")
+  // KS-1964: inline-поля admin API. Приоритет над `*Key` (см. B-3/B-4).
+  title       String?
+  summary     String?
   estMinutes  Int      @default(10) @map("est_minutes")
   isPublished Boolean  @default(false) @map("is_published")
   createdAt   DateTime @default(now()) @map("created_at")
