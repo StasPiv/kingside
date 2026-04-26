@@ -541,7 +541,8 @@
 
 /* Список карточек — горизонтальная лента всегда (как и задумано
    компонентом), на десктопе с возможностью скроллить, на мобиле
-   с scroll-snap. */
+   с scroll-snap. KS-1952 L-5: добавлены scroll-padding,
+   scroll-snap-stop, тонкий scrollbar. */
 .community-strip-block__list {
   list-style: none;
   margin: 0;
@@ -550,13 +551,46 @@
   gap: 12px;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
+  scroll-padding-inline: 4px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+  scrollbar-color: var(--ov-white-15) transparent;
+  overscroll-behavior-x: contain;
+}
+
+.community-strip-block__list::-webkit-scrollbar {
+  height: 4px;
+}
+
+.community-strip-block__list::-webkit-scrollbar-thumb {
+  background: var(--ov-white-15);
+  border-radius: 999px;
+}
+
+.community-strip-block__list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .community-strip-block__list > * {
   flex: 0 0 auto;
   scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+/* На мобиле дать больший «забег» по краям и расширить ленту
+   до всей ширины viewport'а. */
+@media (max-width: 768px) {
+  .community-strip-block__list {
+    padding: 4px 16px 12px;
+    margin-left: -16px;
+    margin-right: -16px;
+    scroll-padding-inline: 16px;
+  }
+
+  .community-strip-block__card,
+  .community-strip-block__card--skeleton {
+    width: 240px;
+  }
 }
 
 .community-strip-block__card {
@@ -1461,8 +1495,11 @@
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
-/* ----- Mobile: horizontal snap-лента (см. L-5 KS-1952) ----- */
-@media (max-width: 640px) {
+/* ----- Mobile: horizontal snap-лента (KS-1952 L-5) -----
+   Расширяем до ≤768px (включая планшеты-портрет), чтобы Recommended
+   на iPad/Android-tablet тоже шёл лентой а не двухколоночной сеткой.
+   Скроллбар скрыт на iOS-Safari/WebKit, тонкий — для Firefox. */
+@media (max-width: 768px) {
   .recommended-courses-block {
     margin: 20px 0;
   }
@@ -1475,18 +1512,37 @@
     display: flex;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
+    scroll-padding-inline: 16px;
     -webkit-overflow-scrolling: touch;
     gap: 12px;
     padding: 4px 16px 12px;
     margin-left: -16px;
     margin-right: -16px;
     grid-template-columns: none;
+    /* Тонкий скроллбар Firefox / скрытый WebKit */
+    scrollbar-width: thin;
+    scrollbar-color: var(--ov-white-15) transparent;
+    overscroll-behavior-x: contain;
+  }
+
+  .recommended-courses-block__list::-webkit-scrollbar {
+    height: 4px;
+  }
+
+  .recommended-courses-block__list::-webkit-scrollbar-thumb {
+    background: var(--ov-white-15);
+    border-radius: 999px;
+  }
+
+  .recommended-courses-block__list::-webkit-scrollbar-track {
+    background: transparent;
   }
 
   .recommended-courses-block__list > * {
     flex: 0 0 78%;
     max-width: 320px;
     scroll-snap-align: start;
+    scroll-snap-stop: always;
   }
 }
 
