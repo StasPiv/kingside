@@ -186,8 +186,17 @@ function collectChessChecks(
           message: `TextStep must have either bodyI18nKey or bodyMarkdown`,
         });
       }
+      // KS-1983: diagrams[].fen — без chess.js-валидации легальной
+      // позиции. Контент, заливаемый по книгам (нелегальные позиции —
+      // пустая доска, доска с одной фигурой и т. п.), должен проходить.
+      // Проверяем только что строка есть.
       for (const [i, d] of (payload.diagrams ?? []).entries()) {
-        checkFen(d.fen, `${stepPath}.payload.diagrams[${i}].fen`, errors);
+        if (typeof d.fen !== 'string' || d.fen.trim().length === 0) {
+          errors.push({
+            path: `${stepPath}.payload.diagrams[${i}].fen`,
+            message: `fen must be a non-empty string`,
+          });
+        }
       }
       break;
     }
@@ -222,12 +231,10 @@ function collectChessChecks(
           message: `Invalid FEN`,
         });
       }
-      if (!Array.isArray(payload.expectedMoves) || payload.expectedMoves.length === 0) {
-        errors.push({
-          path: `${stepPath}.payload.expectedMoves`,
-          message: `expectedMoves must be a non-empty array of UCI moves`,
-        });
-      } else if (fenOk) {
+      // KS-1983: expectedMoves опционально. Если пусто/не задано —
+      // шаг работает как read-only позиция. Если задано — каждый ход
+      // проверяется на легальность.
+      if (Array.isArray(payload.expectedMoves) && payload.expectedMoves.length > 0 && fenOk) {
         for (const [i, uci] of payload.expectedMoves.entries()) {
           if (!isLegalUciOnFen(payload.fen, uci)) {
             errors.push({

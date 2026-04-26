@@ -233,8 +233,12 @@ export interface QuizOption {
 export interface PositionStepPayload {
   type: 'position';
   fen: string;
-  /** Ожидаемые ходы (UCI). Принимается любой из списка. */
-  expectedMoves: string[];
+  /**
+   * Ожидаемые ходы (UCI). Принимается любой из списка.
+   * KS-1983: опционально — отсутствие или пустой массив означает
+   * read-only-позицию (шаг показывает диаграмму, без интерактивности).
+   */
+  expectedMoves?: string[];
   orientation?: 'white' | 'black';
 }
 

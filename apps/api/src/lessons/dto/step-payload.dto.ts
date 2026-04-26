@@ -236,11 +236,17 @@ class PositionStepPayloadDto implements PositionStepPayload {
   @IsFen()
   fen!: string;
 
+  /**
+   * KS-1983: `expectedMoves` опциональны. Если не передано или пусто —
+   * шаг работает как read-only показ позиции. Если передано — каждый
+   * UCI-ход всё ещё валидируется на легальность от `fen` (старое
+   * поведение через `@ArePositionMovesLegal`).
+   */
+  @IsOptional()
   @IsArray()
-  @ArrayNotEmpty()
   @IsString({ each: true })
   @ArePositionMovesLegal('fen')
-  expectedMoves!: string[];
+  expectedMoves?: string[];
 
   @IsOptional()
   @IsIn(['white', 'black'])

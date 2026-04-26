@@ -127,6 +127,11 @@ export function IsFen(validationOptions?: ValidationOptions): PropertyDecorator 
  * При невалидном FEN сам по себе декоратор НЕ репортит ошибку на поле
  * `expectedMoves` (её поймает `@IsFen` на самом поле `fen`), но помечает
  * массив как невалидный, чтобы не пропустить payload дальше.
+ *
+ * KS-1983: пустой массив или отсутствующее значение считаются валидными —
+ * это режим read-only-позиции (шаг просто показывает диаграмму, без
+ * ожидания ходов от ученика). Опциональность поля контролируется
+ * `@IsOptional()` на уровне DTO.
  */
 export function ArePositionMovesLegal(
   fenProperty: string,
@@ -141,7 +146,11 @@ export function ArePositionMovesLegal(
       options: validationOptions,
       validator: {
         validate(value: unknown, args: ValidationArguments) {
-          if (!Array.isArray(value) || value.length === 0) return false;
+          // KS-1983: undefined/null/пустой массив = read-only, ОК.
+          if (value === undefined || value === null) return true;
+          if (!Array.isArray(value)) return false;
+          if (value.length === 0) return true;
+
           const [relatedProp] = args.constraints as [string];
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const fen = (args.object as any)[relatedProp];
@@ -156,7 +165,7 @@ export function ArePositionMovesLegal(
           return true;
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be a non-empty array of UCI moves, each legal on the provided FEN`;
+          return `${args.property}, if provided, must be an array of UCI moves, each legal on the provided FEN`;
         },
       },
     });

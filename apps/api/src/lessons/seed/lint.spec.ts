@@ -49,7 +49,10 @@ describe('lintFixtures', () => {
     expect(errors).toEqual([]);
   });
 
-  it('ловит невалидный FEN в диаграмме', async () => {
+  // KS-1983: chess.js валидация диаграмм снята — пропускается любая
+  // непустая FEN-строка. Контентные курсы по книгам нередко
+  // содержат нелегальные позиции (пустая доска, фрагменты).
+  it('TextStep diagrams: пустая доска — валидно (KS-1983)', async () => {
     const course = makeCourse();
     course.lessons[0].steps = [
       {
@@ -58,14 +61,29 @@ describe('lintFixtures', () => {
         payload: {
           type: 'text',
           bodyMarkdown: 'x',
-          diagrams: [{ fen: 'total-garbage' }],
+          diagrams: [{ fen: '8/8/8/8/8/8/8/8 w - - 0 1' }],
         },
       },
     ];
     const errors = await lintFixtures([course]);
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0].path).toContain('diagrams[0].fen');
-    expect(errors[0].message).toContain('Invalid FEN');
+    expect(errors).toEqual([]);
+  });
+
+  it('TextStep diagrams: пустая строка fen — ошибка (KS-1983)', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'text',
+          bodyMarkdown: 'x',
+          diagrams: [{ fen: '' }],
+        },
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors.some((e) => e.path.includes('diagrams[0].fen'))).toBe(true);
   });
 
   it('TextStep без body — ошибка', async () => {
@@ -142,7 +160,9 @@ describe('lintFixtures', () => {
     );
   });
 
-  it('PositionStep с пустым expectedMoves — ошибка', async () => {
+  // KS-1983: expectedMoves опционально — пустой массив или отсутствие
+  // означает read-only показ позиции.
+  it('PositionStep с пустым expectedMoves — валидно (KS-1983, read-only)', async () => {
     const course = makeCourse();
     course.lessons[0].steps = [
       {
@@ -156,7 +176,23 @@ describe('lintFixtures', () => {
       },
     ];
     const errors = await lintFixtures([course]);
-    expect(errors.some((e) => e.path.includes('expectedMoves'))).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
+  it('PositionStep без поля expectedMoves — валидно (KS-1983)', async () => {
+    const course = makeCourse();
+    course.lessons[0].steps = [
+      {
+        id: 's1',
+        order: 0,
+        payload: {
+          type: 'position',
+          fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        } as unknown as Parameters<typeof lintFixtures>[0][number]['lessons'][number]['steps'][number]['payload'],
+      },
+    ];
+    const errors = await lintFixtures([course]);
+    expect(errors).toEqual([]);
   });
 
   it('PositionStep: промоушен e7e8q — ok', async () => {
