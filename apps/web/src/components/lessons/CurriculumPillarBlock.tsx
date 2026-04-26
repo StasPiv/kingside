@@ -12,8 +12,8 @@ import { useDelayedFlag } from '../../hooks/useDelayedFlag';
  *
  * Принимает уже отфильтрованные/сгруппированные `groups` из
  * родителя (`LessonsPage`), чтобы не делать второй запрос.
- * Логика fetch'а / level-gate / recommendedLevel — на стороне
- * `LessonsPage`, как было до KS-1923.
+ * Логика fetch'а / recommendedLevel — на стороне `LessonsPage`,
+ * как было до KS-1923.
  *
  * Anchor `id="level-{level}"` — для якорной навигации из
  * `LessonsHero` (CTA «Browse Beginner curriculum»).

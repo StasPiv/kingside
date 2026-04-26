@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import type { CourseWithLessonsResponse } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
-import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
 import { groupLessonsByBlock } from '../components/lessons/courseBlocks';
 
 /**
@@ -116,12 +115,6 @@ export function CoursePage() {
           </span>
         </div>
       </header>
-
-      <LevelGateBanner
-        restrictTo={course.level}
-        from={course.level}
-        testId="course-page-level-gate"
-      />
 
       {sortedLessons.length === 0 ? (
         <div className="lessons-empty" data-testid="course-no-lessons">

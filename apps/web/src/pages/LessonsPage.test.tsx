@@ -4,14 +4,12 @@ import { LessonsPage } from './LessonsPage';
 
 const mockLessonsApi = {
   listCourses: vi.fn(),
-  getLevelGate: vi.fn(),
   getReviewsDue: vi.fn(),
 };
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: {
     listCourses: (...args: unknown[]) => mockLessonsApi.listCourses(...args),
-    getLevelGate: (...args: unknown[]) => mockLessonsApi.getLevelGate(...args),
     getReviewsDue: (...args: unknown[]) => mockLessonsApi.getReviewsDue(...args),
   },
 }));
@@ -52,15 +50,7 @@ vi.mock('../components/lessons/LazySection', () => ({
 
 beforeEach(() => {
   mockLessonsApi.listCourses.mockReset();
-  mockLessonsApi.getLevelGate.mockReset();
   mockLessonsApi.getReviewsDue.mockReset();
-  // По умолчанию level-gate скрыт — никаких блокеров и nextLevel.
-  mockLessonsApi.getLevelGate.mockResolvedValue({
-    currentLevel: 'advanced',
-    nextLevel: null,
-    unlocked: false,
-    blockers: [],
-  });
   // По умолчанию reviews-due пустой — блок «К повторению сегодня» скрыт.
   mockLessonsApi.getReviewsDue.mockResolvedValue({ items: [] });
 });

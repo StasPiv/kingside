@@ -4,13 +4,11 @@ import { CoursePage } from './CoursePage';
 
 const mockLessonsApi = {
   getCourse: vi.fn(),
-  getLevelGate: vi.fn(),
 };
 
 vi.mock('../api/lessonsApi', () => ({
   lessonsApi: {
     getCourse: (...args: unknown[]) => mockLessonsApi.getCourse(...args),
-    getLevelGate: (...args: unknown[]) => mockLessonsApi.getLevelGate(...args),
   },
 }));
 
@@ -26,14 +24,6 @@ vi.mock('react-router-dom', async () => {
 
 beforeEach(() => {
   mockLessonsApi.getCourse.mockReset();
-  mockLessonsApi.getLevelGate.mockReset();
-  // По умолчанию level-gate скрыт.
-  mockLessonsApi.getLevelGate.mockResolvedValue({
-    currentLevel: 'advanced',
-    nextLevel: null,
-    unlocked: false,
-    blockers: [],
-  });
 });
 
 describe('CoursePage', () => {
@@ -257,43 +247,4 @@ describe('CoursePage', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('CoursePage intermediate → LevelGateBanner получает from="intermediate"', async () => {
-    mockLessonsApi.getCourse.mockResolvedValueOnce({
-      course: {
-        id: 'c2',
-        slug: 'beginner-basics',
-        level: 'intermediate',
-        titleI18nKey: 'intermediate-title',
-        descriptionI18nKey: 'intermediate-desc',
-        order: 1,
-        isPublished: true,
-        lessonCount: 0,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        updatedAt: '2026-01-01T00:00:00.000Z',
-      },
-      lessons: [],
-      progress: null,
-    });
-    // Для этой страницы level-gate должен быть виден (currentLevel === course.level).
-    mockLessonsApi.getLevelGate.mockResolvedValueOnce({
-      currentLevel: 'intermediate',
-      nextLevel: 'advanced',
-      unlocked: false,
-      blockers: [{ kind: 'rapid_rating', current: 1350, required: 1400 }],
-    });
-
-    renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
-
-    await waitFor(() =>
-      expect(mockLessonsApi.getLevelGate).toHaveBeenCalledWith('intermediate'),
-    );
-    await waitFor(() =>
-      expect(
-        screen.getByTestId('course-page-level-gate'),
-      ).toHaveAttribute('data-state', 'locked'),
-    );
-    expect(
-      screen.getByTestId('level-gate-blocker-rapid_rating'),
-    ).toHaveTextContent('Rapid rating: 1350/1400');
-  });
 });

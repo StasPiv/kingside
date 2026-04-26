@@ -7,7 +7,6 @@ import type {
 } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
-import { LevelGateBanner } from '../components/lessons/LevelGateBanner';
 import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
 import { MyCoursesBlock } from '../components/lessons/MyCoursesBlock';
 import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock';
@@ -109,8 +108,6 @@ export function LessonsPage() {
       <LessonsHero />
 
       <ReviewsDueBlock items={reviewsDue} errored={reviewsDueErrored} />
-
-      <LevelGateBanner restrictTo="beginner" testId="lessons-page-level-gate" />
 
       {/* ADR-031 §5: порядок L2 Personal/Daily/Active learning. */}
       {/* KS-1840: «Мои курсы» — скрыт при отсутствии своих курсов. */}
