@@ -189,11 +189,25 @@ export function CoursePage() {
                             {t('lessons.badge.dueForReview', 'Due for review')}
                           </span>
                         )}
-                        <span className="course-lesson-step-count">
-                          {t('lessons.stepCount', {
-                            count: lesson.stepCount,
-                            defaultValue: '{{count}} steps',
-                          })}
+                        {/* KS-1992: прогресс по шагам в карточке урока.
+                            Если хотя бы 1 шаг сделан — показываем
+                            «N/M шагов», иначе общий счётчик «M шагов».
+                            `completedStepsCount` приходит с бэка
+                            (KS-1992 BE), `0` для анонима/новичка. */}
+                        <span
+                          className="course-lesson-step-count"
+                          data-testid={`course-lesson-step-count-${lesson.slug}`}
+                        >
+                          {lesson.completedStepsCount > 0
+                            ? t('lessons.stepProgress', {
+                                done: lesson.completedStepsCount,
+                                total: lesson.stepCount,
+                                defaultValue: '{{done}}/{{total}} steps',
+                              })
+                            : t('lessons.stepCount', {
+                                count: lesson.stepCount,
+                                defaultValue: '{{count}} steps',
+                              })}
                         </span>
                       </Link>
                     </li>

@@ -305,6 +305,62 @@ describe('CoursePage', () => {
     expect(lessonLink.textContent).toContain('Доска и нотация');
   });
 
+  it('KS-1992: completedStepsCount > 0 → «N/M шагов»; =0 → «M шагов»', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce({
+      course: {
+        id: 'c1',
+        slug: 'beginner-basics',
+        level: 'beginner',
+        titleI18nKey: 'beginner-basics-title',
+        descriptionI18nKey: 'beginner-basics-desc',
+        order: 1,
+        isPublished: true,
+        lessonCount: 2,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      lessons: [
+        {
+          id: 'l1',
+          slug: 'pieces',
+          order: 1,
+          kind: 'theory',
+          titleI18nKey: 'pieces-title',
+          summaryI18nKey: 'pieces-summary',
+          stepCount: 12,
+          completedStepsCount: 7,
+          progressState: 'in_progress',
+        },
+        {
+          id: 'l2',
+          slug: 'rules',
+          order: 2,
+          kind: 'theory',
+          titleI18nKey: 'rules-title',
+          summaryI18nKey: 'rules-summary',
+          stepCount: 5,
+          completedStepsCount: 0,
+          progressState: 'not_started',
+        },
+      ],
+      progress: null,
+    });
+    renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+    await waitFor(() =>
+      expect(screen.getByTestId('course-page')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('course-lesson-step-count-pieces').textContent,
+    ).toMatch(/7\s*\/\s*12/);
+    // Не начатый — общий счётчик «5 steps» (не «0/5»).
+    expect(
+      screen.getByTestId('course-lesson-step-count-rules').textContent,
+    ).not.toMatch(/0\s*\/\s*5/);
+    expect(
+      screen.getByTestId('course-lesson-step-count-rules').textContent,
+    ).toMatch(/5/);
+  });
+
   it('KS-1978: при отсутствии inline.title — fallback на slug через t(i18nKey)', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce({
       course: {

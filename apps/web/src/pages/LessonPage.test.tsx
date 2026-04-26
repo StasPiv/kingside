@@ -284,4 +284,109 @@ describe('LessonPage', () => {
     expect(document.getElementById('step-s2')).not.toBeNull();
   });
 
+  // ─── KS-1992: auto-scroll к первому непройденному шагу при mount ────
+
+  it('KS-1992: при открытии урока с частичным прогрессом → scrollIntoView у первого pending-шага', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    // Первый шаг (s1) — done, второй (s2) — pending. Должен скроллить к s2.
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: null,
+        score: 0.5,
+        stepsState: { s1: 'done' },
+      },
+    });
+
+    const scrollSpy = vi.fn();
+    const proto = window.Element.prototype as unknown as {
+      scrollIntoView?: (...args: unknown[]) => void;
+    };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scrollSpy;
+    try {
+      renderWithProviders(<LessonPage />, {
+        route: '/lessons/beginner-basics/pieces',
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
+      );
+      // Один auto-scroll на mount: behavior:'auto', target = #step-s2.
+      await waitFor(() =>
+        expect(scrollSpy).toHaveBeenCalled(),
+      );
+      const [args] = scrollSpy.mock.calls[0];
+      expect(args).toEqual({ behavior: 'auto', block: 'start' });
+      expect(scrollSpy.mock.contexts[0]).toBe(document.getElementById('step-s2'));
+    } finally {
+      if (original) proto.scrollIntoView = original;
+      else delete proto.scrollIntoView;
+    }
+  });
+
+  it('KS-1992: первый шаг pending → НЕТ auto-scroll (страница уже сверху)', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    // Без прогресса: s1, s2 pending. Первый pending — он же первый шаг.
+    mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
+
+    const scrollSpy = vi.fn();
+    const proto = window.Element.prototype as unknown as {
+      scrollIntoView?: (...args: unknown[]) => void;
+    };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scrollSpy;
+    try {
+      renderWithProviders(<LessonPage />, {
+        route: '/lessons/beginner-basics/pieces',
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
+      );
+      // Дать React успеть обработать все эффекты mount'а.
+      await new Promise((r) => setTimeout(r, 50));
+      expect(scrollSpy).not.toHaveBeenCalled();
+    } finally {
+      if (original) proto.scrollIntoView = original;
+      else delete proto.scrollIntoView;
+    }
+  });
+
+  it('KS-1992: все шаги done → НЕТ auto-scroll (нечего искать)', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: '2026-04-10T00:00:00.000Z',
+        score: 1,
+        stepsState: { s1: 'done', s2: 'done' },
+      },
+    });
+
+    const scrollSpy = vi.fn();
+    const proto = window.Element.prototype as unknown as {
+      scrollIntoView?: (...args: unknown[]) => void;
+    };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scrollSpy;
+    try {
+      renderWithProviders(<LessonPage />, {
+        route: '/lessons/beginner-basics/pieces',
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
+      );
+      await new Promise((r) => setTimeout(r, 50));
+      expect(scrollSpy).not.toHaveBeenCalled();
+    } finally {
+      if (original) proto.scrollIntoView = original;
+      else delete proto.scrollIntoView;
+    }
+  });
+
 });

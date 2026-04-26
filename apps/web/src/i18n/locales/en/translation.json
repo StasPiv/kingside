@@ -1364,6 +1364,7 @@
     "lessonCount_other": "{{count}} lessons",
     "stepCount_one": "{{count}} step",
     "stepCount_other": "{{count}} steps",
+    "stepProgress": "{{done}}/{{total}} steps",
     "progressShort": "{{completed}}/{{total}}",
     "progressFull": "{{completed}}/{{total}} ({{percent}}%)",
     "progressLabel": "Course progress",

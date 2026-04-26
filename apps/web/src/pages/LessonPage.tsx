@@ -137,6 +137,36 @@ export function LessonPage() {
     reviewResetDoneRef.current = lesson.lesson.id;
   }, [isReviewMode, lesson?.lesson.id, progress]);
 
+  // KS-1992: при первом открытии урока скроллим к первому шагу, который
+  // ещё не отмечен `done`. Если все шаги done — остаёмся вверху страницы
+  // (пользователь, возможно, зашёл за кнопкой «Завершить урок» / повторить).
+  //
+  // Источник истины для «начального» состояния — `lesson.progress.stepsState`
+  // (то что пришло с сервера), а не `progress.stepsState` хука: hook
+  // умеет обновлять локальное состояние оптимистично при кликах, и если
+  // привязаться к нему, эффект ре-сработает после клика «Далее» —
+  // ломая smooth-scroll из KS-1986.
+  //
+  // Скролл выполняется один раз на каждый load урока — флаг
+  // `autoScrollDoneRef` хранит lessonId, для которого уже прокрутили.
+  // В review-режиме скроллить вверх не нужно: stepsState сбрасывается,
+  // первый pending — он же первый шаг.
+  const autoScrollDoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lesson?.lesson.id || sortedSteps.length === 0) return;
+    if (autoScrollDoneRef.current === lesson.lesson.id) return;
+    autoScrollDoneRef.current = lesson.lesson.id;
+    if (isReviewMode) return;
+    const serverState = lesson.progress?.stepsState ?? {};
+    const firstPending = sortedSteps.find((s) => serverState[s.id] !== 'done');
+    if (!firstPending) return;
+    // Если первый pending — он же первый шаг по `order`, скроллить
+    // некуда (страница и так открывается в самом верху).
+    if (sortedSteps[0]?.id === firstPending.id) return;
+    const el = document.getElementById(`step-${firstPending.id}`);
+    el?.scrollIntoView({ behavior: 'auto', block: 'start' });
+  }, [lesson?.lesson.id, sortedSteps, lesson?.progress, isReviewMode]);
+
   if (!courseSlug || !lessonSlug) {
     return (
       <div className="error" data-testid="lesson-error">

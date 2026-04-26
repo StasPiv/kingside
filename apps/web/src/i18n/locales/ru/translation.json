@@ -1360,6 +1360,7 @@
     "stepCount_few": "{{count}} шага",
     "stepCount_many": "{{count}} шагов",
     "stepCount_other": "{{count}} шагов",
+    "stepProgress": "{{done}}/{{total}} шагов",
     "progressShort": "{{completed}}/{{total}}",
     "progressFull": "{{completed}}/{{total}} ({{percent}}%)",
     "progressLabel": "Прогресс по курсу",

@@ -407,6 +407,10 @@
   border: 1px solid var(--border-subtle);
   border-radius: 12px;
   padding: 18px 20px;
+  /* KS-1986 / KS-1992: при программном `scrollIntoView` шаг должен
+     оказаться ПОД sticky-баром прогресса, а не за ним. 48 (глобальный
+     header) + 48 (sticky-progress-sticky) ≈ 100px. */
+  scroll-margin-top: 100px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
