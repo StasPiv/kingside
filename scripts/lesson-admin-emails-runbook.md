@@ -116,6 +116,20 @@ aws ecs describe-task-definition --task-definition kingside-api \
   --output json
 ```
 
+## Перезапуск local dev после изменения `.env`
+
+NestJS watch-mode НЕ реагирует на изменения `apps/api/.env` — нужен touch
+исходника, чтобы процесс перечитал ENV:
+
+```bash
+touch apps/api/src/main.ts
+```
+
+`scripts/hooks/post-deploy-hook` делает то же самое автоматически после
+любого коммита в `main` (через установленный `.git/hooks/post-commit`).
+Для агентов без RW-доступа к `apps/api/src/` это единственный путь
+триггернуть рестарт без прямого `touch`.
+
 ## История
 
 | Дата       | Revision | Значение                    | Тикет   |
