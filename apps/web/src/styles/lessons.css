@@ -221,6 +221,40 @@
   margin-top: 10px;
 }
 
+/* KS-1991: sticky-обёртка для прогресса на странице урока.
+   Глобальный header сайта — fixed, height 48px (см. `layout.css`).
+   Sticky прилипает к viewport на `top: 48px` (под header'ом).
+   Лёгкая граница снизу + матовый фон, чтобы текст под ним не
+   «просвечивал» и переход между баром и шагом был явным. */
+.lesson-progress-sticky {
+  position: sticky;
+  top: 48px;
+  z-index: 50;
+  background: var(--bg-base, var(--bg-surface));
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 8px 0;
+  margin: 0 0 16px;
+  backdrop-filter: blur(6px);
+}
+
+/* KS-1991: scrolling-предок для sticky должен быть `<body>`/`html`.
+   Глобальная стилистика (`layout.css`, `.app-body > .main { overflow-y:auto }`)
+   делает `<main>` потенциальным scrolling-контейнером — даже когда
+   реально скроллится `body` (содержимое влезает в main без переполнения).
+   `position:sticky` тогда «прилипает» к `<main>`, а сам `<main>` уезжает
+   вверх вместе с body-scroll'ом — sticky не виден.
+   Override: на страницах с уроком убираем `overflow:auto` у main,
+   чтобы scroll шёл только на `<body>` и sticky работал. */
+.app-body > .main:has(.lesson-page),
+.app-body > .main:has(.user-lesson-page) {
+  overflow-y: visible;
+}
+
+.lesson-progress-sticky > .lesson-progress,
+.lesson-progress-sticky > .user-lesson-page__progress {
+  margin: 0;
+}
+
 .course-progress-bar,
 .lesson-progress-bar {
   position: relative;

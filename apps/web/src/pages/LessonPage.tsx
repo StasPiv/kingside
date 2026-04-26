@@ -351,7 +351,15 @@ export function LessonPage() {
             '',
           )}
         </p>
+      </header>
 
+      {/* KS-1991: прогресс «прилипает» под глобальный fixed-header,
+          чтобы при скролле длинного урока пользователь всегда видел
+          сколько шагов пройдено. */}
+      <div
+        className="lesson-progress-sticky"
+        data-testid="lesson-progress-sticky"
+      >
         <div
           className="lesson-progress"
           data-testid="lesson-progress"
@@ -373,7 +381,7 @@ export function LessonPage() {
             })}
           </span>
         </div>
-      </header>
+      </div>
 
       {sortedSteps.length === 0 ? (
         <div className="lessons-empty" data-testid="lesson-no-steps">

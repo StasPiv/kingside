@@ -233,7 +233,16 @@ export function UserLessonPage() {
 
       <header className="user-lesson-page__header">
         <h1 data-testid="user-lesson-title">{lesson.title}</h1>
-        {steps.length > 0 && (
+      </header>
+
+      {/* KS-1991: прогресс «прилипает» под глобальный fixed-header,
+          чтобы при скролле длинного урока счётчик шагов всегда
+          оставался виден. Рендерится только если шаги есть. */}
+      {steps.length > 0 && (
+        <div
+          className="lesson-progress-sticky"
+          data-testid="user-lesson-progress-sticky"
+        >
           <div
             className="user-lesson-page__progress"
             data-testid="user-lesson-progress"
@@ -245,8 +254,8 @@ export function UserLessonPage() {
               defaultValue: '{{completed}}/{{total}} ({{percent}}%)',
             })}
           </div>
-        )}
-      </header>
+        </div>
+      )}
 
       {steps.length === 0 ? (
         // KS-1892: empty-state для урока без шагов. Студент мог

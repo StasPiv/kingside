@@ -89,9 +89,15 @@ describe('CoursePage', () => {
     const list = screen.getByTestId('course-lesson-list');
     const items = list.querySelectorAll('li');
     expect(items).toHaveLength(2);
-    // Первый элемент — order=1, второй — order=2
-    expect(items[0]).toHaveTextContent('1.');
-    expect(items[1]).toHaveTextContent('2.');
+    // KS-1991: внешний индекс «N.» убран. Порядок проверяем через
+    // последовательность data-testid'ов на ссылках уроков (по order
+    // ASC: pieces=1, rules=2).
+    expect(items[0].querySelector('a')?.getAttribute('data-testid')).toBe(
+      'lesson-link-pieces',
+    );
+    expect(items[1].querySelector('a')?.getAttribute('data-testid')).toBe(
+      'lesson-link-rules',
+    );
 
     expect(screen.getByTestId('lesson-link-pieces')).toHaveAttribute(
       'href',

@@ -154,7 +154,9 @@ export function CoursePage() {
                         data-testid={`lesson-link-${lesson.slug}`}
                         className="course-lesson-link"
                       >
-                        <span className="course-lesson-order">{lesson.order}.</span>
+                        {/* KS-1991: индекс убран — был рудимент.
+                            Заголовки уроков несут собственную нумерацию
+                            («Глава 1. …»), внешний индекс дублировал. */}
                         <span className="course-lesson-title">
                           {resolveInlineText(
                             lesson.title,
