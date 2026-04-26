@@ -210,4 +210,77 @@ describe('LessonPage', () => {
     expect(s2).toHaveAttribute('data-step-state', 'pending');
   });
 
+  // ─── KS-1986: «Далее» скроллит к следующему шагу ────────────────────
+
+  it('KS-1986: клик «Далее» в шаге → scrollIntoView у следующего <li>', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
+
+    // happy-dom не реализует Element.prototype.scrollIntoView; подменяем
+    // на spy, чтобы поймать вызов и проверить аргумент.
+    const scrollSpy = vi.fn();
+    const proto = window.Element.prototype as unknown as {
+      scrollIntoView?: (...args: unknown[]) => void;
+    };
+    const original = proto.scrollIntoView;
+    proto.scrollIntoView = scrollSpy;
+
+    try {
+      const { default: userEventLib } = await import(
+        '@testing-library/user-event'
+      );
+      const user = userEventLib.setup();
+
+      renderWithProviders(<LessonPage />, {
+        route: '/lessons/beginner-basics/pieces',
+      });
+      await waitFor(() =>
+        expect(screen.getByTestId('lesson-text-step-next')).toBeInTheDocument(),
+      );
+
+      // Шаги отрисованы как <li id="step-s1"> / <li id="step-s2"> по
+      // фикстуре. Кликаем «Далее» в первом → должен скроллиться #step-s2.
+      const next = document.getElementById('step-s2');
+      expect(next).not.toBeNull();
+
+      await user.click(screen.getByTestId('lesson-text-step-next'));
+
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      // `this` для prototype-call'а — element, на котором вызвали метод.
+      // Проверяем через mock.contexts (vitest).
+      const [args] = scrollSpy.mock.calls[0];
+      expect(args).toEqual({ behavior: 'smooth', block: 'start' });
+      expect(scrollSpy.mock.contexts[0]).toBe(next);
+
+      // Шаг помечен как done (прогресс пошёл).
+      await waitFor(() =>
+        expect(screen.getByTestId('lesson-step-1')).toHaveAttribute(
+          'data-step-state',
+          'done',
+        ),
+      );
+    } finally {
+      if (original) {
+        proto.scrollIntoView = original;
+      } else {
+        delete proto.scrollIntoView;
+      }
+    }
+  });
+
+  it('KS-1986: каждый <li> шага имеет id="step-<step.id>" — anchor для scroll', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
+    );
+
+    expect(document.getElementById('step-s1')).not.toBeNull();
+    expect(document.getElementById('step-s2')).not.toBeNull();
+  });
+
 });

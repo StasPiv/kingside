@@ -381,26 +381,39 @@ export function LessonPage() {
         </div>
       ) : (
         <ol className="lesson-step-list" data-testid="lesson-step-list">
-          {sortedSteps.map((step, idx) => (
-            <li
-              key={step.id}
-              className={`lesson-step lesson-step--${step.type}`}
-              data-testid={`lesson-step-${step.order}`}
-              data-step-state={progress.stepsState[step.id] ?? 'pending'}
-            >
-              <header className="lesson-step__header">
-                <span className="lesson-step-order">#{step.order}</span>
-                <span className="lesson-step-type">
-                  {t(`lessons.stepType.${step.type}`, step.type)}
-                </span>
-              </header>
-              <StepRenderer
-                step={step}
-                hideNext={idx === sortedSteps.length - 1}
-                onStepDone={() => progress.markStep(step.id, 'done')}
-              />
-            </li>
-          ))}
+          {sortedSteps.map((step, idx) => {
+            // KS-1986: после `markStep('done')` плавно прокручиваем
+            // страницу к началу следующего шага. Если шаг последний —
+            // кнопка скрыта (`hideNext`), скроллить некуда.
+            const nextStep = sortedSteps[idx + 1];
+            const handleStepDone = () => {
+              progress.markStep(step.id, 'done');
+              if (!nextStep) return;
+              const el = document.getElementById(`step-${nextStep.id}`);
+              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            };
+            return (
+              <li
+                key={step.id}
+                id={`step-${step.id}`}
+                className={`lesson-step lesson-step--${step.type}`}
+                data-testid={`lesson-step-${step.order}`}
+                data-step-state={progress.stepsState[step.id] ?? 'pending'}
+              >
+                <header className="lesson-step__header">
+                  <span className="lesson-step-order">#{step.order}</span>
+                  <span className="lesson-step-type">
+                    {t(`lessons.stepType.${step.type}`, step.type)}
+                  </span>
+                </header>
+                <StepRenderer
+                  step={step}
+                  hideNext={idx === sortedSteps.length - 1}
+                  onStepDone={handleStepDone}
+                />
+              </li>
+            );
+          })}
         </ol>
       )}
 
