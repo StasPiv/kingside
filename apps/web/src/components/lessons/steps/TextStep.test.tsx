@@ -152,7 +152,8 @@ describe('<TextStep>', () => {
     expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
     const md = screen.getAllByTestId('lesson-text-step-md');
     expect(md).toHaveLength(2);
-    expect(md[0].innerHTML).toContain('<h3>Title</h3>');
+    // KS-1987: # → h1 (раньше был неправильный mapping # → h3).
+    expect(md[0].innerHTML).toContain('<h1>Title</h1>');
     expect(md[0].innerHTML).toContain('Intro paragraph');
 
     const diagram = screen.getByTestId('lesson-text-step-diagram');

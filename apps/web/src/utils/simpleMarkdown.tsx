@@ -1,6 +1,28 @@
 /**
  * Simple markdown renderer — no external dependencies.
- * Supports: **bold**, *italic*, `code`, ```code blocks```, - lists, [links](url), headings (#).
+ *
+ * Поддерживает:
+ *  - заголовки `#`..`######` (h1..h6),
+ *  - параграфы,
+ *  - **bold** / *italic* / `code`,
+ *  - ```fenced code blocks```,
+ *  - маркированные списки (`-`, `*`),
+ *  - нумерованные списки (`1.`, `2.`, ...),
+ *  - цитаты (`> `),
+ *  - GFM-таблицы (с разделителем `| --- | --- |`),
+ *  - ссылки `[label](url)` + автолинки `https://…` и относительные `/…`.
+ *
+ * Намеренно не используется внешний markdown-движок: проект не имеет
+ * доступа к `npm install` через FE-агентский MCP, добавление полноценного
+ * `react-markdown` ушло бы в следующую инфра-задачу. До этого момента
+ * расширяем встроенный рендерер до уровня, нужного пилотным курсам
+ * (KS-1987 — h4-заголовки + цитаты + таблицы).
+ *
+ * Ограничения (что НЕ реализовано):
+ *  - вложенные списки — превращаются в плоские (отступы съедаются `trim`),
+ *  - inline-HTML — экранируется как текст,
+ *  - markdown-картинки `![]()` — не парсятся (диаграммы в TextStep
+ *    встроены через `{{diagram:N}}` и обрабатываются до этого этапа).
  */
 
 function escapeHtml(text: string): string {
@@ -36,61 +58,193 @@ function renderInline(text: string): string {
     .replace(/(^|[\s(])(?:&lt;)?(\/[a-zA-Z][a-zA-Z0-9/_-]*(?:\?[^\s<]*)?)(?:&gt;)?(?=[\s),.]|$)/g, (_, pre, path) => pre + makeLink(path, path));
 }
 
+type ListType = 'ul' | 'ol';
+
+interface ListState {
+  type: ListType;
+  open: boolean;
+}
+
+/** Ровно один из `ul`/`ol` либо никакого. Закрывает текущий, если другой тип. */
+function ensureList(html: string[], state: ListState, type: ListType): void {
+  if (state.open && state.type !== type) {
+    html.push(`</${state.type}>`);
+    state.open = false;
+  }
+  if (!state.open) {
+    html.push(`<${type}>`);
+    state.type = type;
+    state.open = true;
+  }
+}
+
+function closeList(html: string[], state: ListState): void {
+  if (state.open) {
+    html.push(`</${state.type}>`);
+    state.open = false;
+  }
+}
+
+interface QuoteState {
+  open: boolean;
+  buf: string[];
+}
+
+function flushQuote(html: string[], q: QuoteState): void {
+  if (!q.open) return;
+  // Внутри цитаты применяем тот же inline-рендер; параграфы внутри
+  // разделены пустой строкой — для простоты склеиваем в один <p>.
+  const inner = q.buf.map((l) => renderInline(l)).join('<br/>');
+  html.push(`<blockquote><p>${inner}</p></blockquote>`);
+  q.buf = [];
+  q.open = false;
+}
+
+/**
+ * GFM-таблица: первая строка — заголовки, вторая — разделитель из `---`
+ * (с возможным выравниванием `:---:`), далее — строки данных. Пайп `|`
+ * по краям опционален.
+ */
+function isTableSeparator(line: string): boolean {
+  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+  if (!trimmed) return false;
+  return trimmed
+    .split('|')
+    .every((cell) => /^\s*:?-{3,}:?\s*$/.test(cell));
+}
+
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((c) => c.trim());
+}
+
 export function renderMarkdown(md: string): string {
   const lines = md.split('\n');
   const html: string[] = [];
   let inCodeBlock = false;
   let codeLines: string[] = [];
-  let inList = false;
+  const list: ListState = { type: 'ul', open: false };
+  const quote: QuoteState = { open: false, buf: [] };
 
-  for (const line of lines) {
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block.
     if (line.startsWith('```')) {
       if (inCodeBlock) {
         html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
         codeLines = [];
         inCodeBlock = false;
       } else {
-        if (inList) { html.push('</ul>'); inList = false; }
+        closeList(html, list);
+        flushQuote(html, quote);
         inCodeBlock = true;
       }
+      i += 1;
       continue;
     }
-
     if (inCodeBlock) {
       codeLines.push(line);
+      i += 1;
       continue;
     }
 
     const trimmed = line.trim();
 
+    // Пустая строка — закрываем все открытые блоки.
     if (!trimmed) {
-      if (inList) { html.push('</ul>'); inList = false; }
+      closeList(html, list);
+      flushQuote(html, quote);
+      i += 1;
       continue;
     }
 
-    // Headings
-    const headingMatch = trimmed.match(/^(#{1,3})\s+(.+)/);
+    // GFM-таблица: ищем заголовок + сепаратор.
+    if (
+      trimmed.includes('|') &&
+      i + 1 < lines.length &&
+      isTableSeparator(lines[i + 1])
+    ) {
+      closeList(html, list);
+      flushQuote(html, quote);
+      const headers = splitTableRow(trimmed);
+      i += 2; // пропускаем заголовок + разделитель
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim() && lines[i].includes('|')) {
+        rows.push(splitTableRow(lines[i]));
+        i += 1;
+      }
+      const head = headers.map((h) => `<th>${renderInline(h)}</th>`).join('');
+      const body = rows
+        .map(
+          (r) =>
+            `<tr>${r
+              .map((c) => `<td>${renderInline(c)}</td>`)
+              .join('')}</tr>`,
+        )
+        .join('');
+      html.push(
+        `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`,
+      );
+      continue;
+    }
+
+    // Заголовки h1..h6 (KS-1987).
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
     if (headingMatch) {
-      if (inList) { html.push('</ul>'); inList = false; }
+      closeList(html, list);
+      flushQuote(html, quote);
       const level = headingMatch[1].length;
-      html.push(`<h${level + 2}>${renderInline(headingMatch[2])}</h${level + 2}>`);
+      html.push(`<h${level}>${renderInline(headingMatch[2])}</h${level}>`);
+      i += 1;
       continue;
     }
 
-    // List items
-    if (trimmed.startsWith('- ') || trimmed.startsWith('* ') || /^\d+\.\s/.test(trimmed)) {
-      if (!inList) { html.push('<ul>'); inList = true; }
-      const content = trimmed.replace(/^[-*]\s|^\d+\.\s/, '');
-      html.push(`<li>${renderInline(content)}</li>`);
+    // Цитата `> ...`.
+    if (trimmed.startsWith('>')) {
+      closeList(html, list);
+      // Снимаем «> » префикс (или просто «>»).
+      const inner = trimmed.replace(/^>\s?/, '');
+      quote.open = true;
+      quote.buf.push(inner);
+      i += 1;
       continue;
     }
 
-    if (inList) { html.push('</ul>'); inList = false; }
+    // Нумерованный список.
+    const olMatch = trimmed.match(/^(\d+)\.\s+(.+)$/);
+    if (olMatch) {
+      flushQuote(html, quote);
+      ensureList(html, list, 'ol');
+      html.push(`<li>${renderInline(olMatch[2])}</li>`);
+      i += 1;
+      continue;
+    }
+
+    // Маркированный список.
+    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      flushQuote(html, quote);
+      ensureList(html, list, 'ul');
+      html.push(`<li>${renderInline(trimmed.slice(2))}</li>`);
+      i += 1;
+      continue;
+    }
+
+    // Обычный параграф.
+    closeList(html, list);
+    flushQuote(html, quote);
     html.push(`<p>${renderInline(trimmed)}</p>`);
+    i += 1;
   }
 
   if (inCodeBlock) html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
-  if (inList) html.push('</ul>');
+  closeList(html, list);
+  flushQuote(html, quote);
 
   return html.join('');
 }
