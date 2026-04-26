@@ -1611,6 +1611,26 @@
         "browse": "Посмотреть курс для начинающих →"
       }
     },
+    "card": {
+      "coverAlt": "Обложка курса {{title}}",
+      "progressLabel": "Прогресс курса",
+      "progress": "{{done}}/{{total}}",
+      "duration": {
+        "minutes_one": "~{{count}}м",
+        "minutes_few": "~{{count}}м",
+        "minutes_many": "~{{count}}м",
+        "minutes_other": "~{{count}}м",
+        "hours_one": "~{{count}}ч",
+        "hours_few": "~{{count}}ч",
+        "hours_many": "~{{count}}ч",
+        "hours_other": "~{{count}}ч"
+      },
+      "cta": {
+        "continue": "Продолжить",
+        "start": "Начать",
+        "preview": "Посмотреть"
+      }
+    },
     "latestCourses": {
       "title": "Последние курсы",
       "newBadge": "НОВОЕ",

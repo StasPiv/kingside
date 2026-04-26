@@ -1591,6 +1591,22 @@
         "browse": "Browse Beginner →"
       }
     },
+    "card": {
+      "coverAlt": "{{title}} cover",
+      "progressLabel": "Course progress",
+      "progress": "{{done}}/{{total}}",
+      "duration": {
+        "minutes_one": "~{{count}}m",
+        "minutes_other": "~{{count}}m",
+        "hours_one": "~{{count}}h",
+        "hours_other": "~{{count}}h"
+      },
+      "cta": {
+        "continue": "Continue",
+        "start": "Start",
+        "preview": "Preview"
+      }
+    },
     "latestCourses": {
       "title": "Latest courses",
       "newBadge": "NEW",
