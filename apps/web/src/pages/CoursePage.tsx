@@ -189,26 +189,52 @@ export function CoursePage() {
                             {t('lessons.badge.dueForReview', 'Due for review')}
                           </span>
                         )}
-                        {/* KS-1992: прогресс по шагам в карточке урока.
-                            Если хотя бы 1 шаг сделан — показываем
-                            «N/M шагов», иначе общий счётчик «M шагов».
-                            `completedStepsCount` приходит с бэка
-                            (KS-1992 BE), `0` для анонима/новичка. */}
-                        <span
-                          className="course-lesson-step-count"
-                          data-testid={`course-lesson-step-count-${lesson.slug}`}
-                        >
-                          {lesson.completedStepsCount > 0
-                            ? t('lessons.stepProgress', {
-                                done: lesson.completedStepsCount,
-                                total: lesson.stepCount,
-                                defaultValue: '{{done}}/{{total}} steps',
-                              })
-                            : t('lessons.stepCount', {
-                                count: lesson.stepCount,
-                                defaultValue: '{{count}} steps',
-                              })}
-                        </span>
+                        {/* KS-1992: прогресс по шагам в карточке урока —
+                            визуальный bar + текст. Полоска заполняется
+                            пропорционально `completedStepsCount/stepCount`;
+                            если ничего не сделано, bar пустой, рядом
+                            общий счётчик «M шагов». */}
+                        {(() => {
+                          const total = lesson.stepCount || 0;
+                          const done = lesson.completedStepsCount ?? 0;
+                          const pct =
+                            total > 0
+                              ? Math.min(100, Math.round((done / total) * 100))
+                              : 0;
+                          return (
+                            <span
+                              className="course-lesson-progress"
+                              data-testid={`course-lesson-progress-${lesson.slug}`}
+                              aria-label={t(
+                                'lessons.progressLabel',
+                                'Course progress',
+                              )}
+                            >
+                              <span className="course-lesson-progress-bar">
+                                <span
+                                  className="course-lesson-progress-fill"
+                                  data-testid={`course-lesson-progress-fill-${lesson.slug}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </span>
+                              <span
+                                className="course-lesson-step-count"
+                                data-testid={`course-lesson-step-count-${lesson.slug}`}
+                              >
+                                {done > 0
+                                  ? t('lessons.stepProgress', {
+                                      done,
+                                      total,
+                                      defaultValue: '{{done}}/{{total}} steps',
+                                    })
+                                  : t('lessons.stepCount', {
+                                      count: total,
+                                      defaultValue: '{{count}} steps',
+                                    })}
+                              </span>
+                            </span>
+                          );
+                        })()}
                       </Link>
                     </li>
                   );

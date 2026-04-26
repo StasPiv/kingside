@@ -212,6 +212,37 @@
   line-height: 1.5;
 }
 
+/* KS-1992: прогресс-бар в карточке урока на странице курса.
+   Карточка — это `.course-lesson-link` (display:grid, 4 колонки).
+   Чтобы bar занял всю ширину под мета-строкой, явно растягиваем на
+   все колонки grid'а через `grid-column: 1 / -1`. */
+.course-lesson-progress {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  width: 100%;
+}
+
+.course-lesson-progress-bar {
+  position: relative;
+  flex: 1;
+  height: 6px;
+  background: var(--bg-muted);
+  border-radius: 999px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.course-lesson-progress-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary), var(--accent-hover));
+  border-radius: inherit;
+  transition: width 0.3s ease;
+}
+
 /* Прогресс курса и урока — общий стиль */
 .course-progress,
 .lesson-progress {
@@ -306,7 +337,11 @@
 
 .course-lesson-link {
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  /* KS-1991 убрал «N.»-индекс (бывшую первую колонку); KS-1992
+     добавил прогресс-бар отдельной строкой через `grid-column: 1/-1`.
+     Колонки шапки: title растягивается, бейджи (state/mastered/due) —
+     авто, по содержимому. */
+  grid-template-columns: 1fr auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 14px 16px;
