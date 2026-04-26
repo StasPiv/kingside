@@ -85,6 +85,14 @@ export interface CourseCardProps {
   ctaVariant: CourseCardCtaVariant;
   /** Произвольные теги — рендерятся как `#{tag}` снизу. */
   tags?: string[] | null;
+  /**
+   * KS-1956: «N дней назад» — относительное время последней активности
+   * пользователя по этому курсу. Рендерится отдельной строкой внутри
+   * шапки карточки. Опционально: Hero / Curriculum / Recommended его
+   * не передают, /lessons/my-active передаёт. `null`/отсутствие —
+   * строка скрыта.
+   */
+  recencyBadge?: string | null;
 }
 
 const LEVEL_FIGURE: Record<CourseLevel, string> = {
@@ -200,6 +208,7 @@ export function CourseCard({
   progress,
   ctaVariant,
   tags,
+  recencyBadge,
 }: CourseCardProps) {
   const { t } = useTranslation();
   const resolvedTestId = testId ?? `course-card-${slug}`;
@@ -260,6 +269,14 @@ export function CourseCard({
           <h3 className="course-card__title" data-testid="course-card-title">
             {title}
           </h3>
+          {recencyBadge && (
+            <span
+              className="course-card__recency"
+              data-testid="course-card-recency"
+            >
+              {recencyBadge}
+            </span>
+          )}
           {audience && (
             <p
               className="course-card__audience"

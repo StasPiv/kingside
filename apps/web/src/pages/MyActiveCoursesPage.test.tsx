@@ -191,9 +191,9 @@ describe('<MyActiveCoursesPage>', () => {
     expect(screen.queryByTestId('my-active-item-sys-done')).toBeNull();
   });
 
-  it('бейдж «N дней назад» рендерится у каждого айтема', async () => {
+  it('бейдж «N дней назад» рендерится ВНУТРИ CourseCard (KS-1956)', async () => {
     // Используем «вчерашнюю» активность относительно реального now —
-    // тест защищён от falki-timers, чтобы не ломать Promise scheduling.
+    // тест защищён от fake-timers, чтобы не ломать Promise scheduling.
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     lessonsApiMock.listCourses.mockResolvedValueOnce({
       data: [
@@ -204,14 +204,15 @@ describe('<MyActiveCoursesPage>', () => {
       route: '/lessons/my-active',
     });
     await waitFor(() =>
-      expect(screen.getByTestId('my-active-relative-s1')).toBeInTheDocument(),
+      expect(screen.getByTestId('my-active-card-s1')).toBeInTheDocument(),
     );
-    // Точная формулировка («1 day ago» / «hours ago») — забота
-    // formatRelativeActivity и тестируется в LessonsHero. Здесь проверяем
-    // лишь то, что бейдж рендерится непустой строкой.
-    expect(
-      screen.getByTestId('my-active-relative-s1').textContent?.length,
-    ).toBeGreaterThan(0);
+    // KS-1956: recency-бейдж теперь часть CourseCard, не отдельный
+    // элемент под карточкой. Старый testid `my-active-relative-<slug>`
+    // удалён, бейдж ищем по `course-card-recency` ВНУТРИ карточки.
+    const card = screen.getByTestId('my-active-card-s1');
+    const recency = card.querySelector('[data-testid="course-card-recency"]');
+    expect(recency).not.toBeNull();
+    expect(recency?.textContent?.length ?? 0).toBeGreaterThan(0);
   });
 
   it('CourseCard в каждом item: CTA=continue, ссылка на правильный namespace', async () => {

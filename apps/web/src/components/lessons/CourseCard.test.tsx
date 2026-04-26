@@ -245,6 +245,29 @@ describe('<CourseCard>', () => {
     expect(tags.textContent).toMatch(/#real/);
   });
 
+  it('KS-1956: recencyBadge передан → рендерится внутри карточки', () => {
+    renderWithProviders(
+      <CourseCard
+        slug="r"
+        href="/x"
+        title="R"
+        ctaVariant="continue"
+        recencyBadge="2 days ago"
+      />,
+    );
+    const card = screen.getByTestId('course-card-r');
+    const recency = card.querySelector('[data-testid="course-card-recency"]');
+    expect(recency).not.toBeNull();
+    expect(recency?.textContent).toBe('2 days ago');
+  });
+
+  it('KS-1956: без recencyBadge — отдельный slot не рендерится', () => {
+    renderWithProviders(
+      <CourseCard slug="r" href="/x" title="R" ctaVariant="start" />,
+    );
+    expect(screen.queryByTestId('course-card-recency')).toBeNull();
+  });
+
   it('кастомный testId переопределяет дефолт', () => {
     renderWithProviders(
       <CourseCard

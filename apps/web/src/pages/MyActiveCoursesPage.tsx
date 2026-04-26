@@ -256,13 +256,8 @@ export function MyActiveCoursesPage() {
                   coverUrl={c.coverUrl}
                   progress={{ done: c.completedLessons, total: c.lessonCount }}
                   ctaVariant="continue"
+                  recencyBadge={relative}
                 />
-                <span
-                  className="my-active-courses-page__last-activity"
-                  data-testid={`my-active-relative-${c.slug}`}
-                >
-                  {relative}
-                </span>
               </li>
             );
           })}
