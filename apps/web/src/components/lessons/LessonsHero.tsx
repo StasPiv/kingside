@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useLessonsHeroContext } from '../../hooks/useLessonsHeroContext';
 import type { ActiveCourseSummary } from '../../hooks/useLessonsHeroContext';
 import { useAuth } from '../../context/AuthContext';
+import { formatRelativeActivity } from '../../utils/relativeTime';
 
 /**
  * `LessonsHero` — контекстный hero на `/lessons`.
@@ -43,61 +44,6 @@ const LEVEL_FIGURE: Record<string, string> = {
   advanced: '♛',
 };
 
-const MS_IN_HOUR = 60 * 60 * 1000;
-const MS_IN_DAY = 24 * MS_IN_HOUR;
-
-/**
- * Форматирует «N дней назад» / «N часов назад» / «менее часа назад».
- * Для значений > 30 дней возвращает локализованную абсолютную дату.
- *
- * Используется в Hero Variant B (KS-1938 §7.2). Логика — простая и
- * консервативная: precise relative-time API i18next-icu/intl у нас
- * не подключён, а зависимость ради 4 кейсов раздувать смысла нет.
- */
-function formatRelativeActivity(
-  iso: string,
-  now: number,
-  t: (
-    key: string,
-    opts?: Record<string, unknown> & { defaultValue?: string },
-  ) => string,
-  locale: string,
-): string {
-  const ts = new Date(iso).getTime();
-  if (!Number.isFinite(ts)) {
-    return iso;
-  }
-  const diff = Math.max(0, now - ts);
-  if (diff < MS_IN_HOUR) {
-    return t('lessons.hero.continue.relative.lessHour', {
-      defaultValue: 'less than an hour ago',
-    });
-  }
-  if (diff < MS_IN_DAY) {
-    const hours = Math.floor(diff / MS_IN_HOUR);
-    return t('lessons.hero.continue.relative.hours', {
-      count: hours,
-      defaultValue: '{{count}}h ago',
-    });
-  }
-  const days = Math.floor(diff / MS_IN_DAY);
-  if (days <= 30) {
-    return t('lessons.hero.continue.relative.days', {
-      count: days,
-      defaultValue: '{{count}}d ago',
-    });
-  }
-  // Дальше 30 дней — лучше показать дату чем «100 дней назад».
-  try {
-    return new Date(ts).toLocaleDateString(locale, {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  } catch {
-    return new Date(ts).toISOString().slice(0, 10);
-  }
-}
 
 function ContinueCover({ course }: { course: ActiveCourseSummary }) {
   const { t } = useTranslation();

@@ -36,6 +36,7 @@ import { FeedbackBoardPage } from './pages/FeedbackBoardPage';
 import { FeedbackDetailPage } from './pages/FeedbackDetailPage';
 import { LessonsPage } from './pages/LessonsPage';
 import { CoursePage } from './pages/CoursePage';
+import { MyActiveCoursesPage } from './pages/MyActiveCoursesPage';
 import { LessonPage } from './pages/LessonPage';
 // KS-1928 / ADR-032: Дневник ошибок переехал в /puzzles namespace.
 import { PuzzleMistakesPage } from './pages/PuzzleMistakesPage';
@@ -178,6 +179,12 @@ export function App() {
         {isLessonsEnabledLive() ? (
           <>
             <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
+            {/* KS-1941 (F-4): «Мои активные курсы» — страница со всеми
+                активными прогрессами пользователя. */}
+            <Route
+              path="/lessons/my-active"
+              element={<ProtectedRoute><MyActiveCoursesPage /></ProtectedRoute>}
+            />
             {/* KS-1923 / ADR-031 §3: Discover-страница, без auth (каталог открыт гостям). */}
             <Route path="/lessons/discover" element={<DiscoverCoursesPage />} />
             <Route path="/lessons/editor" element={<ProtectedRoute><LessonEditorPage /></ProtectedRoute>} />

@@ -1600,6 +1600,14 @@
         "browse": "Browse Beginner →"
       }
     },
+    "myActive": {
+      "title": "My active courses",
+      "subtitle": "Everything you started — sorted by recent activity.",
+      "breadcrumbLabel": "breadcrumb",
+      "loadError": "Failed to load active courses.",
+      "empty": "You don't have any active courses yet.",
+      "emptyCta": "Browse courses"
+    },
     "recommended": {
       "title": "Recommended for you",
       "subtitle": {
