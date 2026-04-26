@@ -7,10 +7,13 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
 import { FacebookStrategy } from './facebook.strategy';
+import { AdminEmailGuard } from './admin-email.guard';
+import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
   imports: [
     PassportModule,
+    PrismaModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -21,7 +24,15 @@ import { FacebookStrategy } from './facebook.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleStrategy, FacebookStrategy],
-  exports: [AuthService, JwtModule],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    GoogleStrategy,
+    FacebookStrategy,
+    // KS-1963: AdminEmailGuard — для @UseGuards в admin-роутах
+    // (`/lessons/admin/*`, см. концепт KS-1962 §4).
+    AdminEmailGuard,
+  ],
+  exports: [AuthService, JwtModule, AdminEmailGuard],
 })
 export class AuthModule {}
