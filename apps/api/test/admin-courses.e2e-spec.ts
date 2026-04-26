@@ -5,6 +5,7 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { RedisService } from '../src/redis/redis.service';
 import { AllExceptionsFilter } from '../src/common/all-exceptions.filter';
 
 /**
@@ -32,6 +33,8 @@ jest.setTimeout(30_000);
 describe('Admin API e2e (KS-1971)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let redis: RedisService;
+  let redisAvailable = false;
 
   const ENV_KEY = 'LESSON_ADMIN_EMAILS';
   const originalEnv = process.env[ENV_KEY];
@@ -79,6 +82,13 @@ describe('Admin API e2e (KS-1971)', () => {
     await app.init();
 
     prisma = app.get(PrismaService);
+    redis = app.get(RedisService);
+    try {
+      const pong = await redis.ping();
+      redisAvailable = pong === 'PONG';
+    } catch {
+      redisAvailable = false;
+    }
 
     admin = await registerUser('adm');
     stranger = await registerUser('str');
@@ -418,6 +428,44 @@ describe('Admin API e2e (KS-1971)', () => {
   // ──────────────────────────────────────────────────────────────
   // Сценарий 5b: 401/403 на write-роутах (не только GET)
   // ──────────────────────────────────────────────────────────────
+
+  // ──────────────────────────────────────────────────────────────
+  // KS-1972: rate limit на admin-эндпоинтах (100 req/min на user)
+  // ──────────────────────────────────────────────────────────────
+
+  describe('KS-1972: rate limit', () => {
+    it('после 100 запросов следующий → 429 + Retry-After', async () => {
+      if (!redisAvailable) {
+        // Redis недоступен → guard в fail-open, тест станет ложно-зелёным.
+        // Помечаем как skip-with-warn.
+        // eslint-disable-next-line no-console
+        console.warn('[KS-1972 e2e] Redis недоступен — пропускаю rate-limit');
+        return;
+      }
+
+      // Устанавливаем счётчик в БД равным maxRequests, чтобы следующий
+      // запрос превысил лимит. Так тест укладывается в один HTTP-вызов
+      // вместо 101 — без потери семантики (guard всё равно выполняет
+      // INCR + сравнение).
+      const key = `ratelimit:user:${admin.id}:GET:/lessons/admin/courses`;
+      await redis.set(key, '100');
+      await redis.expire(key, 60);
+
+      const res = await adminAuth(
+        request(app.getHttpServer()).get('/lessons/admin/courses'),
+      ).expect(429);
+
+      expect(res.headers['retry-after']).toBeDefined();
+      expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+      expect(res.body).toMatchObject({
+        statusCode: 429,
+        message: 'Too Many Requests',
+      });
+
+      // Очистка: иначе следующий тест словит 429.
+      await redis.del(key);
+    });
+  });
 
   describe('Сценарий 5b: write без прав', () => {
     it('POST /lessons/admin/courses без JWT → 401', async () => {

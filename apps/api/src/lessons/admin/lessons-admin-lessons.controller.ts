@@ -12,12 +12,17 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { AdminEmailGuard } from '../../auth/admin-email.guard';
+import {
+  UserRateLimit,
+  UserRateLimitGuard,
+} from '../../common/user-rate-limit.guard';
 import { LessonsAdminService } from './lessons-admin.service';
 import {
   CreateAdminLessonDto,
   ReorderAdminLessonsDto,
   UpdateAdminLessonDto,
 } from './dto/admin-lesson.dto';
+import { ADMIN_RATE_LIMIT } from './admin-rate-limit';
 
 /**
  * KS-1962/B-6 — admin CRUD для уроков.
@@ -29,7 +34,8 @@ import {
  * Базовый префикс — `/api/lessons/admin`. Гарды совпадают с
  * `LessonsAdminController` (JwtAuthGuard → AdminEmailGuard).
  */
-@UseGuards(JwtAuthGuard, AdminEmailGuard)
+@UseGuards(JwtAuthGuard, AdminEmailGuard, UserRateLimitGuard)
+@UserRateLimit(ADMIN_RATE_LIMIT.maxRequests, ADMIN_RATE_LIMIT.windowSec)
 @Controller('lessons/admin')
 export class LessonsAdminLessonsController {
   constructor(private readonly service: LessonsAdminService) {}

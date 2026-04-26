@@ -13,6 +13,10 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { AdminEmailGuard } from '../../auth/admin-email.guard';
+import {
+  UserRateLimit,
+  UserRateLimitGuard,
+} from '../../common/user-rate-limit.guard';
 import { LessonsAdminService } from './lessons-admin.service';
 import {
   CreateAdminCourseDto,
@@ -20,6 +24,7 @@ import {
   ReorderAdminCoursesDto,
   UpdateAdminCourseDto,
 } from './dto/admin-course.dto';
+import { ADMIN_RATE_LIMIT } from './admin-rate-limit';
 
 /**
  * KS-1962/B-5 — admin CRUD для system courses.
@@ -33,7 +38,8 @@ import {
  * добавятся отдельными контроллерами в B-6/B-7 (зеркальная структура
  * с user-courses).
  */
-@UseGuards(JwtAuthGuard, AdminEmailGuard)
+@UseGuards(JwtAuthGuard, AdminEmailGuard, UserRateLimitGuard)
+@UserRateLimit(ADMIN_RATE_LIMIT.maxRequests, ADMIN_RATE_LIMIT.windowSec)
 @Controller('lessons/admin/courses')
 export class LessonsAdminController {
   constructor(private readonly service: LessonsAdminService) {}

@@ -11,12 +11,17 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { AdminEmailGuard } from '../../auth/admin-email.guard';
+import {
+  UserRateLimit,
+  UserRateLimitGuard,
+} from '../../common/user-rate-limit.guard';
 import { LessonsAdminService } from './lessons-admin.service';
 import {
   CreateAdminStepDto,
   ReorderAdminStepsDto,
   UpdateAdminStepDto,
 } from './dto/admin-step.dto';
+import { ADMIN_RATE_LIMIT } from './admin-rate-limit';
 
 /**
  * KS-1962/B-7 — admin CRUD для шагов уроков.
@@ -36,7 +41,8 @@ import {
  * `puzzle`, `quiz`, `position`, `game_review`, `video`,
  * `endgame_drill`, `opening_drill`.
  */
-@UseGuards(JwtAuthGuard, AdminEmailGuard)
+@UseGuards(JwtAuthGuard, AdminEmailGuard, UserRateLimitGuard)
+@UserRateLimit(ADMIN_RATE_LIMIT.maxRequests, ADMIN_RATE_LIMIT.windowSec)
 @Controller('lessons/admin')
 export class LessonsAdminStepsController {
   constructor(private readonly service: LessonsAdminService) {}
