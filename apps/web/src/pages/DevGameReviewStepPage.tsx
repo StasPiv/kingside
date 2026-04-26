@@ -28,6 +28,21 @@ const PGN_SAMPLE = `[Event "Casual"]
 16. Bxf6+ 1-0
 `;
 
+// KS-2005: пример с комментариями и NAG'ами — для проверки рендера
+// `InlinePgnViewer`. PGN взят в духе разборов Капабланки: короткое
+// окончание K+R vs K с примечаниями к каждому ходу.
+const ANNOTATED_PGN_SAMPLE = `[Event "Capablanca primer, ch.2 §1, K+R vs K"]
+[FEN "7k/8/8/8/8/8/8/R6K w - - 0 1"]
+[SetUp "1"]
+[Result "1-0"]
+
+1. Ra7! {Отрезаем чёрного короля от полей a-линии — основной приём.}
+Kg8 2. Kg2 {Белый король спешит на помощь ладье — без короля мат не дать.}
+Kf8 3. Kf3 Ke8 4. Ke4 Kd8 5. Kd5 Kc8 6. Kd6?! {Чуть точнее было 6.Kc6, но и так выигрыш.}
+Kb8 7. Rh7 {Перебрасываем ладью — теперь она будет матовать с h-линии.}
+Kc8 8. Rh8# 1-0
+`;
+
 const SCENARIOS: Scenario[] = [
   {
     key: 'game-id',
@@ -38,6 +53,11 @@ const SCENARIOS: Scenario[] = [
     key: 'pgn',
     label: 'pgn (встроенный PGN)',
     payload: { type: 'game_review', pgn: PGN_SAMPLE },
+  },
+  {
+    key: 'pgn-annotated',
+    label: 'pgn + комментарии и NAG (KS-2005)',
+    payload: { type: 'game_review', pgn: ANNOTATED_PGN_SAMPLE },
   },
   {
     key: 'empty',

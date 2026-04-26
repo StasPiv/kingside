@@ -24,13 +24,16 @@ const SHORT_PGN = '1. e4 e5 2. Nf3 Nc6 3. Bb5 *';
 const FROM_FEN_PGN =
   '[Event "Mate"]\n[FEN "7k/8/8/8/8/8/8/R6K w - - 0 1"]\n[SetUp "1"]\n\n1. Ra8# 1-0';
 
+const ANNOTATED_PGN =
+  '1. e4 {Главный ход — занимаем центр.} e5 $1 2. Nf3?! {Поспешно.} Nc6 *';
+
 describe('<InlinePgnViewer>', () => {
   it('парсит PGN и стартует на ply=0 (стартовая позиция)', () => {
     renderWithProviders(<InlinePgnViewer pgn={SHORT_PGN} />);
     const root = screen.getByTestId('inline-pgn-viewer');
     expect(root.getAttribute('data-state')).toBe('ready');
     expect(root.getAttribute('data-ply')).toBe('0');
-    // Counter «0/6» (3 хода каждой стороны = 6 plies).
+    // 5 plies (3 хода белых + 2 чёрных).
     expect(screen.getByTestId('inline-pgn-viewer-counter').textContent).toBe(
       '0/5',
     );
@@ -57,23 +60,19 @@ describe('<InlinePgnViewer>', () => {
     ).toBe(true);
   });
 
-  it('клик по ходу в списке прыгает на этот ply, помечает текущим', () => {
+  it('клик по ходу в нотации прыгает на этот ply, помечает текущим', () => {
     renderWithProviders(<InlinePgnViewer pgn={SHORT_PGN} />);
-    // 3-й ход (index 2) = Nf3.
-    fireEvent.click(screen.getByTestId('inline-pgn-viewer-move-2'));
+    // 3-й ход (globalIndex=2) = Nf3.
+    fireEvent.click(screen.getByTestId('review-move-2'));
     expect(
       screen.getByTestId('inline-pgn-viewer-counter').textContent,
     ).toBe('3/5');
     expect(
-      screen
-        .getByTestId('inline-pgn-viewer-move-2')
-        .getAttribute('data-current'),
+      screen.getByTestId('review-move-2').getAttribute('data-current'),
     ).toBe('true');
-    // другие ходы не current
+    // Другие ходы — не current.
     expect(
-      screen
-        .getByTestId('inline-pgn-viewer-move-0')
-        .getAttribute('data-current'),
+      screen.getByTestId('review-move-0').getAttribute('data-current'),
     ).toBe('false');
   });
 
@@ -124,5 +123,54 @@ describe('<InlinePgnViewer>', () => {
     expect(
       screen.getByTestId('inline-pgn-viewer-counter').textContent,
     ).toBe('1/5');
+  });
+
+  // KS-2005: примечания и NAG'и — основная мотивация переезда на ReviewMoveList.
+
+  it('PGN-комментарий к ходу рендерится в нотации (через ReviewMoveList)', () => {
+    renderWithProviders(<InlinePgnViewer pgn={ANNOTATED_PGN} />);
+    // Комментарий «Главный ход — занимаем центр.» привязан к ходу 0 (e4).
+    const cmt = screen.getByTestId('review-comment-0');
+    expect(cmt.textContent).toContain('Главный ход');
+    // На ходе 2 (Nf3) комментарий «Поспешно.»
+    expect(screen.getByTestId('review-comment-2').textContent).toContain(
+      'Поспешно',
+    );
+  });
+
+  it('NAG-аннотации (!, ?!, $1) рендерятся рядом с ходом', () => {
+    renderWithProviders(<InlinePgnViewer pgn={ANNOTATED_PGN} />);
+    // e5 $1 — символ «!» в spans класса review-nag.
+    const e5 = screen.getByTestId('review-move-1');
+    expect(e5.textContent).toContain('!');
+    // Nf3?! — символ «?!».
+    const nf3 = screen.getByTestId('review-move-2');
+    expect(nf3.textContent).toContain('?!');
+  });
+
+  it('крупный блок текущего комментария под доской — есть только когда у текущего хода есть комментарий', () => {
+    renderWithProviders(<InlinePgnViewer pgn={ANNOTATED_PGN} />);
+    // На ply=0 текущего хода нет → блок не рендерится.
+    expect(
+      screen.queryByTestId('inline-pgn-viewer-current-comment'),
+    ).toBeNull();
+    // После next → текущий ход e4 c комментарием.
+    fireEvent.click(screen.getByTestId('inline-pgn-viewer-next'));
+    expect(
+      screen.getByTestId('inline-pgn-viewer-current-comment').textContent,
+    ).toContain('Главный ход');
+    // Ещё next → e5 ($1, без комментария) — блок снова исчезает.
+    fireEvent.click(screen.getByTestId('inline-pgn-viewer-next'));
+    expect(
+      screen.queryByTestId('inline-pgn-viewer-current-comment'),
+    ).toBeNull();
+  });
+
+  it('обычный PGN без комментариев — блок текущего комментария никогда не рендерится', () => {
+    renderWithProviders(<InlinePgnViewer pgn={SHORT_PGN} />);
+    fireEvent.click(screen.getByTestId('inline-pgn-viewer-last'));
+    expect(
+      screen.queryByTestId('inline-pgn-viewer-current-comment'),
+    ).toBeNull();
   });
 });

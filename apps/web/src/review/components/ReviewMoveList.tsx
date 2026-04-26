@@ -42,11 +42,26 @@ interface ReviewMoveListProps {
   history: ChessMove[];
   currentGlobalIndex: number;
   onMoveClick: (move: ChessMove) => void;
-  onPromoteVariation: (move: ChessMove) => void;
-  onDeleteVariation: (move: ChessMove) => void;
-  onTruncateRemaining: (move: ChessMove) => void;
+  /**
+   * KS-2005: edit-колбэки `onPromoteVariation/onDeleteVariation/`
+   * `onTruncateRemaining/onSetNag/onSetComment` стали опциональными.
+   * Если ни один не передан или установлен `readOnly`, контекстное меню
+   * не открывается (right-click и long-press игнорируются), а уже
+   * сохранённые в PGN комментарии и NAG-символы рендерятся как обычно.
+   * Это позволяет переиспользовать компонент в read-only сценариях
+   * (`InlinePgnViewer` для шага «разбор партии» в уроке) без копий.
+   */
+  onPromoteVariation?: (move: ChessMove) => void;
+  onDeleteVariation?: (move: ChessMove) => void;
+  onTruncateRemaining?: (move: ChessMove) => void;
   onSetNag?: (globalIndex: number, nags: number[]) => void;
   onSetComment?: (globalIndex: number, comment: string) => void;
+  /**
+   * Полностью отключить интерактивное редактирование (контекстное меню,
+   * редактор комментария по long-press). Клик по ходу через `onMoveClick`
+   * остаётся — навигация по партии нужна и в read-only режиме.
+   */
+  readOnly?: boolean;
 }
 
 export function ReviewMoveList({
@@ -58,7 +73,15 @@ export function ReviewMoveList({
   onTruncateRemaining,
   onSetNag,
   onSetComment,
+  readOnly = false,
 }: ReviewMoveListProps) {
+  const editable = !readOnly && Boolean(
+    onPromoteVariation ||
+      onDeleteVariation ||
+      onTruncateRemaining ||
+      onSetNag ||
+      onSetComment,
+  );
   const { t } = useTranslation();
   const movesContainerRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -131,6 +154,7 @@ export function ReviewMoveList({
   };
 
   const handleMoveContextMenu = (e: React.MouseEvent, processedMove: ProcessedMove): void => {
+    if (!editable) return;
     e.preventDefault();
     e.stopPropagation();
     if (processedMove.originalMove) {
@@ -139,6 +163,7 @@ export function ReviewMoveList({
   };
 
   const handleTouchStart = (e: React.TouchEvent, processedMove: ProcessedMove): void => {
+    if (!editable) return;
     if (!processedMove.originalMove) return;
     const touch = e.touches[0];
     const move = processedMove.originalMove;
@@ -305,6 +330,7 @@ export function ReviewMoveList({
       <span
         key={`comment-${move.globalIndex}`}
         className={`review-comment${isExpanded ? ' review-comment--expanded' : ''}`}
+        data-testid={`review-comment-${move.globalIndex}`}
         onClick={() => toggleCommentExpand(move.globalIndex)}
       >
         {move.comment}
@@ -326,6 +352,8 @@ export function ReviewMoveList({
           <span
             key={`move-${item.globalIndex}-${index}`}
             className={getMoveClasses(item)}
+            data-testid={`review-move-${item.globalIndex}`}
+            data-current={item.isCurrent ? 'true' : 'false'}
             onClick={() => handleMoveClick(item)}
             onContextMenu={(e) => handleMoveContextMenu(e, item)}
             onTouchStart={(e) => handleTouchStart(e, item)}
@@ -420,33 +448,39 @@ export function ReviewMoveList({
             </>
           )}
 
-          <button
-            className="review-context-menu__item"
-            onClick={() => {
-              onPromoteVariation(contextMenu.move!);
-              closeContextMenu();
-            }}
-          >
-            ↑ {t('review.promote', 'Promote')}
-          </button>
-          <button
-            className="review-context-menu__item"
-            onClick={() => {
-              onTruncateRemaining(contextMenu.move!);
-              closeContextMenu();
-            }}
-          >
-            ] {t('review.truncate', 'Truncate')}
-          </button>
-          <button
-            className="review-context-menu__item review-context-menu__item--danger"
-            onClick={() => {
-              onDeleteVariation(contextMenu.move!);
-              closeContextMenu();
-            }}
-          >
-            ✕ {t('review.delete', 'Delete')}
-          </button>
+          {onPromoteVariation && (
+            <button
+              className="review-context-menu__item"
+              onClick={() => {
+                onPromoteVariation(contextMenu.move!);
+                closeContextMenu();
+              }}
+            >
+              ↑ {t('review.promote', 'Promote')}
+            </button>
+          )}
+          {onTruncateRemaining && (
+            <button
+              className="review-context-menu__item"
+              onClick={() => {
+                onTruncateRemaining(contextMenu.move!);
+                closeContextMenu();
+              }}
+            >
+              ] {t('review.truncate', 'Truncate')}
+            </button>
+          )}
+          {onDeleteVariation && (
+            <button
+              className="review-context-menu__item review-context-menu__item--danger"
+              onClick={() => {
+                onDeleteVariation(contextMenu.move!);
+                closeContextMenu();
+              }}
+            >
+              ✕ {t('review.delete', 'Delete')}
+            </button>
+          )}
         </div>
       )}
     </div>

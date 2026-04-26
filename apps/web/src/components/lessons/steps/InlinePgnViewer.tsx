@@ -1,20 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Chess } from 'chess.js';
 
 import { MemoChessboard } from '../../MemoChessboard';
+import { parseAnnotatedPgn } from '../../../review/utils/PgnDeserializer';
+import { ReviewMoveList } from '../../../review/components/ReviewMoveList';
+import type { ChessMove } from '../../../review/types';
 
 /**
- * KS-1999: интерактивный просмотрщик PGN внутри `GameReviewStep`.
+ * KS-1999 / KS-2005: интерактивный просмотрщик PGN внутри `GameReviewStep`.
  *
  * Что делает:
- *  - парсит PGN через `chess.js` (`new Chess(); chess.loadPgn(pgn)`),
- *  - строит цепочку ходов `{ san, from, to, fenAfter }`,
+ *  - парсит PGN через `parseAnnotatedPgn` (`apps/web/src/review/utils/`):
+ *    извлекает ходы вместе с PGN-комментариями (`{...}`) и
+ *    NAG-аннотациями (`!`, `?`, `!?`, `$N`),
  *  - показывает доску (`<MemoChessboard>`) для текущего ply'а,
- *  - под доской — список ходов с подсветкой активного,
+ *  - под доской — нотацию через переиспользуемый `<ReviewMoveList>`
+ *    (read-only режим — KS-2005). NAG-символы рендерятся рядом с ходом,
+ *    встроенные комментарии — после хода в том же блоке,
  *  - кнопки навигации `«|<` / `<` / `>` / `>|`,
- *  - клик по ходу в списке → прыжок на эту позицию,
+ *  - клик по ходу в нотации → прыжок на эту позицию,
  *  - стрелки клавиатуры ←/→ — листают ходы (focus на корне viewer'а).
+ *  - комментарий к текущему ply'у дублируется отдельным блоком под доской
+ *    (если у хода в PGN был `{...}`-комментарий) — для крупного видного
+ *    текста авторских примечаний в уроке.
  *
  * Что НЕ делает (по задаче):
  *  - не подключает Stockfish/WASM,
@@ -23,55 +31,47 @@ import { MemoChessboard } from '../../MemoChessboard';
  *
  * Если PGN нечитаемый или пустой — рендерит фолбэк «не получилось
  * разобрать партию». Никаких unhandled-ошибок наружу.
+ *
+ * # KS-2005 — переход на ReviewMoveList
+ *
+ * До KS-2005 здесь был свой простой `<ol>`-список SAN-кнопок без поддержки
+ * комментариев и NAG'ов — и собственный мини-парсер на `chess.js`. Это не
+ * подходило для уроков-разборов Капабланки, где у каждого хода есть
+ * текстовое примечание. Чтобы не плодить второй вьювер, переключились на
+ * существующий `ReviewMoveList` из AnalysisPage (`review/components/`),
+ * добавив ему опциональный `readOnly`-режим. Парсинг PGN тоже взяли из
+ * `review/utils/PgnDeserializer` — `parseAnnotatedPgn` уже умеет
+ * `{comments}` и `$NAG`/`!`/`?`-аннотации, а `chess.js` теряет и то и то.
  */
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const LAST_MOVE_HIGHLIGHT = 'rgba(255, 213, 0, 0.55)';
 
-interface ParsedMove {
-  san: string;
-  from: string;
-  to: string;
-  fenAfter: string;
-}
-
 interface ParsedPgn {
   ok: true;
   startFen: string;
-  moves: ParsedMove[];
+  moves: ChessMove[];
 }
 
 interface ParsedPgnError {
   ok: false;
 }
 
-function parsePgn(pgn: string): ParsedPgn | ParsedPgnError {
+function parseInlinePgn(pgn: string): ParsedPgn | ParsedPgnError {
   if (!pgn || !pgn.trim()) return { ok: false };
   try {
-    const game = new Chess();
-    game.loadPgn(pgn);
-    const headers = game.getHeaders();
-    const setup = headers.SetUp === '1' && typeof headers.FEN === 'string';
-    const startFen = setup ? headers.FEN : INITIAL_FEN;
-    const replay = new Chess(startFen);
-    const moves: ParsedMove[] = [];
-    for (const verbose of game.history({ verbose: true })) {
-      const applied = replay.move({
-        from: verbose.from,
-        to: verbose.to,
-        promotion: verbose.promotion,
-      });
-      if (!applied) {
-        // chess.js дал нам ход, но replay не принял — корраптный PGN.
-        // Возвращаем то что собрали; UI всё равно покажет хоть что-то.
-        break;
-      }
-      moves.push({
-        san: applied.san,
-        from: applied.from,
-        to: applied.to,
-        fenAfter: replay.fen(),
-      });
+    const moves = parseAnnotatedPgn(pgn);
+    // `parseAnnotatedPgn` стартует с FEN из `[FEN "..."]` либо со
+    // стандартной начальной позиции. `before` первого хода — это и есть
+    // стартовый FEN. Если ходов нет (например, headers + result), fall
+    // back на FEN из заголовка либо стандартный.
+    const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
+    const headerFen = fenMatch?.[1];
+    const startFen = moves[0]?.before ?? headerFen ?? INITIAL_FEN;
+    if (moves.length === 0 && !headerFen) {
+      // Ни одного хода и нет SetUp — считаем PGN бесполезным, показываем
+      // ошибку парсинга, чтобы пользователь не получил пустую доску.
+      return { ok: false };
     }
     return { ok: true, startFen, moves };
   } catch {
@@ -96,7 +96,7 @@ export function InlinePgnViewer({
   testId = 'inline-pgn-viewer',
 }: InlinePgnViewerProps) {
   const { t } = useTranslation();
-  const parsed = useMemo(() => parsePgn(pgn), [pgn]);
+  const parsed = useMemo(() => parseInlinePgn(pgn), [pgn]);
   // ply: 0 = до первого хода (стартовая позиция); N = после N-го хода.
   const [ply, setPly] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -152,12 +152,12 @@ export function InlinePgnViewer({
   const { startFen, moves } = parsed;
   const total = moves.length;
   const safePly = Math.max(0, Math.min(total, ply));
-  const fen = safePly === 0 ? startFen : moves[safePly - 1].fenAfter;
-  const lastMove = safePly === 0 ? null : moves[safePly - 1];
-  const squareStyles = lastMove
+  const currentMove = safePly === 0 ? null : moves[safePly - 1];
+  const fen = currentMove ? currentMove.after : startFen;
+  const squareStyles = currentMove
     ? {
-        [lastMove.from]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
-        [lastMove.to]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
+        [currentMove.from]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
+        [currentMove.to]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
       }
     : undefined;
 
@@ -166,18 +166,14 @@ export function InlinePgnViewer({
   const goNext = () => setPly((p) => Math.min(total, p + 1));
   const goLast = () => setPly(total);
 
-  // Группируем ходы парами «N. white black» для вывода. SAN-список
-  // строим как массив пар; для нечётных — пустая ячейка чёрного.
-  const pairs: { number: number; white: ParsedMove | null; black: ParsedMove | null; whiteIdx: number; blackIdx: number }[] = [];
-  for (let i = 0; i < total; i += 2) {
-    pairs.push({
-      number: i / 2 + 1,
-      white: moves[i],
-      black: moves[i + 1] ?? null,
-      whiteIdx: i,
-      blackIdx: i + 1,
-    });
-  }
+  // ReviewMoveList использует `globalIndex` как "номер текущего хода
+  // в плоской истории" (0..N-1). У нас `ply` 0 — стартовая позиция,
+  // поэтому при ply=0 передаём sentinel (-1), который не совпадёт ни
+  // с одним globalIndex и список останется без подсветки текущего.
+  const reviewCurrentIndex = currentMove ? currentMove.globalIndex : -1;
+  const handleMoveClick = (move: ChessMove) => {
+    setPly(move.globalIndex + 1);
+  };
 
   return (
     <div
@@ -203,6 +199,18 @@ export function InlinePgnViewer({
           }}
         />
       </div>
+
+      {/* KS-2005: «крупный» блок примечания к текущему ходу — под доской,
+          чтобы авторский комментарий из PGN был сразу виден без скролла
+          до нотации. В нотации он тоже остаётся (через ReviewMoveList). */}
+      {currentMove?.comment && (
+        <p
+          className="inline-pgn-viewer__current-comment"
+          data-testid="inline-pgn-viewer-current-comment"
+        >
+          {currentMove.comment}
+        </p>
+      )}
 
       <div
         className="inline-pgn-viewer__controls"
@@ -258,48 +266,17 @@ export function InlinePgnViewer({
         </button>
       </div>
 
-      <ol
+      <div
         className="inline-pgn-viewer__moves"
         data-testid="inline-pgn-viewer-moves"
       >
-        {pairs.map(({ number, white, black, whiteIdx, blackIdx }) => (
-          <li key={number} className="inline-pgn-viewer__move-row">
-            <span className="inline-pgn-viewer__move-number">
-              {number}.
-            </span>
-            {white && (
-              <button
-                type="button"
-                className={`inline-pgn-viewer__move${
-                  safePly === whiteIdx + 1
-                    ? ' inline-pgn-viewer__move--current'
-                    : ''
-                }`}
-                data-testid={`inline-pgn-viewer-move-${whiteIdx}`}
-                data-current={safePly === whiteIdx + 1 ? 'true' : 'false'}
-                onClick={() => setPly(whiteIdx + 1)}
-              >
-                {white.san}
-              </button>
-            )}
-            {black && (
-              <button
-                type="button"
-                className={`inline-pgn-viewer__move${
-                  safePly === blackIdx + 1
-                    ? ' inline-pgn-viewer__move--current'
-                    : ''
-                }`}
-                data-testid={`inline-pgn-viewer-move-${blackIdx}`}
-                data-current={safePly === blackIdx + 1 ? 'true' : 'false'}
-                onClick={() => setPly(blackIdx + 1)}
-              >
-                {black.san}
-              </button>
-            )}
-          </li>
-        ))}
-      </ol>
+        <ReviewMoveList
+          history={moves}
+          currentGlobalIndex={reviewCurrentIndex}
+          onMoveClick={handleMoveClick}
+          readOnly
+        />
+      </div>
     </div>
   );
 }
