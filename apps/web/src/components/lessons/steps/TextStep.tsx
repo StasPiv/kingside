@@ -1,9 +1,22 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { LessonStepState, TextStepPayload } from '@kingside/shared';
+import type {
+  DiagramArrow,
+  DiagramHighlight,
+  LessonStepState,
+  TextStepPayload,
+} from '@kingside/shared';
 
 import { MemoChessboard } from '../../MemoChessboard';
 import { renderMarkdown } from '../../../utils/simpleMarkdown';
+
+/**
+ * KS-1995 / KS-1994: дефолтные цвета визуальных подсказок на
+ * диаграммах. Подобраны под обычную CSS-палитру шахматных движков:
+ * стрелка — оранжевая полупрозрачная, подсветка клетки — жёлтая.
+ */
+const DEFAULT_ARROW_COLOR = 'rgba(255, 153, 0, 0.85)';
+const DEFAULT_HIGHLIGHT_COLOR = 'rgba(255, 213, 0, 0.55)';
 
 /**
  * Read-only текстовый шаг урока: markdown + FEN-диаграммы.
@@ -58,6 +71,10 @@ type Segment =
       fen: string;
       caption?: string;
       orientation?: 'white' | 'black';
+      /** KS-1995: стрелки на диаграмме (read-only). */
+      arrows?: DiagramArrow[];
+      /** KS-1995: подсвеченные клетки. */
+      highlightedSquares?: DiagramHighlight[];
     };
 
 const REFERENCE_RE = /\{\{diagram:(\d+)\}\}/g;
@@ -90,6 +107,8 @@ export function parseTextStepSegments(payload: TextStepPayload): Segment[] {
       fen: d.fen,
       caption: d.caption,
       orientation: d.orientation,
+      arrows: d.arrows,
+      highlightedSquares: d.highlightedSquares,
     }));
   }
 
@@ -156,6 +175,8 @@ export function parseTextStepSegments(payload: TextStepPayload): Segment[] {
       fen: d.fen,
       caption: d.caption,
       orientation: d.orientation,
+      arrows: d.arrows,
+      highlightedSquares: d.highlightedSquares,
     });
   }
 
@@ -184,6 +205,8 @@ function processReferences(
         fen: diagram.fen,
         caption: diagram.caption,
         orientation: diagram.orientation,
+        arrows: diagram.arrows,
+        highlightedSquares: diagram.highlightedSquares,
       });
       referenced.add(refIdx);
     }
@@ -273,12 +296,34 @@ export function TextStep({
               />
             );
           }
+          // KS-1995: маппим бэк-DTO в формат react-chessboard v5.
+          // - стрелки: `{ startSquare, endSquare, color }[]`
+          // - подсветка клеток: `Record<square, CSSProperties>`
+          // Если поля не заданы — передаём `undefined`, чтобы поведение
+          // было ровно как до KS-1995 (back-compat).
+          const arrowsForBoard = seg.arrows?.length
+            ? seg.arrows.map((a) => ({
+                startSquare: a.from,
+                endSquare: a.to,
+                color: a.color ?? DEFAULT_ARROW_COLOR,
+              }))
+            : undefined;
+          const squareStylesForBoard = seg.highlightedSquares?.length
+            ? Object.fromEntries(
+                seg.highlightedSquares.map((h) => [
+                  h.square,
+                  { backgroundColor: h.color ?? DEFAULT_HIGHLIGHT_COLOR },
+                ]),
+              )
+            : undefined;
           return (
             <figure
               key={idx}
               className="lesson-text-step__diagram"
               data-testid="lesson-text-step-diagram"
               data-fen={seg.fen}
+              data-arrows={seg.arrows?.length ?? 0}
+              data-highlights={seg.highlightedSquares?.length ?? 0}
               style={{ width: diagramSize, maxWidth: '100%' }}
             >
               <MemoChessboard
@@ -288,6 +333,8 @@ export function TextStep({
                   allowDragging: false,
                   showNotation: true,
                   animationDurationInMs: 0,
+                  arrows: arrowsForBoard,
+                  squareStyles: squareStylesForBoard,
                 }}
               />
               {seg.caption && (

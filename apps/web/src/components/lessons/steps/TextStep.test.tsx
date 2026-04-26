@@ -5,11 +5,20 @@ import { TextStep, parseTextStepSegments } from './TextStep';
 import type { TextStepPayload } from '@kingside/shared';
 
 vi.mock('react-chessboard', () => ({
-  Chessboard: (props: { options: { position?: string; boardOrientation?: string } }) => (
+  Chessboard: (props: {
+    options: {
+      position?: string;
+      boardOrientation?: string;
+      arrows?: { startSquare: string; endSquare: string; color?: string }[];
+      squareStyles?: Record<string, React.CSSProperties>;
+    };
+  }) => (
     <div
       data-testid="chessboard"
       data-fen={props.options.position}
       data-orientation={props.options.boardOrientation}
+      data-arrows={JSON.stringify(props.options.arrows ?? null)}
+      data-square-styles={JSON.stringify(props.options.squareStyles ?? null)}
     />
   ),
 }));
@@ -141,6 +150,43 @@ describe('parseTextStepSegments', () => {
   });
 });
 
+describe('parseTextStepSegments — KS-1995 (arrows + highlightedSquares)', () => {
+  it('пробрасывает arrows и highlightedSquares в FEN-сегмент через {{diagram:N}}', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      bodyMarkdown: '{{diagram:0}}',
+      diagrams: [
+        {
+          fen: FEN_START,
+          arrows: [{ from: 'd4', to: 'h8' }],
+          highlightedSquares: [{ square: 'e4' }],
+        },
+      ],
+    };
+    const seg = parseTextStepSegments(payload).find((s) => s.kind === 'fen');
+    expect(seg).toMatchObject({
+      arrows: [{ from: 'd4', to: 'h8' }],
+      highlightedSquares: [{ square: 'e4' }],
+    });
+  });
+
+  it('orphan-диаграмма тоже сохраняет arrows / highlightedSquares', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      diagrams: [
+        {
+          fen: FEN_START,
+          arrows: [{ from: 'a1', to: 'a8', color: '#ff0000' }],
+        },
+      ],
+    };
+    const seg = parseTextStepSegments(payload).find((s) => s.kind === 'fen');
+    expect(seg?.arrows).toEqual([
+      { from: 'a1', to: 'a8', color: '#ff0000' },
+    ]);
+  });
+});
+
 describe('<TextStep>', () => {
   it('рендерит markdown и FEN-доску из reference-плейсхолдера', () => {
     const payload: TextStepPayload = {
@@ -214,6 +260,77 @@ describe('<TextStep>', () => {
     const btn = screen.getByTestId('lesson-text-step-next');
     expect(btn.textContent).toContain('Next');
     expect(btn.className).not.toContain('--done');
+  });
+
+  // ─── KS-1995: arrows + highlightedSquares ─────────────────────────
+
+  it('KS-1995: arrows маппятся в формат react-chessboard (startSquare/endSquare/color)', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      bodyMarkdown: '{{diagram:0}}',
+      diagrams: [
+        {
+          fen: FEN_START,
+          arrows: [
+            { from: 'd4', to: 'h8' },
+            { from: 'e2', to: 'e4', color: '#ff0000' },
+          ],
+        },
+      ],
+    };
+    renderWithProviders(<TextStep payload={payload} />);
+    const board = screen.getByTestId('chessboard');
+    const arrows = JSON.parse(board.getAttribute('data-arrows') ?? 'null');
+    expect(arrows).toEqual([
+      // дефолтный цвет, если backend не задал.
+      { startSquare: 'd4', endSquare: 'h8', color: 'rgba(255, 153, 0, 0.85)' },
+      { startSquare: 'e2', endSquare: 'e4', color: '#ff0000' },
+    ]);
+    expect(
+      screen
+        .getByTestId('lesson-text-step-diagram')
+        .getAttribute('data-arrows'),
+    ).toBe('2');
+  });
+
+  it('KS-1995: highlightedSquares маппятся в squareStyles', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      bodyMarkdown: '{{diagram:0}}',
+      diagrams: [
+        {
+          fen: FEN_START,
+          highlightedSquares: [
+            { square: 'e4' },
+            { square: 'd5', color: '#00ff00' },
+          ],
+        },
+      ],
+    };
+    renderWithProviders(<TextStep payload={payload} />);
+    const board = screen.getByTestId('chessboard');
+    const styles = JSON.parse(board.getAttribute('data-square-styles') ?? 'null');
+    expect(styles).toEqual({
+      e4: { backgroundColor: 'rgba(255, 213, 0, 0.55)' },
+      d5: { backgroundColor: '#00ff00' },
+    });
+    expect(
+      screen
+        .getByTestId('lesson-text-step-diagram')
+        .getAttribute('data-highlights'),
+    ).toBe('2');
+  });
+
+  it('KS-1995: без arrows/highlightedSquares → undefined в options (back-compat)', () => {
+    const payload: TextStepPayload = {
+      type: 'text',
+      bodyMarkdown: '{{diagram:0}}',
+      diagrams: [{ fen: FEN_START }],
+    };
+    renderWithProviders(<TextStep payload={payload} />);
+    const board = screen.getByTestId('chessboard');
+    expect(board.getAttribute('data-arrows')).toBe('null');
+    expect(board.getAttribute('data-square-styles')).toBe('null');
   });
 
   it('KS-1891 — stepState отсутствует (back-compat) → обычная кнопка', () => {
