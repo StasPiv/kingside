@@ -1345,27 +1345,132 @@
   line-height: 1.4;
 }
 
-/* ------- Контейнер-сетка для Recommended -------
-   CourseCard используется в трёх местах: Curriculum
-   (.lessons-course-grid уже стилизован в lessons.css), Recommended
-   (тут) и /lessons/my-active (отдельный блок KS-1950 ниже). */
+/* ============================================================
+ * KS-1951 — RecommendedCoursesBlock (Lessons-redesign L4)
+ *
+ * Структура (RecommendedCoursesBlock.tsx):
+ *   .recommended-courses-block         section
+ *     [data-state]: loading | ready
+ *     [data-level]: beginner | intermediate | advanced
+ *     .__header
+ *       <h2.__title>
+ *       <p.__subtitle>
+ *     ul .__list
+ *       li .__item
+ *         <CourseCard />
+ *
+ *     loading: .__skeleton-title + .__skeleton-row (без header).
+ *
+ * Раскладка:
+ *   <641px  → горизонтальная snap-лента (для общей секции 5 ниже /
+ *             см. также L-5)
+ *   ≥641px  → grid из 1–2 колонок (max 2). Если курс один — он
+ *             ограничивается max-width 540px, чтобы не превращаться
+ *             в гигантскую half-page карточку.
+ * ============================================================ */
+
+.recommended-courses-block {
+  position: relative;
+  margin: 28px 0;
+  padding-top: 18px;
+  /* Заголовок-разделитель: тонкая горизонтальная линия сверху.
+     Делает блок визуально отдельным от Curriculum/My active. */
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* В первом блоке секции (без предыдущей секции) — без верхней линии */
+.recommended-courses-block:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+/* ----- Header (title + subtitle) ----- */
+.recommended-courses-block__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.recommended-courses-block__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.recommended-courses-block__subtitle {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* ----- Grid: 1–2 карточки в ряд ----- */
 .recommended-courses-block__list {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
-.recommended-courses-block__item,
+.recommended-courses-block__item {
+  list-style: none;
+  min-width: 0;
+}
+
+@media (min-width: 641px) {
+  .recommended-courses-block__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  /* Если курс один — ограничиваем ширину карточки чтобы она не
+     раздувалась во всю grid-track (одна 1fr колонка → растягивает). */
+  .recommended-courses-block__list:has(> :only-child) {
+    grid-template-columns: minmax(0, minmax(260px, 540px));
+  }
+}
+
 .lessons-course-card-item {
   list-style: none;
   min-width: 0;
 }
 
-/* На мобиле — горизонтальная лента (как и для других каталогов). */
+/* ----- Skeleton (loading) ----- */
+.recommended-courses-block__skeleton-title {
+  height: 22px;
+  width: 200px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  background: var(--ov-white-15);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.recommended-courses-block__skeleton-row {
+  height: 220px;
+  width: 100%;
+  border-radius: var(--lobby-radius-md);
+  background: var(--ov-white-15);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* ----- Mobile: horizontal snap-лента (см. L-5 KS-1952) ----- */
 @media (max-width: 640px) {
+  .recommended-courses-block {
+    margin: 20px 0;
+  }
+
+  .recommended-courses-block__title {
+    font-size: 17px;
+  }
+
   .recommended-courses-block__list {
     display: flex;
     overflow-x: auto;
