@@ -17,7 +17,7 @@
  * системных и пользовательских шагов (ADR-026 Приложение A).
  */
 
-import type { LessonStepState, StepPayload } from './lessons.js';
+import type { CourseCardFields, LessonStepState, StepPayload } from './lessons.js';
 
 // ─── Discriminators ───────────────────────────────────────────────────
 
@@ -108,7 +108,8 @@ export interface UserCourseListResponse {
  *     потому, что у юзера progress существует).
  */
 export interface UserEnrolledCourseDto
-  extends Omit<UserCourseDto, 'stats'> {
+  extends Omit<UserCourseDto, 'stats'>,
+    CourseCardFields {
   progress: UserCoursePlayProgressDto;
 }
 

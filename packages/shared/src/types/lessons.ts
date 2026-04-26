@@ -345,11 +345,38 @@ export type OpeningDrillStep = OpeningDrillStepPayload;
 // ─── Domain entities (API shape, сериализовано в JSON) ────────────────
 
 /**
+ * Поля курса для UI-карточки (KS-1931 §8.1, KS-1933 / KS-1934).
+ * Все опциональные / nullable, чтобы не ломать существующие курсы и
+ * пользовательские курсы без обогащения. `descriptionI18nKey` (в
+ * системных курсах) или `description` (в пользовательских) остаются
+ * как fallback для поля «о курсе».
+ *
+ * Используется как mixin для системного `Course` / `CourseListItem`
+ * (см. ниже) и для `UserEnrolledCourseDto` (см. ./user-courses.ts).
+ */
+export interface CourseCardFields {
+  /** Путь к обложке (S3 / static). */
+  coverUrl?: string | null;
+  /** Звёзды сложности внутри уровня: 1=easy, 2=medium, 3=hard. */
+  difficulty?: 1 | 2 | 3 | null;
+  /** Оценка времени на курс (минут). */
+  estimatedMinutes?: number | null;
+  /** i18n-ключ описания целевой аудитории («для кого»). */
+  audienceI18nKey?: string | null;
+  /** i18n-ключ крючка тизера («что научишься»). */
+  hookI18nKey?: string | null;
+  /** i18n-ключ результата («что в финале»). */
+  outcomeI18nKey?: string | null;
+  /** Произвольные теги курса (`endgame`, `tactics`, ...). */
+  tags?: string[] | null;
+}
+
+/**
  * Курс. Поля соответствуют Prisma-модели `Course` (см. lessons-module.md §2.1
  * и будущую миграцию L-03). `titleI18nKey` / `descriptionI18nKey` —
  * ссылки на словари i18n (тексты не хранятся в БД).
  */
-export interface Course {
+export interface Course extends CourseCardFields {
   id: string;
   slug: string;
   level: CourseLevel;
@@ -434,7 +461,7 @@ export interface UserLessonProgress {
 // имён/полей — ответственность shared-пакета.
 
 /** GET /api/lessons/courses — список курсов (без уроков). */
-export interface CourseListItem {
+export interface CourseListItem extends CourseCardFields {
   id: string;
   slug: string;
   level: CourseLevel;
