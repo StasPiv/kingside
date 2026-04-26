@@ -39,6 +39,15 @@ vi.mock('../components/lessons/CommunityStripBlock', () => ({
   CommunityStripBlock: () => <div data-testid="community-strip-block-mock" />,
 }));
 
+// KS-1944: блок «Рекомендуем вам» тянет `lessonsApi.listCourses` второй раз
+// (поверх запроса страницы), что ломает `mockResolvedValueOnce` в тестах
+// LessonsPage. Собственные тесты — в `RecommendedCoursesBlock.test.tsx`.
+vi.mock('../components/lessons/RecommendedCoursesBlock', () => ({
+  RecommendedCoursesBlock: () => (
+    <div data-testid="recommended-courses-block-mock" />
+  ),
+}));
+
 // KS-1924: LazySection использует IntersectionObserver. В happy-dom IO
 // отсутствует — без стаба секции остаются в `pending` и нижние блоки
 // не рендерятся. Для тестов LessonsPage заменяем LazySection на

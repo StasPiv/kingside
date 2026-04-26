@@ -1611,6 +1611,14 @@
         "browse": "Посмотреть курс для начинающих →"
       }
     },
+    "recommended": {
+      "title": "Рекомендуем вам",
+      "subtitle": {
+        "beginner": "Подобрано для уровня «{{level}}»",
+        "intermediate": "Подобрано для уровня «{{level}}»",
+        "advanced": "Подобрано для уровня «{{level}}»"
+      }
+    },
     "card": {
       "coverAlt": "Обложка курса {{title}}",
       "progressLabel": "Прогресс курса",

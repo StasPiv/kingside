@@ -13,6 +13,7 @@ import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock
 import { LessonsHero } from '../components/lessons/LessonsHero';
 import { CommunityStripBlock } from '../components/lessons/CommunityStripBlock';
 import { CurriculumPillarBlock } from '../components/lessons/CurriculumPillarBlock';
+import { RecommendedCoursesBlock } from '../components/lessons/RecommendedCoursesBlock';
 import { LazySection } from '../components/lessons/LazySection';
 
 /**
@@ -108,6 +109,26 @@ export function LessonsPage() {
       <LessonsHero />
 
       <ReviewsDueBlock items={reviewsDue} errored={reviewsDueErrored} />
+
+      {/* KS-1944 / §3: «Рекомендуем вам» — между Hero/Reviews и
+          системными/пользовательскими блоками. Lazy-mount: запрос
+          уходит только при пересечении с viewport, чтобы не
+          грузить выше-сгиба второй раз. */}
+      <LazySection
+        testId="recommended-courses-lazy"
+        fallback={
+          <section
+            className="recommended-courses-block recommended-courses-block--placeholder"
+            data-testid="recommended-courses-placeholder"
+            aria-busy="true"
+          >
+            <div className="recommended-courses-block__skeleton-title" />
+            <div className="recommended-courses-block__skeleton-row" />
+          </section>
+        }
+      >
+        <RecommendedCoursesBlock />
+      </LazySection>
 
       {/* ADR-031 §5: порядок L2 Personal/Daily/Active learning. */}
       {/* KS-1840: «Мои курсы» — скрыт при отсутствии своих курсов. */}

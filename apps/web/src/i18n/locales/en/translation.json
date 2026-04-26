@@ -1591,6 +1591,14 @@
         "browse": "Browse Beginner →"
       }
     },
+    "recommended": {
+      "title": "Recommended for you",
+      "subtitle": {
+        "beginner": "Curated for your level: {{level}}",
+        "intermediate": "Curated for your level: {{level}}",
+        "advanced": "Curated for your level: {{level}}"
+      }
+    },
     "card": {
       "coverAlt": "{{title}} cover",
       "progressLabel": "Course progress",
