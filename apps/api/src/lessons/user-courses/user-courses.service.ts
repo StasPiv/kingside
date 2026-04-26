@@ -301,6 +301,12 @@ export class UserCoursesService {
       data: rows.map(
         (row): UserEnrolledCourseDto => ({
           ...toCourseDto(row.course), // без stats — opts не передаём
+          // KS-1933/KS-1934/KS-1935: поля карточки курса (Lessons-redesign §8.1)
+          // у `UserCourse` пока отсутствуют в БД — DTO-поля
+          // (`coverUrl`, `difficulty`, `estimatedMinutes`, `audience/hook/outcomeI18nKey`,
+          // `tags`) опциональны и здесь явно не выставляются (= undefined в JSON).
+          // Когда автор пользовательских курсов получит редактор обогащения
+          // (отдельная задача), маппер пробросит реальные значения.
           progress: toCoursePlayProgressDto(row),
         }),
       ),

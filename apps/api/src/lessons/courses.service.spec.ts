@@ -190,3 +190,100 @@ describe('CoursesService.getCourseBySlug — SM-2 поля (KS-1809 / L-22)', ()
     expect(prisma.lessonReview.findMany).not.toHaveBeenCalled();
   });
 });
+
+describe('CoursesService — Lessons-redesign card fields (KS-1933/KS-1934/KS-1935)', () => {
+  let service: CoursesService;
+  let prisma: any;
+
+  const baseCourseRow = {
+    id: 'c1',
+    slug: 'beginner',
+    level: 'beginner',
+    titleKey: 'c.title',
+    descriptionKey: 'c.desc',
+    order: 0,
+    isPublished: true,
+    coverUrl: 'https://cdn.example/cover.png',
+    difficulty: 3,
+    estimatedMinutes: 90,
+    audienceI18nKey: 'c.audience',
+    hookI18nKey: 'c.hook',
+    outcomeI18nKey: 'c.outcome',
+    tags: ['endgame', 'tactics'],
+    createdAt: new Date('2026-04-01T00:00:00Z'),
+    updatedAt: new Date('2026-04-01T00:00:00Z'),
+  };
+
+  beforeEach(() => {
+    prisma = {
+      user: { findUnique: jest.fn() },
+      course: { findMany: jest.fn(), findUnique: jest.fn() },
+      userCourseProgress: { findMany: jest.fn(), findUnique: jest.fn() },
+      userLessonProgress: { findMany: jest.fn(), count: jest.fn() },
+      lessonReview: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    service = new CoursesService(prisma);
+  });
+
+  it('listCourses прокидывает все новые поля карточки в DTO', async () => {
+    prisma.course.findMany.mockResolvedValue([
+      { ...baseCourseRow, _count: { lessons: 5 } },
+    ]);
+    const res = await service.listCourses(null);
+
+    expect(res.data).toHaveLength(1);
+    const item = res.data[0];
+    expect(item.coverUrl).toBe('https://cdn.example/cover.png');
+    expect(item.difficulty).toBe(3);
+    expect(item.estimatedMinutes).toBe(90);
+    expect(item.audienceI18nKey).toBe('c.audience');
+    expect(item.hookI18nKey).toBe('c.hook');
+    expect(item.outcomeI18nKey).toBe('c.outcome');
+    expect(item.tags).toEqual(['endgame', 'tactics']);
+  });
+
+  it('listCourses корректно обрабатывает null-значения новых полей', async () => {
+    prisma.course.findMany.mockResolvedValue([
+      {
+        ...baseCourseRow,
+        coverUrl: null,
+        // difficulty в БД NOT NULL c default 2 — здесь именно дефолт
+        difficulty: 2,
+        estimatedMinutes: null,
+        audienceI18nKey: null,
+        hookI18nKey: null,
+        outcomeI18nKey: null,
+        tags: [],
+        _count: { lessons: 0 },
+      },
+    ]);
+    const res = await service.listCourses(null);
+
+    const item = res.data[0];
+    expect(item.coverUrl).toBeNull();
+    expect(item.difficulty).toBe(2);
+    expect(item.estimatedMinutes).toBeNull();
+    expect(item.audienceI18nKey).toBeNull();
+    expect(item.hookI18nKey).toBeNull();
+    expect(item.outcomeI18nKey).toBeNull();
+    expect(item.tags).toEqual([]);
+  });
+
+  it('getCourseBySlug прокидывает все новые поля карточки в DTO курса', async () => {
+    prisma.course.findUnique.mockResolvedValue({
+      ...baseCourseRow,
+      lessons: [],
+    });
+    prisma.userCourseProgress.findUnique = jest.fn().mockResolvedValue(null);
+
+    const res = await service.getCourseBySlug('beginner', null);
+
+    expect(res.course.coverUrl).toBe('https://cdn.example/cover.png');
+    expect(res.course.difficulty).toBe(3);
+    expect(res.course.estimatedMinutes).toBe(90);
+    expect(res.course.audienceI18nKey).toBe('c.audience');
+    expect(res.course.hookI18nKey).toBe('c.hook');
+    expect(res.course.outcomeI18nKey).toBe('c.outcome');
+    expect(res.course.tags).toEqual(['endgame', 'tactics']);
+  });
+});

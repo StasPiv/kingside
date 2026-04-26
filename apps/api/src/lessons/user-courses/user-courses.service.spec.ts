@@ -445,6 +445,25 @@ describe('UserCoursesService (KS-1829)', () => {
       expect(prisma.userCourse.findUnique).not.toHaveBeenCalled();
       expect(prisma.userCourse.findMany).not.toHaveBeenCalled();
     });
+
+    // KS-1933/KS-1934/KS-1935: поля карточки курса в Lessons-redesign
+    // у пользовательских курсов пока отсутствуют в БД, поэтому DTO-поля
+    // должны быть undefined (опциональные) — не должно быть ни случайной
+    // утечки лишних ключей, ни падения при их отсутствии в источнике.
+    it('новые поля карточки (coverUrl/difficulty/...) отсутствуют для UserCourse', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([
+        progressRow({ courseId: 'a', ownerId: 'author-a', slug: 'course-a' }),
+      ]);
+      const r = await service.listEnrolled(STUDENT);
+      const raw = r.data[0] as unknown as Record<string, unknown>;
+      expect(raw.coverUrl).toBeUndefined();
+      expect(raw.difficulty).toBeUndefined();
+      expect(raw.estimatedMinutes).toBeUndefined();
+      expect(raw.audienceI18nKey).toBeUndefined();
+      expect(raw.hookI18nKey).toBeUndefined();
+      expect(raw.outcomeI18nKey).toBeUndefined();
+      expect(raw.tags).toBeUndefined();
+    });
   });
 
   // ─── listPublicByOwner (KS-1914) ───────────────────────────────────
