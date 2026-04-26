@@ -1,44 +1,33 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type {
-  CourseListItem,
-  UserEnrolledCourseDto,
-} from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
-import { userCoursesApi } from '../api/userCoursesApi';
 import { CourseCard } from '../components/lessons/CourseCard';
 import type { ActiveCourseSummary } from '../hooks/useLessonsHeroContext';
+import { mapActiveCourses } from '../utils/activeCourseSummary';
 import { formatRelativeActivity } from '../utils/relativeTime';
 
 /**
  * `MyActiveCoursesPage` — страница `/lessons/my-active`
- * (KS-1941 / F-4 / KS-1931 §3.2 §7.3).
+ * (KS-1941 / F-4 / KS-1957 / KS-1931 §3.2 §7.3).
  *
- * Показывает все активные курсы пользователя одним списком M-карточек:
- *  - системные курсы с `progress != null && completedAt == null`,
- *  - enrolled-пользовательские с теми же критериями.
+ * Показывает все активные курсы пользователя одним списком M-карточек.
+ * Источник — единый бэк-эндпоинт `lessonsApi.listActiveCourses()`
+ * (`/lessons/active-courses`, KS-1937). Бэк уже:
+ *  - фильтрует по `progress != null && completedAt == null`,
+ *  - сортирует по `lastActivityAt` DESC,
+ *  - объединяет system + enrolled.
  *
- * Sort — `lastActivityAt DESC` (свежее активность сверху). На каждую
- * карточку — бейдж «N дней назад» через
- * `utils/relativeTime.formatRelativeActivity` (тот же helper, что в
- * Hero Variant B).
+ * До KS-1957 страница делала два параллельных запроса
+ * (`listCourses` + `listEnrolled`) и склеивала их клиентом — теперь
+ * один запрос, без лишней работы.
  *
- * Источник данных — пока агрегация двух эндпоинтов (`listCourses`,
- * `listEnrolled`) на стороне фронта. Это дублирует то, что делает
- * `useLessonsHeroContext`, но оба места хотят независимости (в Hero —
- * выбираем 1 курс, тут — все). Единый эндпоинт `/lessons/my-active`
- * запланирован в B-5 (KS-1937), на этот момент перепишем хук + страницу
- * на него.
+ * Каждый item — `<CourseCard>` (CTA = `continue`) + бейдж relative-time
+ * через общий `formatRelativeActivity` (`utils/relativeTime`),
+ * прокинутый внутрь карточки через `recencyBadge` (KS-1956).
  *
- * `own` (UserCourseDto) НЕ учитываются — у DTO нет `progress`. См.
- * KS-1938 §3.3 концепта (custom-собственные показываются как
- * активные, только если автор сам в них enroll'нулся, а это уже
- * `listEnrolled`).
- *
- * Маршрут защищён `<ProtectedRoute>` в App.tsx (компонент сам не
- * редиректит — это слой выше).
+ * Маршрут защищён `<ProtectedRoute>` в App.tsx.
  */
 
 type LoadState = 'loading' | 'ready' | 'error';
@@ -46,50 +35,6 @@ type LoadState = 'loading' | 'ready' | 'error';
 interface PageState {
   status: LoadState;
   courses: ActiveCourseSummary[];
-}
-
-function mapSystemActive(c: CourseListItem): ActiveCourseSummary | null {
-  if (!c.progress || c.progress.completedAt !== null) return null;
-  return {
-    source: 'system',
-    id: c.id,
-    slug: c.slug,
-    title: '',
-    titleI18nKey: c.titleI18nKey,
-    level: c.level,
-    coverUrl: c.coverUrl ?? null,
-    lessonCount: c.lessonCount,
-    completedLessons: c.progress.lessonsCompleted,
-    lastActivityAt: c.progress.lastActivityAt ?? c.progress.startedAt,
-    currentLessonSlug: c.progress.currentLessonSlug ?? null,
-    currentLessonTitleI18nKey: c.progress.currentLessonTitleI18nKey ?? null,
-    currentLessonTitle: null,
-    currentLessonOrder: c.progress.currentLessonOrder ?? null,
-    href: `/lessons/${c.slug}`,
-  };
-}
-
-function mapEnrolledActive(
-  c: UserEnrolledCourseDto,
-): ActiveCourseSummary | null {
-  if (c.progress.completedAt !== null) return null;
-  return {
-    source: 'enrolled',
-    id: c.id,
-    slug: c.slug,
-    title: c.title,
-    titleI18nKey: null,
-    level: null,
-    coverUrl: c.coverUrl ?? null,
-    lessonCount: c.lessonCount,
-    completedLessons: c.progress.completedLessonsCount,
-    lastActivityAt: c.progress.lastActivityAt,
-    currentLessonSlug: c.progress.currentLessonSlug ?? null,
-    currentLessonTitleI18nKey: null,
-    currentLessonTitle: c.progress.currentLessonTitle ?? null,
-    currentLessonOrder: c.progress.currentLessonOrder ?? null,
-    href: `/lessons/my/${c.slug}`,
-  };
 }
 
 export function MyActiveCoursesPage() {
@@ -103,48 +48,25 @@ export function MyActiveCoursesPage() {
     let cancelled = false;
     setState({ status: 'loading', courses: [] });
 
-    Promise.allSettled([
-      lessonsApi.listCourses(),
-      userCoursesApi.listEnrolled(),
-    ]).then((results) => {
-      if (cancelled) return;
-      const [systemRes, enrolledRes] = results;
-
-      // Если ОБА запроса упали — это ошибка страницы. Если упал один,
-      // показываем что есть (graceful degradation).
-      if (systemRes.status === 'rejected' && enrolledRes.status === 'rejected') {
+    lessonsApi
+      .listActiveCourses()
+      .then((list) => {
+        if (cancelled) return;
+        setState({ status: 'ready', courses: mapActiveCourses(list) });
+      })
+      .catch(() => {
+        if (cancelled) return;
         setState({ status: 'error', courses: [] });
-        return;
-      }
-
-      const system =
-        systemRes.status === 'fulfilled' ? (systemRes.value.data ?? []) : [];
-      const enrolled =
-        enrolledRes.status === 'fulfilled'
-          ? (enrolledRes.value.data ?? [])
-          : [];
-
-      const activeSystem = system
-        .map(mapSystemActive)
-        .filter((c): c is ActiveCourseSummary => c !== null);
-      const activeEnrolled = enrolled
-        .map(mapEnrolledActive)
-        .filter((c): c is ActiveCourseSummary => c !== null);
-
-      const all = [...activeSystem, ...activeEnrolled].sort(
-        (a, b) =>
-          new Date(b.lastActivityAt).getTime() -
-          new Date(a.lastActivityAt).getTime(),
-      );
-
-      setState({ status: 'ready', courses: all });
-    });
+      });
 
     return () => {
       cancelled = true;
     };
   }, []);
 
+  // useMemo фиксирует «сейчас» один раз на готовый стейт — relative-time
+  // в карточках считается от одного timestamp, чтобы все «N часов назад»
+  // были согласованы.
   const now = useMemo(() => Date.now(), [state.status]);
 
   return (

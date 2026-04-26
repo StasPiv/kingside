@@ -1,4 +1,6 @@
 import type {
+  ActiveCourseDto,
+  ActiveCoursesResponse,
   CourseListResponse,
   CourseWithLessonsResponse,
   LessonWithStepsResponse,
@@ -36,6 +38,22 @@ const FALLBACK_RECOMMENDATION: CourseRecommendationResponse = {
 export const lessonsApi = {
   listCourses(): Promise<CourseListResponse> {
     return api.get<CourseListResponse>('/lessons/courses');
+  },
+
+  /**
+   * KS-1937 (B-5): агрегат активных курсов пользователя — system + enrolled,
+   * отсортированный по `lastActivityAt` DESC. Сервер фильтрует по
+   * `progress != null && completedAt == null`, фронт получает уже готовый
+   * список и НЕ дублирует фильтрацию.
+   *
+   * Используется в `useLessonsHeroContext` (KS-1938) и
+   * `MyActiveCoursesPage` (KS-1941) — заменяет пару
+   * `listCourses + listEnrolled` (KS-1957 / F-12).
+   */
+  listActiveCourses(): Promise<ActiveCourseDto[]> {
+    return api
+      .get<ActiveCoursesResponse>('/lessons/active-courses')
+      .then((r) => r.data ?? []);
   },
 
   getCourse(slug: string): Promise<CourseWithLessonsResponse> {

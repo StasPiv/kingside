@@ -1,26 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
+  ActiveCourseDto,
   CourseLevel,
   CourseListItem,
   UserCourseDto,
-  UserEnrolledCourseDto,
 } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { userCoursesApi } from '../api/userCoursesApi';
 import { useAuth } from '../context/AuthContext';
+import { mapActiveCourses } from '../utils/activeCourseSummary';
 
 /**
  * `useLessonsHeroContext` — агрегирует данные для контекстного hero
- * на `/lessons` (KS-1922 / KS-1938 / KS-1931 §3.2 §4).
+ * на `/lessons` (KS-1922 → KS-1938 → KS-1957 / KS-1931 §3.2 §4).
  *
  * Решает какой hero-вариант показать. Приоритет:
  *  1. **`guest`** — `user === null` (P3, концепт §3.2).
  *  2. **`loading`** — auth и/или fetch'ы не отдали (skeleton).
  *  3. **`multi`** — у пользователя ≥2 активных курсов (variant C
- *     в §3.2). Активный = `progress != null && completedAt == null`,
- *     суммарно по системным курсам (`lessonsApi.listCourses`) и
- *     enrolled-пользовательским (`userCoursesApi.listEnrolled`).
+ *     в §3.2).
  *  4. **`continue`** — ровно 1 активный курс (variant B). Берём этот
  *     единственный, нормализуем shape для UI.
  *  5. **`author`** — нет активных, есть свои `own` курсы (P4).
@@ -28,35 +27,36 @@ import { useAuth } from '../context/AuthContext';
  *     `beginnerSlug` системного beginner-курса для CTA «Открыть
  *     курс для начинающих».
  *
- * KS-1938 переставляет `multi`/`continue` ВЫШЕ `author` относительно
- * предыдущей реализации: автор с активным прогрессом теперь видит
- * прогресс, а не «карточка автора + Open editor». Это согласовано
- * концептом §3.2 («A/B/C — внутри ветки аутентифицирован, не автор
- * без активности»).
+ * KS-1957 (F-12): «активные» теперь приходят одним запросом
+ * `lessonsApi.listActiveCourses` (агрегат system + enrolled на бэке,
+ * фильтрация и сортировка по `lastActivityAt` DESC — там же).
+ * Раньше было два запроса (`listCourses` + `listEnrolled`) с
+ * клиентским merge, что давало лишний трафик и две точки отказа.
+ *
+ * `listCourses` фронту по-прежнему нужен — но только ради
+ * `beginnerSlug` для variant `start`. Решено оставить параллельный
+ * fetch (а не загружать ленниво по нужде) — это упрощает state-machine
+ * и не дороже одного запроса.
  *
  * KS-1938: «custom» (свои курсы автора) для подсчёта активности
  * НЕ учитываются — у `UserCourseDto` нет `progress`. Если автор
  * enroll'нулся в свой курс, прогресс возвращается через
- * `listEnrolled` на общих основаниях (концепт §3.3).
- *
- * Реализация — три параллельных fetch'а на mount, `useMemo` для
- * derived selection. Гости вообще не fetch'ят (P3 сразу).
+ * `/lessons/active-courses` как enrolled (концепт §3.3).
  */
 
 export type ActiveCourseSource = 'system' | 'enrolled';
 
 /**
  * Унифицированная shape «активного курса» для variant B (`continue`).
- * Системные курсы и enrolled-пользовательские имеют разные DTO; для
- * рендера hero нужны одни и те же поля. Маппинг в `mapToActive*`
- * ниже фиксирует, откуда что берём.
+ * Маппинг в `utils/activeCourseSummary.mapActiveCourses` (KS-1957)
+ * сужает дискриминированный union `ActiveCourseDto` (system/enrolled)
+ * в общую shape, которую потребляют Hero и MyActiveCoursesPage.
  *
- * KS-1955: после расширения backend DTO `progress` теперь несёт
- * `lastActivityAt` (для system тоже), `currentLessonSlug`,
- * `currentLessonTitleI18nKey` (system) / `currentLessonTitle`
- * (enrolled), `currentLessonOrder`. Эти поля используются в Hero
- * Variant B для строки «Урок N из M — название» и
- * «Последняя активность: N дней назад» (KS-1938 §7.2).
+ * KS-1955 / KS-1957: поля `currentLessonSlug`, `currentLessonTitleI18nKey`
+ * (system) / `currentLessonTitle` (enrolled), `currentLessonOrder` —
+ * для подзаголовка «Урок N из M — название» в variant B.
+ * `lastActivityAt` — для строки «Последняя активность: N дней назад»
+ * и сортировки.
  */
 export interface ActiveCourseSummary {
   source: ActiveCourseSource;
@@ -74,25 +74,14 @@ export interface ActiveCourseSummary {
   lessonCount: number;
   completedLessons: number;
   /**
-   * ISO-8601, для сортировки «самый свежий» и для «последняя активность».
-   * KS-1955 — поле теперь приходит у обеих DTO (у system тоже).
+   * ISO-8601, для отображения «последняя активность» и сортировки.
+   * Бэк отдаёт уже подсчитанный MAX в `/lessons/active-courses`.
    */
   lastActivityAt: string;
-  /**
-   * KS-1955 / KS-1938: текущий незавершённый урок (по `order` ASC) —
-   * для подзаголовка «Урок N из M — название» в Hero Variant B.
-   * `null`, если курс уже пройден целиком (или backend ещё не отдал
-   * поле — тогда подзаголовок просто не рендерится).
-   */
+  /** Текущий незавершённый урок — для подзаголовка «Урок N из M». */
   currentLessonSlug: string | null;
-  /** Локализуемый ключ заголовка (только `system`) или резолвенный
-   *  заголовок (только `enrolled`). Хук возвращает уже резолвенную
-   *  строку — для `system` LessonsHero сам прогоняет через `t()`. */
   currentLessonTitleI18nKey: string | null;
-  /** Заголовок «как есть» (только `enrolled`, у пользовательских
-   *  курсов i18n нет). */
   currentLessonTitle: string | null;
-  /** 1-based номер для «Урок N из M». */
   currentLessonOrder: number | null;
   /** Куда вести CTA «Продолжить» (разные namespace'ы у двух источников). */
   href: string;
@@ -122,84 +111,48 @@ interface UseLessonsHeroContextReturn {
   state: LessonsHeroState;
 }
 
-function mapSystemToActive(c: CourseListItem): ActiveCourseSummary | null {
-  if (!c.progress || c.progress.completedAt !== null) return null;
-  return {
-    source: 'system',
-    id: c.id,
-    slug: c.slug,
-    title: '',
-    titleI18nKey: c.titleI18nKey,
-    level: c.level,
-    coverUrl: c.coverUrl ?? null,
-    lessonCount: c.lessonCount,
-    completedLessons: c.progress.lessonsCompleted,
-    // KS-1955: бэк теперь отдаёт `lastActivityAt` для system. Поле
-    // обязательное в DTO, но на случай stale-cache/staging без релиза
-    // оставляем `?? startedAt` как мягкий fallback — без него тесты
-    // hook'а ниже бы упали на построении DTO.
-    lastActivityAt: c.progress.lastActivityAt ?? c.progress.startedAt,
-    currentLessonSlug: c.progress.currentLessonSlug ?? null,
-    currentLessonTitleI18nKey: c.progress.currentLessonTitleI18nKey ?? null,
-    currentLessonTitle: null,
-    currentLessonOrder: c.progress.currentLessonOrder ?? null,
-    href: `/lessons/${c.slug}`,
-  };
-}
-
-function mapEnrolledToActive(
-  c: UserEnrolledCourseDto,
-): ActiveCourseSummary | null {
-  if (c.progress.completedAt !== null) return null;
-  // KS-1955: у пользовательских курсов i18n нет, заголовок строкой.
-  return {
-    source: 'enrolled',
-    id: c.id,
-    slug: c.slug,
-    title: c.title,
-    titleI18nKey: null,
-    level: null,
-    coverUrl: c.coverUrl ?? null,
-    lessonCount: c.lessonCount,
-    completedLessons: c.progress.completedLessonsCount,
-    lastActivityAt: c.progress.lastActivityAt,
-    currentLessonSlug: c.progress.currentLessonSlug ?? null,
-    currentLessonTitleI18nKey: null,
-    currentLessonTitle: c.progress.currentLessonTitle ?? null,
-    currentLessonOrder: c.progress.currentLessonOrder ?? null,
-    href: `/lessons/my/${c.slug}`,
-  };
-}
-
 export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
   const { user, loading: authLoading } = useAuth();
 
+  // KS-1957: единый источник активности — `/lessons/active-courses`.
+  const [active, setActive] = useState<ActiveCourseDto[] | null>(null);
+  const [activeErrored, setActiveErrored] = useState(false);
+  // listCourses нужен только ради beginnerSlug для variant `start`.
   const [system, setSystem] = useState<CourseListItem[] | null>(null);
   const [systemErrored, setSystemErrored] = useState(false);
-  const [enrolled, setEnrolled] = useState<UserEnrolledCourseDto[] | null>(
-    null,
-  );
-  const [enrolledErrored, setEnrolledErrored] = useState(false);
+  // own — для variant `author` (нет прогресса, но есть созданные курсы).
   const [own, setOwn] = useState<UserCourseDto[] | null>(null);
   const [ownErrored, setOwnErrored] = useState(false);
 
   useEffect(() => {
     if (!user) {
+      setActive(null);
       setSystem(null);
-      setEnrolled(null);
       setOwn(null);
+      setActiveErrored(false);
       setSystemErrored(false);
-      setEnrolledErrored(false);
       setOwnErrored(false);
       return;
     }
     let cancelled = false;
+    setActiveErrored(false);
     setSystemErrored(false);
-    setEnrolledErrored(false);
     setOwnErrored(false);
+    setActive(null);
     setSystem(null);
-    setEnrolled(null);
     setOwn(null);
+
+    lessonsApi
+      .listActiveCourses()
+      .then((res) => {
+        if (cancelled) return;
+        setActive(res ?? []);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setActiveErrored(true);
+        setActive([]);
+      });
 
     lessonsApi
       .listCourses()
@@ -211,18 +164,6 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
         if (cancelled) return;
         setSystemErrored(true);
         setSystem([]);
-      });
-
-    userCoursesApi
-      .listEnrolled()
-      .then((res) => {
-        if (cancelled) return;
-        setEnrolled(res.data ?? []);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setEnrolledErrored(true);
-        setEnrolled([]);
       });
 
     userCoursesApi
@@ -248,23 +189,11 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
 
     // Ждём все три fetch'а (или их ошибки). Errored = пустой массив
     // — деградирует мягко, hero подберёт следующий приоритет.
-    if (system === null || enrolled === null || own === null) {
+    if (active === null || system === null || own === null) {
       return { kind: 'loading' };
     }
 
-    // Активные курсы (система + enrolled). Custom (own) для активности
-    // не считаем — у `UserCourseDto` нет `progress`.
-    const activeSystem = system
-      .map(mapSystemToActive)
-      .filter((c): c is ActiveCourseSummary => c !== null);
-    const activeEnrolled = enrolled
-      .map(mapEnrolledToActive)
-      .filter((c): c is ActiveCourseSummary => c !== null);
-    const allActive = [...activeSystem, ...activeEnrolled].sort(
-      (a, b) =>
-        new Date(b.lastActivityAt).getTime() -
-        new Date(a.lastActivityAt).getTime(),
-    );
+    const allActive = mapActiveCourses(active);
 
     if (allActive.length >= 2) {
       return { kind: 'multi', count: allActive.length };
@@ -302,11 +231,11 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
       beginnerSlug: beginner?.slug ?? null,
       beginnerTitleI18nKey: beginner?.titleI18nKey ?? null,
     };
-  }, [authLoading, user, system, enrolled, own]);
+  }, [authLoading, user, active, system, own]);
 
   // *Errored — внутренние, наружу не отдаём (свёрнуты в пустые массивы).
+  void activeErrored;
   void systemErrored;
-  void enrolledErrored;
   void ownErrored;
 
   return { state };
