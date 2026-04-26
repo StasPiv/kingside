@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   ArrayNotEmpty,
   IsArray,
@@ -10,7 +11,9 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
+  MaxLength,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -38,6 +41,39 @@ import { IsCustomPuzzlesArray } from './custom-puzzle.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
+// KS-1994: формат клетки `[a-h][1-8]`. Используется и для arrows,
+// и для highlightedSquares. Цвет — опц. CSS-строка (FE сам решает,
+// какие значения принимать).
+const SQUARE_REGEX = /^[a-h][1-8]$/;
+
+class DiagramArrowDto {
+  @IsString()
+  @Matches(SQUARE_REGEX, { message: 'arrow.from must be a square in [a-h][1-8]' })
+  from!: string;
+
+  @IsString()
+  @Matches(SQUARE_REGEX, { message: 'arrow.to must be a square in [a-h][1-8]' })
+  to!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  color?: string;
+}
+
+class DiagramHighlightDto {
+  @IsString()
+  @Matches(SQUARE_REGEX, {
+    message: 'highlightedSquares.square must be a square in [a-h][1-8]',
+  })
+  square!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  color?: string;
+}
+
 class TextDiagramDto {
   @IsString()
   fen!: string;
@@ -49,6 +85,22 @@ class TextDiagramDto {
   @IsOptional()
   @IsIn(['white', 'black'])
   orientation?: 'white' | 'black';
+
+  /** KS-1994: стрелки на диаграмме. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(64)
+  @ValidateNested({ each: true })
+  @Type(() => DiagramArrowDto)
+  arrows?: DiagramArrowDto[];
+
+  /** KS-1994: подсвеченные клетки. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(64)
+  @ValidateNested({ each: true })
+  @Type(() => DiagramHighlightDto)
+  highlightedSquares?: DiagramHighlightDto[];
 }
 
 class TextStepPayloadDto implements TextStepPayload {

@@ -162,6 +162,46 @@ export interface CustomPuzzle {
  * Реализация — `apps/web/src/components/lessons/steps/TextStep.tsx`
  * (KS-1763 / L-08).
  */
+/**
+ * KS-1994: стрелка на диаграмме (как chess-arrows).
+ * `from`/`to` — клетки в нотации `[a-h][1-8]`. `color` — опц. CSS-цвет
+ * (`#ff0000`, `red` и т. п.); если не задан, FE использует свой
+ * дефолт.
+ */
+export interface DiagramArrow {
+  from: string;
+  to: string;
+  color?: string;
+}
+
+/**
+ * KS-1994: подсвеченная клетка на диаграмме (точкой или заливкой).
+ * `square` — клетка в нотации `[a-h][1-8]`. `color` — опц. CSS-цвет.
+ */
+export interface DiagramHighlight {
+  square: string;
+  color?: string;
+}
+
+/**
+ * Read-only диаграмма внутри `TextStep`.
+ *
+ * KS-1994: добавлены опц. `arrows` и `highlightedSquares` — для
+ * визуальных подсказок в духе диаграмм Капабланки (стрелки «как
+ * ходит фигура», подсветка целевых полей). Если поля не заданы —
+ * рендер прежний (только FEN).
+ */
+export interface TextDiagram {
+  fen: string;
+  caption?: string;
+  /** Какой цвет снизу при рендере диаграммы. */
+  orientation?: 'white' | 'black';
+  /** Стрелки куда могут пойти фигуры. */
+  arrows?: DiagramArrow[];
+  /** Подсвеченные клетки (целевые поля и т. п.). */
+  highlightedSquares?: DiagramHighlight[];
+}
+
 export interface TextStepPayload {
   type: 'text';
   /** i18n-ключ тела статьи (markdown) либо сам markdown, если `inline` */
@@ -172,12 +212,7 @@ export interface TextStepPayload {
    * FEN-диаграммы, встроенные в статью. Рендерятся read-only, порядок
    * совпадает с порядком плейсхолдеров вида `{{diagram:0}}` в markdown.
    */
-  diagrams?: Array<{
-    fen: string;
-    caption?: string;
-    /** Какой цвет снизу при рендере диаграммы. */
-    orientation?: 'white' | 'black';
-  }>;
+  diagrams?: TextDiagram[];
 }
 
 /** Решение тактических задач (обёртка над `PuzzleBoard`/PuzzleModule). */

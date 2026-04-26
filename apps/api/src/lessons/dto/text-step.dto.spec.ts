@@ -105,3 +105,116 @@ describe('TextStepPayloadDto.diagrams[].fen (KS-1983)', () => {
     expect(errors.length).toBeGreaterThan(0);
   });
 });
+
+// ── KS-1994: arrows + highlightedSquares ─────────────────────────────
+
+describe('TextStep diagrams arrows / highlightedSquares (KS-1994)', () => {
+  it('back-compat: без arrows/highlightedSquares — валидно', async () => {
+    expect(
+      await validatePayload({
+        type: 'text',
+        bodyMarkdown: '# Hi',
+        diagrams: [{ fen: '8/8/8/8/3R4/8/8/8 w - - 0 1' }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('arrows + highlightedSquares валидной формы — принимается', async () => {
+    expect(
+      await validatePayload({
+        type: 'text',
+        bodyMarkdown: '# Ладья',
+        diagrams: [
+          {
+            fen: '8/8/8/8/3R4/8/8/8 w - - 0 1',
+            arrows: [
+              { from: 'd4', to: 'd8', color: '#1f9e3a' },
+              { from: 'd4', to: 'a4' },
+              { from: 'd4', to: 'd1', color: 'red' },
+            ],
+            highlightedSquares: [
+              { square: 'a4' },
+              { square: 'h4', color: '#aaaaaa' },
+              { square: 'd8' },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('arrow.from вне формата [a-h][1-8] → ошибка', async () => {
+    const errors = await validatePayload({
+      type: 'text',
+      bodyMarkdown: '# x',
+      diagrams: [
+        {
+          fen: '8/8/8/8/3R4/8/8/8 w - - 0 1',
+          arrows: [{ from: 'z9', to: 'd8' }],
+        },
+      ],
+    });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.join(' | ')).toMatch(/from/);
+  });
+
+  it('arrow.to вне формата → ошибка', async () => {
+    const errors = await validatePayload({
+      type: 'text',
+      bodyMarkdown: '# x',
+      diagrams: [
+        {
+          fen: '8/8/8/8/3R4/8/8/8 w - - 0 1',
+          arrows: [{ from: 'd4', to: 'D4' }],
+        },
+      ],
+    });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.join(' | ')).toMatch(/to/);
+  });
+
+  it('highlightedSquares.square вне формата → ошибка', async () => {
+    const errors = await validatePayload({
+      type: 'text',
+      bodyMarkdown: '# x',
+      diagrams: [
+        {
+          fen: '8/8/8/8/3R4/8/8/8 w - - 0 1',
+          highlightedSquares: [{ square: 'i9' }],
+        },
+      ],
+    });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.join(' | ')).toMatch(/square/);
+  });
+
+  it('arrows и highlightedSquares — пустые массивы — валидно', async () => {
+    expect(
+      await validatePayload({
+        type: 'text',
+        bodyMarkdown: '# x',
+        diagrams: [
+          {
+            fen: '8/8/8/8/3R4/8/8/8 w - - 0 1',
+            arrows: [],
+            highlightedSquares: [],
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('color слишком длинный (>40 символов) → ошибка', async () => {
+    const errors = await validatePayload({
+      type: 'text',
+      bodyMarkdown: '# x',
+      diagrams: [
+        {
+          fen: '8/8/8/8/3R4/8/8/8 w - - 0 1',
+          arrows: [{ from: 'd4', to: 'd8', color: 'a'.repeat(50) }],
+        },
+      ],
+    });
+    expect(errors.length).toBeGreaterThan(0);
+  });
+});
