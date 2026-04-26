@@ -20,6 +20,15 @@ describe('LessonsAdminService — courses (KS-1967)', () => {
         count: jest.fn().mockResolvedValue(0),
         aggregate: jest.fn().mockResolvedValue({ _max: { order: null } }),
       },
+      lesson: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        aggregate: jest.fn().mockResolvedValue({ _max: { order: null } }),
+      },
       $transaction: jest.fn(async (ops: any) => Promise.all(ops)),
     };
     service = new LessonsAdminService(prisma);
@@ -244,6 +253,208 @@ describe('LessonsAdminService — courses (KS-1967)', () => {
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       // Проверяем, что update вызвался по 3 раза с правильными order'ами.
       const calls = prisma.course.update.mock.calls;
+      expect(calls).toHaveLength(3);
+      expect(calls[0][0]).toEqual({ where: { id: 'c' }, data: { order: 0 } });
+      expect(calls[1][0]).toEqual({ where: { id: 'a' }, data: { order: 1 } });
+      expect(calls[2][0]).toEqual({ where: { id: 'b' }, data: { order: 2 } });
+    });
+  });
+
+  // ═══ Lessons (KS-1968 / B-6) ═══════════════════════════════════════
+
+  describe('createLesson', () => {
+    const courseId = 'course-1';
+    const baseDto = {
+      slug: 'intro',
+      blockKey: 'rules',
+      kind: 'theory' as const,
+      titleKey: 'l.title',
+      summaryKey: 'l.summary',
+    };
+
+    it('курс не найден → 404 (без create)', async () => {
+      prisma.course.findUnique.mockResolvedValue(null);
+      await expect(service.createLesson(courseId, baseDto as any)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.lesson.create).not.toHaveBeenCalled();
+    });
+
+    it('order не передан — max(order)+1 в рамках курса', async () => {
+      prisma.course.findUnique.mockResolvedValue({ id: courseId });
+      prisma.lesson.aggregate.mockResolvedValue({ _max: { order: 7 } });
+      prisma.lesson.create.mockImplementation(({ data }: any) => ({ id: 'L1', ...data }));
+
+      await service.createLesson(courseId, baseDto as any);
+
+      expect(prisma.lesson.aggregate).toHaveBeenCalledWith({
+        where: { courseId },
+        _max: { order: true },
+      });
+      expect(prisma.lesson.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          courseId,
+          slug: 'intro',
+          blockKey: 'rules',
+          kind: 'theory',
+          order: 8,
+          estMinutes: 10,
+          isPublished: false,
+        }),
+      });
+    });
+
+    it('первый урок (max=null) → order=0', async () => {
+      prisma.course.findUnique.mockResolvedValue({ id: courseId });
+      prisma.lesson.aggregate.mockResolvedValue({ _max: { order: null } });
+      prisma.lesson.create.mockImplementation(({ data }: any) => ({ id: 'L1', ...data }));
+
+      await service.createLesson(courseId, baseDto as any);
+
+      expect(prisma.lesson.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ order: 0 }),
+      });
+    });
+
+    it('inline title/summary прокидываются 1-в-1', async () => {
+      prisma.course.findUnique.mockResolvedValue({ id: courseId });
+      prisma.lesson.aggregate.mockResolvedValue({ _max: { order: null } });
+      prisma.lesson.create.mockImplementation(({ data }: any) => ({ id: 'L1', ...data }));
+
+      await service.createLesson(courseId, {
+        ...baseDto,
+        title: 'Урок 1',
+        summary: 'Краткий конспект',
+        estMinutes: 25,
+        isPublished: true,
+      } as any);
+
+      expect(prisma.lesson.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          title: 'Урок 1',
+          summary: 'Краткий конспект',
+          estMinutes: 25,
+          isPublished: true,
+        }),
+      });
+    });
+
+    it('конфликт slug в курсе (P2002) → 409', async () => {
+      prisma.course.findUnique.mockResolvedValue({ id: courseId });
+      prisma.lesson.aggregate.mockResolvedValue({ _max: { order: null } });
+      prisma.lesson.create.mockRejectedValue({ code: 'P2002' });
+      await expect(
+        service.createLesson(courseId, baseDto as any),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('getLessonById', () => {
+    it('найден → возвращает с шагами', async () => {
+      const row = { id: 'L1', steps: [], _count: { steps: 0 } };
+      prisma.lesson.findUnique.mockResolvedValue(row);
+      await expect(service.getLessonById('L1')).resolves.toBe(row);
+      expect(prisma.lesson.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'L1' },
+          include: expect.objectContaining({
+            steps: { orderBy: { order: 'asc' } },
+            _count: { select: { steps: true } },
+          }),
+        }),
+      );
+    });
+
+    it('не найден → 404', async () => {
+      prisma.lesson.findUnique.mockResolvedValue(null);
+      await expect(service.getLessonById('nope')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('updateLesson', () => {
+    it('не найден → 404 (без update)', async () => {
+      prisma.lesson.findUnique.mockResolvedValue(null);
+      await expect(service.updateLesson('x', { title: 't' } as any)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.lesson.update).not.toHaveBeenCalled();
+    });
+
+    it('обновляет только переданные поля; null допускается для inline', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: 'L1' });
+      prisma.lesson.update.mockImplementation(({ data }: any) => ({ id: 'L1', ...data }));
+
+      await service.updateLesson('L1', {
+        title: 'New title',
+        summary: null,
+      } as any);
+
+      const call = prisma.lesson.update.mock.calls[0][0];
+      expect(call).toEqual({ where: { id: 'L1' }, data: { title: 'New title', summary: null } });
+    });
+
+    it('конфликт slug → 409', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: 'L1' });
+      prisma.lesson.update.mockRejectedValue({ code: 'P2002' });
+      await expect(
+        service.updateLesson('L1', { slug: 'dup' } as any),
+      ).rejects.toThrow(ConflictException);
+    });
+  });
+
+  describe('deleteLesson', () => {
+    it('не найден → 404', async () => {
+      prisma.lesson.findUnique.mockResolvedValue(null);
+      await expect(service.deleteLesson('x')).rejects.toThrow(NotFoundException);
+      expect(prisma.lesson.delete).not.toHaveBeenCalled();
+    });
+
+    it('найден → delete (cascade в БД)', async () => {
+      prisma.lesson.findUnique.mockResolvedValue({ id: 'L1' });
+      prisma.lesson.delete.mockResolvedValue({ id: 'L1' });
+      await service.deleteLesson('L1');
+      expect(prisma.lesson.delete).toHaveBeenCalledWith({ where: { id: 'L1' } });
+    });
+  });
+
+  describe('reorderLessons', () => {
+    const courseId = 'course-1';
+
+    it('курс не найден → 404', async () => {
+      prisma.course.findUnique.mockResolvedValue(null);
+      await expect(
+        service.reorderLessons(courseId, { ids: ['a'] } as any),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('ids неполные → 400', async () => {
+      prisma.course.findUnique.mockResolvedValue({ id: courseId });
+      prisma.lesson.count.mockResolvedValue(3);
+      await expect(
+        service.reorderLessons(courseId, { ids: ['a', 'b'] } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('id из чужого курса → 400 (фильтр по courseId не нашёл)', async () => {
+      prisma.course.findUnique.mockResolvedValue({ id: courseId });
+      prisma.lesson.count.mockResolvedValue(2);
+      // Только 1 из 2 принадлежит этому курсу.
+      prisma.lesson.findMany.mockResolvedValue([{ id: 'a' }]);
+      await expect(
+        service.reorderLessons(courseId, { ids: ['a', 'foreign'] } as any),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('happy path — транзакционно перезаписывает order 0..N-1', async () => {
+      prisma.course.findUnique.mockResolvedValue({ id: courseId });
+      prisma.lesson.count.mockResolvedValue(3);
+      prisma.lesson.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+      prisma.lesson.update.mockResolvedValue({});
+
+      await service.reorderLessons(courseId, { ids: ['c', 'a', 'b'] } as any);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const calls = prisma.lesson.update.mock.calls;
       expect(calls).toHaveLength(3);
       expect(calls[0][0]).toEqual({ where: { id: 'c' }, data: { order: 0 } });
       expect(calls[1][0]).toEqual({ where: { id: 'a' }, data: { order: 1 } });

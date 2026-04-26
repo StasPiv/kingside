@@ -12,6 +12,11 @@ import {
   ReorderAdminCoursesDto,
   UpdateAdminCourseDto,
 } from './dto/admin-course.dto';
+import {
+  CreateAdminLessonDto,
+  ReorderAdminLessonsDto,
+  UpdateAdminLessonDto,
+} from './dto/admin-lesson.dto';
 
 /**
  * KS-1962/B-5: сервис админ-CRUD для system courses.
@@ -184,6 +189,116 @@ export class LessonsAdminService {
     );
   }
 
+  // ═══ Lessons (KS-1968 / B-6) ═══════════════════════════════════════
+
+  async createLesson(courseId: string, dto: CreateAdminLessonDto) {
+    await this.assertCourseExists(courseId);
+
+    const order = dto.order ?? (await this.computeNextLessonOrder(courseId));
+
+    try {
+      return await this.prisma.lesson.create({
+        data: {
+          courseId,
+          slug: dto.slug,
+          blockKey: dto.blockKey,
+          kind: dto.kind,
+          titleKey: dto.titleKey,
+          summaryKey: dto.summaryKey,
+          title: dto.title ?? null,
+          summary: dto.summary ?? null,
+          estMinutes: dto.estMinutes ?? 10,
+          order,
+          isPublished: dto.isPublished ?? false,
+        },
+      });
+    } catch (e) {
+      if (isUniqueViolation(e)) {
+        throw new ConflictException(
+          `Lesson slug "${dto.slug}" already exists in this course`,
+        );
+      }
+      throw e;
+    }
+  }
+
+  async getLessonById(id: string) {
+    const lesson = await this.prisma.lesson.findUnique({
+      where: { id },
+      include: {
+        steps: { orderBy: { order: 'asc' } },
+        _count: { select: { steps: true } },
+      },
+    });
+    if (!lesson) throw new NotFoundException('Lesson not found');
+    return lesson;
+  }
+
+  async updateLesson(id: string, dto: UpdateAdminLessonDto) {
+    await this.assertLessonExists(id);
+
+    const data: Prisma.LessonUpdateInput = {};
+    if (dto.slug !== undefined) data.slug = dto.slug;
+    if (dto.order !== undefined) data.order = dto.order;
+    if (dto.blockKey !== undefined) data.blockKey = dto.blockKey;
+    if (dto.kind !== undefined) data.kind = dto.kind;
+    if (dto.titleKey !== undefined) data.titleKey = dto.titleKey;
+    if (dto.summaryKey !== undefined) data.summaryKey = dto.summaryKey;
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.summary !== undefined) data.summary = dto.summary;
+    if (dto.estMinutes !== undefined) data.estMinutes = dto.estMinutes;
+    if (dto.isPublished !== undefined) data.isPublished = dto.isPublished;
+
+    try {
+      return await this.prisma.lesson.update({ where: { id }, data });
+    } catch (e) {
+      if (isUniqueViolation(e)) {
+        throw new ConflictException('Lesson slug already exists in this course');
+      }
+      throw e;
+    }
+  }
+
+  async deleteLesson(id: string) {
+    await this.assertLessonExists(id);
+    // ON DELETE CASCADE на `lesson_steps.lesson_id` и
+    // `user_lesson_progress.lesson_id` — БД делает.
+    await this.prisma.lesson.delete({ where: { id } });
+  }
+
+  async reorderLessons(courseId: string, dto: ReorderAdminLessonsDto) {
+    await this.assertCourseExists(courseId);
+
+    const ids = dto.ids;
+
+    // Все ids должны принадлежать этому курсу и покрывать его полностью.
+    const total = await this.prisma.lesson.count({ where: { courseId } });
+    if (ids.length !== total) {
+      throw new BadRequestException(
+        `ids must cover all lessons of the course (got ${ids.length}, total ${total})`,
+      );
+    }
+
+    const existing = await this.prisma.lesson.findMany({
+      where: { id: { in: ids }, courseId },
+      select: { id: true },
+    });
+    if (existing.length !== ids.length) {
+      throw new BadRequestException(
+        'Some ids do not match lessons of this course',
+      );
+    }
+
+    await this.prisma.$transaction(
+      ids.map((id, idx) =>
+        this.prisma.lesson.update({
+          where: { id },
+          data: { order: idx },
+        }),
+      ),
+    );
+  }
+
   // ─── Internals ───────────────────────────────────────────────────
 
   private async assertCourseExists(id: string): Promise<void> {
@@ -194,8 +309,24 @@ export class LessonsAdminService {
     if (!found) throw new NotFoundException('Course not found');
   }
 
+  private async assertLessonExists(id: string): Promise<void> {
+    const found = await this.prisma.lesson.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!found) throw new NotFoundException('Lesson not found');
+  }
+
   private async computeNextOrder(): Promise<number> {
     const max = await this.prisma.course.aggregate({
+      _max: { order: true },
+    });
+    return (max._max.order ?? -1) + 1;
+  }
+
+  private async computeNextLessonOrder(courseId: string): Promise<number> {
+    const max = await this.prisma.lesson.aggregate({
+      where: { courseId },
       _max: { order: true },
     });
     return (max._max.order ?? -1) + 1;
