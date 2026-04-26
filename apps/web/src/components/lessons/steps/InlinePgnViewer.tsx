@@ -202,15 +202,23 @@ export function InlinePgnViewer({
 
       {/* KS-2005: «крупный» блок примечания к текущему ходу — под доской,
           чтобы авторский комментарий из PGN был сразу виден без скролла
-          до нотации. В нотации он тоже остаётся (через ReviewMoveList). */}
-      {currentMove?.comment && (
-        <p
-          className="inline-pgn-viewer__current-comment"
-          data-testid="inline-pgn-viewer-current-comment"
-        >
-          {currentMove.comment}
-        </p>
-      )}
+          до нотации. В нотации он тоже остаётся (через ReviewMoveList).
+
+          KS-2008: блок-обёртка `__current-comment-slot` рендерится ВСЕГДА
+          и держит фиксированный min-height, чтобы доска не «прыгала»
+          между ходами с комментариями разной длины. Внутренний `<p>` с
+          testid'ом по-прежнему рендерится условно — тестовые querySelectors
+          через `queryByTestId` остаются работоспособными. */}
+      <div className="inline-pgn-viewer__current-comment-slot">
+        {currentMove?.comment && (
+          <p
+            className="inline-pgn-viewer__current-comment"
+            data-testid="inline-pgn-viewer-current-comment"
+          >
+            {currentMove.comment}
+          </p>
+        )}
+      </div>
 
       <div
         className="inline-pgn-viewer__controls"
