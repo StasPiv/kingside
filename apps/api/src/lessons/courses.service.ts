@@ -196,6 +196,7 @@ export class CoursesService {
         startedAt: Date | null;
         masteredAt: Date | null;
         updatedAt: Date;
+        completedStepsCount: number;
       }
     >();
     const reviewDueMap = new Map<string, Date>();
@@ -208,11 +209,19 @@ export class CoursesService {
         },
       });
       for (const row of rows) {
+        // KS-1992: count('done') в stepsState — для индикатора
+        // «N/M шагов» на карточке урока. stepsState — JSONB
+        // `{ stepId: 'pending'|'in_progress'|'done'|'failed'|'skipped' }`.
+        const stepsState = (row.stepsState ?? {}) as Record<string, string>;
+        const completedStepsCount = Object.values(stepsState).filter(
+          (s) => s === 'done',
+        ).length;
         lessonProgressMap.set(row.lessonId, {
           completedAt: row.completedAt,
           startedAt: row.startedAt,
           masteredAt: row.masteredAt,
           updatedAt: row.updatedAt,
+          completedStepsCount,
         });
       }
 
@@ -246,6 +255,9 @@ export class CoursesService {
         title: l.title,
         summary: l.summary,
         stepCount: l._count.steps,
+        // KS-1992: для анонима / без прогресса — 0; для урока с
+        // записью прогресса — count(stepsState[*] === 'done').
+        completedStepsCount: prog?.completedStepsCount ?? 0,
         progressState: state,
       };
       // SM-2 поля (L-22): заполняем только для авторизованных пользователей;

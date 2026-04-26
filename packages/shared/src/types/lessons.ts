@@ -596,6 +596,13 @@ export interface CourseLessonSummary extends LessonInlineFields {
   titleI18nKey: string;
   summaryI18nKey: string;
   stepCount: number;
+  /**
+   * KS-1992: сколько шагов урока пользователь пометил `done` (count
+   * по `stepsState` в `UserLessonProgress`). Для анонимного запроса
+   * либо для урока без прогресса — `0`. Используется в карточке
+   * урока на странице курса для показа «N/M шагов».
+   */
+  completedStepsCount: number;
   /** Состояние прохождения пользователем. */
   progressState: 'not_started' | 'in_progress' | 'completed';
   /**

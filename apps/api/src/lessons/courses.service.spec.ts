@@ -189,6 +189,45 @@ describe('CoursesService.getCourseBySlug — SM-2 поля (KS-1809 / L-22)', ()
     expect(res.lessons[0].dueAt).toBeUndefined();
     expect(prisma.lessonReview.findMany).not.toHaveBeenCalled();
   });
+
+  // KS-1992: completedStepsCount считается из stepsState внутри
+  // UserLessonProgress (count('done')).
+  it('completedStepsCount: для урока с прогрессом — count(stepsState["done"])', async () => {
+    prisma.userLessonProgress.findMany.mockResolvedValue([
+      {
+        lessonId,
+        completedAt: null,
+        startedAt: new Date('2026-04-26T00:00:00Z'),
+        masteredAt: null,
+        updatedAt: new Date('2026-04-26T00:00:00Z'),
+        stepsState: {
+          's1': 'done',
+          's2': 'done',
+          's3': 'failed',
+          's4': 'in_progress',
+          's5': 'done',
+        },
+      },
+    ]);
+    prisma.lessonReview.findMany.mockResolvedValue([]);
+
+    const res = await service.getCourseBySlug('beginner', userId);
+    expect(res.lessons[0].completedStepsCount).toBe(3);
+    expect(res.lessons[0].progressState).toBe('in_progress');
+  });
+
+  it('completedStepsCount: для урока без прогресса — 0', async () => {
+    prisma.userLessonProgress.findMany.mockResolvedValue([]);
+    prisma.lessonReview.findMany.mockResolvedValue([]);
+    const res = await service.getCourseBySlug('beginner', userId);
+    expect(res.lessons[0].completedStepsCount).toBe(0);
+    expect(res.lessons[0].progressState).toBe('not_started');
+  });
+
+  it('completedStepsCount: для анонима — 0 (без запроса прогресса)', async () => {
+    const res = await service.getCourseBySlug('beginner', null);
+    expect(res.lessons[0].completedStepsCount).toBe(0);
+  });
 });
 
 describe('CoursesService — Lessons-redesign card fields (KS-1933/KS-1934/KS-1935)', () => {
