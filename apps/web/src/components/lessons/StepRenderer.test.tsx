@@ -199,8 +199,8 @@ describe('<StepRenderer>', () => {
       payload: {
         type: 'quiz',
         questions: [
-          { id: 'q1', promptI18nKey: 'k1', options: [], correctOptionIds: [] },
-          { id: 'q2', promptI18nKey: 'k2', options: [], correctOptionIds: [] },
+          { id: 'q1', prompt: 'k1', options: [], correctOptionIds: [] },
+          { id: 'q2', prompt: 'k2', options: [], correctOptionIds: [] },
         ],
       },
     };

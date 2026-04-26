@@ -16,10 +16,12 @@
  * MyActiveCoursesPage / activeCourseSummary.
  */
 
-type Translator = (
-  key: string,
-  defaultValueOrOpts?: string | (Record<string, unknown> & { defaultValue?: string }),
-) => string;
+// Нарочно либеральный тип: `useTranslation()` из react-i18next отдаёт
+// `TFunction<...>` с большим набором перегрузок. Подружить точные
+// сигнатуры — лишний шум в utils-хелпере; нам важно только что
+// `t(key, fallback)` вернёт строку.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Translator = (key: string, defaultValueOrOpts?: any) => string;
 
 export function resolveInlineText(
   inline: string | null | undefined,

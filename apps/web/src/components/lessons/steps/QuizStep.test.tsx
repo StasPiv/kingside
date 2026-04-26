@@ -13,11 +13,11 @@ vi.mock('react-chessboard', () => ({
 function singleQuestion(qOverrides = {}) {
   return {
     id: 'q1',
-    promptI18nKey: 'What is 2+2?',
+    prompt: 'What is 2+2?',
     options: [
-      { id: 'a', labelI18nKey: '3' },
-      { id: 'b', labelI18nKey: '4' },
-      { id: 'c', labelI18nKey: '5' },
+      { id: 'a', label: '3' },
+      { id: 'b', label: '4' },
+      { id: 'c', label: '5' },
     ],
     correctOptionIds: ['b'],
     multi: false,
@@ -28,12 +28,12 @@ function singleQuestion(qOverrides = {}) {
 function multiQuestion(qOverrides = {}) {
   return {
     id: 'q2',
-    promptI18nKey: 'Pick all primes',
+    prompt: 'Pick all primes',
     options: [
-      { id: 'a', labelI18nKey: '4' },
-      { id: 'b', labelI18nKey: '5' },
-      { id: 'c', labelI18nKey: '7' },
-      { id: 'd', labelI18nKey: '9' },
+      { id: 'a', label: '4' },
+      { id: 'b', label: '5' },
+      { id: 'c', label: '7' },
+      { id: 'd', label: '9' },
     ],
     correctOptionIds: ['b', 'c'],
     multi: true,
@@ -195,19 +195,15 @@ describe('<QuizStep>', () => {
     expect(screen.getByTestId('lesson-quiz-step-submit')).not.toBeDisabled();
   });
 
-  // ─── KS-1981: inline > i18nKey > placeholder ──────────────────────
+  // ─── KS-1982: inline-only quiz (i18n-ключи удалены из контракта) ───
 
-  it('KS-1981: inline `prompt`/`label`/`explanation` рендерятся вместо ключа', () => {
+  it('KS-1982: prompt/label/explanation рендерятся inline-строкой', () => {
     const q = singleQuestion({
-      // promptI18nKey специально кладём ключ, которого нет в FE-словаре,
-      // чтобы убедиться: inline побеждает.
-      promptI18nKey: 'lessons.unknown.prompt',
       prompt: 'Сколько клеток на доске?',
-      explanationI18nKey: 'lessons.unknown.explanation',
       explanation: 'Доска 8×8 = 64 клетки.',
       options: [
-        { id: 'a', labelI18nKey: '32', label: '32' },
-        { id: 'b', labelI18nKey: '64', label: '64' },
+        { id: 'a', label: '32' },
+        { id: 'b', label: '64' },
       ],
       correctOptionIds: ['b'],
     });
@@ -215,12 +211,10 @@ describe('<QuizStep>', () => {
     expect(screen.getByTestId('lesson-quiz-question-0').textContent).toContain(
       'Сколько клеток на доске?',
     );
-    // option labels — inline.
     const optionA = screen.getByTestId('option-0-a').parentElement;
     expect(optionA?.textContent).toContain('32');
     const optionB = screen.getByTestId('option-0-b').parentElement;
     expect(optionB?.textContent).toContain('64');
-    // explanation после check.
     fireEvent.click(screen.getByTestId('option-0-b'));
     fireEvent.click(screen.getByTestId('check-0'));
     expect(screen.getByTestId('question-result-0').textContent).toContain(
@@ -228,31 +222,22 @@ describe('<QuizStep>', () => {
     );
   });
 
-  it('KS-1981: inline=null + ключ-в-словаре → t() (старое поведение)', () => {
+  it('KS-1982: explanation отсутствует → блок с разбором не рендерится', () => {
     const q = singleQuestion({
-      // i18next test-instance имеет ключ `lessons.quizCheck` (= "Check").
-      // Используем его как пример «есть в словаре». Для prompt такой
-      // ключ редко имеет смысл, поэтому проверяем как label.
+      prompt: 'Q?',
+      explanation: undefined,
       options: [
-        { id: 'a', labelI18nKey: 'lessons.quizCheck', label: null },
+        { id: 'a', label: 'A' },
+        { id: 'b', label: 'B' },
       ],
-      correctOptionIds: ['a'],
+      correctOptionIds: ['b'],
     });
     renderWithProviders(<QuizStep payload={payload([q])} />);
-    const optionA = screen.getByTestId('option-0-a').parentElement;
-    expect(optionA?.textContent).toContain('Check');
-  });
-
-  it('KS-1981: inline=null + ключа нет в словаре → плейсхолдер (legacy KS-1782)', () => {
-    const q = singleQuestion({
-      options: [
-        // labelI18nKey без перевода + label=null → старый плейсхолдер.
-        { id: 'a', labelI18nKey: 'lessons.totally.missing.key', label: null },
-      ],
-      correctOptionIds: ['a'],
-    });
-    renderWithProviders(<QuizStep payload={payload([q])} />);
-    const optionA = screen.getByTestId('option-0-a').parentElement;
-    expect(optionA?.textContent).toMatch(/translation pending|перевод/i);
+    fireEvent.click(screen.getByTestId('option-0-b'));
+    fireEvent.click(screen.getByTestId('check-0'));
+    const result = screen.getByTestId('question-result-0');
+    // Тело результата не должно содержать тире-разделителя «—»: оно
+    // рендерится только когда explanation задано.
+    expect(result.querySelector('.lesson-quiz-question__explanation')).toBeNull();
   });
 });

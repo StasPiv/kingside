@@ -51,11 +51,11 @@ export function QuizFields({ payload, onChange }: QuizFieldsProps) {
             data-testid={`editor-quiz-q-${i}`}
           >
             <label>
-              {t('editor.step.quiz.promptKey', 'Prompt i18n key')}
+              {t('editor.step.quiz.prompt', 'Prompt')}
               <input
-                value={q.promptI18nKey}
+                value={q.prompt}
                 onChange={(e) =>
-                  update(i, (qq) => ({ ...qq, promptI18nKey: e.target.value }))
+                  update(i, (qq) => ({ ...qq, prompt: e.target.value }))
                 }
               />
             </label>
@@ -96,15 +96,15 @@ export function QuizFields({ payload, onChange }: QuizFieldsProps) {
                     placeholder="id"
                   />
                   <input
-                    value={opt.labelI18nKey}
+                    value={opt.label}
                     onChange={(e) =>
                       update(i, (qq) => {
                         const opts = qq.options.slice();
-                        opts[j] = { ...opts[j], labelI18nKey: e.target.value };
+                        opts[j] = { ...opts[j], label: e.target.value };
                         return { ...qq, options: opts };
                       })
                     }
-                    placeholder="label i18n key"
+                    placeholder="label"
                   />
                   <label>
                     <input
@@ -150,7 +150,7 @@ export function QuizFields({ payload, onChange }: QuizFieldsProps) {
                       ...qq.options,
                       {
                         id: `opt-${qq.options.length + 1}`,
-                        labelI18nKey: '',
+                        label: '',
                       },
                     ],
                   }))
@@ -161,13 +161,13 @@ export function QuizFields({ payload, onChange }: QuizFieldsProps) {
             </div>
 
             <label>
-              {t('editor.step.quiz.explanationKey', 'Explanation i18n key')}
+              {t('editor.step.quiz.explanation', 'Explanation (optional)')}
               <input
-                value={q.explanationI18nKey ?? ''}
+                value={q.explanation ?? ''}
                 onChange={(e) =>
                   update(i, (qq) => ({
                     ...qq,
-                    explanationI18nKey: e.target.value || undefined,
+                    explanation: e.target.value || undefined,
                   }))
                 }
               />
@@ -195,7 +195,7 @@ export function QuizFields({ payload, onChange }: QuizFieldsProps) {
                 ...questions,
                 {
                   id: `q-${questions.length + 1}`,
-                  promptI18nKey: '',
+                  prompt: '',
                   options: [],
                   correctOptionIds: [],
                 },
