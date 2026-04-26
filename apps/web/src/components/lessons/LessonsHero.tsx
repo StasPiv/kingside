@@ -5,6 +5,7 @@ import { useLessonsHeroContext } from '../../hooks/useLessonsHeroContext';
 import type { ActiveCourseSummary } from '../../hooks/useLessonsHeroContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatRelativeActivity } from '../../utils/relativeTime';
+import { resolveInlineText } from '../../utils/inlineI18nText';
 
 /**
  * `LessonsHero` — контекстный hero на `/lessons`.
@@ -107,17 +108,18 @@ export function LessonsHero() {
     const total = c.lessonCount || PROGRESS_FALLBACK_TOTAL;
     const done = c.completedLessons;
     const percent = Math.min(100, Math.round((done / total) * 100));
-    const title = c.titleI18nKey
-      ? t(c.titleI18nKey, c.slug)
-      : c.title || c.slug;
-    // KS-1955 / KS-1938 §7.2: «Урок N из M — название».
-    // Резолвим заголовок текущего урока: для system — через i18n,
-    // для enrolled — берём строку напрямую. Если бэк не отдал
-    // currentLesson* (старая БД, курс пройден целиком) — просто не
-    // рендерим строку.
-    const currentLessonTitle = c.currentLessonTitleI18nKey
-      ? t(c.currentLessonTitleI18nKey, c.currentLessonSlug ?? '')
-      : c.currentLessonTitle;
+    // KS-1978: inline `c.title` (system) / raw title (enrolled) > i18nKey.
+    // `resolveInlineText` инкапсулирует `inline ?? t(i18nKey)`.
+    const title = resolveInlineText(c.title, c.titleI18nKey, t, c.slug);
+    // KS-1955 / KS-1938 §7.2 / KS-1978: «Урок N из M — название».
+    // У system — `currentLessonTitleI18nKey`, у enrolled — `currentLessonTitle`
+    // (raw строка). Тот же резолвер: inline > i18nKey.
+    const currentLessonTitle = resolveInlineText(
+      c.currentLessonTitle,
+      c.currentLessonTitleI18nKey,
+      t,
+      c.currentLessonSlug ?? '',
+    );
     const showLessonOf =
       typeof c.currentLessonOrder === 'number' && currentLessonTitle;
     // KS-1955 / §7.2: «Последняя активность: N дней назад».
@@ -273,9 +275,12 @@ export function LessonsHero() {
     // beginner-курса. Если на платформе нет beginner-курса (пустая
     // CMS / fetch упал) — fallback на якорь `#level-beginner`,
     // страница сама проскроллит к секции.
-    const beginnerSubtitle = state.beginnerTitleI18nKey
-      ? t(state.beginnerTitleI18nKey, state.beginnerTitleI18nKey)
-      : null;
+    // KS-1978: inline > i18nKey. Если оба null — `null`, чтобы скрыть строку.
+    const beginnerSubtitle =
+      state.beginnerTitle ||
+      (state.beginnerTitleI18nKey
+        ? t(state.beginnerTitleI18nKey, state.beginnerTitleI18nKey)
+        : null);
     return (
       <section
         className="lessons-hero lessons-hero--start"

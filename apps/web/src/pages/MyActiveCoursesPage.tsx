@@ -6,6 +6,7 @@ import { lessonsApi } from '../api/lessonsApi';
 import { CourseCard } from '../components/lessons/CourseCard';
 import type { ActiveCourseSummary } from '../hooks/useLessonsHeroContext';
 import { mapActiveCourses } from '../utils/activeCourseSummary';
+import { resolveInlineText } from '../utils/inlineI18nText';
 import { formatRelativeActivity } from '../utils/relativeTime';
 
 /**
@@ -154,9 +155,8 @@ export function MyActiveCoursesPage() {
           data-testid="my-active-list"
         >
           {state.courses.map((c) => {
-            const title = c.titleI18nKey
-              ? t(c.titleI18nKey, c.slug)
-              : c.title || c.slug;
+            // KS-1978: inline > i18nKey. Тот же контракт что в Hero.
+            const title = resolveInlineText(c.title, c.titleI18nKey, t, c.slug);
             const relative = formatRelativeActivity(
               c.lastActivityAt,
               now,

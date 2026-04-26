@@ -10,6 +10,7 @@ import type {
 import { lessonsApi } from '../api/lessonsApi';
 import { StepRenderer } from '../components/lessons/StepRenderer';
 import { useLessonProgress } from '../hooks/useLessonProgress';
+import { resolveInlineText } from '../utils/inlineI18nText';
 
 /**
  * Страница `/lessons/:courseSlug/:lessonSlug` — контейнер для шагов урока.
@@ -218,10 +219,22 @@ export function LessonPage() {
               className="lesson-back-link"
               data-testid="lesson-back-link"
             >
-              ← {t(course.course.titleI18nKey, course.course.slug)}
+              ← {resolveInlineText(
+                course.course.title,
+                course.course.titleI18nKey,
+                t,
+                course.course.slug,
+              )}
             </Link>
           )}
-          <h1>{t(lesson.lesson.titleI18nKey, lesson.lesson.slug)}</h1>
+          <h1>
+            {resolveInlineText(
+              lesson.lesson.title,
+              lesson.lesson.titleI18nKey,
+              t,
+              lesson.lesson.slug,
+            )}
+          </h1>
         </header>
 
         <div className="lesson-review-result__score">
@@ -303,10 +316,22 @@ export function LessonPage() {
             className="lesson-back-link"
             data-testid="lesson-back-link"
           >
-            ← {t(course.course.titleI18nKey, course.course.slug)}
+            ← {resolveInlineText(
+              course.course.title,
+              course.course.titleI18nKey,
+              t,
+              course.course.slug,
+            )}
           </Link>
         )}
-        <h1>{t(lesson.lesson.titleI18nKey, lesson.lesson.slug)}</h1>
+        <h1>
+          {resolveInlineText(
+            lesson.lesson.title,
+            lesson.lesson.titleI18nKey,
+            t,
+            lesson.lesson.slug,
+          )}
+        </h1>
         {isReviewMode && (
           <p
             className="lesson-review-banner"
@@ -319,7 +344,12 @@ export function LessonPage() {
           </p>
         )}
         <p className="lesson-summary">
-          {t(lesson.lesson.summaryI18nKey, '')}
+          {resolveInlineText(
+            lesson.lesson.summary,
+            lesson.lesson.summaryI18nKey,
+            t,
+            '',
+          )}
         </p>
 
         <div

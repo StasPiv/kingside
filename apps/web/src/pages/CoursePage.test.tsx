@@ -247,4 +247,84 @@ describe('CoursePage', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('KS-1978: inline title/description курса берутся в приоритет над i18nKey', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce({
+      course: {
+        id: 'c1',
+        slug: 'beginner-01-board-and-notation',
+        level: 'beginner',
+        // titleI18nKey есть, но в FE-словаре ключа нет — без inline
+        // получили бы slug. Inline должен победить.
+        titleI18nKey: 'lessons.beginner-01-board-and-notation.title',
+        descriptionI18nKey: 'lessons.beginner-01-board-and-notation.description',
+        title: 'Доска и нотация',
+        description: 'Учимся читать координаты доски и записывать ходы.',
+        order: 1,
+        isPublished: true,
+        lessonCount: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      lessons: [
+        {
+          id: 'l1',
+          slug: 'board-and-notation',
+          order: 1,
+          kind: 'theory',
+          titleI18nKey: 'lessons.beginner-01-board-and-notation.lesson.title',
+          summaryI18nKey: 'lessons.beginner-01-board-and-notation.lesson.summary',
+          title: 'Доска и нотация',
+          summary: 'Урок о шахматной нотации.',
+          stepCount: 5,
+          progressState: 'not_started',
+        },
+      ],
+      progress: null,
+    });
+    renderWithProviders(<CoursePage />, { route: '/lessons/beginner-01-board-and-notation' });
+    await waitFor(() =>
+      expect(screen.getByTestId('course-page')).toBeInTheDocument(),
+    );
+    // Заголовок курса не slug.
+    expect(
+      screen.getByTestId('course-page').querySelector('h1')?.textContent,
+    ).toBe('Доска и нотация');
+    // Описание из inline.
+    expect(
+      screen.getByTestId('course-page').querySelector('.course-description')
+        ?.textContent,
+    ).toBe('Учимся читать координаты доски и записывать ходы.');
+    // Заголовок урока — тоже inline.
+    const lessonLink = screen.getByTestId('lesson-link-board-and-notation');
+    expect(lessonLink.textContent).toContain('Доска и нотация');
+  });
+
+  it('KS-1978: при отсутствии inline.title — fallback на slug через t(i18nKey)', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce({
+      course: {
+        id: 'c1',
+        slug: 'beginner-basics',
+        level: 'beginner',
+        titleI18nKey: 'beginner-basics-title',
+        descriptionI18nKey: 'beginner-basics-desc',
+        title: null,
+        description: null,
+        order: 1,
+        isPublished: true,
+        lessonCount: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+      lessons: [],
+      progress: null,
+    });
+    renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+    await waitFor(() =>
+      expect(screen.getByTestId('course-page')).toBeInTheDocument(),
+    );
+    // Inline=null → fallback. В test-i18n ключа нет — t() вернёт defaultValue=slug.
+    expect(
+      screen.getByTestId('course-page').querySelector('h1')?.textContent,
+    ).toBe('beginner-basics');
+  });
 });

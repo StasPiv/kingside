@@ -26,7 +26,10 @@ function mapSystem(c: ActiveSystemCourseDto): ActiveCourseSummary {
     source: 'system',
     id: c.id,
     slug: c.slug,
-    title: '',
+    // KS-1978: inline `c.title` имеет приоритет; UI делает финальный
+    // fallback на `t(titleI18nKey)` когда `title` пуст. Сохраняем
+    // обоих, чтобы не разрешать строку до UI (зависит от `t`).
+    title: c.title ?? '',
     titleI18nKey: c.titleI18nKey,
     level: c.level,
     coverUrl: c.coverUrl ?? null,

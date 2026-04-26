@@ -5,6 +5,7 @@ import type { CourseWithLessonsResponse } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { groupLessonsByBlock } from '../components/lessons/courseBlocks';
+import { resolveInlineText } from '../utils/inlineI18nText';
 
 /**
  * Страница `/lessons/:courseSlug` — курс с перечнем уроков и прогрессом
@@ -91,8 +92,12 @@ export function CoursePage() {
         <Link to="/lessons" className="course-back-link" data-testid="course-back-link">
           ← {t('lessons.backToList', 'All courses')}
         </Link>
-        <h1>{t(course.titleI18nKey, course.slug)}</h1>
-        <p className="course-description">{t(course.descriptionI18nKey, '')}</p>
+        <h1>
+          {resolveInlineText(course.title, course.titleI18nKey, t, course.slug)}
+        </h1>
+        <p className="course-description">
+          {resolveInlineText(course.description, course.descriptionI18nKey, t, '')}
+        </p>
         <div
           className="course-progress"
           data-testid="course-progress"
@@ -151,7 +156,12 @@ export function CoursePage() {
                       >
                         <span className="course-lesson-order">{lesson.order}.</span>
                         <span className="course-lesson-title">
-                          {t(lesson.titleI18nKey, lesson.slug)}
+                          {resolveInlineText(
+                            lesson.title,
+                            lesson.titleI18nKey,
+                            t,
+                            lesson.slug,
+                          )}
                         </span>
                         <span
                           className={`course-lesson-state course-lesson-state--${lesson.progressState}`}

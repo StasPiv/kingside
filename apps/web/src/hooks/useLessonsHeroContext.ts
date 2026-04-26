@@ -102,7 +102,9 @@ export type LessonsHeroState =
       kind: 'start';
       /** Slug первого beginner-курса (по `order`). null если беги-курсов нет. */
       beginnerSlug: string | null;
-      /** i18n-ключ заголовка beginner-курса для подзаголовка. null если нет. */
+      /** Inline-заголовок beginner-курса (KS-1978). null если бэк не отдал. */
+      beginnerTitle: string | null;
+      /** i18n-ключ заголовка beginner-курса (fallback). null если нет. */
       beginnerTitleI18nKey: string | null;
     }
   | { kind: 'guest' };
@@ -229,6 +231,9 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
     return {
       kind: 'start',
       beginnerSlug: beginner?.slug ?? null,
+      // KS-1978: inline title имеет приоритет; UI делает финальный
+      // fallback через `resolveInlineText`.
+      beginnerTitle: beginner?.title ?? null,
       beginnerTitleI18nKey: beginner?.titleI18nKey ?? null,
     };
   }, [authLoading, user, active, system, own]);

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { CourseLevel, CourseListItem } from '@kingside/shared';
 
 import { lessonsApi } from '../../api/lessonsApi';
+import { resolveInlineText } from '../../utils/inlineI18nText';
 import { CourseCard, type CourseCardCtaVariant } from './CourseCard';
 
 /**
@@ -128,9 +129,16 @@ export function RecommendedCoursesBlock() {
       </header>
       <ul className="recommended-courses-block__list">
         {state.courses.map((course) => {
-          const audience = course.audienceI18nKey
-            ? t(course.audienceI18nKey, { defaultValue: '' }) || null
-            : null;
+          // KS-1978: inline > i18nKey.
+          const audience =
+            resolveInlineText(course.audience, course.audienceI18nKey, t, '') ||
+            null;
+          const title = resolveInlineText(
+            course.title,
+            course.titleI18nKey,
+            t,
+            course.slug,
+          );
           const progress = course.progress
             ? {
                 done: course.progress.lessonsCompleted,
@@ -145,7 +153,7 @@ export function RecommendedCoursesBlock() {
               <CourseCard
                 slug={course.slug}
                 href={`/lessons/${course.slug}`}
-                title={t(course.titleI18nKey, course.slug)}
+                title={title}
                 level={course.level}
                 difficulty={course.difficulty ?? null}
                 estimatedMinutes={course.estimatedMinutes ?? null}

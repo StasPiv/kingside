@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next';
 import type { CourseLevel, CourseListItem } from '@kingside/shared';
 
 import { useDelayedFlag } from '../../hooks/useDelayedFlag';
+import { resolveInlineText } from '../../utils/inlineI18nText';
 import { CourseCard, type CourseCardCtaVariant } from './CourseCard';
 
 /**
@@ -150,13 +151,17 @@ export function CurriculumPillarBlock({
           </h3>
           <ul className="lessons-course-grid">
             {items.map((course) => {
-              // Audience выводим только если ключ задан И в словаре есть
-              // непустое значение. `t()` без defaultValue вернул бы сам
-              // ключ — это шум; defaultValue:'' даёт пустую строку, которую
-              // мы превращаем в null чтобы скрыть строку через CourseCard.
-              const audience = course.audienceI18nKey
-                ? t(course.audienceI18nKey, { defaultValue: '' }) || null
-                : null;
+              // KS-1978: inline > i18nKey. Для audience пустая итоговая
+              // строка → null, чтобы CourseCard скрыл слот.
+              const audience =
+                resolveInlineText(course.audience, course.audienceI18nKey, t, '') ||
+                null;
+              const title = resolveInlineText(
+                course.title,
+                course.titleI18nKey,
+                t,
+                course.slug,
+              );
               const progress =
                 course.progress
                   ? {
@@ -169,7 +174,7 @@ export function CurriculumPillarBlock({
                   <CourseCard
                     slug={course.slug}
                     href={`/lessons/${course.slug}`}
-                    title={t(course.titleI18nKey, course.slug)}
+                    title={title}
                     level={course.level}
                     difficulty={course.difficulty ?? null}
                     estimatedMinutes={course.estimatedMinutes ?? null}
