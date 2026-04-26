@@ -108,10 +108,11 @@ describe('LessonsPage', () => {
 
     expect(screen.getByTestId('lessons-level-beginner')).toBeInTheDocument();
     expect(screen.getByTestId('lessons-level-intermediate')).toBeInTheDocument();
-    expect(screen.getByTestId('course-link-beginner-basics')).toHaveAttribute(
-      'href',
-      '/lessons/beginner-basics',
-    );
+    // KS-1943: inline-карточки заменены на <CourseCard> — testid стал
+    // `course-card-<slug>-link`.
+    expect(
+      screen.getByTestId('course-card-beginner-basics-link'),
+    ).toHaveAttribute('href', '/lessons/beginner-basics');
     expect(screen.getByTestId('lessons-recommended-badge')).toBeInTheDocument();
     // Бейдж стоит ровно один раз — в beginner-секции.
     const badges = screen.getAllByTestId('lessons-recommended-badge');

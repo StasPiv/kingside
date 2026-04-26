@@ -1,8 +1,8 @@
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { CourseLevel, CourseListItem } from '@kingside/shared';
 
 import { useDelayedFlag } from '../../hooks/useDelayedFlag';
+import { CourseCard, type CourseCardCtaVariant } from './CourseCard';
 
 /**
  * `CurriculumPillarBlock` — обёртка над системными уровневыми
@@ -30,6 +30,18 @@ interface CurriculumPillarBlockProps {
   loading: boolean;
   error: string | null;
   emptyText: string;
+}
+
+/**
+ * Решение по CTA для системных курсов на основе прогресса:
+ *  - `null`/нет записи → ещё не начат → `start`.
+ *  - `completedAt != null` → пройден → `preview` (можно повторить).
+ *  - иначе → активный → `continue`.
+ */
+function ctaForCourse(course: CourseListItem): CourseCardCtaVariant {
+  if (!course.progress) return 'start';
+  if (course.progress.completedAt) return 'preview';
+  return 'continue';
 }
 
 export function CurriculumPillarBlock({
@@ -137,39 +149,39 @@ export function CurriculumPillarBlock({
             )}
           </h3>
           <ul className="lessons-course-grid">
-            {items.map((course) => (
-              <li key={course.id} className="lessons-course-card">
-                <Link
-                  to={`/lessons/${course.slug}`}
-                  className="lessons-course-link"
-                  data-testid={`course-link-${course.slug}`}
-                >
-                  <h4 className="lessons-course-title">
-                    {t(course.titleI18nKey, course.slug)}
-                  </h4>
-                  <p className="lessons-course-description">
-                    {t(course.descriptionI18nKey, '')}
-                  </p>
-                  <div className="lessons-course-meta">
-                    <span>
-                      {t('lessons.lessonCount', {
-                        count: course.lessonCount,
-                        defaultValue: '{{count}} lessons',
-                      })}
-                    </span>
-                    {course.progress && (
-                      <span className="lessons-course-progress">
-                        {t('lessons.progressShort', {
-                          completed: course.progress.lessonsCompleted,
-                          total: course.lessonCount,
-                          defaultValue: '{{completed}}/{{total}}',
-                        })}
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              </li>
-            ))}
+            {items.map((course) => {
+              // Audience выводим только если ключ задан И в словаре есть
+              // непустое значение. `t()` без defaultValue вернул бы сам
+              // ключ — это шум; defaultValue:'' даёт пустую строку, которую
+              // мы превращаем в null чтобы скрыть строку через CourseCard.
+              const audience = course.audienceI18nKey
+                ? t(course.audienceI18nKey, { defaultValue: '' }) || null
+                : null;
+              const progress =
+                course.progress
+                  ? {
+                      done: course.progress.lessonsCompleted,
+                      total: course.lessonCount,
+                    }
+                  : null;
+              return (
+                <li key={course.id} className="lessons-course-card-item">
+                  <CourseCard
+                    slug={course.slug}
+                    href={`/lessons/${course.slug}`}
+                    title={t(course.titleI18nKey, course.slug)}
+                    level={course.level}
+                    difficulty={course.difficulty ?? null}
+                    estimatedMinutes={course.estimatedMinutes ?? null}
+                    coverUrl={course.coverUrl ?? null}
+                    audience={audience}
+                    progress={progress}
+                    ctaVariant={ctaForCourse(course)}
+                    tags={course.tags ?? null}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}

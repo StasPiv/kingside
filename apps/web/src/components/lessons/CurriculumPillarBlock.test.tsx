@@ -94,8 +94,59 @@ describe('<CurriculumPillarBlock>', () => {
     expect(screen.getByTestId('lessons-level-beginner')).toBeInTheDocument();
     expect(screen.getByTestId('lessons-level-intermediate')).toBeInTheDocument();
     expect(screen.getByTestId('lessons-recommended-badge')).toBeInTheDocument();
+    // KS-1943: inline-карточки заменены на <CourseCard> — проверяем
+    // его data-testid и href через `<slug>-link`.
+    expect(screen.getByTestId('course-card-b1')).toBeInTheDocument();
     expect(
-      screen.getByTestId('course-link-b1').getAttribute('href'),
+      screen.getByTestId('course-card-b1-link').getAttribute('href'),
     ).toBe('/lessons/b1');
+  });
+
+  it('CourseCard: progress=null → CTA "start"; есть прогресс активный → "continue"; completed → "preview"', () => {
+    renderWithProviders(
+      <CurriculumPillarBlock
+        groups={[
+          {
+            level: 'beginner',
+            items: [
+              mkCourse({ id: 'fresh', slug: 'fresh', progress: null }),
+              mkCourse({
+                id: 'active',
+                slug: 'active',
+                progress: {
+                  lessonsCompleted: 2,
+                  startedAt: '2026-04-10T00:00:00Z',
+                  completedAt: null,
+                  currentLessonId: null,
+                },
+              }),
+              mkCourse({
+                id: 'done',
+                slug: 'done',
+                progress: {
+                  lessonsCompleted: 5,
+                  startedAt: '2026-04-01T00:00:00Z',
+                  completedAt: '2026-04-15T00:00:00Z',
+                  currentLessonId: null,
+                },
+              }),
+            ],
+          },
+        ]}
+        recommendedLevel={null}
+        loading={false}
+        error={null}
+        emptyText=""
+      />,
+    );
+    expect(
+      screen.getByTestId('course-card-fresh').getAttribute('data-cta'),
+    ).toBe('start');
+    expect(
+      screen.getByTestId('course-card-active').getAttribute('data-cta'),
+    ).toBe('continue');
+    expect(
+      screen.getByTestId('course-card-done').getAttribute('data-cta'),
+    ).toBe('preview');
   });
 });
