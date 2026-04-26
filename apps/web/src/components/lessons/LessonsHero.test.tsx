@@ -3,7 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders, screen } from '../../test/test-utils';
 
 /**
- * KS-1922: рендер 5 hero-вариантов через мок useLessonsHeroContext.
+ * KS-1922 + KS-1938: рендер 6 hero-вариантов через мок useLessonsHeroContext.
+ *
+ * loading / continue / multi / author / start / guest.
  */
 
 const { hookMock, authMock } = vi.hoisted(() => ({
@@ -45,7 +47,7 @@ afterEach(() => {
 });
 
 describe('<LessonsHero>', () => {
-  it('loading: aria-busy + skeleton-shape', () => {
+  it('loading: aria-busy + skeleton', () => {
     hookMock.state = { kind: 'loading' };
     renderWithProviders(<LessonsHero />);
     const hero = screen.getByTestId('lessons-hero');
@@ -53,37 +55,104 @@ describe('<LessonsHero>', () => {
     expect(hero.getAttribute('aria-busy')).toBe('true');
   });
 
-  it('continue: title курса + прогресс + CTA → /lessons/my/<slug>', () => {
+  // ─── continue ───
+
+  it('continue (enrolled): title + прогресс + CTA → /lessons/my/<slug>', () => {
     hookMock.state = {
       kind: 'continue',
       course: {
-        id: 'c1',
-        ownerId: 'a1',
+        source: 'enrolled',
+        id: 'e1',
         slug: 'caro-kann',
         title: 'Caro-Kann basics',
-        description: 'Solid response to e4',
-        isPublic: true,
-        createdAt: '2026-04-01',
-        updatedAt: '2026-04-01',
+        titleI18nKey: null,
+        level: null,
+        coverUrl: null,
         lessonCount: 4,
-        progress: {
-          userCourseId: 'c1',
-          completedLessonsCount: 2,
-          startedAt: '2026-04-01',
-          lastActivityAt: '2026-04-10',
-          completedAt: null,
-        },
+        completedLessons: 2,
+        lastActivityAt: '2026-04-10',
+        href: '/lessons/my/caro-kann',
       },
     };
     renderWithProviders(<LessonsHero />);
     const hero = screen.getByTestId('lessons-hero');
     expect(hero.getAttribute('data-state')).toBe('continue');
+    expect(hero.getAttribute('data-source')).toBe('enrolled');
     expect(hero.textContent).toMatch(/Caro-Kann basics/);
     expect(hero.textContent).toMatch(/2.*4|2\/4/);
     expect(
       screen.getByTestId('lessons-hero-cta').getAttribute('href'),
     ).toBe('/lessons/my/caro-kann');
   });
+
+  it('continue (system): href=/lessons/<slug> и cover-placeholder с фигурой по уровню', () => {
+    hookMock.state = {
+      kind: 'continue',
+      course: {
+        source: 'system',
+        id: 's1',
+        slug: 'beginner-basics',
+        title: '',
+        titleI18nKey: 'beginner-basics-title',
+        level: 'beginner',
+        coverUrl: null, // → placeholder
+        lessonCount: 8,
+        completedLessons: 3,
+        lastActivityAt: '2026-04-10',
+        href: '/lessons/beginner-basics',
+      },
+    };
+    renderWithProviders(<LessonsHero />);
+    expect(
+      screen.getByTestId('lessons-hero-cta').getAttribute('href'),
+    ).toBe('/lessons/beginner-basics');
+    const cover = screen.getByTestId('lessons-hero-cover');
+    expect(cover.getAttribute('data-source')).toBe('system');
+    expect(cover.getAttribute('data-level')).toBe('beginner');
+    // Фигура пешки для beginner.
+    expect(cover.textContent).toContain('♟');
+  });
+
+  it('continue: при coverUrl рендерит <img>', () => {
+    hookMock.state = {
+      kind: 'continue',
+      course: {
+        source: 'enrolled',
+        id: 'e1',
+        slug: 'x',
+        title: 'X',
+        titleI18nKey: null,
+        level: null,
+        coverUrl: 'https://cdn/x.jpg',
+        lessonCount: 4,
+        completedLessons: 1,
+        lastActivityAt: '2026-04-10',
+        href: '/lessons/my/x',
+      },
+    };
+    renderWithProviders(<LessonsHero />);
+    const cover = screen.getByTestId('lessons-hero-cover');
+    const img = cover.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute('src')).toBe('https://cdn/x.jpg');
+  });
+
+  // ─── multi ───
+
+  it('multi: count + ссылка на /lessons/my-active', () => {
+    hookMock.state = { kind: 'multi', count: 3 };
+    renderWithProviders(<LessonsHero />);
+    const hero = screen.getByTestId('lessons-hero');
+    expect(hero.getAttribute('data-state')).toBe('multi');
+    expect(
+      screen.getByTestId('lessons-hero-multi-title').textContent,
+    ).toMatch(/3/);
+    expect(
+      screen.getByTestId('lessons-hero-cta').getAttribute('href'),
+    ).toBe('/lessons/my-active');
+  });
+
+  // ─── author ───
 
   it('author: счётчик + CTA «Open editor» → /lessons/my/<slug>/edit', () => {
     hookMock.state = {
@@ -127,17 +196,38 @@ describe('<LessonsHero>', () => {
     ).toMatch(/create/i);
   });
 
-  it('start: приветствие + CTA на якорь #level-beginner', () => {
+  // ─── start ───
+
+  it('start с beginnerSlug: CTA → /lessons/<slug>', () => {
     authMock.user = { id: 'u1', username: 'alice' };
-    hookMock.state = { kind: 'start' };
+    hookMock.state = {
+      kind: 'start',
+      beginnerSlug: 'beginner-basics',
+      beginnerTitleI18nKey: 'beginner-basics-title',
+    };
     renderWithProviders(<LessonsHero />);
     const hero = screen.getByTestId('lessons-hero');
     expect(hero.getAttribute('data-state')).toBe('start');
     expect(hero.textContent).toMatch(/alice/);
     expect(
       screen.getByTestId('lessons-hero-cta').getAttribute('href'),
+    ).toBe('/lessons/beginner-basics');
+  });
+
+  it('start без beginnerSlug: fallback CTA на якорь #level-beginner', () => {
+    authMock.user = { id: 'u1', username: 'bob' };
+    hookMock.state = {
+      kind: 'start',
+      beginnerSlug: null,
+      beginnerTitleI18nKey: null,
+    };
+    renderWithProviders(<LessonsHero />);
+    expect(
+      screen.getByTestId('lessons-hero-cta').getAttribute('href'),
     ).toBe('#level-beginner');
   });
+
+  // ─── guest ───
 
   it('guest: 2 CTA (Sign in / Create account) + Browse-link', () => {
     hookMock.state = { kind: 'guest' };

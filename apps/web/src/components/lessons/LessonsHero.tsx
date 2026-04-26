@@ -2,37 +2,82 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useLessonsHeroContext } from '../../hooks/useLessonsHeroContext';
+import type { ActiveCourseSummary } from '../../hooks/useLessonsHeroContext';
 import { useAuth } from '../../context/AuthContext';
 
 /**
- * `LessonsHero` — контекстный hero на `/lessons` (KS-1922,
- * ADR-031 §4.1). Один из 5 вариантов в зависимости от
- * `useLessonsHeroContext().state`:
+ * `LessonsHero` — контекстный hero на `/lessons`.
  *
- * - **continue (P1)** — Large card с названием курса, прогрессом
- *   и CTA «Продолжить» → `/lessons/my/<slug>`.
- * - **author (P4)** — карточка автора: «N курсов / K публичных»,
- *   CTA «Открыть редактор» (последний обновлённый курс) или
- *   «+ Создать новый» если последний обновлён > 7д назад.
- * - **start (P2)** — приветствие + CTA «Курс для начинающих» →
- *   системный курс /lessons/courses/(beginner-slug). Slug первого
- *   beginner-курса не пробрасывается через хук — линкуемся на
- *   общий якорь беginner-секции на /lessons (#level-beginner) и
- *   страница сама проскроллит.
- * - **guest (P3)** — заголовок + краткое описание + кнопки
- *   «Войти» / «Зарегистрироваться».
- * - **loading** — placeholder того же размера что `continue`,
+ * Варианты (KS-1922 → KS-1938 / KS-1931 §3.2):
+ *
+ * - **continue (B)** — ровно 1 активный курс. Большая карточка с
+ *   обложкой/плейсхолдером, прогрессом и CTA «Продолжить» →
+ *   `/lessons/<slug>` (system) или `/lessons/my/<slug>` (enrolled).
+ * - **multi (C)** — ≥2 активных курса. Компактный блок «У тебя N
+ *   курсов в работе» + ссылка на `/lessons/my-active` (страница
+ *   появится в F-4).
+ * - **author (P4)** — нет активных, но есть свои курсы. Карточка
+ *   автора + CTA «Open editor».
+ * - **start (A)** — нет активных и нет своих. Приветствие
+ *   «С возвращением, @user» + CTA «Открыть курс для начинающих» →
+ *   `/lessons/<beginnerSlug>`. Если beginner-курса нет (пустая
+ *   платформа) — fallback на якорь `#level-beginner`.
+ * - **guest (P3)** — `user === null`. Кнопки «Войти» / «Регистрация»
+ *   и ссылка на beginner-секцию.
+ * - **loading** — placeholder той же высоты что `continue`,
  *   избегаем layout shift до завершения fetch'ей.
  *
- * # Почему не делим на 5 разных компонентов
- *
- * Один компонент с условным рендером проще проследить (всё
- * содержательное в одном файле) и удобнее для skeleton-варианта
- * (loading и continue имеют одинаковый footprint). Если в KS-1925
- * стилистика разъедется на сильно разные shape'ы — выделим.
+ * Cover/placeholder для variant B по концепту §4.4: при наличии
+ * `coverUrl` — `<img>`, иначе плейсхолдер с эмодзи фигуры по
+ * уровню (♟ beginner / ♞ intermediate / ♛ advanced) или
+ * нейтральный `📘` для пользовательских (enrolled) курсов, у
+ * которых уровня нет. FEN-превью текущего шага — отдельный
+ * backend-эндпоинт, не в этой задаче.
  */
 
 const PROGRESS_FALLBACK_TOTAL = 1;
+
+const LEVEL_FIGURE: Record<string, string> = {
+  beginner: '♟',
+  intermediate: '♞',
+  advanced: '♛',
+};
+
+function ContinueCover({ course }: { course: ActiveCourseSummary }) {
+  const { t } = useTranslation();
+  if (course.coverUrl) {
+    return (
+      <div
+        className="lessons-hero__cover"
+        data-testid="lessons-hero-cover"
+        data-source={course.source}
+      >
+        <img
+          src={course.coverUrl}
+          alt={t('lessons.hero.continue.coverAlt', 'Course cover')}
+          loading="lazy"
+        />
+      </div>
+    );
+  }
+  // Fallback по концепту §4.4: эмодзи фигуры по уровню для system,
+  // 📘 для enrolled (без уровня).
+  const figure =
+    course.level && LEVEL_FIGURE[course.level]
+      ? LEVEL_FIGURE[course.level]
+      : '📘';
+  return (
+    <div
+      className="lessons-hero__cover lessons-hero__cover--placeholder"
+      data-testid="lessons-hero-cover"
+      data-source={course.source}
+      data-level={course.level ?? 'none'}
+      aria-hidden="true"
+    >
+      <span className="lessons-hero__cover-figure">{figure}</span>
+    </div>
+  );
+}
 
 export function LessonsHero() {
   const { t } = useTranslation();
@@ -58,44 +103,75 @@ export function LessonsHero() {
   if (state.kind === 'continue') {
     const c = state.course;
     const total = c.lessonCount || PROGRESS_FALLBACK_TOTAL;
-    const done = c.progress?.completedLessonsCount ?? 0;
+    const done = c.completedLessons;
     const percent = Math.min(100, Math.round((done / total) * 100));
+    const title = c.titleI18nKey
+      ? t(c.titleI18nKey, c.slug)
+      : c.title || c.slug;
     return (
       <section
         className="lessons-hero lessons-hero--continue"
         data-testid="lessons-hero"
         data-state="continue"
+        data-source={c.source}
+      >
+        <ContinueCover course={c} />
+        <div className="lessons-hero__body">
+          <div className="lessons-hero__eyebrow">
+            {t('lessons.hero.continue.eyebrow', 'Continue learning')}
+          </div>
+          <h2 className="lessons-hero__title">{title}</h2>
+          <div
+            className="lessons-hero__progress"
+            data-testid="lessons-hero-progress"
+            aria-label={t('lessons.hero.continue.progressLabel', 'Progress')}
+          >
+            <div
+              className="lessons-hero__progress-bar"
+              style={{ width: `${percent}%` }}
+            />
+            <span className="lessons-hero__progress-text">
+              {t('lessons.my.progress', {
+                done,
+                count: total,
+                defaultValue: 'Completed {{done}}/{{count}} lessons',
+              })}
+            </span>
+          </div>
+          <Link
+            to={c.href}
+            className="lessons-hero__cta"
+            data-testid="lessons-hero-cta"
+          >
+            {t('lessons.hero.continue.cta', 'Resume course')}
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  if (state.kind === 'multi') {
+    return (
+      <section
+        className="lessons-hero lessons-hero--multi"
+        data-testid="lessons-hero"
+        data-state="multi"
       >
         <div className="lessons-hero__eyebrow">
-          {t('lessons.hero.continue.eyebrow', 'Continue learning')}
+          {t('lessons.hero.multi.eyebrow', 'Continue learning')}
         </div>
-        <h2 className="lessons-hero__title">{c.title}</h2>
-        {c.description && (
-          <p className="lessons-hero__subtitle">{c.description}</p>
-        )}
-        <div
-          className="lessons-hero__progress"
-          data-testid="lessons-hero-progress"
-          aria-label={t('lessons.hero.continue.progressLabel', 'Progress')}
-        >
-          <div
-            className="lessons-hero__progress-bar"
-            style={{ width: `${percent}%` }}
-          />
-          <span className="lessons-hero__progress-text">
-            {t('lessons.my.progress', {
-              done,
-              count: total,
-              defaultValue: 'Completed {{done}}/{{count}} lessons',
-            })}
-          </span>
-        </div>
+        <h2 className="lessons-hero__title" data-testid="lessons-hero-multi-title">
+          {t('lessons.hero.multi.title', {
+            count: state.count,
+            defaultValue: 'You have {{count}} courses in progress',
+          })}
+        </h2>
         <Link
-          to={`/lessons/my/${c.slug}`}
+          to="/lessons/my-active"
           className="lessons-hero__cta"
           data-testid="lessons-hero-cta"
         >
-          {t('lessons.hero.continue.cta', 'Resume course')}
+          {t('lessons.hero.multi.cta', 'View my active courses')}
         </Link>
       </section>
     );
@@ -147,6 +223,13 @@ export function LessonsHero() {
   }
 
   if (state.kind === 'start') {
+    // CTA «Открыть курс для начинающих» → конкретный slug первого
+    // beginner-курса. Если на платформе нет beginner-курса (пустая
+    // CMS / fetch упал) — fallback на якорь `#level-beginner`,
+    // страница сама проскроллит к секции.
+    const beginnerSubtitle = state.beginnerTitleI18nKey
+      ? t(state.beginnerTitleI18nKey, state.beginnerTitleI18nKey)
+      : null;
     return (
       <section
         className="lessons-hero lessons-hero--start"
@@ -161,18 +244,29 @@ export function LessonsHero() {
           {t('lessons.hero.start.title', 'Start with the Beginner course')}
         </h2>
         <p className="lessons-hero__subtitle">
-          {t(
-            'lessons.hero.start.subtitle',
-            'A structured path through chess fundamentals.',
-          )}
+          {beginnerSubtitle ??
+            t(
+              'lessons.hero.start.subtitle',
+              'A structured path through chess fundamentals.',
+            )}
         </p>
-        <a
-          href="#level-beginner"
-          className="lessons-hero__cta"
-          data-testid="lessons-hero-cta"
-        >
-          {t('lessons.hero.start.cta', 'Browse Beginner curriculum')}
-        </a>
+        {state.beginnerSlug ? (
+          <Link
+            to={`/lessons/${state.beginnerSlug}`}
+            className="lessons-hero__cta"
+            data-testid="lessons-hero-cta"
+          >
+            {t('lessons.hero.start.cta', 'Open Beginner course')}
+          </Link>
+        ) : (
+          <a
+            href="#level-beginner"
+            className="lessons-hero__cta"
+            data-testid="lessons-hero-cta"
+          >
+            {t('lessons.hero.start.cta', 'Open Beginner course')}
+          </a>
+        )}
       </section>
     );
   }

@@ -1559,7 +1559,14 @@
       "continue": {
         "eyebrow": "Continue learning",
         "progressLabel": "Progress",
-        "cta": "Resume course"
+        "cta": "Resume course",
+        "coverAlt": "Course cover"
+      },
+      "multi": {
+        "eyebrow": "Continue learning",
+        "title_one": "You have {{count}} course in progress",
+        "title_other": "You have {{count}} courses in progress",
+        "cta": "View my active courses"
       },
       "author": {
         "eyebrow": "Your courses",
@@ -1573,7 +1580,7 @@
         "eyebrow": "Welcome back",
         "title": "Start with the Beginner course",
         "subtitle": "A structured path through chess fundamentals.",
-        "cta": "Browse Beginner curriculum"
+        "cta": "Open Beginner course"
       },
       "guest": {
         "eyebrow": "Lessons",
