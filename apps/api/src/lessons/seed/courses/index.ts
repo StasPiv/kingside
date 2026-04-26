@@ -1,5 +1,6 @@
 import type { CourseFixture } from '../fixture-types';
 import { demoCourse } from './demo';
+import { matePatternsCourse } from './mate-patterns';
 
 /**
  * Полный список курсов для накатки.
@@ -10,5 +11,9 @@ import { demoCourse } from './demo';
  *
  * `demoCourse` (KS-1793) — технический демо-курс для dev/QA. Удаляется
  * отсюда одним коммитом, когда появятся настоящие учебные курсы.
+ *
+ * `matePatternsCourse` (KS-1954) — второй системный курс для dev-стенда,
+ * чтобы можно было визуально проверить Hero Variant C (≥2 активных
+ * курсов одновременно, KS-1938). Удаляется вместе с `demoCourse`.
  */
-export const COURSES: CourseFixture[] = [demoCourse];
+export const COURSES: CourseFixture[] = [demoCourse, matePatternsCourse];
