@@ -618,6 +618,80 @@ export interface CourseRecommendationResponse {
   ratingPuzzle?: number;
 }
 
+// ─── Active courses aggregate (KS-1937) ──────────────────────────────
+//
+// `GET /api/lessons/active-courses` — один запрос вместо двух
+// (`listCourses` + `listEnrolled`) для Hero и `/lessons/my-active`.
+// Возвращает курсы пользователя с активным прогрессом
+// (`progress != null && completedAt == null`) из двух источников:
+// системных (`Course` + `UserCourseProgress`) и enrolled-чужих
+// пользовательских (`UserCourse` + `UserCoursePlayProgress`).
+//
+// Кастомные собственные курсы автора (`UserCourse where ownerId = me`)
+// в выборку НЕ попадают — концепт §3.3 не считает их «активным
+// обучением» (это редактирование автора, а не прохождение).
+//
+// Сортировка: `lastActivityAt` DESC (свежее наверху). Сам maximum
+// активных курсов на пользователя — низкий (десятки в худшем случае),
+// поэтому пагинация в MVP не предусмотрена.
+
+/** Активный системный курс (источник истины — `Course` + `UserCourseProgress`). */
+export interface ActiveSystemCourseDto extends CourseCardFields {
+  kind: 'system';
+  id: string;
+  slug: string;
+  level: CourseLevel;
+  titleI18nKey: string;
+  /** i18n-ключ описания курса (fallback к hookI18nKey/audienceI18nKey на UI). */
+  descriptionI18nKey: string;
+  lessonCount: number;
+  /** Сколько уроков курса пройдено (UserLessonProgress.completedAt != null). */
+  lessonsCompleted: number;
+  /** ISO-8601: MAX(courseProgress.updatedAt, lessonProgress.updatedAt). */
+  lastActivityAt: string;
+  /** Первый незавершённый урок курса по `order` ASC. */
+  currentLessonSlug: string | null;
+  currentLessonTitleI18nKey: string | null;
+  currentLessonOrder: number | null;
+}
+
+/**
+ * Активный enrolled-курс — чужой пользовательский курс, который текущий
+ * юзер начал проходить. Источник — `UserCourse` + `UserCoursePlayProgress`.
+ *
+ * У `UserCourse` нет `level` / `i18nKey`-ов; заголовок хранится строкой.
+ * Поля `CourseCardFields` (`coverUrl`/`difficulty`/`tags`/...) сейчас
+ * пустые — у пользовательских курсов в БД таких колонок нет (KS-1935).
+ */
+export interface ActiveEnrolledCourseDto {
+  kind: 'enrolled';
+  id: string;
+  slug: string;
+  /** Заголовок курса как сырая строка (UserCourse.title). */
+  title: string;
+  /** Описание курса (UserCourse.description), может быть null. */
+  description: string | null;
+  /** Автор курса — для подписи «от @username» в карточке. */
+  ownerId: string;
+  lessonCount: number;
+  /** UserCoursePlayProgress.completedLessonsCount. */
+  lessonsCompleted: number;
+  /** ISO-8601: UserCoursePlayProgress.lastActivityAt. */
+  lastActivityAt: string;
+  /** Первый незавершённый урок курса по `order` ASC (UserLesson.id). */
+  currentLessonSlug: string | null;
+  currentLessonTitle: string | null;
+  currentLessonOrder: number | null;
+}
+
+/** Дискриминированный union: фронт сужает по `kind`. */
+export type ActiveCourseDto = ActiveSystemCourseDto | ActiveEnrolledCourseDto;
+
+/** GET /api/lessons/active-courses. */
+export interface ActiveCoursesResponse {
+  data: ActiveCourseDto[];
+}
+
 // ─── SM-2 Reviews (L-22 / KS-1799, shared contract KS-1809) ──────────
 //
 // Источник правил — ADR-025. `LessonReview` планируется `Sm2Service` и
