@@ -269,4 +269,78 @@ describe('ActiveCoursesService (KS-1937)', () => {
       }),
     );
   });
+
+  // ─── KS-1966: inline-поля в ActiveSystemCourseDto ──────────────────
+
+  it('system: маппит inline-поля курса (title/description/audience/hook/outcome)', async () => {
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      {
+        userId,
+        courseId: 'sys-1',
+        startedAt: new Date('2026-04-10T00:00:00Z'),
+        completedAt: null,
+        currentLessonId: null,
+        updatedAt: new Date('2026-04-15T00:00:00Z'),
+        course: {
+          id: 'sys-1',
+          slug: 'beginner',
+          level: 'beginner',
+          titleKey: 'c.title.key',
+          descriptionKey: 'c.desc.key',
+          isPublished: true,
+          coverUrl: null,
+          difficulty: 2,
+          estimatedMinutes: null,
+          audienceI18nKey: 'c.audience.key',
+          hookI18nKey: 'c.hook.key',
+          outcomeI18nKey: 'c.outcome.key',
+          tags: [],
+          title: 'Inline title',
+          description: 'Inline desc',
+          audience: 'Inline audience',
+          hook: 'Inline hook',
+          outcome: 'Inline outcome',
+          _count: { lessons: 0 },
+          lessons: [],
+        },
+      },
+    ]);
+    prisma.userLessonProgress.findMany.mockResolvedValue([]);
+    const r = await service.listActiveCourses(userId);
+    const item = r.data[0];
+    if (item.kind !== 'system') throw new Error('expected system');
+    expect(item.title).toBe('Inline title');
+    expect(item.description).toBe('Inline desc');
+    expect(item.audience).toBe('Inline audience');
+    expect(item.hook).toBe('Inline hook');
+    expect(item.outcome).toBe('Inline outcome');
+    // i18n-ключи рядом — fallback на FE.
+    expect(item.titleI18nKey).toBe('c.title.key');
+    expect(item.audienceI18nKey).toBe('c.audience.key');
+  });
+
+  it('system: пустой inline → null (FE использует i18nKey)', async () => {
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      {
+        userId, courseId: 'sys-1', startedAt: new Date(), completedAt: null,
+        currentLessonId: null, updatedAt: new Date(),
+        course: {
+          id: 'sys-1', slug: 'beginner', level: 'beginner',
+          titleKey: 'c.title.key', descriptionKey: 'c.desc.key',
+          isPublished: true, coverUrl: null, difficulty: 2, estimatedMinutes: null,
+          audienceI18nKey: null, hookI18nKey: null, outcomeI18nKey: null, tags: [],
+          title: null, description: null, audience: null, hook: null, outcome: null,
+          _count: { lessons: 0 }, lessons: [],
+        },
+      },
+    ]);
+    const r = await service.listActiveCourses(userId);
+    const item = r.data[0];
+    if (item.kind !== 'system') throw new Error('expected system');
+    expect(item.title).toBeNull();
+    expect(item.description).toBeNull();
+    expect(item.audience).toBeNull();
+    expect(item.hook).toBeNull();
+    expect(item.outcome).toBeNull();
+  });
 });

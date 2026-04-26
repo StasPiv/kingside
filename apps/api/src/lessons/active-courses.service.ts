@@ -129,6 +129,13 @@ export class ActiveCoursesService {
         hookI18nKey: c.hookI18nKey,
         outcomeI18nKey: c.outcomeI18nKey,
         tags: c.tags,
+        // KS-1964/KS-1966 (Admin API B-4): inline-поля курса. FE приоритет
+        // над i18n-ключами; null здесь = нет inline → UI берёт *I18nKey.
+        title: c.title,
+        description: c.description,
+        audience: c.audience,
+        hook: c.hook,
+        outcome: c.outcome,
         lessonCount: c._count.lessons,
         lessonsCompleted,
         lastActivityAt: lastActivity.toISOString(),

@@ -472,3 +472,142 @@ describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)'
     expect(p.lastActivityAt).toBe('2026-04-23T00:00:00.000Z');
   });
 });
+
+// ── KS-1966 (Admin API B-4): inline-поля в публичных DTO ───────────────
+
+describe('CoursesService — inline fields mapping (KS-1964/KS-1966)', () => {
+  let service: CoursesService;
+  let prisma: any;
+
+  function baseCourseRow(overrides: Partial<Record<string, unknown>> = {}) {
+    return {
+      id: 'c1',
+      slug: 'beginner',
+      level: 'beginner',
+      titleKey: 'c.title',
+      descriptionKey: 'c.desc',
+      order: 0,
+      isPublished: true,
+      coverUrl: null,
+      difficulty: 2,
+      estimatedMinutes: null,
+      audienceI18nKey: 'c.audience.key',
+      hookI18nKey: 'c.hook.key',
+      outcomeI18nKey: 'c.outcome.key',
+      tags: [],
+      title: null,
+      description: null,
+      audience: null,
+      hook: null,
+      outcome: null,
+      createdAt: new Date('2026-04-01T00:00:00Z'),
+      updatedAt: new Date('2026-04-01T00:00:00Z'),
+      _count: { lessons: 0 },
+      lessons: [],
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    prisma = {
+      user: { findUnique: jest.fn() },
+      course: { findMany: jest.fn(), findUnique: jest.fn() },
+      userCourseProgress: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn() },
+      userLessonProgress: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn() },
+      lessonReview: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    service = new CoursesService(prisma);
+  });
+
+  it('listCourses: с заполненным inline → отдаёт inline + i18nKey рядом (FE сам решит)', async () => {
+    prisma.course.findMany.mockResolvedValue([
+      baseCourseRow({
+        title: 'Капабланка для начинающих',
+        description: 'Курс по основам шахмат',
+        audience: 'Новички',
+        hook: 'Откроешь правила и базовые тактики',
+        outcome: 'Сыграешь первую партию без зевков',
+      }),
+    ]);
+    const res = await service.listCourses(null);
+    const item = res.data[0] as any;
+
+    expect(item.title).toBe('Капабланка для начинающих');
+    expect(item.description).toBe('Курс по основам шахмат');
+    expect(item.audience).toBe('Новички');
+    expect(item.hook).toBe('Откроешь правила и базовые тактики');
+    expect(item.outcome).toBe('Сыграешь первую партию без зевков');
+    // i18n-ключи остаются на месте — fallback на FE.
+    expect(item.titleI18nKey).toBe('c.title');
+    expect(item.audienceI18nKey).toBe('c.audience.key');
+  });
+
+  it('listCourses: пустой inline → null (FE сделает fallback на i18nKey)', async () => {
+    prisma.course.findMany.mockResolvedValue([baseCourseRow()]);
+    const res = await service.listCourses(null);
+    const item = res.data[0] as any;
+
+    expect(item.title).toBeNull();
+    expect(item.description).toBeNull();
+    expect(item.audience).toBeNull();
+    expect(item.hook).toBeNull();
+    expect(item.outcome).toBeNull();
+    expect(item.titleI18nKey).toBe('c.title');
+    expect(item.audienceI18nKey).toBe('c.audience.key');
+  });
+
+  it('getCourseBySlug: маппит inline для course и для lessons', async () => {
+    prisma.course.findUnique.mockResolvedValue(
+      baseCourseRow({
+        title: 'Inline title',
+        description: 'Inline desc',
+        audience: 'Inline audience',
+        hook: 'Inline hook',
+        outcome: 'Inline outcome',
+        lessons: [
+          {
+            id: 'L1',
+            slug: 'l-1',
+            order: 0,
+            blockKey: 'block',
+            kind: 'theory',
+            titleKey: 'L1.title',
+            summaryKey: 'L1.summary',
+            isPublished: true,
+            title: 'Урок 1',
+            summary: 'Краткий конспект',
+            _count: { steps: 1 },
+          },
+          {
+            id: 'L2',
+            slug: 'l-2',
+            order: 1,
+            blockKey: 'block',
+            kind: 'theory',
+            titleKey: 'L2.title',
+            summaryKey: 'L2.summary',
+            isPublished: true,
+            title: null,
+            summary: null,
+            _count: { steps: 1 },
+          },
+        ],
+      }),
+    );
+
+    const res = await service.getCourseBySlug('beginner', null);
+
+    expect((res.course as any).title).toBe('Inline title');
+    expect((res.course as any).audience).toBe('Inline audience');
+    expect((res.course as any).hook).toBe('Inline hook');
+    expect((res.course as any).outcome).toBe('Inline outcome');
+
+    expect(res.lessons[0].title).toBe('Урок 1');
+    expect(res.lessons[0].summary).toBe('Краткий конспект');
+    expect(res.lessons[0].titleI18nKey).toBe('L1.title');
+
+    expect(res.lessons[1].title).toBeNull();
+    expect(res.lessons[1].summary).toBeNull();
+    expect(res.lessons[1].titleI18nKey).toBe('L2.title');
+  });
+});

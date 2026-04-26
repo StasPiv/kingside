@@ -150,6 +150,14 @@ export class CoursesService {
         hookI18nKey: c.hookI18nKey,
         outcomeI18nKey: c.outcomeI18nKey,
         tags: c.tags,
+        // KS-1964/KS-1966 (Admin API B-4): inline-поля. Передаём как есть;
+        // FE сам делает `inline ?? t(i18nKey)`. null здесь = нет inline,
+        // UI показывает результат i18n-ключа.
+        title: c.title,
+        description: c.description,
+        audience: c.audience,
+        hook: c.hook,
+        outcome: c.outcome,
         order: c.order,
         lessonCount: c._count.lessons,
         progress: progressDto,
@@ -233,6 +241,10 @@ export class CoursesService {
         kind: l.kind as LessonKind,
         titleI18nKey: l.titleKey,
         summaryI18nKey: l.summaryKey,
+        // KS-1964/KS-1966 (Admin API B-4): inline-поля урока. FE
+        // приоритет: `lesson.title ?? t(lesson.titleI18nKey)`.
+        title: l.title,
+        summary: l.summary,
         stepCount: l._count.steps,
         progressState: state,
       };
@@ -301,6 +313,13 @@ export class CoursesService {
         hookI18nKey: course.hookI18nKey,
         outcomeI18nKey: course.outcomeI18nKey,
         tags: course.tags,
+        // KS-1964/KS-1966 (Admin API B-4): inline-поля. FE приоритет
+        // `course.title ?? t(course.titleI18nKey)` и т. д.
+        title: course.title,
+        description: course.description,
+        audience: course.audience,
+        hook: course.hook,
+        outcome: course.outcome,
         order: course.order,
         isPublished: course.isPublished,
         lessonCount: course.lessons.length,
