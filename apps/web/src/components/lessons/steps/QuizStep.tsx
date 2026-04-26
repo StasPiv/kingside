@@ -185,7 +185,11 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
               data-correct={state.correct == null ? '' : String(state.correct)}
             >
               <p className="lesson-quiz-question__prompt">
-                {resolveI18n(t, q.promptI18nKey)}
+                {/* KS-1981: inline `q.prompt` > `t(promptI18nKey)`.
+                    Если ни inline, ни перевода в словаре — отдаём
+                    `quizMissingTranslation` как раньше: пользователь
+                    видит понятный плейсхолдер, а не сырой ключ. */}
+                {resolveQuizText(t, q.prompt, q.promptI18nKey)}
               </p>
 
               {q.fen && (
@@ -224,7 +228,9 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
                           disabled={state.phase === 'checked'}
                           onChange={() => toggleOption(qIdx, opt.id)}
                         />
-                        <span>{resolveI18n(t, opt.labelI18nKey)}</span>
+                        <span>
+                          {resolveQuizText(t, opt.label, opt.labelI18nKey)}
+                        </span>
                       </label>
                     </li>
                   );
@@ -253,10 +259,10 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
                   {state.correct
                     ? t('lessons.quizQuestionCorrect', 'Correct')
                     : t('lessons.quizQuestionWrong', 'Not quite')}
-                  {q.explanationI18nKey && (
+                  {(q.explanation || q.explanationI18nKey) && (
                     <span className="lesson-quiz-question__explanation">
                       {' — '}
-                      {resolveI18n(t, q.explanationI18nKey)}
+                      {resolveQuizText(t, q.explanation, q.explanationI18nKey)}
                     </span>
                   )}
                 </p>
@@ -314,25 +320,30 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
 export { isAnswerCorrect };
 
 /**
- * Резолв i18n-ключа с защитой от показа сырого ключа в UI (KS-1782).
- * Backend (L-14b) кладёт quiz prompts/options/explanations в
- * `apps/api/src/i18n/<lng>/lessons.json`, но фронтовая версия словарей
- * пока не подгружается оттуда (см. KS-1782 — динамическая загрузка
- * через эндпоинт ещё не сделана). До её появления `t(key, key)` показывал
- * пользователю сырой ключ, что блокирует прохождение quiz.
+ * KS-1981: резолв quiz-текста по контракту KS-1965/KS-1980 — inline >
+ * i18nKey. До этого был `resolveI18n(t, key)`, который при отсутствии
+ * перевода в FE-словаре показывал плейсхолдер «— перевод временно
+ * недоступен —» (KS-1782). Backend KS-1980 теперь кладёт inline-поля
+ * (`prompt`/`label`/`explanation`) в payload — фронт берёт их в
+ * приоритете и фолбэчится на i18nKey, как делает `resolveInlineText`.
  *
- * Логика: пробуем перевести ключ. Если результат равен исходному ключу
- * (i18next возвращает key при отсутствии перевода) — возвращаем
- * читаемый плейсхолдер вместо ключа.
+ * Поведение при отсутствии и inline, и перевода:
+ *  - Если ключ задан и перевода в словаре НЕТ — i18next вернёт сам ключ.
+ *    Это считается «нет перевода»; для quiz это значимо (опции вроде
+ *    «32»/«49» — без словаря тут UX лучше, если показать «нет перевода»,
+ *    чем кривой ключ).
+ *  - Если и inline, и ключа нет — пустая строка.
  */
-function resolveI18n(
+function resolveQuizText(
   t: (key: string, options?: Record<string, unknown>) => string,
+  inline: string | null | undefined,
   key: string | undefined,
 ): string {
+  if (inline != null && inline !== '') return inline;
   if (!key) return '';
   const translated = t(key);
   if (translated === key) {
-    // i18next вернул сам ключ → перевод отсутствует.
+    // i18next вернул сам ключ → перевода нет.
     return t('lessons.quizMissingTranslation', '— перевод временно недоступен —');
   }
   return translated;
