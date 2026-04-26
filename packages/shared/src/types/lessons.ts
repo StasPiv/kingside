@@ -372,11 +372,44 @@ export interface CourseCardFields {
 }
 
 /**
+ * KS-1964/KS-1965 (Admin API B-2/B-3): inline-поля курса. Источник —
+ * новые колонки `Course.{title,description,audience,hook,outcome}` в
+ * Prisma. Заполняются админкой; имеют **приоритет** над i18n-ключами
+ * (`titleKey`, `descriptionKey`, `audience/hook/outcomeI18nKey`),
+ * которые остаются как fallback для seed-курсов и совместимости.
+ *
+ * Контракт для UI:
+ * ```
+ * const title = course.title ?? t(course.titleI18nKey);
+ * const description = course.description ?? t(course.descriptionI18nKey);
+ * const audience = course.audience ?? (course.audienceI18nKey ? t(course.audienceI18nKey) : null);
+ * // и т. д. для hook / outcome
+ * ```
+ *
+ * Inline-поля nullable: `null` → fallback на i18n-ключ. `undefined` (на
+ * клиенте до парсинга/обновления) — обрабатывать так же, как `null`.
+ */
+export interface CourseInlineFields {
+  /** Inline-заголовок курса. Приоритет над `titleI18nKey`. */
+  title?: string | null;
+  /** Inline-описание курса. Приоритет над `descriptionI18nKey`. */
+  description?: string | null;
+  /** Inline «для кого». Приоритет над `audienceI18nKey`. */
+  audience?: string | null;
+  /** Inline «что научишься». Приоритет над `hookI18nKey`. */
+  hook?: string | null;
+  /** Inline «что в финале». Приоритет над `outcomeI18nKey`. */
+  outcome?: string | null;
+}
+
+/**
  * Курс. Поля соответствуют Prisma-модели `Course` (см. lessons-module.md §2.1
  * и будущую миграцию L-03). `titleI18nKey` / `descriptionI18nKey` —
- * ссылки на словари i18n (тексты не хранятся в БД).
+ * ссылки на словари i18n. Параллельно поддерживаются inline-поля
+ * (`CourseInlineFields`, KS-1964/B-3): admin API заполняет их строкой,
+ * UI берёт inline в приоритете и использует i18n-ключ как fallback.
  */
-export interface Course extends CourseCardFields {
+export interface Course extends CourseCardFields, CourseInlineFields {
   id: string;
   slug: string;
   level: CourseLevel;
@@ -391,11 +424,29 @@ export interface Course extends CourseCardFields {
 }
 
 /**
+ * KS-1964/KS-1965 (Admin API B-2/B-3): inline-поля урока. Источник —
+ * новые колонки `Lesson.{title,summary}`. Имеют приоритет над
+ * `titleI18nKey` / `summaryI18nKey`, которые остаются как fallback.
+ *
+ * Контракт для UI:
+ * ```
+ * const title = lesson.title ?? t(lesson.titleI18nKey);
+ * const summary = lesson.summary ?? t(lesson.summaryI18nKey);
+ * ```
+ */
+export interface LessonInlineFields {
+  /** Inline-заголовок урока. Приоритет над `titleI18nKey`. */
+  title?: string | null;
+  /** Inline-summary урока. Приоритет над `summaryI18nKey`. */
+  summary?: string | null;
+}
+
+/**
  * Урок. `payload` урока — параметры высокого уровня (например, подборка
  * `puzzleIds` на уровне всего урока); детализация — в `LessonStep.payload`.
  * Семантика `payload` зависит от `kind` и фиксируется отдельно в ADR-024.
  */
-export interface Lesson {
+export interface Lesson extends LessonInlineFields {
   id: string;
   courseId: string;
   slug: string;
@@ -476,7 +527,7 @@ export interface UserLessonProgress {
 // имён/полей — ответственность shared-пакета.
 
 /** GET /api/lessons/courses — список курсов (без уроков). */
-export interface CourseListItem extends CourseCardFields {
+export interface CourseListItem extends CourseCardFields, CourseInlineFields {
   id: string;
   slug: string;
   level: CourseLevel;
@@ -521,7 +572,7 @@ export interface CourseWithLessonsResponse {
 }
 
 /** Короткая сводка урока для `CoursePage`. */
-export interface CourseLessonSummary {
+export interface CourseLessonSummary extends LessonInlineFields {
   id: string;
   slug: string;
   order: number;
@@ -636,7 +687,7 @@ export interface CourseRecommendationResponse {
 // поэтому пагинация в MVP не предусмотрена.
 
 /** Активный системный курс (источник истины — `Course` + `UserCourseProgress`). */
-export interface ActiveSystemCourseDto extends CourseCardFields {
+export interface ActiveSystemCourseDto extends CourseCardFields, CourseInlineFields {
   kind: 'system';
   id: string;
   slug: string;
