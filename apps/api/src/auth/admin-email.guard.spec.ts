@@ -21,11 +21,14 @@ describe('parseAdminEmails (KS-1963)', () => {
   });
 });
 
-describe('AdminEmailGuard (KS-1963)', () => {
+describe('AdminEmailGuard (KS-1963 / KS-1977)', () => {
   let prisma: { user: { findUnique: jest.Mock } };
+  let config: { get: jest.Mock };
   let guard: AdminEmailGuard;
-  const ENV_KEY = 'LESSON_ADMIN_EMAILS';
-  const originalEnv = process.env[ENV_KEY];
+  // KS-1977: вместо записи в `process.env` управляем mock'ом
+  // ConfigService — guard теперь читает значение через
+  // `configService.get('LESSON_ADMIN_EMAILS')`.
+  let envValue: string | undefined;
 
   function buildContext(userId: string | null | undefined): ExecutionContext {
     return {
@@ -38,18 +41,19 @@ describe('AdminEmailGuard (KS-1963)', () => {
 
   beforeEach(() => {
     prisma = { user: { findUnique: jest.fn() } };
-    guard = new AdminEmailGuard(prisma as never);
-  });
-
-  afterEach(() => {
-    if (originalEnv === undefined) delete process.env[ENV_KEY];
-    else process.env[ENV_KEY] = originalEnv;
+    envValue = undefined;
+    config = {
+      get: jest.fn((key: string) =>
+        key === 'LESSON_ADMIN_EMAILS' ? envValue : undefined,
+      ),
+    };
+    guard = new AdminEmailGuard(prisma as never, config as never);
   });
 
   // ─── Auth precondition ─────────────────────────────────────────────
 
   it('без req.user → UnauthorizedException (JwtAuthGuard должен отработать раньше)', async () => {
-    process.env[ENV_KEY] = 'admin@kingside.app';
+    envValue = 'admin@kingside.app';
     await expect(guard.canActivate(buildContext(undefined))).rejects.toThrow(
       UnauthorizedException,
     );
@@ -58,7 +62,7 @@ describe('AdminEmailGuard (KS-1963)', () => {
   // ─── ENV пустая → deny ─────────────────────────────────────────────
 
   it('ENV не задана → Forbidden ("Admin access disabled")', async () => {
-    delete process.env[ENV_KEY];
+    envValue = undefined;
     await expect(guard.canActivate(buildContext('u1'))).rejects.toThrow(
       ForbiddenException,
     );
@@ -66,7 +70,7 @@ describe('AdminEmailGuard (KS-1963)', () => {
   });
 
   it('ENV = "" → Forbidden', async () => {
-    process.env[ENV_KEY] = '';
+    envValue = '';
     await expect(guard.canActivate(buildContext('u1'))).rejects.toThrow(
       ForbiddenException,
     );
@@ -74,7 +78,7 @@ describe('AdminEmailGuard (KS-1963)', () => {
   });
 
   it('ENV = "  ,  " (одни запятые-пробелы) → Forbidden', async () => {
-    process.env[ENV_KEY] = '  ,  ';
+    envValue = '  ,  ';
     await expect(guard.canActivate(buildContext('u1'))).rejects.toThrow(
       ForbiddenException,
     );
@@ -84,13 +88,13 @@ describe('AdminEmailGuard (KS-1963)', () => {
   // ─── Wildcard → allow всех ─────────────────────────────────────────
 
   it('ENV = "*" → allow без подгрузки email из БД (dev wildcard)', async () => {
-    process.env[ENV_KEY] = '*';
+    envValue = '*';
     await expect(guard.canActivate(buildContext('u1'))).resolves.toBe(true);
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
 
   it('ENV = "x@y.com,*,z@w.com" — wildcard в списке тоже триггерится', async () => {
-    process.env[ENV_KEY] = 'x@y.com,*,z@w.com';
+    envValue = 'x@y.com,*,z@w.com';
     await expect(guard.canActivate(buildContext('u1'))).resolves.toBe(true);
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
@@ -98,7 +102,7 @@ describe('AdminEmailGuard (KS-1963)', () => {
   // ─── Конкретные email (case-insensitive) ───────────────────────────
 
   it('email пользователя точно в whitelist → allow', async () => {
-    process.env[ENV_KEY] = 'admin@kingside.app, foo@bar.com';
+    envValue = 'admin@kingside.app, foo@bar.com';
     prisma.user.findUnique.mockResolvedValue({ email: 'admin@kingside.app' });
     await expect(guard.canActivate(buildContext('u1'))).resolves.toBe(true);
     expect(prisma.user.findUnique).toHaveBeenCalledWith({
@@ -108,19 +112,19 @@ describe('AdminEmailGuard (KS-1963)', () => {
   });
 
   it('email пользователя в верхнем регистре, в ENV — в нижнем → allow', async () => {
-    process.env[ENV_KEY] = 'admin@kingside.app';
+    envValue = 'admin@kingside.app';
     prisma.user.findUnique.mockResolvedValue({ email: 'Admin@KingSide.App' });
     await expect(guard.canActivate(buildContext('u1'))).resolves.toBe(true);
   });
 
   it('email в ENV в верхнем регистре, у пользователя в нижнем → allow', async () => {
-    process.env[ENV_KEY] = 'ADMIN@KINGSIDE.APP';
+    envValue = 'ADMIN@KINGSIDE.APP';
     prisma.user.findUnique.mockResolvedValue({ email: 'admin@kingside.app' });
     await expect(guard.canActivate(buildContext('u1'))).resolves.toBe(true);
   });
 
   it('email пользователя НЕ в whitelist → Forbidden', async () => {
-    process.env[ENV_KEY] = 'admin@kingside.app, foo@bar.com';
+    envValue = 'admin@kingside.app, foo@bar.com';
     prisma.user.findUnique.mockResolvedValue({ email: 'random@user.com' });
     await expect(guard.canActivate(buildContext('u1'))).rejects.toThrow(
       ForbiddenException,
@@ -128,7 +132,7 @@ describe('AdminEmailGuard (KS-1963)', () => {
   });
 
   it('у пользователя нет email в БД (NULL) → Forbidden', async () => {
-    process.env[ENV_KEY] = 'admin@kingside.app';
+    envValue = 'admin@kingside.app';
     prisma.user.findUnique.mockResolvedValue({ email: null });
     await expect(guard.canActivate(buildContext('u1'))).rejects.toThrow(
       ForbiddenException,
@@ -136,7 +140,7 @@ describe('AdminEmailGuard (KS-1963)', () => {
   });
 
   it('пользователь не найден в БД → Forbidden', async () => {
-    process.env[ENV_KEY] = 'admin@kingside.app';
+    envValue = 'admin@kingside.app';
     prisma.user.findUnique.mockResolvedValue(null);
     await expect(guard.canActivate(buildContext('u1'))).rejects.toThrow(
       ForbiddenException,

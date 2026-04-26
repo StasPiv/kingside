@@ -5,6 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 
@@ -32,10 +33,19 @@ import { AuthenticatedRequest } from '../common/authenticated-request';
  * `JwtStrategy.validate` email не возвращается, и тащить его в JWT
  * ради админ-роутов — лишняя инвалидация существующих токенов
  * пользователей. Один SELECT по PK — дёшево.
+ *
+ * KS-1977: значение `LESSON_ADMIN_EMAILS` читаем через `ConfigService`,
+ * а не напрямую из `process.env`. Причина — `ConfigService` пере-
+ * инициализируется при `nest --watch`-рестарте после правки `.env`,
+ * тогда как `process.env.<KEY>`, однажды попавший в run-time, не
+ * обновляется dotenv'ом без полного kill+start процесса.
  */
 @Injectable()
 export class AdminEmailGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -46,7 +56,9 @@ export class AdminEmailGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    const whitelist = parseAdminEmails(process.env.LESSON_ADMIN_EMAILS);
+    const whitelist = parseAdminEmails(
+      this.config.get<string>('LESSON_ADMIN_EMAILS'),
+    );
     if (whitelist.length === 0) {
       throw new ForbiddenException('Admin access disabled');
     }
