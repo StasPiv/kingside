@@ -79,6 +79,10 @@ function systemCourse(opts: {
     lessonsCompleted: number;
     startedAt: string;
     completedAt: string | null;
+    lastActivityAt?: string;
+    currentLessonSlug?: string | null;
+    currentLessonTitleI18nKey?: string | null;
+    currentLessonOrder?: number | null;
   } | null;
   coverUrl?: string | null;
 }) {
@@ -95,6 +99,16 @@ function systemCourse(opts: {
       ? {
           ...opts.progress,
           currentLessonId: null,
+          // KS-1955: новые поля прогресса. По умолчанию заполняем
+          // корректными значениями, тесты могут переопределить.
+          lastActivityAt:
+            opts.progress.lastActivityAt ?? opts.progress.startedAt,
+          currentLessonSlug:
+            opts.progress.currentLessonSlug ?? null,
+          currentLessonTitleI18nKey:
+            opts.progress.currentLessonTitleI18nKey ?? null,
+          currentLessonOrder:
+            opts.progress.currentLessonOrder ?? null,
         }
       : opts.progress, // null или undefined
   };
@@ -107,6 +121,9 @@ function enrolledCourse(opts: {
   lessonCount?: number;
   completedLessonsCount?: number;
   coverUrl?: string | null;
+  currentLessonSlug?: string | null;
+  currentLessonTitle?: string | null;
+  currentLessonOrder?: number | null;
 }) {
   return {
     id: `e-${opts.slug}`,
@@ -125,6 +142,10 @@ function enrolledCourse(opts: {
       startedAt: '2026-04-01T00:00:00Z',
       lastActivityAt: opts.lastActivityAt,
       completedAt: opts.completedAt ?? null,
+      // KS-1955: новые поля.
+      currentLessonSlug: opts.currentLessonSlug ?? null,
+      currentLessonTitle: opts.currentLessonTitle ?? null,
+      currentLessonOrder: opts.currentLessonOrder ?? null,
     },
   };
 }
@@ -298,6 +319,70 @@ describe('useLessonsHeroContext', () => {
     expect(result.current.state.course.level).toBe('beginner');
     expect(result.current.state.course.completedLessons).toBe(3);
     expect(result.current.state.course.href).toBe('/lessons/beginner-basics');
+  });
+
+  // ─── KS-1955 / KS-1938: проброс новых полей progress ───
+
+  it('continue (system): currentLesson* и lastActivityAt пробрасываются в state', async () => {
+    authMock.user = { id: 'u1', username: 'me' };
+    lessonsApiMock.listCourses.mockResolvedValue({
+      data: [
+        systemCourse({
+          slug: 'beginner-basics',
+          level: 'beginner',
+          lessonCount: 8,
+          progress: {
+            lessonsCompleted: 4,
+            startedAt: '2026-04-10T00:00:00Z',
+            completedAt: null,
+            lastActivityAt: '2026-04-25T00:00:00Z',
+            currentLessonSlug: 'king-pawn',
+            currentLessonTitleI18nKey: 'king-pawn-title',
+            currentLessonOrder: 5,
+          },
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useLessonsHeroContext());
+    await waitFor(() => expect(result.current.state.kind).toBe('continue'));
+    if (result.current.state.kind !== 'continue') throw new Error('!continue');
+    expect(result.current.state.course.lastActivityAt).toBe(
+      '2026-04-25T00:00:00Z',
+    );
+    expect(result.current.state.course.currentLessonSlug).toBe('king-pawn');
+    expect(result.current.state.course.currentLessonTitleI18nKey).toBe(
+      'king-pawn-title',
+    );
+    expect(result.current.state.course.currentLessonTitle).toBeNull();
+    expect(result.current.state.course.currentLessonOrder).toBe(5);
+  });
+
+  it('continue (enrolled): currentLessonTitle (без i18n) и lastActivityAt в state', async () => {
+    authMock.user = { id: 'u1', username: 'me' };
+    userCoursesApiMock.listEnrolled.mockResolvedValue({
+      data: [
+        enrolledCourse({
+          slug: 'caro-kann',
+          lastActivityAt: '2026-04-22T00:00:00Z',
+          completedLessonsCount: 2,
+          lessonCount: 4,
+          currentLessonSlug: 'main-line',
+          currentLessonTitle: 'Главный вариант',
+          currentLessonOrder: 3,
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useLessonsHeroContext());
+    await waitFor(() => expect(result.current.state.kind).toBe('continue'));
+    if (result.current.state.kind !== 'continue') throw new Error('!continue');
+    expect(result.current.state.course.lastActivityAt).toBe(
+      '2026-04-22T00:00:00Z',
+    );
+    expect(result.current.state.course.currentLessonTitle).toBe(
+      'Главный вариант',
+    );
+    expect(result.current.state.course.currentLessonTitleI18nKey).toBeNull();
+    expect(result.current.state.course.currentLessonOrder).toBe(3);
   });
 
   it('continue: завершённые курсы (completedAt != null) НЕ считаются активными', async () => {

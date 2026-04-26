@@ -1576,7 +1576,20 @@
         "eyebrow": "Продолжить",
         "progressLabel": "Прогресс",
         "cta": "Продолжить курс",
-        "coverAlt": "Обложка курса"
+        "coverAlt": "Обложка курса",
+        "lessonOf": "Урок {{order}} из {{total}} — {{title}}",
+        "lastActivity": "Последняя активность: {{value}}",
+        "relative": {
+          "lessHour": "меньше часа назад",
+          "hours_one": "{{count}} час назад",
+          "hours_few": "{{count}} часа назад",
+          "hours_many": "{{count}} часов назад",
+          "hours_other": "{{count}} часов назад",
+          "days_one": "{{count}} день назад",
+          "days_few": "{{count}} дня назад",
+          "days_many": "{{count}} дней назад",
+          "days_other": "{{count}} дней назад"
+        }
       },
       "multi": {
         "eyebrow": "Продолжить",

@@ -1560,7 +1560,16 @@
         "eyebrow": "Continue learning",
         "progressLabel": "Progress",
         "cta": "Resume course",
-        "coverAlt": "Course cover"
+        "coverAlt": "Course cover",
+        "lessonOf": "Lesson {{order}} of {{total}} — {{title}}",
+        "lastActivity": "Last activity: {{value}}",
+        "relative": {
+          "lessHour": "less than an hour ago",
+          "hours_one": "{{count}} hour ago",
+          "hours_other": "{{count}} hours ago",
+          "days_one": "{{count}} day ago",
+          "days_other": "{{count}} days ago"
+        }
       },
       "multi": {
         "eyebrow": "Continue learning",

@@ -71,6 +71,10 @@ describe('<LessonsHero>', () => {
         lessonCount: 4,
         completedLessons: 2,
         lastActivityAt: '2026-04-10',
+        currentLessonSlug: null,
+        currentLessonTitleI18nKey: null,
+        currentLessonTitle: null,
+        currentLessonOrder: null,
         href: '/lessons/my/caro-kann',
       },
     };
@@ -99,6 +103,10 @@ describe('<LessonsHero>', () => {
         lessonCount: 8,
         completedLessons: 3,
         lastActivityAt: '2026-04-10',
+        currentLessonSlug: null,
+        currentLessonTitleI18nKey: null,
+        currentLessonTitle: null,
+        currentLessonOrder: null,
         href: '/lessons/beginner-basics',
       },
     };
@@ -127,6 +135,10 @@ describe('<LessonsHero>', () => {
         lessonCount: 4,
         completedLessons: 1,
         lastActivityAt: '2026-04-10',
+        currentLessonSlug: null,
+        currentLessonTitleI18nKey: null,
+        currentLessonTitle: null,
+        currentLessonOrder: null,
         href: '/lessons/my/x',
       },
     };
@@ -135,6 +147,104 @@ describe('<LessonsHero>', () => {
     const img = cover.querySelector('img');
     expect(img).not.toBeNull();
     expect(img?.getAttribute('src')).toBe('https://cdn/x.jpg');
+  });
+
+  // ─── KS-1955 / KS-1938 §7.2: «Урок N из M — название» + «N дней назад» ───
+
+  it('continue (system): рендерит «Урок N из M — <title>» (через i18n) и «Last activity»', () => {
+    // Фиксируем «сейчас» = 2026-04-26, lastActivityAt = 2026-04-23 → 3 дня.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-26T12:00:00Z'));
+    hookMock.state = {
+      kind: 'continue',
+      course: {
+        source: 'system',
+        id: 's1',
+        slug: 'beginner-basics',
+        title: '',
+        titleI18nKey: 'beginner-basics-title',
+        level: 'beginner',
+        coverUrl: null,
+        lessonCount: 8,
+        completedLessons: 4,
+        lastActivityAt: '2026-04-23T12:00:00Z',
+        currentLessonSlug: 'king-pawn',
+        currentLessonTitleI18nKey: 'king-pawn-title',
+        currentLessonTitle: null,
+        currentLessonOrder: 5,
+        href: '/lessons/beginner-basics',
+      },
+    };
+    renderWithProviders(<LessonsHero />);
+    const lessonOf = screen.getByTestId('lessons-hero-lesson-of');
+    // Title через i18n — fallback на ключ (king-pawn-title в нашем словаре нет).
+    expect(lessonOf.textContent).toMatch(/5/);
+    expect(lessonOf.textContent).toMatch(/8/);
+    // 3 days
+    const lastActivity = screen.getByTestId('lessons-hero-last-activity');
+    expect(lastActivity.textContent).toMatch(/3/);
+    vi.useRealTimers();
+  });
+
+  it('continue (enrolled): «Урок N из M — <title>» из currentLessonTitle (raw)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-26T12:00:00Z'));
+    hookMock.state = {
+      kind: 'continue',
+      course: {
+        source: 'enrolled',
+        id: 'e1',
+        slug: 'caro-kann',
+        title: 'Caro-Kann',
+        titleI18nKey: null,
+        level: null,
+        coverUrl: null,
+        lessonCount: 4,
+        completedLessons: 2,
+        lastActivityAt: '2026-04-26T11:30:00Z', // 30 минут назад → less than hour
+        currentLessonSlug: 'main-line',
+        currentLessonTitleI18nKey: null,
+        currentLessonTitle: 'Главный вариант',
+        currentLessonOrder: 3,
+        href: '/lessons/my/caro-kann',
+      },
+    };
+    renderWithProviders(<LessonsHero />);
+    expect(
+      screen.getByTestId('lessons-hero-lesson-of').textContent,
+    ).toContain('Главный вариант');
+    expect(
+      screen.getByTestId('lessons-hero-lesson-of').textContent,
+    ).toMatch(/3/);
+    expect(
+      screen.getByTestId('lessons-hero-last-activity').textContent.toLowerCase(),
+    ).toMatch(/less|меньше/);
+    vi.useRealTimers();
+  });
+
+  it('continue: без currentLessonOrder/title — строка «Урок N из M» не рендерится', () => {
+    hookMock.state = {
+      kind: 'continue',
+      course: {
+        source: 'system',
+        id: 's1',
+        slug: 'b',
+        title: '',
+        titleI18nKey: 'b-title',
+        level: 'beginner',
+        coverUrl: null,
+        lessonCount: 5,
+        completedLessons: 2,
+        lastActivityAt: '2026-04-26T12:00:00Z',
+        currentLessonSlug: null,
+        currentLessonTitleI18nKey: null,
+        currentLessonTitle: null,
+        currentLessonOrder: null,
+        href: '/lessons/b',
+      },
+    };
+    renderWithProviders(<LessonsHero />);
+    expect(screen.queryByTestId('lessons-hero-lesson-of')).toBeNull();
   });
 
   // ─── multi ───

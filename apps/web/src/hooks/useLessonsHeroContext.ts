@@ -50,6 +50,13 @@ export type ActiveCourseSource = 'system' | 'enrolled';
  * Системные курсы и enrolled-пользовательские имеют разные DTO; для
  * рендера hero нужны одни и те же поля. Маппинг в `mapToActive*`
  * ниже фиксирует, откуда что берём.
+ *
+ * KS-1955: после расширения backend DTO `progress` теперь несёт
+ * `lastActivityAt` (для system тоже), `currentLessonSlug`,
+ * `currentLessonTitleI18nKey` (system) / `currentLessonTitle`
+ * (enrolled), `currentLessonOrder`. Эти поля используются в Hero
+ * Variant B для строки «Урок N из M — название» и
+ * «Последняя активность: N дней назад» (KS-1938 §7.2).
  */
 export interface ActiveCourseSummary {
   source: ActiveCourseSource;
@@ -67,12 +74,26 @@ export interface ActiveCourseSummary {
   lessonCount: number;
   completedLessons: number;
   /**
-   * ISO-8601, для сортировки «самый свежий». У enrolled —
-   * `progress.lastActivityAt` (есть в `UserCoursePlayProgressDto`). У
-   * `system` поле `lastActivityAt` отсутствует — fallback на
-   * `progress.startedAt`.
+   * ISO-8601, для сортировки «самый свежий» и для «последняя активность».
+   * KS-1955 — поле теперь приходит у обеих DTO (у system тоже).
    */
   lastActivityAt: string;
+  /**
+   * KS-1955 / KS-1938: текущий незавершённый урок (по `order` ASC) —
+   * для подзаголовка «Урок N из M — название» в Hero Variant B.
+   * `null`, если курс уже пройден целиком (или backend ещё не отдал
+   * поле — тогда подзаголовок просто не рендерится).
+   */
+  currentLessonSlug: string | null;
+  /** Локализуемый ключ заголовка (только `system`) или резолвенный
+   *  заголовок (только `enrolled`). Хук возвращает уже резолвенную
+   *  строку — для `system` LessonsHero сам прогоняет через `t()`. */
+  currentLessonTitleI18nKey: string | null;
+  /** Заголовок «как есть» (только `enrolled`, у пользовательских
+   *  курсов i18n нет). */
+  currentLessonTitle: string | null;
+  /** 1-based номер для «Урок N из M». */
+  currentLessonOrder: number | null;
   /** Куда вести CTA «Продолжить» (разные namespace'ы у двух источников). */
   href: string;
 }
@@ -113,7 +134,15 @@ function mapSystemToActive(c: CourseListItem): ActiveCourseSummary | null {
     coverUrl: c.coverUrl ?? null,
     lessonCount: c.lessonCount,
     completedLessons: c.progress.lessonsCompleted,
-    lastActivityAt: c.progress.startedAt,
+    // KS-1955: бэк теперь отдаёт `lastActivityAt` для system. Поле
+    // обязательное в DTO, но на случай stale-cache/staging без релиза
+    // оставляем `?? startedAt` как мягкий fallback — без него тесты
+    // hook'а ниже бы упали на построении DTO.
+    lastActivityAt: c.progress.lastActivityAt ?? c.progress.startedAt,
+    currentLessonSlug: c.progress.currentLessonSlug ?? null,
+    currentLessonTitleI18nKey: c.progress.currentLessonTitleI18nKey ?? null,
+    currentLessonTitle: null,
+    currentLessonOrder: c.progress.currentLessonOrder ?? null,
     href: `/lessons/${c.slug}`,
   };
 }
@@ -122,6 +151,7 @@ function mapEnrolledToActive(
   c: UserEnrolledCourseDto,
 ): ActiveCourseSummary | null {
   if (c.progress.completedAt !== null) return null;
+  // KS-1955: у пользовательских курсов i18n нет, заголовок строкой.
   return {
     source: 'enrolled',
     id: c.id,
@@ -133,6 +163,10 @@ function mapEnrolledToActive(
     lessonCount: c.lessonCount,
     completedLessons: c.progress.completedLessonsCount,
     lastActivityAt: c.progress.lastActivityAt,
+    currentLessonSlug: c.progress.currentLessonSlug ?? null,
+    currentLessonTitleI18nKey: null,
+    currentLessonTitle: c.progress.currentLessonTitle ?? null,
+    currentLessonOrder: c.progress.currentLessonOrder ?? null,
     href: `/lessons/my/${c.slug}`,
   };
 }
