@@ -84,6 +84,10 @@ services:
       FACEBOOK_CALLBACK_URL: ${FACEBOOK_CALLBACK_URL:-http://localhost:3001/api/auth/facebook/callback}
       # Telegram OAuth
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # KS-1973: whitelist email'ов с доступом к /lessons/admin/* (AdminEmailGuard).
+      # CSV, регистронезависимо. `*` = разрешить всем (только для тестов).
+      # Пусто = запрет всем. См. docs/devops/lesson-admin-emails.md.
+      LESSON_ADMIN_EMAILS: ${LESSON_ADMIN_EMAILS:-staspivovartsev@gmail.com}
     depends_on:
       - postgres
       - redis
@@ -125,6 +129,8 @@ services:
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       FACEBOOK_CALLBACK_URL: ${FACEBOOK_CALLBACK_URL:-http://localhost:3001/api/auth/facebook/callback}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # KS-1973: см. секцию api выше.
+      LESSON_ADMIN_EMAILS: ${LESSON_ADMIN_EMAILS:-staspivovartsev@gmail.com}
     depends_on:
       - postgres
       - redis
@@ -155,9 +161,76 @@ services:
     profiles:
       - init
 
+  # KS-1918: одноразовая миграция broadcasts_kingside для локали.
+  # Запуск: docker compose --profile migrate up broadcasts-migrate
+  broadcasts-migrate:
+    image: kingside-broadcast-service:latest
+    restart: "no"
+    depends_on:
+      - postgres
+    environment:
+      BROADCASTS_DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/broadcasts_kingside
+    working_dir: /app/packages/broadcasts-db
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        until pg_isready -h postgres -U ${POSTGRES_USER:-kingside} >/dev/null 2>&1 || node -e "process.exit(0)"; do sleep 1; done
+        npx prisma migrate deploy --schema=./prisma/schema.prisma
+    profiles:
+      - migrate
+
+  # KS-1918 (frontend local dev): broadcast-service на порту 3004.
+  # Тот же образ что в AWS ECS (kingside-broadcast-service). БД broadcasts_kingside
+  # должна существовать (profile 'init' + broadcasts-db-init). Миграции Prisma
+  # нужно накатывать отдельно: см. раздел "Миграции broadcasts-db" ниже в README/CLAUDE.md.
+  broadcast-service:
+    build:
+      context: .
+      dockerfile: apps/broadcast-service/Dockerfile
+    image: kingside-broadcast-service:latest
+    restart: unless-stopped
+    mem_limit: 400m
+    ports:
+      - "${BROADCAST_SERVICE_PORT:-3004}:3004"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"const h=require('http');h.get('http://localhost:3004/_/health',r=>process.exit(r.statusCode<400?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+        tag: "kingside-broadcast-service"
+    environment:
+      BROADCASTS_DATABASE_URL: postgresql://${POSTGRES_USER:-kingside}:${POSTGRES_PASSWORD:-kingside}@postgres:5432/broadcasts_kingside
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379
+      PORT: 3004
+      BROADCAST_SERVICE_PORT: 3004
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      NODE_ENV: ${NODE_ENV:-production}
+      # Локально sync-цикл выключен, чтобы не дёргать chess-results/lichess. Включить через env.
+      BROADCAST_SYNC_ENABLED: ${BROADCAST_SYNC_ENABLED:-false}
+      BROADCAST_PINNED_UPCOMING_HOURS: "48"
+      BROADCAST_PINNED_MIN_GAMES: "4"
+      BROADCAST_PINNED_MIN_ELO: "2500"
+      BROADCAST_STALE_CYCLES: "72"
+      CHESS_RESULTS_BASE_URL: https://chess-results.com
+      CHESS_RESULTS_USER_AGENT: "Kingside/1.0 (local dev; staspivovartsev@gmail.com)"
+      WS_USE_REDIS_ADAPTER: auto
+      LICHESS_BROADCAST_IDS: ${LICHESS_BROADCAST_IDS:-}
+    depends_on:
+      - postgres
+      - redis
+
   archive-importer:
     # ADR-019 / KS-1674/1676/1677: importer — второй CMD единого образа archive-service.
     # Сервис называется archive-importer по историческим причинам (ECS service name = kingside-archive-importer).
+    # Локально запускается только по запросу: --profile archive. Иначе занимает порт 3004 и конфликтует с broadcast-service (KS-1918).
     build:
       context: .
       dockerfile: apps/archive-service/Dockerfile
@@ -165,6 +238,8 @@ services:
     command: ["node", "dist/importer-main.js"]
     restart: unless-stopped
     mem_limit: 256m
+    profiles:
+      - archive
     ports:
       - "${ARCHIVE_IMPORTER_PORT:-3004}:3004"
     healthcheck:
