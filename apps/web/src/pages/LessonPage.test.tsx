@@ -139,7 +139,8 @@ describe('LessonPage', () => {
     // Шаг 1 (text) → TextStep, шаг 2 (quiz) → QuizStep (empty-state, т.к. questions=[]).
     expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
     expect(screen.getByTestId('lesson-quiz-step-empty')).toBeInTheDocument();
-    // Кнопка «Далее» только у не-последнего шага (text).
+    // KS-1990: кнопка «Далее» теперь и у последнего text-шага тоже —
+    // без неё его нечем пометить done без автомаркера.
     expect(screen.getByTestId('lesson-text-step-next')).toBeInTheDocument();
 
     // Ссылка «назад к курсу» ведёт на /lessons/<slug>

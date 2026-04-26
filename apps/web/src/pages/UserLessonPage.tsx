@@ -284,7 +284,7 @@ export function UserLessonPage() {
         </div>
       ) : (
         <ol className="lesson-step-list" data-testid="user-lesson-step-list">
-          {steps.map((step, idx) => (
+          {steps.map((step) => (
             <li
               key={step.id}
               className={`lesson-step lesson-step--${step.type}`}
@@ -297,9 +297,11 @@ export function UserLessonPage() {
                   {t(`lessons.stepType.${step.type}`, step.type)}
                 </span>
               </header>
+              {/* KS-1990: `hideNext` для последнего шага больше не
+                  передаём — без автомаркера TextStep пользователю
+                  нужен явный способ отметить шаг done. */}
               <StepRenderer
                 step={step}
-                hideNext={idx === steps.length - 1}
                 onStepDone={() => progress.markStep(step.id, 'done')}
                 // KS-1891: передаём текущее состояние шага, чтобы
                 // TextStep показал «Пройдено ✓» при повторном

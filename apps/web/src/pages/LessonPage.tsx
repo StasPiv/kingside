@@ -383,8 +383,13 @@ export function LessonPage() {
         <ol className="lesson-step-list" data-testid="lesson-step-list">
           {sortedSteps.map((step, idx) => {
             // KS-1986: после `markStep('done')` плавно прокручиваем
-            // страницу к началу следующего шага. Если шаг последний —
-            // кнопка скрыта (`hideNext`), скроллить некуда.
+            // страницу к началу следующего шага. На последнем шаге
+            // следующего нет — `nextStep` undefined, скролла не будет.
+            // KS-1990: кнопка «Далее» теперь рендерится и на последнем
+            // шаге тоже (раньше скрывалась через `hideNext`). Без
+            // автомаркера у пользователя должен быть явный способ
+            // пометить любой шаг done — поэтому `hideNext` больше не
+            // передаём для последнего.
             const nextStep = sortedSteps[idx + 1];
             const handleStepDone = () => {
               progress.markStep(step.id, 'done');
@@ -408,7 +413,6 @@ export function LessonPage() {
                 </header>
                 <StepRenderer
                   step={step}
-                  hideNext={idx === sortedSteps.length - 1}
                   onStepDone={handleStepDone}
                 />
               </li>

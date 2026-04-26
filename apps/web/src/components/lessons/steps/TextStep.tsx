@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { LessonStepState, TextStepPayload } from '@kingside/shared';
 
@@ -196,23 +196,21 @@ function processReferences(
   }
 }
 
-/**
- * Сколько ждать после монтирования text-шага перед автоматической
- * отметкой done (KS-1878). 1.5 с — достаточно, чтобы случайный mount
- * (например, во время навигации) не зачитался, но не настолько долго,
- * чтобы пользователь успел уйти со страницы до отметки.
- */
-export const TEXT_STEP_AUTO_DONE_MS = 1500;
-
 interface TextStepProps {
   payload: TextStepPayload;
   /**
-   * Колбэк отметки шага пройденным. Вызывается при клике «Далее» И
-   * автоматически через `TEXT_STEP_AUTO_DONE_MS` после mount
-   * (KS-1878 — иначе text-only уроки нельзя пройти, потому что
-   * последний шаг рендерится с `hideNext` без интерактива).
-   * Повторные вызовы безопасны — `useUserLessonProgress.markStep`
-   * идемпотентен.
+   * Колбэк отметки шага пройденным. Вызывается ТОЛЬКО при клике
+   * «Далее» (KS-1990). Повторные вызовы безопасны —
+   * `useUserLessonProgress.markStep` идемпотентен.
+   *
+   * История: до KS-1990 был ещё авто-вызов через
+   * `TEXT_STEP_AUTO_DONE_MS=1500ms` после mount (KS-1878). Это
+   * мешало явному UX-flow: достаточно было открыть урок, чтобы
+   * 6/12 шагов сами засчитались. Логика, которую закрывал
+   * автомаркер (последний шаг с `hideNext=true` нельзя пометить),
+   * теперь решается возвратом кнопки «Далее» на последний шаг —
+   * см. `LessonPage`/`UserLessonPage`, они больше не передают
+   * `hideNext=true` для последнего шага.
    */
   onStepDone?: () => void;
   /** Оптический размер диаграммы. По умолчанию 320px. */
@@ -241,22 +239,8 @@ export function TextStep({
 
   const segments = useMemo(() => parseTextStepSegments(payload), [payload]);
 
-  // KS-1878: text — read-once-content. Автоматически отмечаем шаг done
-  // через `TEXT_STEP_AUTO_DONE_MS` после mount, чтобы score не зависел
-  // от наличия кнопки «Далее». Иначе на последнем шаге (`hideNext=true`)
-  // у пользователя нечем пометить шаг и урок невозможно завершить.
-  // `markStep('done')` в `useUserLessonProgress` идемпотентен — повторный
-  // вызов с тем же state ничего не делает. В админ-редакторе preview
-  // `onStepDone` не передаётся → таймер ничего не вызывает.
-  const onStepDoneRef = useRef(onStepDone);
-  onStepDoneRef.current = onStepDone;
-  useEffect(() => {
-    if (!onStepDoneRef.current) return;
-    const timer = setTimeout(() => {
-      onStepDoneRef.current?.();
-    }, TEXT_STEP_AUTO_DONE_MS);
-    return () => clearTimeout(timer);
-  }, []);
+  // KS-1990: автомаркера больше нет. Прогресс шага засчитывается
+  // только по клику пользователя «Далее».
 
   // bodyI18nKey пока не используется здесь — рендер словарных markdown'ов
   // потребует загрузки строки через i18next, а словари у нас плоские
