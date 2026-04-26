@@ -8,12 +8,11 @@ import type {
 
 import { lessonsApi } from '../api/lessonsApi';
 import { ReviewsDueBlock } from '../components/lessons/ReviewsDueBlock';
-import { MyCoursesBlock } from '../components/lessons/MyCoursesBlock';
-import { EnrolledCoursesBlock } from '../components/lessons/EnrolledCoursesBlock';
 import { LessonsHero } from '../components/lessons/LessonsHero';
 import { CommunityStripBlock } from '../components/lessons/CommunityStripBlock';
 import { CurriculumPillarBlock } from '../components/lessons/CurriculumPillarBlock';
 import { RecommendedCoursesBlock } from '../components/lessons/RecommendedCoursesBlock';
+import { CreateCourseCta } from '../components/lessons/CreateCourseCta';
 import { LazySection } from '../components/lessons/LazySection';
 
 /**
@@ -130,13 +129,11 @@ export function LessonsPage() {
         <RecommendedCoursesBlock />
       </LazySection>
 
-      {/* ADR-031 §5: порядок L2 Personal/Daily/Active learning. */}
-      {/* KS-1840: «Мои курсы» — скрыт при отсутствии своих курсов. */}
-      <MyCoursesBlock />
-
-      {/* KS-1890: «Курсы, которые я прохожу» — скрыт при отсутствии
-          enrolled. */}
-      <EnrolledCoursesBlock />
+      {/* KS-1940 (F-3): MyCoursesBlock и EnrolledCoursesBlock убраны с
+          главной — активные курсы пользователя теперь показываются в
+          Hero (variant continue/multi) или на /lessons/my-active
+          (KS-1941, F-4). Список созданных курсов автора уезжает на
+          ту же страницу my-active. */}
 
       {/* KS-1923 / ADR-031 §2: L3 Curriculum pillar — структурированный
           путь Beginner → Intermediate → Advanced.
@@ -165,6 +162,11 @@ export function LessonsPage() {
           emptyText={t('lessons.empty', 'No courses available yet')}
         />
       </LazySection>
+
+      {/* KS-1940 (F-3): CTA «+ Создать свой курс» одной строкой над
+          секцией «Сообщество». Гостям не показываем (внутри сам
+          возвращает null). */}
+      <CreateCourseCta />
 
       {/* KS-1923 / ADR-031 §3: L4 Discovery — компактная полоса
           последних public курсов с CTA «Все курсы и авторы»

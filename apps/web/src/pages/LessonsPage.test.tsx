@@ -14,22 +14,21 @@ vi.mock('../api/lessonsApi', () => ({
   },
 }));
 
-// KS-1840: `MyCoursesBlock` тянет `useAuth` и свой api-клиент — для тестов
-// `LessonsPage` это лишний шум. Заменяем заглушкой; отдельно блок покрыт
-// собственными тестами в `components/lessons/MyCoursesBlock.test.tsx`.
-vi.mock('../components/lessons/MyCoursesBlock', () => ({
-  MyCoursesBlock: () => <div data-testid="my-courses-block-mock" />,
-}));
-
-// KS-1890: то же для нового блока «Курсы, которые я прохожу» —
-// собственный тест в `components/lessons/EnrolledCoursesBlock.test.tsx`.
-vi.mock('../components/lessons/EnrolledCoursesBlock', () => ({
-  EnrolledCoursesBlock: () => <div data-testid="enrolled-courses-block-mock" />,
-}));
+// KS-1940 (F-3): MyCoursesBlock / EnrolledCoursesBlock больше не
+// рендерятся на /lessons (активные показывает Hero, созданные — на
+// /lessons/my-active в F-4). Их моки удалены — компоненты сюда
+// больше не импортируются.
 
 // KS-1922: контекстный hero — собственные тесты в LessonsHero.test.tsx.
 vi.mock('../components/lessons/LessonsHero', () => ({
   LessonsHero: () => <div data-testid="lessons-hero-mock" />,
+}));
+
+// KS-1940: CreateCourseCta дёргает userCoursesApi.create при клике —
+// для тестов LessonsPage это лишний шум. Собственные тесты — в
+// `components/lessons/CreateCourseCta.test.tsx`.
+vi.mock('../components/lessons/CreateCourseCta', () => ({
+  CreateCourseCta: () => <div data-testid="create-course-cta-mock" />,
 }));
 
 // KS-1923: блоки «New from community» (compact strip) тянут `useAuth` и api —
