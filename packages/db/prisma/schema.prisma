@@ -765,15 +765,22 @@ model FeedbackVote {
 // class-validator + seed-линтер (см. ADR-024 §2.2).
 
 model Course {
-  id             String   @id @default(uuid()) @db.Uuid
-  slug           String   @unique
-  level          String // "beginner" | "intermediate" | "advanced"
-  titleKey       String   @map("title_key")
-  descriptionKey String   @map("description_key")
-  order          Int      @default(0)
-  isPublished    Boolean  @default(false) @map("is_published")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(uuid()) @db.Uuid
+  slug             String   @unique
+  level            String // "beginner" | "intermediate" | "advanced"
+  titleKey         String   @map("title_key")
+  descriptionKey   String   @map("description_key")
+  coverUrl         String?  @map("cover_url")
+  difficulty       Int      @default(2) // 1=easy, 2=medium, 3=hard
+  estimatedMinutes Int?     @map("estimated_minutes")
+  audienceI18nKey  String?  @map("audience_i18n_key")
+  hookI18nKey      String?  @map("hook_i18n_key")
+  outcomeI18nKey   String?  @map("outcome_i18n_key")
+  tags             String[] @default([])
+  order            Int      @default(0)
+  isPublished      Boolean  @default(false) @map("is_published")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   lessons  Lesson[]
   progress UserCourseProgress[]
