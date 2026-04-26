@@ -381,14 +381,18 @@ curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
 > совпадать.
 
 Поддерживаемые типы:
-- `text` — TextStep (markdown + опц. диаграммы FEN).
-- `position` — PositionStep (FEN, опц. цепочка ходов).
-- `puzzle` — PuzzleStep (тактика по id'шникам или фильтру тем).
-- `quiz` — QuizStep (single/multi choice вопросы).
+- `text` — TextStep (markdown + опц. диаграммы FEN, рендерятся
+  read-only через `{{diagram:N}}` плейсхолдеры).
+- `position` — PositionStep (FEN + **обязательный непустой**
+  `expectedMoves[]`; интерактивная задача «найди ход»).
+- `puzzle` — PuzzleStep (тактика по id'шникам, фильтру тем
+  или авторские задачи inline).
+- `quiz` — QuizStep (single/multi choice вопросы; `multi:
+  boolean` управляет режимом).
 - `video` — VideoStep (URL из whitelist'а хостов).
-- `game_review` — GameReviewStep (PGN или массив ходов).
-- `endgame_drill`, `opening_drill` — специальные drill'ы (PositionStep
-  с поддержкой движка).
+- `game_review` — GameReviewStep (PGN или `gameId`).
+- `endgame_drill`, `opening_drill` — специальные drill'ы с
+  движком Stockfish.
 
 Ниже — примеры по 4 базовым типам пилота KS-1961.
 
@@ -417,6 +421,15 @@ curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
 
 ### 4.3 PositionStep
 
+> ⚠️ **Важно:** `PositionStep` — это **интерактивная задача
+> «найди ход»**, не «просто показать доску». Поле
+> `expectedMoves: string[]` обязательно (`@ArrayNotEmpty +
+> @ArePositionMovesLegal`). Поля `caption` в DTO нет.
+>
+> **Если нужно «просто показать» доску read-only** — используй
+> `TextStep` с массивом `diagrams[]` (см. §4.2 и пример Шага 2 в
+> §5.4). Диаграммы внутри TextStep рендерятся read-only «из коробки».
+
 ```bash
 curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
   -H "Authorization: Bearer $TOKEN" \
@@ -426,19 +439,40 @@ curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
     "order": 2,
     "payload": {
       "type": "position",
-      "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-      "orientation": "white",
-      "caption": "Так выглядит позиция в начале каждой партии."
+      "fen": "rnbqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+      "expectedMoves": ["d2d3", "e1g1"],
+      "orientation": "white"
     }
   }'
 ```
 
-Read-only PositionStep — это и есть форма «просто показать».
-Если нужна интерактивность (студент должен сделать правильный
-ход), добавляют поле `solution: ["e2e4", ...]` (UCI ходы) — см.
-`apps/api/src/lessons/dto/position-step.dto.ts` для всех полей.
+**Поля:**
+- `fen` (обяз.) — стартовая позиция, валидируется как валидный FEN.
+- `expectedMoves` (обяз., непустой массив) — допустимые UCI-ходы
+  студента (любой из списка засчитывается). Каждый ход проверяется
+  на легальность относительно `fen`.
+- `orientation` — `'white'` / `'black'` (по умолчанию `white`).
+
+Полный shape — `apps/api/src/lessons/dto/step-payload.dto.ts`
+(`PositionStepPayloadDto`).
 
 ### 4.4 QuizStep
+
+> ⚠️ **Важно:** в `QuizQuestion` / `QuizOption` поля только
+> `*I18nKey` — `promptI18nKey`, `labelI18nKey`,
+> `explanationI18nKey`. Полей `*Markdown` (`promptMarkdown` и
+> т. п.) **в DTO нет** — валидатор отвергнет.
+>
+> **Как использовать без настоящих переводов:** клади текст прямо
+> в `*I18nKey`-поле строкой. Если на фронте этот ключ не найдётся
+> в i18n-словаре, i18next отрендерит само значение ключа как
+> fallback — для одиночного языка контента это работает. Когда
+> понадобится локализация, заменишь строки на реальные ключи
+> вида `lessons.beginner.l1.q1.prompt` и пропишешь переводы в
+> i18n-файлах.
+>
+> Дискриминатор «один/несколько правильных» — поле `multi:
+> boolean` (по умолчанию `false`), а **не** `kind: 'single'/'multi'`.
 
 ```bash
 curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
@@ -453,44 +487,74 @@ curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
       "questions": [
         {
           "id": "q1",
-          "kind": "single",
-          "promptMarkdown": "Сколько клеток на шахматной доске?",
+          "promptI18nKey": "Сколько клеток на шахматной доске?",
           "options": [
-            { "id": "a", "labelMarkdown": "32" },
-            { "id": "b", "labelMarkdown": "49" },
-            { "id": "c", "labelMarkdown": "64" },
-            { "id": "d", "labelMarkdown": "100" }
+            { "id": "a", "labelI18nKey": "32" },
+            { "id": "b", "labelI18nKey": "49" },
+            { "id": "c", "labelI18nKey": "64" },
+            { "id": "d", "labelI18nKey": "100" }
           ],
           "correctOptionIds": ["c"],
-          "explanationMarkdown": "8 рядов по 8 клеток = 64."
+          "explanationI18nKey": "8 рядов по 8 клеток = 64."
         },
         {
           "id": "q2",
-          "kind": "single",
-          "promptMarkdown": "Кто ходит первым в шахматах?",
+          "promptI18nKey": "Кто ходит первым в шахматах?",
           "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
           "options": [
-            { "id": "a", "labelMarkdown": "Чёрные" },
-            { "id": "b", "labelMarkdown": "Белые" },
-            { "id": "c", "labelMarkdown": "Тот, кто старше" }
+            { "id": "a", "labelI18nKey": "Чёрные" },
+            { "id": "b", "labelI18nKey": "Белые" },
+            { "id": "c", "labelI18nKey": "Тот, кто старше" }
           ],
           "correctOptionIds": ["b"],
-          "explanationMarkdown": "Стандарт: первыми ходят белые."
+          "explanationI18nKey": "Стандарт: первыми ходят белые."
         }
       ]
     }
   }'
 ```
 
-**Поля вопроса:**
-- `kind: 'single' | 'multi'`.
-- `promptMarkdown` — текст вопроса.
-- `fen` — опционально, диаграмма над вопросом.
-- `options[]` — варианты с `id` и `labelMarkdown`.
-- `correctOptionIds[]` — для `single` ровно один; для `multi` — несколько.
-- `explanationMarkdown` — показывается после ответа.
+**Поля вопроса (`QuizQuestion`):**
+- `id` (обяз., строка) — стабильный id вопроса.
+- `promptI18nKey` (обяз.) — i18n-ключ или fallback-строка вопроса.
+- `fen` (опц.) — диаграмма над вопросом.
+- `options[]` (обяз., минимум 2) — варианты `{ id, labelI18nKey }`.
+- `correctOptionIds[]` (обяз., непустой) — для одиночного выбора
+  ровно один id; для множественного — несколько.
+- `multi` (опц., default `false`) — `true` если правильных
+  ответов несколько.
+- `explanationI18nKey` (опц.) — разбор после ответа.
+
+**Поля шага (`QuizStepPayload`):**
+- `questions[]` (обяз., непустой).
+- `passThreshold` (опц., default 0.7) — доля правильных 0..1
+  для зачёта.
+
+**Пример вопроса с несколькими правильными ответами (multi):**
+
+```json
+{
+  "id": "q-multi",
+  "multi": true,
+  "promptI18nKey": "Какие фигуры ходят по диагонали?",
+  "options": [
+    { "id": "a", "labelI18nKey": "Слон" },
+    { "id": "b", "labelI18nKey": "Ладья" },
+    { "id": "c", "labelI18nKey": "Ферзь" },
+    { "id": "d", "labelI18nKey": "Конь" }
+  ],
+  "correctOptionIds": ["a", "c"],
+  "explanationI18nKey": "По диагонали ходят слон и ферзь."
+}
+```
 
 ### 4.5 PuzzleStep
+
+`PuzzleStepPayload` имеет два поля: `selection` (дискриминированный
+union по `mode`) + опциональный `minSolved` (сколько задач должен
+решить ученик для зачёта; по умолчанию — все).
+
+**Mode 1: фильтр по темам и рейтингу.**
 
 ```bash
 curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
@@ -507,15 +571,56 @@ curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
         "ratingMin": 800,
         "ratingMax": 1200,
         "limit": 5
-      }
+      },
+      "minSolved": 3
     }
   }'
 ```
 
-**Альтернатива:** `selection.mode: "ids"` со списком `puzzleIds: ["..."]`
-— если автор хочет жёстко привязать конкретные задачи. Подробности —
-`apps/api/src/lessons/dto/step-payload.dto.ts` (`PuzzleSelectionIdsDto`,
-`PuzzleSelectionFilterDto`).
+`limit` обязательный (1..100). `ratingMin`/`ratingMax`
+опциональны. `themes` — непустой массив.
+
+**Mode 2: жёсткая привязка к id'шникам задач.**
+
+```json
+{
+  "type": "puzzle",
+  "selection": {
+    "mode": "ids",
+    "puzzleIds": ["DEV-001", "DEV-002", "DEV-003"]
+  }
+}
+```
+
+**Mode 3: авторские задачи прямо в payload (KS-1908 / ADR-029).**
+
+Не привязывается к системной puzzle-БД, FEN + UCI-решение
+описываются inline:
+
+```json
+{
+  "type": "puzzle",
+  "selection": {
+    "mode": "custom",
+    "customPuzzles": [
+      {
+        "fen": "8/8/8/8/4k3/8/4K3/4Q3 w - - 0 1",
+        "solutionMoves": ["e2e3", "e4d4", "e3d3"],
+        "orientation": "white",
+        "themes": ["mate", "endgame"],
+        "captionI18nKey": "Мат двумя ходами."
+      }
+    ]
+  }
+}
+```
+
+`customPuzzles` валидируется пошагово через `chess.js`. Лимиты
+длины массива и `solutionMoves` — в `USER_COURSES_LIMITS`.
+
+Полный shape всех вариантов — `apps/api/src/lessons/dto/step-payload.dto.ts`
+(`PuzzleSelectionIdsDto`, `PuzzleSelectionFilterDto`,
+`PuzzleSelectionCustomDto`).
 
 ### 4.6 PATCH шага
 
@@ -643,8 +748,22 @@ echo "LESSON_ID=$LESSON_ID"
 
 > Тексты ниже — выжимка из `docs/courses/beginner/lesson-01-game.md`.
 > Полные markdown-блоки переноси из исходного документа без сокращений.
+>
+> ⚠️ **Важно про read-only показ доски:** `PositionStep` требует
+> непустой `expectedMoves` (это интерактивная задача, см. §4.3). Для
+> «просто показать доску» (Шаги 2 и 4 пилота) используем `TextStep`
+> с `diagrams[]` — диаграммы внутри TextStep рендерятся read-only
+> «из коробки». Шаги 1 и 2 в исходном `lesson-01-game.md` логически
+> объединяются в один TextStep с одной диаграммой; шаги 3 и 4 — в
+> другой TextStep с одной диаграммой. Итого получается 3 шага вместо
+> 5: Text+diagram → Text+diagram → Quiz.
+>
+> Альтернатива (если хочется отдельной «полнокадровой» доски без
+> текста) — попросить backend добавить read-only вариант
+> PositionStep с опциональным `expectedMoves`. Для пилота это не
+> сделано; ниже — рабочий вариант через TextStep+diagrams.
 
-**Шаг 1 — TextStep «Что такое шахматы»:**
+**Шаг 1 — TextStep «Что такое шахматы» + начальная позиция:**
 
 ```bash
 curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
@@ -661,131 +780,119 @@ curl -s -X POST "$API_URL/lessons/admin/lessons/$LESSON_ID/steps" \
   "order": 1,
   "payload": {
     "type": "text",
-    "bodyMarkdown": "Шахматы — игра для двоих. Ты играешь белыми фигурами, соперник — чёрными.\n\n### Доска\n\nШахматная доска — это квадрат из **64 клеток**...\n\n(полный текст из docs/courses/beginner/lesson-01-game.md, Шаг 1)"
+    "bodyMarkdown": "Шахматы — игра для двоих. Ты играешь белыми фигурами, соперник — чёрными.\n\n### Доска\n\nШахматная доска — это квадрат из **64 клеток**...\n\n(полный текст из docs/courses/beginner/lesson-01-game.md, Шаг 1)\n\n{{diagram:0}}",
+    "diagrams": [
+      {
+        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "caption": "Так выглядит позиция в начале каждой партии. Белое угловое поле — справа? Ферзь стоит на своём цвете?",
+        "orientation": "white"
+      }
+    ]
   }
 }
 ```
 
-**Шаг 2 — PositionStep «Начальная позиция»:**
+> Плейсхолдер `{{diagram:0}}` в markdown указывает место отрисовки
+> диаграммы из массива `diagrams[]` (индекс 0). См.
+> `apps/web/src/components/lessons/steps/TextStep.tsx`.
 
-```json
-{
-  "type": "position",
-  "order": 2,
-  "payload": {
-    "type": "position",
-    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-    "orientation": "white",
-    "caption": "Так выглядит позиция в начале каждой партии. Покрути в голове: белое угловое поле — справа? Ферзь стоит на своём цвете?"
-  }
-}
-```
-
-**Шаг 3 — TextStep «Шахматная нотация»:**
+**Шаг 2 — TextStep «Шахматная нотация» + координатная карта:**
 
 ```json
 {
   "type": "text",
-  "order": 3,
+  "order": 2,
   "payload": {
     "type": "text",
-    "bodyMarkdown": "Чтобы говорить о ходах, нужен общий язык...\n\n(полный текст из docs/courses/beginner/lesson-01-game.md, Шаг 3)"
+    "bodyMarkdown": "Чтобы говорить о ходах, нужен общий язык...\n\n(полный текст из docs/courses/beginner/lesson-01-game.md, Шаг 3)\n\n{{diagram:0}}",
+    "diagrams": [
+      {
+        "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
+        "caption": "Пустая доска с координатной разметкой. Где e4? Где a1? Где h8?",
+        "orientation": "white"
+      }
+    ]
   }
 }
 ```
 
-**Шаг 4 — PositionStep «Координатная карта»:**
-
-```json
-{
-  "type": "position",
-  "order": 4,
-  "payload": {
-    "type": "position",
-    "fen": "8/8/8/8/8/8/8/8 w - - 0 1",
-    "orientation": "white",
-    "caption": "Пустая доска с координатной разметкой. Где e4? Где a1? Где h8?"
-  }
-}
-```
-
-**Шаг 5 — QuizStep (6 вопросов):**
+**Шаг 3 — QuizStep (6 вопросов):**
 
 ```json
 {
   "type": "quiz",
-  "order": 5,
+  "order": 3,
   "payload": {
     "type": "quiz",
     "passThreshold": 0.83,
     "questions": [
-      { "id": "q1", "kind": "single",
-        "promptMarkdown": "Сколько клеток на шахматной доске?",
+      { "id": "q1",
+        "promptI18nKey": "Сколько клеток на шахматной доске?",
         "options": [
-          { "id": "a", "labelMarkdown": "32" },
-          { "id": "b", "labelMarkdown": "49" },
-          { "id": "c", "labelMarkdown": "64" },
-          { "id": "d", "labelMarkdown": "100" }
+          { "id": "a", "labelI18nKey": "32" },
+          { "id": "b", "labelI18nKey": "49" },
+          { "id": "c", "labelI18nKey": "64" },
+          { "id": "d", "labelI18nKey": "100" }
         ],
         "correctOptionIds": ["c"],
-        "explanationMarkdown": "8 рядов по 8 клеток = 64."
+        "explanationI18nKey": "8 рядов по 8 клеток = 64."
       },
-      { "id": "q2", "kind": "single",
-        "promptMarkdown": "Кто ходит первым в шахматах?",
+      { "id": "q2",
+        "promptI18nKey": "Кто ходит первым в шахматах?",
         "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "options": [
-          { "id": "a", "labelMarkdown": "Чёрные" },
-          { "id": "b", "labelMarkdown": "Белые" },
-          { "id": "c", "labelMarkdown": "Тот, кто старше" },
-          { "id": "d", "labelMarkdown": "Тот, кто проиграл прошлую партию" }
+          { "id": "a", "labelI18nKey": "Чёрные" },
+          { "id": "b", "labelI18nKey": "Белые" },
+          { "id": "c", "labelI18nKey": "Тот, кто старше" },
+          { "id": "d", "labelI18nKey": "Тот, кто проиграл прошлую партию" }
         ],
         "correctOptionIds": ["b"],
-        "explanationMarkdown": "Стандарт: первыми ходят белые."
+        "explanationI18nKey": "Стандарт: первыми ходят белые."
       },
-      { "id": "q3", "kind": "single",
-        "promptMarkdown": "Где должно находиться белое угловое поле?",
+      { "id": "q3",
+        "promptI18nKey": "Где должно находиться белое угловое поле?",
         "options": [
-          { "id": "a", "labelMarkdown": "Слева" },
-          { "id": "b", "labelMarkdown": "Справа" },
-          { "id": "c", "labelMarkdown": "Прямо перед тобой" },
-          { "id": "d", "labelMarkdown": "Не имеет значения" }
+          { "id": "a", "labelI18nKey": "Слева" },
+          { "id": "b", "labelI18nKey": "Справа" },
+          { "id": "c", "labelI18nKey": "Прямо перед тобой" },
+          { "id": "d", "labelI18nKey": "Не имеет значения" }
         ],
         "correctOptionIds": ["b"],
-        "explanationMarkdown": "Доску всегда ставят так, чтобы белое угловое поле было справа."
+        "explanationI18nKey": "Доску всегда ставят так, чтобы белое угловое поле было справа."
       },
-      { "id": "q4", "kind": "single",
-        "promptMarkdown": "Какая цель шахматной партии?",
+      { "id": "q4",
+        "promptI18nKey": "Какая цель шахматной партии?",
         "options": [
-          { "id": "a", "labelMarkdown": "Снять как можно больше фигур" },
-          { "id": "b", "labelMarkdown": "Перевести пешку на последний ряд" },
-          { "id": "c", "labelMarkdown": "Поставить мат королю соперника" },
-          { "id": "d", "labelMarkdown": "Сыграть как можно дольше" }
+          { "id": "a", "labelI18nKey": "Снять как можно больше фигур" },
+          { "id": "b", "labelI18nKey": "Перевести пешку на последний ряд" },
+          { "id": "c", "labelI18nKey": "Поставить мат королю соперника" },
+          { "id": "d", "labelI18nKey": "Сыграть как можно дольше" }
         ],
         "correctOptionIds": ["c"],
-        "explanationMarkdown": "Цель — мат: атаковать короля так, чтобы у соперника не было защиты."
+        "explanationI18nKey": "Цель — мат: атаковать короля так, чтобы у соперника не было защиты."
       },
-      { "id": "q5", "kind": "single",
-        "promptMarkdown": "На какой клетке стоит белый король в начальной позиции?",
+      { "id": "q5",
+        "promptI18nKey": "На какой клетке стоит белый король в начальной позиции?",
         "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "options": [
-          { "id": "a", "labelMarkdown": "d1" },
-          { "id": "b", "labelMarkdown": "e1" },
-          { "id": "c", "labelMarkdown": "e8" },
-          { "id": "d", "labelMarkdown": "a1" }
+          { "id": "a", "labelI18nKey": "d1" },
+          { "id": "b", "labelI18nKey": "e1" },
+          { "id": "c", "labelI18nKey": "e8" },
+          { "id": "d", "labelI18nKey": "a1" }
         ],
         "correctOptionIds": ["b"],
-        "explanationMarkdown": "В начальной позиции белый король стоит на e1."
+        "explanationI18nKey": "В начальной позиции белый король стоит на e1."
       },
-      { "id": "q6", "kind": "single",
-        "promptMarkdown": "Что означает запись 0-0 в шахматной партии?",
+      { "id": "q6",
+        "promptI18nKey": "Что означает запись 0-0 в шахматной партии?",
         "options": [
-          { "id": "a", "labelMarkdown": "Партия закончилась 0:0" },
-          { "id": "b", "labelMarkdown": "Игрок пропустил ход" },
-          { "id": "c", "labelMarkdown": "Игрок сделал короткую рокировку" },
-          { "id": "d", "labelMarkdown": "Игрок предложил ничью" }
+          { "id": "a", "labelI18nKey": "Партия закончилась 0:0" },
+          { "id": "b", "labelI18nKey": "Игрок пропустил ход" },
+          { "id": "c", "labelI18nKey": "Игрок сделал короткую рокировку" },
+          { "id": "d", "labelI18nKey": "Игрок предложил ничью" }
         ],
         "correctOptionIds": ["c"],
-        "explanationMarkdown": "0-0 — короткая рокировка. 0-0-0 — длинная."
+        "explanationI18nKey": "0-0 — короткая рокировка. 0-0-0 — длинная."
       }
     ]
   }
@@ -825,6 +932,8 @@ curl -s -X PATCH "$API_URL/lessons/admin/courses/$COURSE_ID" \
 | **400** `slug must be kebab-case` | Неправильный slug (CamelCase / underscore / двойной дефис) | Только `[a-z0-9-]+`, без `--` и trailing `-` |
 | **409** Conflict | Slug курса уже занят, или slug урока в этом курсе | Возьми другой slug или удали/переименуй существующий |
 | **400** на payload шага | Не совпали `type` верхний и в payload, или payload некорректен по форме типа | Перепроверь shape в `apps/api/src/lessons/dto/step-payload.dto.ts` или соответствующих `*-step.dto.ts` |
+| **400** `expectedMoves should not be empty` (PositionStep) | Послан PositionStep без `expectedMoves` или с пустым массивом | Это интерактивный тип «найди ход», добавь массив легальных UCI-ходов. Для read-only показа доски — используй TextStep с `diagrams[]` (см. §4.2, §5.4) |
+| **400** `property * should not exist` (QuizStep) | В Quiz передаются `*Markdown` поля (`promptMarkdown`, `labelMarkdown`, `explanationMarkdown`) либо `kind: 'single'/'multi'` | DTO принимает только `*I18nKey` поля и `multi: boolean`. См. §4.4 — клади текст прямо в `*I18nKey`-строки (i18next отрендерит fallback'ом) |
 | **400** при reorder | `ids` не покрывает все курсы/уроки/шаги | Подгрузи через GET список — передай **полный** массив |
 | **400** PATCH шага со сменой type без payload | Бэк требует payload при смене type | Передай и `type`, и `payload` |
 | **404** при PATCH/DELETE | Неправильный UUID или ресурс удалён | Проверь GET перед операцией |
