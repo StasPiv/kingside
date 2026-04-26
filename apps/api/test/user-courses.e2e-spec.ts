@@ -149,6 +149,7 @@ describe('UserCoursesModule e2e (KS-1834)', () => {
         })
         .expect(201);
       expect(puzzleRes.body.order).toBe(1);
+      const puzzleStepId = puzzleRes.body.id as string;
 
       // 4. Проверяем сводный GET /user-lessons/:id
       const lessonWithSteps = await request(app.getHttpServer())
@@ -166,6 +167,21 @@ describe('UserCoursesModule e2e (KS-1834)', () => {
         .expect(201);
       expect(stepProgress.body).toMatchObject({
         completedStepsCount: 1,
+        totalSteps: 2,
+        completedAt: null,
+      });
+
+      // 5b. KS-1883/KS-1975: серверный порог completion = 0.7. Чтобы
+      // happy-path действительно завершал урок, отмечаем второй шаг
+      // (puzzle) как done — иначе serverScore = 0.5 и `complete`
+      // вернёт 400 "Lesson not completable".
+      const stepProgress2 = await request(app.getHttpServer())
+        .post(`/lessons/user-progress/lessons/${lessonId}/step`)
+        .set('Authorization', `Bearer ${owner.token}`)
+        .send({ stepId: puzzleStepId, state: 'done' })
+        .expect(201);
+      expect(stepProgress2.body).toMatchObject({
+        completedStepsCount: 2,
         totalSteps: 2,
         completedAt: null,
       });
