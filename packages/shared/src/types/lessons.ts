@@ -617,58 +617,6 @@ export interface ReviewsDueResponse {
   items: ReviewDueItem[];
 }
 
-// ─── Level gate (L-15 / KS-1770, L-26 / KS-1804) ─────────────────────
-//
-// Критерий перехода между уровнями курсов. Источник правил —
-// ADR-024 §2.3 («Переход между уровнями»). Реализованы переходы
-// Beginner → Intermediate (L-15) и Intermediate → Advanced (L-26).
-
-/**
- * Тип блокера перехода на следующий уровень:
- *  - `course_not_completed` — не все опубликованные уроки текущего курса
- *    пройдены (`UserLessonProgress.completedAt = null`).
- *  - `puzzle_rating` — `user.ratingPuzzle` ниже порога.
- *  - `games_played` — суммарно сыграно меньше требуемого числа партий
- *    в категориях rapid + blitz + classical (см. комментарий к `required`).
- *  - `rapid_rating` — `user.ratingRapid` ниже порога (L-26,
- *    intermediate → advanced).
- *  - `puzzles_solved` — количество решённых `PuzzleAttempt`
- *    (`solved = true`) меньше порога (L-26, intermediate → advanced).
- */
-export type LevelGateBlockerKind =
-  | 'course_not_completed'
-  | 'puzzle_rating'
-  | 'games_played'
-  | 'rapid_rating'
-  | 'puzzles_solved';
-
-export interface LevelGateBlocker {
-  kind: LevelGateBlockerKind;
-  /**
-   * Требуемое значение. Для `puzzle_rating` / `games_played` /
-   * `rapid_rating` / `puzzles_solved`.
-   */
-  required?: number;
-  /**
-   * Текущее значение. Для `puzzle_rating` / `games_played` /
-   * `rapid_rating` / `puzzles_solved`.
-   */
-  current?: number;
-  /** Для `course_not_completed` — сколько уроков ещё не пройдено. */
-  lessonsRemaining?: number;
-}
-
-export interface LevelGateResponse {
-  /** Текущий уровень игрока (по ratingPuzzle). */
-  currentLevel: CourseLevel;
-  /** Следующий уровень (`null` = игрок уже на advanced). */
-  nextLevel: CourseLevel | null;
-  /** Доступен ли переход на `nextLevel`. */
-  unlocked: boolean;
-  /** Список незакрытых условий, пусто если `unlocked=true`. */
-  blockers: LevelGateBlocker[];
-}
-
 // ─── Mistakes journal (L-31 / KS-1802) ────────────────────────────────
 //
 // Дневник ошибок. Агрегирует `puzzle`-неудачи и ходы, классифицированные

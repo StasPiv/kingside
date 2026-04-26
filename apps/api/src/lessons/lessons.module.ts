@@ -6,14 +6,12 @@ import { CoursesController } from './courses.controller';
 import { LessonsController } from './lessons.controller';
 import { ProgressController } from './progress.controller';
 import { PuzzleResolverController } from './puzzle-resolver.controller';
-import { LevelGateController } from './level-gate.controller';
 import { LessonsI18nController } from './i18n.controller';
 import { LessonReviewsController } from './reviews.controller';
 import { CoursesService } from './courses.service';
 import { LessonsService } from './lessons.service';
 import { ProgressService } from './progress.service';
 import { LessonPuzzleResolverService } from './puzzle-resolver.service';
-import { LevelGateService } from './level-gate.service';
 import { Sm2Service } from './sm2.service';
 import { Sm2SchedulerService } from './sm2.scheduler';
 import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
@@ -37,7 +35,6 @@ import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
     LessonsController,
     ProgressController,
     PuzzleResolverController,
-    LevelGateController,
     LessonsI18nController,
     LessonReviewsController,
   ],
@@ -46,7 +43,6 @@ import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
     LessonsService,
     ProgressService,
     LessonPuzzleResolverService,
-    LevelGateService,
     Sm2Service,
     Sm2SchedulerService,
     AdaptiveDifficultyService,
@@ -56,7 +52,6 @@ import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
     LessonsService,
     ProgressService,
     LessonPuzzleResolverService,
-    LevelGateService,
     Sm2Service,
     AdaptiveDifficultyService,
   ],
