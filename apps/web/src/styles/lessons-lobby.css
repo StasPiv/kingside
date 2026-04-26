@@ -1345,13 +1345,11 @@
   line-height: 1.4;
 }
 
-/* ------- Контейнеры-сетки для CourseCard -------
-   CourseCard используется в трёх местах: Curriculum (.lessons-course-grid
-   уже стилизован в lessons.css), RecommendedCoursesBlock и
-   /lessons/my-active. Для двух последних нужны grid-обёртки и сброс
-   list-style — иначе ul/li рендерятся в столбик 100%-шириной. */
-.recommended-courses-block__list,
-.my-active-courses-page__list {
+/* ------- Контейнер-сетка для Recommended -------
+   CourseCard используется в трёх местах: Curriculum
+   (.lessons-course-grid уже стилизован в lessons.css), Recommended
+   (тут) и /lessons/my-active (отдельный блок KS-1950 ниже). */
+.recommended-courses-block__list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1361,7 +1359,6 @@
 }
 
 .recommended-courses-block__item,
-.my-active-courses-page__item,
 .lessons-course-card-item {
   list-style: none;
   min-width: 0;
@@ -1369,8 +1366,7 @@
 
 /* На мобиле — горизонтальная лента (как и для других каталогов). */
 @media (max-width: 640px) {
-  .recommended-courses-block__list,
-  .my-active-courses-page__list {
+  .recommended-courses-block__list {
     display: flex;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
@@ -1382,11 +1378,232 @@
     grid-template-columns: none;
   }
 
-  .recommended-courses-block__list > *,
-  .my-active-courses-page__list > * {
+  .recommended-courses-block__list > * {
     flex: 0 0 78%;
     max-width: 320px;
     scroll-snap-align: start;
+  }
+}
+
+/* ============================================================
+ * KS-1950 — /lessons/my-active (Lessons-redesign L3)
+ *
+ * Структура (MyActiveCoursesPage.tsx, F-4 / KS-1941):
+ *   .my-active-courses-page             [data-state]
+ *     .__breadcrumb                     <nav>
+ *     .__header
+ *       <h1>
+ *       .__subtitle
+ *     loading: .__list--skeleton + .__item--skeleton(+__skeleton-cover/-line)
+ *     error:   .__error
+ *     empty:   .__empty + .__empty-cta
+ *     ready:   .__list + .__item (CourseCard + .__last-activity)
+ *
+ * Сетка: 1 / 2 / 3 колонки на mobile / tablet / desktop.
+ * ============================================================ */
+
+.my-active-courses-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px 0 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ----- Breadcrumb ----- */
+.my-active-courses-page__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.my-active-courses-page__breadcrumb a {
+  color: var(--accent-primary);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--lobby-transition);
+}
+
+.my-active-courses-page__breadcrumb a:hover {
+  border-bottom-color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.my-active-courses-page__breadcrumb [aria-current="page"] {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ----- Header ----- */
+.my-active-courses-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.my-active-courses-page__header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-primary);
+}
+
+.my-active-courses-page__subtitle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+/* ----- Grid: 1 / 2 / 3 колонки ----- */
+.my-active-courses-page__list,
+.my-active-courses-page__list--skeleton {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.my-active-courses-page__item,
+.my-active-courses-page__item--skeleton {
+  list-style: none;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .my-active-courses-page__list,
+  .my-active-courses-page__list--skeleton {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+}
+
+@media (min-width: 1025px) {
+  .my-active-courses-page__list,
+  .my-active-courses-page__list--skeleton {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+  }
+}
+
+/* ----- Last activity (под карточкой) ----- */
+.my-active-courses-page__last-activity {
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+/* ----- Skeleton (loading) ----- */
+.my-active-courses-page__item--skeleton {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--lobby-radius-md);
+  background: var(--bg-deep);
+  padding: 14px;
+  gap: 10px;
+}
+
+.my-active-courses-page__skeleton-cover {
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  border-radius: 10px;
+  background: var(--ov-white-15);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.my-active-courses-page__skeleton-line {
+  height: 14px;
+  width: 80%;
+  border-radius: 4px;
+  background: var(--ov-white-15);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.my-active-courses-page__skeleton-line--short {
+  width: 50%;
+  height: 12px;
+}
+
+/* ----- Empty state ----- */
+.my-active-courses-page__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 48px 24px;
+  text-align: center;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--lobby-radius-lg);
+  background: var(--bg-deep);
+}
+
+.my-active-courses-page__empty p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-secondary);
+  max-width: 480px;
+}
+
+.my-active-courses-page__empty-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 22px;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: var(--c-fff);
+  font-weight: 700;
+  font-size: 14px;
+  text-decoration: none;
+  transition:
+    background var(--lobby-transition),
+    box-shadow var(--lobby-transition);
+}
+
+.my-active-courses-page__empty-cta:hover {
+  background: var(--accent-hover);
+  color: var(--c-fff);
+  text-decoration: none;
+  box-shadow: 0 4px 12px var(--ov-accent-35);
+}
+
+/* ----- Error state ----- */
+.my-active-courses-page__error {
+  padding: 16px 20px;
+  border-radius: var(--lobby-radius-md);
+  background: rgba(248, 113, 113, 0.10);
+  border: 1px solid rgba(248, 113, 113, 0.32);
+  color: #f87171;
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ----- Compact tweaks для мобилы ----- */
+@media (max-width: 640px) {
+  .my-active-courses-page {
+    gap: 14px;
+    padding: 12px 0 24px;
+  }
+
+  .my-active-courses-page__header h1 {
+    font-size: 22px;
+  }
+
+  .my-active-courses-page__empty {
+    padding: 32px 18px;
   }
 }
 
