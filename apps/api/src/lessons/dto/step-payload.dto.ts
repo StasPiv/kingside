@@ -165,6 +165,14 @@ class QuizOptionDto implements QuizOption {
 
   @IsString()
   labelI18nKey!: string;
+
+  /**
+   * KS-1980: inline-текст варианта. Приоритет над `labelI18nKey` на FE.
+   * `null` принимается явно — позволяет PATCH'у обнулить inline.
+   */
+  @IsOptional()
+  @IsString()
+  label?: string | null;
 }
 
 class QuizQuestionDto implements QuizQuestion {
@@ -173,6 +181,11 @@ class QuizQuestionDto implements QuizQuestion {
 
   @IsString()
   promptI18nKey!: string;
+
+  /** KS-1980: inline-текст вопроса. Приоритет над `promptI18nKey`. */
+  @IsOptional()
+  @IsString()
+  prompt?: string | null;
 
   @IsOptional()
   @IsString()
@@ -196,6 +209,11 @@ class QuizQuestionDto implements QuizQuestion {
   @IsOptional()
   @IsString()
   explanationI18nKey?: string;
+
+  /** KS-1980: inline-текст разбора. Приоритет над `explanationI18nKey`. */
+  @IsOptional()
+  @IsString()
+  explanation?: string | null;
 }
 
 class QuizStepPayloadDto implements QuizStepPayload {

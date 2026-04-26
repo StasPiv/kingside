@@ -67,6 +67,11 @@ export class LessonsService {
         kind: lesson.kind as LessonKind,
         titleI18nKey: lesson.titleKey,
         summaryI18nKey: lesson.summaryKey,
+        // KS-1980: inline-поля урока (KS-1964/KS-1965). FE приоритет
+        // `title ?? t(titleI18nKey)`. В KS-1966 inline уже пробрасывался
+        // через listCourses/getCourseBySlug; здесь — для LessonPage.
+        title: lesson.title,
+        summary: lesson.summary,
         createdAt: lesson.createdAt.toISOString(),
         updatedAt: lesson.updatedAt.toISOString(),
       },

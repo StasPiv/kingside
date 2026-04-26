@@ -200,6 +200,12 @@ export interface QuizQuestion {
   id: string;
   /** i18n-ключ текста вопроса. */
   promptI18nKey: string;
+  /**
+   * KS-1980: inline-текст вопроса. Приоритет над `promptI18nKey` на FE
+   * (`prompt ?? t(promptI18nKey)`). Полезно для пилотных курсов, где
+   * автор пишет вопросы строкой без подкладывания i18n-словаря.
+   */
+  prompt?: string | null;
   /** Опционально: FEN-диаграмма под вопросом. */
   fen?: string;
   options: QuizOption[];
@@ -209,11 +215,21 @@ export interface QuizQuestion {
   multi?: boolean;
   /** i18n-ключ разбора после ответа. */
   explanationI18nKey?: string;
+  /**
+   * KS-1980: inline-текст разбора после ответа. Приоритет над
+   * `explanationI18nKey` на FE.
+   */
+  explanation?: string | null;
 }
 
 export interface QuizOption {
   id: string;
   labelI18nKey: string;
+  /**
+   * KS-1980: inline-текст варианта. Приоритет над `labelI18nKey` на FE
+   * (`label ?? t(labelI18nKey)`).
+   */
+  label?: string | null;
 }
 
 // ─── Step payloads: заделы под следующие итерации (пустышки) ──────────
