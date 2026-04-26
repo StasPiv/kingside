@@ -6,6 +6,7 @@ import type { GameReviewStepPayload } from '@kingside/shared';
 import { useGameReport } from '../../../hooks/useGameReport';
 import { GameReportPanel } from '../../GameReportPanel';
 import { ImportExternalModal } from '../../workshop/ImportExternalModal';
+import { InlinePgnViewer } from './InlinePgnViewer';
 
 /**
  * GameReviewStep — шаг «разбор партии» (L-30, KS-1795).
@@ -161,26 +162,12 @@ export function GameReviewStep({
           className="lesson-game-review-step__pgn"
           data-testid="lesson-game-review-step-pgn"
         >
-          <p className="lesson-game-review-step__pgn-hint">
-            {t(
-              'lessons.gameReview.pgnHint',
-              'This step uses an embedded PGN. Save it in the Workshop to run a full WASM analysis.',
-            )}
-          </p>
-          <pre
-            className="lesson-game-review-step__pgn-text"
-            data-testid="lesson-game-review-step-pgn-text"
-          >
-            {pgn}
-          </pre>
-          <p className="lesson-game-review-step__deep-link">
-            <Link
-              to={`/workshop?importPgn=${encodeURIComponent(pgn ?? '')}`}
-              data-testid="lesson-game-review-step-workshop-link"
-            >
-              {t('lessons.gameReview.openWorkshop', 'Open in Workshop')}
-            </Link>
-          </p>
+          {/* KS-1999: вместо сырого PGN + ссылки в Мастерскую — встроенный
+              интерактивный viewer (доска + список ходов + навигация).
+              WASM/Stockfish здесь не нужен: разбор в уроке — только
+              просмотр PGN; для глубокого анализа есть отдельная страница
+              Analysis (по `gameId`-режиму этого же шага). */}
+          <InlinePgnViewer pgn={pgn ?? ''} />
         </div>
       )}
 

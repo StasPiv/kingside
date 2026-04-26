@@ -2637,6 +2637,116 @@
   word-break: break-word;
 }
 
+/* KS-1999: интерактивный PGN-viewer внутри GameReviewStep. */
+.inline-pgn-viewer {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 12px 16px;
+  align-items: start;
+  outline: none;
+}
+.inline-pgn-viewer__board {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+.inline-pgn-viewer__controls {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inline-pgn-viewer__btn {
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.inline-pgn-viewer__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.inline-pgn-viewer__btn:not(:disabled):hover {
+  background: var(--bg-muted);
+}
+.inline-pgn-viewer__counter {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 4px;
+}
+.inline-pgn-viewer__moves {
+  grid-column: 2;
+  grid-row: 2;
+  list-style: none;
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.inline-pgn-viewer__move-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.inline-pgn-viewer__move-number {
+  color: var(--text-secondary);
+  min-width: 28px;
+}
+.inline-pgn-viewer__move {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 1px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.inline-pgn-viewer__move:hover {
+  background: var(--bg-surface);
+}
+.inline-pgn-viewer__move--current {
+  background: var(--accent-primary);
+  color: var(--c-fff);
+  border-color: var(--accent-hover);
+}
+.inline-pgn-viewer__error {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+@media (max-width: 760px) {
+  .inline-pgn-viewer {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+  .inline-pgn-viewer__board {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: center;
+  }
+  .inline-pgn-viewer__controls {
+    grid-column: 1;
+    grid-row: 2;
+    justify-content: center;
+  }
+  .inline-pgn-viewer__moves {
+    grid-column: 1;
+    grid-row: 3;
+    max-height: 200px;
+  }
+}
+
 .lesson-game-review-step__pgn-hint,
 .lesson-game-review-step__empty-hint {
   margin: 0;

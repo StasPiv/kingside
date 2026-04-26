@@ -89,19 +89,25 @@ describe('<GameReviewStep>', () => {
     expect(link).toHaveAttribute('href', '/analysis/g-123');
   });
 
-  it('pgn задан → показывается текст PGN и ссылка в Workshop', () => {
+  it('pgn задан → рендерит интерактивный viewer (KS-1999), без сырого PGN и без Workshop ссылки', () => {
     const pgn = '[Event "Test"]\n1. e4 e5 2. Nf3 Nc6 *';
     renderWithProviders(<GameReviewStep payload={payload({ pgn })} />);
     expect(screen.getByTestId('lesson-game-review-step')).toHaveAttribute(
       'data-mode',
       'pgn',
     );
+    // KS-1999: viewer на месте, его counter — «0/4» (4 plies в этом PGN).
+    expect(screen.getByTestId('inline-pgn-viewer')).toBeInTheDocument();
+    expect(screen.getByTestId('inline-pgn-viewer-counter').textContent).toBe(
+      '0/4',
+    );
+    // Сырого PGN-блока и Workshop-ссылки больше нет.
     expect(
-      screen.getByTestId('lesson-game-review-step-pgn-text'),
-    ).toHaveTextContent('1. e4 e5');
+      screen.queryByTestId('lesson-game-review-step-pgn-text'),
+    ).not.toBeInTheDocument();
     expect(
-      screen.getByTestId('lesson-game-review-step-workshop-link'),
-    ).toHaveAttribute('href', expect.stringContaining('importPgn='));
+      screen.queryByTestId('lesson-game-review-step-workshop-link'),
+    ).not.toBeInTheDocument();
     // fetchReport не должен дёргаться без gameId
     expect(mockGameReport.fetchReport).not.toHaveBeenCalled();
   });
