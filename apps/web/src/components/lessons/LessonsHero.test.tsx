@@ -262,6 +262,24 @@ describe('<LessonsHero>', () => {
     ).toBe('/lessons/my-active');
   });
 
+  // KS-1947 / KS-1946: eyebrow secrtion — `lessons.hero.multipleActive.eyebrow`
+  // = «Keep going». Регрессия на rename ключей (start→welcome, multi→multipleActive).
+  it('multi: eyebrow «Keep going» (i18n key multipleActive.eyebrow)', () => {
+    hookMock.state = { kind: 'multi', count: 2 };
+    renderWithProviders(<LessonsHero />);
+    expect(screen.getByTestId('lessons-hero').textContent).toMatch(
+      /keep going|продолжай/i,
+    );
+  });
+
+  it('multi: count=2 → склонение «courses» (plural)', () => {
+    hookMock.state = { kind: 'multi', count: 2 };
+    renderWithProviders(<LessonsHero />);
+    expect(
+      screen.getByTestId('lessons-hero-multi-title').textContent,
+    ).toMatch(/courses/i);
+  });
+
   // ─── author ───
 
   it('author: счётчик + CTA «Open editor» → /lessons/my/<slug>/edit', () => {

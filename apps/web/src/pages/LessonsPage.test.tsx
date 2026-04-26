@@ -207,4 +207,44 @@ describe('LessonsPage', () => {
     await waitFor(() => expect(pillarState()).toBe('empty'));
     expect(screen.queryByTestId('mistakes-diary-block')).not.toBeInTheDocument();
   });
+
+  // ─── KS-1947 (F-10): регрессии после редизайна ───────────────────────
+  // Эти тесты ловят случай «кто-то случайно вернул блок обратно».
+
+  it('KS-1939: LevelGateBanner на /lessons не рендерится', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() => expect(pillarState()).toBe('empty'));
+    // Дефолтный testid компонента и явные testid'ы со страниц (Lessons + Course).
+    expect(screen.queryByTestId('level-gate')).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId('lessons-page-level-gate'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('KS-1940: MyCoursesBlock на /lessons не рендерится', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() => expect(pillarState()).toBe('empty'));
+    expect(screen.queryByTestId('my-courses-block')).not.toBeInTheDocument();
+  });
+
+  it('KS-1940: EnrolledCoursesBlock на /lessons не рендерится', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() => expect(pillarState()).toBe('empty'));
+    expect(
+      screen.queryByTestId('enrolled-courses-block'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('KS-1940: CTA «+ Создать свой курс» доступна (через мок-обёртку)', async () => {
+    mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+    renderWithProviders(<LessonsPage />, { route: '/lessons' });
+    await waitFor(() => expect(pillarState()).toBe('empty'));
+    // CreateCourseCta замокана выше — проверяем что она реально на странице.
+    expect(
+      screen.getByTestId('create-course-cta-mock'),
+    ).toBeInTheDocument();
+  });
 });
