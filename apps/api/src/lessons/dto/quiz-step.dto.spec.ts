@@ -1,11 +1,12 @@
 /**
- * KS-1980: тесты на inline-поля QuizQuestion / QuizOption.
+ * KS-1980/KS-1982: тесты на inline-контракт QuizQuestion / QuizOption.
  *
- * Контракт (KS-1980):
- *  - `QuizQuestion`: добавлено `prompt?: string | null`, `explanation?: string | null`.
- *  - `QuizOption`: добавлено `label?: string | null`.
- *  - FE применяет fallback `inline ?? t(i18nKey)` (по аналогии KS-1965).
- *  - DTO принимает inline через admin API без 400.
+ * Контракт (KS-1982):
+ *  - `QuizQuestion`: `prompt: string` обязателен, `explanation?: string` опц.
+ *  - `QuizOption`: `label: string` обязателен.
+ *  - i18n-ключи (`promptI18nKey` / `labelI18nKey` / `explanationI18nKey`) удалены
+ *    из контракта — англоязычные курсы заводятся отдельной записью в БД,
+ *    не переводом существующего русского quiz'а.
  */
 
 import 'reflect-metadata';
@@ -20,7 +21,6 @@ async function validatePayload(payload: unknown): Promise<string[]> {
     forbidUnknownValues: false,
   });
   const out: string[] = [];
-  // class-validator возвращает дерево ошибок (children); собираем DFS.
   function walk(prefix: string, list: typeof errors): void {
     for (const e of list) {
       const path = prefix ? `${prefix}.${e.property}` : e.property;
@@ -34,120 +34,120 @@ async function validatePayload(payload: unknown): Promise<string[]> {
   return out;
 }
 
-describe('QuizStepPayloadDto inline fields (KS-1980)', () => {
+describe('QuizStepPayloadDto inline contract (KS-1980/KS-1982)', () => {
   const baseQuestion = {
     id: 'q1',
-    promptI18nKey: 'lessons.beginner.q1.prompt',
+    prompt: 'Сколько клеток на шахматной доске?',
     options: [
-      { id: 'a', labelI18nKey: 'lessons.beginner.q1.opt.a' },
-      { id: 'b', labelI18nKey: 'lessons.beginner.q1.opt.b' },
+      { id: 'a', label: '32' },
+      { id: 'b', label: '64' },
     ],
-    correctOptionIds: ['a'],
+    correctOptionIds: ['b'],
   };
 
-  it('payload без inline-полей — валиден (back-compat)', async () => {
-    const errors = await validatePayload({
-      type: 'quiz',
-      questions: [baseQuestion],
-    });
-    expect(errors).toEqual([]);
+  it('минимальный payload (prompt + 2 option.label + correct) — валиден', async () => {
+    expect(
+      await validatePayload({ type: 'quiz', questions: [baseQuestion] }),
+    ).toEqual([]);
   });
 
-  it('inline `prompt` + `explanation` на вопросе — валидно', async () => {
-    const errors = await validatePayload({
-      type: 'quiz',
-      questions: [
-        {
-          ...baseQuestion,
-          prompt: 'Сколько клеток на шахматной доске?',
-          explanation: '8 рядов по 8 клеток = 64.',
-        },
-      ],
-    });
-    expect(errors).toEqual([]);
+  it('с explanation — валиден', async () => {
+    expect(
+      await validatePayload({
+        type: 'quiz',
+        questions: [{ ...baseQuestion, explanation: '8 рядов по 8 = 64.' }],
+      }),
+    ).toEqual([]);
   });
 
-  it('inline `label` на варианте — валидно', async () => {
-    const errors = await validatePayload({
-      type: 'quiz',
-      questions: [
-        {
-          ...baseQuestion,
-          options: [
-            { id: 'a', labelI18nKey: 'opt.a', label: '64' },
-            { id: 'b', labelI18nKey: 'opt.b', label: '32' },
-          ],
-        },
-      ],
-    });
-    expect(errors).toEqual([]);
+  it('FEN-диаграмма над вопросом — валидна', async () => {
+    expect(
+      await validatePayload({
+        type: 'quiz',
+        questions: [
+          {
+            ...baseQuestion,
+            fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+          },
+        ],
+      }),
+    ).toEqual([]);
   });
 
-  it('inline-поля null — валидно (явное обнуление в PATCH)', async () => {
-    const errors = await validatePayload({
-      type: 'quiz',
-      questions: [
-        {
-          ...baseQuestion,
-          prompt: null,
-          explanation: null,
-          options: [
-            { id: 'a', labelI18nKey: 'opt.a', label: null },
-            { id: 'b', labelI18nKey: 'opt.b' },
-          ],
-        },
-      ],
-    });
-    expect(errors).toEqual([]);
+  it('multi=true с двумя correctOptionIds — валидно', async () => {
+    expect(
+      await validatePayload({
+        type: 'quiz',
+        questions: [
+          {
+            ...baseQuestion,
+            multi: true,
+            correctOptionIds: ['a', 'b'],
+          },
+        ],
+      }),
+    ).toEqual([]);
   });
 
-  it('inline-поля число вместо строки → ошибка валидации', async () => {
+  it('prompt отсутствует → ошибка', async () => {
     const errors = await validatePayload({
       type: 'quiz',
-      questions: [
-        {
-          ...baseQuestion,
-          prompt: 42,
-        },
-      ],
+      questions: [{ ...baseQuestion, prompt: undefined }],
     });
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors.join(' | ')).toMatch(/prompt/i);
+    expect(errors.join(' | ')).toMatch(/prompt/);
   });
 
-  it('inline-поле label число → ошибка', async () => {
+  it('option без label → ошибка', async () => {
     const errors = await validatePayload({
       type: 'quiz',
       questions: [
         {
           ...baseQuestion,
           options: [
-            { id: 'a', labelI18nKey: 'opt.a', label: 0 },
-            { id: 'b', labelI18nKey: 'opt.b' },
+            { id: 'a' },
+            { id: 'b', label: '64' },
           ],
         },
       ],
     });
     expect(errors.length).toBeGreaterThan(0);
+    expect(errors.join(' | ')).toMatch(/label/);
   });
 
-  it('обязательные `*I18nKey` всё ещё обязательны (не удалены)', async () => {
+  it('prompt не строка → ошибка', async () => {
+    const errors = await validatePayload({
+      type: 'quiz',
+      questions: [{ ...baseQuestion, prompt: 42 as unknown as string }],
+    });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.join(' | ')).toMatch(/prompt/);
+  });
+
+  it('label не строка → ошибка', async () => {
     const errors = await validatePayload({
       type: 'quiz',
       questions: [
         {
-          id: 'q1',
-          // promptI18nKey: missing
-          prompt: 'Текст вопроса',
+          ...baseQuestion,
           options: [
-            { id: 'a', labelI18nKey: 'opt.a' },
-            { id: 'b', labelI18nKey: 'opt.b' },
+            { id: 'a', label: 0 as unknown as string },
+            { id: 'b', label: '64' },
           ],
-          correctOptionIds: ['a'],
         },
       ],
     });
     expect(errors.length).toBeGreaterThan(0);
-    expect(errors.join(' | ')).toMatch(/promptI18nKey/);
+    expect(errors.join(' | ')).toMatch(/label/);
+  });
+
+  it('меньше 2 options → ошибка (ArrayMinSize)', async () => {
+    const errors = await validatePayload({
+      type: 'quiz',
+      questions: [
+        { ...baseQuestion, options: [{ id: 'a', label: 'единственный' }] },
+      ],
+    });
+    expect(errors.length).toBeGreaterThan(0);
   });
 });

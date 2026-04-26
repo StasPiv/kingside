@@ -198,14 +198,13 @@ export interface QuizStepPayload {
 
 export interface QuizQuestion {
   id: string;
-  /** i18n-ключ текста вопроса. */
-  promptI18nKey: string;
   /**
-   * KS-1980: inline-текст вопроса. Приоритет над `promptI18nKey` на FE
-   * (`prompt ?? t(promptI18nKey)`). Полезно для пилотных курсов, где
-   * автор пишет вопросы строкой без подкладывания i18n-словаря.
+   * KS-1982: текст вопроса инлайном. Контент quiz'а — это локальный
+   * текст конкретного курса; локализация делается отдельным курсом
+   * (другая запись в БД), не переводом. i18n-ключи здесь не нужны и
+   * удалены — никакой `promptI18nKey` / `explanationI18nKey`.
    */
-  prompt?: string | null;
+  prompt: string;
   /** Опционально: FEN-диаграмма под вопросом. */
   fen?: string;
   options: QuizOption[];
@@ -213,23 +212,14 @@ export interface QuizQuestion {
   correctOptionIds: string[];
   /** true — несколько правильных; false — один. */
   multi?: boolean;
-  /** i18n-ключ разбора после ответа. */
-  explanationI18nKey?: string;
-  /**
-   * KS-1980: inline-текст разбора после ответа. Приоритет над
-   * `explanationI18nKey` на FE.
-   */
-  explanation?: string | null;
+  /** Опционально: разбор после ответа. Не у всех вопросов он есть. */
+  explanation?: string;
 }
 
 export interface QuizOption {
   id: string;
-  labelI18nKey: string;
-  /**
-   * KS-1980: inline-текст варианта. Приоритет над `labelI18nKey` на FE
-   * (`label ?? t(labelI18nKey)`).
-   */
-  label?: string | null;
+  /** Текст варианта инлайном (KS-1982). i18n-ключ не используется. */
+  label: string;
 }
 
 // ─── Step payloads: заделы под следующие итерации (пустышки) ──────────

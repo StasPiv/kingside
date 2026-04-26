@@ -211,10 +211,10 @@ describe('lintFixtures', () => {
           questions: [
             {
               id: 'q1',
-              promptI18nKey: 'k',
+              prompt: 'q?',
               options: [
-                { id: 'a', labelI18nKey: 'k.a' },
-                { id: 'b', labelI18nKey: 'k.b' },
+                { id: 'a', label: 'A' },
+                { id: 'b', label: 'B' },
               ],
               correctOptionIds: ['z'],
             },
