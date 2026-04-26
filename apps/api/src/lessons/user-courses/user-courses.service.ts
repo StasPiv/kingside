@@ -292,14 +292,45 @@ export class UserCoursesService {
       orderBy: { lastActivityAt: 'desc' },
       include: {
         course: {
-          include: { _count: { select: { lessons: true } } },
+          include: {
+            _count: { select: { lessons: true } },
+            // KS-1955: уроки нужны, чтобы определить «текущий» урок
+            // (первый незавершённый по `order` ASC) для Hero Variant B.
+            lessons: {
+              orderBy: { order: 'asc' },
+              select: { id: true, order: true, title: true },
+            },
+          },
         },
       },
     });
 
+    // KS-1955: одним запросом подтягиваем completed-флаги по всем
+    // урокам всех enrolled-курсов — без N+1.
+    const allLessonIds = rows.flatMap((r) => r.course.lessons.map((l) => l.id));
+    const lessonProgressByLessonId = new Map<string, { completedAt: Date | null }>();
+    if (allLessonIds.length > 0) {
+      const lessonRows = await this.prisma.userLessonPlayProgress.findMany({
+        where: { userId, userLessonId: { in: allLessonIds } },
+        select: { userLessonId: true, completedAt: true },
+      });
+      for (const lr of lessonRows) {
+        lessonProgressByLessonId.set(lr.userLessonId, {
+          completedAt: lr.completedAt,
+        });
+      }
+    }
+
     return {
-      data: rows.map(
-        (row): UserEnrolledCourseDto => ({
+      data: rows.map((row): UserEnrolledCourseDto => {
+        // KS-1955: первый незавершённый урок (`order` ASC).
+        const lessons = row.course.lessons;
+        const currentIdx = lessons.findIndex(
+          (l) => lessonProgressByLessonId.get(l.id)?.completedAt == null,
+        );
+        const currentLesson = currentIdx >= 0 ? lessons[currentIdx] : null;
+
+        return {
           ...toCourseDto(row.course), // без stats — opts не передаём
           // KS-1933/KS-1934/KS-1935: поля карточки курса (Lessons-redesign §8.1)
           // у `UserCourse` пока отсутствуют в БД — DTO-поля
@@ -307,9 +338,19 @@ export class UserCoursesService {
           // `tags`) опциональны и здесь явно не выставляются (= undefined в JSON).
           // Когда автор пользовательских курсов получит редактор обогащения
           // (отдельная задача), маппер пробросит реальные значения.
-          progress: toCoursePlayProgressDto(row),
-        }),
-      ),
+          progress: toCoursePlayProgressDto(row, {
+            currentLesson: currentLesson
+              ? {
+                  // У UserLesson нет slug — отдаём id (для построения
+                  // URL `/lessons/my/<courseSlug>/<lessonId>`).
+                  slug: currentLesson.id,
+                  title: currentLesson.title,
+                  order: currentIdx + 1,
+                }
+              : null,
+          }),
+        };
+      }),
     };
   }
 
@@ -349,10 +390,45 @@ export class UserCoursesService {
     const isOwner = course.ownerId === userId;
     const stats = isOwner ? await this.computeStatsForCourse(course.id) : undefined;
 
+    // KS-1955: вычисляем «текущий урок» для прогресса. Уроки уже
+    // загружены и отсортированы по `order` ASC. Подтягиваем completed-
+    // флаги одним запросом.
+    let currentLessonForProgress:
+      | { slug: string; title: string; order: number }
+      | null = null;
+    if (progress) {
+      const lessonIds = course.lessons.map((l) => l.id);
+      const lessonProgressRows =
+        lessonIds.length > 0
+          ? await this.prisma.userLessonPlayProgress.findMany({
+              where: { userId, userLessonId: { in: lessonIds } },
+              select: { userLessonId: true, completedAt: true },
+            })
+          : [];
+      const completedSet = new Set(
+        lessonProgressRows
+          .filter((lp) => lp.completedAt != null)
+          .map((lp) => lp.userLessonId),
+      );
+      const currentIdx = course.lessons.findIndex((l) => !completedSet.has(l.id));
+      if (currentIdx >= 0) {
+        const cl = course.lessons[currentIdx];
+        currentLessonForProgress = {
+          slug: cl.id, // у UserLesson нет slug — отдаём id для URL
+          title: cl.title,
+          order: currentIdx + 1,
+        };
+      }
+    }
+
     return {
       course: toCourseDto(course, { stats }),
       lessons: course.lessons.map(toLessonDto),
-      progress: progress ? toCoursePlayProgressDto(progress) : null,
+      progress: progress
+        ? toCoursePlayProgressDto(progress, {
+            currentLesson: currentLessonForProgress,
+          })
+        : null,
     };
   }
 
@@ -754,19 +830,33 @@ export function toLessonDto(
   };
 }
 
-export function toCoursePlayProgressDto(row: {
-  userCourseId: string;
-  completedLessonsCount: number;
-  startedAt: Date;
-  lastActivityAt: Date;
-  completedAt: Date | null;
-}): UserCoursePlayProgressDto {
+export function toCoursePlayProgressDto(
+  row: {
+    userCourseId: string;
+    completedLessonsCount: number;
+    startedAt: Date;
+    lastActivityAt: Date;
+    completedAt: Date | null;
+  },
+  // KS-1955: «текущий урок» вычисляется в сервисе (нужны уроки и их
+  // прогрессы — за рамками одной row'ы). Если не передан — поля
+  // отдадим как null (соответствует «прогресс есть, но уроков нет /
+  // источник не предоставил данные» — UI рисует CTA «Открыть курс»
+  // без подзаголовка).
+  opts?: {
+    currentLesson?: { slug: string; title: string; order: number } | null;
+  },
+): UserCoursePlayProgressDto {
+  const cl = opts?.currentLesson ?? null;
   return {
     userCourseId: row.userCourseId,
     completedLessonsCount: row.completedLessonsCount,
     startedAt: row.startedAt.toISOString(),
     lastActivityAt: row.lastActivityAt.toISOString(),
     completedAt: row.completedAt ? row.completedAt.toISOString() : null,
+    currentLessonSlug: cl?.slug ?? null,
+    currentLessonTitle: cl?.title ?? null,
+    currentLessonOrder: cl?.order ?? null,
   };
 }
 

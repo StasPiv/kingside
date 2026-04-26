@@ -184,6 +184,15 @@ export interface UserCoursePlayProgressDto {
   lastActivityAt: string;
   /** ISO-8601 или null, если ещё не завершён. */
   completedAt: string | null;
+  /**
+   * KS-1955: первый незавершённый урок курса по `order` ASC. `null`,
+   * если курс пройден. У пользовательских курсов i18n не используется
+   * — заголовок хранится строкой в `UserLesson.title`.
+   */
+  currentLessonSlug: string | null;
+  currentLessonTitle: string | null;
+  /** 1-based номер текущего урока — для «Урок N из M». */
+  currentLessonOrder: number | null;
 }
 
 export interface UserLessonPlayProgressDto {

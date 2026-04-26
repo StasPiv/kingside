@@ -51,7 +51,35 @@ export class UserProgressService {
     const row = await this.prisma.userCoursePlayProgress.findUnique({
       where: { userId_userCourseId: { userId, userCourseId } },
     });
-    return row ? toCoursePlayProgressDto(row) : null;
+    if (!row) return null;
+
+    // KS-1955: «текущий урок» — первый незавершённый по `order` ASC.
+    const lessons = await this.prisma.userLesson.findMany({
+      where: { userCourseId },
+      orderBy: { order: 'asc' },
+      select: { id: true, order: true, title: true },
+    });
+    let currentLesson: { slug: string; title: string; order: number } | null = null;
+    if (lessons.length > 0) {
+      const lessonIds = lessons.map((l) => l.id);
+      const progressRows = await this.prisma.userLessonPlayProgress.findMany({
+        where: { userId, userLessonId: { in: lessonIds } },
+        select: { userLessonId: true, completedAt: true },
+      });
+      const completedSet = new Set(
+        progressRows.filter((p) => p.completedAt != null).map((p) => p.userLessonId),
+      );
+      const idx = lessons.findIndex((l) => !completedSet.has(l.id));
+      if (idx >= 0) {
+        currentLesson = {
+          slug: lessons[idx].id, // у UserLesson нет slug
+          title: lessons[idx].title,
+          order: idx + 1,
+        };
+      }
+    }
+
+    return toCoursePlayProgressDto(row, { currentLesson });
   }
 
   async getLessonProgress(

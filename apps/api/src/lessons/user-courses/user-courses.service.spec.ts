@@ -49,6 +49,11 @@ describe('UserCoursesService (KS-1829)', () => {
         count: jest.fn().mockResolvedValue(0),
         groupBy: jest.fn().mockResolvedValue([]),
       },
+      // KS-1955: «текущий урок» в DTO прогресса считается по
+      // UserLessonPlayProgress.completedAt — нужен mock findMany.
+      userLessonPlayProgress: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       $transaction: jest.fn((cb) =>
         cb({
           userLesson: prisma.userLesson,
@@ -287,6 +292,10 @@ describe('UserCoursesService (KS-1829)', () => {
       completedLessonsCount?: number;
       completedAt?: Date | null;
       lastActivityAt?: Date;
+      // KS-1955: для вычисления «текущего урока» listEnrolled тянет
+      // course.lessons. По умолчанию — пусто (= currentLesson = null,
+      // совместимо со старыми ассертами, где этого поля не было).
+      lessons?: Array<{ id: string; order: number; title: string }>;
     }) {
       return {
         userId: STUDENT,
@@ -305,6 +314,7 @@ describe('UserCoursesService (KS-1829)', () => {
           createdAt: new Date('2026-04-01'),
           updatedAt: new Date('2026-04-02'),
           _count: { lessons: opts.lessonCount ?? 1 },
+          lessons: opts.lessons ?? [],
         },
       };
     }
@@ -373,14 +383,22 @@ describe('UserCoursesService (KS-1829)', () => {
       );
     });
 
-    it('include подтягивает course с _count.lessons (без второго запроса)', async () => {
+    it('include подтягивает course с _count.lessons и lessons (KS-1955)', async () => {
       prisma.userCoursePlayProgress.findMany.mockResolvedValue([]);
       await service.listEnrolled(STUDENT);
       expect(prisma.userCoursePlayProgress.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           include: {
             course: {
-              include: { _count: { select: { lessons: true } } },
+              include: {
+                _count: { select: { lessons: true } },
+                // KS-1955: lessons нужны, чтобы вычислить «текущий урок»
+                // (первый незавершённый по `order` ASC) для Hero Variant B.
+                lessons: {
+                  orderBy: { order: 'asc' },
+                  select: { id: true, order: true, title: true },
+                },
+              },
             },
           },
         }),
@@ -463,6 +481,60 @@ describe('UserCoursesService (KS-1829)', () => {
       expect(raw.hookI18nKey).toBeUndefined();
       expect(raw.outcomeI18nKey).toBeUndefined();
       expect(raw.tags).toBeUndefined();
+    });
+
+    // ─── KS-1955: currentLesson* в progress ─────────────────────────
+    it('currentLesson*: первый незавершённый урок попадает в progress', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([
+        progressRow({
+          courseId: 'a',
+          ownerId: 'author-a',
+          slug: 'course-a',
+          lessonCount: 3,
+          completedLessonsCount: 1,
+          lessons: [
+            { id: 'L1', order: 0, title: 'Intro' },
+            { id: 'L2', order: 1, title: 'Tactics' },
+            { id: 'L3', order: 2, title: 'Endgame' },
+          ],
+        }),
+      ]);
+      // L1 завершён, L2 и L3 — нет → текущий L2.
+      prisma.userLessonPlayProgress.findMany.mockResolvedValue([
+        { userLessonId: 'L1', completedAt: new Date('2026-04-12T00:00:00Z') },
+        { userLessonId: 'L2', completedAt: null },
+      ]);
+      const r = await service.listEnrolled(STUDENT);
+      const p = r.data[0].progress;
+      // Для UserLesson slug = id (нет реального slug).
+      expect(p.currentLessonSlug).toBe('L2');
+      expect(p.currentLessonTitle).toBe('Tactics');
+      expect(p.currentLessonOrder).toBe(2);
+    });
+
+    it('currentLesson*: все уроки пройдены → null', async () => {
+      prisma.userCoursePlayProgress.findMany.mockResolvedValue([
+        progressRow({
+          courseId: 'a',
+          ownerId: 'author-a',
+          slug: 'course-a',
+          lessonCount: 2,
+          completedLessonsCount: 2,
+          lessons: [
+            { id: 'L1', order: 0, title: 'Intro' },
+            { id: 'L2', order: 1, title: 'Tactics' },
+          ],
+        }),
+      ]);
+      prisma.userLessonPlayProgress.findMany.mockResolvedValue([
+        { userLessonId: 'L1', completedAt: new Date('2026-04-10T00:00:00Z') },
+        { userLessonId: 'L2', completedAt: new Date('2026-04-12T00:00:00Z') },
+      ]);
+      const r = await service.listEnrolled(STUDENT);
+      const p = r.data[0].progress;
+      expect(p.currentLessonSlug).toBeNull();
+      expect(p.currentLessonTitle).toBeNull();
+      expect(p.currentLessonOrder).toBeNull();
     });
   });
 

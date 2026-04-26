@@ -438,6 +438,21 @@ export interface UserCourseProgress {
   lessonsCompleted: number;
   /** Всего уроков на момент последнего апдейта — для UI, не для хранения. */
   lessonsTotal: number;
+  /**
+   * KS-1955: ISO-строка момента последней активности по курсу.
+   * MAX из `UserCourseProgress.updatedAt` и `UserLessonProgress.updatedAt`
+   * по урокам этого курса. Используется в Hero Variant B
+   * («Последняя активность: N дней назад»).
+   */
+  lastActivityAt: string;
+  /**
+   * KS-1955: первый незавершённый урок курса по `order` ASC. `null`,
+   * если курс пройден. Поля повторены в `CourseListItem.progress`.
+   */
+  currentLessonSlug: string | null;
+  currentLessonTitleI18nKey: string | null;
+  /** Порядковый номер текущего урока, 1-based — для «Урок N из M». */
+  currentLessonOrder: number | null;
 }
 
 /**
@@ -475,6 +490,20 @@ export interface CourseListItem extends CourseCardFields {
     startedAt: string;
     completedAt: string | null;
     currentLessonId: string | null;
+    /**
+     * KS-1955: момент последней активности (MAX из progress.updatedAt
+     * курса и updatedAt всех его UserLessonProgress). Используется в
+     * Hero Variant B для бейджа «Последняя активность: N дней назад».
+     */
+    lastActivityAt: string;
+    /**
+     * KS-1955: первый незавершённый урок по `order` ASC.
+     * `null`, если курс пройден.
+     */
+    currentLessonSlug: string | null;
+    currentLessonTitleI18nKey: string | null;
+    /** 1-based номер текущего урока — для «Урок N из M». */
+    currentLessonOrder: number | null;
   } | null;
 }
 

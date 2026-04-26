@@ -2,12 +2,16 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import type {
   CourseLevel,
   CourseListResponse,
+  CourseListItem,
   CourseWithLessonsResponse,
   CourseLessonSummary,
   LessonKind,
   CourseRecommendationResponse,
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
+
+// KS-1955: shape поля `progress` в `CourseListItem` (inline в shared-типе).
+type CourseListItemProgress = NonNullable<CourseListItem['progress']>;
 
 @Injectable()
 export class CoursesService {
@@ -17,63 +21,140 @@ export class CoursesService {
    * GET /api/lessons/courses — список опубликованных курсов.
    * Если `userId` задан — обогащаем прогресс пользователя и рекомендованный уровень
    * по `user.ratingPuzzle`.
+   *
+   * KS-1955: для каждого курса с прогрессом отдаём `lastActivityAt`
+   * (MAX по `UserCourseProgress.updatedAt` и `UserLessonProgress.updatedAt`)
+   * и `currentLesson*` (первый незавершённый урок по `order` ASC) —
+   * нужно для Hero Variant B на странице «Уроки».
    */
   async listCourses(userId: string | null): Promise<CourseListResponse> {
     const courses = await this.prisma.course.findMany({
       where: { isPublished: true },
       orderBy: [{ level: 'asc' }, { order: 'asc' }],
-      include: { _count: { select: { lessons: true } } },
+      include: {
+        _count: { select: { lessons: true } },
+        // KS-1955: pre-load уроков для вычисления currentLesson; берём
+        // только опубликованные и в порядке прохождения (`order` ASC,
+        // в рамках одного курса `blockKey` коррелирует с `order`).
+        lessons: {
+          where: { isPublished: true },
+          orderBy: [{ blockKey: 'asc' }, { order: 'asc' }],
+          select: { id: true, slug: true, titleKey: true, order: true },
+        },
+      },
     });
 
-    const progressByCourseId = new Map<
+    const courseProgressByCourseId = new Map<
       string,
       {
-        lessonsCompleted: number;
-        startedAt: string;
-        completedAt: string | null;
+        startedAt: Date;
+        completedAt: Date | null;
         currentLessonId: string | null;
+        updatedAt: Date;
       }
+    >();
+    const lessonProgressByLessonId = new Map<
+      string,
+      { completedAt: Date | null; updatedAt: Date }
     >();
 
     if (userId) {
-      const rows = await this.prisma.userCourseProgress.findMany({
+      const courseRows = await this.prisma.userCourseProgress.findMany({
         where: { userId },
       });
-      for (const row of rows) {
-        const completed = await this.prisma.userLessonProgress.count({
-          where: {
-            userId,
-            completedAt: { not: null },
-            lesson: { courseId: row.courseId },
+      for (const row of courseRows) {
+        courseProgressByCourseId.set(row.courseId, {
+          startedAt: row.startedAt,
+          completedAt: row.completedAt,
+          currentLessonId: row.currentLessonId,
+          updatedAt: row.updatedAt,
+        });
+      }
+
+      // KS-1955: один батч-запрос вместо N+1 count'ов. Берём только
+      // уроки публикуемых курсов из выборки выше.
+      const allLessonIds = courses.flatMap((c) => c.lessons.map((l) => l.id));
+      if (allLessonIds.length > 0) {
+        const lessonRows = await this.prisma.userLessonProgress.findMany({
+          where: { userId, lessonId: { in: allLessonIds } },
+          select: {
+            lessonId: true,
+            completedAt: true,
+            updatedAt: true,
           },
         });
-        progressByCourseId.set(row.courseId, {
-          lessonsCompleted: completed,
-          startedAt: row.startedAt.toISOString(),
-          completedAt: row.completedAt?.toISOString() ?? null,
-          currentLessonId: row.currentLessonId,
-        });
+        for (const row of lessonRows) {
+          lessonProgressByLessonId.set(row.lessonId, {
+            completedAt: row.completedAt,
+            updatedAt: row.updatedAt,
+          });
+        }
       }
     }
 
-    const data = courses.map((c) => ({
-      id: c.id,
-      slug: c.slug,
-      level: c.level as CourseLevel,
-      titleI18nKey: c.titleKey,
-      descriptionI18nKey: c.descriptionKey,
-      // KS-1933/KS-1934/KS-1935: поля карточки курса (Lessons-redesign §8.1).
-      coverUrl: c.coverUrl,
-      difficulty: c.difficulty as 1 | 2 | 3,
-      estimatedMinutes: c.estimatedMinutes,
-      audienceI18nKey: c.audienceI18nKey,
-      hookI18nKey: c.hookI18nKey,
-      outcomeI18nKey: c.outcomeI18nKey,
-      tags: c.tags,
-      order: c.order,
-      lessonCount: c._count.lessons,
-      progress: userId ? progressByCourseId.get(c.id) ?? null : undefined,
-    }));
+    const data = courses.map((c) => {
+      const courseProgress = courseProgressByCourseId.get(c.id);
+      const lessons = c.lessons;
+
+      let progressDto: CourseListItemProgress | null | undefined;
+      if (!userId) {
+        progressDto = undefined;
+      } else if (!courseProgress) {
+        progressDto = null;
+      } else {
+        const lessonsCompleted = lessons.filter(
+          (l) => lessonProgressByLessonId.get(l.id)?.completedAt != null,
+        ).length;
+
+        // KS-1955: первый незавершённый урок по списку (lessons уже
+        // отсортированы blockKey/order ASC). Если все пройдены — null.
+        const currentIdx = lessons.findIndex(
+          (l) => lessonProgressByLessonId.get(l.id)?.completedAt == null,
+        );
+        const currentLesson = currentIdx >= 0 ? lessons[currentIdx] : null;
+
+        // KS-1955: lastActivityAt = MAX(courseProgress.updatedAt, любой
+        // lessonProgress.updatedAt из этого курса). Дефолт — startedAt
+        // (на случай курсов с миграции, у которых updatedAt = миг.время).
+        let lastActivity = courseProgress.updatedAt;
+        for (const l of lessons) {
+          const lp = lessonProgressByLessonId.get(l.id);
+          if (lp && lp.updatedAt > lastActivity) {
+            lastActivity = lp.updatedAt;
+          }
+        }
+
+        progressDto = {
+          lessonsCompleted,
+          startedAt: courseProgress.startedAt.toISOString(),
+          completedAt: courseProgress.completedAt?.toISOString() ?? null,
+          currentLessonId: courseProgress.currentLessonId,
+          lastActivityAt: lastActivity.toISOString(),
+          currentLessonSlug: currentLesson?.slug ?? null,
+          currentLessonTitleI18nKey: currentLesson?.titleKey ?? null,
+          currentLessonOrder: currentLesson ? currentIdx + 1 : null,
+        };
+      }
+
+      return {
+        id: c.id,
+        slug: c.slug,
+        level: c.level as CourseLevel,
+        titleI18nKey: c.titleKey,
+        descriptionI18nKey: c.descriptionKey,
+        // KS-1933/KS-1934/KS-1935: поля карточки курса (Lessons-redesign §8.1).
+        coverUrl: c.coverUrl,
+        difficulty: c.difficulty as 1 | 2 | 3,
+        estimatedMinutes: c.estimatedMinutes,
+        audienceI18nKey: c.audienceI18nKey,
+        hookI18nKey: c.hookI18nKey,
+        outcomeI18nKey: c.outcomeI18nKey,
+        tags: c.tags,
+        order: c.order,
+        lessonCount: c._count.lessons,
+        progress: progressDto,
+      };
+    });
 
     const recommendedLevel = await this.recommendLevel(userId);
 
@@ -102,7 +183,12 @@ export class CoursesService {
 
     const lessonProgressMap = new Map<
       string,
-      { completedAt: Date | null; startedAt: Date | null; masteredAt: Date | null }
+      {
+        completedAt: Date | null;
+        startedAt: Date | null;
+        masteredAt: Date | null;
+        updatedAt: Date;
+      }
     >();
     const reviewDueMap = new Map<string, Date>();
     if (userId) {
@@ -118,6 +204,7 @@ export class CoursesService {
           completedAt: row.completedAt,
           startedAt: row.startedAt,
           masteredAt: row.masteredAt,
+          updatedAt: row.updatedAt,
         });
       }
 
@@ -166,6 +253,23 @@ export class CoursesService {
       });
       if (p) {
         const lessonsCompleted = lessons.filter((l) => l.progressState === 'completed').length;
+
+        // KS-1955: первый незавершённый урок по списку (course.lessons
+        // отсортированы blockKey/order ASC). null, если все пройдены.
+        const currentIdx = course.lessons.findIndex(
+          (l) => lessonProgressMap.get(l.id)?.completedAt == null,
+        );
+        const currentLessonRow = currentIdx >= 0 ? course.lessons[currentIdx] : null;
+
+        // KS-1955: lastActivityAt = MAX(courseProgress.updatedAt, любой
+        // lessonProgress.updatedAt из этого курса).
+        let lastActivity = p.updatedAt;
+        for (const lp of lessonProgressMap.values()) {
+          if (lp.updatedAt > lastActivity) {
+            lastActivity = lp.updatedAt;
+          }
+        }
+
         userProgress = {
           userId: p.userId,
           courseId: p.courseId,
@@ -174,6 +278,10 @@ export class CoursesService {
           currentLessonId: p.currentLessonId,
           lessonsCompleted,
           lessonsTotal: lessons.length,
+          lastActivityAt: lastActivity.toISOString(),
+          currentLessonSlug: currentLessonRow?.slug ?? null,
+          currentLessonTitleI18nKey: currentLessonRow?.titleKey ?? null,
+          currentLessonOrder: currentLessonRow ? currentIdx + 1 : null,
         };
       }
     }

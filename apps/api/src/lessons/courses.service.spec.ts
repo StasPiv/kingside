@@ -287,3 +287,188 @@ describe('CoursesService — Lessons-redesign card fields (KS-1933/KS-1934/KS-19
     expect(res.course.tags).toEqual(['endgame', 'tactics']);
   });
 });
+
+// ── KS-1955: progress.lastActivityAt + currentLesson* в Hero Variant B ─
+
+describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)', () => {
+  let service: CoursesService;
+  let prisma: any;
+
+  const userId = 'u1';
+  const courseId = 'c1';
+
+  const courseRow = {
+    id: courseId,
+    slug: 'beginner',
+    level: 'beginner',
+    titleKey: 'c.title',
+    descriptionKey: 'c.desc',
+    order: 0,
+    isPublished: true,
+    coverUrl: null,
+    difficulty: 2,
+    estimatedMinutes: null,
+    audienceI18nKey: null,
+    hookI18nKey: null,
+    outcomeI18nKey: null,
+    tags: [],
+    createdAt: new Date('2026-04-01T00:00:00Z'),
+    updatedAt: new Date('2026-04-01T00:00:00Z'),
+    _count: { lessons: 3 },
+    lessons: [
+      { id: 'L1', slug: 'l-1', titleKey: 'l1.title', order: 0 },
+      { id: 'L2', slug: 'l-2', titleKey: 'l2.title', order: 1 },
+      { id: 'L3', slug: 'l-3', titleKey: 'l3.title', order: 2 },
+    ],
+  };
+
+  beforeEach(() => {
+    prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({ ratingPuzzle: 800 }) },
+      course: {
+        findMany: jest.fn().mockResolvedValue([courseRow]),
+        findUnique: jest.fn(),
+      },
+      userCourseProgress: { findMany: jest.fn(), findUnique: jest.fn() },
+      userLessonProgress: { findMany: jest.fn(), count: jest.fn() },
+      lessonReview: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    service = new CoursesService(prisma);
+  });
+
+  it('listCourses: первый незавершённый урок попадает как currentLesson*', async () => {
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      {
+        courseId,
+        startedAt: new Date('2026-04-10T00:00:00Z'),
+        completedAt: null,
+        currentLessonId: 'L1',
+        updatedAt: new Date('2026-04-15T00:00:00Z'),
+      },
+    ]);
+    // L1 завершён, L2 и L3 — нет → текущий L2 (order=2 в 1-based).
+    prisma.userLessonProgress.findMany.mockResolvedValue([
+      {
+        lessonId: 'L1',
+        completedAt: new Date('2026-04-12T00:00:00Z'),
+        updatedAt: new Date('2026-04-12T00:00:00Z'),
+      },
+      {
+        lessonId: 'L2',
+        completedAt: null,
+        updatedAt: new Date('2026-04-20T00:00:00Z'),
+      },
+    ]);
+
+    const res = await service.listCourses(userId);
+    const p = res.data[0].progress!;
+
+    expect(p.currentLessonSlug).toBe('l-2');
+    expect(p.currentLessonTitleI18nKey).toBe('l2.title');
+    expect(p.currentLessonOrder).toBe(2);
+    expect(p.lessonsCompleted).toBe(1);
+  });
+
+  it('listCourses: все уроки пройдены → currentLesson* = null', async () => {
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      {
+        courseId,
+        startedAt: new Date('2026-04-10T00:00:00Z'),
+        completedAt: new Date('2026-04-25T00:00:00Z'),
+        currentLessonId: null,
+        updatedAt: new Date('2026-04-25T00:00:00Z'),
+      },
+    ]);
+    prisma.userLessonProgress.findMany.mockResolvedValue([
+      { lessonId: 'L1', completedAt: new Date('2026-04-11T00:00:00Z'), updatedAt: new Date('2026-04-11T00:00:00Z') },
+      { lessonId: 'L2', completedAt: new Date('2026-04-13T00:00:00Z'), updatedAt: new Date('2026-04-13T00:00:00Z') },
+      { lessonId: 'L3', completedAt: new Date('2026-04-25T00:00:00Z'), updatedAt: new Date('2026-04-25T00:00:00Z') },
+    ]);
+
+    const res = await service.listCourses(userId);
+    const p = res.data[0].progress!;
+
+    expect(p.currentLessonSlug).toBeNull();
+    expect(p.currentLessonTitleI18nKey).toBeNull();
+    expect(p.currentLessonOrder).toBeNull();
+    expect(p.lessonsCompleted).toBe(3);
+    expect(p.completedAt).toBe('2026-04-25T00:00:00.000Z');
+  });
+
+  it('listCourses: lastActivityAt = MAX(courseProgress.updatedAt, lessonProgress.updatedAt)', async () => {
+    prisma.userCourseProgress.findMany.mockResolvedValue([
+      {
+        courseId,
+        startedAt: new Date('2026-04-10T00:00:00Z'),
+        completedAt: null,
+        currentLessonId: null,
+        updatedAt: new Date('2026-04-15T00:00:00Z'),
+      },
+    ]);
+    // Самый поздний updatedAt — у L2 (2026-04-22), он и должен победить.
+    prisma.userLessonProgress.findMany.mockResolvedValue([
+      { lessonId: 'L1', completedAt: new Date('2026-04-12T00:00:00Z'), updatedAt: new Date('2026-04-12T00:00:00Z') },
+      { lessonId: 'L2', completedAt: null, updatedAt: new Date('2026-04-22T00:00:00Z') },
+    ]);
+
+    const res = await service.listCourses(userId);
+    const p = res.data[0].progress!;
+
+    expect(p.lastActivityAt).toBe('2026-04-22T00:00:00.000Z');
+  });
+
+  it('listCourses: пользователь без UserCourseProgress → progress=null', async () => {
+    prisma.userCourseProgress.findMany.mockResolvedValue([]);
+    prisma.userLessonProgress.findMany.mockResolvedValue([]);
+
+    const res = await service.listCourses(userId);
+    expect(res.data[0].progress).toBeNull();
+  });
+
+  it('getCourseBySlug: маппит lastActivityAt и currentLesson*', async () => {
+    prisma.course.findUnique.mockResolvedValue({
+      ...courseRow,
+      lessons: courseRow.lessons.map((l) => ({
+        ...l,
+        blockKey: 'block',
+        kind: 'theory',
+        summaryKey: `${l.id}.summary`,
+        isPublished: true,
+        _count: { steps: 1 },
+      })),
+    });
+    prisma.userLessonProgress.findMany.mockResolvedValue([
+      {
+        lessonId: 'L1',
+        completedAt: new Date('2026-04-12T00:00:00Z'),
+        startedAt: new Date('2026-04-10T00:00:00Z'),
+        masteredAt: null,
+        updatedAt: new Date('2026-04-12T00:00:00Z'),
+      },
+      {
+        lessonId: 'L2',
+        completedAt: null,
+        startedAt: new Date('2026-04-13T00:00:00Z'),
+        masteredAt: null,
+        updatedAt: new Date('2026-04-23T00:00:00Z'),
+      },
+    ]);
+    prisma.userCourseProgress.findUnique.mockResolvedValue({
+      userId,
+      courseId,
+      startedAt: new Date('2026-04-10T00:00:00Z'),
+      completedAt: null,
+      currentLessonId: 'L2',
+      updatedAt: new Date('2026-04-15T00:00:00Z'),
+    });
+
+    const res = await service.getCourseBySlug('beginner', userId);
+    const p = res.progress!;
+
+    expect(p.currentLessonSlug).toBe('l-2');
+    expect(p.currentLessonTitleI18nKey).toBe('l2.title');
+    expect(p.currentLessonOrder).toBe(2);
+    // MAX = updatedAt L2 (2026-04-23), не courseProgress.updatedAt (2026-04-15).
+    expect(p.lastActivityAt).toBe('2026-04-23T00:00:00.000Z');
+  });
+});

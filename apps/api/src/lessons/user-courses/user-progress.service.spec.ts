@@ -14,6 +14,9 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
       userLesson: {
         findUnique: jest.fn(),
         count: jest.fn().mockResolvedValue(0),
+        // KS-1955: getCourseProgress подтягивает уроки курса, чтобы
+        // вычислить «текущий урок» (первый незавершённый по `order`).
+        findMany: jest.fn().mockResolvedValue([]),
       },
       userLessonStep: { findMany: jest.fn().mockResolvedValue([]) },
       userCoursePlayProgress: {
@@ -32,6 +35,10 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
         create: jest.fn(),
         update: jest.fn(),
         upsert: jest.fn(),
+        // KS-1955: getCourseProgress, getBySlug, listEnrolled (в
+        // user-courses.service) тянут флаги completedAt по lessonIds
+        // одним запросом для определения «текущего урока».
+        findMany: jest.fn().mockResolvedValue([]),
       },
     };
     service = new UserProgressService(prisma);
@@ -89,6 +96,33 @@ describe('UserProgressService (KS-1831 / KS-1879)', () => {
         userCourseId: 'c1',
         completedLessonsCount: 3,
         completedAt: null,
+      });
+    });
+
+    // KS-1955: «текущий урок» — первый незавершённый по `order` ASC.
+    it('getCourseProgress: currentLesson* = первый незавершённый урок', async () => {
+      prisma.userCourse.findUnique.mockResolvedValue({ ownerId: OWNER, isPublic: false });
+      prisma.userCoursePlayProgress.findUnique.mockResolvedValue({
+        userCourseId: 'c1',
+        completedLessonsCount: 1,
+        startedAt: new Date('2026-04-01'),
+        lastActivityAt: new Date('2026-04-15'),
+        completedAt: null,
+      });
+      prisma.userLesson.findMany.mockResolvedValue([
+        { id: 'L1', order: 0, title: 'Intro' },
+        { id: 'L2', order: 1, title: 'Tactics' },
+      ]);
+      prisma.userLessonPlayProgress.findMany.mockResolvedValue([
+        { userLessonId: 'L1', completedAt: new Date('2026-04-10') },
+        { userLessonId: 'L2', completedAt: null },
+      ]);
+
+      const r = await service.getCourseProgress(OWNER, 'c1');
+      expect(r).toMatchObject({
+        currentLessonSlug: 'L2',
+        currentLessonTitle: 'Tactics',
+        currentLessonOrder: 2,
       });
     });
 

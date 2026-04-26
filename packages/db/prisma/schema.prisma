@@ -837,6 +837,8 @@ model UserCourseProgress {
   startedAt       DateTime  @default(now()) @map("started_at")
   completedAt     DateTime? @map("completed_at")
   currentLessonId String?   @map("current_lesson_id") @db.Uuid
+  // KS-1955: lastActivityAt для Hero Variant B («Последняя активность: N дней назад»).
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
@@ -855,6 +857,9 @@ model UserLessonProgress {
   masteredAt  DateTime? @map("mastered_at")
   score       Int       @default(0)
   stepsState  Json      @map("steps_state") // { [stepId]: "done" | "failed" | "skipped" }
+  // KS-1955: трогается при каждом updateStepProgress / completeLesson.
+  // Используется как источник lastActivityAt для активного курса в Hero.
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
