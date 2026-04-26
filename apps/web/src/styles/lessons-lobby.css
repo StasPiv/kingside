@@ -771,6 +771,240 @@
   }
 }
 
+/* ============================================================
+ * KS-1948 — Hero variants A/B/C (Lessons-redesign L1)
+ *
+ * - Variant A (start)    — фикс контраста CTA на оранжевом фоне
+ * - Variant B (continue) — большая обложка 4:3 слева (~38% ширины),
+ *                          текст справа (eyebrow / title / lesson-of /
+ *                          прогресс / last-activity / CTA). На mobile
+ *                          (≤768px) — stack: обложка сверху (16:9),
+ *                          текст снизу.
+ * - Variant C (multi)    — compact horizontal: eyebrow+title слева,
+ *                          CTA справа. Низкая высота, без декора.
+ *                          На mobile — stack column.
+ *
+ * Loading skeleton — pulse-вариант через @keyframes skeleton-pulse
+ * (KS-1953, §11.3). Перебивает shimmer базового группового
+ * селектора секции 1.
+ * ============================================================ */
+
+/* ----- Variant B (continue) — большая обложка слева ----- */
+.lessons-hero--continue,
+.lessons-hero[data-state="continue"] {
+  display: grid;
+  grid-template-columns: minmax(220px, 38%) 1fr;
+  grid-template-rows: 1fr;
+  gap: 28px;
+  align-items: stretch;
+  padding: 28px;
+}
+
+.lessons-hero__cover {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--ov-white-15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* выравнивание по верху, чтобы обложка не вытягивалась под высоту body */
+  align-self: flex-start;
+  box-shadow: 0 8px 24px var(--ov-black-25);
+}
+
+.lessons-hero__cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.lessons-hero__cover--placeholder {
+  background: linear-gradient(
+    135deg,
+    var(--ov-white-15) 0%,
+    var(--ov-white-08) 100%
+  );
+}
+
+.lessons-hero__cover-figure {
+  font-size: clamp(72px, 10vw, 128px);
+  line-height: 1;
+  color: var(--c-fff);
+  opacity: 0.6;
+  user-select: none;
+}
+
+.lessons-hero__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* «Урок N из M — title» (KS-1955) */
+.lessons-hero__lesson-of {
+  font-size: 14px;
+  line-height: 1.4;
+  margin: 0;
+  opacity: 0.92;
+  color: inherit;
+  /* clamp 2 строки */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.lessons-hero__last-activity {
+  font-size: 13px;
+  line-height: 1.3;
+  margin: 0;
+  opacity: 0.78;
+  color: inherit;
+}
+
+/* В continue прогресс отступает от lesson-of, но не имеет верхнего
+   margin как в общем правиле (overrid'им margin-top: 36px). */
+.lessons-hero--continue .lessons-hero__progress,
+.lessons-hero[data-state="continue"] .lessons-hero__progress {
+  margin-top: 18px;
+  margin-bottom: 4px;
+}
+
+.lessons-hero--continue .lessons-hero__cta,
+.lessons-hero[data-state="continue"] .lessons-hero__cta {
+  margin-top: auto;
+}
+
+@media (max-width: 768px) {
+  .lessons-hero--continue,
+  .lessons-hero[data-state="continue"] {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .lessons-hero__cover {
+    aspect-ratio: 16 / 9;
+    align-self: stretch;
+  }
+
+  .lessons-hero__cover-figure {
+    font-size: clamp(72px, 18vw, 120px);
+  }
+
+  .lessons-hero--continue .lessons-hero__cta,
+  .lessons-hero[data-state="continue"] .lessons-hero__cta {
+    margin-top: 8px;
+    align-self: stretch;
+    justify-content: center;
+  }
+}
+
+/* ----- Variant C (multi) — compact horizontal ----- */
+.lessons-hero--multi,
+.lessons-hero[data-state="multi"] {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  min-height: 0;
+  padding: 20px 28px;
+}
+
+.lessons-hero--multi .lessons-hero__eyebrow,
+.lessons-hero[data-state="multi"] .lessons-hero__eyebrow {
+  flex-basis: 100%;
+  margin-bottom: -2px;
+}
+
+.lessons-hero--multi .lessons-hero__title,
+.lessons-hero[data-state="multi"] .lessons-hero__title {
+  font-size: 22px;
+  line-height: 1.25;
+  flex: 1 1 60%;
+  min-width: 0;
+}
+
+.lessons-hero--multi .lessons-hero__cta,
+.lessons-hero[data-state="multi"] .lessons-hero__cta {
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .lessons-hero--multi,
+  .lessons-hero[data-state="multi"] {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 18px 22px;
+    gap: 10px;
+  }
+
+  .lessons-hero--multi .lessons-hero__title,
+  .lessons-hero[data-state="multi"] .lessons-hero__title {
+    flex: 1 1 auto;
+  }
+
+  .lessons-hero--multi .lessons-hero__cta,
+  .lessons-hero[data-state="multi"] .lessons-hero__cta {
+    align-self: stretch;
+    justify-content: center;
+  }
+}
+
+/* ----- Variant A (start) — высокий контраст CTA на оранжевом ----- */
+/* Внимание: переменная --c-1a1a2e в light-теме имеет значение #f6f7fb
+   (light canvas), поэтому раньше CTA получался белый-на-белом. Фикс —
+   фиксированный тёмный hex без зависимости от темы. Дополнительно
+   перечисляем :link/:visited чтобы перебить глобальный
+   `a { color: var(--c-7c83ff) }` из base.css. */
+.lessons-hero--start .lessons-hero__cta,
+.lessons-hero--start .lessons-hero__cta:link,
+.lessons-hero--start .lessons-hero__cta:visited,
+.lessons-hero[data-state="start"] .lessons-hero__cta,
+.lessons-hero[data-state="start"] .lessons-hero__cta:link,
+.lessons-hero[data-state="start"] .lessons-hero__cta:visited {
+  background: #1a1a2e;
+  color: #ffffff;
+  border-color: transparent;
+}
+
+.lessons-hero--start .lessons-hero__cta:hover,
+.lessons-hero[data-state="start"] .lessons-hero__cta:hover {
+  background: #2a2a4e;
+  color: #ffffff;
+}
+
+.lessons-hero--start .lessons-hero__cta:active,
+.lessons-hero[data-state="start"] .lessons-hero__cta:active {
+  color: #ffffff;
+}
+
+/* ----- Loading skeleton — pulse-вариант (§11.3, KS-1953) ----- */
+/* Заменяем shimmer на opacity-pulse для hero loading-state, чтобы
+   соответствовать §11.3 концепта. Селектор включает оба варианта
+   (.--loading и [data-state="loading"]) и поднимает специфичность
+   над групповым shimmer-селектором секции 1. */
+.lessons-hero--loading .lessons-hero__skeleton-block,
+.lessons-hero--loading .lessons-hero__skeleton-line,
+.lessons-hero--loading .lessons-hero__skeleton-cta,
+.lessons-hero[data-state="loading"] .lessons-hero__skeleton-block,
+.lessons-hero[data-state="loading"] .lessons-hero__skeleton-line,
+.lessons-hero[data-state="loading"] .lessons-hero__skeleton-cta {
+  background-image: none;
+  background-color: var(--ov-white-15);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
 /* ---------- 8. prefers-reduced-motion ---------- */
 @media (prefers-reduced-motion: reduce) {
   .lessons-hero__cta,
