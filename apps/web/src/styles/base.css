@@ -312,3 +312,23 @@ input[type="range"] {
   margin-top: 16px; background: var(--c-7c83ff); color: var(--c-fff); border: none;
   padding: 8px 24px; border-radius: 6px; cursor: pointer; font-size: 14px;
 }
+
+/* KS-1953: общая skeleton-pulse анимация для состояний загрузки.
+   Используется в Hero, CourseCard, MyActiveCoursesPage, RecommendedCoursesBlock
+   и в любых других компонентах, где нужна простая pulse-индикация загрузки.
+   Имя keyframes — skeleton-pulse (а не pulse), чтобы не конфликтовать
+   с локальным @keyframes pulse в lobby.css (.searching). */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.skeleton-pulse {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-pulse {
+    animation: none;
+  }
+}
