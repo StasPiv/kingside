@@ -32,17 +32,10 @@ apps/api/src/lessons/seed/
 - `npm run seed:lessons:lint` — только проверки shape + FEN/PGN/UCI
   (без БД). Интегрирован в `npm run lint`, падает билд при нарушении.
 - `npm run seed:lessons` — линт + idempotent upsert в БД (требует
-  поднятый Postgres и `DATABASE_URL`).
+  поднятый Postgres и `DATABASE_URL`). После KS-1958 список курсов
+  пуст — скрипт чистит «осиротевшие» курсы из БД и завершается.
 - `npm run seed:sample-puzzles` — минимум синтетических задач
   (`source='sample'`) для resolver'а PuzzleStep, KS-1783.
-- `npm run seed:user-courses` — два пользовательских курса (от имени
-  DEV-юзера) для UI-скринов и e2e KS-1880/1882/1886, KS-1887.
-  Идемпотентно. Требует, чтобы `DEV` юзер уже был — он создаётся
-  скриптом `npm run prisma:seed --workspace=@kingside/db`. Курсы:
-  - `/lessons/my/demo-public-course` — public, 2 урока (text/text,
-    text/puzzle/endgame_drill);
-  - `/lessons/my/demo-private-course` — private, 1 урок (для
-    owner-only views).
 
 ## Что проверяет линтер
 
