@@ -2634,7 +2634,14 @@ class WebhookHandler(BaseHTTPRequestHandler):
         if path == "/api-start":
             if not self._check_role("/api-start"):
                 return
-            log("API start запрошен")
+            content_length = int(self.headers.get("Content-Length", 0))
+            body_raw = self.rfile.read(content_length) if content_length else b""
+            try:
+                payload = json.loads(body_raw) if body_raw else {}
+            except json.JSONDecodeError:
+                payload = {}
+            force = bool(payload.get("force"))
+            log(f"API start запрошен (force={force})")
             import socket
 
             def _port_up(port: int) -> bool:
@@ -2657,16 +2664,22 @@ class WebhookHandler(BaseHTTPRequestHandler):
             stdout_path = os.path.join(LOG_DIR, "api-stdout.log")
             stderr_path = os.path.join(LOG_DIR, "api-stderr.log")
 
-            if _port_up(3001):
+            if not force and _port_up(3001):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
                 self.wfile.write(json.dumps({"status": "already_running"}).encode())
                 return
 
-            # Убиваем зависшие процессы на портах которые могут помешать старту
+            # Убиваем зависшие процессы на портах которые могут помешать старту.
+            # При force=true это и есть «перезапуск» — убили живой процесс на 3001,
+            # подняли заново с актуальным .env. Vite (5173) трогаем только если
+            # он был сломан (подъём API сам vite не запускает — это делает
+            # /vite-start, но на всякий случай освобождаем порт).
             for port in (3001, 5173):
                 subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True, timeout=5)
+            if force:
+                time.sleep(1)
 
             try:
                 env = os.environ.copy()
