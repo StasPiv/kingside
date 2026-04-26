@@ -1294,14 +1294,6 @@
       "next": "Далее"
     },
     "gameReview": {
-      "checklistTitle": "Разбор партии",
-      "checklist": {
-        "keyMistake": "Где была ключевая ошибка?",
-        "opponentPlan": "Какой план был у противника?",
-        "bestMove": "Какой ход был лучшим?"
-      },
-      "markDone": "Шаг пройден",
-      "needAllChecks": "Ответь на все вопросы, чтобы завершить шаг",
       "openFullAnalysis": "Открыть полный разбор",
       "pgnParseError": "Не удалось разобрать партию.",
       "navLabel": "Навигация по ходам",

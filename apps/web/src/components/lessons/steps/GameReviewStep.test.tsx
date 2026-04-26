@@ -148,18 +148,23 @@ describe('<GameReviewStep>', () => {
     ).toBeInTheDocument();
   });
 
-  it('кнопка «Шаг пройден» заблокирована, пока не отмечен весь чек-лист', () => {
-    renderWithProviders(<GameReviewStep payload={payload({ gameId: 'g1' })} />);
-    const btn = screen.getByTestId(
-      'lesson-game-review-step-done',
-    ) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
+  // ─── KS-2000: чек-лист удалён, шаг завершается обычной «Далее» ────
+
+  it('KS-2000: под viewer\'ом нет чек-листа', () => {
+    const pgn = '[Event "Test"]\n1. e4 e5 *';
+    renderWithProviders(<GameReviewStep payload={payload({ pgn })} />);
+    // Чек-лист и его внутренние тестовые id больше не должны существовать.
     expect(
-      screen.getByTestId('lesson-game-review-step-done-hint'),
-    ).toBeInTheDocument();
+      screen.queryByTestId('lesson-game-review-step-checklist'),
+    ).not.toBeInTheDocument();
+    for (const id of ['key-mistake', 'opponent-plan', 'best-move']) {
+      expect(
+        screen.queryByTestId(`lesson-game-review-step-check-${id}`),
+      ).not.toBeInTheDocument();
+    }
   });
 
-  it('отметка всех пунктов чек-листа → кнопка активна, onStepDone по клику', () => {
+  it('KS-2000: кнопка «Далее» всегда активна и вызывает onStepDone по клику', () => {
     const onStepDone = vi.fn();
     renderWithProviders(
       <GameReviewStep
@@ -167,45 +172,21 @@ describe('<GameReviewStep>', () => {
         onStepDone={onStepDone}
       />,
     );
-    fireEvent.click(screen.getByTestId('lesson-game-review-step-check-key-mistake'));
-    fireEvent.click(
-      screen.getByTestId('lesson-game-review-step-check-opponent-plan'),
-    );
-    fireEvent.click(screen.getByTestId('lesson-game-review-step-check-best-move'));
-
     const btn = screen.getByTestId(
-      'lesson-game-review-step-done',
+      'lesson-game-review-step-next',
     ) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
-    expect(
-      screen.queryByTestId('lesson-game-review-step-done-hint'),
-    ).not.toBeInTheDocument();
-
+    expect(btn.textContent).toMatch(/next|далее/i);
     fireEvent.click(btn);
     expect(onStepDone).toHaveBeenCalledTimes(1);
   });
 
-  it('снятие одного пункта — кнопка снова блокируется', () => {
-    renderWithProviders(<GameReviewStep payload={payload({ gameId: 'g1' })} />);
-    fireEvent.click(screen.getByTestId('lesson-game-review-step-check-key-mistake'));
-    fireEvent.click(
-      screen.getByTestId('lesson-game-review-step-check-opponent-plan'),
-    );
-    fireEvent.click(screen.getByTestId('lesson-game-review-step-check-best-move'));
-    fireEvent.click(screen.getByTestId('lesson-game-review-step-check-key-mistake'));
-
-    const btn = screen.getByTestId(
-      'lesson-game-review-step-done',
-    ) as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-  });
-
-  it('hideNext → кнопка «Шаг пройден» не рендерится', () => {
+  it('KS-2000: hideNext → кнопка «Далее» не рендерится', () => {
     renderWithProviders(
       <GameReviewStep payload={payload({ gameId: 'g1' })} hideNext />,
     );
     expect(
-      screen.queryByTestId('lesson-game-review-step-done'),
+      screen.queryByTestId('lesson-game-review-step-next'),
     ).not.toBeInTheDocument();
   });
 });

@@ -1288,14 +1288,6 @@
       "next": "Next"
     },
     "gameReview": {
-      "checklistTitle": "Reflect on the game",
-      "checklist": {
-        "keyMistake": "Where was the key mistake?",
-        "opponentPlan": "What was the opponent's plan?",
-        "bestMove": "What was the best move?"
-      },
-      "markDone": "Step done",
-      "needAllChecks": "Answer all questions to finish this step",
       "openFullAnalysis": "Open full analysis",
       "pgnParseError": "Could not parse the game.",
       "navLabel": "Move navigation",

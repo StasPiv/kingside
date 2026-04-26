@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { GameReviewStepPayload } from '@kingside/shared';
@@ -29,6 +29,8 @@ import { InlinePgnViewer } from './InlinePgnViewer';
  *   Полная интеграция этих компонентов внутри урока — отдельная большая
  *   работа (см. комментарий в конце файла), в MVP обходимся ссылкой.
  *
+
+
  * - Оба пустые → показываем выбор источника партии:
  *    * «Импорт с Lichess/chess.com» через `ImportExternalModal`;
  *    * либо ссылка в `/workshop/my-games`, если у пользователя партии
@@ -38,15 +40,14 @@ import { InlinePgnViewer } from './InlinePgnViewer';
  *   Мастерской — в MVP автовыбор не делаем (нужен отдельный запрос к
  *   `/games/my`, это расширение задачи).
  *
- * # Чек-лист «направляющих вопросов»
+ * # KS-2000: чек-лист удалён
  *
- * Минимальный набор из roadmap L-30:
- *   1. «Где была ключевая ошибка?»
- *   2. «Какой план был у противника?»
- *   3. «Какой ход был лучшим?»
- *
- * Все пункты обязательны. Пока не отмечены все — кнопка «Шаг пройден»
- * заблокирована. По клику — `onStepDone()`.
+ * До KS-2000 под viewer'ом партии рендерился чек-лист «Разбор партии»
+ * с тремя hardcoded-вопросами и кнопка «Шаг пройден» disabled до тех
+ * пор пока не отмечены все. Это было заложено по умолчанию во ВСЕ
+ * шаги — пользователи Pilot-курса такого не заказывали, поведение
+ * выглядело как самодеятельность. Чек-лист и его состояние удалены
+ * целиком; шаг завершается обычной кнопкой «Далее» через `onStepDone()`.
  */
 
 interface GameReviewStepProps {
@@ -59,30 +60,6 @@ interface GameReviewStepProps {
   hideNext?: boolean;
 }
 
-interface ChecklistItem {
-  id: string;
-  labelKey: string;
-  defaultLabel: string;
-}
-
-const CHECKLIST: readonly ChecklistItem[] = [
-  {
-    id: 'key-mistake',
-    labelKey: 'lessons.gameReview.checklist.keyMistake',
-    defaultLabel: 'Where was the key mistake?',
-  },
-  {
-    id: 'opponent-plan',
-    labelKey: 'lessons.gameReview.checklist.opponentPlan',
-    defaultLabel: "What was the opponent's plan?",
-  },
-  {
-    id: 'best-move',
-    labelKey: 'lessons.gameReview.checklist.bestMove',
-    defaultLabel: 'What was the best move?',
-  },
-] as const;
-
 export function GameReviewStep({
   payload,
   onStepDone,
@@ -92,7 +69,6 @@ export function GameReviewStep({
   const gameId = payload.gameId ?? undefined;
   const pgn = payload.pgn ?? undefined;
 
-  const [checked, setChecked] = useState<Set<string>>(() => new Set());
   const [importSource, setImportSource] = useState<'lichess' | 'chesscom' | null>(
     null,
   );
@@ -113,24 +89,11 @@ export function GameReviewStep({
     }
   }, [gameId, fetchReport]);
 
-  const allChecked = useMemo(
-    () => CHECKLIST.every((item) => checked.has(item.id)),
-    [checked],
-  );
-
   const mode: 'empty' | 'pgn' | 'gameId' = gameId
     ? 'gameId'
     : pgn
     ? 'pgn'
     : 'empty';
-
-  const toggle = (id: string) =>
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   return (
     <div
@@ -221,58 +184,18 @@ export function GameReviewStep({
         </div>
       )}
 
-      <div className="lesson-game-review-step__checklist">
-        <h3 className="lesson-game-review-step__checklist-title">
-          {t(
-            'lessons.gameReview.checklistTitle',
-            'Reflect on the game',
-          )}
-        </h3>
-        <ul
-          className="lesson-game-review-step__checklist-items"
-          data-testid="lesson-game-review-step-checklist"
-        >
-          {CHECKLIST.map((item) => {
-            const isChecked = checked.has(item.id);
-            return (
-              <li key={item.id} className="lesson-game-review-step__checklist-item">
-                <label>
-                  <input
-                    type="checkbox"
-                    data-testid={`lesson-game-review-step-check-${item.id}`}
-                    checked={isChecked}
-                    onChange={() => toggle(item.id)}
-                  />
-                  <span>{t(item.labelKey, item.defaultLabel)}</span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
+      {/* KS-2000: чек-лист удалён. Шаг завершается обычной кнопкой
+          «Далее» — как любой другой шаг урока. */}
       {!hideNext && (
         <div className="lesson-game-review-step__actions">
           <button
             type="button"
-            className="lesson-game-review-step__done"
-            data-testid="lesson-game-review-step-done"
+            className="lesson-game-review-step__next"
+            data-testid="lesson-game-review-step-next"
             onClick={() => onStepDone?.()}
-            disabled={!allChecked}
           >
-            {t('lessons.gameReview.markDone', 'Step done')}
+            {t('lessons.next', 'Next')}
           </button>
-          {!allChecked && (
-            <span
-              className="lesson-game-review-step__done-hint"
-              data-testid="lesson-game-review-step-done-hint"
-            >
-              {t(
-                'lessons.gameReview.needAllChecks',
-                'Answer all questions to finish this step',
-              )}
-            </span>
-          )}
         </div>
       )}
 
