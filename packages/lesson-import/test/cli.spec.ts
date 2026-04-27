@@ -209,7 +209,8 @@ describe('CLI: export', () => {
     expect(code).toBe(0);
     const courseYml = readFileSync(join(tmp, 'course.yml'), 'utf8');
     expect(courseYml).toMatch(/slug: capablanca-primer/);
-    const lessonYml = readFileSync(join(tmp, '01-ch1.lesson.yml'), 'utf8');
+    // exporter префиксует файл (order+1).padStart(2,'0') — для order=1 → '02'.
+    const lessonYml = readFileSync(join(tmp, '02-ch1.lesson.yml'), 'utf8');
     expect(lessonYml).toMatch(/slug: ch1/);
     expect(lessonYml).toMatch(/type: text/);
     vi.unstubAllGlobals();

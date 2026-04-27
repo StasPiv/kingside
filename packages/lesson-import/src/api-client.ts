@@ -31,13 +31,16 @@ export class AdminApiClient {
       id: string;
       slug: string;
       lessons: Array<{ id: string; slug: string; order: number; [k: string]: unknown }>;
+      [k: string]: unknown;
     }>('GET', `/lessons/admin/courses/${c.id}`);
     const lessons: DbLessonSnapshot[] = [];
     for (const l of full.lessons) {
       const lessonFull = await this.getLessonById(l.id);
       lessons.push(lessonFull);
     }
-    return { id: full.id, slug: full.slug, lessons };
+    // Сохраняем все мета-поля курса (titleKey, title, level, tags, ...)
+    // — они нужны exporter'у. Уроки переписываем уже обогащённым списком.
+    return { ...full, id: full.id, slug: full.slug, lessons };
   }
 
   async getLessonById(id: string): Promise<DbLessonSnapshot> {

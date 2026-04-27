@@ -51,7 +51,7 @@ const ADR_MINI_EXAMPLE = {
   steps: [
     {
       type: 'text',
-      body: [
+      bodyMarkdown: [
         'Рассмотрим стандартную позицию мата двумя ладьями.',
         '',
         '{{diagram:0}}',
@@ -201,7 +201,7 @@ describe('lesson.schema.json (AJV)', () => {
   describe('Step.type enum', () => {
     it('отвергает неизвестный type шага', () => {
       const broken = JSON.parse(JSON.stringify(ADR_MINI_EXAMPLE));
-      broken.steps[0] = { type: 'unknown_kind', body: 'x' };
+      broken.steps[0] = { type: 'unknown_kind', bodyMarkdown: 'x' };
       const ok = validate(broken);
       expect(ok).toBe(false);
     });
@@ -233,7 +233,7 @@ describe('lesson.schema.json (AJV)', () => {
   describe('text-step XOR body / bodyI18nKey', () => {
     it('отвергает шаг без body и без bodyI18nKey', () => {
       const broken = JSON.parse(JSON.stringify(ADR_MINI_EXAMPLE));
-      delete broken.steps[0].body;
+      delete broken.steps[0].bodyMarkdown;
       const ok = validate(broken);
       expect(ok).toBe(false);
     });
@@ -296,13 +296,13 @@ describe('lesson.schema.json (AJV)', () => {
   describe('диаграммы: оба варианта плейсхолдеров {{diagram:0}} и {{diagram:N}}', () => {
     it('принимает {{diagram:0}}', () => {
       const sample = JSON.parse(JSON.stringify(ADR_MINI_EXAMPLE));
-      sample.steps[0].body = 'Текст. {{diagram:0}}';
+      sample.steps[0].bodyMarkdown = 'Текст. {{diagram:0}}';
       expect(validate(sample)).toBe(true);
     });
 
     it('принимает {{diagram:5}} (произвольное N)', () => {
       const sample = JSON.parse(JSON.stringify(ADR_MINI_EXAMPLE));
-      sample.steps[0].body = 'Текст. {{diagram:5}}';
+      sample.steps[0].bodyMarkdown = 'Текст. {{diagram:5}}';
       // схема не привязывает N к длине diagrams[] — это бизнес-правило,
       // проверяется FE/import-сервисом. Здесь — структура.
       expect(validate(sample)).toBe(true);
@@ -315,7 +315,7 @@ describe('lesson.schema.json (AJV)', () => {
     }
 
     it('text', () => {
-      const ok = validate(withSteps([{ type: 'text', body: 'hello' }]));
+      const ok = validate(withSteps([{ type: 'text', bodyMarkdown: 'hello' }]));
       expect(ok).toBe(true);
     });
 

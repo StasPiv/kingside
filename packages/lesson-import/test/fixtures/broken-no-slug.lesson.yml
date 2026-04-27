@@ -8,4 +8,4 @@ titleKey: x.title
 summaryKey: x.summary
 steps:
   - type: text
-    body: 'тест'
+    bodyMarkdown: 'тест'

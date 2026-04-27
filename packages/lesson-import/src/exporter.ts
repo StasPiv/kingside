@@ -57,7 +57,9 @@ export async function exportCourse(opts: ExportOptions): Promise<ExportResult> {
   const lessonFiles: Array<{ path: string; content: string }> = [];
   for (const l of snapshot.lessons) {
     const data = lessonFromSnapshot(snapshot.slug, l);
-    const fileName = `${prefixOrder(data.order)}-${data.slug}.lesson.yml`;
+    // Префикс файла — 1-based, для естественной сортировки (ADR §4.1).
+    // `lesson.order` в БД 0-based, поэтому в файле имени добавляем +1.
+    const fileName = `${prefixOrder(data.order + 1)}-${data.slug}.lesson.yml`;
     lessonFiles.push({
       path: join(outDirAbs, fileName),
       content: serializeLesson(data),

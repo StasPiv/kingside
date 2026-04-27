@@ -214,13 +214,13 @@
     },
 
     "StepText": {
-      "description": "TextStep (markdown + опц. диаграммы). body XOR bodyI18nKey; диаграммы внутри тела — `{{diagram:N}}` ссылается на diagrams[N], либо inline-блок ` ```fen ``` ` (FE поддерживает оба, KS-1763 / L-08).",
+      "description": "TextStep (markdown + опц. диаграммы). bodyMarkdown XOR bodyI18nKey; диаграммы внутри тела — `{{diagram:N}}` ссылается на diagrams[N], либо inline-блок ` ```fen ``` ` (FE поддерживает оба, KS-1763 / L-08). Имя поля `bodyMarkdown` — соответствует TextStepPayload в @kingside/shared и колонке в БД.",
       "type": "object",
       "required": ["type"],
       "additionalProperties": false,
       "properties": {
         "type": { "const": "text" },
-        "body": {
+        "bodyMarkdown": {
           "description": "Markdown-тело шага. Поддерживает плейсхолдеры {{diagram:0}} / {{diagram:N}} (любое N ≥ 0) или inline ```fen``` блоки.",
           "type": "string",
           "minLength": 1
@@ -236,8 +236,8 @@
         }
       },
       "oneOf": [
-        { "required": ["body"], "not": { "required": ["bodyI18nKey"] } },
-        { "required": ["bodyI18nKey"], "not": { "required": ["body"] } }
+        { "required": ["bodyMarkdown"], "not": { "required": ["bodyI18nKey"] } },
+        { "required": ["bodyI18nKey"], "not": { "required": ["bodyMarkdown"] } }
       ]
     },
 

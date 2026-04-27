@@ -8,7 +8,7 @@ titleKey: x.title
 summaryKey: x.summary
 steps:
   - type: text
-    body: 'смотри диаграмму {{diagram:0}}'
+    bodyMarkdown: 'смотри диаграмму {{diagram:0}}'
     diagrams:
       - fen: 'this-is-not-fen'
         caption: 'плохой FEN'

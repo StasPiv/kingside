@@ -63,10 +63,10 @@ describe('diff.ts', () => {
 
   it('unchanged когда все совпало', () => {
     const file: LessonFileData = lesson([
-      { type: 'text', body: 'hello' },
+      { type: 'text', bodyMarkdown: 'hello' },
     ]);
     const db: DbLessonSnapshot = dbLesson([
-      { id: 'sid', order: 1, type: 'text', payload: { type: 'text', body: 'hello' } },
+      { id: 'sid', order: 1, type: 'text', payload: { type: 'text', bodyMarkdown: 'hello' } },
     ]);
     const dbCourse: DbCourseSnapshot = { id: 'cid', slug: 'c', lessons: [db] };
     const bundle: ParsedBundle = { lessons: [{ path: '/tmp/x', data: file }] };
@@ -76,9 +76,9 @@ describe('diff.ts', () => {
   });
 
   it('update при изменении тела шага', () => {
-    const file = lesson([{ type: 'text', body: 'hello new' }]);
+    const file = lesson([{ type: 'text', bodyMarkdown: 'hello new' }]);
     const db = dbLesson([
-      { id: 'sid', order: 1, type: 'text', payload: { type: 'text', body: 'hello' } },
+      { id: 'sid', order: 1, type: 'text', payload: { type: 'text', bodyMarkdown: 'hello' } },
     ]);
     const diff = diffSteps(file.steps, db.steps);
     expect(diff[0]!.action).toBe('update');
@@ -86,10 +86,10 @@ describe('diff.ts', () => {
   });
 
   it('delete лишнего шага из БД', () => {
-    const file = lesson([{ type: 'text', body: 'a' }]);
+    const file = lesson([{ type: 'text', bodyMarkdown: 'a' }]);
     const db = dbLesson([
-      { id: 's1', order: 1, type: 'text', payload: { type: 'text', body: 'a' } },
-      { id: 's2', order: 2, type: 'text', payload: { type: 'text', body: 'b' } },
+      { id: 's1', order: 1, type: 'text', payload: { type: 'text', bodyMarkdown: 'a' } },
+      { id: 's2', order: 2, type: 'text', payload: { type: 'text', bodyMarkdown: 'b' } },
     ]);
     const diff = diffSteps(file.steps, db.steps);
     expect(diff).toHaveLength(2);
@@ -99,11 +99,11 @@ describe('diff.ts', () => {
 
   it('create нового шага если его нет в БД', () => {
     const file = lesson([
-      { type: 'text', body: 'a' },
-      { type: 'text', body: 'b' },
+      { type: 'text', bodyMarkdown: 'a' },
+      { type: 'text', bodyMarkdown: 'b' },
     ]);
     const db = dbLesson([
-      { id: 's1', order: 1, type: 'text', payload: { type: 'text', body: 'a' } },
+      { id: 's1', order: 1, type: 'text', payload: { type: 'text', bodyMarkdown: 'a' } },
     ]);
     const diff = diffSteps(file.steps, db.steps);
     expect(diff[1]!.action).toBe('create');
@@ -112,7 +112,7 @@ describe('diff.ts', () => {
   it('update при смене type', () => {
     const file = lesson([{ type: 'video', url: 'https://youtu.be/x' }]);
     const db = dbLesson([
-      { id: 's1', order: 1, type: 'text', payload: { type: 'text', body: 'a' } },
+      { id: 's1', order: 1, type: 'text', payload: { type: 'text', bodyMarkdown: 'a' } },
     ]);
     const diff = diffSteps(file.steps, db.steps);
     expect(diff[0]!.action).toBe('update');

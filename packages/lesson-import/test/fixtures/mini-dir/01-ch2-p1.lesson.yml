@@ -14,7 +14,7 @@ estMinutes: 5
 
 steps:
   - type: text
-    body: |
+    bodyMarkdown: |
       Рассмотрим стандартную позицию мата двумя ладьями.
 
       {{diagram:0}}
