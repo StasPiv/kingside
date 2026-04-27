@@ -3150,22 +3150,26 @@
   color: var(--text-secondary);
 }
 
-/* ---------- Puzzle step ---------- */
-.lesson-puzzle-step {
+/* ---------- Puzzle / Position step ---------- */
+.lesson-puzzle-step,
+.lesson-position-step {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-/* Доска внутри PuzzleStep в урокe — ограничиваем ширину, иначе
-   PuzzleBoard растягивается на всю ширину контейнера шага (≈920px
-   на desktop) и доска визуально огромная. На mobile общее правило
+/* KS-2051: доска в шагах урока (PuzzleStep / PositionStep) без
+   потолка ширины растягивается на всю карточку (~920–960px на
+   desktop) и визуально доминирует, тексты уходят за экран.
+   Ограничиваем ~500px и центрируем. На mobile общее правило
    `width: 100% !important` (в @media max-width:640) даёт полную
-   ширину контейнера, max-width 480px его не уменьшит. */
-.lesson-puzzle-step .board-container {
+   ширину контейнера; max-width его не увеличит. */
+.lesson-puzzle-step .board-container,
+.lesson-position-step .board-container {
   width: 100%;
-  max-width: 480px;
-  align-self: flex-start;
+  max-width: 500px;
+  aspect-ratio: 1;
+  align-self: center;
 }
 
 /* KS-1910: баннер «Авторская задача — рейтинг не меняется» для
