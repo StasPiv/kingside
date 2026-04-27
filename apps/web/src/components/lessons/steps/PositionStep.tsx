@@ -89,6 +89,12 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
   const playSoundRef = useRef(playSound);
   playSoundRef.current = playSound;
 
+  // KS-2052: read-only диаграмма — шаг без `expectedMoves` (или с пустым
+  // массивом). Доска статичная, drag/click отключены, hint/Attempts/header
+  // не рендерятся. Защита от undefined в `payload.expectedMoves.some(...)`.
+  const isReadOnly =
+    !Array.isArray(payload.expectedMoves) || payload.expectedMoves.length === 0;
+
   // Базовая позиция из FEN. Пересоздаётся только при смене payload.fen.
   const baseGame = useMemo<Chess>(() => new Chess(payload.fen), [payload.fen]);
 
@@ -134,7 +140,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
       sourceSquare: string;
       targetSquare: string | null;
     }): boolean => {
-      if (!targetSquare || status !== 'thinking') return false;
+      if (isReadOnly || !targetSquare || status !== 'thinking') return false;
 
       // Применяем ход на КОПИИ baseGame (move мутирует экземпляр). При неудаче
       // получим визуально откат к baseGame через overrideGame = null.
@@ -158,7 +164,8 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
         promotion: moveResult.promotion,
       });
 
-      const isCorrect = payload.expectedMoves.some(
+      // `isReadOnly` уже отсёк ветку без expectedMoves; ?? [] — защитный no-op.
+      const isCorrect = (payload.expectedMoves ?? []).some(
         (expected) => expected.toLowerCase() === playedUci.toLowerCase(),
       );
 
@@ -183,7 +190,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
       }
       return true;
     },
-    [baseGame, status, payload.expectedMoves, onStepDone],
+    [baseGame, status, payload.expectedMoves, onStepDone, isReadOnly],
   );
 
   const onClickMove = useCallback(
@@ -200,7 +207,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
   } = useBoardHighlights({
     game: displayGame,
     playerColor: orientation,
-    enabled: status === 'thinking',
+    enabled: !isReadOnly && status === 'thinking',
     onMove: onClickMove,
   });
 
@@ -221,12 +228,12 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
   }, [status]);
 
   const showHint = useCallback(() => {
-    if (status !== 'thinking') return;
-    const first = payload.expectedMoves[0];
+    if (isReadOnly || status !== 'thinking') return;
+    const first = payload.expectedMoves?.[0];
     const parsed = first ? parseUci(first) : null;
     if (!parsed) return;
     setHintSquare(parsed.from);
-  }, [status, payload.expectedMoves]);
+  }, [status, payload.expectedMoves, isReadOnly]);
 
   const squareStyles = useMemo<Record<string, CSSProperties>>(() => {
     const merged: Record<string, CSSProperties> = { ...baseSquareStyles };
@@ -255,7 +262,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
   const { suppressAnimationRef } = useFastDrag(boardContainerRef, {
     onPieceDrop,
     boardOrientation: orientation,
-    enabled: status === 'thinking',
+    enabled: !isReadOnly && status === 'thinking',
   });
 
   const handleSquareClick = useCallback(
@@ -307,29 +314,37 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
   );
 
   return (
-    <div className="lesson-position-step" data-testid="lesson-position-step">
-      <header
-        className="lesson-position-step__header"
-        style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}
-      >
-        <span
-          className={`lesson-position-step__turn lesson-position-step__turn--${playerColor}`}
-          data-testid="lesson-position-step-turn"
+    <div
+      className={`lesson-position-step${isReadOnly ? ' lesson-position-step--readonly' : ''}`}
+      data-testid="lesson-position-step"
+      data-readonly={isReadOnly ? 'true' : 'false'}
+    >
+      {/* KS-2052: header (turn + attempts) — только для интерактивного шага.
+          Read-only диаграмма не должна мимикрировать под задачу. */}
+      {!isReadOnly && (
+        <header
+          className="lesson-position-step__header"
+          style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 8 }}
         >
-          {playerColor === 'white'
-            ? t('puzzle.whiteToMove', 'White to move')
-            : t('puzzle.blackToMove', 'Black to move')}
-        </span>
-        <span
-          className="lesson-position-step__attempts"
-          data-testid="lesson-position-step-attempts"
-        >
-          {t('lessons.positionAttempts', {
-            count: attempts,
-            defaultValue: 'Attempts: {{count}}',
-          })}
-        </span>
-      </header>
+          <span
+            className={`lesson-position-step__turn lesson-position-step__turn--${playerColor}`}
+            data-testid="lesson-position-step-turn"
+          >
+            {playerColor === 'white'
+              ? t('puzzle.whiteToMove', 'White to move')
+              : t('puzzle.blackToMove', 'Black to move')}
+          </span>
+          <span
+            className="lesson-position-step__attempts"
+            data-testid="lesson-position-step-attempts"
+          >
+            {t('lessons.positionAttempts', {
+              count: attempts,
+              defaultValue: 'Attempts: {{count}}',
+            })}
+          </span>
+        </header>
+      )}
 
       <div className="board-container" ref={boardContainerRef}>
         <MemoChessboard options={boardOptions} />
@@ -353,7 +368,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
           </p>
         )}
 
-        {status === 'thinking' && (
+        {!isReadOnly && status === 'thinking' && (
           <button
             type="button"
             className="lesson-position-step__hint"

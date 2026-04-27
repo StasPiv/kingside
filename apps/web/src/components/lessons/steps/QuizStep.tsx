@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { QuizQuestion, QuizStepPayload } from '@kingside/shared';
 
@@ -79,13 +79,16 @@ export function QuizStep({ payload, onStepDone, hideNext }: QuizStepProps) {
   const ratio = submitted && total > 0 ? correctCount / total : 0;
   const passed = submitted && total > 0 && ratio >= passThreshold;
 
-  // Поддерживаем «ленивое» проставление onStepDone — после первого
-  // успешного прохождения. Повторные клики «Continue» вызывают callback
-  // явно (как и в других степах).
-  if (passed && !stepDoneFiredRef.current) {
-    stepDoneFiredRef.current = true;
-    onStepDone?.();
-  }
+  // KS-2053: вызов onStepDone в фазе рендера триггерил setState соседнего
+  // компонента (LessonPlayer/прогресс) — React-варнинг «Cannot update a
+  // component while rendering a different component». Перенесли в эффект:
+  // callback срабатывает после коммита, side-effects родителя — легальны.
+  useEffect(() => {
+    if (passed && !stepDoneFiredRef.current) {
+      stepDoneFiredRef.current = true;
+      onStepDone?.();
+    }
+  }, [passed, onStepDone]);
 
   // ─── Handlers ─────────────────────────────────────────────────────
   const toggleOption = (qIdx: number, optionId: string) => {

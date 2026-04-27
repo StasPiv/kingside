@@ -234,6 +234,54 @@ describe('<PositionStep>', () => {
     );
   });
 
+  // ─── KS-2052: read-only диаграмма ─────────────────────────────────
+
+  it('KS-2052: payload без expectedMoves — не падает, header/hint/Attempts скрыты', async () => {
+    renderWithProviders(
+      <PositionStep
+        payload={
+          {
+            type: 'position',
+            fen: STARTING_FEN,
+          } as unknown as PositionStepPayload
+        }
+      />,
+    );
+
+    const root = screen.getByTestId('lesson-position-step');
+    expect(root).toHaveAttribute('data-readonly', 'true');
+    expect(screen.queryByTestId('lesson-position-step-turn')).toBeNull();
+    expect(screen.queryByTestId('lesson-position-step-attempts')).toBeNull();
+    expect(screen.queryByTestId('lesson-position-step-hint')).toBeNull();
+
+    // Попытка хода не должна крашить и не должна менять статус.
+    await waitFor(() => expect(lastBoardOptions).not.toBeNull());
+    clickSquare('e2');
+    clickSquare('e4');
+    expect(screen.queryByTestId('lesson-position-step-correct')).toBeNull();
+    expect(screen.queryByTestId('lesson-position-step-incorrect')).toBeNull();
+  });
+
+  it('KS-2052: payload с пустым expectedMoves[] — read-only, не падает', async () => {
+    renderWithProviders(
+      <PositionStep
+        payload={{
+          type: 'position',
+          fen: STARTING_FEN,
+          expectedMoves: [],
+        }}
+      />,
+    );
+    const root = screen.getByTestId('lesson-position-step');
+    expect(root).toHaveAttribute('data-readonly', 'true');
+    expect(screen.queryByTestId('lesson-position-step-hint')).toBeNull();
+
+    await waitFor(() => expect(lastBoardOptions).not.toBeNull());
+    clickSquare('e2');
+    clickSquare('e4');
+    expect(screen.queryByTestId('lesson-position-step-correct')).toBeNull();
+  });
+
   it('нелегальный ход (например, пешка через фигуру) — snap-back, состояние не меняется', async () => {
     const onStepDone = vi.fn();
     renderWithProviders(

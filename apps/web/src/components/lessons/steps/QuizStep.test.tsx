@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { useState } from 'react';
 import { fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen } from '../../../test/test-utils';
 import type { QuizStepPayload } from '@kingside/shared';
@@ -220,6 +221,49 @@ describe('<QuizStep>', () => {
     expect(screen.getByTestId('question-result-0').textContent).toContain(
       'Доска 8×8 = 64 клетки.',
     );
+  });
+
+  // ─── KS-2053: не должно быть React-варнинга «Cannot update a
+  //     component while rendering a different component». Был вызов
+  //     onStepDone() прямо в фазе рендера; перенесли в useEffect. ───
+  it('KS-2053: onStepDone не вызывается во время рендера (нет react-варнинга)', () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      // Родитель, который при колбэке onStepDone делает setState — это
+      // как раз тот сценарий, в котором React раньше ругался.
+      function Parent() {
+        const [done, setDone] = useState(0);
+        return (
+          <>
+            <span data-testid="parent-counter">{done}</span>
+            <QuizStep
+              payload={{
+                type: 'quiz',
+                questions: [singleQuestion()],
+              }}
+              onStepDone={() => setDone((d) => d + 1)}
+            />
+          </>
+        );
+      }
+      renderWithProviders(<Parent />);
+      fireEvent.click(screen.getByTestId('option-0-b'));
+      fireEvent.click(screen.getByTestId('check-0'));
+      fireEvent.click(screen.getByTestId('lesson-quiz-step-submit'));
+
+      // Колбэк сработал ровно один раз — счётчик родителя стал 1.
+      expect(screen.getByTestId('parent-counter')).toHaveTextContent('1');
+
+      // Никаких варнингов «Cannot update a component while rendering».
+      const offending = errSpy.mock.calls.find((args) =>
+        args.some(
+          (a) => typeof a === 'string' && a.includes('Cannot update a component while rendering'),
+        ),
+      );
+      expect(offending).toBeUndefined();
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it('KS-1982: explanation отсутствует → блок с разбором не рендерится', () => {
