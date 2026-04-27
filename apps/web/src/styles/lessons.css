@@ -2648,37 +2648,33 @@
 .inline-pgn-viewer {
   display: grid;
   grid-template-columns: max-content minmax(280px, 1fr);
-  /* KS-2008: третий ряд — блок текущего комментария под доской.
-     KS-2035: добавлен ряд под leading-комментарий PGN (вступление
-     автора к партии) над листом ходов. Если у партии нет
-     leading-комментария — соответствующий блок не рендерится, и ряд
-     схлопывается до нуля (auto). */
+  /* KS-2008: ряд под блок текущего комментария под доской.
+     KS-2035 (final): 4 ряда —
+       row 1: leading-slot (full-width над доской, активен на ply=0);
+       row 2: controls (col 2);
+       row 2-3: board (col 1, span 2);
+       row 3: moves (col 2);
+       row 4: current-comment-slot (col 1/-1, активен на ply≥1).
+     Активные выноски возле доски: ply=0 → leading сверху,
+     ply≥1 → comment снизу. Inline-комментарии в нотации не
+     рендерятся (см. `movesWithoutInlineComments` в InlinePgnViewer). */
   grid-template-rows: auto auto auto auto;
   gap: 12px 16px;
   align-items: start;
   outline: none;
 }
+/* KS-2035: слот для leading-комментария НАД доской — полная ширина
+   виджета. Если на ply=0 leading нет — DOM-блок остаётся пустым и
+   ряд схлопывается; на ply≥1 этот слот всегда пустой. */
+.inline-pgn-viewer__leading-slot {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  width: 100%;
+  min-width: 0;
+}
 .inline-pgn-viewer__board {
   grid-column: 1;
-  grid-row: 1 / span 3;
-}
-/* KS-2035: leading-комментарий PGN — авторское вступление к партии.
-   Стоит над листом ходов, в col 2, отдельной строкой. Рендерится
-   только при наличии комментария — иначе ряд схлопывается. */
-.inline-pgn-viewer__leading-comment {
-  grid-column: 2;
-  grid-row: 2;
-  margin: 0;
-  padding: 8px 12px;
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--text-primary);
-  background: var(--bg-muted);
-  border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--accent-primary);
-  border-radius: 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
+  grid-row: 2 / span 2;
 }
 /* KS-2008: слот под комментарий текущего хода. Рендерится всегда,
    держит фиксированный min-height, чтобы координаты доски/контролов не
@@ -2689,8 +2685,8 @@
    тянул auto-track и сжимал панель PGN справа. */
 .inline-pgn-viewer__current-comment-slot {
   grid-column: 1 / -1;
-  /* KS-2035: было `grid-row: 3`; теперь 4 — освобождён ряд 2 под
-     leading-комментарий, ряд 3 занимает лист ходов. */
+  /* KS-2035 (final): ряд 4 (последний). Над доской — leading-slot
+     (row 1), ряды 2-3 — controls/board/moves. */
   grid-row: 4;
   width: 100%;
   min-width: 0;
@@ -2712,7 +2708,8 @@
 }
 .inline-pgn-viewer__controls {
   grid-column: 2;
-  grid-row: 1;
+  /* KS-2035: ряд 2 (раньше 1). Ряд 1 теперь под leading-slot. */
+  grid-row: 2;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2742,7 +2739,7 @@
 }
 .inline-pgn-viewer__moves {
   grid-column: 2;
-  /* KS-2035: ряд 3 (раньше 2). Ряд 2 теперь под leading-комментарий. */
+  /* KS-2035 (final): ряд 3 (после controls в row 2). */
   grid-row: 3;
   list-style: none;
   margin: 0;
@@ -2789,33 +2786,30 @@
 @media (max-width: 760px) {
   .inline-pgn-viewer {
     grid-template-columns: 1fr;
-    /* KS-2008: 4 ряда — board / comment / controls / moves.
-       KS-2035: 5 рядов — добавлен leading-comment между controls и
-       moves (если есть). */
+    /* KS-2035 (final): 5 рядов — leading-slot (row 1, ply=0), board,
+       current-comment-slot (под доской, ply≥1), controls, moves. */
     grid-template-rows: auto auto auto auto auto;
+  }
+  .inline-pgn-viewer__leading-slot {
+    grid-column: 1;
+    grid-row: 1;
   }
   .inline-pgn-viewer__board {
     grid-column: 1;
-    grid-row: 1;
+    grid-row: 2;
     justify-self: center;
   }
   .inline-pgn-viewer__current-comment-slot {
     grid-column: 1;
-    grid-row: 2;
+    grid-row: 3;
     /* На узком mobile viewport одна и та же высота блока сдерживает
        лучше как 4em (≈3 строки) чтобы не съесть пол-экрана. */
     min-height: 4em;
   }
   .inline-pgn-viewer__controls {
     grid-column: 1;
-    grid-row: 3;
-    justify-content: center;
-  }
-  /* KS-2035: leading-comment в mobile-раскладке — между controls и
-     листом ходов (ряд 4). Если в PGN его нет, ряд схлопывается. */
-  .inline-pgn-viewer__leading-comment {
-    grid-column: 1;
     grid-row: 4;
+    justify-content: center;
   }
   .inline-pgn-viewer__moves {
     grid-column: 1;

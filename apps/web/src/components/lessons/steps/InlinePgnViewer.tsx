@@ -182,6 +182,16 @@ export function InlinePgnViewer({
     setPly(move.globalIndex + 1);
   };
 
+  // KS-2035 (final): нотация «чистая» — без `{...}`-комментариев.
+  // Авторские примечания живут только в активной выноске возле доски
+  // (leading над доской на ply=0, comment под доской на ply≥1).
+  // Для этого передаём в `ReviewMoveList` копию moves без `comment`.
+  // NAG-аннотации (`!`, `?`, `$N`) сохраняем — это часть SAN-нотации.
+  const movesWithoutInlineComments = useMemo(
+    () => moves.map((m) => ({ ...m, comment: undefined })),
+    [moves],
+  );
+
   return (
     <div
       ref={rootRef}
@@ -191,6 +201,22 @@ export function InlinePgnViewer({
       data-ply={safePly}
       tabIndex={0}
     >
+      {/* KS-2035: leading-комментарий PGN — авторское вступление к
+          партии. На ply=0 (доска в стартовой позиции) показываем его
+          активной выноской НАД доской. На ply≥1 этот слот пустой
+          (схлопывается до 0), под доской работает обычный
+          `__current-comment-slot` с комментарием выбранного хода. */}
+      <div className="inline-pgn-viewer__leading-slot">
+        {!currentMove && leadingComment && (
+          <p
+            className="inline-pgn-viewer__current-comment"
+            data-testid="inline-pgn-viewer-leading-comment-above-board"
+          >
+            {leadingComment}
+          </p>
+        )}
+      </div>
+
       <div
         className="inline-pgn-viewer__board"
         style={{ width: boardSize, maxWidth: '100%' }}
@@ -217,15 +243,9 @@ export function InlinePgnViewer({
           testid'ом по-прежнему рендерится условно — тестовые querySelectors
           через `queryByTestId` остаются работоспособными.
 
-          KS-2035: при ply=0 (доска в стартовой позиции) в этом же слоте
-          дублируем leading-комментарий PGN — авторское вступление к
-          партии. Это «комментарий к ходу 0»: переключение на следующий
-          ход подменяет содержимое на комментарий к выбранному ходу.
-          Параллельно тот же leading-комментарий отдельным блоком
-          рендерится над списком ходов (см. ниже) — он там виден
-          независимо от текущего ply. Дублирование преднамеренное:
-          под доской — активный контекст, над нотацией — постоянный
-          анонс партии. */}
+          KS-2035: на ply=0 этот слот пустой — leading-комментарий
+          активной выноской живёт ВЫШЕ доски (см. `__leading-slot`).
+          Здесь рендерим только комментарии к фактическим ходам. */}
       <div className="inline-pgn-viewer__current-comment-slot">
         {currentMove?.comment && (
           <p
@@ -233,14 +253,6 @@ export function InlinePgnViewer({
             data-testid="inline-pgn-viewer-current-comment"
           >
             {currentMove.comment}
-          </p>
-        )}
-        {!currentMove && leadingComment && (
-          <p
-            className="inline-pgn-viewer__current-comment"
-            data-testid="inline-pgn-viewer-leading-comment-under-board"
-          >
-            {leadingComment}
           </p>
         )}
       </div>
@@ -299,26 +311,12 @@ export function InlinePgnViewer({
         </button>
       </div>
 
-      {/* KS-2035: leading-комментарий PGN — авторское вступление к
-          партии (`{...}` между tag-pair'ами и `1.<move>`). Рендерим
-          отдельным блоком над листом ходов: его смысл описывает партию
-          в целом, а не конкретный ход, и он виден всегда — независимо
-          от текущего ply. */}
-      {leadingComment && (
-        <p
-          className="inline-pgn-viewer__leading-comment"
-          data-testid="inline-pgn-viewer-leading-comment"
-        >
-          {leadingComment}
-        </p>
-      )}
-
       <div
         className="inline-pgn-viewer__moves"
         data-testid="inline-pgn-viewer-moves"
       >
         <ReviewMoveList
-          history={moves}
+          history={movesWithoutInlineComments}
           currentGlobalIndex={reviewCurrentIndex}
           onMoveClick={handleMoveClick}
           readOnly
