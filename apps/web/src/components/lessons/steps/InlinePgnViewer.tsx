@@ -215,7 +215,17 @@ export function InlinePgnViewer({
           и держит фиксированный min-height, чтобы доска не «прыгала»
           между ходами с комментариями разной длины. Внутренний `<p>` с
           testid'ом по-прежнему рендерится условно — тестовые querySelectors
-          через `queryByTestId` остаются работоспособными. */}
+          через `queryByTestId` остаются работоспособными.
+
+          KS-2035: при ply=0 (доска в стартовой позиции) в этом же слоте
+          дублируем leading-комментарий PGN — авторское вступление к
+          партии. Это «комментарий к ходу 0»: переключение на следующий
+          ход подменяет содержимое на комментарий к выбранному ходу.
+          Параллельно тот же leading-комментарий отдельным блоком
+          рендерится над списком ходов (см. ниже) — он там виден
+          независимо от текущего ply. Дублирование преднамеренное:
+          под доской — активный контекст, над нотацией — постоянный
+          анонс партии. */}
       <div className="inline-pgn-viewer__current-comment-slot">
         {currentMove?.comment && (
           <p
@@ -223,6 +233,14 @@ export function InlinePgnViewer({
             data-testid="inline-pgn-viewer-current-comment"
           >
             {currentMove.comment}
+          </p>
+        )}
+        {!currentMove && leadingComment && (
+          <p
+            className="inline-pgn-viewer__current-comment"
+            data-testid="inline-pgn-viewer-leading-comment-under-board"
+          >
+            {leadingComment}
           </p>
         )}
       </div>

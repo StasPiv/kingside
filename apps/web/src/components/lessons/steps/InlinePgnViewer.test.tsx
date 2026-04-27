@@ -197,8 +197,10 @@ describe('<InlinePgnViewer>', () => {
   // KS-2035: leading-комментарий PGN — авторское вступление, стоящее
   // между tag-pair'ами и `1.<move>`. До фикса терялся (parseAnnotatedPgn
   // привязывает комментарии только к предыдущему ходу, а до 1-го хода
-  // `lastMove === null`). Теперь рендерится отдельным блоком над
-  // листом ходов и виден независимо от ply.
+  // `lastMove === null`). Сейчас рендерится в двух местах:
+  //  - постоянным блоком над листом ходов (виден всегда),
+  //  - и под доской на ply=0 (как «комментарий к ходу 0»; на ply≥1
+  //    подменяется на комментарий выбранного хода).
   it('PGN с pre-game комментарием → leading-блок виден над листом ходов (regression KS-2035)', () => {
     const pgn = [
       '[FEN "8/8/8/8/4k3/8/3KP3/8 w - - 0 1"]',
@@ -213,17 +215,47 @@ describe('<InlinePgnViewer>', () => {
     expect(
       screen.getByTestId('inline-pgn-viewer-counter').textContent,
     ).toBe('0/4');
-    // Leading виден независимо от ply: после next он остаётся.
+    // Leading-блок над списком ходов виден независимо от ply: после next остаётся.
     fireEvent.click(screen.getByTestId('inline-pgn-viewer-next'));
     expect(
       screen.getByTestId('inline-pgn-viewer-leading-comment').textContent,
     ).toContain('Эта позиция');
   });
 
-  it('PGN без pre-game комментария → leading-блок не рендерится', () => {
+  it('PGN с pre-game комментарием → дубль leading под доской на ply=0 (KS-2035)', () => {
+    const pgn = [
+      '[FEN "8/8/8/8/4k3/8/3KP3/8 w - - 0 1"]',
+      '[SetUp "1"]',
+      '',
+      '{Эта позиция — ничья.} 1. e3 {after-move-1-comment} Ke5 1/2-1/2',
+    ].join('\n');
+    renderWithProviders(<InlinePgnViewer pgn={pgn} />);
+    // Стартовая позиция, ply=0 — под доской показывается leading.
+    const underBoard = screen.getByTestId(
+      'inline-pgn-viewer-leading-comment-under-board',
+    );
+    expect(underBoard.textContent).toContain('Эта позиция');
+    // Под доской НЕТ блока «текущий комментарий хода» (его не должно быть на ply=0).
+    expect(
+      screen.queryByTestId('inline-pgn-viewer-current-comment'),
+    ).toBeNull();
+    // Переход на ход 1 — под доской уходит leading, появляется комментарий хода.
+    fireEvent.click(screen.getByTestId('inline-pgn-viewer-next'));
+    expect(
+      screen.queryByTestId('inline-pgn-viewer-leading-comment-under-board'),
+    ).toBeNull();
+    expect(
+      screen.getByTestId('inline-pgn-viewer-current-comment').textContent,
+    ).toContain('after-move-1-comment');
+  });
+
+  it('PGN без pre-game комментария → leading-блоки не рендерятся (ни над списком, ни под доской)', () => {
     renderWithProviders(<InlinePgnViewer pgn={SHORT_PGN} />);
     expect(
       screen.queryByTestId('inline-pgn-viewer-leading-comment'),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId('inline-pgn-viewer-leading-comment-under-board'),
     ).toBeNull();
   });
 });
