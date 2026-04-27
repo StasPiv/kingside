@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { MemoChessboard } from '../../MemoChessboard';
@@ -7,44 +7,43 @@ import {
   parseAnnotatedPgn,
 } from '../../../review/utils/PgnDeserializer';
 import { ReviewMoveList } from '../../../review/components/ReviewMoveList';
+import { useReviewState } from '../../../review/useReviewState';
 import type { ChessMove } from '../../../review/types';
 
 /**
- * KS-1999 / KS-2005: интерактивный просмотрщик PGN внутри `GameReviewStep`.
+ * Интерактивный просмотрщик PGN внутри `GameReviewStep`.
  *
- * Что делает:
- *  - парсит PGN через `parseAnnotatedPgn` (`apps/web/src/review/utils/`):
- *    извлекает ходы вместе с PGN-комментариями (`{...}`) и
- *    NAG-аннотациями (`!`, `?`, `!?`, `$N`),
- *  - показывает доску (`<MemoChessboard>`) для текущего ply'а,
- *  - под доской — нотацию через переиспользуемый `<ReviewMoveList>`
- *    (read-only режим — KS-2005). NAG-символы рендерятся рядом с ходом,
- *    встроенные комментарии — после хода в том же блоке,
- *  - кнопки навигации `«|<` / `<` / `>` / `>|`,
- *  - клик по ходу в нотации → прыжок на эту позицию,
- *  - стрелки клавиатуры ←/→ — листают ходы (focus на корне viewer'а).
- *  - комментарий к текущему ply'у дублируется отдельным блоком под доской
- *    (если у хода в PGN был `{...}`-комментарий) — для крупного видного
- *    текста авторских примечаний в уроке.
+ * # KS-2040: общий движок с AnalysisPage
  *
- * Что НЕ делает (по задаче):
- *  - не подключает Stockfish/WASM,
- *  - не редактирует PGN,
- *  - не показывает сырой PGN текстом.
+ * Раньше у компонента был свой локальный `ply: number` state. После
+ * KS-2040 под капотом используется тот же `useReviewState` хук, что и
+ * на странице анализа партии (`AnalysisPage.tsx`) — единое ядро для
+ * навигации, истории ходов и текущей позиции. Это даёт:
  *
- * Если PGN нечитаемый или пустой — рендерит фолбэк «не получилось
- * разобрать партию». Никаких unhandled-ошибок наружу.
+ *   - идентичную семантику навигации (`gotoFirst`/`gotoPrevious`/
+ *     `gotoNext`/`gotoLast`/`gotoMove`) — поведение в уроке совпадает
+ *     с поведением на странице анализа;
+ *   - поддержку вариаций «из коробки» (если в будущем PGN-разборы
+ *     будут содержать `(...)` варианты, ReviewMoveList рендерит их
+ *     корректно);
+ *   - переиспользуемые компоненты UI: `MemoChessboard`,
+ *     `ReviewMoveList` (в read-only режиме — KS-2005).
  *
- * # KS-2005 — переход на ReviewMoveList
+ * Что компонент НЕ делает (по задаче KS-2040 §3):
+ *   - не подключает Stockfish/WASM (это разбор партии, не анализ);
+ *   - не редактирует PGN, не позволяет вводить ходы;
+ *   - не показывает eval bar/graph и engine settings.
  *
- * До KS-2005 здесь был свой простой `<ol>`-список SAN-кнопок без поддержки
- * комментариев и NAG'ов — и собственный мини-парсер на `chess.js`. Это не
- * подходило для уроков-разборов Капабланки, где у каждого хода есть
- * текстовое примечание. Чтобы не плодить второй вьювер, переключились на
- * существующий `ReviewMoveList` из AnalysisPage (`review/components/`),
- * добавив ему опциональный `readOnly`-режим. Парсинг PGN тоже взяли из
- * `review/utils/PgnDeserializer` — `parseAnnotatedPgn` уже умеет
- * `{comments}` и `$NAG`/`!`/`?`-аннотации, а `chess.js` теряет и то и то.
+ * # Авторские примечания (KS-2032 / KS-2035)
+ *
+ * - Pre-game комментарий PGN (`{...}` между tag-pair'ами и `1.<move>`)
+ *   рендерится активной выноской НАД доской на ply=0;
+ *   `extractLeadingComment` в `PgnDeserializer.ts`.
+ * - Inline-комментарий выбранного хода рендерится выноской ПОД доской
+ *   при ply≥1 в том же визуальном стиле.
+ * - Нотация чистая — `{...}`-комментарии не дублируются в листе ходов
+ *   (см. `movesWithoutInlineComments`). NAG-аннотации (`!`, `?`, `$N`)
+ *   сохраняются — это часть SAN.
  */
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -104,14 +103,37 @@ export function InlinePgnViewer({
 }: InlinePgnViewerProps) {
   const { t } = useTranslation();
   const parsed = useMemo(() => parseInlinePgn(pgn), [pgn]);
-  // ply: 0 = до первого хода (стартовая позиция); N = после N-го хода.
-  const [ply, setPly] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // При смене PGN сбрасываем индекс — иначе старый ply будет вне диапазона.
+  // KS-2040: общий движок с AnalysisPage. `useReviewState` держит
+  // history/currentMove/currentFen и навигацию. При смене PGN
+  // переинициализируем initialFen и заливаем moves.
+  const {
+    history,
+    currentMove,
+    currentGlobalIndex,
+    currentFen,
+    setInitialFen,
+    loadFromPgn,
+    gotoMove,
+    gotoFirst,
+    gotoPrevious,
+    gotoNext,
+    gotoLast,
+  } = useReviewState();
+
   useEffect(() => {
-    setPly(0);
-  }, [pgn]);
+    if (!parsed.ok) return;
+    // setInitialFen ВСЕГДА сбрасывает history → loadFromPgn после.
+    setInitialFen(parsed.startFen);
+    loadFromPgn(parsed.moves);
+    // После loadFromPgn `currentMove` встаёт на последний ход
+    // (стандартное поведение AnalysisPage). Для урока хочется
+    // стартовать с позиции ДО первого хода — отдельным dispatch'ем
+    // ниже через `gotoFirst`.
+    gotoFirst();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsed]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -123,21 +145,21 @@ export function InlinePgnViewer({
       if (!active || !root.contains(active)) return;
       if (e.key === 'ArrowRight') {
         e.preventDefault();
-        setPly((p) => Math.min(parsed.moves.length, p + 1));
+        gotoNext();
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
-        setPly((p) => Math.max(0, p - 1));
+        gotoPrevious();
       } else if (e.key === 'Home') {
         e.preventDefault();
-        setPly(0);
+        gotoFirst();
       } else if (e.key === 'End') {
         e.preventDefault();
-        setPly(parsed.moves.length);
+        gotoLast();
       }
     };
     root.addEventListener('keydown', onKey);
     return () => root.removeEventListener('keydown', onKey);
-  }, [parsed]);
+  }, [parsed, gotoNext, gotoPrevious, gotoFirst, gotoLast]);
 
   if (!parsed.ok) {
     return (
@@ -156,11 +178,16 @@ export function InlinePgnViewer({
     );
   }
 
-  const { startFen, moves, leadingComment } = parsed;
-  const total = moves.length;
-  const safePly = Math.max(0, Math.min(total, ply));
-  const currentMove = safePly === 0 ? null : moves[safePly - 1];
-  const fen = currentMove ? currentMove.after : startFen;
+  const { leadingComment } = parsed;
+  // history после loadFromPgn содержит main-line moves курса. Counter
+  // показывает позицию в main-line (как раньше "ply / total"). Если
+  // currentMove сидит в вариации — globalIndex может быть вне
+  // [0..history.length-1]; зажимаем для отображения counter'а.
+  const total = history.length;
+  const safePly = currentMove
+    ? Math.min(total, Math.max(0, currentGlobalIndex + 1))
+    : 0;
+  const fen = currentFen;
   const squareStyles = currentMove
     ? {
         [currentMove.from]: { backgroundColor: LAST_MOVE_HIGHLIGHT },
@@ -168,28 +195,25 @@ export function InlinePgnViewer({
       }
     : undefined;
 
-  const goFirst = () => setPly(0);
-  const goPrev = () => setPly((p) => Math.max(0, p - 1));
-  const goNext = () => setPly((p) => Math.min(total, p + 1));
-  const goLast = () => setPly(total);
+  // Disabled-флаги: на ply=0 нет смысла first/prev; в конце линии —
+  // next/last (учитываем что в конце currentMove !== null && !currentMove.next).
+  const atStart = currentMove === null;
+  const atEnd = currentMove !== null && !currentMove.next;
 
   // ReviewMoveList использует `globalIndex` как "номер текущего хода
-  // в плоской истории" (0..N-1). У нас `ply` 0 — стартовая позиция,
-  // поэтому при ply=0 передаём sentinel (-1), который не совпадёт ни
-  // с одним globalIndex и список останется без подсветки текущего.
+  // в плоской истории" (0..N-1). Если currentMove === null — sentinel
+  // (-1), не совпадёт ни с одним globalIndex.
   const reviewCurrentIndex = currentMove ? currentMove.globalIndex : -1;
   const handleMoveClick = (move: ChessMove) => {
-    setPly(move.globalIndex + 1);
+    gotoMove(move);
   };
 
   // KS-2035 (final): нотация «чистая» — без `{...}`-комментариев.
-  // Авторские примечания живут только в активной выноске возле доски
-  // (leading над доской на ply=0, comment под доской на ply≥1).
-  // Для этого передаём в `ReviewMoveList` копию moves без `comment`.
-  // NAG-аннотации (`!`, `?`, `$N`) сохраняем — это часть SAN-нотации.
+  // Авторские примечания живут только в активной выноске возле доски.
+  // NAG-аннотации сохраняются — это часть SAN-нотации.
   const movesWithoutInlineComments = useMemo(
-    () => moves.map((m) => ({ ...m, comment: undefined })),
-    [moves],
+    () => history.map((m) => ({ ...m, comment: undefined })),
+    [history],
   );
 
   return (
@@ -207,7 +231,7 @@ export function InlinePgnViewer({
           (схлопывается до 0), под доской работает обычный
           `__current-comment-slot` с комментарием выбранного хода. */}
       <div className="inline-pgn-viewer__leading-slot">
-        {!currentMove && leadingComment && (
+        {atStart && leadingComment && (
           <p
             className="inline-pgn-viewer__current-comment"
             data-testid="inline-pgn-viewer-leading-comment-above-board"
@@ -233,19 +257,10 @@ export function InlinePgnViewer({
         />
       </div>
 
-      {/* KS-2005: «крупный» блок примечания к текущему ходу — под доской,
-          чтобы авторский комментарий из PGN был сразу виден без скролла
-          до нотации. В нотации он тоже остаётся (через ReviewMoveList).
-
-          KS-2008: блок-обёртка `__current-comment-slot` рендерится ВСЕГДА
-          и держит фиксированный min-height, чтобы доска не «прыгала»
-          между ходами с комментариями разной длины. Внутренний `<p>` с
-          testid'ом по-прежнему рендерится условно — тестовые querySelectors
-          через `queryByTestId` остаются работоспособными.
-
-          KS-2035: на ply=0 этот слот пустой — leading-комментарий
-          активной выноской живёт ВЫШЕ доски (см. `__leading-slot`).
-          Здесь рендерим только комментарии к фактическим ходам. */}
+      {/* KS-2008/KS-2035: блок-обёртка `__current-comment-slot`
+          держит фиксированный min-height, чтобы доска не «прыгала»
+          между ходами с комментариями разной длины. На ply=0 слот
+          пустой — leading живёт в `__leading-slot` ВЫШЕ доски. */}
       <div className="inline-pgn-viewer__current-comment-slot">
         {currentMove?.comment && (
           <p
@@ -266,8 +281,8 @@ export function InlinePgnViewer({
           type="button"
           className="inline-pgn-viewer__btn"
           data-testid="inline-pgn-viewer-first"
-          onClick={goFirst}
-          disabled={safePly === 0}
+          onClick={gotoFirst}
+          disabled={atStart}
           aria-label={t('lessons.gameReview.first', 'First')}
         >
           ⏮
@@ -276,8 +291,8 @@ export function InlinePgnViewer({
           type="button"
           className="inline-pgn-viewer__btn"
           data-testid="inline-pgn-viewer-prev"
-          onClick={goPrev}
-          disabled={safePly === 0}
+          onClick={gotoPrevious}
+          disabled={atStart}
           aria-label={t('lessons.gameReview.prev', 'Previous')}
         >
           ◀
@@ -293,8 +308,8 @@ export function InlinePgnViewer({
           type="button"
           className="inline-pgn-viewer__btn"
           data-testid="inline-pgn-viewer-next"
-          onClick={goNext}
-          disabled={safePly === total}
+          onClick={gotoNext}
+          disabled={atEnd}
           aria-label={t('lessons.gameReview.next', 'Next')}
         >
           ▶
@@ -303,8 +318,8 @@ export function InlinePgnViewer({
           type="button"
           className="inline-pgn-viewer__btn"
           data-testid="inline-pgn-viewer-last"
-          onClick={goLast}
-          disabled={safePly === total}
+          onClick={gotoLast}
+          disabled={atEnd}
           aria-label={t('lessons.gameReview.last', 'Last')}
         >
           ⏭
