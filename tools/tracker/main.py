@@ -6,7 +6,6 @@ import os
 import sqlite3
 import threading
 import urllib.request
-import yaml
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,18 +17,20 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Kingside Tracker", version="0.1.0")
 
-CONFIG_PATH = Path(__file__).parent / "config.yaml"
 DB_PATH = os.environ.get("TRACKER_DB", str(Path(__file__).parent / "tracker.db"))
 WEBHOOK_URL = os.environ.get("TRACKER_WEBHOOK_URL", "")  # e.g. http://localhost:9876/tracker
 WEBHOOK_AUTH_TOKEN = os.environ.get("WEBHOOK_AUTH_TOKEN", "")
 PROJECT_PREFIX = os.environ.get("TRACKER_PREFIX", "KS")
+AGENTS_DIR = Path(__file__).resolve().parents[2] / ".claude" / "agents"
 
 
 def load_agents() -> list[str]:
+    """Список валидных assignee = имена .md-файлов в .claude/agents/.
+    Единый источник истины с webhook-server.py:get_valid_agents().
+    """
     try:
-        with open(CONFIG_PATH) as f:
-            return yaml.safe_load(f).get("agents", [])
-    except (FileNotFoundError, yaml.YAMLError):
+        return sorted(p.stem for p in AGENTS_DIR.glob("*.md"))
+    except OSError:
         return []
 
 
