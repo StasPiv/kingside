@@ -129,123 +129,123 @@ export function CoursePage() {
           {t('lessons.noLessons', 'No lessons in this course yet')}
         </div>
       ) : (
-        <div className="course-block-list" data-testid="course-lesson-list">
-          {blocks.map((block) => (
-            <section
-              key={block.key}
-              className={`course-block course-block--${block.key}`}
-              data-testid={`course-block-${block.key}`}
-            >
-              <h2 className="course-block-title">
-                {t(`lessons.block.${block.key}`, block.key)}
-              </h2>
-              <ol className="course-lesson-list">
-                {block.lessons.map((lesson) => {
-                  const isMastered = Boolean(lesson.masteredAt);
-                  const isDue =
-                    Boolean(lesson.dueAt) &&
-                    new Date(lesson.dueAt as string).getTime() <= Date.now();
-                  return (
-                    <li
-                      key={lesson.id}
-                      className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
-                      data-mastered={isMastered ? 'true' : 'false'}
-                      data-due={isDue ? 'true' : 'false'}
+        // KS-2039: единый плоский список уроков. Раньше уроки
+        // группировались в `<section>`-блоки с заголовками
+        // («Правила и фигуры», «Базовые маты», …) — каждый title урока
+        // уже несёт свой раздел (§N), заголовок-секция дублировал
+        // контекст. Теперь визуально это сплошной список сверху вниз;
+        // порядок задаёт `course.blockOrder` через
+        // `groupLessonsByBlock(...).flatMap(...)` — внутри блока
+        // сортировка по `lesson.order`.
+        <ol
+          className="course-lesson-list"
+          data-testid="course-lesson-list"
+        >
+          {blocks
+            .flatMap((b) => b.lessons)
+            .map((lesson) => {
+              const isMastered = Boolean(lesson.masteredAt);
+              const isDue =
+                Boolean(lesson.dueAt) &&
+                new Date(lesson.dueAt as string).getTime() <= Date.now();
+              return (
+                <li
+                  key={lesson.id}
+                  className={`course-lesson-item course-lesson-item--${lesson.progressState}`}
+                  data-mastered={isMastered ? 'true' : 'false'}
+                  data-due={isDue ? 'true' : 'false'}
+                >
+                  <Link
+                    to={`/lessons/${course.slug}/${lesson.slug}`}
+                    data-testid={`lesson-link-${lesson.slug}`}
+                    className="course-lesson-link"
+                  >
+                    {/* KS-1991: индекс убран — был рудимент.
+                        Заголовки уроков несут собственную нумерацию
+                        («Глава 1. …»), внешний индекс дублировал. */}
+                    <span className="course-lesson-title">
+                      {resolveInlineText(
+                        lesson.title,
+                        lesson.titleI18nKey,
+                        t,
+                        lesson.slug,
+                      )}
+                    </span>
+                    <span
+                      className={`course-lesson-state course-lesson-state--${lesson.progressState}`}
                     >
-                      <Link
-                        to={`/lessons/${course.slug}/${lesson.slug}`}
-                        data-testid={`lesson-link-${lesson.slug}`}
-                        className="course-lesson-link"
+                      {t(
+                        `lessons.state.${lesson.progressState}`,
+                        lesson.progressState,
+                      )}
+                    </span>
+                    {isMastered && (
+                      <span
+                        className="course-lesson-badge course-lesson-badge--mastered"
+                        data-testid={`course-lesson-mastered-${lesson.slug}`}
                       >
-                        {/* KS-1991: индекс убран — был рудимент.
-                            Заголовки уроков несут собственную нумерацию
-                            («Глава 1. …»), внешний индекс дублировал. */}
-                        <span className="course-lesson-title">
-                          {resolveInlineText(
-                            lesson.title,
-                            lesson.titleI18nKey,
-                            t,
-                            lesson.slug,
-                          )}
-                        </span>
+                        {t('lessons.badge.mastered', 'Mastered')}
+                      </span>
+                    )}
+                    {isDue && (
+                      <span
+                        className="course-lesson-badge course-lesson-badge--due"
+                        data-testid={`course-lesson-due-${lesson.slug}`}
+                      >
+                        {t('lessons.badge.dueForReview', 'Due for review')}
+                      </span>
+                    )}
+                    {/* KS-1992: прогресс по шагам в карточке урока —
+                        визуальный bar + текст. Полоска заполняется
+                        пропорционально `completedStepsCount/stepCount`;
+                        если ничего не сделано, bar пустой, рядом
+                        общий счётчик «M шагов». */}
+                    {(() => {
+                      const total = lesson.stepCount || 0;
+                      const done = lesson.completedStepsCount ?? 0;
+                      const pct =
+                        total > 0
+                          ? Math.min(100, Math.round((done / total) * 100))
+                          : 0;
+                      return (
                         <span
-                          className={`course-lesson-state course-lesson-state--${lesson.progressState}`}
-                        >
-                          {t(
-                            `lessons.state.${lesson.progressState}`,
-                            lesson.progressState,
+                          className="course-lesson-progress"
+                          data-testid={`course-lesson-progress-${lesson.slug}`}
+                          aria-label={t(
+                            'lessons.progressLabel',
+                            'Course progress',
                           )}
-                        </span>
-                        {isMastered && (
-                          <span
-                            className="course-lesson-badge course-lesson-badge--mastered"
-                            data-testid={`course-lesson-mastered-${lesson.slug}`}
-                          >
-                            {t('lessons.badge.mastered', 'Mastered')}
-                          </span>
-                        )}
-                        {isDue && (
-                          <span
-                            className="course-lesson-badge course-lesson-badge--due"
-                            data-testid={`course-lesson-due-${lesson.slug}`}
-                          >
-                            {t('lessons.badge.dueForReview', 'Due for review')}
-                          </span>
-                        )}
-                        {/* KS-1992: прогресс по шагам в карточке урока —
-                            визуальный bar + текст. Полоска заполняется
-                            пропорционально `completedStepsCount/stepCount`;
-                            если ничего не сделано, bar пустой, рядом
-                            общий счётчик «M шагов». */}
-                        {(() => {
-                          const total = lesson.stepCount || 0;
-                          const done = lesson.completedStepsCount ?? 0;
-                          const pct =
-                            total > 0
-                              ? Math.min(100, Math.round((done / total) * 100))
-                              : 0;
-                          return (
+                        >
+                          <span className="course-lesson-progress-bar">
                             <span
-                              className="course-lesson-progress"
-                              data-testid={`course-lesson-progress-${lesson.slug}`}
-                              aria-label={t(
-                                'lessons.progressLabel',
-                                'Course progress',
-                              )}
-                            >
-                              <span className="course-lesson-progress-bar">
-                                <span
-                                  className="course-lesson-progress-fill"
-                                  data-testid={`course-lesson-progress-fill-${lesson.slug}`}
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </span>
-                              <span
-                                className="course-lesson-step-count"
-                                data-testid={`course-lesson-step-count-${lesson.slug}`}
-                              >
-                                {done > 0
-                                  ? t('lessons.stepProgress', {
-                                      done,
-                                      total,
-                                      defaultValue: '{{done}}/{{total}} steps',
-                                    })
-                                  : t('lessons.stepCount', {
-                                      count: total,
-                                      defaultValue: '{{count}} steps',
-                                    })}
-                              </span>
-                            </span>
-                          );
-                        })()}
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ol>
-            </section>
-          ))}
-        </div>
+                              className="course-lesson-progress-fill"
+                              data-testid={`course-lesson-progress-fill-${lesson.slug}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </span>
+                          <span
+                            className="course-lesson-step-count"
+                            data-testid={`course-lesson-step-count-${lesson.slug}`}
+                          >
+                            {done > 0
+                              ? t('lessons.stepProgress', {
+                                  done,
+                                  total,
+                                  defaultValue: '{{done}}/{{total}} steps',
+                                })
+                              : t('lessons.stepCount', {
+                                  count: total,
+                                  defaultValue: '{{count}} steps',
+                                })}
+                          </span>
+                        </span>
+                      );
+                    })()}
+                  </Link>
+                </li>
+              );
+            })}
+        </ol>
       )}
     </div>
   );

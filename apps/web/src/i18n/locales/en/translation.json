@@ -1382,16 +1382,6 @@
       "game_review": "Game review",
       "video": "Video"
     },
-    "block": {
-      "rules": "Rules and pieces",
-      "basic-mates": "Basic checkmates",
-      "piece-values": "Piece values and exchanges",
-      "openings": "Opening principles",
-      "tactics": "Tactics",
-      "basic-endgames": "Basic endgames",
-      "pawn-endgames": "Pawn endgames",
-      "other": "Other"
-    },
     "badge": {
       "mastered": "Mastered",
       "dueForReview": "Due for review"

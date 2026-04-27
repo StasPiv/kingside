@@ -1378,16 +1378,6 @@
       "game_review": "Разбор партии",
       "video": "Видео"
     },
-    "block": {
-      "rules": "Правила и фигуры",
-      "basic-mates": "Базовые маты",
-      "piece-values": "Ценность фигур и размены",
-      "openings": "Принципы дебюта",
-      "tactics": "Тактика",
-      "basic-endgames": "Простые окончания",
-      "pawn-endgames": "Пешечные окончания",
-      "other": "Прочее"
-    },
     "badge": {
       "mastered": "Освоено",
       "dueForReview": "К повторению"
