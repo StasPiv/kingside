@@ -113,7 +113,10 @@ describe('LessonPage', () => {
     expect(screen.getByTestId('lesson-loading')).toBeInTheDocument();
   });
 
-  it('резолвит slug → id урока и рендерит контейнер с шагами по order', async () => {
+  // KS-2041: один шаг = один экран. На странице рендерится ровно один
+  // активный `<li>`-шаг, а не весь список. Переключение между шагами —
+  // через `?step=N` в URL и кнопки nav-«Назад/Далее».
+  it('резолвит slug → id урока и рендерит активный шаг (KS-2041)', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
@@ -129,25 +132,71 @@ describe('LessonPage', () => {
 
     const list = screen.getByTestId('lesson-step-list');
     const items = list.querySelectorAll('li');
-    expect(items).toHaveLength(2);
-    // По order=1 первый — text, по order=2 — quiz
+    // KS-2041: на экране ровно один шаг (активный) — первый по order.
+    expect(items).toHaveLength(1);
     expect(items[0]).toHaveAttribute('data-testid', 'lesson-step-1');
     expect(items[0]).toHaveTextContent('Theory');
-    expect(items[1]).toHaveAttribute('data-testid', 'lesson-step-2');
-    expect(items[1]).toHaveTextContent('Quiz');
-
-    // Шаг 1 (text) → TextStep, шаг 2 (quiz) → QuizStep (empty-state, т.к. questions=[]).
     expect(screen.getByTestId('lesson-text-step')).toBeInTheDocument();
-    expect(screen.getByTestId('lesson-quiz-step-empty')).toBeInTheDocument();
-    // KS-1990: кнопка «Далее» теперь и у последнего text-шага тоже —
-    // без неё его нечем пометить done без автомаркера.
+    // Второй шаг (quiz) сейчас не должен быть в DOM.
+    expect(screen.queryByTestId('lesson-step-2')).toBeNull();
+    expect(screen.queryByTestId('lesson-quiz-step-empty')).toBeNull();
+    // KS-1990: кнопка «Далее» внутри text-step — тоже на месте.
     expect(screen.getByTestId('lesson-text-step-next')).toBeInTheDocument();
+
+    // KS-2041: общая навигация шагов снизу.
+    expect(screen.getByTestId('lesson-step-nav')).toBeInTheDocument();
+    expect(screen.getByTestId('lesson-step-nav-counter').textContent).toBe(
+      '1/2',
+    );
+    expect(screen.getByTestId('lesson-step-nav-prev')).toBeDisabled();
+    expect(screen.getByTestId('lesson-step-nav-next')).not.toBeDisabled();
 
     // Ссылка «назад к курсу» ведёт на /lessons/<slug>
     expect(screen.getByTestId('lesson-back-link')).toHaveAttribute(
       'href',
       '/lessons/beginner-basics',
     );
+  });
+
+  it('KS-2041: клик «Далее» в nav → переключает на следующий шаг и обновляет ?step', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
+
+    const { default: userEventLib } = await import(
+      '@testing-library/user-event'
+    );
+    const user = userEventLib.setup();
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-1')).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByTestId('lesson-step-nav-next'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-2')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('lesson-step-1')).toBeNull();
+    expect(screen.getByTestId('lesson-step-nav-counter').textContent).toBe(
+      '2/2',
+    );
+    expect(screen.getByTestId('lesson-step-nav-next')).toBeDisabled();
+  });
+
+  it('KS-2041: ?step=2 в URL открывает второй шаг сразу при mount', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces?step=2',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-2')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('lesson-step-1')).toBeNull();
   });
 
   it('рендерит ошибку «урок не найден», если slug отсутствует в курсе', async () => {
@@ -204,72 +253,31 @@ describe('LessonPage', () => {
     );
     expect(screen.getByTestId('lesson-review-banner')).toBeInTheDocument();
 
-    // stepsState сброшен — оба шага в pending, ни одного «done».
+    // KS-2041: на экране активный шаг — в review-режиме всегда первый.
+    // stepsState сброшен → шаг pending. Проверяем s1 непосредственно;
+    // s2 проверяем через nav, чтобы убедиться что и его state pending.
     const s1 = screen.getByTestId('lesson-step-1');
-    const s2 = screen.getByTestId('lesson-step-2');
     expect(s1).toHaveAttribute('data-step-state', 'pending');
-    expect(s2).toHaveAttribute('data-step-state', 'pending');
+
+    const { default: userEventLib } = await import(
+      '@testing-library/user-event'
+    );
+    const user = userEventLib.setup();
+    await user.click(screen.getByTestId('lesson-step-nav-next'));
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-2')).toHaveAttribute(
+        'data-step-state',
+        'pending',
+      ),
+    );
   });
 
-  // ─── KS-1986: «Далее» скроллит к следующему шагу ────────────────────
+  // KS-2041 заменил KS-1986/KS-1992 auto-scroll'ы: теперь не скроллим
+  // к нужному шагу, а сразу открываем его как активный (через `?step=N`).
+  // Поведение «продолжить с последнего pending» сохранено — но реализовано
+  // через переключение URL на mount, а не через scrollIntoView.
 
-  it('KS-1986: клик «Далее» в шаге → scrollIntoView у следующего <li>', async () => {
-    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
-    mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
-
-    // happy-dom не реализует Element.prototype.scrollIntoView; подменяем
-    // на spy, чтобы поймать вызов и проверить аргумент.
-    const scrollSpy = vi.fn();
-    const proto = window.Element.prototype as unknown as {
-      scrollIntoView?: (...args: unknown[]) => void;
-    };
-    const original = proto.scrollIntoView;
-    proto.scrollIntoView = scrollSpy;
-
-    try {
-      const { default: userEventLib } = await import(
-        '@testing-library/user-event'
-      );
-      const user = userEventLib.setup();
-
-      renderWithProviders(<LessonPage />, {
-        route: '/lessons/beginner-basics/pieces',
-      });
-      await waitFor(() =>
-        expect(screen.getByTestId('lesson-text-step-next')).toBeInTheDocument(),
-      );
-
-      // Шаги отрисованы как <li id="step-s1"> / <li id="step-s2"> по
-      // фикстуре. Кликаем «Далее» в первом → должен скроллиться #step-s2.
-      const next = document.getElementById('step-s2');
-      expect(next).not.toBeNull();
-
-      await user.click(screen.getByTestId('lesson-text-step-next'));
-
-      expect(scrollSpy).toHaveBeenCalledTimes(1);
-      // `this` для prototype-call'а — element, на котором вызвали метод.
-      // Проверяем через mock.contexts (vitest).
-      const [args] = scrollSpy.mock.calls[0];
-      expect(args).toEqual({ behavior: 'smooth', block: 'start' });
-      expect(scrollSpy.mock.contexts[0]).toBe(next);
-
-      // Шаг помечен как done (прогресс пошёл).
-      await waitFor(() =>
-        expect(screen.getByTestId('lesson-step-1')).toHaveAttribute(
-          'data-step-state',
-          'done',
-        ),
-      );
-    } finally {
-      if (original) {
-        proto.scrollIntoView = original;
-      } else {
-        delete proto.scrollIntoView;
-      }
-    }
-  });
-
-  it('KS-1986: каждый <li> шага имеет id="step-<step.id>" — anchor для scroll', async () => {
+  it('KS-2041: <li> активного шага имеет id="step-<step.id>" (anchor сохранён)', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
@@ -279,16 +287,16 @@ describe('LessonPage', () => {
     await waitFor(() =>
       expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
     );
-
+    // На экране активный (первый) шаг — его id присутствует.
     expect(document.getElementById('step-s1')).not.toBeNull();
-    expect(document.getElementById('step-s2')).not.toBeNull();
+    // s2 не отрендерен (один шаг = один экран).
+    expect(document.getElementById('step-s2')).toBeNull();
   });
 
-  // ─── KS-1992: auto-scroll к первому непройденному шагу при mount ────
-
-  it('KS-1992: при открытии урока с частичным прогрессом → scrollIntoView у первого pending-шага', async () => {
+  it('KS-2041: при открытии с частичным прогрессом активным становится первый pending-шаг', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
-    // Первый шаг (s1) — done, второй (s2) — pending. Должен скроллить к s2.
+    // Первый шаг (s1) — done, второй (s2) — pending. На экране должен
+    // сразу появиться s2 (без скролла).
     mockLessonsApi.getLesson.mockResolvedValueOnce({
       ...lessonFixture,
       progress: {
@@ -301,60 +309,29 @@ describe('LessonPage', () => {
       },
     });
 
-    const scrollSpy = vi.fn();
-    const proto = window.Element.prototype as unknown as {
-      scrollIntoView?: (...args: unknown[]) => void;
-    };
-    const original = proto.scrollIntoView;
-    proto.scrollIntoView = scrollSpy;
-    try {
-      renderWithProviders(<LessonPage />, {
-        route: '/lessons/beginner-basics/pieces',
-      });
-      await waitFor(() =>
-        expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
-      );
-      // Один auto-scroll на mount: behavior:'auto', target = #step-s2.
-      await waitFor(() =>
-        expect(scrollSpy).toHaveBeenCalled(),
-      );
-      const [args] = scrollSpy.mock.calls[0];
-      expect(args).toEqual({ behavior: 'auto', block: 'start' });
-      expect(scrollSpy.mock.contexts[0]).toBe(document.getElementById('step-s2'));
-    } finally {
-      if (original) proto.scrollIntoView = original;
-      else delete proto.scrollIntoView;
-    }
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-2')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('lesson-step-1')).toBeNull();
   });
 
-  it('KS-1992: первый шаг pending → НЕТ auto-scroll (страница уже сверху)', async () => {
+  it('KS-2041: первый шаг pending → активным становится он же', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
-    // Без прогресса: s1, s2 pending. Первый pending — он же первый шаг.
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
-    const scrollSpy = vi.fn();
-    const proto = window.Element.prototype as unknown as {
-      scrollIntoView?: (...args: unknown[]) => void;
-    };
-    const original = proto.scrollIntoView;
-    proto.scrollIntoView = scrollSpy;
-    try {
-      renderWithProviders(<LessonPage />, {
-        route: '/lessons/beginner-basics/pieces',
-      });
-      await waitFor(() =>
-        expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
-      );
-      // Дать React успеть обработать все эффекты mount'а.
-      await new Promise((r) => setTimeout(r, 50));
-      expect(scrollSpy).not.toHaveBeenCalled();
-    } finally {
-      if (original) proto.scrollIntoView = original;
-      else delete proto.scrollIntoView;
-    }
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-1')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('lesson-step-2')).toBeNull();
   });
 
-  it('KS-1992: все шаги done → НЕТ auto-scroll (нечего искать)', async () => {
+  it('KS-2041: все шаги done → активным становится первый шаг (не «после конца»)', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce({
       ...lessonFixture,
@@ -368,25 +345,13 @@ describe('LessonPage', () => {
       },
     });
 
-    const scrollSpy = vi.fn();
-    const proto = window.Element.prototype as unknown as {
-      scrollIntoView?: (...args: unknown[]) => void;
-    };
-    const original = proto.scrollIntoView;
-    proto.scrollIntoView = scrollSpy;
-    try {
-      renderWithProviders(<LessonPage />, {
-        route: '/lessons/beginner-basics/pieces',
-      });
-      await waitFor(() =>
-        expect(screen.getByTestId('lesson-step-list')).toBeInTheDocument(),
-      );
-      await new Promise((r) => setTimeout(r, 50));
-      expect(scrollSpy).not.toHaveBeenCalled();
-    } finally {
-      if (original) proto.scrollIntoView = original;
-      else delete proto.scrollIntoView;
-    }
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-1')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('lesson-step-2')).toBeNull();
   });
 
 });

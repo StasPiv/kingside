@@ -436,6 +436,50 @@
   gap: 16px;
 }
 
+/* KS-2041: навигация между шагами — «Назад/Далее» + счётчик. Идёт
+   ПОД активным шагом, до footer'а с «Завершить урок». */
+.lesson-step-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0 8px;
+  padding: 0 4px;
+}
+.lesson-step-nav__btn {
+  min-width: 96px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.lesson-step-nav__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.lesson-step-nav__btn:not(:disabled):hover {
+  background: var(--bg-muted);
+}
+.lesson-step-nav__counter {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+@media (max-width: 760px) {
+  .lesson-step-nav {
+    gap: 8px;
+  }
+  .lesson-step-nav__btn {
+    min-width: 0;
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+}
+
 .lesson-step {
   position: relative;
   background: var(--bg-surface);

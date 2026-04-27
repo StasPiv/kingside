@@ -1245,7 +1245,11 @@
     "stepNotImplemented": "“{{type}}” steps will be available soon",
     "stepUnknown": "Unknown step type",
     "next": "Next",
+    "prev": "Previous",
     "stepDone": "Done ✓",
+    "stepNavLabel": "Step navigation",
+    "stepCounter": "{{current}}/{{total}}",
+    "lessonProgressWithStep": "Step {{current}}/{{total}} — {{done}} done ({{percent}}%)",
     "emptyLesson": {
       "title": "This lesson has no steps yet",
       "body": "The author hasn't added any steps yet. Check back later.",

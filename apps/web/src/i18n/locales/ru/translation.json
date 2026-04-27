@@ -1251,7 +1251,11 @@
     "stepNotImplemented": "Шаги «{{type}}» появятся позже",
     "stepUnknown": "Неизвестный тип шага",
     "next": "Далее",
+    "prev": "Назад",
     "stepDone": "Пройдено ✓",
+    "stepNavLabel": "Навигация по шагам",
+    "stepCounter": "{{current}}/{{total}}",
+    "lessonProgressWithStep": "Шаг {{current}}/{{total}} — {{done}} пройдено ({{percent}}%)",
     "emptyLesson": {
       "title": "Урок ещё не наполнен",
       "body": "Автор пока не добавил шаги. Загляните позже.",

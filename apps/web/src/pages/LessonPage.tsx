@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -56,7 +56,7 @@ export function LessonPage() {
     courseSlug: string;
     lessonSlug: string;
   }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const isReviewMode = searchParams.get('mode') === 'review';
 
   const [course, setCourse] = useState<CourseWithLessonsResponse | null>(null);
@@ -137,35 +137,115 @@ export function LessonPage() {
     reviewResetDoneRef.current = lesson.lesson.id;
   }, [isReviewMode, lesson?.lesson.id, progress]);
 
-  // KS-1992: при первом открытии урока скроллим к первому шагу, который
-  // ещё не отмечен `done`. Если все шаги done — остаёмся вверху страницы
-  // (пользователь, возможно, зашёл за кнопкой «Завершить урок» / повторить).
+  // KS-2041: режим «один шаг — один экран». На странице рендерится
+  // только активный шаг; индекс шага хранится в URL `?step=N` (N —
+  // 1-based порядок, удобно для пользователя при копировании URL).
   //
-  // Источник истины для «начального» состояния — `lesson.progress.stepsState`
-  // (то что пришло с сервера), а не `progress.stepsState` хука: hook
-  // умеет обновлять локальное состояние оптимистично при кликах, и если
-  // привязаться к нему, эффект ре-сработает после клика «Далее» —
-  // ломая smooth-scroll из KS-1986.
+  // Сценарии открытия:
+  //  1. URL уже содержит `?step=N` → используем его (с зажимом в
+  //     допустимый диапазон). Это покрывает back/forward и копию
+  //     ссылки.
+  //  2. URL без `?step=N`:
+  //     - в review-режиме — всегда первый шаг (`?step=1`);
+  //     - в обычном режиме — первый pending по серверному progress
+  //       (продолжаем с того места, где пользователь остановился);
+  //       если все done — первый шаг.
   //
-  // Скролл выполняется один раз на каждый load урока — флаг
-  // `autoScrollDoneRef` хранит lessonId, для которого уже прокрутили.
-  // В review-режиме скроллить вверх не нужно: stepsState сбрасывается,
-  // первый pending — он же первый шаг.
-  const autoScrollDoneRef = useRef<string | null>(null);
+  // Источник истины — `lesson.progress.stepsState` (серверное
+  // состояние), а не `progress.stepsState` хука, чтобы не дёргаться
+  // от оптимистичных обновлений при клике «Далее».
+  const initialStepRef = useRef<string | null>(null);
   useEffect(() => {
     if (!lesson?.lesson.id || sortedSteps.length === 0) return;
-    if (autoScrollDoneRef.current === lesson.lesson.id) return;
-    autoScrollDoneRef.current = lesson.lesson.id;
-    if (isReviewMode) return;
-    const serverState = lesson.progress?.stepsState ?? {};
-    const firstPending = sortedSteps.find((s) => serverState[s.id] !== 'done');
-    if (!firstPending) return;
-    // Если первый pending — он же первый шаг по `order`, скроллить
-    // некуда (страница и так открывается в самом верху).
-    if (sortedSteps[0]?.id === firstPending.id) return;
-    const el = document.getElementById(`step-${firstPending.id}`);
-    el?.scrollIntoView({ behavior: 'auto', block: 'start' });
-  }, [lesson?.lesson.id, sortedSteps, lesson?.progress, isReviewMode]);
+    if (initialStepRef.current === lesson.lesson.id) return;
+    initialStepRef.current = lesson.lesson.id;
+
+    const urlStep = searchParams.get('step');
+    if (urlStep !== null) {
+      // URL уже задаёт шаг — нормализуем диапазон и оставляем как есть.
+      const n = parseInt(urlStep, 10);
+      if (!Number.isFinite(n) || n < 1 || n > sortedSteps.length) {
+        const next = new URLSearchParams(searchParams);
+        next.set('step', '1');
+        setSearchParams(next, { replace: true });
+      }
+      return;
+    }
+
+    let firstPendingIdx = 0;
+    if (!isReviewMode) {
+      const serverState = lesson.progress?.stepsState ?? {};
+      const idx = sortedSteps.findIndex((s) => serverState[s.id] !== 'done');
+      firstPendingIdx = idx >= 0 ? idx : 0;
+    }
+
+    const next = new URLSearchParams(searchParams);
+    next.set('step', String(firstPendingIdx + 1));
+    setSearchParams(next, { replace: true });
+  }, [
+    lesson?.lesson.id,
+    lesson?.progress,
+    sortedSteps,
+    isReviewMode,
+    searchParams,
+    setSearchParams,
+  ]);
+
+  // Текущий индекс активного шага — производный от URL. Зажимаем
+  // в `[0, sortedSteps.length - 1]`, чтобы не получить undefined-шаг
+  // на крайних значениях.
+  const currentStepIndex = useMemo(() => {
+    if (sortedSteps.length === 0) return 0;
+    const raw = parseInt(searchParams.get('step') ?? '1', 10);
+    const oneBased = Number.isFinite(raw) ? raw : 1;
+    const clamped = Math.min(Math.max(oneBased, 1), sortedSteps.length);
+    return clamped - 1;
+  }, [searchParams, sortedSteps.length]);
+
+  const goToStep = useCallback(
+    (idx: number) => {
+      if (idx < 0 || idx >= sortedSteps.length) return;
+      const next = new URLSearchParams(searchParams);
+      next.set('step', String(idx + 1));
+      setSearchParams(next);
+      // При смене шага скроллим к началу страницы — длинный
+      // game_review-шаг + комментарии могут оставить страницу
+      // прокрученной. Без этого следующий шаг откроется «в середине».
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+      }
+    },
+    [searchParams, setSearchParams, sortedSteps.length],
+  );
+
+  // KS-2041: глобальная клавиатура ←/→ листает шаги урока. Чтобы не
+  // конфликтовать с навигацией внутри game_review (там стрелки листают
+  // ходы партии — `InlinePgnViewer`), реагируем только когда фокус НЕ
+  // внутри inline-pgn-viewer'а. Также игнорируем ввод в текстовых
+  // полях (input/textarea/contenteditable).
+  useEffect(() => {
+    if (sortedSteps.length === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      const tag = target.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+      if ((target as HTMLElement).isContentEditable) return;
+      // Если фокус внутри inline-pgn-viewer (game_review) — не
+      // перехватываем; viewer обрабатывает стрелки сам.
+      if (target.closest('[data-testid="inline-pgn-viewer"]')) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToStep(currentStepIndex - 1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        goToStep(currentStepIndex + 1);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [currentStepIndex, goToStep, sortedSteps.length]);
 
   if (!courseSlug || !lessonSlug) {
     return (
@@ -383,9 +463,10 @@ export function LessonPage() {
         </p>
       </header>
 
-      {/* KS-1991: прогресс «прилипает» под глобальный fixed-header,
-          чтобы при скролле длинного урока пользователь всегда видел
-          сколько шагов пройдено. */}
+      {/* KS-1991/KS-2041: прогресс прилипает под глобальный header,
+          чтобы при перелистывании шагов пользователь всегда видел свою
+          позицию. После KS-2041 прогресс-bar показывает позицию по
+          шагу (current/total), а текст рядом — пройдено / всего. */}
       <div
         className="lesson-progress-sticky"
         data-testid="lesson-progress-sticky"
@@ -403,12 +484,21 @@ export function LessonPage() {
             />
           </div>
           <span className="lesson-progress-text" data-testid="lesson-progress-text">
-            {t('lessons.lessonProgress', {
-              done: progress.doneCount,
-              total: progress.totalSteps,
-              percent,
-              defaultValue: '{{done}}/{{total}} steps ({{percent}}%)',
-            })}
+            {sortedSteps.length > 0
+              ? t('lessons.lessonProgressWithStep', {
+                  current: currentStepIndex + 1,
+                  total: sortedSteps.length,
+                  done: progress.doneCount,
+                  percent,
+                  defaultValue:
+                    'Step {{current}}/{{total}} — {{done}}/{{total}} done ({{percent}}%)',
+                })
+              : t('lessons.lessonProgress', {
+                  done: progress.doneCount,
+                  total: progress.totalSteps,
+                  percent,
+                  defaultValue: '{{done}}/{{total}} steps ({{percent}}%)',
+                })}
           </span>
         </div>
       </div>
@@ -418,22 +508,21 @@ export function LessonPage() {
           {t('lessons.noSteps', 'No steps in this lesson yet')}
         </div>
       ) : (
+        // KS-2041: один шаг = один экран. Контейнер `lesson-step-list`
+        // (по историческим testid'ам) держит ровно один активный
+        // `<li>`-шаг — выбранный по `?step=N` в URL. Кнопки
+        // «Назад/Далее» под ним переключают активный шаг.
         <ol className="lesson-step-list" data-testid="lesson-step-list">
-          {sortedSteps.map((step, idx) => {
-            // KS-1986: после `markStep('done')` плавно прокручиваем
-            // страницу к началу следующего шага. На последнем шаге
-            // следующего нет — `nextStep` undefined, скролла не будет.
-            // KS-1990: кнопка «Далее» теперь рендерится и на последнем
-            // шаге тоже (раньше скрывалась через `hideNext`). Без
-            // автомаркера у пользователя должен быть явный способ
-            // пометить любой шаг done — поэтому `hideNext` больше не
-            // передаём для последнего.
-            const nextStep = sortedSteps[idx + 1];
+          {(() => {
+            const step = sortedSteps[currentStepIndex];
+            if (!step) return null;
+            const isLast = currentStepIndex === sortedSteps.length - 1;
             const handleStepDone = () => {
+              // Помечаем текущий шаг done. На последнем шаге не
+              // переключаемся автоматически — пользователь должен
+              // увидеть состояние и нажать «Завершить урок» (footer).
               progress.markStep(step.id, 'done');
-              if (!nextStep) return;
-              const el = document.getElementById(`step-${nextStep.id}`);
-              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              if (!isLast) goToStep(currentStepIndex + 1);
             };
             return (
               <li
@@ -452,11 +541,59 @@ export function LessonPage() {
                 <StepRenderer
                   step={step}
                   onStepDone={handleStepDone}
+                  stepState={progress.stepsState[step.id]}
                 />
               </li>
             );
-          })}
+          })()}
         </ol>
+      )}
+
+      {/* KS-2041: навигация между шагами. «Назад» ведёт к предыдущему
+          шагу (на первом — disabled), «Далее» — к следующему (на
+          последнем — disabled, действие переведено в footer-кнопку
+          «Завершить урок»). Дублирует семантику кнопок самих шагов
+          (TextStep/QuizStep вызывают `onStepDone`, но не каждый шаг
+          её предоставляет — например, после ошибки в quiz пользователь
+          может захотеть листнуть назад). */}
+      {sortedSteps.length > 0 && (
+        <nav
+          className="lesson-step-nav"
+          data-testid="lesson-step-nav"
+          aria-label={t('lessons.stepNavLabel', 'Step navigation')}
+        >
+          <button
+            type="button"
+            className="lesson-step-nav__btn lesson-step-nav__btn--prev"
+            data-testid="lesson-step-nav-prev"
+            onClick={() => goToStep(currentStepIndex - 1)}
+            disabled={currentStepIndex === 0}
+            aria-label={t('lessons.prev', 'Previous')}
+          >
+            ◀ {t('lessons.prev', 'Previous')}
+          </button>
+          <span
+            className="lesson-step-nav__counter"
+            data-testid="lesson-step-nav-counter"
+            aria-live="polite"
+          >
+            {t('lessons.stepCounter', {
+              current: currentStepIndex + 1,
+              total: sortedSteps.length,
+              defaultValue: '{{current}}/{{total}}',
+            })}
+          </span>
+          <button
+            type="button"
+            className="lesson-step-nav__btn lesson-step-nav__btn--next"
+            data-testid="lesson-step-nav-next"
+            onClick={() => goToStep(currentStepIndex + 1)}
+            disabled={currentStepIndex >= sortedSteps.length - 1}
+            aria-label={t('lessons.next', 'Next')}
+          >
+            {t('lessons.next', 'Next')} ▶
+          </button>
+        </nav>
       )}
 
       <footer className="lesson-footer">
