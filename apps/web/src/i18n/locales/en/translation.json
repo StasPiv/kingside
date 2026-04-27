@@ -1388,7 +1388,8 @@
       "piece-values": "Piece values and exchanges",
       "openings": "Opening principles",
       "tactics": "Tactics",
-      "basic-endgame": "Basic endgames",
+      "basic-endgames": "Basic endgames",
+      "pawn-endgames": "Pawn endgames",
       "other": "Other"
     },
     "badge": {

@@ -1384,7 +1384,8 @@
       "piece-values": "Ценность фигур и размены",
       "openings": "Принципы дебюта",
       "tactics": "Тактика",
-      "basic-endgame": "Базовый эндшпиль",
+      "basic-endgames": "Простые окончания",
+      "pawn-endgames": "Пешечные окончания",
       "other": "Прочее"
     },
     "badge": {
