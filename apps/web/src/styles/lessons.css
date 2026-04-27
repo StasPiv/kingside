@@ -572,11 +572,26 @@
   border-radius: 999px;
 }
 
-/* ---------- Text step ---------- */
+/* ---------- Text step ----------
+   KS-2042: на десктопе диаграмма обтекается текстом, не идёт стопкой.
+   Раньше был flex column + gap — все сегменты markdown/диаграмма строились
+   в столбик, и справа от диаграммы оставалось много пустого места. Теперь
+   контейнер block, диаграмма — float:left, текстовые блоки обтекают её
+   справа и снизу. Между блочными детьми сохраняем тот же ритм отступов
+   через `> * + * { margin-top: 14px }` (эквивалент бывшему `gap: 14px`).
+   На mobile (≤760px) float убирается — см. media-query ниже. */
 .lesson-text-step {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: block;
+}
+.lesson-text-step > * + * {
+  margin-top: 14px;
+}
+.lesson-text-step::after {
+  /* Clearfix: не даём фону/высоте контейнера схлопываться, если урок
+     заканчивается float-диаграммой без текстового хвоста. */
+  content: '';
+  display: block;
+  clear: both;
 }
 
 .lesson-text-step__md {
@@ -624,16 +639,31 @@
 }
 
 .lesson-text-step__diagram {
-  margin: 0;
-  align-self: flex-start;
+  /* KS-2042: диаграмма обтекается текстом. Ширина задаётся inline-style'ом
+     (`diagramSize`, по умолчанию 320px) — оставляем CSS-fallback на случай
+     отсутствия inline-стиля. Float:left + margin справа/снизу — текст md
+     обтекает справа и снизу. На mobile (≤760px) поведение возвращается к
+     стопке (см. media-query ниже). */
+  margin: 0 18px 12px 0;
+  float: left;
   /* Ограничиваем ширину диаграммы — чтобы inline-диаграммы markdown
      не расползались на всю ширину контента (консистентно с PuzzleBoard,
      который тоже квадратный и ограничен контейнером). Inline style
      `width: diagramSize` остаётся в приоритете (без !important), если
      он применён; иначе CSS-fallback срабатывает. */
-  width: 100%;
-  max-width: 360px;
+  width: 320px;
+  max-width: 100%;
   box-sizing: border-box;
+}
+/* Несколько диаграмм подряд — каждая под предыдущей в одной левой
+   колонке, чтобы не уезжали в правую часть текста. */
+.lesson-text-step__diagram + .lesson-text-step__diagram {
+  clear: left;
+  margin-top: 14px;
+}
+/* Кнопка «Далее» всегда на отдельной строке под обтеканием. */
+.lesson-text-step__actions {
+  clear: both;
 }
 
 /* Root react-chessboard внутри figure — всегда 100% ширины figure и
@@ -3463,6 +3493,15 @@
   .lesson-quiz-question__diagram {
     width: 100% !important;
     max-width: 100% !important;
+  }
+
+  /* KS-2042: на узком экране отключаем float — диаграмма и текст идут
+     стопкой, как до KS-2042 (ширины не хватает для обтекания). */
+  .lesson-text-step__diagram,
+  .lesson-text-step__diagram + .lesson-text-step__diagram {
+    float: none;
+    clear: none;
+    margin: 0;
   }
 
   .lesson-step {
