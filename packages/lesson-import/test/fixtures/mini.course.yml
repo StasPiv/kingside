@@ -1,0 +1,22 @@
+schemaVersion: 1
+slug: capablanca-primer
+level: beginner
+order: 1
+isPublished: false
+
+titleKey: lessons.capablanca-primer.title
+descriptionKey: lessons.capablanca-primer.description
+
+title: 'Учебник Капабланки'
+description: 'Первая часть классического учебника Х. Р. Капабланки в переводе И. Майзелиса.'
+audience: 'Никогда не играл в шахматы.'
+hook: 'Семь параграфов первой главы.'
+outcome: 'Знаешь как ходят все фигуры.'
+
+coverUrl: '/static/covers/capablanca.png'
+difficulty: 1
+estimatedMinutes: 40
+tags:
+  - fundamentals
+  - rules
+  - capablanca

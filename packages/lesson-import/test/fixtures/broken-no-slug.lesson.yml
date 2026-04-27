@@ -1,0 +1,11 @@
+schemaVersion: 1
+courseSlug: capablanca-primer
+# slug пропущен — должно упасть на required
+order: 2
+blockKey: chapter-2
+kind: theory
+titleKey: x.title
+summaryKey: x.summary
+steps:
+  - type: text
+    body: 'тест'

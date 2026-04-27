@@ -1,0 +1,15 @@
+schemaVersion: 1
+courseSlug: capablanca-primer
+slug: bad-fen-lesson
+order: 1
+blockKey: chapter-2
+kind: theory
+titleKey: x.title
+summaryKey: x.summary
+steps:
+  - type: text
+    body: 'смотри диаграмму {{diagram:0}}'
+    diagrams:
+      - fen: 'this-is-not-fen'
+        caption: 'плохой FEN'
+        orientation: white

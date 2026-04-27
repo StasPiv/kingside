@@ -1,0 +1,48 @@
+schemaVersion: 1
+courseSlug: capablanca-primer
+slug: ch2-p1-mini
+order: 99
+blockKey: chapter-2
+kind: endgame_set
+isPublished: false
+
+titleKey: lessons.capablanca.ch2.demo.title
+summaryKey: lessons.capablanca.ch2.demo.summary
+title: 'Демонстрация формата'
+summary: 'Один text-шаг + один game_review + одна custom-puzzle.'
+estMinutes: 5
+
+steps:
+  - type: text
+    body: |
+      Рассмотрим стандартную позицию мата двумя ладьями.
+
+      {{diagram:0}}
+    diagrams:
+      - fen: '8/8/8/4k3/8/8/8/R3K2R w - - 0 1'
+        caption: 'Диаграмма 24. К+2Л против чёрного короля e5.'
+        orientation: white
+        arrows:
+          - { from: h1, to: h4 }
+          - { from: a1, to: a5 }
+        highlightedSquares:
+          - { square: e5, color: '#fde047' }
+
+  - type: game_review
+    pgn: |
+      [Event "K+2R vs K"]
+      [Result "1-0"]
+      [FEN "8/8/8/4k3/8/8/8/R3K2R w - - 0 1"]
+      [SetUp "1"]
+
+      1. Rh4 Kf5 2. Ra5+ Kg6 3. Rb4 Kf6 4. Rb6+ Ke7 5. Ra7+ Kd8 6. Rb8# 1-0
+
+  - type: puzzle
+    selection:
+      mode: custom
+      customPuzzles:
+        - fen: '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1'
+          solutionMoves: ['d1d8']
+          orientation: white
+          caption: 'Мат на последней горизонтали в 1 ход.'
+          themes: [back_rank]

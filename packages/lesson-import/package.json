@@ -1,0 +1,42 @@
+{
+  "name": "@kingside/lesson-import",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CLI для импорта/экспорта/валидации YAML-файлов уроков (KS-2015 / B-1). Парсит YAML, валидирует через @kingside/lesson-schema (AJV draft-07), кладёт в admin endpoint POST /lessons/admin/import (B-3) или вытаскивает обратно через GET. Команды: validate / dry-run / import / export.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "lesson-import": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {
+    "@kingside/lesson-schema": "*",
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^12.1.0",
+    "js-yaml": "^4.1.0",
+    "picocolors": "^1.1.1"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.3.5",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}
