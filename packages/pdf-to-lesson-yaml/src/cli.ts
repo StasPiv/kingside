@@ -253,7 +253,10 @@ async function processChapter(
   writeFileWithGuard(outPath, serializeLesson(lesson), overwrite);
   process.stdout.write(
     `${outPath}  (${lesson.steps.length} steps, ` +
-      `${lesson.steps.reduce((sum, s) => sum + (s.diagrams?.length ?? 0), 0)} diagrams)\n`,
+      `${lesson.steps.reduce(
+        (sum, s) => sum + (s.type === 'text' ? (s.diagrams?.length ?? 0) : 0),
+        0,
+      )} diagrams, ${lesson.steps.filter((s) => s.type === 'game_review').length} game_review)\n`,
   );
 }
 

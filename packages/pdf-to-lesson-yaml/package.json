@@ -31,6 +31,7 @@
     "@kingside/board-image-to-fen": "*",
     "@kingside/lesson-import": "*",
     "@kingside/lesson-schema": "*",
+    "chess.js": "^1.4.0",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {

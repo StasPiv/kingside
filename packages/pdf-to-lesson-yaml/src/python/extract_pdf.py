@@ -65,6 +65,24 @@ HEADING_PATTERNS = [
 CHESS_FONT_MARKER = 'Chess-Merida'
 DEMI_BOLD_MARKERS = ('Demi', 'Bold', 'Black')
 
+# KS-2046: маппинг inline-глифов фигур из Chess-Merida-Regular в ASCII-буквы
+# SAN-нотации. Установлен эмпирически на PDF Калиниченко 2016 по контексту
+# ходов:
+#   F0A2 «c6-d6» — король;
+#   F0A3 «d3-h7+» — ферзь;
+#   F0A4 «g1-f3» — конь;
+#   F0A5 «f1-b5» — слон;
+#   F0A6 «h1-h4» — ладья.
+# В этой книге пешки в нотации записываются только полем (без буквы),
+# так что P-глиф не нужен.
+INLINE_PIECE_GLYPHS = {
+    0xF0A2: 'K',
+    0xF0A3: 'Q',
+    0xF0A4: 'N',
+    0xF0A5: 'B',
+    0xF0A6: 'R',
+}
+
 
 def _first_line_first_span(block: dict) -> Optional[dict]:
     """Первый span первой строки блока (для определения шрифта/размера)."""
@@ -74,11 +92,40 @@ def _first_line_first_span(block: dict) -> Optional[dict]:
     return None
 
 
+def _expand_inline_glyphs(text: str, font: str) -> str:
+    """В Chess-Merida-spans подменить inline-PUA-глифы фигур на ASCII-буквы
+    SAN-нотации (см. INLINE_PIECE_GLYPHS).
+
+    Применяется только если span — Chess-Merida; для prose-spans возвращаем
+    как есть. Обычные диаграммные глифы (F021..F077) не трогаем — они
+    обрабатываются отдельно `pdf_recognizer.find_boards_on_page`.
+    """
+    if 'Chess-Merida' not in font or not text:
+        return text
+    out_chars: List[str] = []
+    for c in text:
+        cp = ord(c)
+        if cp in INLINE_PIECE_GLYPHS:
+            out_chars.append(INLINE_PIECE_GLYPHS[cp])
+        else:
+            out_chars.append(c)
+    return ''.join(out_chars)
+
+
 def _block_text(block: dict) -> str:
-    """Конкатенация всех spans блока, переводы строк между line'ами."""
+    """Конкатенация всех spans блока, переводы строк между line'ами.
+    Inline-глифы фигур (Chess-Merida PUA F0A2..F0A6) разворачиваются в
+    ASCII-буквы SAN-нотации, чтобы long-algebraic ходы вида
+    «Qd3-h7+» уехали дальше в виде стандартного текста.
+    """
     out_lines: List[str] = []
     for line in block.get('lines', []):
-        text = ''.join(s.get('text', '') for s in line.get('spans', []))
+        parts = []
+        for span in line.get('spans', []):
+            txt = span.get('text', '')
+            font = span.get('font', '')
+            parts.append(_expand_inline_glyphs(txt, font))
+        text = ''.join(parts)
         if text:
             out_lines.append(text)
     return '\n'.join(out_lines)

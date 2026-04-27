@@ -117,6 +117,13 @@ export interface YamlTextStep {
   diagrams?: YamlTextDiagram[];
 }
 
+export interface YamlGameReviewStep {
+  type: 'game_review';
+  pgn: string;
+}
+
+export type YamlStep = YamlTextStep | YamlGameReviewStep;
+
 export interface YamlLessonFile {
   schemaVersion: 1;
   courseSlug: string;
@@ -130,7 +137,7 @@ export interface YamlLessonFile {
   title?: string;
   summary?: string;
   estMinutes?: number;
-  steps: YamlTextStep[];
+  steps: YamlStep[];
 }
 
 export interface YamlCourseFile {
