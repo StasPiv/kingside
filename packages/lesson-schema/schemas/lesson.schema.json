@@ -1,0 +1,561 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://kingside.local/schemas/lesson.schema.json",
+  "title": "LessonFile",
+  "description": "Файл <slug>.lesson.yml — урок в формате KS-2015 (Этап 1, B-2). Зеркало CreateAdminLessonDto + StepPayloadDto (apps/api/src/lessons/dto/step-payload.dto.ts). Покрывает все 8 типов шагов: text, game_review, position, quiz, puzzle, endgame_drill, opening_drill, video. Бизнес-валидация (FEN/PGN/UCI-легальность, видео-хост whitelist, custom-puzzle решение) — DTO-декораторы на admin-эндпоинте B-3, не дублируется в схеме.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "courseSlug",
+    "slug",
+    "order",
+    "blockKey",
+    "kind",
+    "titleKey",
+    "summaryKey",
+    "steps"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "description": "Версия формата файла. v1 — текущая (KS-2015).",
+      "const": 1
+    },
+    "courseSlug": {
+      "description": "Slug курса, к которому относится урок (Course.slug). Импортёр upsert'ит в Course по этому полю.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 80
+    },
+    "slug": {
+      "description": "Slug урока. Уникален в рамках courseSlug (Prisma @@unique([courseId, slug])).",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "order": {
+      "description": "Порядковый номер урока в курсе (0-based).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "blockKey": {
+      "description": "Ключ блока внутри курса (rules, basic-mates, …). lowercase alphanumeric с разделителями - или _.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "kind": {
+      "description": "LessonKind из shared.",
+      "enum": [
+        "theory",
+        "tactics_set",
+        "endgame_set",
+        "opening_line",
+        "game_review",
+        "quiz"
+      ]
+    },
+    "isPublished": {
+      "type": "boolean"
+    },
+    "titleKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "summaryKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "title": {
+      "description": "Inline-заголовок (KS-1964). Приоритет над titleKey.",
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "summary": {
+      "type": ["string", "null"],
+      "maxLength": 2000
+    },
+    "estMinutes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600
+    },
+    "steps": {
+      "description": "Массив шагов урока. Порядок берётся из позиции (импортёр проставит order = i+1).",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": { "$ref": "#/definitions/Step" }
+    }
+  },
+
+  "definitions": {
+    "Square": {
+      "description": "Шахматная клетка [a-h][1-8].",
+      "type": "string",
+      "pattern": "^[a-h][1-8]$"
+    },
+    "UciMove": {
+      "description": "Ход в UCI-нотации: from-to + опц. промоут (q/r/b/n).",
+      "type": "string",
+      "pattern": "^[a-h][1-8][a-h][1-8][qrbn]?$"
+    },
+    "Fen": {
+      "description": "FEN: 8 рядов через '/', side-to-move, castling, en-passant, halfmove, fullmove. Базовая структурная проверка; финальная — chess.js на бэке.",
+      "type": "string",
+      "pattern": "^([rnbqkpRNBQKP1-8]+/){7}[rnbqkpRNBQKP1-8]+ [wb] (-|[KQkqA-Ha-h]+) (-|[a-h][36]) \\d+ \\d+$"
+    },
+    "ColorString": {
+      "description": "CSS-цвет (любой допустимый: #rrggbb, named, rgb()/rgba()…). Только длина ограничивается; точная валидация — на FE.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+
+    "Arrow": {
+      "description": "Стрелка на диаграмме (KS-1994).",
+      "type": "object",
+      "required": ["from", "to"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "$ref": "#/definitions/Square" },
+        "to": { "$ref": "#/definitions/Square" },
+        "color": { "$ref": "#/definitions/ColorString" }
+      }
+    },
+    "Highlight": {
+      "description": "Подсвеченная клетка на диаграмме (KS-1994).",
+      "type": "object",
+      "required": ["square"],
+      "additionalProperties": false,
+      "properties": {
+        "square": { "$ref": "#/definitions/Square" },
+        "color": { "$ref": "#/definitions/ColorString" }
+      }
+    },
+    "Diagram": {
+      "description": "Read-only диаграмма для text-шага.",
+      "type": "object",
+      "required": ["fen"],
+      "additionalProperties": false,
+      "properties": {
+        "fen": { "$ref": "#/definitions/Fen" },
+        "caption": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "orientation": {
+          "enum": ["white", "black"]
+        },
+        "arrows": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/definitions/Arrow" }
+        },
+        "highlightedSquares": {
+          "type": "array",
+          "maxItems": 64,
+          "items": { "$ref": "#/definitions/Highlight" }
+        }
+      }
+    },
+
+    "CustomPuzzle": {
+      "description": "Авторская задача (ADR-029). Лимиты: 1..40 ходов, 0..5 тегов, caption ≤ 200.",
+      "type": "object",
+      "required": ["fen", "solutionMoves"],
+      "additionalProperties": false,
+      "properties": {
+        "fen": { "$ref": "#/definitions/Fen" },
+        "solutionMoves": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 40,
+          "items": { "$ref": "#/definitions/UciMove" }
+        },
+        "orientation": {
+          "enum": ["white", "black"]
+        },
+        "themes": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 30
+          }
+        },
+        "caption": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+
+    "Step": {
+      "description": "Дискриминированный union по полю type. AJV выберет ветку по совпадению const.",
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        { "$ref": "#/definitions/StepText" },
+        { "$ref": "#/definitions/StepGameReview" },
+        { "$ref": "#/definitions/StepPosition" },
+        { "$ref": "#/definitions/StepQuiz" },
+        { "$ref": "#/definitions/StepPuzzle" },
+        { "$ref": "#/definitions/StepEndgameDrill" },
+        { "$ref": "#/definitions/StepOpeningDrill" },
+        { "$ref": "#/definitions/StepVideo" }
+      ]
+    },
+
+    "StepText": {
+      "description": "TextStep (markdown + опц. диаграммы). body XOR bodyI18nKey; диаграммы внутри тела — `{{diagram:N}}` ссылается на diagrams[N], либо inline-блок ` ```fen ``` ` (FE поддерживает оба, KS-1763 / L-08).",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "text" },
+        "body": {
+          "description": "Markdown-тело шага. Поддерживает плейсхолдеры {{diagram:0}} / {{diagram:N}} (любое N ≥ 0) или inline ```fen``` блоки.",
+          "type": "string",
+          "minLength": 1
+        },
+        "bodyI18nKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "diagrams": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Diagram" }
+        }
+      },
+      "oneOf": [
+        { "required": ["body"], "not": { "required": ["bodyI18nKey"] } },
+        { "required": ["bodyI18nKey"], "not": { "required": ["body"] } }
+      ]
+    },
+
+    "StepGameReview": {
+      "description": "GameReviewStep — разбор партии. Ровно одно из gameId / pgn (XOR, KS-1811). PGN валидируется chess.js на бэке.",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "game_review" },
+        "gameId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pgn": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        { "required": ["gameId"], "not": { "required": ["pgn"] } },
+        { "required": ["pgn"], "not": { "required": ["gameId"] } }
+      ]
+    },
+
+    "StepPosition": {
+      "description": "PositionStep — интерактивная позиция (L-23 / KS-1983). expectedMoves опц.; пусто/отсутствует → read-only.",
+      "type": "object",
+      "required": ["type", "fen"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "position" },
+        "fen": { "$ref": "#/definitions/Fen" },
+        "expectedMoves": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/UciMove" }
+        },
+        "orientation": {
+          "enum": ["white", "black"]
+        }
+      }
+    },
+
+    "StepQuiz": {
+      "description": "QuizStep (KS-1982 inline). Поля prompt/label/explanation — только локальный текст, без i18n-ключей.",
+      "type": "object",
+      "required": ["type", "questions"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "quiz" },
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/QuizQuestion" }
+        },
+        "passThreshold": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+
+    "QuizQuestion": {
+      "type": "object",
+      "required": ["id", "prompt", "options", "correctOptionIds"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fen": {
+          "type": "string",
+          "minLength": 1
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/definitions/QuizOption" }
+        },
+        "correctOptionIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "multi": {
+          "type": "boolean"
+        },
+        "explanation": {
+          "type": "string"
+        }
+      }
+    },
+
+    "QuizOption": {
+      "type": "object",
+      "required": ["id", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "StepPuzzle": {
+      "description": "PuzzleStep — три режима selection (ids/filter/custom, ADR-029).",
+      "type": "object",
+      "required": ["type", "selection"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "puzzle" },
+        "selection": { "$ref": "#/definitions/PuzzleSelection" },
+        "minSolved": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+
+    "PuzzleSelection": {
+      "description": "Дискриминатор по mode.",
+      "oneOf": [
+        { "$ref": "#/definitions/PuzzleSelectionIds" },
+        { "$ref": "#/definitions/PuzzleSelectionFilter" },
+        { "$ref": "#/definitions/PuzzleSelectionCustom" }
+      ]
+    },
+
+    "PuzzleSelectionIds": {
+      "type": "object",
+      "required": ["mode", "puzzleIds"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "const": "ids" },
+        "puzzleIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+
+    "PuzzleSelectionFilter": {
+      "type": "object",
+      "required": ["mode", "themes", "limit"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "const": "filter" },
+        "themes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "ratingMin": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ratingMax": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      }
+    },
+
+    "PuzzleSelectionCustom": {
+      "description": "Авторские задачи прямо в payload (ADR-029, KS-1908). Лимит 1..20 на шаг (USER_COURSES_LIMITS.customPuzzlesPerStep).",
+      "type": "object",
+      "required": ["mode", "customPuzzles"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "const": "custom" },
+        "customPuzzles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": { "$ref": "#/definitions/CustomPuzzle" }
+        }
+      }
+    },
+
+    "StepEndgameDrill": {
+      "description": "EndgameDrillStep (L-24 / KS-1815). winCondition — дискриминированный union по kind.",
+      "type": "object",
+      "required": ["type", "fen", "playerSide", "skillLevel", "winCondition"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "endgame_drill" },
+        "fen": { "$ref": "#/definitions/Fen" },
+        "playerSide": {
+          "enum": ["white", "black"]
+        },
+        "skillLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "winCondition": { "$ref": "#/definitions/EndgameWinCondition" },
+        "maxMoves": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "hintsAllowed": {
+          "type": "boolean"
+        }
+      }
+    },
+
+    "EndgameWinCondition": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "mate" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "promote" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "fen"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "reach_position" },
+            "fen": { "$ref": "#/definitions/Fen" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["kind", "amount"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "material_advantage" },
+            "amount": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        }
+      ]
+    },
+
+    "StepOpeningDrill": {
+      "description": "OpeningDrillStep (L-32 / KS-1816). PGN-дерево вариантов парсится chess.js.",
+      "type": "object",
+      "required": ["type", "pgn", "playerSide", "onDeviation"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "opening_drill" },
+        "pgn": {
+          "type": "string",
+          "minLength": 1
+        },
+        "playerSide": {
+          "enum": ["white", "black"]
+        },
+        "onDeviation": {
+          "enum": ["show_correction", "engine_punish"]
+        },
+        "engineSkillLevel": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        }
+      }
+    },
+
+    "StepVideo": {
+      "description": "VideoStep (L-34 / KS-1808). url ограничен whitelist'ом ALLOWED_VIDEO_HOSTS на бэке (decorator @IsVideoUrl); схема проверяет только формат http(s) URL.",
+      "type": "object",
+      "required": ["type", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "video" },
+        "url": {
+          "type": "string",
+          "pattern": "^https?://[^\\s]+$",
+          "maxLength": 1000
+        },
+        "titleI18nKey": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    }
+  }
+}

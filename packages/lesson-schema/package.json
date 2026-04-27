@@ -1,0 +1,36 @@
+{
+  "name": "@kingside/lesson-schema",
+  "version": "0.0.1",
+  "private": true,
+  "description": "JSON Schemas for lesson.yml / course.yml файлов нового формата уроков (KS-2015 / B-2). Используется CLI-импортёром (B-1) и admin-эндпоинтом POST /lessons/admin/import (B-3).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "schemas"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./schemas/course": "./schemas/course.schema.json",
+    "./schemas/lesson": "./schemas/lesson.schema.json"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "echo 'no lint configured'"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  },
+  "peerDependencies": {
+    "ajv": "^6 || ^7 || ^8"
+  },
+  "peerDependenciesMeta": {
+    "ajv": {
+      "optional": true
+    }
+  }
+}

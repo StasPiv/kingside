@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://kingside.local/schemas/course.schema.json",
+  "title": "CourseFile",
+  "description": "Файл course.yml — метаданные курса в формате KS-2015 (Этап 1, B-2). Зеркало CreateAdminCourseDto / UpdateAdminCourseDto и Course из @kingside/shared. Бизнес-валидация (slug-конфликты, внешний URL обложки и т. п.) — на стороне admin-эндпоинта.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "slug",
+    "level",
+    "titleKey",
+    "descriptionKey"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "description": "Версия формата файла. v1 — текущая (KS-2015). Импортёр падает, если значение не совпадает.",
+      "const": 1
+    },
+    "slug": {
+      "description": "kebab-case идентификатор курса. Уникален. Совпадает с Course.slug в БД.",
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 80
+    },
+    "level": {
+      "description": "CourseLevel из shared.",
+      "enum": ["beginner", "intermediate", "advanced"]
+    },
+    "order": {
+      "description": "Порядковый номер курса в каталоге (0-based).",
+      "type": "integer",
+      "minimum": 0
+    },
+    "isPublished": {
+      "description": "Опубликован ли курс. По умолчанию false (черновик).",
+      "type": "boolean"
+    },
+
+    "titleKey": {
+      "description": "i18n-ключ заголовка курса. Fallback, если не задано inline-поле title.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "descriptionKey": {
+      "description": "i18n-ключ описания курса.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "audienceI18nKey": {
+      "description": "i18n-ключ блока «для кого». null/отсутствие → нет блока.",
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "hookI18nKey": {
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "outcomeI18nKey": {
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+
+    "title": {
+      "description": "Inline-заголовок (KS-1964). Приоритет над titleKey. null/undefined → fallback.",
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "description": {
+      "type": ["string", "null"],
+      "maxLength": 2000
+    },
+    "audience": {
+      "type": ["string", "null"],
+      "maxLength": 500
+    },
+    "hook": {
+      "type": ["string", "null"],
+      "maxLength": 500
+    },
+    "outcome": {
+      "type": ["string", "null"],
+      "maxLength": 500
+    },
+
+    "coverUrl": {
+      "type": ["string", "null"],
+      "maxLength": 500
+    },
+    "difficulty": {
+      "description": "Сложность внутри уровня: 1=easy, 2=medium, 3=hard.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "estimatedMinutes": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 10000
+    },
+    "tags": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+      }
+    }
+  }
+}
