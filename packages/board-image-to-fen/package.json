@@ -1,0 +1,36 @@
+{
+  "name": "@kingside/board-image-to-fen",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CLI и API для распознавания шахматной диаграммы (стиль Майзелиса) в FEN. KS-2028. Под капотом — Python + OpenCV (template matching по морф-открытым силуэтам фигур), вызывается через child_process.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "board-image-to-fen": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src/python",
+    "src/templates",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./cli": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "echo 'no lint configured'"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
+  }
+}
