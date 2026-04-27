@@ -258,7 +258,7 @@ describe('<TextStep>', () => {
       />,
     );
     const btn = screen.getByTestId('lesson-text-step-next');
-    expect(btn.textContent).toContain('Next');
+    expect(btn.textContent).toContain('Got it');
     expect(btn.className).not.toContain('--done');
   });
 
@@ -338,7 +338,7 @@ describe('<TextStep>', () => {
       <TextStep payload={{ type: 'text', bodyMarkdown: 'Legacy' }} />,
     );
     const btn = screen.getByTestId('lesson-text-step-next');
-    expect(btn.textContent).toContain('Next');
+    expect(btn.textContent).toContain('Got it');
     expect(btn.className).not.toContain('--done');
     expect(btn.getAttribute('data-step-state')).toBe('pending');
   });

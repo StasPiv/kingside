@@ -184,8 +184,13 @@ export function GameReviewStep({
         </div>
       )}
 
-      {/* KS-2000: чек-лист удалён. Шаг завершается обычной кнопкой
-          «Далее» — как любой другой шаг урока. */}
+      {/* KS-2000: чек-лист удалён. Шаг завершается кнопкой отметки
+          прогресса.
+          KS-2043: текст кнопки — «Готово» (lessons.markDone), а не
+          «Далее»: внутренняя кнопка отмечает шаг как пройденный
+          (`onStepDone`), физическое переключение делает
+          `lesson-step-nav-next` снизу. Раньше обе кнопки были
+          одинаковыми «Далее» — пользователи путались. */}
       {!hideNext && (
         <div className="lesson-game-review-step__actions">
           <button
@@ -194,7 +199,7 @@ export function GameReviewStep({
             data-testid="lesson-game-review-step-next"
             onClick={() => onStepDone?.()}
           >
-            {t('lessons.next', 'Next')}
+            {t('lessons.markDone', 'Got it')}
           </button>
         </div>
       )}

@@ -176,7 +176,8 @@ describe('<GameReviewStep>', () => {
       'lesson-game-review-step-next',
     ) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
-    expect(btn.textContent).toMatch(/next|далее/i);
+    // KS-2043: текст переименован на «Готово»/«Got it».
+    expect(btn.textContent).toMatch(/got it|готово/i);
     fireEvent.click(btn);
     expect(onStepDone).toHaveBeenCalledTimes(1);
   });

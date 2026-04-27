@@ -365,6 +365,8 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
           </button>
         )}
 
+        {/* KS-2043: «Готово» вместо «Далее» — внутренняя кнопка
+            отмечает шаг done, переключение шага делает nav-кнопка. */}
         {status === 'correct' && !hideNext && (
           <button
             type="button"
@@ -372,7 +374,7 @@ export function PositionStep({ payload, onStepDone, hideNext }: PositionStepProp
             data-testid="lesson-position-step-next"
             onClick={() => onStepDone?.()}
           >
-            {t('lessons.next', 'Next')}
+            {t('lessons.markDone', 'Got it')}
           </button>
         )}
       </div>

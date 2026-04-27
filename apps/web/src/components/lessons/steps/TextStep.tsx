@@ -356,13 +356,16 @@ export function TextStep({
             aria-label={
               isDone
                 ? t('lessons.stepDone', 'Done ✓')
-                : t('lessons.next', 'Next')
+                : t('lessons.markDone', 'Got it')
             }
             onClick={() => onStepDone?.()}
           >
+            {/* KS-2043: внутренняя кнопка шага отмечает прогресс
+                (`onStepDone`) и не должна совпадать по тексту с
+                навигационной кнопкой `lesson-step-nav-next` снизу. */}
             {isDone
               ? t('lessons.stepDone', 'Done ✓')
-              : t('lessons.next', 'Next')}
+              : t('lessons.markDone', 'Got it')}
           </button>
         </div>
       )}

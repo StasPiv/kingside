@@ -1246,6 +1246,7 @@
     "stepUnknown": "Unknown step type",
     "next": "Next",
     "prev": "Previous",
+    "markDone": "Got it",
     "stepDone": "Done ✓",
     "stepNavLabel": "Step navigation",
     "stepCounter": "{{current}}/{{total}}",

@@ -1252,6 +1252,7 @@
     "stepUnknown": "Неизвестный тип шага",
     "next": "Далее",
     "prev": "Назад",
+    "markDone": "Готово",
     "stepDone": "Пройдено ✓",
     "stepNavLabel": "Навигация по шагам",
     "stepCounter": "{{current}}/{{total}}",
