@@ -401,3 +401,92 @@ Multi-AZ удваивает стоимость инстанса (standby опл�
 - **Operational:** один лишний RDS под мониторингом, бэкапами, патчингом. Devops добавляет в существующий runbook (CloudWatch dashboards, alerting).
 - **Архитектурно:** разделение storage по сервису-владельцу — здоровый шаг к настоящему microservice-podходу. ADR-018 §2.2 предсказывал этот переход; KS-2004 его выполняет.
 - **Будущее:** при дальнейшем росте архива (>5M партий, ClickHouse-перенос `position_stats`) RDS остаётся для primary-данных, ClickHouse становится отдельным аналитическим стором — этот RDS-инстанс не становится тупиком развития.
+
+---
+
+## 9. Постскриптум — выкатка KS-2033
+
+### Cutover выполнен
+
+**Время:** 2026-04-27, окно 11:43 UTC (взятие в работу) → 13:42 UTC (DROP старой БД).
+
+### Конфигурация нового инстанса
+
+| Параметр | Значение |
+|---|---|
+| Identifier | `kingside-archive-db` |
+| Endpoint | `kingside-archive-db.c7gkqueu47cp.eu-central-1.rds.amazonaws.com:5432` |
+| Engine | PostgreSQL 16.10 |
+| Class | `db.t3.micro` |
+| Storage | gp3, 20 GiB, 3000 IOPS, 125 MB/s |
+| Multi-AZ | off |
+| AZ | eu-central-1a |
+| KMS | `c18f5305-070e-45bf-801c-dc132c7ac728` (тот же что у общего) |
+| Parameter group | `default.postgres16` |
+| Backup retention | 7 days (window 23:29–23:59 UTC) |
+| Maintenance window | sat 22:41–23:11 UTC |
+| Security group | `sg-023de823c9b64cdd8` (`kingside-archive-rds-sg`), inbound 5432 от ECS-SG (`sg-07f96fdb66b70e8eb`) и monitoring-SG (`sg-03888f982d35a44a0`) |
+| Database | `archive_kingside` |
+| Secret | `kingside/archive-service.ARCHIVE_DATABASE_URL` обновлён на новый host |
+
+### Что взято из ADR KS-2004
+
+- §3.1 вариант A: pg_dump → pg_restore.
+- §3.4 Phase 0 (миграции `@kingside/archive-db` через ECS run-task) + Phase 1 (cutover).
+- §3.6 Verification: `/_/health` 200 с `{db:ok}`, `/games/by-position` отдаёт реальные партии TWIC-импорта, `archive_tree_query_duration_seconds` накапливается в `/_/metrics`.
+
+### Что НЕ взято из ADR (решение пользователя)
+
+- §2.1 апгрейд класса до t4g.medium/m6g.large — оставили t3.micro как у общего.
+- §2.2 storage 50 GiB и autoscaling — 20 GiB без autoscaling.
+- §2.3 Performance Insights, Enhanced Monitoring — оставлены off (как у общего).
+- §2.5 Тюнинг параметров (work_mem, maintenance_work_mem, autovacuum_*, pg_stat_statements) — НЕ делали; parameter group `default.postgres16`.
+- §3.4 Phase 2 (soak 7 дней) и Phase 3 (DROP отдельно через 14 дней) — **сжаты в один проход**: smoke OK → DROP сразу (явное указание пользователя «переносим = удаляем старую»).
+- Manual snapshot общего инстанса перед DROP — пропущен, automated backups общего RDS (retention 7 дней) покрывают rollback.
+
+### Отступление от runbook'а: fast-path dump/restore
+
+Sequential `pg_restore --data-only --jobs=1` со всеми индексами на t3.micro деградировал
+до ~30% залива за 38 минут (вторичные индексы `archive_game_positions` не помещались в
+`shared_buffers`, каждый INSERT — random-page IO). На лету переключились на:
+
+1. `DROP INDEX` 8 вторичных не-PK индексов:
+   `archive_game_positions_recent`, `archive_game_positions_top_elo`,
+   `position_stats_position_key_bucket_total_idx`, `position_stats_ply_idx`,
+   `archive_games_eco_played_at_idx`, `archive_games_white_name_black_name_idx`,
+   `archive_games_played_at_idx`, `archive_games_source_id_played_at_idx`.
+2. `TRUNCATE` 5 архивных таблиц `RESTART IDENTITY CASCADE`.
+3. Повторный `pg_dump` + `pg_restore --data-only --jobs=1`.
+4. `CREATE INDEX` 8 индексов через sort+merge.
+5. `ANALYZE` + `COUNT(*)` сверка.
+
+PK и UNIQUE `archive_games_content_hash` оставлены без изменений.
+
+**Итог fast-path:**
+- pg_restore: 9.5 минут (13:21:34 → 13:31:05) вместо ~120 минут со всеми индексами.
+- CREATE INDEX 8 шт.: 1.3 минуты (13:31:05 → 13:32:24).
+
+### Sanity-check после cutover
+
+| Таблица | Source rows | Target rows |
+|---|---|---|
+| archive_sources | 1 | 1 |
+| archive_imports | 49 | 49 |
+| archive_games | 315 428 | 315 428 |
+| position_stats | 3 826 129 | 3 826 129 |
+| archive_game_positions | 4 539 396 | 4 539 396 |
+
+Все 5 таблиц совпадают 1-в-1.
+
+### Smoke
+
+- `GET /_/health` → 200 `{"status":"ok","db":"ok"}`
+- `GET /games/by-position?fen=...` → 200 с реальными данными (партия Cai,Youyang vs Tong,Yiyi из CHN Team Women 2026)
+- `GET /tree?ply=1` → 400 "fen must be a string" (валидация работает, эндпоинт жив)
+- `/_/metrics` показывает `archive_tree_query_duration_seconds` rolling counter
+
+### Старая БД
+
+`archive_kingside` на общем `kingside-db` (был 2929 MB) — `DROP DATABASE` выполнен,
+освобождено ~2.9 GB на общем инстансе. Восстановление возможно через automated backups
+общего RDS (retention 7 дней).
