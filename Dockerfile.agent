@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y git curl procps unzip lsof \
     libcups2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
     libcairo2 libasound2 libxshmfence1 libxkbcommon0 libxfixes3 libxext6 \
     libx11-xcb1 libdrm2 libexpat1 \
-    python3 python3-pip python3-opencv python3-numpy python3-pil \
+    python3 python3-pip python3-opencv python3-numpy python3-pil python3-fitz \
     imagemagick \
     && ln -sf /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/* \
