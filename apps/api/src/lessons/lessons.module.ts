@@ -13,6 +13,7 @@ import { ActiveCoursesController } from './active-courses.controller';
 import { LessonsAdminController } from './admin/lessons-admin.controller';
 import { LessonsAdminLessonsController } from './admin/lessons-admin-lessons.controller';
 import { LessonsAdminStepsController } from './admin/lessons-admin-steps.controller';
+import { LessonsAdminImportController } from './admin/lessons-admin-import.controller';
 import { CoursesService } from './courses.service';
 import { LessonsService } from './lessons.service';
 import { ProgressService } from './progress.service';
@@ -22,6 +23,7 @@ import { Sm2SchedulerService } from './sm2.scheduler';
 import { AdaptiveDifficultyService } from './adaptive-difficulty.service';
 import { ActiveCoursesService } from './active-courses.service';
 import { LessonsAdminService } from './admin/lessons-admin.service';
+import { LessonsAdminImportService } from './admin/lessons-admin-import.service';
 
 /**
  * LessonsModule — тонкий слой над существующими доменами (ADR-024 §2.5,
@@ -51,6 +53,7 @@ import { LessonsAdminService } from './admin/lessons-admin.service';
     LessonsAdminController,
     LessonsAdminLessonsController,
     LessonsAdminStepsController,
+    LessonsAdminImportController,
   ],
   providers: [
     CoursesService,
@@ -62,6 +65,7 @@ import { LessonsAdminService } from './admin/lessons-admin.service';
     AdaptiveDifficultyService,
     ActiveCoursesService,
     LessonsAdminService,
+    LessonsAdminImportService,
   ],
   exports: [
     CoursesService,
@@ -72,6 +76,7 @@ import { LessonsAdminService } from './admin/lessons-admin.service';
     AdaptiveDifficultyService,
     ActiveCoursesService,
     LessonsAdminService,
+    LessonsAdminImportService,
   ],
 })
 export class LessonsModule {}
