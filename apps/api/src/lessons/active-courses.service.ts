@@ -142,6 +142,8 @@ export class ActiveCoursesService {
         currentLessonSlug: currentLesson?.slug ?? null,
         currentLessonTitleI18nKey: currentLesson?.titleKey ?? null,
         currentLessonOrder: currentLesson ? currentIdx + 1 : null,
+        // KS-2037: порядок блоков курса (см. `Course.blockOrder`).
+        blockOrder: c.blockOrder,
       };
     });
   }

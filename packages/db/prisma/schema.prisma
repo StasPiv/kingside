@@ -784,6 +784,12 @@ model Course {
   hookI18nKey      String?  @map("hook_i18n_key")
   outcomeI18nKey   String?  @map("outcome_i18n_key")
   tags             String[] @default([])
+  // KS-2037: упорядоченный список `blockKey` уроков курса
+  // (`Lesson.blockKey`). Если пусто — порядок блоков на фронте по
+  // умолчанию (алфавит/min(order)). Уроки с `blockKey`, отсутствующим
+  // в `blockOrder`, фронт рендерит после известных. Это снимает
+  // хардкод `BLOCK_ORDER` с фронта.
+  blockOrder       String[] @default([]) @map("block_order")
   order            Int      @default(0)
   isPublished      Boolean  @default(false) @map("is_published")
   createdAt        DateTime @default(now()) @map("created_at")

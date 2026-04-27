@@ -109,6 +109,17 @@
         "minLength": 1,
         "maxLength": 40
       }
+    },
+    "blockOrder": {
+      "description": "KS-2037: упорядоченный список blockKey'ев уроков курса. Снимает хардкод BLOCK_ORDER с фронта. Если поле отсутствует — на бэке остаётся пустой массив (default []), фронт сортирует блоки по умолчанию (алфавит/min(order)).",
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9]+(?:[-_][a-z0-9]+)*$",
+        "minLength": 1,
+        "maxLength": 80
+      }
     }
   }
 }

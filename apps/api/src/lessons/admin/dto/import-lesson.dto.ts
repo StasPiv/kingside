@@ -154,6 +154,23 @@ export class ImportCoursePayloadDto {
   @MaxLength(40, { each: true })
   tags?: string[];
 
+  /**
+   * KS-2037: упорядоченный список `blockKey`'ев уроков курса. Пишется
+   * в `Course.blockOrder`. Если в YAML не задан — поле в БД остаётся
+   * пустым массивом (default `[]`). Если задан — все элементы должны
+   * быть kebab-case (синоним `Lesson.blockKey`).
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @Matches(BLOCK_KEY_REGEX, {
+    each: true,
+    message: 'blockOrder items must be kebab-case ([a-z0-9_-]+)',
+  })
+  @MaxLength(80, { each: true })
+  blockOrder?: string[];
+
   @IsOptional()
   @IsInt()
   @Min(0)

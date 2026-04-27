@@ -464,6 +464,15 @@ export interface Course extends CourseCardFields, CourseInlineFields {
   isPublished: boolean;
   /** Сколько уроков в курсе (агрегат — не отдельная таблица). */
   lessonCount: number;
+  /**
+   * KS-2037: упорядоченный список `blockKey` уроков курса
+   * (см. `Lesson.blockKey`). Снимает хардкод `BLOCK_ORDER` с фронта
+   * (`apps/web/src/components/lessons/courseBlocks.ts`). Если массив
+   * пуст — порядок блоков по умолчанию (фронт сам сортирует:
+   * алфавит / min(order)). Если у курса есть `blockKey`, отсутствующий
+   * в `blockOrder`, фронт рендерит его после известных.
+   */
+  blockOrder: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -580,6 +589,11 @@ export interface CourseListItem extends CourseCardFields, CourseInlineFields {
   descriptionI18nKey: string;
   order: number;
   lessonCount: number;
+  /**
+   * KS-2037: упорядоченный список `blockKey` уроков курса (см. `Course.blockOrder`).
+   * Возвращается всегда, даже если пуст — фронт сам решает fallback.
+   */
+  blockOrder: string[];
   /** Прогресс текущего пользователя, если он аутентифицирован. */
   progress?: {
     lessonsCompleted: number;
@@ -756,6 +770,11 @@ export interface ActiveSystemCourseDto extends CourseCardFields, CourseInlineFie
   currentLessonSlug: string | null;
   currentLessonTitleI18nKey: string | null;
   currentLessonOrder: number | null;
+  /**
+   * KS-2037: порядок блоков курса (см. `Course.blockOrder`). Возвращается
+   * всегда; для курсов без значения — пустой массив.
+   */
+  blockOrder: string[];
 }
 
 /**

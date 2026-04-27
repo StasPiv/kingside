@@ -160,6 +160,9 @@ export class CoursesService {
         outcome: c.outcome,
         order: c.order,
         lessonCount: c._count.lessons,
+        // KS-2037: порядок блоков курса (фронт берёт отсюда вместо
+        // хардкода `BLOCK_ORDER`). Возвращаем всегда — может быть пустым.
+        blockOrder: c.blockOrder,
         progress: progressDto,
       };
     });
@@ -335,6 +338,8 @@ export class CoursesService {
         order: course.order,
         isPublished: course.isPublished,
         lessonCount: course.lessons.length,
+        // KS-2037: порядок блоков курса. Снимает хардкод `BLOCK_ORDER` с фронта.
+        blockOrder: course.blockOrder,
         createdAt: course.createdAt.toISOString(),
         updatedAt: course.updatedAt.toISOString(),
       },

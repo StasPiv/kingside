@@ -148,6 +148,8 @@ export class LessonsAdminImportService {
           difficulty: payload.difficulty ?? 2,
           estimatedMinutes: payload.estimatedMinutes ?? null,
           tags: payload.tags ?? [],
+          // KS-2037: порядок блоков курса.
+          blockOrder: payload.blockOrder ?? [],
           order,
           isPublished: payload.isPublished ?? false,
         },
@@ -186,6 +188,14 @@ export class LessonsAdminImportService {
     pickIfChanged(data, 'estimatedMinutes', payload.estimatedMinutes ?? null, existing.estimatedMinutes);
     if (payload.tags !== undefined && !arraysEqual(payload.tags, existing.tags)) {
       data.tags = payload.tags;
+    }
+    // KS-2037: порядок блоков курса. Передан в payload (даже как []) —
+    // переписываем; не передан — не трогаем (пусть остаётся как было).
+    if (
+      payload.blockOrder !== undefined &&
+      !arraysEqual(payload.blockOrder, existing.blockOrder)
+    ) {
+      data.blockOrder = payload.blockOrder;
     }
     if (payload.order !== undefined && payload.order !== existing.order) {
       data.order = payload.order;

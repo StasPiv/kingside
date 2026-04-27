@@ -40,6 +40,11 @@ export interface CourseFileData {
   difficulty?: 1 | 2 | 3;
   estimatedMinutes?: number | null;
   tags?: string[];
+  /**
+   * KS-2037: упорядоченный список `blockKey`'ев уроков курса.
+   * Опционально; если не задан — на бэке остаётся пустой массив.
+   */
+  blockOrder?: string[];
 }
 
 export interface LessonFileData {
