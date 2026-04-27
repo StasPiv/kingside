@@ -407,14 +407,31 @@ function arraysEqual(a: readonly unknown[], b: readonly unknown[]): boolean {
 }
 
 /**
- * Стрипнуть «ничего» — текущая семантика: payload в файле уже хранится
- * inline-формой шага (`{ type, ...fields }`), и нам не нужно ничего
- * убирать. Хелпер оставлен как точка возможного переноса, если
- * формат payload'а в DB-stored shape отличался от файла (например,
- * вложенный поля вроде `selection` нормализованы).
+ * Рекурсивно убрать ключи со значением `undefined` (и пройти по массивам
+ * и объектам). Нужно для корректной идемпотентности `syncSteps`:
+ * `plainToInstance(...)` создаёт class-instance, у которого опциональные
+ * поля DTO лежат как `undefined`-properties (`Object.keys()` их видит).
+ * При записи через Prisma JSON-колонку эти `undefined`'ы исчезают
+ * (JSON.stringify их пропускает), и в БД ключей просто нет. Сравнение
+ * `inc` (class-instance с undefined) против `ex.payload` (plain JSON
+ * без undefined-ключей) ловит расхождение в `Object.keys().length` и
+ * помечает шаг как `updated`, хотя содержимое идентично.
+ *
+ * Эта функция приводит обе формы к одному виду (без undefined-ключей).
  */
-function stripNothing<T>(o: T): T {
-  return o;
+function stripNothing<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripNothing(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (v === undefined) continue;
+      out[k] = stripNothing(v);
+    }
+    return out as unknown as T;
+  }
+  return value;
 }
 
 /**
