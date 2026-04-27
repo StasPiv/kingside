@@ -790,6 +790,12 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_READ_PROJECT",
     ],
     "chess-expert": [],
+    "content": [
+        # Контент-инженер: RO весь проект (для запуска утилит и чтения схем),
+        # CLI-заливка уроков (npm run import:lesson). /tmp монтируется базово.
+        # Без COMMIT — контент в git не идёт (copyright).
+        "ROLE_READ_PROJECT", "ROLE_NPM_RUN",
+    ],
 }
 
 # Все роли — для главного токена пользователя
