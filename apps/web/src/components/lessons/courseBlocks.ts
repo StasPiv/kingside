@@ -3,55 +3,32 @@ import type { CourseLessonSummary } from '@kingside/shared';
 /**
  * Группировка уроков курса по «блокам».
  *
- * Блок урока приходит с бэка в поле `CourseLessonSummary.blockKey`
- * (см. `packages/shared/src/types/lessons.ts`). Фронт читает это
- * поле и раскладывает уроки по блокам — каждый уникальный `blockKey`
- * становится отдельной секцией на странице курса.
+ * Блок урока приходит с бэка в поле `CourseLessonSummary.blockKey`,
+ * порядок блоков курса — в `Course.blockOrder` (`packages/shared/
+ * src/types/lessons.ts`). Фронт раскладывает уроки по блокам и
+ * упорядочивает секции согласно `blockOrder` курса.
  *
- * # Расширяемость (KS-2036)
+ * # KS-2038: порядок из API
  *
- * Раньше `BlockKey` был жёстким type union'ом, а уроки с blockKey'ом
- * не из этого списка падали в служебный блок `'other'` — поэтому
- * новые блоки на бэке (например, `pawn-endgames`, `basic-endgames`
- * во множественном числе) не попадали в свои секции, а сваливались в
- * «Прочее». Теперь:
+ * Раньше `BLOCK_ORDER` был хардкод-массивом на фронте, и любой новый
+ * курс с другим методическим планом требовал правки кода. После
+ * KS-2037 backend хранит и отдаёт `Course.blockOrder: string[]` —
+ * фронт его подставляет напрямую. Хардкод убран.
  *
- *  - `blockKey` — обычная строка, без union'а;
- *  - `BLOCK_ORDER` — список «известных» блоков для УПОРЯДОЧИВАНИЯ:
- *    они идут в этом порядке. Неизвестные блоки рендерятся ПОСЛЕ
- *    известных — в порядке первого появления в массиве уроков (т.е.
- *    стабильно по приходу с API). `'other'` (пустой/null blockKey)
- *    идёт в самом конце;
- *  - заголовок секции — i18n-ключ `lessons.block.<key>` (если в
- *    локали нет — fallback на сам `blockKey`).
+ *  - blockKey'и из `blockOrder` рендерятся в этом порядке;
+ *  - blockKey'и не из `blockOrder` рендерятся ПОСЛЕ — в порядке
+ *    первого появления в `lessons` (стабильный API order);
+ *  - `'other'` (пустой/null blockKey у урока) — последним;
+ *  - `blockOrder = []` (или не передан) → порядок «как пришло из
+ *    API» (по первому появлению), `'other'` всё равно в конце.
  *
- * Чтобы добавить новый блок:
- *  1. БД/seed: указать `blockKey` у урока — секция появится
- *     автоматически (заголовок будет = `blockKey`).
- *  2. Опционально, для красивого заголовка — добавить ключи
- *     `lessons.block.<key>` в `apps/web/src/i18n/locales/{ru,en}/translation.json`.
- *  3. Опционально, чтобы блок встал на нужное место в порядке —
- *     добавить его slug в `BLOCK_ORDER` ниже.
+ * Заголовок секции — i18n-ключ `lessons.block.<key>` (если в локали
+ * нет — fallback на сам `blockKey`); отображение в JSX берёт
+ * `t(\`lessons.block.${block.key}\`, block.key)` в `CoursePage`.
  */
 
 /** Special bucket для уроков без blockKey. Рендерится последним. */
 export const OTHER_BLOCK_KEY = 'other';
-
-/**
- * Префиксированный порядок известных блоков. Любой `blockKey`, не
- * перечисленный здесь, попадёт в свою отдельную секцию ПОСЛЕ
- * известных (но до `'other'`).
- */
-export const BLOCK_ORDER: string[] = [
-  'rules',
-  'basic-mates',
-  'piece-values',
-  'openings',
-  'tactics',
-  'basic-endgames',
-  'pawn-endgames',
-  OTHER_BLOCK_KEY,
-];
 
 /**
  * Возвращает blockKey урока. Пустой/отсутствующий → `'other'`.
@@ -70,20 +47,30 @@ export interface LessonBlock {
 }
 
 /**
- * Группирует уроки по `blockKey`. Порядок секций:
- *  1. Блоки из `BLOCK_ORDER` в указанном порядке (но кроме `'other'`).
- *  2. Прочие известные блоки в порядке первого появления в `lessons`.
+ * Группирует уроки по `blockKey` и упорядочивает секции согласно
+ * `blockOrder` курса (`Course.blockOrder` из API).
+ *
+ * Порядок секций:
+ *  1. blockKey'и из `blockOrder` в указанном порядке (без `'other'`).
+ *  2. blockKey'и НЕ из `blockOrder` — в порядке первого появления
+ *     в `lessons` (стабильный API order).
  *  3. `'other'` — последним.
  *
  * Пустые блоки опускаются. Внутри блока уроки сортируются по `order`.
+ *
+ * @param lessons     Список уроков курса.
+ * @param blockOrder  Упорядоченный список `blockKey` (из `Course.blockOrder`).
+ *                    Если пустой/не передан — всё определяется порядком
+ *                    появления в `lessons`.
  */
 export function groupLessonsByBlock(
   lessons: CourseLessonSummary[],
+  blockOrder: readonly string[] = [],
 ): LessonBlock[] {
   const map = new Map<string, CourseLessonSummary[]>();
-  // Стабильный порядок встречи неизвестных блоков — отдельный список,
-  // чтобы не зависеть от порядка обхода Map (он хоть и стабильный по
-  // ES2015, но мы хотим явно).
+  // Стабильный порядок встречи блоков — отдельный список, чтобы не
+  // зависеть от порядка обхода Map (он хоть и стабильный по ES2015,
+  // но мы хотим явно фиксировать «первое появление в lessons»).
   const seenOrder: string[] = [];
   for (const l of lessons) {
     const k = getBlockKey(l);
@@ -95,12 +82,12 @@ export function groupLessonsByBlock(
     }
   }
 
-  const known = BLOCK_ORDER.filter((k) => k !== OTHER_BLOCK_KEY);
-  const knownSet = new Set(known);
-  const unknown = seenOrder.filter(
-    (k) => !knownSet.has(k) && k !== OTHER_BLOCK_KEY,
+  const ordered = blockOrder.filter((k) => k !== OTHER_BLOCK_KEY);
+  const orderedSet = new Set(ordered);
+  const trailing = seenOrder.filter(
+    (k) => !orderedSet.has(k) && k !== OTHER_BLOCK_KEY,
   );
-  const finalOrder: string[] = [...known, ...unknown, OTHER_BLOCK_KEY];
+  const finalOrder: string[] = [...ordered, ...trailing, OTHER_BLOCK_KEY];
 
   const out: LessonBlock[] = [];
   for (const k of finalOrder) {

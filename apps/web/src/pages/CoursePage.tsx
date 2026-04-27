@@ -81,7 +81,10 @@ export function CoursePage() {
 
   const { course, lessons, progress } = data;
   const sortedLessons = [...lessons].sort((a, b) => a.order - b.order);
-  const blocks = groupLessonsByBlock(sortedLessons);
+  // KS-2038: порядок блоков теперь приходит с бэка в `course.blockOrder`
+  // (см. KS-2037). Если поле пустое/отсутствует — `groupLessonsByBlock`
+  // упорядочит блоки по первому появлению в `lessons`.
+  const blocks = groupLessonsByBlock(sortedLessons, course.blockOrder ?? []);
   const total = sortedLessons.length;
   const completed = progress?.lessonsCompleted ?? 0;
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
