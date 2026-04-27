@@ -193,4 +193,37 @@ describe('<InlinePgnViewer>', () => {
       screen.getByTestId('inline-pgn-viewer-counter').textContent,
     ).toBe('0/4');
   });
+
+  // KS-2035: leading-комментарий PGN — авторское вступление, стоящее
+  // между tag-pair'ами и `1.<move>`. До фикса терялся (parseAnnotatedPgn
+  // привязывает комментарии только к предыдущему ходу, а до 1-го хода
+  // `lastMove === null`). Теперь рендерится отдельным блоком над
+  // листом ходов и виден независимо от ply.
+  it('PGN с pre-game комментарием → leading-блок виден над листом ходов (regression KS-2035)', () => {
+    const pgn = [
+      '[FEN "8/8/8/8/4k3/8/3KP3/8 w - - 0 1"]',
+      '[SetUp "1"]',
+      '',
+      '{Эта позиция — ничья, способ защиты для чёрных — держать короля перед пешкой.} 1. e3 Ke5 2. Kd3 Kd5 1/2-1/2',
+    ].join('\n');
+    renderWithProviders(<InlinePgnViewer pgn={pgn} />);
+    const leading = screen.getByTestId('inline-pgn-viewer-leading-comment');
+    expect(leading.textContent).toContain('Эта позиция — ничья');
+    // Ходы тоже на месте (не должно быть регрессии KS-2032).
+    expect(
+      screen.getByTestId('inline-pgn-viewer-counter').textContent,
+    ).toBe('0/4');
+    // Leading виден независимо от ply: после next он остаётся.
+    fireEvent.click(screen.getByTestId('inline-pgn-viewer-next'));
+    expect(
+      screen.getByTestId('inline-pgn-viewer-leading-comment').textContent,
+    ).toContain('Эта позиция');
+  });
+
+  it('PGN без pre-game комментария → leading-блок не рендерится', () => {
+    renderWithProviders(<InlinePgnViewer pgn={SHORT_PGN} />);
+    expect(
+      screen.queryByTestId('inline-pgn-viewer-leading-comment'),
+    ).toBeNull();
+  });
 });

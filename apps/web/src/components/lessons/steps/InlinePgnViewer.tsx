@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { MemoChessboard } from '../../MemoChessboard';
-import { parseAnnotatedPgn } from '../../../review/utils/PgnDeserializer';
+import {
+  extractLeadingComment,
+  parseAnnotatedPgn,
+} from '../../../review/utils/PgnDeserializer';
 import { ReviewMoveList } from '../../../review/components/ReviewMoveList';
 import type { ChessMove } from '../../../review/types';
 
@@ -51,6 +54,9 @@ interface ParsedPgn {
   ok: true;
   startFen: string;
   moves: ChessMove[];
+  /** KS-2035: leading-комментарий перед первым ходом (`{...}` между
+   * tag-pair'ами и `1.<move>`). Если в PGN такого блока нет — undefined. */
+  leadingComment?: string;
 }
 
 interface ParsedPgnError {
@@ -61,6 +67,7 @@ function parseInlinePgn(pgn: string): ParsedPgn | ParsedPgnError {
   if (!pgn || !pgn.trim()) return { ok: false };
   try {
     const moves = parseAnnotatedPgn(pgn);
+    const leadingComment = extractLeadingComment(pgn);
     // `parseAnnotatedPgn` стартует с FEN из `[FEN "..."]` либо со
     // стандартной начальной позиции. `before` первого хода — это и есть
     // стартовый FEN. Если ходов нет (например, headers + result), fall
@@ -73,7 +80,7 @@ function parseInlinePgn(pgn: string): ParsedPgn | ParsedPgnError {
       // ошибку парсинга, чтобы пользователь не получил пустую доску.
       return { ok: false };
     }
-    return { ok: true, startFen, moves };
+    return { ok: true, startFen, moves, leadingComment };
   } catch {
     return { ok: false };
   }
@@ -149,7 +156,7 @@ export function InlinePgnViewer({
     );
   }
 
-  const { startFen, moves } = parsed;
+  const { startFen, moves, leadingComment } = parsed;
   const total = moves.length;
   const safePly = Math.max(0, Math.min(total, ply));
   const currentMove = safePly === 0 ? null : moves[safePly - 1];
@@ -273,6 +280,20 @@ export function InlinePgnViewer({
           ⏭
         </button>
       </div>
+
+      {/* KS-2035: leading-комментарий PGN — авторское вступление к
+          партии (`{...}` между tag-pair'ами и `1.<move>`). Рендерим
+          отдельным блоком над листом ходов: его смысл описывает партию
+          в целом, а не конкретный ход, и он виден всегда — независимо
+          от текущего ply. */}
+      {leadingComment && (
+        <p
+          className="inline-pgn-viewer__leading-comment"
+          data-testid="inline-pgn-viewer-leading-comment"
+        >
+          {leadingComment}
+        </p>
+      )}
 
       <div
         className="inline-pgn-viewer__moves"

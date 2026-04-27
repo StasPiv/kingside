@@ -2637,30 +2637,63 @@
   word-break: break-word;
 }
 
-/* KS-1999: интерактивный PGN-viewer внутри GameReviewStep. */
+/* KS-1999: интерактивный PGN-viewer внутри GameReviewStep.
+   KS-2031: первая колонка зафиксирована по ширине доски (max-content
+   для board), панель ходов получила минимум 280px — раньше grid с
+   `auto 1fr` дёргался: широкий блок-комментарий под доской раздувал
+   first-track auto через `width:100%`, а 1fr-колонка с PGN сжималась
+   при ходе с активным комментарием. Слот комментария теперь занимает
+   всю ширину виджета (grid-column 1/-1) под доской и панелью, и не
+   влияет на размер колонок. */
 .inline-pgn-viewer {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: max-content minmax(280px, 1fr);
   /* KS-2008: третий ряд — блок текущего комментария под доской.
-     Зарезервирован всегда (через .__current-comment-slot с min-height),
-     чтобы при смене ply без комментария доска не дёргалась. */
-  grid-template-rows: auto auto auto;
+     KS-2035: добавлен ряд под leading-комментарий PGN (вступление
+     автора к партии) над листом ходов. Если у партии нет
+     leading-комментария — соответствующий блок не рендерится, и ряд
+     схлопывается до нуля (auto). */
+  grid-template-rows: auto auto auto auto;
   gap: 12px 16px;
   align-items: start;
   outline: none;
 }
 .inline-pgn-viewer__board {
   grid-column: 1;
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
+}
+/* KS-2035: leading-комментарий PGN — авторское вступление к партии.
+   Стоит над листом ходов, в col 2, отдельной строкой. Рендерится
+   только при наличии комментария — иначе ряд схлопывается. */
+.inline-pgn-viewer__leading-comment {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-muted);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 /* KS-2008: слот под комментарий текущего хода. Рендерится всегда,
    держит фиксированный min-height, чтобы координаты доски/контролов не
    менялись при навигации между ходами с разной длиной комментариев.
-   Min-height в `em` — масштабируется вместе с font-size на mobile. */
+   Min-height в `em` — масштабируется вместе с font-size на mobile.
+   KS-2031: занимает всю ширину виджета (1 / -1) и не учитывается при
+   sizing'е первой колонки — раньше широкий комментарий через width:100%
+   тянул auto-track и сжимал панель PGN справа. */
 .inline-pgn-viewer__current-comment-slot {
-  grid-column: 1;
-  grid-row: 3;
+  grid-column: 1 / -1;
+  /* KS-2035: было `grid-row: 3`; теперь 4 — освобождён ряд 2 под
+     leading-комментарий, ряд 3 занимает лист ходов. */
+  grid-row: 4;
   width: 100%;
+  min-width: 0;
   min-height: 5em;
   align-self: start;
 }
@@ -2709,7 +2742,8 @@
 }
 .inline-pgn-viewer__moves {
   grid-column: 2;
-  grid-row: 2;
+  /* KS-2035: ряд 3 (раньше 2). Ряд 2 теперь под leading-комментарий. */
+  grid-row: 3;
   list-style: none;
   margin: 0;
   padding: 8px 10px;
@@ -2755,8 +2789,10 @@
 @media (max-width: 760px) {
   .inline-pgn-viewer {
     grid-template-columns: 1fr;
-    /* KS-2008: 4 ряда — board / comment / controls / moves */
-    grid-template-rows: auto auto auto auto;
+    /* KS-2008: 4 ряда — board / comment / controls / moves.
+       KS-2035: 5 рядов — добавлен leading-comment между controls и
+       moves (если есть). */
+    grid-template-rows: auto auto auto auto auto;
   }
   .inline-pgn-viewer__board {
     grid-column: 1;
@@ -2775,9 +2811,15 @@
     grid-row: 3;
     justify-content: center;
   }
-  .inline-pgn-viewer__moves {
+  /* KS-2035: leading-comment в mobile-раскладке — между controls и
+     листом ходов (ряд 4). Если в PGN его нет, ряд схлопывается. */
+  .inline-pgn-viewer__leading-comment {
     grid-column: 1;
     grid-row: 4;
+  }
+  .inline-pgn-viewer__moves {
+    grid-column: 1;
+    grid-row: 5;
     max-height: 200px;
   }
 }

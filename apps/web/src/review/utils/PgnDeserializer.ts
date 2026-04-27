@@ -129,6 +129,55 @@ function isResult(token: string): boolean {
   return token === '*' || token === '1-0' || token === '0-1' || token === '1/2-1/2';
 }
 
+/**
+ * KS-2035: вытащить leading-комментарий PGN — все `{...}`-блоки,
+ * стоящие ПЕРЕД первым ходом (между tag-pair'ами и `1.<move>`). По
+ * стандарту PGN такой комментарий привязан к стартовой позиции и
+ * описывает партию в целом (вступление автора, постановка позиции).
+ *
+ * `parseAnnotatedPgn` хранит комментарии только привязанными к
+ * предыдущему ходу — leading-комментарий «теряется», потому что
+ * `lastMove === null`. Этот хелпер живёт отдельно: вытаскивает все
+ * pre-move `{...}` (если их несколько — склеивает через пробел) и
+ * возвращает строку, либо `undefined` если их нет.
+ *
+ * Логика идёт по тем же правилам, что `tokenize`:
+ *  - `[...]` tag-pairs убираются построчно;
+ *  - `;`-line-comment пропускается до `\n`;
+ *  - `{...}`-block-comment накапливается в `parts`;
+ *  - любой не-whitespace, не-comment символ — это уже SAN/move-number,
+ *    останавливаемся.
+ */
+export function extractLeadingComment(pgn: string): string | undefined {
+  if (!pgn) return undefined;
+  const withoutHeaders = pgn.replace(/^\[.*\]\s*$/gm, '');
+  const parts: string[] = [];
+  let i = 0;
+  while (i < withoutHeaders.length) {
+    const ch = withoutHeaders[i];
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    }
+    if (ch === ';') {
+      while (i < withoutHeaders.length && withoutHeaders[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '{') {
+      const end = withoutHeaders.indexOf('}', i + 1);
+      if (end === -1) break;
+      const text = withoutHeaders.slice(i + 1, end).trim();
+      if (text) parts.push(text);
+      i = end + 1;
+      continue;
+    }
+    // Любой другой символ — уже move-related (SAN, move-number, NAG,
+    // вариация). Дальше парсить leading-comment не имеет смысла.
+    break;
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
 export function parseAnnotatedPgn(pgn: string): ChessMove[] {
   // Extract FEN header if present
   const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
