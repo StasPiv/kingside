@@ -20,8 +20,17 @@ type Token =
   | { type: 'paren'; value: '(' | ')' };
 
 function tokenize(pgn: string): Token[] {
-  // Remove ; line comments
-  const cleaned = pgn.replace(/;[^\n]*/g, ' ');
+  // KS-2032: НЕ предварительно вырезаем `;...\n` line-comments. По
+  // PGN-стандарту `;` начинает line-comment только ВНЕ `{...}`-блока.
+  // В авторских аннотациях (учебник Капабланки) `;` встречается как
+  // обычный знак препинания внутри `{block-comment}`. Глобальный
+  // `replace(/;[^\n]*/g, ' ')` съедал всё до перевода строки — вместе с
+  // закрывающей `}` и всеми последующими ходами; партия рендерилась без
+  // ходов. Теперь `;` обрабатывается на основном проходе ниже, и попадёт
+  // под line-comment ТОЛЬКО если мы не внутри `{...}` (block-comment
+  // ниже потребляет всё до своей `}` и сам никогда не оставляет `;`
+  // основному циклу).
+  const cleaned = pgn;
 
   const tokens: Token[] = [];
   let i = 0;
@@ -41,6 +50,14 @@ function tokenize(pgn: string): Token[] {
         tokens.push({ type: 'comment', value: commentText });
       }
       i = end + 1;
+      continue;
+    }
+
+    // Line comment `;...\n` — outside of `{...}` only (см. KS-2032).
+    if (cleaned[i] === ';') {
+      let j = i + 1;
+      while (j < cleaned.length && cleaned[j] !== '\n') j++;
+      i = j;
       continue;
     }
 

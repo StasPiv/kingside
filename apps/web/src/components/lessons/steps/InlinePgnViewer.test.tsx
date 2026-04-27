@@ -173,4 +173,24 @@ describe('<InlinePgnViewer>', () => {
       screen.queryByTestId('inline-pgn-viewer-current-comment'),
     ).toBeNull();
   });
+
+  // KS-2032: `;` внутри `{block-comment}` — обычный знак препинания, не
+  // PGN line-comment. До фикса предварительный `replace(/;[^\n]*/g, ' ')`
+  // съедал всё до перевода строки — вместе с закрывающей `}` блока и
+  // всеми ходами, и партия рендерилась как «0/0 ходов».
+  it('PGN с `;` внутри блок-комментария → ходы парсятся корректно (regression KS-2032)', () => {
+    const pgn = [
+      '[FEN "8/8/8/8/4k3/8/3KP3/8 w - - 0 1"]',
+      '[SetUp "1"]',
+      '',
+      '{Способ защиты: держать короля перед пешкой; если же это невозможно, держаться напротив белого короля.} 1. e3 Ke5 2. Kd3 Kd5 1/2-1/2',
+    ].join('\n');
+    renderWithProviders(<InlinePgnViewer pgn={pgn} />);
+    const root = screen.getByTestId('inline-pgn-viewer');
+    expect(root.getAttribute('data-state')).toBe('ready');
+    // 4 plies (e3, Ke5, Kd3, Kd5).
+    expect(
+      screen.getByTestId('inline-pgn-viewer-counter').textContent,
+    ).toBe('0/4');
+  });
 });
