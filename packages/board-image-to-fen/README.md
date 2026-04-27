@@ -1,14 +1,20 @@
 # @kingside/board-image-to-fen
 
-CLI и программный API для распознавания шахматной диаграммы (стиль учебника
-Майзелиса) → FEN. Реализация задачи **KS-2028**.
+CLI и программный API для распознавания шахматной диаграммы → FEN. Два
+кода-пути под одной обёрткой:
+
+- **Растровый** (KS-2028) — стиль учебника Майзелиса (PNG/JPG); template
+  matching по морф-открытым силуэтам фигур.
+- **PDF** (KS-2030) — диаграммы на шрифте `Chess-Merida-Regular`
+  (учебники Калиниченко); детерминированный разбор через PyMuPDF без
+  растрового пайплайна.
 
 ## Назначение
 
 Архитектор при подготовке YAML-уроков (KS-2023, KS-2024 и др.) несколько раз
 ошибался в FEN при ручном восстановлении позиции по картинке диаграммы. Цель
-утилиты — дать инструмент, который читает картинку и выдаёт FEN-board без
-ручного ввода, чтобы исключить такие ошибки.
+утилиты — дать инструмент, который читает картинку/PDF и выдаёт FEN-board
+без ручного ввода, чтобы исключить такие ошибки.
 
 Подтверждённые ошибки в существующих YAML, которые автоматический разбор
 легко находит: `01-ch1-game-pieces-moves-goal.lesson.yml` диаграмма 10
@@ -22,9 +28,12 @@ CLI и программный API для распознавания шахмат
 
 - **Python 3.x** в PATH (или явно через `--python <path>` / опцию
   `pythonPath` в API);
-- **OpenCV** (`pip install opencv-python` или системный пакет);
-- **NumPy** (`pip install numpy`);
-- **Pillow** (`pip install Pillow`).
+- **OpenCV** (`pip install opencv-python` или системный пакет) —
+  только для растрового пути;
+- **NumPy** (`pip install numpy`) — только для растрового пути;
+- **Pillow** (`pip install Pillow`) — только для растрового пути;
+- **PyMuPDF** (`pip install pymupdf` или `apt-get install python3-fitz`) —
+  только для PDF-пути.
 
 Для сборки JS-обёртки:
 
@@ -35,7 +44,7 @@ npx --prefix /project tsc --build packages/board-image-to-fen
 ## Использование (CLI)
 
 ```sh
-# Простой режим: только FEN-board в stdout, диагностика — в stderr.
+# Растровый режим: только FEN-board в stdout, диагностика — в stderr.
 board-image-to-fen /path/to/diagram.jpg
 
 # С ориентацией (если чёрные внизу).
@@ -43,32 +52,57 @@ board-image-to-fen /path/to/diagram.jpg --orientation black
 
 # Подробный JSON-результат (включает confidence по каждой клетке).
 board-image-to-fen /path/to/diagram.jpg --json
+
+# PDF: одна страница (1-indexed) — печатает FEN(ы), найденные на ней.
+board-image-to-fen /path/to/book.pdf --page 21
+
+# PDF: все страницы (поведение по умолчанию для .pdf, если флаги не заданы).
+board-image-to-fen /path/to/book.pdf --all-pages
 ```
 
 Exit-code: `0` — успех (FEN распознан), `1` — ошибка распознавания (не
-найдена рамка доски, не открылась картинка и т. п.).
+найдена рамка доски, не открылась картинка/PDF и т. п.).
 
 ## Использование (Node API)
 
 ```ts
-import { recognizeBoardImage, recognizeBoardFen } from '@kingside/board-image-to-fen';
+import {
+  recognizeBoardImage,
+  recognizeBoardFen,
+  recognizePdfBoards,
+} from '@kingside/board-image-to-fen';
 
-// Полный результат.
+// Растровый: полный результат.
 const result = await recognizeBoardImage('/path/to/diagram.jpg');
 console.log(result.fen);                 // 'r2qk2r/.../R1B2RK1 w - - 0 1'
 console.log(result.fen_board);           // 'r2qk2r/.../R1B2RK1'
 console.log(result.low_confidence_cells); // клетки, которые стоит проверить вручную
 
-// Только FEN-board.
+// Растровый: только FEN-board.
 const fenBoard = await recognizeBoardFen('/path/to/diagram.jpg');
+
+// PDF: все диаграммы со всех страниц.
+const boards = await recognizePdfBoards('/path/to/book.pdf');
+for (const b of boards) {
+  console.log(`p${b.page}#${b.diagram}: ${b.fen_board}`);
+}
+
+// PDF: одна страница.
+const pageBoards = await recognizePdfBoards('/path/to/book.pdf', { page: 21 });
 ```
 
-Опции:
+Опции (растр):
 
 - `orientation: 'white' | 'black'` — кто внизу доски.
 - `pythonPath: string` — путь к интерпретатору Python (по умолчанию `python3`).
 - `templatesImage: string` — переопределить встроенный набор шаблонов
   одной размеченной картинкой начальной позиции.
+
+Опции (PDF):
+
+- `page: number` — распознать только эту страницу (1-indexed).
+- `allPages: boolean` — обойти все страницы (по умолчанию `true`, если `page` не задан).
+- `orientation: 'white' | 'black'`, `pythonPath: string` — как у растра.
 
 ## Алгоритм
 
@@ -138,10 +172,44 @@ python3 packages/board-image-to-fen/src/python/recognizer.py /tmp/courses/parsed
 # rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w - - 0 1
 ```
 
+## Поддержка PDF (Chess-Merida)
+
+В книгах Калиниченко (изд. «Шахматы. Классики», 2016) диаграммы набраны
+не растром, а шрифтом `Chess-Merida-Regular` (PUA `U+F021..U+F077`). Для
+таких файлов растровый пайплайн не нужен и не используется.
+
+**Алгоритм PDF-пути** (`src/python/pdf_recognizer.py`):
+
+1. PyMuPDF читает страницу как `dict` (`page.get_text('dict')`).
+2. На странице ищется блок текста размером 10×10 глифов в шрифте
+   `Chess-Merida-Regular` (одна диаграмма):
+   - строка 0 — верхняя рамка `F021 F022×8 F023`;
+   - строки 1..8 — ряды доски, сверху вниз (`F024 <8 клеток> F025`);
+   - строка 9 — нижняя рамка `F02F F028×8 F029`.
+3. Каждый глиф клетки переводится в FEN-символ по `PIECE_MAP`. У одной и
+   той же фигуры два глифа (для светлой и тёмной клетки) — оба сводятся
+   к одному FEN-символу. Заглавные буквы P/R/N/B/Q/K — белые,
+   нестандартные O/T/M/V/W/L (и их строчные пары) — чёрные.
+4. На странице может быть несколько диаграмм — выводятся в порядке
+   чтения (сверху вниз, слева направо).
+
+Этот путь детерминированный: ни OpenCV, ни шаблонов не требует.
+На главе 1 PDF Калиниченко 2016 (страницы 14–22, 19 диаграмм) утилита
+даёт FEN, совпадающий с верифицированными эталонами KS-2028 (там же,
+где они пересекаются).
+
+Если шрифт диаграмм в новой книге другой — нужно будет расширить
+`PIECE_MAP` (новые кодпойнты) и/или паттерн рамки.
+
 ## Известные ограничения
 
-- Заточено под стиль Майзелиса. Универсальный распознаватель шахматных
-  диаграмм (lichess, chess.com, других учебников) — не цель MVP.
+- Растровый путь заточен под стиль Майзелиса. Универсальный
+  распознаватель шахматных диаграмм (lichess, chess.com, других
+  учебников) — не цель MVP.
+- PDF-путь требует шрифт `Chess-Merida-Regular`. Диаграммы, набранные
+  другим chess-шрифтом (например, `ISChess` — он встречается в той же
+  книге Калиниченко для inline-нотации), не распознаются — только
+  диаграммы основных позиций.
 - Не пытаемся определять side-to-move, права рокировки, en-passant —
   утилита распознаёт только расстановку фигур; вторая часть FEN
   фиксированная: `w - - 0 1`.

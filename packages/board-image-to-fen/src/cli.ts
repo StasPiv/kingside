@@ -1,46 +1,66 @@
 #!/usr/bin/env node
 /**
- * KS-2028 — Node CLI для распознавания диаграммы Майзелиса в FEN.
+ * Node CLI для распознавания шахматной диаграммы → FEN.
+ *
+ * Растровый режим (KS-2028, стиль Майзелиса):
  *
  *   board-image-to-fen <image> [--orientation white|black] [--json] [--templates path]
  *
- * Без `--json` — печатает только FEN-board (одна строка), exit 0;
- * с `--json` — JSON-документ. Диагностика — в stderr.
+ * PDF-режим (KS-2030, шрифт Chess-Merida — учебники Калиниченко):
  *
- * Под капотом — `src/python/recognizer.py` через child_process.
+ *   board-image-to-fen <input.pdf> [--page N | --all-pages]
+ *                      [--orientation white|black] [--json]
+ *
+ * Без `--json` — печатает FEN-board (одна строка на доску); с `--json` —
+ * подробный документ. Диагностика — в stderr.
+ *
+ * Под капотом — `src/python/recognizer.py` (растр, OpenCV) или
+ * `src/python/pdf_recognizer.py` (PDF, PyMuPDF) через child_process.
+ * Маршрутизация — по расширению входного файла.
  */
 
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, extname } from 'node:path';
 import { realpathSync } from 'node:fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'recognizer.py');
+const PDF_RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'pdf_recognizer.py');
 
 interface CliOptions {
-  image: string;
+  input: string;
+  inputKind: 'image' | 'pdf';
   orientation: 'white' | 'black';
   json: boolean;
   templates?: string;
   pythonPath: string;
+  page?: number;
+  allPages: boolean;
 }
 
 function printUsage(stream: NodeJS.WritableStream): void {
   stream.write(
     [
-      'Usage: board-image-to-fen <image> [options]',
+      'Usage: board-image-to-fen <input> [options]',
       '',
-      'Recognize a Maizelis-style chess diagram and emit its FEN-board.',
+      '  <input> — image (jpg/png) for the Maizelis raster path,',
+      '            or .pdf for the Chess-Merida text path.',
       '',
-      'Options:',
+      'Common options:',
       '  -o, --orientation <side>   white|black (default: white)',
       '      --json                 emit a detailed JSON document',
-      '      --templates <path>     custom starting-position template image',
       '      --python <path>        Python interpreter (default: python3)',
       '  -h, --help                 print this help',
       '  -V, --version              print version',
+      '',
+      'Image-only options:',
+      '      --templates <path>     custom starting-position template image',
+      '',
+      'PDF-only options:',
+      '      --page <N>             recognize a single 1-indexed page',
+      '      --all-pages            scan every page (default if neither given)',
       '',
     ].join('\n'),
   );
@@ -51,6 +71,7 @@ function parseArgs(argv: string[]): CliOptions {
     orientation: 'white',
     json: false,
     pythonPath: 'python3',
+    allPages: false,
   };
   let positional: string | null = null;
   for (let i = 0; i < argv.length; i++) {
@@ -84,6 +105,20 @@ function parseArgs(argv: string[]): CliOptions {
       opts.pythonPath = argv[++i];
       continue;
     }
+    if (a === '--page') {
+      const raw = argv[++i];
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 1) {
+        process.stderr.write(`error: --page must be a positive integer (got ${raw})\n`);
+        process.exit(2);
+      }
+      opts.page = n;
+      continue;
+    }
+    if (a === '--all-pages') {
+      opts.allPages = true;
+      continue;
+    }
     if (a.startsWith('-')) {
       process.stderr.write(`error: unknown option: ${a}\n`);
       printUsage(process.stderr);
@@ -97,23 +132,60 @@ function parseArgs(argv: string[]): CliOptions {
     positional = a;
   }
   if (positional === null) {
-    process.stderr.write('error: missing image path\n');
+    process.stderr.write('error: missing input path\n');
     printUsage(process.stderr);
     process.exit(2);
   }
+  const ext = extname(positional).toLowerCase();
+  const inputKind: 'image' | 'pdf' = ext === '.pdf' ? 'pdf' : 'image';
+
+  if (inputKind === 'image') {
+    if (opts.page !== undefined || opts.allPages) {
+      process.stderr.write('error: --page/--all-pages are valid only for PDF input\n');
+      process.exit(2);
+    }
+  } else {
+    if (opts.templates !== undefined) {
+      process.stderr.write('error: --templates is valid only for image input\n');
+      process.exit(2);
+    }
+    if (opts.page !== undefined && opts.allPages) {
+      process.stderr.write('error: --page and --all-pages are mutually exclusive\n');
+      process.exit(2);
+    }
+    // Если ни одного PDF-флага не задано — по умолчанию пробегаем все страницы.
+    if (opts.page === undefined && !opts.allPages) {
+      opts.allPages = true;
+    }
+  }
+
   return {
-    image: positional,
+    input: positional,
+    inputKind,
     orientation: opts.orientation!,
     json: opts.json!,
     templates: opts.templates,
     pythonPath: opts.pythonPath!,
+    page: opts.page,
+    allPages: opts.allPages!,
   };
 }
 
 async function runRecognizer(options: CliOptions): Promise<number> {
-  const args = [RECOGNIZER_PY, options.image, '--orientation', options.orientation];
-  if (options.json) args.push('--json');
-  if (options.templates) args.push('--templates', options.templates);
+  const args: string[] = [];
+  if (options.inputKind === 'image') {
+    args.push(RECOGNIZER_PY, options.input, '--orientation', options.orientation);
+    if (options.json) args.push('--json');
+    if (options.templates) args.push('--templates', options.templates);
+  } else {
+    args.push(PDF_RECOGNIZER_PY, options.input, '--orientation', options.orientation);
+    if (options.json) args.push('--json');
+    if (options.page !== undefined) {
+      args.push('--page', String(options.page));
+    } else if (options.allPages) {
+      args.push('--all-pages');
+    }
+  }
 
   return new Promise<number>((res) => {
     const proc = spawn(options.pythonPath, args, {

@@ -1,10 +1,15 @@
 /**
- * KS-2028 — программный API распознавания диаграммы Майзелиса в FEN.
+ * Программный API распознавания шахматной диаграммы → FEN.
  *
- * Под капотом — Python-скрипт `src/python/recognizer.py`, использующий
- * OpenCV для детекции рамки доски, нарезки клеток и сопоставления с
- * заранее извлечёнными шаблонами фигур. JS-обёртка вызывает интерпретатор
- * через `child_process.spawn` и парсит JSON-вывод.
+ * Два кода-пути под одной обёрткой:
+ *   - `recognizeBoardImage` (KS-2028) — растровое распознавание стиля
+ *     Майзелиса через `src/python/recognizer.py` (OpenCV, template matching).
+ *   - `recognizePdfBoards` (KS-2030) — детерминированный разбор PDF с
+ *     диаграммами на шрифте Chess-Merida через
+ *     `src/python/pdf_recognizer.py` (PyMuPDF, fitz).
+ *
+ * Обе функции вызывают Python через `child_process.spawn` и парсят
+ * JSON-вывод. Ошибки Python-уровня поднимаются в JS как `Error`.
  */
 
 import { spawn } from 'node:child_process';
@@ -14,8 +19,9 @@ import { dirname, resolve } from 'node:path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-/** Путь к Python-скрипту. Решается относительно `dist/index.js` после tsc-сборки. */
+/** Пути к Python-скриптам. Решаются относительно `dist/index.js` после tsc-сборки. */
 const RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'recognizer.py');
+const PDF_RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'pdf_recognizer.py');
 
 export type Orientation = 'white' | 'black';
 
@@ -57,22 +63,37 @@ export interface RecognizeOptions {
   templatesImage?: string;
 }
 
-/**
- * Распознать шахматную диаграмму. Возвращает полный JSON-результат
- * Python-скрипта (см. RecognizeResult).
- */
-export async function recognizeBoardImage(
-  imagePath: string,
-  options: RecognizeOptions = {},
-): Promise<RecognizeResult> {
-  const { orientation = 'white', pythonPath = 'python3', templatesImage } = options;
-  const args = [RECOGNIZER_PY, imagePath, '--orientation', orientation, '--json'];
-  if (templatesImage) {
-    args.push('--templates', templatesImage);
-  }
+/** Одна доска, найденная в PDF. */
+export interface PdfBoardResult {
+  /** Номер страницы (1-indexed). */
+  page: number;
+  /** Индекс доски на странице (0..N-1, в порядке чтения сверху-вниз/слева-направо). */
+  diagram: number;
+  /** Полный FEN с фиксированным side-to-move/castling-частью `w - - 0 1`. */
+  fen: string;
+  /** Только board-часть FEN. */
+  fen_board: string;
+  /** Эффективная ориентация. */
+  orientation: Orientation;
+  /** Bbox доски в координатах PDF-страницы [x0, y0, x1, y1]. */
+  bbox: [number, number, number, number];
+}
 
-  return new Promise<RecognizeResult>((res, rej) => {
-    const proc = spawn(pythonPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+export interface RecognizePdfOptions {
+  /** Распознать только указанную страницу (1-indexed). Взаимоисключаем с `allPages`. */
+  page?: number;
+  /** Обойти все страницы. По умолчанию `true`, если `page` не указан. */
+  allPages?: boolean;
+  /** Ориентация (по умолчанию `'white'`). */
+  orientation?: Orientation;
+  /** Путь к интерпретатору Python (по умолчанию `python3`). */
+  pythonPath?: string;
+}
+
+/** Универсальный запуск Python-скрипта с возвратом распарсенного JSON. */
+async function runJsonScript<T>(scriptPath: string, args: string[], pythonPath: string): Promise<T> {
+  return new Promise<T>((res, rej) => {
+    const proc = spawn(pythonPath, [scriptPath, ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     proc.stdout.on('data', (c) => stdoutChunks.push(c));
@@ -82,26 +103,68 @@ export async function recognizeBoardImage(
       const stderr = Buffer.concat(stderrChunks).toString('utf8');
       if (code !== 0) {
         rej(new Error(
-          `board-image-to-fen recognizer.py exited with code ${code}: ${stderr.trim()}`,
+          `board-image-to-fen ${scriptPath} exited with code ${code}: ${stderr.trim()}`,
         ));
         return;
       }
       const stdout = Buffer.concat(stdoutChunks).toString('utf8');
       try {
-        const parsed = JSON.parse(stdout) as RecognizeResult;
-        res(parsed);
+        res(JSON.parse(stdout) as T);
       } catch (e) {
-        rej(new Error(`board-image-to-fen: failed to parse Python output: ${(e as Error).message}\nstdout: ${stdout.slice(0, 500)}`));
+        rej(new Error(
+          `board-image-to-fen: failed to parse Python output: ${(e as Error).message}\nstdout: ${stdout.slice(0, 500)}`,
+        ));
       }
     });
   });
 }
 
-/** Удобный шорткат: вернуть только board-часть FEN. */
+/**
+ * Распознать шахматную диаграмму (растр, стиль Майзелиса). Возвращает
+ * полный JSON-результат Python-скрипта (см. `RecognizeResult`).
+ */
+export async function recognizeBoardImage(
+  imagePath: string,
+  options: RecognizeOptions = {},
+): Promise<RecognizeResult> {
+  const { orientation = 'white', pythonPath = 'python3', templatesImage } = options;
+  const args = [imagePath, '--orientation', orientation, '--json'];
+  if (templatesImage) {
+    args.push('--templates', templatesImage);
+  }
+  return runJsonScript<RecognizeResult>(RECOGNIZER_PY, args, pythonPath);
+}
+
+/** Удобный шорткат: вернуть только board-часть FEN растровой диаграммы. */
 export async function recognizeBoardFen(
   imagePath: string,
   options: RecognizeOptions = {},
 ): Promise<string> {
   const result = await recognizeBoardImage(imagePath, options);
   return result.fen_board;
+}
+
+/**
+ * Распознать диаграммы Chess-Merida в PDF (KS-2030). Возвращает массив
+ * найденных досок (по странице/диаграмме), отсортированный в порядке чтения.
+ *
+ * Если `page` не указан и `allPages !== false` — обрабатываются все страницы.
+ */
+export async function recognizePdfBoards(
+  pdfPath: string,
+  options: RecognizePdfOptions = {},
+): Promise<PdfBoardResult[]> {
+  const { page, allPages, orientation = 'white', pythonPath = 'python3' } = options;
+  if (page !== undefined && allPages === true) {
+    throw new Error('recognizePdfBoards: page and allPages are mutually exclusive');
+  }
+  const useAllPages = page === undefined && allPages !== false;
+
+  const args = [pdfPath, '--orientation', orientation, '--json'];
+  if (page !== undefined) {
+    args.push('--page', String(page));
+  } else if (useAllPages) {
+    args.push('--all-pages');
+  }
+  return runJsonScript<PdfBoardResult[]>(PDF_RECOGNIZER_PY, args, pythonPath);
 }
