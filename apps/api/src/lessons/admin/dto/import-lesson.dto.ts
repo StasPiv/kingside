@@ -253,10 +253,14 @@ export class ImportLessonPayloadDto {
    * Шаги — discriminated union по `type`. class-transformer выбирает
    * sub-DTO по совпадению с `STEP_PAYLOAD_SUBTYPES.name`. Минимум 1
    * шаг (как и в `lesson.schema.json` из B-2).
+   *
+   * KS-2045: верхний лимит снят (раньше 50) — auto-конвертер
+   * `pdf-to-lesson-yaml` на больших главах генерирует сотни шагов
+   * (ожидается, что Этап 2 ужмёт через PGN→game_review). Зеркалит
+   * правку `lesson.schema.json` `steps`.
    */
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(50)
   @ValidateNested({ each: true })
   @Type(() => Object, {
     discriminator: {

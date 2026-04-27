@@ -100,11 +100,13 @@ export class UpdateAdminStepDto {
 /**
  * Полный список id шагов урока в новом порядке. См. §3.5: ids
  * должен покрывать ВСЕ шаги урока, иначе 400.
+ *
+ * KS-2045: верхний лимит на размер массива снят (раньше 1000) —
+ * зеркалит снятие лимита в `lesson.schema.json` / `ImportLessonPayloadDto.steps`.
  */
 export class ReorderAdminStepsDto {
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(1000)
   @ArrayUnique()
   @IsUUID('4', { each: true })
   ids!: string[];
