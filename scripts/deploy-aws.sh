@@ -142,7 +142,9 @@ PROD_GAME_URL="wss://game.kingside.site"
 PROD_GA4_ID="G-9HF8RVMK8K"
 # KS-1820: feature-flag раздела «Уроки». На проде явно выключен, во фронте
 # также есть fallback на import.meta.env.DEV (см. KS-1820 / commit 378d2b8c).
-PROD_VITE_FEATURE_LESSONS="false"
+# KS-2100/KS-2102 follow-up: после раскатки локализации курсов и
+# переключателя языка включаем «Уроки» на проде.
+PROD_VITE_FEATURE_LESSONS="true"
 DEPLOY_COMMIT_FILE="$REPO_DIR/.deploy-commit-aws"
 
 # Load .env
