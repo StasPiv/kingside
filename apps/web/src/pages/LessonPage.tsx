@@ -218,15 +218,17 @@ export function LessonPage() {
     [searchParams, setSearchParams, sortedSteps.length],
   );
 
-  // KS-2041: глобальная клавиатура ←/→ листает шаги урока. Чтобы не
+  // KS-2041: глобальная клавиатура ← листает шаги урока назад. Чтобы не
   // конфликтовать с навигацией внутри game_review (там стрелки листают
   // ходы партии — `InlinePgnViewer`), реагируем только когда фокус НЕ
   // внутри inline-pgn-viewer'а. Также игнорируем ввод в текстовых
   // полях (input/textarea/contenteditable).
+  // KS-2056: переход вперёд — только через «Готово» внутри шага,
+  // поэтому стрелка → больше не листает шаги.
   useEffect(() => {
     if (sortedSteps.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.key !== 'ArrowLeft') return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
       const tag = target.tagName?.toLowerCase();
@@ -235,13 +237,8 @@ export function LessonPage() {
       // Если фокус внутри inline-pgn-viewer (game_review) — не
       // перехватываем; viewer обрабатывает стрелки сам.
       if (target.closest('[data-testid="inline-pgn-viewer"]')) return;
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        goToStep(currentStepIndex - 1);
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        goToStep(currentStepIndex + 1);
-      }
+      e.preventDefault();
+      goToStep(currentStepIndex - 1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -550,12 +547,12 @@ export function LessonPage() {
       )}
 
       {/* KS-2041: навигация между шагами. «Назад» ведёт к предыдущему
-          шагу (на первом — disabled), «Далее» — к следующему (на
-          последнем — disabled, действие переведено в footer-кнопку
-          «Завершить урок»). Дублирует семантику кнопок самих шагов
-          (TextStep/QuizStep вызывают `onStepDone`, но не каждый шаг
-          её предоставляет — например, после ошибки в quiz пользователь
-          может захотеть листнуть назад). */}
+          шагу (на первом — disabled).
+          KS-2056: кнопка «Далее» удалена — переход вперёд возможен
+          только через кнопку «Готово» внутри текущего шага
+          (`StepRenderer` вызывает `onStepDone`, который помечает шаг
+          done и сам переключает на следующий). На последнем шаге
+          «Завершить урок» — в footer-кнопке. */}
       {sortedSteps.length > 0 && (
         <nav
           className="lesson-step-nav"
@@ -583,16 +580,6 @@ export function LessonPage() {
               defaultValue: '{{current}}/{{total}}',
             })}
           </span>
-          <button
-            type="button"
-            className="lesson-step-nav__btn lesson-step-nav__btn--next"
-            data-testid="lesson-step-nav-next"
-            onClick={() => goToStep(currentStepIndex + 1)}
-            disabled={currentStepIndex >= sortedSteps.length - 1}
-            aria-label={t('lessons.next', 'Next')}
-          >
-            {t('lessons.next', 'Next')} ▶
-          </button>
         </nav>
       )}
 

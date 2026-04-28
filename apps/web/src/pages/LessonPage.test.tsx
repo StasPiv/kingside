@@ -115,7 +115,8 @@ describe('LessonPage', () => {
 
   // KS-2041: один шаг = один экран. На странице рендерится ровно один
   // активный `<li>`-шаг, а не весь список. Переключение между шагами —
-  // через `?step=N` в URL и кнопки nav-«Назад/Далее».
+  // через `?step=N` в URL, кнопку «Назад» в nav и «Готово» внутри шага
+  // (KS-2056: кнопка «Далее» в nav удалена).
   it('резолвит slug → id урока и рендерит активный шаг (KS-2041)', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
@@ -149,7 +150,9 @@ describe('LessonPage', () => {
       '1/2',
     );
     expect(screen.getByTestId('lesson-step-nav-prev')).toBeDisabled();
-    expect(screen.getByTestId('lesson-step-nav-next')).not.toBeDisabled();
+    // KS-2056: кнопки «Далее» больше нет — переход вперёд только
+    // через «Готово» внутри шага.
+    expect(screen.queryByTestId('lesson-step-nav-next')).toBeNull();
 
     // Ссылка «назад к курсу» ведёт на /lessons/<slug>
     expect(screen.getByTestId('lesson-back-link')).toHaveAttribute(
@@ -158,7 +161,7 @@ describe('LessonPage', () => {
     );
   });
 
-  it('KS-2041: клик «Далее» в nav → переключает на следующий шаг и обновляет ?step', async () => {
+  it('KS-2056: клик «Готово» внутри шага → переключает на следующий шаг и обновляет ?step', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
 
@@ -174,7 +177,12 @@ describe('LessonPage', () => {
       expect(screen.getByTestId('lesson-step-1')).toBeInTheDocument(),
     );
 
-    await user.click(screen.getByTestId('lesson-step-nav-next'));
+    // Кнопка «Далее» в нижней навигации удалена.
+    expect(screen.queryByTestId('lesson-step-nav-next')).toBeNull();
+
+    // Переход вперёд — только через «Готово» (lesson-text-step-next)
+    // внутри активного text-шага.
+    await user.click(screen.getByTestId('lesson-text-step-next'));
 
     await waitFor(() =>
       expect(screen.getByTestId('lesson-step-2')).toBeInTheDocument(),
@@ -183,7 +191,6 @@ describe('LessonPage', () => {
     expect(screen.getByTestId('lesson-step-nav-counter').textContent).toBe(
       '2/2',
     );
-    expect(screen.getByTestId('lesson-step-nav-next')).toBeDisabled();
   });
 
   it('KS-2041: ?step=2 в URL открывает второй шаг сразу при mount', async () => {
@@ -259,11 +266,12 @@ describe('LessonPage', () => {
     const s1 = screen.getByTestId('lesson-step-1');
     expect(s1).toHaveAttribute('data-step-state', 'pending');
 
+    // KS-2056: переход вперёд — через «Готово» внутри text-шага.
     const { default: userEventLib } = await import(
       '@testing-library/user-event'
     );
     const user = userEventLib.setup();
-    await user.click(screen.getByTestId('lesson-step-nav-next'));
+    await user.click(screen.getByTestId('lesson-text-step-next'));
     await waitFor(() =>
       expect(screen.getByTestId('lesson-step-2')).toHaveAttribute(
         'data-step-state',

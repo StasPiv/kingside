@@ -360,9 +360,10 @@ export function TextStep({
             }
             onClick={() => onStepDone?.()}
           >
-            {/* KS-2043: внутренняя кнопка шага отмечает прогресс
-                (`onStepDone`) и не должна совпадать по тексту с
-                навигационной кнопкой `lesson-step-nav-next` снизу. */}
+            {/* KS-2043/KS-2056: единственный способ перейти к
+                следующему шагу — нажать «Готово». Кнопка вызывает
+                `onStepDone`, который помечает шаг done и переключает
+                на следующий. */}
             {isDone
               ? t('lessons.stepDone', 'Done ✓')
               : t('lessons.markDone', 'Got it')}
