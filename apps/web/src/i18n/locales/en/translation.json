@@ -1342,6 +1342,10 @@
     "completeBelowThreshold": "Need ≥ {{percent}}% steps done to complete this lesson",
     "completeSuccess": "Lesson completed!",
     "completeError": "Failed to mark lesson as completed",
+    "completionTitle": "Lesson complete!",
+    "completionSubtitle": "You finished “{{lesson}}”. Great job!",
+    "completionNext": "Next lesson",
+    "completionToList": "Back to lessons",
     "syncError": "Progress could not be saved — will retry",
     "mate-patterns": {
       "title": "Basic mates in 1 move",

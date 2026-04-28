@@ -73,6 +73,20 @@ export function LessonPage() {
     score: number;
     response: CompleteLessonResponse | null;
   } | null>(null);
+  /**
+   * KS-2057: после успешного `completeLesson` в обычном режиме
+   * показываем поздравительный оверлей (заголовок «Урок пройден!»,
+   * галочка, конфетти, кнопки «К следующему уроку» / «К списку
+   * уроков»). Хранит slug следующего урока (если он есть в курсе) —
+   * чтобы построить ссылку без повторных запросов.
+   */
+  const [completionOutcome, setCompletionOutcome] = useState<{
+    nextLesson: {
+      slug: string;
+      title: string | null | undefined;
+      titleI18nKey: string;
+    } | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!courseSlug || !lessonSlug) return;
@@ -82,6 +96,7 @@ export function LessonPage() {
     setLesson(null);
     setCompleteMessage(null);
     setReviewOutcome(null);
+    setCompletionOutcome(null);
 
     lessonsApi
       .getCourse(courseSlug)
@@ -287,7 +302,24 @@ export function LessonPage() {
           response: outcome.progress ?? null,
         });
       } else {
-        setCompleteMessage(t('lessons.completeSuccess', 'Lesson completed!'));
+        // KS-2057: вместо короткого тоста «Lesson completed!» показываем
+        // полноценный экран успеха с поздравлением и кнопкой перехода на
+        // следующий урок. Слаг следующего урока ищем в текущем курсе по
+        // `order` относительно текущего; если урок последний — кнопки
+        // «К следующему уроку» не будет.
+        const lessons = course?.lessons ?? [];
+        const idx = lessons.findIndex((l) => l.slug === lesson.lesson.slug);
+        const next =
+          idx >= 0 && idx < lessons.length - 1 ? lessons[idx + 1] : null;
+        setCompletionOutcome({
+          nextLesson: next
+            ? {
+                slug: next.slug,
+                title: next.title,
+                titleI18nKey: next.titleI18nKey,
+              }
+            : null,
+        });
       }
     } else if (outcome.error) {
       setCompleteMessage(
@@ -617,6 +649,110 @@ export function LessonPage() {
           </p>
         )}
       </footer>
+
+      {/* KS-2057: оверлей завершения урока. Показывается после
+          успешного `completeLesson` (только обычный режим — для review
+          свой экран `lesson-review-result`). Не блокирует Esc/back —
+          пользователь решает, куда идти, через кнопки внизу карточки. */}
+      {completionOutcome && (
+        <div
+          className="lesson-completion-overlay"
+          data-testid="lesson-completion-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lesson-completion-title"
+        >
+          {/* CSS-only конфетти: 12 частиц с разной задержкой и цветом.
+              При `prefers-reduced-motion: reduce` анимация выключается
+              медиа-запросом в lessons.css. */}
+          <div
+            className="lesson-completion-confetti"
+            aria-hidden="true"
+            data-testid="lesson-completion-confetti"
+          >
+            {Array.from({ length: 16 }).map((_, i) => (
+              <span
+                key={i}
+                className={`lesson-completion-confetti__piece lesson-completion-confetti__piece--${(i % 4) + 1}`}
+                style={{
+                  left: `${(i / 16) * 100}%`,
+                  animationDelay: `${(i % 5) * 0.12}s`,
+                }}
+              />
+            ))}
+          </div>
+
+          <div className="lesson-completion-card" role="document">
+            <div
+              className="lesson-completion-icon"
+              aria-hidden="true"
+              data-testid="lesson-completion-icon"
+            >
+              {/* SVG-галочка — рисуется штрихом по `stroke-dasharray`,
+                  что даёт анимацию «прочерчивания». */}
+              <svg viewBox="0 0 64 64" width="64" height="64">
+                <circle
+                  className="lesson-completion-icon__ring"
+                  cx="32"
+                  cy="32"
+                  r="28"
+                  fill="none"
+                  strokeWidth="4"
+                />
+                <path
+                  className="lesson-completion-icon__check"
+                  d="M18 33 L28 43 L46 23"
+                  fill="none"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+
+            <h2
+              id="lesson-completion-title"
+              className="lesson-completion-title"
+              data-testid="lesson-completion-title"
+            >
+              {t('lessons.completionTitle', 'Lesson complete!')}
+            </h2>
+            <p
+              className="lesson-completion-subtitle"
+              data-testid="lesson-completion-subtitle"
+            >
+              {t('lessons.completionSubtitle', {
+                lesson: resolveInlineText(
+                  lesson.lesson.title,
+                  lesson.lesson.titleI18nKey,
+                  t,
+                  lesson.lesson.slug,
+                ),
+                defaultValue: 'You finished “{{lesson}}”. Great job!',
+              })}
+            </p>
+
+            <div className="lesson-completion-actions">
+              {completionOutcome.nextLesson && course && (
+                <Link
+                  to={`/lessons/${course.course.slug}/${completionOutcome.nextLesson.slug}`}
+                  className="lesson-completion-btn lesson-completion-btn--primary"
+                  data-testid="lesson-completion-next"
+                >
+                  {t('lessons.completionNext', 'Next lesson')} ▶
+                </Link>
+              )}
+              <Link
+                to={course ? `/lessons/${course.course.slug}` : '/lessons'}
+                className="lesson-completion-btn lesson-completion-btn--secondary"
+                data-testid="lesson-completion-to-list"
+              >
+                {t('lessons.completionToList', 'Back to lessons')}
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

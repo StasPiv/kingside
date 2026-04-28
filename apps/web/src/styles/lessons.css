@@ -3394,6 +3394,233 @@
   color: var(--warning);
 }
 
+/* ──────────────── KS-2057: оверлей завершения урока ────────────────
+   Полноэкранный «экран успеха». Перекрывает страницу, центрирует
+   карточку с галочкой/заголовком/кнопками. Поверх — CSS-only
+   конфетти (16 частиц с разной задержкой). Анимации отключаются
+   при `prefers-reduced-motion: reduce`. */
+.lesson-completion-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg-base, #0b0d12) 80%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  animation: lesson-completion-overlay-in 240ms ease-out both;
+  overflow: hidden;
+}
+
+@keyframes lesson-completion-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.lesson-completion-card {
+  position: relative;
+  z-index: 2;
+  max-width: 440px;
+  width: 100%;
+  padding: 32px 28px 28px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32);
+  text-align: center;
+  animation: lesson-completion-card-pop 360ms cubic-bezier(0.18, 1.2, 0.4, 1)
+    both;
+}
+
+@keyframes lesson-completion-card-pop {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.lesson-completion-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: var(--success-soft, #d5f1da);
+  color: var(--success, #1f7a3a);
+  animation: lesson-completion-icon-pop 480ms cubic-bezier(0.18, 1.4, 0.4, 1)
+    160ms both;
+}
+
+@keyframes lesson-completion-icon-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.lesson-completion-icon__ring {
+  stroke: currentColor;
+  opacity: 0.35;
+}
+
+.lesson-completion-icon__check {
+  stroke: currentColor;
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: lesson-completion-check-draw 360ms ease-out 420ms forwards;
+}
+
+@keyframes lesson-completion-check-draw {
+  from {
+    stroke-dashoffset: 60;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.lesson-completion-title {
+  margin: 0 0 8px;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.lesson-completion-subtitle {
+  margin: 0 0 24px;
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.lesson-completion-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lesson-completion-btn {
+  display: inline-block;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+  text-align: center;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, background 0.12s ease;
+}
+
+.lesson-completion-btn:hover {
+  transform: translateY(-1px);
+}
+
+.lesson-completion-btn--primary {
+  background: var(--accent-primary);
+  color: var(--text-on-accent, #fff);
+}
+
+.lesson-completion-btn--primary:hover {
+  background: var(--accent-primary-hover, var(--accent-primary));
+}
+
+.lesson-completion-btn--secondary {
+  background: transparent;
+  border-color: var(--border-subtle);
+  color: var(--text-link, var(--text-primary));
+}
+
+.lesson-completion-btn--secondary:hover {
+  background: var(--bg-muted);
+}
+
+/* Confetti */
+.lesson-completion-confetti {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.lesson-completion-confetti__piece {
+  position: absolute;
+  top: -24px;
+  width: 10px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: lesson-completion-confetti-fall 1800ms linear both;
+}
+
+.lesson-completion-confetti__piece--1 {
+  background: #f5b400;
+}
+.lesson-completion-confetti__piece--2 {
+  background: #2bb673;
+}
+.lesson-completion-confetti__piece--3 {
+  background: #4f7cff;
+}
+.lesson-completion-confetti__piece--4 {
+  background: #ec5a8c;
+}
+
+@keyframes lesson-completion-confetti-fall {
+  0% {
+    transform: translateY(-40px) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(105vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lesson-completion-overlay,
+  .lesson-completion-card,
+  .lesson-completion-icon,
+  .lesson-completion-icon__check,
+  .lesson-completion-confetti__piece {
+    animation: none !important;
+  }
+  .lesson-completion-icon__check {
+    stroke-dashoffset: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .lesson-completion-card {
+    padding: 24px 20px 20px;
+  }
+  .lesson-completion-title {
+    font-size: 22px;
+  }
+}
+
 .lesson-quiz-step__empty {
   padding: 16px;
   color: var(--text-muted);

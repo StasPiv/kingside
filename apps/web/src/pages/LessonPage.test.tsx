@@ -339,6 +339,131 @@ describe('LessonPage', () => {
     expect(screen.queryByTestId('lesson-step-2')).toBeNull();
   });
 
+  it('KS-2057: после «Завершить урок» показывается экран успеха с галочкой, заголовком и кнопками', async () => {
+    // Курс с двумя уроками — у текущего есть «следующий».
+    const courseWithTwo = {
+      ...courseFixture,
+      lessons: [
+        ...courseFixture.lessons,
+        {
+          id: 'l2',
+          slug: 'next-lesson',
+          order: 2,
+          kind: 'theory',
+          titleI18nKey: 'next-lesson-title',
+          summaryI18nKey: 'next-lesson-summary',
+          stepCount: 1,
+          progressState: 'not_started',
+        },
+      ],
+    };
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseWithTwo);
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: null,
+        score: 1,
+        stepsState: { s1: 'done', s2: 'done' },
+      },
+    });
+    mockLessonsApi.completeLesson.mockResolvedValueOnce({
+      userId: 'u1',
+      lessonId: 'l1',
+      startedAt: '2026-04-01T00:00:00.000Z',
+      completedAt: '2026-04-28T00:00:00.000Z',
+      score: 1,
+      stepsState: { s1: 'done', s2: 'done' },
+    });
+
+    const { default: userEventLib } = await import(
+      '@testing-library/user-event'
+    );
+    const user = userEventLib.setup();
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-complete-btn')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('lesson-complete-btn'));
+
+    // Оверлей завершения появился.
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('lesson-completion-overlay'),
+      ).toBeInTheDocument(),
+    );
+    // Заметный визуальный элемент (иконка) и поздравительный заголовок.
+    expect(screen.getByTestId('lesson-completion-icon')).toBeInTheDocument();
+    expect(screen.getByTestId('lesson-completion-title')).toBeInTheDocument();
+    // Конфетти добавлены в DOM (анимация появления длительностью > 0).
+    expect(
+      screen.getByTestId('lesson-completion-confetti'),
+    ).toBeInTheDocument();
+    // Кнопка перехода к следующему уроку — есть, ссылка указывает на slug.
+    const nextLink = screen.getByTestId('lesson-completion-next');
+    expect(nextLink).toHaveAttribute(
+      'href',
+      '/lessons/beginner-basics/next-lesson',
+    );
+    // Кнопка возврата к списку уроков курса.
+    expect(screen.getByTestId('lesson-completion-to-list')).toHaveAttribute(
+      'href',
+      '/lessons/beginner-basics',
+    );
+  });
+
+  it('KS-2057: на последнем уроке курса кнопка «К следующему уроку» не показывается', async () => {
+    // Курс с одним уроком — «следующего» нет.
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: null,
+        score: 1,
+        stepsState: { s1: 'done', s2: 'done' },
+      },
+    });
+    mockLessonsApi.completeLesson.mockResolvedValueOnce({
+      userId: 'u1',
+      lessonId: 'l1',
+      startedAt: '2026-04-01T00:00:00.000Z',
+      completedAt: '2026-04-28T00:00:00.000Z',
+      score: 1,
+      stepsState: { s1: 'done', s2: 'done' },
+    });
+
+    const { default: userEventLib } = await import(
+      '@testing-library/user-event'
+    );
+    const user = userEventLib.setup();
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-complete-btn')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('lesson-complete-btn'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('lesson-completion-overlay'),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('lesson-completion-next')).toBeNull();
+    expect(
+      screen.getByTestId('lesson-completion-to-list'),
+    ).toBeInTheDocument();
+  });
+
   it('KS-2041: все шаги done → активным становится первый шаг (не «после конца»)', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce({

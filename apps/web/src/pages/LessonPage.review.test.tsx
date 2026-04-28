@@ -273,8 +273,12 @@ describe('LessonPage review result screen', () => {
     );
     fireEvent.click(screen.getByTestId('lesson-complete-btn'));
 
+    // KS-2057: после успеха в обычном режиме показывается экран
+    // успеха `lesson-completion-overlay`, а не плоский тост.
     await waitFor(() =>
-      expect(screen.getByTestId('lesson-complete-msg')).toBeInTheDocument(),
+      expect(
+        screen.getByTestId('lesson-completion-overlay'),
+      ).toBeInTheDocument(),
     );
 
     // В обычном режиме quality undefined (передаём пустой объект).
