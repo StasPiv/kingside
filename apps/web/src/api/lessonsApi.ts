@@ -36,37 +36,20 @@ const FALLBACK_RECOMMENDATION: CourseRecommendationResponse = {
 };
 
 /**
- * KS-2099: формирование querystring c фильтром по языку UI.
+ * KS-2102: убрана передача `?lang=` в API. Backend (KS-2101) теперь
+ * читает язык из `User.locale` (anonymous → ru fallback). Query
+ * `?lang=` бэкенд молча игнорирует. Источник истины — настройка
+ * профиля; смена через `PATCH /users/me/settings { locale }`
+ * (см. `MainLayout` language switcher).
  *
- * Бэкенд (KS-2095): `GET /lessons/courses?lang=ru|en` возвращает
- * только курсы на запрошенном языке, `GET /lessons/courses/:slug?lang=…`
- * — конкретную версию курса (404, если на этом языке нет). Если
- * параметр пустой/не передан — backend отдаёт дефолт `ru`.
- *
- * Здесь принимаем строку из `i18next.language` (`ru` / `en` /
- * `ru-RU` / `en-US`). Bcё, что не начинается с `en`, нормализуем в
- * `ru` — поскольку у нас всего две локали и `ru` дефолт, лишних
- * вариантов передавать не надо.
+ * Сигнатуры функций упрощены: lang-аргумент удалён, чтобы
+ * случайно не передавать «локальный» i18next.language вместо
+ * серверной локали.
  */
-export function normalizeLang(input?: string | null): 'ru' | 'en' {
-  if (!input) return 'ru';
-  const lower = input.toLowerCase();
-  if (lower === 'en' || lower.startsWith('en-')) return 'en';
-  return 'ru';
-}
-
-function langQuery(lang?: string | null): string {
-  return `?lang=${normalizeLang(lang)}`;
-}
 
 export const lessonsApi = {
-  /**
-   * KS-2099: `lang` обязателен для нового API. Если не передан, bcё
-   * равно подставляем `ru` явно — чтобы серверные логи фронта
-   * показывали полный URL (легче дебажить расхождения локалей).
-   */
-  listCourses(lang?: string | null): Promise<CourseListResponse> {
-    return api.get<CourseListResponse>(`/lessons/courses${langQuery(lang)}`);
+  listCourses(): Promise<CourseListResponse> {
+    return api.get<CourseListResponse>('/lessons/courses');
   },
 
   /**
@@ -79,18 +62,15 @@ export const lessonsApi = {
    * `MyActiveCoursesPage` (KS-1941) — заменяет пару
    * `listCourses + listEnrolled` (KS-1957 / F-12).
    */
-  listActiveCourses(lang?: string | null): Promise<ActiveCourseDto[]> {
+  listActiveCourses(): Promise<ActiveCourseDto[]> {
     return api
-      .get<ActiveCoursesResponse>(`/lessons/active-courses${langQuery(lang)}`)
+      .get<ActiveCoursesResponse>('/lessons/active-courses')
       .then((r) => r.data ?? []);
   },
 
-  getCourse(
-    slug: string,
-    lang?: string | null,
-  ): Promise<CourseWithLessonsResponse> {
+  getCourse(slug: string): Promise<CourseWithLessonsResponse> {
     return api.get<CourseWithLessonsResponse>(
-      `/lessons/courses/${encodeURIComponent(slug)}${langQuery(lang)}`,
+      `/lessons/courses/${encodeURIComponent(slug)}`,
     );
   },
 

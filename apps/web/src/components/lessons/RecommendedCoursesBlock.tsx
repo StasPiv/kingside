@@ -64,12 +64,13 @@ export function RecommendedCoursesBlock() {
     courses: [],
   });
 
-  // KS-2099: рефетч при смене UI-языка — рекомендации должны
-  // показывать курсы того же языка, что и список на /lessons.
+  // KS-2102: lang в API больше не передаётся (backend читает
+  // `User.locale`). Зависимость `lang` оставлена как триггер
+  // рефетча после смены языка интерфейса.
   useEffect(() => {
     let cancelled = false;
     lessonsApi
-      .listCourses(lang)
+      .listCourses()
       .then((res) => {
         if (cancelled) return;
         const level = res.recommendedLevel ?? null;

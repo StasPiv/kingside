@@ -1,42 +1,22 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-import { lessonsApi, normalizeLang } from './lessonsApi';
+import { lessonsApi } from './lessonsApi';
 import { api } from '../api';
 
 /**
- * KS-2099: фронт передаёт `lang` в API курсов и резолвит версию по
- * UI-языку. Здесь — юнит-тесты на нормализацию языка и формирование
- * URL запросов lessonsApi.
+ * KS-2102: API больше НЕ принимает `?lang=`. Backend (KS-2101)
+ * читает `User.locale`. Тесты проверяют, что lessonsApi:
+ *   • НЕ добавляет query-параметр `lang`;
+ *   • кодирует slug через encodeURIComponent.
+ *
+ * Покрытие смены языка перенесено в MainLayout-тест (PATCH
+ * /users/me/settings + invalidation на следующих effect-ах).
  */
 
-describe('normalizeLang (KS-2099)', () => {
-  it('en → en, en-US → en, en-GB → en', () => {
-    expect(normalizeLang('en')).toBe('en');
-    expect(normalizeLang('en-US')).toBe('en');
-    expect(normalizeLang('EN-GB')).toBe('en');
-  });
-
-  it('ru, ru-RU, и любой неизвестный код → ru (дефолт)', () => {
-    expect(normalizeLang('ru')).toBe('ru');
-    expect(normalizeLang('ru-RU')).toBe('ru');
-    expect(normalizeLang('uk')).toBe('ru');
-    expect(normalizeLang('de')).toBe('ru');
-  });
-
-  it('null/undefined/пустая строка → ru', () => {
-    expect(normalizeLang(null)).toBe('ru');
-    expect(normalizeLang(undefined)).toBe('ru');
-    expect(normalizeLang('')).toBe('ru');
-  });
-});
-
-describe('lessonsApi: проброс lang в URL (KS-2099)', () => {
+describe('lessonsApi: запросы курсов без ?lang= (KS-2102)', () => {
   let getSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    // listActiveCourses ждёт `{ data?: ActiveCourseDto[] }`, остальные —
-    // raw payload. Возвращаем минимальный ответ для unit-теста; здесь
-    // важна только форма URL, а не содержимое.
     getSpy = vi
       .spyOn(api, 'get')
       .mockResolvedValue({ data: [], items: [] } as never);
@@ -46,35 +26,35 @@ describe('lessonsApi: проброс lang в URL (KS-2099)', () => {
     getSpy.mockRestore();
   });
 
-  it('listCourses(lang="en") → /lessons/courses?lang=en', async () => {
-    await lessonsApi.listCourses('en');
-    expect(getSpy).toHaveBeenCalledWith('/lessons/courses?lang=en');
-  });
-
-  it('listCourses(lang="ru-RU") → /lessons/courses?lang=ru', async () => {
-    await lessonsApi.listCourses('ru-RU');
-    expect(getSpy).toHaveBeenCalledWith('/lessons/courses?lang=ru');
-  });
-
-  it('listCourses() без lang → дефолт ru в querystring', async () => {
+  it('listCourses() → /lessons/courses (без query)', async () => {
     await lessonsApi.listCourses();
-    expect(getSpy).toHaveBeenCalledWith('/lessons/courses?lang=ru');
+    expect(getSpy).toHaveBeenCalledWith('/lessons/courses');
   });
 
-  it('getCourse(slug, "en") → /lessons/courses/<slug>?lang=en', async () => {
-    await lessonsApi.getCourse('capablanca-fundamentals', 'en');
+  it('listActiveCourses() → /lessons/active-courses (без query)', async () => {
+    await lessonsApi.listActiveCourses();
+    expect(getSpy).toHaveBeenCalledWith('/lessons/active-courses');
+  });
+
+  it('getCourse(slug) → /lessons/courses/<slug> (без query)', async () => {
+    await lessonsApi.getCourse('capablanca-fundamentals');
     expect(getSpy).toHaveBeenCalledWith(
-      '/lessons/courses/capablanca-fundamentals?lang=en',
+      '/lessons/courses/capablanca-fundamentals',
     );
   });
 
   it('getCourse слаг с пробелами/спецсимволами → encodeURIComponent', async () => {
-    await lessonsApi.getCourse('a b/c', 'ru');
-    expect(getSpy).toHaveBeenCalledWith('/lessons/courses/a%20b%2Fc?lang=ru');
+    await lessonsApi.getCourse('a b/c');
+    expect(getSpy).toHaveBeenCalledWith('/lessons/courses/a%20b%2Fc');
   });
 
-  it('listActiveCourses(lang) → /lessons/active-courses?lang=…', async () => {
-    await lessonsApi.listActiveCourses('en');
-    expect(getSpy).toHaveBeenCalledWith('/lessons/active-courses?lang=en');
+  it('ни один из вызовов не подставляет ?lang= (регрессия KS-2099 → KS-2102)', async () => {
+    await lessonsApi.listCourses();
+    await lessonsApi.listActiveCourses();
+    await lessonsApi.getCourse('foo');
+    for (const call of getSpy.mock.calls) {
+      const url = call[0] as string;
+      expect(url).not.toMatch(/[?&]lang=/);
+    }
   });
 });

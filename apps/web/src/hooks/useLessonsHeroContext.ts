@@ -116,8 +116,11 @@ interface UseLessonsHeroContextReturn {
 
 export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
   const { user, loading: authLoading } = useAuth();
-  // KS-2099: язык UI прокидываем в `listActiveCourses`/`listCourses`,
-  // чтобы hero брал курсы той же локали, что и /lessons список.
+  // KS-2102: lang больше не передаётся в API (backend читает
+  // `User.locale`). Но `i18n.language` оставлен в deps как триггер
+  // рефетча, чтобы при смене языка интерфейса (см. MainLayout —
+  // PATCH /users/me/settings + i18n.changeLanguage) hero перезапросил
+  // активные курсы на новой локали.
   const { i18n } = useTranslation();
   const lang = i18n.language;
 
@@ -150,7 +153,7 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
     setOwn(null);
 
     lessonsApi
-      .listActiveCourses(lang)
+      .listActiveCourses()
       .then((res) => {
         if (cancelled) return;
         setActive(res ?? []);
@@ -162,7 +165,7 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
       });
 
     lessonsApi
-      .listCourses(lang)
+      .listCourses()
       .then((res) => {
         if (cancelled) return;
         setSystem(res.data ?? []);

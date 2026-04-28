@@ -32,8 +32,10 @@ export function CoursePage() {
   // (поведение Acceptance из задачи).
   const [unavailableInLang, setUnavailableInLang] = useState(false);
 
-  // KS-2099: рефетч при смене UI-языка. Эффект пересобирается при
-  // изменении `lang` — `i18n.changeLanguage()` обновит зависимость.
+  // KS-2102: API больше НЕ принимает `?lang=` — backend читает
+  // `User.locale` сам. `lang` в deps оставлен как триггер рефетча
+  // после смены языка интерфейса (см. MainLayout — там
+  // PATCH /users/me/settings + i18n.changeLanguage).
   useEffect(() => {
     if (!courseSlug) return;
     let cancelled = false;
@@ -41,7 +43,7 @@ export function CoursePage() {
     setError(null);
     setUnavailableInLang(false);
     lessonsApi
-      .getCourse(courseSlug, lang)
+      .getCourse(courseSlug)
       .then((res) => {
         if (cancelled) return;
         setData(res);

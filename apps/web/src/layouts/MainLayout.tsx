@@ -184,12 +184,31 @@ export function MainLayout() {
             {/* Theme toggle (KS-1693) */}
             <ThemeToggle />
 
-            {/* Language switcher */}
+            {/* Language switcher.
+                KS-2102: переключатель ДВОИТ — i18next + PATCH
+                /users/me/settings { locale }. Backend (KS-2101) хранит
+                локаль в `User.locale` и из неё резолвит API курсов; без
+                PATCH /lessons возвращал бы старый язык. PATCH делаем
+                ПЕРВЫМ (await), и только после успеха переключаем
+                i18n.language — чтобы effect-ы страниц курсов сделали
+                рефетч уже с обновлённой серверной локалью. Если PATCH
+                упал — всё равно переключаем UI (не блокируем
+                пользователя), но логируем — рассинхрон UI/курсы
+                устранится при следующей удачной смене. Для гостей
+                (user==null) PATCH не делаем — бэк всё равно отдаёт ru
+                fallback. */}
             <button
               className="lang-switcher"
-              onClick={() => {
+              onClick={async () => {
                 const next = i18n.language === 'ru' ? 'en' : 'ru';
-                i18n.changeLanguage(next);
+                if (user) {
+                  try {
+                    await api.patch('/users/me/settings', { locale: next });
+                  } catch (e) {
+                    console.warn('[locale] PATCH /users/me/settings failed', e);
+                  }
+                }
+                await i18n.changeLanguage(next);
                 localStorage.setItem('locale', next);
               }}
               title={i18n.language === 'ru' ? 'Switch to English' : 'Переключить на русский'}

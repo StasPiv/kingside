@@ -68,9 +68,17 @@ export function SettingsPage() {
 
   const handleLanguageChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const locale = e.target.value as Locale;
-    i18n.changeLanguage(locale);
+    // KS-2102: PATCH ПЕРВЫМ. Бэкенд (KS-2101) после KS-2101 берёт
+    // язык курсов из `User.locale`, поэтому до PATCH /lessons
+    // ответил бы старой локалью. После успешного PATCH меняем
+    // i18n.language — это триггерит рефетч на страницах курсов.
+    try {
+      await api.patch('/users/me/settings', { locale });
+    } catch (err) {
+      console.warn('[locale] PATCH /users/me/settings failed', err);
+    }
+    await i18n.changeLanguage(locale);
     localStorage.setItem('locale', locale);
-    await api.patch('/users/me/settings', { locale });
   };
 
   return (

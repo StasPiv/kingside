@@ -39,16 +39,19 @@ export function LessonsPage() {
   // (см. PuzzleStatsPage и compact hint на /puzzle). На /lessons его
   // больше нет — здесь только learning-контент.
 
-  // KS-2099: при смене UI-языка перезапрашиваем список курсов с
-  // новым `lang`. Эффект завязан на `lang` — `i18n.changeLanguage()`
-  // меняет `i18n.language`, react-i18next дёргает re-render и effect
-  // отстреливает заново.
+  // KS-2102: API больше НЕ принимает `?lang=` — backend читает
+  // `User.locale` сам. Но мы оставляем `lang` в зависимости effect'а
+  // как триггер рефетча: переключатель в шапке делает PATCH
+  // /users/me/settings, потом `i18n.changeLanguage`; смена
+  // `i18n.language` инвалидирует наш список (как react-query
+  // invalidate) и effect повторно ходит в API — backend отдаст
+  // курсы под новой `User.locale`.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     lessonsApi
-      .listCourses(lang)
+      .listCourses()
       .then((res) => {
         if (cancelled) return;
         setCourses(res.data ?? []);

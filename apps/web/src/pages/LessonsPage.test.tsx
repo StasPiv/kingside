@@ -249,25 +249,26 @@ describe('LessonsPage', () => {
     ).toBeInTheDocument();
   });
 
-  // ─── KS-2099: фильтр курсов по UI-языку ─────────────────────────────
+  // ─── KS-2102: backend читает User.locale, lang в API не передаём ─────
 
-  describe('KS-2099: lang в API курсов', () => {
-    it('передаёт текущий язык UI в listCourses', async () => {
+  describe('KS-2102: listCourses без ?lang=', () => {
+    it('listCourses вызывается без аргументов', async () => {
       mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
       renderWithProviders(<LessonsPage />, { route: '/lessons' });
-      // testI18n стартует на 'en' — listCourses должен получить 'en'.
       await waitFor(() =>
-        expect(mockLessonsApi.listCourses).toHaveBeenCalledWith('en'),
+        expect(mockLessonsApi.listCourses).toHaveBeenCalled(),
       );
+      // Никаких аргументов: backend сам резолвит локаль из User.locale.
+      for (const call of mockLessonsApi.listCourses.mock.calls) {
+        expect(call).toEqual([]);
+      }
     });
 
-    it('при смене i18n.language → перезапрос listCourses с новым lang', async () => {
-      // Стабильный mock — эффект может вызываться больше двух раз
-      // (например, при гонках с обновлением `t`).
+    it('при смене i18n.language → перезапрос listCourses (тоже без аргументов)', async () => {
       mockLessonsApi.listCourses.mockResolvedValue({ data: [] });
       renderWithProviders(<LessonsPage />, { route: '/lessons' });
       await waitFor(() =>
-        expect(mockLessonsApi.listCourses).toHaveBeenCalledWith('en'),
+        expect(mockLessonsApi.listCourses).toHaveBeenCalledTimes(1),
       );
 
       await act(async () => {
@@ -275,10 +276,13 @@ describe('LessonsPage', () => {
       });
 
       await waitFor(() =>
-        expect(mockLessonsApi.listCourses).toHaveBeenCalledWith('ru'),
+        expect(mockLessonsApi.listCourses).toHaveBeenCalledTimes(2),
       );
+      // Аргументов по-прежнему нет.
+      for (const call of mockLessonsApi.listCourses.mock.calls) {
+        expect(call).toEqual([]);
+      }
 
-      // Возврат языка для соседних тестов.
       await act(async () => {
         await testI18n.changeLanguage('en');
       });

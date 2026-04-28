@@ -364,8 +364,8 @@ describe('CoursePage', () => {
     ).toMatch(/5/);
   });
 
-  describe('KS-2099: lang в API курсов и резолв по UI-языку', () => {
-    it('передаёт текущий язык UI в getCourse', async () => {
+  describe('KS-2102: getCourse без ?lang= и 404 «недоступен на этом языке»', () => {
+    it('getCourse вызывается только со slug — без lang-аргумента', async () => {
       mockLessonsApi.getCourse.mockResolvedValue({
         course: {
           id: 'c1',
@@ -382,13 +382,9 @@ describe('CoursePage', () => {
         lessons: [],
         progress: null,
       });
-      // testI18n стартует на 'en' (см. test-utils).
       renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
       await waitFor(() =>
-        expect(mockLessonsApi.getCourse).toHaveBeenCalledWith(
-          'beginner-basics',
-          'en',
-        ),
+        expect(mockLessonsApi.getCourse).toHaveBeenCalledWith('beginner-basics'),
       );
     });
 
@@ -421,11 +417,10 @@ describe('CoursePage', () => {
       ).not.toBeInTheDocument();
     });
 
-    it('клик «Переключиться на русский» → i18n.changeLanguage("ru") + getCourse снова с lang="ru"', async () => {
+    it('клик «Переключиться на русский» → i18n.changeLanguage("ru") + getCourse снова (без lang-аргумента)', async () => {
       // Изначально 404 (нет en-версии). После переключения на ru —
-      // курс находится. Используем стабильный mockResolvedValue
-      // (а не Once), потому что эффект может срабатывать чаще из-за
-      // обновлений зависимостей.
+      // курс находится. lang-аргумента нет: backend читает
+      // User.locale (см. KS-2102).
       mockLessonsApi.getCourse
         .mockRejectedValueOnce(
           new ApiError('not found', 'COURSE_NOT_FOUND', 404),
@@ -458,9 +453,10 @@ describe('CoursePage', () => {
       await user.click(screen.getByTestId('course-unavailable-switch-lang'));
 
       await waitFor(() =>
-        expect(mockLessonsApi.getCourse).toHaveBeenCalledWith(
+        // Второй вызов getCourse — после смены языка. lang-аргумента
+        // не передаём (backend сам резолвит из User.locale).
+        expect(mockLessonsApi.getCourse).toHaveBeenLastCalledWith(
           'beginner-basics',
-          'ru',
         ),
       );
 

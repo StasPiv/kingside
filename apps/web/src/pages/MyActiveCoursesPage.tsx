@@ -45,15 +45,17 @@ export function MyActiveCoursesPage() {
     courses: [],
   });
 
-  // KS-2099: язык UI пробрасываем в listActiveCourses, чтобы карточки
-  // активных курсов соответствовали выбранной локали.
+  // KS-2102: lang больше не передаётся в API (backend читает
+  // `User.locale`). Но i18n.language оставлен зависимостью effect'а
+  // для рефетча после переключателя языка в шапке (PATCH
+  // /users/me/settings + i18n.changeLanguage).
   const lang = i18n.language;
   useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading', courses: [] });
 
     lessonsApi
-      .listActiveCourses(lang)
+      .listActiveCourses()
       .then((list) => {
         if (cancelled) return;
         setState({ status: 'ready', courses: mapActiveCourses(list) });
