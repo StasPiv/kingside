@@ -40,7 +40,41 @@ npm run cli:backfill                  # fill archive_game_positions from archive
 npm run cli:classify-existing         # recompute time_control/category/is_classical
 npm run cli:cleanup-positions         # drop positions of non-classical games
 npm run cli:rebuild-position-stats    # TRUNCATE + rebuild position_stats
+npm run cli:backfill-players-events   # fill archive_players + archive_events + REFRESH MV (KS-2064)
 ```
+
+### Players / events backfill (KS-2064 / ADR-033 §4.4)
+
+Нормализованные таблицы `archive_players` и `archive_events` под FTS-поиск
+(GIN+pg_trgm) плюс материализованный view `archive_player_stats` для
+профиля игрока. Заполнение и поддержание актуальности:
+
+- **One-shot backfill** (после миграции `20260428000001_archive_players_events_mv`):
+
+  ```bash
+  cd apps/archive-service
+  npm run build
+  npm run cli:backfill-players-events
+  # → TRUNCATE archive_players, archive_events
+  # → SELECT-stream архивных партий (chunked LIMIT/OFFSET по id)
+  # → агрегация в JS-Map'ах (нормализация имён через
+  #   `@kingside/shared/normalizeArchiveName`)
+  # → bulk INSERT players/events чанками по 1000
+  # → REFRESH MATERIALIZED VIEW archive_player_stats
+  ```
+
+  Время работы на корпусе ~250k партий: 30-60s.
+
+- **Инкрементально:** `ArchiveImportService.runSource` после успешного
+  `TwicImporter.run()` (status `ok`/`partial` и `gamesAdded > 0`) вызывает
+  `PlayersEventsBackfillService.syncDelta(...)` с партиями текущего
+  импорта (`importId`). Сервис делает UPSERT по `slug` (gamesCount +=,
+  peakElo = GREATEST, first/last_seenAt — расширение диапазона) и
+  `REFRESH MATERIALIZED VIEW CONCURRENTLY archive_player_stats`. Ошибка
+  backfill'а — non-fatal, только лог: основной импорт уже завершён.
+
+- **Метрики (Prometheus):** `archive_players_total`, `archive_events_total`
+  (gauge'и) — обновляются после каждого backfill-прохода.
 
 All CLIs pull deps from DI via `NestFactory.createApplicationContext(ImporterModule)`.
 

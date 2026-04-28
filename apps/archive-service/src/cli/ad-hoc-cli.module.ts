@@ -6,6 +6,7 @@ import { MetricsModule } from '../metrics/metrics.module';
 import { ArchivePositionWriterService } from '../archive-import/archive-position-writer.service';
 import { PositionIndexerService } from '../archive-import/position-indexer.service';
 import { ArchiveImportMetricsService } from '../archive-import/archive-import-metrics.service';
+import { PlayersEventsBackfillService } from '../archive-import/players-events-backfill.service';
 
 /**
  * Минимальный DI-модуль для ad-hoc CLI (KS-1720).
@@ -45,11 +46,13 @@ import { ArchiveImportMetricsService } from '../archive-import/archive-import-me
     ArchivePositionWriterService,
     PositionIndexerService,
     ArchiveImportMetricsService,
+    PlayersEventsBackfillService,
   ],
   exports: [
     ArchivePositionWriterService,
     PositionIndexerService,
     ArchiveImportMetricsService,
+    PlayersEventsBackfillService,
   ],
 })
 export class AdHocCliModule {}

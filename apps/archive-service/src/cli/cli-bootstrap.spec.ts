@@ -37,6 +37,7 @@ const CLI_FILES = [
   'classify-existing.ts',
   'cleanup-positions.ts',
   'rebuild-position-stats.ts',
+  'backfill-players-events.ts',
 ] as const;
 
 describe.each(CLI_FILES)('CLI %s — bootstrap module guard (KS-1722)', (file) => {

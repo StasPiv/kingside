@@ -22,6 +22,10 @@ export class ArchiveImportMetricsService {
   readonly archiveImportedNonClassicalTotal: Counter<'source'>;
   readonly archiveRejectedUnknownReasonTotal: Counter<'source' | 'rule'>;
   readonly archiveClassicalRatio: Gauge<'source'>;
+  /** KS-2064: общее число игроков в `archive_players` (после backfill / sync). */
+  readonly archivePlayersTotal: Gauge;
+  /** KS-2064: общее число событий в `archive_events`. */
+  readonly archiveEventsTotal: Gauge;
 
   constructor(
     @Inject(MetricsService) metricsService: MetricsService,
@@ -81,6 +85,18 @@ export class ArchiveImportMetricsService {
       name: 'archive_classical_ratio',
       help: 'Доля classical (classical + classical-legacy) в последнем импортированном пакете источника [0..1].',
       labelNames: ['source'] as const,
+      registers: [registry],
+    });
+
+    this.archivePlayersTotal = new Gauge({
+      name: 'archive_players_total',
+      help: 'Общее число строк в archive_players (KS-2064 / ADR-033 §4.4).',
+      registers: [registry],
+    });
+
+    this.archiveEventsTotal = new Gauge({
+      name: 'archive_events_total',
+      help: 'Общее число строк в archive_events (KS-2064 / ADR-033 §4.4).',
       registers: [registry],
     });
   }

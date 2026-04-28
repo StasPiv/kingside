@@ -4,6 +4,7 @@ import { ArchiveImportMetricsService } from './archive-import-metrics.service';
 import { ArchivePositionWriterService } from './archive-position-writer.service';
 import { PositionIndexerService } from './position-indexer.service';
 import { ArchiveSourcesSeedService } from './archive-sources-seed.service';
+import { PlayersEventsBackfillService } from './players-events-backfill.service';
 
 /**
  * DI-модуль importer'а (ADR-019 §2.1).
@@ -22,6 +23,7 @@ import { ArchiveSourcesSeedService } from './archive-sources-seed.service';
     ArchivePositionWriterService,
     PositionIndexerService,
     ArchiveSourcesSeedService,
+    PlayersEventsBackfillService,
   ],
   exports: [
     ArchiveImportService,
@@ -29,6 +31,7 @@ import { ArchiveSourcesSeedService } from './archive-sources-seed.service';
     ArchivePositionWriterService,
     PositionIndexerService,
     ArchiveSourcesSeedService,
+    PlayersEventsBackfillService,
   ],
 })
 export class ArchiveImportModule {}

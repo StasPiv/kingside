@@ -95,6 +95,13 @@ export interface ImportResult {
    * пропускает метрику.
    */
   classicalRatio?: number;
+  /**
+   * KS-2064: id записи в `archive_imports`, через которую помечены все
+   * добавленные партии. Используется `ArchiveImportService` для выборки
+   * дельты и передачи в `PlayersEventsBackfillService.syncDelta`. Заполнен
+   * для `status in ('ok','partial')`; иначе `undefined`.
+   */
+  importId?: string;
   error?: string;
 }
 
@@ -514,6 +521,7 @@ export class TwicImporter {
       gamesAdded: added,
       gamesSkipped: skipped,
       classicalRatio,
+      importId: importRow.id,
     };
   }
 }

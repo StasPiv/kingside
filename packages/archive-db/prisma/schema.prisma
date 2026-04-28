@@ -124,3 +124,50 @@ model ArchiveGamePosition {
   @@index([positionKey, bucket, avgElo(sort: Desc), gameId(sort: Desc)], name: "archive_game_positions_top_elo")
   @@map("archive_game_positions")
 }
+
+// ─── Players & Events (KS-2064 / ADR-033 §4.4.1) ─────────────────────
+//
+// Нормализованные таблицы под FTS поиск имён и турниров. Заполняются
+// one-shot backfill'ом и инкрементально после каждого успешного импорта
+// TWIC issue. Источник правды для отображаемых форм — `archive_games`
+// (поля `white_name`/`black_name`/`event`); таблицы ниже — производные
+// агрегаты для FTS, ранжирования по `gamesCount` и автодополнения.
+//
+// GIN-индексы pg_trgm создаются raw-SQL миграцией (Prisma не выражает
+// `gin_trgm_ops` декларативно).
+
+model ArchivePlayer {
+  id             String    @id @default(uuid()) @db.Uuid
+  /// канонический slug, стабильный: "carlsen-magnus". URL-safe, lowercase.
+  slug           String    @unique
+  /// канонически отображаемое имя: "Carlsen, Magnus".
+  nameCanonical  String    @map("name_canonical")
+  /// нормализованная форма для матчинга: "carlsen magnus" (lower, без пунктуации, без диакритики).
+  nameNormalized String    @map("name_normalized")
+  /// все варианты как строка для GIN trgm. ", "-separated.
+  nameAliases    String    @map("name_aliases") @db.Text
+  gamesCount     Int       @default(0) @map("games_count")
+  peakElo        Int?      @map("peak_elo")
+  firstSeenAt    DateTime? @map("first_seen_at")
+  lastSeenAt     DateTime? @map("last_seen_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([nameNormalized])
+  @@index([gamesCount(sort: Desc)])
+  @@map("archive_players")
+}
+
+model ArchiveEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  slug           String    @unique
+  nameCanonical  String    @map("name_canonical")
+  nameNormalized String    @map("name_normalized")
+  gamesCount     Int       @default(0) @map("games_count")
+  /// Самая ранняя дата партий события — берётся из PGN-Date, формат сохраняется.
+  firstDate      String?   @map("first_date")
+  lastDate       String?   @map("last_date")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([gamesCount(sort: Desc)])
+  @@map("archive_events")
+}

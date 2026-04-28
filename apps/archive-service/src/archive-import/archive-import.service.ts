@@ -6,6 +6,7 @@ import { acquireLock } from './archive-import-lock';
 import { ArchivePositionWriterService } from './archive-position-writer.service';
 import { PositionIndexerService } from './position-indexer.service';
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
+import { PlayersEventsBackfillService } from './players-events-backfill.service';
 import {
   TwicImporter,
   type ArchiveSourceRow,
@@ -120,6 +121,7 @@ export class ArchiveImportService implements OnModuleInit {
     private readonly positionWriter: ArchivePositionWriterService,
     private readonly indexer: PositionIndexerService,
     private readonly metrics: ArchiveImportMetricsService,
+    private readonly playersEventsBackfill: PlayersEventsBackfillService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -360,6 +362,26 @@ export class ArchiveImportService implements OnModuleInit {
               data: { lastRunAt: new Date(), lastError: result.error },
             });
           }
+          // KS-2064: после успешного импорта синхронизируем нормализованные
+          // таблицы archive_players / archive_events и REFRESH MV
+          // archive_player_stats CONCURRENTLY. Идёт ПОСЛЕ COPY партий в
+          // `archive_games` / `archive_game_positions` (сама importer.run()
+          // уже завершила COPY) и не блокирует основной импорт — ошибка
+          // backfill'а только логируется.
+          if (
+            (result.status === 'ok' || result.status === 'partial') &&
+            result.gamesAdded > 0 &&
+            result.importId
+          ) {
+            await this.syncPlayersEventsAfterImport(result.importId).catch(
+              (err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.logger.warn(
+                  `${source.code}: players/events sync failed (non-fatal): ${msg}`,
+                );
+              },
+            );
+          }
         } else {
           this.logger.warn(`${source.code}: unknown kind "${source.kind}"`);
         }
@@ -399,5 +421,43 @@ export class ArchiveImportService implements OnModuleInit {
     const last = source.lastRunAt?.getTime() ?? 0;
     const intervalMs = intervalFromSchedule(source.schedule);
     return now - last >= intervalMs;
+  }
+
+  /**
+   * KS-2064: вытаскивает партии текущего импорта (`importId`) и кормит
+   * их в {@link PlayersEventsBackfillService.syncDelta}, который UPSERT'ит
+   * новые имена/события и делает REFRESH MV CONCURRENTLY.
+   *
+   * Не throw'ает — вызывающий код считает ошибки backfill'а
+   * non-fatal (только лог + не двигает `lastError` источника).
+   */
+  private async syncPlayersEventsAfterImport(importId: string): Promise<void> {
+    const games = await this.prisma.archiveGame.findMany({
+      where: { importId },
+      select: {
+        whiteName: true,
+        blackName: true,
+        whiteElo: true,
+        blackElo: true,
+        event: true,
+        playedAt: true,
+        date: true,
+      },
+    });
+    if (games.length === 0) return;
+    const report = await this.playersEventsBackfill.syncDelta({
+      games: games.map((g) => ({
+        whiteName: g.whiteName,
+        blackName: g.blackName,
+        whiteElo: g.whiteElo,
+        blackElo: g.blackElo,
+        event: g.event,
+        playedAt: g.playedAt,
+        date: g.date,
+      })),
+    });
+    this.logger.log(
+      `players/events sync: importId=${importId} players+=${report.upsertedPlayers} events+=${report.upsertedEvents}`,
+    );
   }
 }
