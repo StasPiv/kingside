@@ -84,10 +84,32 @@
   transition: background 0.15s, border-color 0.15s, transform 0.15s;
 }
 
+/* KS-2096: пользователь жалуется на «чёрточку» под активной плиткой —
+   это `text-decoration: underline` от user-agent на `<a>` для
+   `:visited`/`:focus`/`:active` (Chromium перебивает наше
+   `text-decoration: none` для этих псевдо-состояний). Явно сбрасываем
+   подчёркивание на каждом состоянии плюс на самом label. Hover уже даёт
+   достаточное визуальное выделение карточки (фон + бордер + transform). */
+.features-quick-link:visited,
+.features-quick-link:focus,
+.features-quick-link:focus-visible,
+.features-quick-link:active,
+.features-quick-link__label {
+  text-decoration: none;
+}
+
 .features-quick-link:hover {
   background: var(--c-2a2a4e);
   border-color: var(--c-7c83ff);
   transform: translateY(-2px);
+}
+
+/* Focus-ring через box-shadow (не путать с underline) — для клавиатурной
+   навигации видно, какая плитка в фокусе. */
+.features-quick-link:focus-visible {
+  outline: none;
+  border-color: var(--c-7c83ff);
+  box-shadow: 0 0 0 3px var(--ov-accent-15);
 }
 
 .features-quick-link__icon {
