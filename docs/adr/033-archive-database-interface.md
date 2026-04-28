@@ -124,13 +124,133 @@ S2 целиком закрыт ADR-014. Остальные — предмет э
 
 **Жёсткий потолок offset = 5000** — глубже листать бессмысленно, пусть фильтрует.
 
-### 4.4 Поиск игрока — autocomplete
+### 4.4 Полнотекстовый поиск игроков и турниров — единый подход
 
-Новый endpoint `GET /api/archive/players/search?q=carls&limit=10`:
-- Источник: `archive_games.white_name`, `archive_games.black_name` (UNION DISTINCT).
-- LIKE по началу + `pg_trgm` для fuzzy. Существующего индекса нет — добавляем `gin_trgm_ops` на оба поля (новая миграция).
-- Возвращает: `[{ name, slug, gamesCount, peakElo }]`. `slug` = `lower(name).replace(/\s+/g, '-')`.
-- Кэш Redis 5 мин, ключ `arch:players:search:<q>`.
+Решение пользователя (KS-2061): для имён игроков и названий турниров — **умный полнотекстовый поиск с ранжированием по частоте встречаемости (`gamesCount DESC`)**. Тёзки разрешаются автоматически: первый в autocomplete = самый частый. Это закрывает три открытых вопроса (slug-стабильность, тёзки, точное совпадение vs substring) одним подходом.
+
+#### 4.4.1 Нормализованные таблицы
+
+Заводим две новые таблицы в `archive-db` (миграция в B2):
+
+```prisma
+model ArchivePlayer {
+  id             String    @id @default(uuid()) @db.Uuid
+  /** канонический slug, стабильный: "carlsen-magnus". URL-safe, lowercase. */
+  slug           String    @unique
+  /** канонически отображаемое имя: "Carlsen, Magnus". */
+  nameCanonical  String    @map("name_canonical")
+  /** нормализованная форма для матчинга: "carlsen magnus" (lower, без пунктуации, без диакритики). */
+  nameNormalized String    @map("name_normalized")
+  /** все варианты как строка для GIN trgm. ", "-separated. */
+  nameAliases    String    @map("name_aliases") @db.Text
+  gamesCount     Int       @default(0) @map("games_count")
+  peakElo        Int?      @map("peak_elo")
+  firstSeenAt    DateTime? @map("first_seen_at")
+  lastSeenAt     DateTime? @map("last_seen_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([nameNormalized])
+  @@index([gamesCount(sort: Desc)])
+  @@map("archive_players")
+}
+
+model ArchiveEvent {
+  id             String    @id @default(uuid()) @db.Uuid
+  slug           String    @unique
+  nameCanonical  String    @map("name_canonical")
+  nameNormalized String    @map("name_normalized")
+  gamesCount     Int       @default(0) @map("games_count")
+  firstDate      String?   @map("first_date")
+  lastDate       String?   @map("last_date")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([gamesCount(sort: Desc)])
+  @@map("archive_events")
+}
+```
+
+GIN-индексы (через `Unsupported` или прямой raw SQL в миграции):
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX archive_players_aliases_trgm
+  ON archive_players USING GIN (name_aliases gin_trgm_ops);
+CREATE INDEX archive_events_name_trgm
+  ON archive_events USING GIN (name_normalized gin_trgm_ops);
+```
+
+#### 4.4.2 Почему pg_trgm, а не tsvector
+
+- **Имена и названия турниров — короткие токены без морфологии.** `tsvector` со словарями (`english`, `russian`) ничего не даёт — стемминг для «Carlsen» работает как лексема как есть.
+- **Подстрочный поиск критичен** для autocomplete: пользователь набирает «carls» — должно матчить «Carlsen». Триграммы это умеют нативно (`carl`, `arls`, `rlse`...). У `tsvector` для этого нужны префиксные `:*` или дополнительный n-gram preprocessing.
+- **`similarity()` из `pg_trgm`** даёт численный score 0..1, удобен для вторичного ранжирования при равных `gamesCount`.
+
+#### 4.4.3 Нормализация имён
+
+Применяется одинаково на write (backfill, инкрементальный апдейт) и read (входящий `q`):
+1. lowercase;
+2. NFKD + удаление диакритики (`Müller` → `muller`);
+3. замена пунктуации (`,`, `.`, `-`, `_`) на пробел;
+4. collapse whitespace.
+
+Slug = `nameNormalized.replace(/\s+/g, '-')`.
+
+`nameAliases` — конкатенация всех встретившихся вариантов через `, `, чтобы триграммы матчили любую форму («Carlsen,M.» → `carlsen m, carlsen,m, carlsen, m`).
+
+#### 4.4.4 Ранжирование
+
+```sql
+SELECT slug, name_canonical, games_count, peak_elo
+FROM archive_players
+WHERE name_aliases % $1                          -- pg_trgm operator
+   OR name_normalized ILIKE $1 || '%'            -- prefix-fast path
+ORDER BY
+  games_count DESC,
+  similarity(name_normalized, $1) DESC,
+  name_normalized ASC
+LIMIT $2;
+```
+
+`%` — оператор pg_trgm с порогом `pg_trgm.similarity_threshold = 0.3` (default), быстро отсекает не-кандидатов через GIN.
+
+Аналогично для событий: `archive_events`, индекс `name_normalized_trgm`.
+
+#### 4.4.5 Backfill и инкрементальный апдейт
+
+- **One-shot backfill** (часть B2): `INSERT INTO archive_players ... FROM (SELECT name FROM archive_games UNION white/black)`. Группировка по `nameNormalized`. `nameAliases` собирается через `string_agg(DISTINCT raw_name, ', ')`.
+- **Инкрементально:** после каждого успешного `archive-importer` run — UPSERT в `archive_players`/`archive_events` для новых имён/турниров (отдельный шаг в пайплайне, не блокирует импорт партий). Реализация — в B3 (вместе с endpoint'ами; шаг идёт в `archive-importer`, но логику кодит тот же исполнитель чтобы держать в голове целостность).
+- **Метрики:** `archive_players_total`, `archive_events_total` для мониторинга.
+
+#### 4.4.6 Профиль игрока — материализованный view
+
+`archive_player_stats` — MV поверх `archive_players` × `archive_games`:
+```sql
+CREATE MATERIALIZED VIEW archive_player_stats AS
+SELECT
+  p.slug,
+  COUNT(*) AS games_count,
+  COUNT(*) FILTER (WHERE g.white_name = p.name_canonical) AS games_white,
+  COUNT(*) FILTER (WHERE g.black_name = p.name_canonical) AS games_black,
+  COUNT(*) FILTER (WHERE result_for_player(g, p) = 'win') AS wins,
+  COUNT(*) FILTER (WHERE result_for_player(g, p) = 'draw') AS draws,
+  COUNT(*) FILTER (WHERE result_for_player(g, p) = 'loss') AS losses,
+  MAX(GREATEST(COALESCE(g.white_elo, 0), COALESCE(g.black_elo, 0))) AS peak_elo,
+  MIN(g.played_at) AS first_seen_at,
+  MAX(g.played_at) AS last_seen_at
+FROM archive_players p
+JOIN archive_games g ON (g.white_name = p.name_canonical OR g.black_name = p.name_canonical)
+GROUP BY p.slug;
+
+CREATE UNIQUE INDEX ON archive_player_stats (slug);
+```
+
+`REFRESH MATERIALIZED VIEW CONCURRENTLY archive_player_stats` — после каждого успешного импорта (нагрузка ~10-30s на корпусе 250k, асинхронно). На 5M+ — оценим, возможно перейдём на инкрементальные триггеры; в Phase B пересмотр.
+
+#### 4.4.7 Кэш
+
+- `arch:players:search:<q>` — Redis 5 мин.
+- `arch:players:profile:<slug>` — Redis 1 ч (MV сама — кэш, дополнительный слой нужен только под нагрузкой).
+- `arch:events:search:<q>` — Redis 5 мин.
+- Инвалидация — через существующий `ARCHIVE_IMPORTED_CHANNEL` (расширение `invalidateTreeCache` → `invalidateArchiveCaches`).
 
 ---
 
@@ -201,12 +321,12 @@ S2 целиком закрыт ADR-014. Остальные — предмет э
 
 ### 6.3 Новые endpoint'ы
 
-| Endpoint | Назначение | Форма ответа |
-| -------- | ---------- | ------------ |
-| `GET /api/archive/players/search?q=&limit=` | Autocomplete игроков | `{ items: [{ name, slug, gamesCount, peakElo }] }` |
-| `GET /api/archive/players/:slug` | Профиль игрока: краткая статистика | `{ name, gamesCount, peakElo, byColor: { white, black }, byResult: { wins, draws, losses } }` |
-| `GET /api/archive/players/:slug/games?...` | Партии игрока (фильтры/пагинация) | как `ArchiveGamesResponse`, плюс `playerColor` per item |
-| `GET /api/archive/events/search?q=&limit=` *(опционально)* | Autocomplete турниров | `{ items: [{ name, gamesCount, dateRange }] }` |
+| Endpoint | Назначение | Источник | Форма ответа |
+| -------- | ---------- | -------- | ------------ |
+| `GET /api/archive/players/search?q=&limit=` | Autocomplete игроков (FTS, ранжирование по `gamesCount DESC`) | `archive_players` + GIN trgm | `{ items: [{ name, slug, gamesCount, peakElo }] }` |
+| `GET /api/archive/players/:slug` | Профиль игрока: статистика | MV `archive_player_stats` | `{ name, slug, gamesCount, peakElo, byColor: { white, black }, byResult: { wins, draws, losses }, firstSeenAt, lastSeenAt }` |
+| `GET /api/archive/players/:slug/games?...` | Партии игрока (фильтры/пагинация) | `archive_players` + JOIN `archive_games` | как `ArchiveGamesResponse`, плюс `playerColor` per item |
+| `GET /api/archive/events/search?q=&limit=` | Autocomplete турниров (FTS) | `archive_events` + GIN trgm | `{ items: [{ name, slug, gamesCount, firstDate, lastDate }] }` |
 
 DTO детализирует backend в реализации. Архитектор фиксирует только список и зоны ответственности.
 
@@ -223,47 +343,62 @@ DTO детализирует backend в реализации. Архитекто
 ### 7.1 Зависимости
 
 ```
-[B0] shared types: расширения ArchiveGamesRequest + новые типы players
+[B0] shared types: ArchiveGamesRequest+sort/until/event/minPly/maxPly,
+                   ArchivePlayer*, ArchiveEvent* типы
         │
-        ├──> [B1] api/archive-service: расширение GET /api/archive/games
-        │         (until/event/minPly/maxPly/sort)
+        ├──> [B1] archive-service: расширение GET /api/archive/games
+        │         (until/event/minPly/maxPly/sort + индекс topElo)
         │
-        ├──> [B2] db migration: индекс topElo + pg_trgm на player names
+        ├──> [B2] db migrations: archive_players, archive_events,
+        │         archive_player_stats MV, GIN trgm индексы,
+        │         backfill из archive_games + инкрементальный апдейт
+        │         после импорта
         │         │
-        │         └──> [B3] archive-service: GET /api/archive/players/* endpoints
+        │         └──> [B3] archive-service: endpoint'ы
+        │                   GET /api/archive/players/search
+        │                   GET /api/archive/players/:slug
+        │                   GET /api/archive/players/:slug/games
+        │                   GET /api/archive/events/search
+        │                   + Redis-кэш + инвалидация
         │
-        └──> [F0] frontend: роутинг /archive, /archive/games, /archive/players/:slug, /archive/games/:id
+        └──> [F0] frontend: роутинг /archive, /archive/games,
+                  /archive/players/:slug, /archive/games/:id;
+                  api-хелперы; пункт «Архив» в главном меню;
+                  i18n ключи (ru+en)
                   │
-                  ├──> [F1] страница /archive (lobby + поиск): фильтры, autocomplete
-                  │         (зависит от B1, B3)
+                  ├──> [F1] страница /archive (лобби: поиск + Recent games
+                  │         + Search by position) — зависит от B1, B3
                   │
-                  ├──> [F2] страница /archive/games (universal list, два режима)
-                  │         (зависит от B1)
+                  ├──> [F2] страница /archive/games (universal list,
+                  │         два режима: by-position и metadata) — зависит от B1
                   │
-                  ├──> [F3] страница /archive/players/:slug
-                  │         (зависит от B3)
+                  ├──> [F3] страница /archive/players/:slug — зависит от B3
                   │
-                  └──> [F4] страница /archive/games/:id (просмотр партии + связь с by-position)
-                            (зависит от существующих API)
+                  └──> [F4] страница /archive/games/:id (просмотр партии
+                            + lazy-блок «other games with this position»
+                            на текущем ply) — зависит только от существующих API
 
 [L1] layout: стили страниц архива, mobile-карточки     (после F1-F4)
-[Q1] qa: e2e-сценарии S1, S3-S7                         (после L1)
+[Q1] qa: e2e сценарии S1, S3-S7                         (после L1)
 ```
 
 ### 7.2 Параллелизация
 
 **Сначала:**
-1. **B0** — shared types (полчаса работы, разблокирует всё).
+1. **B0** — shared types. Разблокирует всё.
 
 **Потом параллельно:**
-2. **B1, B2 → B3** — backend трек (расширение games + новый players endpoint).
-3. **F0, F4** — frontend трек (роутинг + страница партии — она от новых API не зависит, использует только существующие).
+2. **B1** (расширение games endpoint) и **B2** (миграции + backfill players/events/MV) — независимы.
+3. **F0** и **F4** — F0 готовит инфру, F4 использует только существующие API.
 
-**Потом параллельно (когда B1, B3 готовы):**
-4. **F1** (лобби архива) и **F2** (universal list) и **F3** (профиль игрока).
+**Когда B2 готов:**
+4. **B3** — endpoint'ы players/events.
+
+**Когда B1, B3 готовы:**
+5. **F1**, **F2**, **F3** — параллельно.
 
 **В конце:**
-5. **L1** (стили) → **Q1** (e2e).
+6. **L1** (стили) → **Q1** (e2e).
 
 ### 7.3 Точки синхронизации
 
@@ -286,18 +421,18 @@ DTO детализирует backend в реализации. Архитекто
 
 ---
 
-## 9. Открытые вопросы
+## 9. Закрытые решения (после согласования с пользователем 2026-04-28)
 
-1. **Slug игрока — стабильный?** Имена в TWIC варьируются: «Carlsen, Magnus» / «Carlsen,M.» / «Carlsen Magnus». Если делать slug по строке как есть — будут дубликаты профилей. **Предлагаю:** на этапе backfill завести таблицу `archive_players` (агрегат по нормализованному имени), endpoint работать через неё. Это +1 миграция, +1 backfill-job. Подтвердить.
-2. **Профиль игрока — отдельная агрегатная таблица или вычислять на лету?** На лету по `archive_games` — `COUNT/GROUP BY` по `white_name`/`black_name` с UNION ALL → ~500ms на корпусе 250k, на 5M уже не годится. Кэш Redis 1ч смягчает. Альтернатива — материализованный view `archive_player_stats`, обновляемый после каждого импорта. **Предлагаю** материализованный view сразу, чтобы не переписывать в Phase B.
-3. **Что за «Карлсен» когда два разных игрока?** В TWIC иногда бывают tezки. Игнорируем в MVP (показываем как одного игрока), фиксим если жалобы.
-4. **Лобби `/archive` — что там кроме поиска?** Опции: «недавние топ-партии», «текущие турниры в архиве», «случайная партия дня». **Предлагаю** в MVP минимум: поисковая форма + блок «Recent games» (10 последних, без фильтров) + ссылка на анализ-вход «Search by position». Расширим позже.
-5. **Фильтр по турниру (event) — точное совпадение или substring?** В TWIC `event` — свободный текст. **Предлагаю** ILIKE substring + autocomplete (endpoint 6.3 опциональный). Подтвердить нужно ли autocomplete в MVP или просто текстовое поле.
-6. **«Other games with this position» на странице партии — какой ply показывать сразу?** Финальную позицию? Текущий ход просмотра? **Предлагаю** показывать на текущем ходе (синхронно с MoveList), ленивая загрузка по toggle.
-7. **i18n — переводим сразу?** Все строки UI должны идти через `i18next`. Это правило проекта (CLAUDE.md), но координатор должен явно включить в задачи F1-F4.
+1. **Slug игрока / тёзки / event substring (вопросы 1, 3, 5).** Закрыты единым подходом: полнотекстовый поиск с GIN+pg_trgm поверх нормализованных таблиц `archive_players` и `archive_events`, ранжирование по `gamesCount DESC`. Тёзки разрешаются автоматически — первый в autocomplete = самый частый. Slug стабилизируется через `nameNormalized`. Детали в §4.4.
+2. **Профиль игрока (вопрос 2).** Материализованный view `archive_player_stats`, REFRESH CONCURRENTLY после каждого импорта. См. §4.4.6.
+3. **Лобби `/archive` (вопрос 4).** Минимум: поисковая форма + блок «Recent games» (10 последних) + кнопка «Search by position».
+4. **«Other games with this position» (вопрос 6).** На текущем ply просмотра, ленивая загрузка по клику на toggle.
+5. **i18n (вопрос 7).** Локализация ru+en сразу, все строки через `i18next`. Включается в каждую frontend-задачу (F0-F4).
+
+Новых открытых вопросов нет. Переходим к декомпозиции и реализации.
 
 ---
 
 ## TL;DR
 
-Архив партий получает полноценный пользовательский интерфейс: пункт «Архив» в главном меню (`/archive` lobby + `/archive/games` универсальный список с двумя режимами — по позиции из ADR-014 и по метаданным с фильтрами player/eco/event/year/result/length), профиль игрока (`/archive/players/:slug`) и страница одной партии (`/archive/games/:id`) с блоком «другие партии с этой позицией». MVP read-only, импорт PGN пользователем отложен. Backend в основном переиспользует существующее (`GET /api/archive/games`, `/by-position`, `/:id`, `tree`); добавляются `players/*` endpoint, расширения query (`until`, `event`, `minPly`, `maxPly`, `sort`) и пара индексов. План: shared types → параллельно backend players + frontend routing → параллельно три страницы → стили → qa.
+Архив партий получает полноценный пользовательский интерфейс: пункт «Архив» в главном меню (`/archive` лобби + `/archive/games` универсальный список с двумя режимами — by-position из ADR-014 и metadata-поиск с фильтрами player/eco/event/year/result/length), профиль игрока (`/archive/players/:slug`) и страница партии (`/archive/games/:id`) с lazy-блоком «другие партии с этой позицией». MVP read-only, импорт PGN пользователем отложен. Поиск имён и турниров — единый: GIN+pg_trgm поверх нормализованных таблиц `archive_players`/`archive_events`, ранжирование по частоте (тёзки разрешаются автоматически). Профиль — материализованный view с REFRESH CONCURRENTLY после импорта. Лобби минимум: поиск + Recent games + Search by position. i18n ru+en сразу. План: B0 shared types → параллельно (B1+B2→B3 backend) и (F0+F4 frontend) → параллельно (F1, F2, F3) → L1 стили → Q1 e2e.
