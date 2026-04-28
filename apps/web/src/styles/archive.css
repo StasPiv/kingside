@@ -917,68 +917,19 @@
   box-shadow: 0 0 0 2px var(--accent-primary);
 }
 
-/* KS-2086: align-items: flex-end вместо stretch — чтобы кнопка Add
-   прижималась к низу контейнера (= к низу input'а), а не растягивалась
-   на всю высоту autocomplete-блока (label + input ≈ 50px), визуально
-   перекрывая label/input. Высота кнопки фиксирована 32px = высоте
-   input'a (`.archive-games-filters__input` тоже 32px). */
-.archive-games-filters__chip-input {
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  order: 1;
-  /* KS-2089-fix: ширина поля «Игрок» в grid лобби auto-fit minmax(200px,1fr)
-     даёт field ~225px на 1280px viewport. После того как кнопка «Добавить»
-     получила min-width: 130px, input внутри autocomplete (min-width:130px
-     по дефолту от .archive-games-filters__input) перестал помещаться в
-     остаток места (225 - 130 - 10 ≈ 85px) и «выпирал» вправо под кнопку.
-     `min-width: 0` ниже сбрасывает min-width input'а в этом контексте,
-     чтобы autocomplete мог реально сжаться до доступного остатка и
-     gap между input и кнопкой стал видим. */
-}
-.archive-games-filters__chip-input > :first-child {
-  flex: 1 1 0;
-  min-width: 0;
-}
-.archive-games-filters__chip-input .archive-games-filters__input {
-  min-width: 0;
+/* KS-2092: кнопка «Добавить» удалена. В обоих формах (ArchiveSearchForm
+   и ArchiveMetadataFilters) поле «Игрок» содержит либо одиночный
+   autocomplete-блок (full-width), либо одиночный `<input>` с
+   модификатором `--solo` (та же full-width роль). Поэтому раньше
+   нужный `display:flex` контейнер `.chip-input` (чтобы input + кнопка
+   Add помещались в одну строку) больше не требуется — оставляем только
+   solo-модификатор для одиночного `<input>` в ArchiveMetadataFilters
+   (autocomplete сам тянется на 100% ширины родителя `.field--players`,
+   поскольку он `display: flex; flex-direction: column` и flex-item в
+   column-parent растягивается по cross-axis). */
+.archive-games-filters__chip-input--solo {
   width: 100%;
-}
-.archive-games-filters__chip-add {
-  /* KS-2089: гарантия что кнопка получает ширину под полный текст
-     («Добавить»/«Add»). У `<button>` user-agent CSS ставит
-     `overflow: hidden`, поэтому если flex-расчёт сужает кнопку
-     ниже content width, текст обрезается БЕЗ ellipsis. Чтобы
-     гарантировать достаточную ширину независимо от каскада / flex
-     поведения, фиксируем явное `min-width: 110px` (больше чем
-     нужно для «Добавить»: 8 char × 8px = 64px + padding 36px).
-     `flex: 0 0 auto` запрещает сжатие. `box-sizing: border-box`
-     явно — на случай если родитель переопределил `content-box`. */
-  flex: 0 0 auto;
-  min-width: 130px;
-  white-space: nowrap;
-  box-sizing: border-box;
-  height: 32px;
-  padding: 0 20px;
-  background: var(--accent-primary);
-  color: var(--text-on-accent, #fff);
-  border: 1px solid transparent;
-  border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
-}
-.archive-games-filters__chip-add:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.archive-games-filters__chip-add:not(:disabled):hover {
-  background: var(--accent-hover, var(--accent-primary));
-}
-.archive-games-filters__chip-add:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  order: 1;
 }
 
 @media (max-width: 600px) {

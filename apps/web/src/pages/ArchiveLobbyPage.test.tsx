@@ -312,4 +312,46 @@ describe('ArchiveLobbyPage — autocomplete по игрокам', () => {
       'Fabiano Caruana',
     ]);
   });
+
+  it('KS-2092: Enter в input при пустом dropdown → имя становится chip-ом', async () => {
+    // searchArchivePlayers возвращает пустой список — dropdown не
+    // подсветит ни одного item'а, activeIdx остаётся -1.
+    mockApi.searchArchivePlayers.mockResolvedValue({ total: 0, items: [] });
+    const user = (await import('@testing-library/user-event')).default.setup();
+
+    renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
+    const input = screen.getByTestId(
+      'archive-player-autocomplete-input',
+    ) as HTMLInputElement;
+
+    await user.type(input, 'Каспаров');
+    // Дождёмся, чтобы debounce-fetch отстрелял (иначе Enter в input
+    // может произойти до setOpen(true) и handleKeyDown вернётся
+    // раньше времени).
+    await waitFor(() =>
+      expect(mockApi.searchArchivePlayers).toHaveBeenCalledWith('Каспаров', 10),
+    );
+    await user.keyboard('{Enter}');
+
+    // raw-значение из input ушло наверх как chip; input очистился.
+    expect(
+      screen.getByTestId('archive-search-form-player-chip-Каспаров'),
+    ).toBeInTheDocument();
+    expect(input.value).toBe('');
+  });
+
+  it('KS-2092: submit с непустым draft (без явного Enter/выбора) → draft уезжает в ?player=', async () => {
+    mockApi.searchArchivePlayers.mockResolvedValue({ total: 0, items: [] });
+    const user = (await import('@testing-library/user-event')).default.setup();
+
+    renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
+    const input = screen.getByTestId('archive-player-autocomplete-input');
+
+    await user.type(input, 'Карпов');
+    // НЕ жмём Enter — сразу submit. Форма должна сама подхватить draft.
+    await user.click(screen.getByTestId('archive-search-form-submit'));
+    const arg = mockNavigate.mock.calls[0][0] as string;
+    const u = new URL(arg, 'http://localhost');
+    expect(u.searchParams.getAll('player')).toEqual(['Карпов']);
+  });
 });

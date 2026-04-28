@@ -275,51 +275,38 @@ export function ArchiveMetadataFilters({
             ))}
           </ul>
         )}
-        <div className="archive-games-filters__chip-input">
-          <input
-            type="text"
-            className="archive-games-filters__input"
-            value={playerInput}
-            onChange={(e) => setPlayerInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                const v = playerInput.trim();
-                if (v.length === 0) return;
-                if (
-                  values.players.some((p) => p.toLowerCase() === v.toLowerCase())
-                ) {
-                  setPlayerInput('');
-                  return;
-                }
-                apply({ players: [...values.players, v] });
-                setPlayerInput('');
-              }
-            }}
-            placeholder={t('archive.games.playerPlaceholder', 'Name…')}
-            data-testid="archive-metadata-filter-player-input"
-          />
-          <button
-            type="button"
-            className="archive-games-filters__chip-add"
-            onClick={() => {
+        {/* KS-2092: кнопка «Add» удалена. Способы добавить chip:
+            — Enter в input (если в нём есть непустой draft);
+            — submit формы (родитель сам подхватит draft, см.
+              ArchiveGamesPage / ArchiveSearchForm).
+            На этой странице (metadata-фильтры в /archive/games) нет
+            явного submit — список перерисовывается на каждое
+            изменение URL. Поэтому здесь Enter — основной триггер. */}
+        <input
+          type="text"
+          className="archive-games-filters__input archive-games-filters__chip-input--solo"
+          value={playerInput}
+          onChange={(e) => setPlayerInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
               const v = playerInput.trim();
               if (v.length === 0) return;
               if (
-                values.players.some((p) => p.toLowerCase() === v.toLowerCase())
+                values.players.some(
+                  (p) => p.toLowerCase() === v.toLowerCase(),
+                )
               ) {
                 setPlayerInput('');
                 return;
               }
               apply({ players: [...values.players, v] });
               setPlayerInput('');
-            }}
-            disabled={playerInput.trim().length === 0}
-            data-testid="archive-metadata-filter-player-add"
-          >
-            {t('archive.games.playerAdd', 'Add')}
-          </button>
-        </div>
+            }
+          }}
+          placeholder={t('archive.games.playerPlaceholder', 'Name…')}
+          data-testid="archive-metadata-filter-player-input"
+        />
       </div>
 
       {/* Event */}

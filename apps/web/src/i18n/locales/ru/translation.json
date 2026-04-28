@@ -1232,7 +1232,6 @@
       "colorBlack": "Чёрные",
       "playerLabel": "Игрок",
       "playerPlaceholder": "Имя…",
-      "playerAdd": "Добавить",
       "playerRemove": "Убрать {{name}}",
       "ecoLabel": "ECO",
       "reachedAt": "достигнута на ходу {{move}}",

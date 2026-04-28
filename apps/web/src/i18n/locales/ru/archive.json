@@ -6,7 +6,6 @@
     "form": {
       "playerLabel": "Игрок",
       "playerPlaceholder": "Имя игрока…",
-      "playerAdd": "Добавить",
       "playerRemove": "Убрать {{name}}",
       "eventLabel": "Турнир",
       "eventPlaceholder": "Название турнира…",

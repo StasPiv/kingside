@@ -20,6 +20,12 @@ interface ArchivePlayerAutocompleteProps {
   onChange: (value: string) => void;
   /** Колбэк выбора — приходит строка `name` игрока (которую и пишем в URL). */
   onSelect?: (selection: { name: string; slug: string }) => void;
+  /**
+   * KS-2092: Enter без выбора из dropdown'а — родитель использует
+   * raw-значение (например, добавляет как chip). Если не задан —
+   * Enter без выбора игнорируется.
+   */
+  onEnterUnselected?: (rawValue: string) => void;
   testIdPrefix?: string;
 }
 
@@ -29,6 +35,7 @@ export function ArchivePlayerAutocomplete({
   value,
   onChange,
   onSelect,
+  onEnterUnselected,
   testIdPrefix = 'archive-player-autocomplete',
 }: ArchivePlayerAutocompleteProps) {
   const { t } = useTranslation('archive');
@@ -61,6 +68,7 @@ export function ArchivePlayerAutocomplete({
       value={value}
       onChange={onChange}
       onSelect={handleSelect}
+      onEnterUnselected={onEnterUnselected}
       loader={loader}
       placeholder={t('lobby.form.playerPlaceholder', 'Player name…')}
       label={t('lobby.form.playerLabel', 'Player')}

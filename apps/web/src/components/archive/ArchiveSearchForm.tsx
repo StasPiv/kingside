@@ -162,22 +162,17 @@ export function ArchiveSearchForm() {
               ))}
             </ul>
           )}
-          <div className="archive-games-filters__chip-input">
-            <ArchivePlayerAutocomplete
-              value={playerDraft}
-              onChange={setPlayerDraft}
-              onSelect={(sel) => addPlayer(sel.name)}
-            />
-            <button
-              type="button"
-              className="archive-games-filters__chip-add"
-              onClick={() => addPlayer(playerDraft)}
-              disabled={playerDraft.trim().length === 0}
-              data-testid="archive-search-form-player-add"
-            >
-              {t('lobby.form.playerAdd', 'Add')}
-            </button>
-          </div>
+          {/* KS-2092: кнопка «Add» удалена. Способы добавить chip:
+              — выбрать игрока из dropdown'а autocomplete'а;
+              — нажать Enter в input (если в нём непустой draft) —
+                см. onEnterUnselected в ArchiveAutocomplete;
+              — submit формы — handleSubmit подхватит draft. */}
+          <ArchivePlayerAutocomplete
+            value={playerDraft}
+            onChange={setPlayerDraft}
+            onSelect={(sel) => addPlayer(sel.name)}
+            onEnterUnselected={addPlayer}
+          />
         </div>
 
         <ArchiveEventAutocomplete

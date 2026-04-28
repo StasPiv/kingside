@@ -57,6 +57,14 @@ interface ArchiveAutocompleteProps {
   testIdPrefix: string;
   /** Дополнительный className. */
   className?: string;
+  /**
+   * KS-2092: колбэк на Enter, когда в dropdown'е НЕТ подсвеченного
+   * item'а (`activeIdx === -1`). Используется для chips-полей: если
+   * пользователь напечатал имя, dropdown пуст / не выбран — Enter
+   * добавляет raw-значение как chip. Если не передан — Enter без
+   * выбора игнорируется (поведение по умолчанию).
+   */
+  onEnterUnselected?: (rawValue: string) => void;
 }
 
 export function ArchiveAutocomplete({
@@ -68,6 +76,7 @@ export function ArchiveAutocomplete({
   label,
   testIdPrefix,
   className,
+  onEnterUnselected,
 }: ArchiveAutocompleteProps) {
   const { t } = useTranslation('archive');
   const [items, setItems] = useState<ArchiveAutocompleteItem[]>([]);
@@ -168,6 +177,14 @@ export function ArchiveAutocomplete({
       if (activeIdx >= 0 && activeIdx < items.length) {
         e.preventDefault();
         handleSelect(items[activeIdx]);
+      } else if (onEnterUnselected) {
+        // KS-2092: dropdown пуст или ничего не подсвечено — отдаём
+        // сырое значение наверх (родитель добавит как chip).
+        const raw = value.trim();
+        if (raw.length > 0) {
+          e.preventDefault();
+          onEnterUnselected(raw);
+        }
       }
     } else if (e.key === 'Escape') {
       setOpen(false);
