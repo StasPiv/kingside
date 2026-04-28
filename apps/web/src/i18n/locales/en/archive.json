@@ -15,6 +15,46 @@
   },
   "gamePage": {
     "title": "Archive game",
-    "placeholder": "TODO: F4 — single archive game {{id}}"
+    "breadcrumb": "Archive",
+    "loading": "Loading the game…",
+    "loadError": "Failed to load the game. Try refreshing the page.",
+    "noMoves": "No moves recorded for this game.",
+    "moveNavLabel": "Move navigation",
+    "notFound": {
+      "title": "Game not found",
+      "description": "The requested game does not exist or has been removed.",
+      "backToArchive": "Back to archive"
+    },
+    "meta": {
+      "white": "White",
+      "black": "Black",
+      "result": "Result",
+      "event": "Event",
+      "round": "Round",
+      "date": "Date",
+      "eco": "ECO",
+      "opening": "Opening"
+    },
+    "nav": {
+      "first": "First move",
+      "prev": "Previous move",
+      "next": "Next move",
+      "last": "Last move"
+    },
+    "actions": {
+      "openInAnalysis": "Open in analysis",
+      "findSimilar": "Find similar",
+      "copyPgn": "Copy PGN",
+      "copied": "PGN copied",
+      "copyError": "Could not copy PGN"
+    },
+    "otherGames": {
+      "toggle": "Other games with this position",
+      "loading": "Loading…",
+      "error": "Could not load similar games. Try again.",
+      "empty": "No other games found at this position.",
+      "seeAll": "See all →",
+      "seeAll_count": "See all (≈ {{count}}) →"
+    }
   }
 }
