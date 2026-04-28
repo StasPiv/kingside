@@ -222,26 +222,44 @@ LIMIT $2;
 
 #### 4.4.6 Профиль игрока — материализованный view
 
-`archive_player_stats` — MV поверх `archive_players` × `archive_games`:
+`archive_player_stats` — MV поверх `archive_players` × `archive_games`. Финальный SQL из миграции `20260428000001_archive_players_events_mv` (KS-2064):
+
 ```sql
 CREATE MATERIALIZED VIEW archive_player_stats AS
 SELECT
   p.slug,
-  COUNT(*) AS games_count,
-  COUNT(*) FILTER (WHERE g.white_name = p.name_canonical) AS games_white,
-  COUNT(*) FILTER (WHERE g.black_name = p.name_canonical) AS games_black,
-  COUNT(*) FILTER (WHERE result_for_player(g, p) = 'win') AS wins,
-  COUNT(*) FILTER (WHERE result_for_player(g, p) = 'draw') AS draws,
-  COUNT(*) FILTER (WHERE result_for_player(g, p) = 'loss') AS losses,
-  MAX(GREATEST(COALESCE(g.white_elo, 0), COALESCE(g.black_elo, 0))) AS peak_elo,
+  COUNT(*)::int AS games_count,
+  COUNT(*) FILTER (WHERE g.white_name = p.name_canonical)::int AS games_white,
+  COUNT(*) FILTER (WHERE g.black_name = p.name_canonical)::int AS games_black,
+  COUNT(*) FILTER (
+    WHERE (g.white_name = p.name_canonical AND g.result = '1-0')
+       OR (g.black_name = p.name_canonical AND g.result = '0-1')
+  )::int AS wins,
+  COUNT(*) FILTER (WHERE g.result = '1/2-1/2')::int AS draws,
+  COUNT(*) FILTER (
+    WHERE (g.white_name = p.name_canonical AND g.result = '0-1')
+       OR (g.black_name = p.name_canonical AND g.result = '1-0')
+  )::int AS losses,
+  MAX(
+    CASE
+      WHEN g.white_name = p.name_canonical THEN g.white_elo
+      WHEN g.black_name = p.name_canonical THEN g.black_elo
+      ELSE NULL
+    END
+  ) AS peak_elo,
   MIN(g.played_at) AS first_seen_at,
   MAX(g.played_at) AS last_seen_at
 FROM archive_players p
-JOIN archive_games g ON (g.white_name = p.name_canonical OR g.black_name = p.name_canonical)
+JOIN archive_games g
+  ON g.white_name = p.name_canonical OR g.black_name = p.name_canonical
 GROUP BY p.slug;
 
 CREATE UNIQUE INDEX ON archive_player_stats (slug);
 ```
+
+**Заметка о `peak_elo`.** В ранней редакции этого ADR был шорткат `MAX(GREATEST(white_elo, black_elo))` — это баг: в партии, где соперник сильнее, MAX вернул бы его elo, а не игрока. Профиль «Magnus Carlsen, peak ~2900» оказывался бы elo соперника. Реализовано через `CASE WHEN ... THEN white_elo ELSE black_elo` — берём elo стороны самого игрока. `result_for_player(g, p)` тоже был концептуальным плейсхолдером — развёрнут в inline-`CASE` через сравнение `name_canonical` × `result`.
+
+UNIQUE INDEX на `slug` обязателен для `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
 
 `REFRESH MATERIALIZED VIEW CONCURRENTLY archive_player_stats` — после каждого успешного импорта (нагрузка ~10-30s на корпусе 250k, асинхронно). На 5M+ — оценим, возможно перейдём на инкрементальные триггеры; в Phase B пересмотр.
 
