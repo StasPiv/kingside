@@ -33,6 +33,7 @@ import { LessonsModule } from './lessons/lessons.module';
 import { MistakesModule } from './puzzle/mistakes.module';
 import { UserCoursesModule } from './lessons/user-courses/user-courses.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
+import { ProfileModule } from './profile/profile.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -79,6 +80,7 @@ import { HealthController } from './health.controller';
     MistakesModule,
     UserCoursesModule,
     FeatureFlagsModule,
+    ProfileModule,
   ],
 })
 export class AppModule implements NestModule {

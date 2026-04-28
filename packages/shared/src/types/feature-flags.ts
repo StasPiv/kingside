@@ -34,3 +34,21 @@ export interface UpdateFeatureFlagResponse {
   value: boolean;
   updatedAt: string;
 }
+
+/**
+ * KS-2108: элемент списка флагов на админ-странице.
+ * `updatedAt` null если запись ещё не сидена (теоретически невозможно
+ * после bootstrap, но защищаем тип).
+ */
+export interface AdminFeatureFlagItem {
+  key: keyof FeatureFlags;
+  value: boolean;
+  defaultValue: boolean;
+  description: string | null;
+  updatedAt: string | null;
+}
+
+/** KS-2108: ответ `GET /api/profile/me/admin-status`. */
+export interface AdminStatusResponse {
+  isAdmin: boolean;
+}

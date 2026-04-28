@@ -28,6 +28,21 @@ export const KNOWN_FEATURE_FLAGS: FeatureFlags = {
   lessonsEnabled: true,
 };
 
+/**
+ * KS-2108: метаданные ключей для админ-UI (`GET /admin/feature-flags`).
+ * Описания на русском (UI-язык админки), без перевода — добавится по
+ * мере необходимости.
+ */
+export const FEATURE_FLAG_METADATA: Record<
+  keyof FeatureFlags,
+  { description: string }
+> = {
+  lessonsEnabled: {
+    description:
+      'Показывать раздел «Уроки» в UI и пускать на /lessons*. Аварийный rollback — выключить.',
+  },
+};
+
 /** Имена ключей — типобезопасный массив для итерирования. */
 export const FEATURE_FLAG_KEYS = Object.keys(KNOWN_FEATURE_FLAGS) as Array<
   keyof FeatureFlags
@@ -103,6 +118,22 @@ export class FeatureFlagsService implements OnApplicationBootstrap {
   /** Сбрасывает кэш — следующий getFlags() сделает SELECT. */
   invalidateCache(): void {
     this.cache = null;
+  }
+
+  /**
+   * KS-2108: возвращает map ключ → updatedAt для admin-UI. Не-known
+   * ключи фильтруются. Не использует кэш — админский endpoint редко
+   * вызывается, хотим всегда видеть актуальный updatedAt после смены.
+   */
+  async listWithMetadata(): Promise<Map<keyof FeatureFlags, Date>> {
+    const rows = await this.prisma.featureFlag.findMany();
+    const out = new Map<keyof FeatureFlags, Date>();
+    for (const row of rows) {
+      if (FEATURE_FLAG_KEYS.includes(row.key as keyof FeatureFlags)) {
+        out.set(row.key as keyof FeatureFlags, row.updatedAt);
+      }
+    }
+    return out;
   }
 
   /** Видимость для тестов — TTL ms по умолчанию (60000). */

@@ -8,6 +8,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
 import { FacebookStrategy } from './facebook.strategy';
 import { AdminEmailGuard } from './admin-email.guard';
+import { AdminUserGuard, AdminUserService } from './admin-user.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
@@ -32,7 +33,18 @@ import { PrismaModule } from '../prisma/prisma.module';
     // KS-1963: AdminEmailGuard — для @UseGuards в admin-роутах
     // (`/lessons/admin/*`, см. концепт KS-1962 §4).
     AdminEmailGuard,
+    // KS-2108: AdminUserGuard / AdminUserService — whitelist по username
+    // из KS_ADMIN_USERS env. Используется для админ-страницы feature flags
+    // и `/profile/me/admin-status`.
+    AdminUserGuard,
+    AdminUserService,
   ],
-  exports: [AuthService, JwtModule, AdminEmailGuard],
+  exports: [
+    AuthService,
+    JwtModule,
+    AdminEmailGuard,
+    AdminUserGuard,
+    AdminUserService,
+  ],
 })
 export class AuthModule {}

@@ -12,7 +12,7 @@ import { AdminFeatureFlagsController } from './admin-feature-flags.controller';
 import { ConfigController } from './config.controller';
 import { FeatureFlagsService } from './feature-flags.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminEmailGuard } from '../auth/admin-email.guard';
+import { AdminUserGuard } from '../auth/admin-user.guard';
 
 class AllowGuard implements CanActivate {
   canActivate(): boolean {
@@ -32,7 +32,7 @@ function makeApp(opts: { admin: boolean; auth: boolean; svc: Partial<FeatureFlag
   })
     .overrideGuard(JwtAuthGuard)
     .useValue(opts.auth ? new AllowGuard() : new DenyGuard())
-    .overrideGuard(AdminEmailGuard)
+    .overrideGuard(AdminUserGuard)
     .useValue(opts.admin ? new AllowGuard() : new DenyGuard())
     .compile()
     .then(async (mod) => {
@@ -128,5 +128,41 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
     });
     const res = await request(app.getHttpServer()).get('/config').expect(200);
     expect(res.body).toEqual({ featureFlags: { lessonsEnabled: true } });
+  });
+
+  it('GET /admin/feature-flags под админом → список с метаданными (KS-2108)', async () => {
+    const updatedAt = new Date('2026-04-28T12:00:00Z');
+    app = await makeApp({
+      admin: true,
+      auth: true,
+      svc: {
+        getFlags: jest.fn(async () => ({ lessonsEnabled: false })),
+        listWithMetadata: jest.fn(async () =>
+          new Map<'lessonsEnabled', Date>([['lessonsEnabled', updatedAt]]),
+        ),
+      } as never,
+    });
+    const res = await request(app.getHttpServer())
+      .get('/admin/feature-flags')
+      .expect(200);
+
+    expect(res.body).toEqual([
+      {
+        key: 'lessonsEnabled',
+        value: false,
+        defaultValue: true,
+        description: expect.stringContaining('Уроки'),
+        updatedAt: '2026-04-28T12:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('GET /admin/feature-flags под не-админом → 403', async () => {
+    app = await makeApp({
+      admin: false,
+      auth: true,
+      svc: { listWithMetadata: jest.fn() } as never,
+    });
+    await request(app.getHttpServer()).get('/admin/feature-flags').expect(403);
   });
 });
