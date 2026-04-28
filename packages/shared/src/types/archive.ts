@@ -61,6 +61,15 @@ export type ArchiveTreeResponse = {
 
 // ─── Games list ──────────────────────────────────────────────────────
 
+/**
+ * Sort order for GET /api/archive/games (metadata list — без FEN-привязки).
+ *
+ * Отдельный тип от {@link ArchiveGamesSort} (by-position): для metadata-листа
+ * имеет смысл `oldest` (исторический просмотр), а в by-position — нет
+ * (отбираемый набор слишком большой и сортировка по возрасту бесполезна).
+ */
+export type ArchiveGamesSortMetadata = 'recent' | 'topElo' | 'oldest';
+
 /** GET /api/archive/games */
 export type ArchiveGamesRequest = {
   /** Only games that reached this FEN. */
@@ -81,6 +90,16 @@ export type ArchiveGamesRequest = {
   result?: ArchiveGameResult;
   /** ISO date — include only games played on/after this date. */
   since?: string;
+  /** ISO date — include only games played on/before this date. */
+  until?: string;
+  /** Event name filter (substring or exact — backend defines). */
+  event?: string;
+  /** Minimum number of plies (half-moves) in the game. */
+  minPly?: number;
+  /** Maximum number of plies (half-moves) in the game. */
+  maxPly?: number;
+  /** Sort order — defaults to `recent` server-side. */
+  sort?: ArchiveGamesSortMetadata;
   /** Page size. */
   limit?: number;
   /** Page offset. */
@@ -195,6 +214,133 @@ export type ArchiveGamesByPositionResponse = {
    * «Позиция за пределами индекса» вместо обманчивого бейджа «≈N партий».
    */
   totalApprox: number | null;
+};
+
+// ─── Players ─────────────────────────────────────────────────────────
+//
+// `slug` — нормализованный URL-safe идентификатор игрока (ADR-033 §4.4),
+// уникален в нормализованной таблице `archive_players`. Используется в
+// path-параметрах эндпоинтов профиля/партий, чтобы устойчиво пережить
+// переименования отображаемого `name`.
+
+/** Краткая карточка игрока — для autocomplete и списков. */
+export type ArchivePlayerSummary = {
+  name: string;
+  slug: string;
+  gamesCount: number;
+  peakElo: number | null;
+};
+
+/** Полный профиль игрока — для страницы /archive/players/:slug. */
+export type ArchivePlayerProfile = {
+  name: string;
+  slug: string;
+  gamesCount: number;
+  peakElo: number | null;
+  /** Распределение партий по цвету. */
+  byColor: {
+    white: number;
+    black: number;
+  };
+  /** Распределение результатов с точки зрения игрока. */
+  byResult: {
+    wins: number;
+    draws: number;
+    losses: number;
+  };
+  /** ISO date первой партии в архиве (или null, если у всех партий нет даты). */
+  firstSeenAt: string | null;
+  /** ISO date последней партии в архиве. */
+  lastSeenAt: string | null;
+};
+
+/** GET /api/archive/players?q=... */
+export type ArchivePlayerSearchRequest = {
+  /** Поисковый запрос — substring/prefix match по `name`. */
+  q: string;
+  /** Page size. */
+  limit?: number;
+  /** Page offset. */
+  offset?: number;
+};
+
+export type ArchivePlayerSearchResponse = {
+  total: number;
+  items: ArchivePlayerSummary[];
+};
+
+/** GET /api/archive/players/:slug */
+export type ArchivePlayerProfileResponse = ArchivePlayerProfile;
+
+/** GET /api/archive/players/:slug/games */
+export type ArchivePlayerGamesRequest = {
+  /** Slug игрока (path-параметр; включён в тип для типизации клиента). */
+  slug: string;
+  /** Фильтр по цвету игрока в партии. */
+  color?: 'white' | 'black' | 'any';
+  /** Result filter (с точки зрения сторон, не игрока). */
+  result?: ArchiveGameResult;
+  /** ECO code filter, e.g. "B90". */
+  eco?: string;
+  /** Event name filter. */
+  event?: string;
+  /** Minimum Elo of both players. */
+  minElo?: number;
+  /** ISO date — include only games played on/after this date. */
+  since?: string;
+  /** ISO date — include only games played on/before this date. */
+  until?: string;
+  /** Minimum number of plies (half-moves) in the game. */
+  minPly?: number;
+  /** Maximum number of plies (half-moves) in the game. */
+  maxPly?: number;
+  /** Sort order — defaults to `recent` server-side. */
+  sort?: ArchiveGamesSortMetadata;
+  /** Page size. */
+  limit?: number;
+  /** Page offset. */
+  offset?: number;
+};
+
+/** Игра в списке партий игрока — `playerColor` указывает, за какой цвет он играл. */
+export type ArchivePlayerGameItem = ArchiveGameSummary & {
+  playerColor: 'white' | 'black';
+};
+
+export type ArchivePlayerGamesResponse = {
+  total: number;
+  items: ArchivePlayerGameItem[];
+};
+
+// ─── Events ──────────────────────────────────────────────────────────
+//
+// `slug` — нормализованный URL-safe идентификатор турнира/события (ADR-033
+// §4.4), уникален в нормализованной таблице `archive_events`.
+
+/** Краткая карточка события — для autocomplete и списков. */
+export type ArchiveEventSummary = {
+  name: string;
+  slug: string;
+  gamesCount: number;
+  /** ISO date первой партии события (или null, если у всех партий нет даты). */
+  firstDate: string | null;
+  /** ISO date последней партии события. */
+  lastDate: string | null;
+};
+
+/** GET /api/archive/events?q=... */
+export type ArchiveEventSearchRequest = {
+  /** Поисковый запрос — substring/prefix match по `name`. */
+  q: string;
+  /** Page size. */
+  limit?: number;
+  /** Page offset. */
+  offset?: number;
+};
+
+export type ArchiveEventSearchResponse = {
+  total: number;
+  items: ArchiveEventSummary[];
 };
 
 // ─── Source admin ────────────────────────────────────────────────────
