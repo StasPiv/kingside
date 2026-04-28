@@ -592,10 +592,15 @@
   text-decoration: underline;
 }
 
+/* KS-2103: panel-body engine'а (multi-PV строки) ограничен max-height
+   c внутренним скроллом — длинные PV-строки больше не растягивают
+   sidebar. modifier `--scroll` ниже остаётся как был (moves: flex:1
+   снаружи, scroll внутри). */
 .analysis-panel-body {
   padding: 10px 12px;
   background: var(--c-0f172a);
-  overflow: hidden;
+  overflow-y: auto;
+  max-height: 240px;
 }
 
 .analysis-panel-body--scroll {
@@ -603,6 +608,10 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  /* KS-2103: переопределяет max-height с base `.analysis-panel-body` —
+     для moves-panel внешняя высота определяется flex:1 в sidebar'е,
+     а внутри уже скролл. */
+  max-height: none;
   overflow-y: auto;
   padding: 0;
   scrollbar-gutter: stable;
@@ -2241,6 +2250,12 @@
    (KS-1583, components from KS-1582). Visually matches Engine & Moves panels.
    ========================================================================== */
 
+/* KS-2103: tree-panel в analysis-sidebar — фиксированная max-height
+   с внутренним скроллом таблицы. Раньше при разворачивании дерева
+   панель росла на всю высоту контента (сотни ходов из мастер-базы),
+   и нижние блоки (moves, game-report) выталкивались за viewport.
+   Теперь tree-panel максимум 360px по высоте: header 40 + body ≤ 320,
+   таблица скроллится внутри body. */
 .archive-tree-panel {
   display: flex;
   flex-direction: column;
@@ -2250,6 +2265,7 @@
   overflow: hidden;
   flex-shrink: 0;
   margin-bottom: 8px;
+  max-height: 360px;
 }
 
 .archive-tree-panel__header {
@@ -2305,7 +2321,11 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  overflow: hidden;
+  /* KS-2103: вертикальный скролл внутри body — таблица ходов не
+     растягивает контейнер. min-height: 0 нужен в flex-column родителе. */
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* Bucket select (Masters / Lichess 2000+ / All) — compact pill.
