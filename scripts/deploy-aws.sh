@@ -194,19 +194,32 @@ ensure_main_synced() {
         echo "[pre-deploy] main already at origin/main (${remote_sha:0:7})"
         return 0
     fi
-    # Strict fast-forward; если локально есть коммиты, которых нет в origin/main — фейл.
-    if ! git -C "$REPO_DIR" merge-base --is-ancestor HEAD origin/main; then
-        echo "[pre-deploy] ERROR: local main has commits not in origin/main." >&2
-        echo "[pre-deploy] Local HEAD ${local_sha:0:7}, origin/main ${remote_sha:0:7}." >&2
-        echo "[pre-deploy] Push or rebase before deploy, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
-        exit 1
+    # Случай 1: HEAD — предок origin/main → fast-forward подтянет remote.
+    if git -C "$REPO_DIR" merge-base --is-ancestor HEAD origin/main; then
+        echo "[pre-deploy] fast-forward main: ${local_sha:0:7} → ${remote_sha:0:7}"
+        if ! git -C "$REPO_DIR" merge --ff-only --quiet origin/main; then
+            echo "[pre-deploy] ERROR: fast-forward merge failed (likely local edits conflict with incoming changes)." >&2
+            echo "[pre-deploy] Stash conflicting files manually, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
+            exit 1
+        fi
+        return 0
     fi
-    echo "[pre-deploy] fast-forward main: ${local_sha:0:7} → ${remote_sha:0:7}"
-    if ! git -C "$REPO_DIR" merge --ff-only --quiet origin/main; then
-        echo "[pre-deploy] ERROR: fast-forward merge failed (likely local edits conflict with incoming changes)." >&2
-        echo "[pre-deploy] Stash conflicting files manually, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
-        exit 1
+    # Случай 2: origin/main — предок HEAD → локально уже впереди (есть коммиты,
+    # которые ещё не запушены, например агентские). Деплоим локальный HEAD.
+    # Это нормально для нашего workflow: агенты коммитят в main локально,
+    # пользователь пушит позже.
+    if git -C "$REPO_DIR" merge-base --is-ancestor origin/main HEAD; then
+        local ahead
+        ahead="$(git -C "$REPO_DIR" rev-list --count "origin/main..HEAD")"
+        echo "[pre-deploy] local main is ahead of origin/main by $ahead commit(s) (${remote_sha:0:7} → ${local_sha:0:7})"
+        echo "[pre-deploy] deploying local HEAD; push to origin when convenient"
+        return 0
     fi
+    # Случай 3: ветки разошлись — fail.
+    echo "[pre-deploy] ERROR: local main and origin/main have diverged." >&2
+    echo "[pre-deploy] Local HEAD ${local_sha:0:7}, origin/main ${remote_sha:0:7}." >&2
+    echo "[pre-deploy] Rebase manually, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
+    exit 1
 }
 ensure_main_synced
 
