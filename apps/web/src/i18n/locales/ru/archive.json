@@ -2,7 +2,53 @@
   "menuTitle": "Архив",
   "lobby": {
     "title": "Архив партий",
-    "placeholder": "TODO: F1 — лобби архива (поиск, недавние партии)"
+    "subtitle": "Ищите среди мастер-партий и собственных импортированных PGN.",
+    "form": {
+      "playerLabel": "Игрок",
+      "playerPlaceholder": "Имя игрока…",
+      "eventLabel": "Турнир",
+      "eventPlaceholder": "Название турнира…",
+      "ecoLabel": "ECO",
+      "sinceYearLabel": "С года",
+      "untilYearLabel": "По год",
+      "resultLabel": "Результат",
+      "resultAny": "Любой",
+      "resultWhite": "Победа белых",
+      "resultBlack": "Победа чёрных",
+      "resultDraw": "Ничья",
+      "minEloLabel": "Мин. Эло",
+      "minEloAny": "Любое",
+      "sortLabel": "Сортировка",
+      "sortRecent": "По дате",
+      "sortTopElo": "По Эло",
+      "sortOldest": "Сначала старые",
+      "submit": "Найти",
+      "reset": "Сбросить"
+    },
+    "autocomplete": {
+      "loading": "Загружаем…",
+      "empty": "Ничего не найдено",
+      "error": "Не удалось загрузить подсказки",
+      "playerMeta_one": "{{count}} партия",
+      "playerMeta_few": "{{count}} партии",
+      "playerMeta_many": "{{count}} партий",
+      "playerMeta_other": "{{count}} партий",
+      "eventGames_one": "{{count}} партия",
+      "eventGames_few": "{{count}} партии",
+      "eventGames_many": "{{count}} партий",
+      "eventGames_other": "{{count}} партий"
+    },
+    "recent": {
+      "title": "Последние партии",
+      "empty": "В архиве пока нет партий.",
+      "error": "Не удалось загрузить последние партии",
+      "retry": "Повторить"
+    },
+    "byPosition": {
+      "title": "Поиск по позиции",
+      "description": "Расставьте позицию на доске и найдите все партии в архиве, которые её достигли.",
+      "cta": "Открыть анализ →"
+    }
   },
   "games": {
     "title": "Партии в архиве",

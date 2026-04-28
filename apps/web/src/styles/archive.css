@@ -806,6 +806,187 @@
 }
 
 /* ==========================================================================
+   KS-2067 (F1): /archive — lobby (search form + recent + by-position CTA)
+   ========================================================================== */
+
+.archive-lobby-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.archive-lobby__header h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+}
+.archive-lobby__subtitle {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.archive-lobby__section-title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.archive-lobby__search-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.archive-lobby__search-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.archive-lobby__search-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.archive-lobby__search-submit {
+  padding: 10px 18px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent, #fff);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.archive-lobby__search-submit:hover {
+  background: var(--accent-primary-hover, var(--accent-primary));
+}
+.archive-lobby__search-reset {
+  padding: 10px 14px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+.archive-lobby__search-reset:hover {
+  background: var(--bg-muted);
+}
+
+.archive-lobby__by-position {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-primary);
+  border-radius: 12px;
+  flex-wrap: wrap;
+}
+.archive-lobby__by-position-text h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.archive-lobby__by-position-text p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.archive-lobby__by-position-cta {
+  padding: 10px 18px;
+  background: var(--accent-primary);
+  color: var(--text-on-accent, #fff);
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+}
+.archive-lobby__by-position-cta:hover {
+  background: var(--accent-primary-hover, var(--accent-primary));
+}
+
+/* Autocomplete */
+.archive-autocomplete {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.archive-autocomplete__dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  list-style: none;
+  z-index: 50;
+  max-height: 280px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.archive-autocomplete__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.archive-autocomplete__item--active,
+.archive-autocomplete__item:hover {
+  background: var(--bg-muted);
+}
+.archive-autocomplete__label {
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.archive-autocomplete__meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.archive-autocomplete__hint {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.archive-autocomplete__hint--error {
+  color: var(--danger);
+}
+
+@media (max-width: 700px) {
+  .archive-lobby__by-position {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+/* ==========================================================================
    KS-2069 (F3): /archive/players/:slug — profile + games
    ========================================================================== */
 

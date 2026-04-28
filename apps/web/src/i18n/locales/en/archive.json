@@ -2,7 +2,49 @@
   "menuTitle": "Archive",
   "lobby": {
     "title": "Game Archive",
-    "placeholder": "TODO: F1 — archive lobby (search, recent games)"
+    "subtitle": "Search through master games and your imported PGNs.",
+    "form": {
+      "playerLabel": "Player",
+      "playerPlaceholder": "Player name…",
+      "eventLabel": "Event",
+      "eventPlaceholder": "Tournament name…",
+      "ecoLabel": "ECO",
+      "sinceYearLabel": "From year",
+      "untilYearLabel": "To year",
+      "resultLabel": "Result",
+      "resultAny": "Any",
+      "resultWhite": "White wins",
+      "resultBlack": "Black wins",
+      "resultDraw": "Draw",
+      "minEloLabel": "Min Elo",
+      "minEloAny": "Any",
+      "sortLabel": "Sort",
+      "sortRecent": "Recent",
+      "sortTopElo": "Top Elo",
+      "sortOldest": "Oldest first",
+      "submit": "Search",
+      "reset": "Reset"
+    },
+    "autocomplete": {
+      "loading": "Loading…",
+      "empty": "Nothing found",
+      "error": "Could not load suggestions",
+      "playerMeta_one": "{{count}} game",
+      "playerMeta_other": "{{count}} games",
+      "eventGames_one": "{{count}} game",
+      "eventGames_other": "{{count}} games"
+    },
+    "recent": {
+      "title": "Recent games",
+      "empty": "No games in the archive yet.",
+      "error": "Failed to load recent games",
+      "retry": "Retry"
+    },
+    "byPosition": {
+      "title": "Search by position",
+      "description": "Set up a position on the board and find every game in the archive that reached it.",
+      "cta": "Open the analysis board →"
+    }
   },
   "games": {
     "title": "Archive games",
