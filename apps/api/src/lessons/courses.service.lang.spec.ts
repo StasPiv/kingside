@@ -132,6 +132,8 @@ function makePrisma(state: {
     updatedAt: Date;
     stepsState: Record<string, string>;
   }>;
+  /** KS-2101: locale пользователя из настроек профиля. Default 'ru'. */
+  userLocale?: string;
 }) {
   return {
     course: {
@@ -203,7 +205,14 @@ function makePrisma(state: {
       findMany: jest.fn(async () => []),
     },
     user: {
-      findUnique: jest.fn(async () => ({ ratingPuzzle: 1000 })),
+      findUnique: jest.fn(async (args: { select?: Record<string, boolean> }) => {
+        // KS-2101: resolveUserLocale зовёт select:{locale:true};
+        // recommendLevel зовёт select:{ratingPuzzle:true}.
+        if (args?.select?.locale) {
+          return { locale: state.userLocale ?? 'ru' };
+        }
+        return { ratingPuzzle: 1000 };
+      }),
     },
   } as unknown as PrismaService;
 }
@@ -237,36 +246,50 @@ describe('CoursesService — KS-2095 lang filter', () => {
     return { courses, lessons };
   }
 
-  it('listCourses(lang=ru) возвращает только RU-курс', async () => {
+  // KS-2101: lang теперь берётся из User.locale в БД, а не из аргумента
+  // listCourses/getCourseBySlug. В тестах подменяем `userLocale` через
+  // фабрику mock-prisma. Anonymous (userId=null) → 'ru' fallback.
+
+  it('listCourses() для anonymous → RU (fallback)', async () => {
     const prisma = makePrisma(setupTwoLangCourses());
     const svc = new CoursesService(prisma);
-    const res = await svc.listCourses(null, 'ru');
+    const res = await svc.listCourses(null);
     expect(res.data).toHaveLength(1);
     expect(res.data[0].id).toBe(ROOT_ID);
   });
 
-  it('listCourses(lang=en) возвращает только EN-курс', async () => {
-    const prisma = makePrisma(setupTwoLangCourses());
+  it('listCourses() для пользователя с locale=en → только EN-курс', async () => {
+    const prisma = makePrisma({ ...setupTwoLangCourses(), userLocale: 'en' });
     const svc = new CoursesService(prisma);
-    const res = await svc.listCourses(null, 'en');
+    const res = await svc.listCourses('u1');
     expect(res.data).toHaveLength(1);
     expect(res.data[0].id).toBe(CHILD_ID);
   });
 
-  it('listCourses(lang=fr) возвращает пустой список (нет FR-варианта)', async () => {
-    const prisma = makePrisma(setupTwoLangCourses());
+  it('listCourses() для пользователя с locale=ru → только RU-курс', async () => {
+    const prisma = makePrisma({ ...setupTwoLangCourses(), userLocale: 'ru' });
     const svc = new CoursesService(prisma);
-    const res = await svc.listCourses(null, 'fr');
-    expect(res.data).toHaveLength(0);
+    const res = await svc.listCourses('u1');
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].id).toBe(ROOT_ID);
   });
 
-  it('getCourseBySlug(slug, lang=fr) → 404 если только RU-вариант есть', async () => {
+  it('listCourses() с locale="fr" в профиле → fallback на RU (whitelist)', async () => {
+    const prisma = makePrisma({ ...setupTwoLangCourses(), userLocale: 'fr' });
+    const svc = new CoursesService(prisma);
+    const res = await svc.listCourses('u1');
+    expect(res.data).toHaveLength(1);
+    expect(res.data[0].id).toBe(ROOT_ID);
+  });
+
+  it('getCourseBySlug → 404 если на языке профиля курса нет', async () => {
     const prisma = makePrisma({
       courses: [baseCourse({ id: ROOT_ID, slug: 'opening-basics', lang: 'ru' })],
       lessons: [],
+      userLocale: 'en',
     });
     const svc = new CoursesService(prisma);
-    await expect(svc.getCourseBySlug('opening-basics', null, 'fr')).rejects.toBeInstanceOf(
+    await expect(svc.getCourseBySlug('opening-basics', 'u1')).rejects.toBeInstanceOf(
       NotFoundException,
     );
   });
@@ -277,6 +300,7 @@ describe('CoursesService — KS-2095 lang filter', () => {
     const updatedAt = new Date('2024-06-01');
     const prisma = makePrisma({
       ...setupTwoLangCourses(),
+      userLocale: 'en',
       userCourseProgress: [
         {
           userId,
@@ -301,8 +325,8 @@ describe('CoursesService — KS-2095 lang filter', () => {
     });
     const svc = new CoursesService(prisma);
 
-    // Запрашиваем EN-курс — прогресс должен подтянуться через root.
-    const res = await svc.listCourses(userId, 'en');
+    // Пользователь с locale=en → выдача EN-курс, прогресс через root.
+    const res = await svc.listCourses(userId);
     expect(res.data).toHaveLength(1);
     expect(res.data[0].id).toBe(CHILD_ID);
     expect(res.data[0].progress).not.toBeNull();

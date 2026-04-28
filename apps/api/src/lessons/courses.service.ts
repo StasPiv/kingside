@@ -27,15 +27,15 @@ export class CoursesService {
    * и `currentLesson*` (первый незавершённый урок по `order` ASC) —
    * нужно для Hero Variant B на странице «Уроки».
    *
-   * KS-2095: фильтр по `lang` (default 'ru'). Возвращаются только курсы
-   * на запрошенном языке. Для прогресса используется `parentCourseId`
-   * как канонический ключ — пользователь, начавший RU-курс и переключивший
-   * UI на EN, видит свой прогресс на EN-варианте.
+   * KS-2095: фильтр по `lang` (RU/EN). KS-2101: язык берётся из
+   * `User.locale` (PATCH /users/me/settings) — query/header игнорируются,
+   * source of truth — настройка профиля. Для anonymous пользователей —
+   * fallback 'ru'.
+   * Прогресс хранится по `parentCourseId` (root) — переключение языка
+   * не сбрасывает прогресс пользователя.
    */
-  async listCourses(
-    userId: string | null,
-    lang: string = 'ru',
-  ): Promise<CourseListResponse> {
+  async listCourses(userId: string | null): Promise<CourseListResponse> {
+    const lang = await this.resolveUserLocale(userId);
     const courses = await this.prisma.course.findMany({
       where: { isPublished: true, lang },
       orderBy: [{ level: 'asc' }, { order: 'asc' }],
@@ -197,14 +197,15 @@ export class CoursesService {
 
   /**
    * GET /api/lessons/courses/:slug — курс с блоками и уроками.
-   * KS-2095: lang — обязателен для резолвинга slug. Если запрошенный
-   * slug существует только на другом языке — 404.
+   * KS-2095/KS-2101: lang берётся из настроек профиля
+   * (`User.locale`, default 'ru' для anonymous). Если запрошенный slug
+   * существует только на другом языке — 404.
    */
   async getCourseBySlug(
     slug: string,
     userId: string | null,
-    lang: string = 'ru',
   ): Promise<CourseWithLessonsResponse> {
+    const lang = await this.resolveUserLocale(userId);
     const course = await this.prisma.course.findUnique({
       where: { slug_lang: { slug, lang } },
       include: {
@@ -428,5 +429,22 @@ export class CoursesService {
     else if (r < 1800) level = 'intermediate';
     else level = 'advanced';
     return { level, reason: 'rating_puzzle', ratingPuzzle: r };
+  }
+
+  /**
+   * KS-2101: язык курсов берётся из настроек профиля (`User.locale`,
+   * меняется через `PATCH /users/me/settings`). Whitelist 'ru' | 'en';
+   * любое другое значение → 'ru' (защита, чтобы случайно не показать
+   * пустой список курсов из-за чужого locale). Anonymous (userId=null)
+   * → 'ru'.
+   */
+  private async resolveUserLocale(userId: string | null): Promise<'ru' | 'en'> {
+    if (!userId) return 'ru';
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { locale: true },
+    });
+    const raw = user?.locale ?? 'ru';
+    return raw === 'en' ? 'en' : 'ru';
   }
 }

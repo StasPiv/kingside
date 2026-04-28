@@ -19,46 +19,22 @@ describe('CoursesController', () => {
     controller = new CoursesController(service);
   });
 
-  it('GET /lessons/courses → service.listCourses(userId, lang) (KS-2095)', async () => {
+  it('GET /lessons/courses → service.listCourses(userId)', async () => {
     service.listCourses.mockResolvedValue({ data: [], recommendedLevel: 'beginner' });
     const res = await controller.list(req);
-    // default lang='ru' (нет query, нет Accept-Language)
-    expect(service.listCourses).toHaveBeenCalledWith('user-1', 'ru');
+    // KS-2101: контроллер передаёт только userId, lang резолвится в сервисе
+    // из User.locale (настройка профиля). Query/Accept-Language игнорируются.
+    expect(service.listCourses).toHaveBeenCalledWith('user-1');
     expect(res).toEqual({ data: [], recommendedLevel: 'beginner' });
   });
 
-  it('GET /lessons/courses?lang=en → передаёт lang=en', async () => {
-    service.listCourses.mockResolvedValue({ data: [] } as any);
-    await controller.list(req, 'en');
-    expect(service.listCourses).toHaveBeenCalledWith('user-1', 'en');
-  });
-
-  it('Accept-Language=en-US → lang=en (KS-2095 fallback)', async () => {
-    service.listCourses.mockResolvedValue({ data: [] } as any);
-    await controller.list(req, undefined, 'en-US,en;q=0.9,ru;q=0.8');
-    expect(service.listCourses).toHaveBeenCalledWith('user-1', 'en');
-  });
-
-  it('query lang приоритетнее Accept-Language', async () => {
-    service.listCourses.mockResolvedValue({ data: [] } as any);
-    await controller.list(req, 'ru', 'en-US');
-    expect(service.listCourses).toHaveBeenCalledWith('user-1', 'ru');
-  });
-
-  it('неизвестный lang → fallback ru', async () => {
-    service.listCourses.mockResolvedValue({ data: [] } as any);
-    await controller.list(req, 'fr' as any);
-    expect(service.listCourses).toHaveBeenCalledWith('user-1', 'ru');
-  });
-
-  it('GET /lessons/courses/:slug → service.getCourseBySlug(slug, userId, lang)', async () => {
+  it('GET /lessons/courses/:slug → service.getCourseBySlug(slug, userId)', async () => {
     const payload = { course: {} as any, lessons: [], progress: null };
     service.getCourseBySlug.mockResolvedValue(payload as any);
-    const res = await controller.getBySlug(req, 'beginner-basics', 'en');
+    const res = await controller.getBySlug(req, 'beginner-basics');
     expect(service.getCourseBySlug).toHaveBeenCalledWith(
       'beginner-basics',
       'user-1',
-      'en',
     );
     expect(res).toBe(payload);
   });
@@ -66,6 +42,6 @@ describe('CoursesController', () => {
   it('передаёт userId=null, если пользователь анонимный', async () => {
     service.listCourses.mockResolvedValue({ data: [] } as any);
     await controller.list({ user: undefined } as unknown as AuthenticatedRequest);
-    expect(service.listCourses).toHaveBeenCalledWith(null, 'ru');
+    expect(service.listCourses).toHaveBeenCalledWith(null);
   });
 });
