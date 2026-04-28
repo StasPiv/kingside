@@ -1054,3 +1054,20 @@ model UserLessonPlayProgress {
   @@unique([userId, userLessonId])
   @@map("user_lesson_play_progress")
 }
+
+
+// ─── Feature flags (KS-2104) ──────────────────────────────────────────
+//
+// Runtime-флаги, читает `GET /api/config` (публичный endpoint, кэш
+// 60s). Меняются админом через `PATCH /api/admin/feature-flags/:key`.
+// Whitelist известных ключей — в коде (`KNOWN_FEATURE_FLAGS`); таблица
+// служит только хранилищем значений. При старте api недостающие
+// записи seeded дефолтами из whitelist.
+
+model FeatureFlag {
+  key       String   @id
+  value     Boolean
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("feature_flags")
+}

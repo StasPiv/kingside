@@ -32,6 +32,7 @@ import { LessonsModule } from './lessons/lessons.module';
 // KS-1927: MistakesModule переехал в `puzzle/` namespace (ADR-032 §4).
 import { MistakesModule } from './puzzle/mistakes.module';
 import { UserCoursesModule } from './lessons/user-courses/user-courses.module';
+import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -77,6 +78,7 @@ import { HealthController } from './health.controller';
     LessonsModule,
     MistakesModule,
     UserCoursesModule,
+    FeatureFlagsModule,
   ],
 })
 export class AppModule implements NestModule {
