@@ -534,6 +534,25 @@ echo ""
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 # Frontend не использует ECR — атомарность ECR-тегов не применима.
 if $DEPLOY_FRONTEND; then
+    # === DIAG (one-shot, KS-2089 investigation) ===
+    echo "[diag] git show 0ba53bf5 --stat:"
+    git -C "$REPO_DIR" show 0ba53bf5 --stat 2>&1 | head -10 | sed 's/^/  /'
+    echo "[diag] grep autocomplete dropdown rules in archive.css:"
+    grep -n -E 'archive-autocomplete__(dropdown|item|name|count)|right:|width:' "$REPO_DIR/apps/web/src/styles/archive.css" 2>/dev/null | head -25 | sed 's/^/  /'
+    echo "[diag] vite cache size before clean:"
+    du -sh "$REPO_DIR/node_modules/.vite" "$REPO_DIR/apps/web/node_modules/.vite" 2>/dev/null | sed 's/^/  /' || echo "  no vite cache"
+    echo "[diag] === end diag ==="
+
+    # KS-2085 follow-up: чистим vite-cache и старый dist перед сборкой.
+    # Без этого Vite иногда переиспользует кэш транзформаций даже при
+    # изменении исходников, и asset-hash остаётся прежним, маскируя
+    # деплой как успешный (KS-2089 case: archive.css правка не доехала
+    # до bundle, hash не сменился).
+    echo "[frontend] Clearing vite cache + dist..."
+    rm -rf "$REPO_DIR/apps/web/dist" \
+           "$REPO_DIR/node_modules/.vite" \
+           "$REPO_DIR/apps/web/node_modules/.vite" 2>/dev/null || true
+
     echo "[frontend] Building (VITE_API_URL=$PROD_VITE_API_URL, VITE_ARCHIVE_URL=$PROD_VITE_ARCHIVE_URL, VITE_BROADCAST_URL=$PROD_VITE_BROADCAST_URL, VITE_APP_ORIGIN=$PROD_API_URL, VITE_GAME_URL=$PROD_GAME_URL, VITE_GA4_ID=$PROD_GA4_ID, VITE_FEATURE_LESSONS=$PROD_VITE_FEATURE_LESSONS)..."
     VITE_API_URL="$PROD_VITE_API_URL" VITE_ARCHIVE_URL="$PROD_VITE_ARCHIVE_URL" VITE_BROADCAST_URL="$PROD_VITE_BROADCAST_URL" VITE_APP_ORIGIN="$PROD_API_URL" VITE_GAME_URL="$PROD_GAME_URL" VITE_GA4_ID="$PROD_GA4_ID" VITE_FEATURE_LESSONS="$PROD_VITE_FEATURE_LESSONS" npm run build --prefix "$REPO_DIR" --workspace=apps/web
     echo "  Built: $REPO_DIR/apps/web/dist"
