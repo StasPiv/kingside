@@ -7,7 +7,21 @@
   "games": {
     "title": "Archive games",
     "placeholder": "TODO: F2 — list of archive games with filters",
-    "breadcrumb": "Archive games"
+    "breadcrumb": "Archive games",
+    "metadata": {
+      "summaryAll": "All archive games",
+      "totalCount": "Total: {{count}}",
+      "totalCount_one": "Total: {{count}} game",
+      "totalCount_other": "Total: {{count}} games",
+      "empty": "No games match these filters.",
+      "error": "Failed to load games",
+      "resetFilters": "Reset filters",
+      "paginationLabel": "Pagination",
+      "prev": "Prev",
+      "next": "Next",
+      "pageInfo": "Page {{page}} of {{total}}",
+      "pageSizeLabel": "Per page"
+    }
   },
   "player": {
     "title": "Player",

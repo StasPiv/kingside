@@ -1,13 +1,39 @@
 import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
-import type { ArchiveGamesByPositionItem } from '@kingside/shared';
+import type {
+  ArchiveGameSummary,
+  ArchiveGamesByPositionItem,
+} from '@kingside/shared';
+
+/**
+ * KS-2068 (F2): универсальная строка партии в списке.
+ *
+ * Поддерживает два варианта данных:
+ *  - by-position (`ArchiveGamesByPositionItem`) — строка в списке
+ *    «партии с этой позицией»: дополнительно показывает «reached at
+ *    move N» и следующий ход (SAN) от позиции;
+ *  - metadata (`ArchiveGameSummary`) — строка в полном списке партий
+ *    архива: только колонки white/black/result/event/date/ECO/[Open].
+ *
+ * Имена игроков ведут на `/archive/players/<slug>` (F3). Slug строится
+ * из `name` клиентской нормализацией — на бэке slug может отличаться
+ * (ADR-033 §4.4); после интеграции с B3/B4 нужно будет заменить
+ * на серверный slug.
+ */
+
+type ArchiveAnyItem = ArchiveGamesByPositionItem | ArchiveGameSummary;
 
 interface ArchiveGameRowProps {
-  item: ArchiveGamesByPositionItem;
-  /** FEN of the queried position (used for UCI→SAN of the next move). */
-  positionFen: string;
-  onClick: (item: ArchiveGamesByPositionItem) => void;
+  item: ArchiveAnyItem;
+  /**
+   * FEN of the queried position — используется только в by-position
+   * режиме для UCI→SAN-конверсии следующего хода. В metadata-режиме
+   * можно не передавать.
+   */
+  positionFen?: string;
+  onClick: (item: ArchiveAnyItem) => void;
 }
 
 const RESULT_CLASS: Record<string, string> = {
@@ -48,41 +74,118 @@ function uciToSan(positionFen: string, uci: string | null): string | null {
 }
 
 /**
- * Single row in the games-by-position list.
- *
- * Clicking the row notifies the parent (which fetches the PGN via
- * archive-service `/games/:id` and navigates to /analysis).
+ * KS-2068: клиентский slug. На бэке (KS-2069/B3) появится явный
+ * `slug` в `ArchivePlayerInfo`/`ArchiveGameSummary` — после этого
+ * заменить на серверный.
  */
-export function ArchiveGameRow({ item, positionFen, onClick }: ArchiveGameRowProps) {
+function slugifyPlayerName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  const slug = name
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug.length > 0 ? slug : null;
+}
+
+function isByPositionItem(
+  item: ArchiveAnyItem,
+): item is ArchiveGamesByPositionItem {
+  return 'reachedAtPly' in item;
+}
+
+/**
+ * Single row in the archive games list.
+ *
+ * Сама строка — `<div role="button">`, не `<button>`, чтобы внутри
+ * можно было разместить вложенные `<Link>` (HTML запрещает
+ * интерактивные элементы внутри `<button>`). Клик по самой строке
+ * вызывает `onClick`, клик по имени → переход на профиль через
+ * react-router (event propagation останавливаем, чтобы не сработал
+ * row-onClick).
+ */
+export function ArchiveGameRow({
+  item,
+  positionFen,
+  onClick,
+}: ArchiveGameRowProps) {
   const { t } = useTranslation();
 
+  const isPositionItem = isByPositionItem(item);
+
   const nextMoveSan = useMemo(
-    () => uciToSan(positionFen, item.nextMoveUci),
-    [positionFen, item.nextMoveUci],
+    () =>
+      isPositionItem && positionFen
+        ? uciToSan(positionFen, item.nextMoveUci)
+        : null,
+    [isPositionItem, positionFen, item],
   );
 
   const resultText = item.result ?? '*';
   const resultClass = RESULT_CLASS[resultText] ?? RESULT_CLASS['*'];
 
+  const whiteSlug = slugifyPlayerName(item.white.name);
+  const blackSlug = slugifyPlayerName(item.black.name);
+
+  const handleRowClick = () => onClick(item);
+  const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick(item);
+    }
+  };
+
+  const stopRowEvent = (e: React.MouseEvent | React.KeyboardEvent) => {
+    // KS-2068: клик по имени-Link не должен дёргать row-onClick.
+    e.stopPropagation();
+  };
+
   return (
-    <button
-      type="button"
+    <div
       className="archive-game-row"
-      onClick={() => onClick(item)}
+      role="button"
+      tabIndex={0}
+      onClick={handleRowClick}
+      onKeyDown={handleRowKeyDown}
       data-testid={`archive-game-row-${item.id}`}
     >
-      <span className={`archive-game-row__result ${resultClass}`}>{resultText}</span>
+      <span className={`archive-game-row__result ${resultClass}`}>
+        {resultText}
+      </span>
 
       <span className="archive-game-row__players">
         <span className="archive-game-row__player">
-          {item.white.name ?? '—'}
+          {whiteSlug ? (
+            <Link
+              to={`/archive/players/${whiteSlug}`}
+              onClick={stopRowEvent}
+              onKeyDown={stopRowEvent}
+              data-testid={`archive-game-row-${item.id}-white-link`}
+            >
+              {item.white.name}
+            </Link>
+          ) : (
+            item.white.name ?? '—'
+          )}
           {item.white.elo != null && (
             <span className="archive-game-row__elo"> ({item.white.elo})</span>
           )}
         </span>
         <span className="archive-game-row__vs"> — </span>
         <span className="archive-game-row__player">
-          {item.black.name ?? '—'}
+          {blackSlug ? (
+            <Link
+              to={`/archive/players/${blackSlug}`}
+              onClick={stopRowEvent}
+              onKeyDown={stopRowEvent}
+              data-testid={`archive-game-row-${item.id}-black-link`}
+            >
+              {item.black.name}
+            </Link>
+          ) : (
+            item.black.name ?? '—'
+          )}
           {item.black.elo != null && (
             <span className="archive-game-row__elo"> ({item.black.elo})</span>
           )}
@@ -99,18 +202,26 @@ export function ArchiveGameRow({ item, positionFen, onClick }: ArchiveGameRowPro
         </span>
       )}
 
-      <span className="archive-game-row__reached">
-        {t('archive.games.reachedAt', {
-          defaultValue: 'reached at move {{move}}',
-          move: moveNumberFromPly(item.reachedAtPly),
-        })}
-      </span>
-
-      {nextMoveSan && (
-        <span className="archive-game-row__next-move" data-testid="archive-game-row-next-move">
-          {t('archive.games.nextMove', { defaultValue: 'next: {{san}}', san: nextMoveSan })}
+      {isPositionItem && (
+        <span className="archive-game-row__reached">
+          {t('archive.games.reachedAt', {
+            defaultValue: 'reached at move {{move}}',
+            move: moveNumberFromPly(item.reachedAtPly),
+          })}
         </span>
       )}
-    </button>
+
+      {nextMoveSan && (
+        <span
+          className="archive-game-row__next-move"
+          data-testid="archive-game-row-next-move"
+        >
+          {t('archive.games.nextMove', {
+            defaultValue: 'next: {{san}}',
+            san: nextMoveSan,
+          })}
+        </span>
+      )}
+    </div>
   );
 }

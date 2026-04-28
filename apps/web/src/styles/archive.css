@@ -700,6 +700,112 @@
 }
 
 /* ==========================================================================
+   KS-2068 (F2): /archive/games (metadata mode) — header, summary, pagination
+   ========================================================================== */
+
+.archive-games-metadata {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.archive-games-metadata__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.archive-games-metadata__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.archive-games-metadata__summary {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.archive-games-metadata__total {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-games-metadata__pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  flex-wrap: wrap;
+}
+
+.archive-games-metadata__pagination button {
+  min-width: 90px;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.archive-games-metadata__pagination button:not(:disabled):hover {
+  background: var(--bg-muted);
+}
+
+.archive-games-metadata__pagination button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.archive-games-metadata__page-info {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-games-metadata__page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.archive-games-metadata__page-size select {
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.archive-games-filters__input--narrow {
+  max-width: 100px;
+}
+
+@media (max-width: 600px) {
+  .archive-games-metadata__pagination {
+    justify-content: center;
+  }
+  .archive-games-metadata__page-size {
+    margin-left: 0;
+  }
+}
+
+/* ==========================================================================
    KS-2070 (F4): /archive/games/:id — single game viewer
    ========================================================================== */
 

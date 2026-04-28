@@ -58,9 +58,9 @@ import { isLessonsEnabledLive } from './config/featureFlags';
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
 const BroadcastGamePage = lazy(() => import('./pages/BroadcastGamePage').then(m => ({ default: m.BroadcastGamePage })));
 const PuzzleRushPage = lazy(() => import('./pages/PuzzleRushPage').then(m => ({ default: m.PuzzleRushPage })));
-const ArchiveGamesByPositionPage = lazy(() =>
-  import('./pages/ArchiveGamesByPositionPage').then(m => ({ default: m.ArchiveGamesByPositionPage })),
-);
+// KS-2068 (F2): `ArchiveGamesByPositionPage` больше не lazy-роут —
+// он используется как внутренний компонент `ArchiveGamesPage`
+// (by-position режим единого `/archive/games`).
 
 // KS-1821: dev-маршруты за compile-time guard `import.meta.env.DEV`.
 // Vite при prod-сборке инлайнит константу в `false`, тернарник сворачивается
@@ -253,23 +253,20 @@ export function App() {
         <Route path="/t/:code" element={<ProtectedRoute><InviteRedirect /></ProtectedRoute>} />
         {/* KS-2066 (F0/ADR-033 §2): namespace архива партий.
             • `/archive` — лобби (F1)
-            • `/archive/games` — список партий с metadata-фильтрами (F2)
+            • `/archive/games` — универсальный список партий: metadata-режим
+              без `?fen=` и by-position-режим с `?fen=` (F2, KS-2068).
             • `/archive/players/:slug` — профиль игрока (F3)
             • `/archive/games/:id` — одна партия (F4)
-            Поиск по позиции переехал на `/archive/by-position` (раньше
-            висел на `/archive/games`); 301-редирект сохраняет старые
-            ссылки `/archive/games?fen=...&pos=...`. */}
+            • `/archive/by-position` — legacy-URL F0, сохраняем 301 на
+              `/archive/games` с тем же query (старые bookmarks/CTA из
+              `ArchiveTreePanel` могут жить дальше). */}
         <Route path="/archive" element={<ArchiveLobbyPage />} />
         <Route path="/archive/games" element={<ArchiveGamesPage />} />
         <Route path="/archive/games/:id" element={<ArchiveGamePage />} />
         <Route path="/archive/players/:slug" element={<ArchivePlayerProfilePage />} />
         <Route
           path="/archive/by-position"
-          element={
-            <Suspense fallback={<LazyFallback />}>
-              <ArchiveGamesByPositionPage />
-            </Suspense>
-          }
+          element={<RedirectWithQuery to="/archive/games" />}
         />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />

@@ -7,7 +7,22 @@
   "games": {
     "title": "Партии в архиве",
     "placeholder": "TODO: F2 — список партий с фильтрами",
-    "breadcrumb": "Архив партий"
+    "breadcrumb": "Архив партий",
+    "metadata": {
+      "summaryAll": "Все партии архива",
+      "totalCount": "Всего: {{count}}",
+      "totalCount_one": "Всего: {{count}} партия",
+      "totalCount_few": "Всего: {{count}} партии",
+      "totalCount_many": "Всего: {{count}} партий",
+      "empty": "По заданным фильтрам партии не найдены.",
+      "error": "Не удалось загрузить партии",
+      "resetFilters": "Сбросить фильтры",
+      "paginationLabel": "Постраничная навигация",
+      "prev": "Назад",
+      "next": "Вперёд",
+      "pageInfo": "Страница {{page}} из {{total}}",
+      "pageSizeLabel": "На странице"
+    }
   },
   "player": {
     "title": "Игрок",
