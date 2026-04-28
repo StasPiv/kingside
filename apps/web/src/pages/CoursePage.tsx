@@ -5,6 +5,7 @@ import type { CourseWithLessonsResponse } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
 import { groupLessonsByBlock } from '../components/lessons/courseBlocks';
+import { CourseActiveLessonHero } from '../components/lessons/CourseActiveLessonHero';
 import { resolveInlineText } from '../utils/inlineI18nText';
 
 /**
@@ -129,18 +130,26 @@ export function CoursePage() {
           {t('lessons.noLessons', 'No lessons in this course yet')}
         </div>
       ) : (
-        // KS-2039: единый плоский список уроков. Раньше уроки
-        // группировались в `<section>`-блоки с заголовками
-        // («Правила и фигуры», «Базовые маты», …) — каждый title урока
-        // уже несёт свой раздел (§N), заголовок-секция дублировал
-        // контекст. Теперь визуально это сплошной список сверху вниз;
-        // порядок задаёт `course.blockOrder` через
-        // `groupLessonsByBlock(...).flatMap(...)` — внутри блока
-        // сортировка по `lesson.order`.
-        <ol
-          className="course-lesson-list"
-          data-testid="course-lesson-list"
-        >
+        <>
+          {/* KS-2079: hero-плашка активного урока. Сама компонента решает
+              три кейса (continue / start / completed). На пустом курсе
+              возвращает null — поэтому ничего не рисует. */}
+          <CourseActiveLessonHero
+            courseSlug={course.slug}
+            lessons={sortedLessons}
+          />
+          {/* KS-2039: единый плоский список уроков. Раньше уроки
+              группировались в `<section>`-блоки с заголовками
+              («Правила и фигуры», «Базовые маты», …) — каждый title
+              урока уже несёт свой раздел (§N), заголовок-секция
+              дублировал контекст. Теперь визуально это сплошной список
+              сверху вниз; порядок задаёт `course.blockOrder` через
+              `groupLessonsByBlock(...).flatMap(...)` — внутри блока
+              сортировка по `lesson.order`. */}
+          <ol
+            className="course-lesson-list"
+            data-testid="course-lesson-list"
+          >
           {blocks
             .flatMap((b) => b.lessons)
             .map((lesson) => {
@@ -246,6 +255,7 @@ export function CoursePage() {
               );
             })}
         </ol>
+        </>
       )}
     </div>
   );
