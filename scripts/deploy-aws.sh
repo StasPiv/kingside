@@ -290,13 +290,27 @@ ensure_migrate_network() {
 register_new_task_def_with_image() {
     local family=$1
     local new_image=$2
+    # Опциональный 3й аргумент: JSON-массив [{"name":..,"value":..}, ...]
+    # — env, которые надо upsert-нуть в первый container task-def. Существующие
+    # значения заменяются по имени, новые добавляются. Дефолт: пустой массив,
+    # поведение функции не меняется (back-compat для archive/broadcast блоков).
+    # Используется для KS_ADMIN_USERS в api (KS-2108/KS-2109).
+    local extra_env_json="${3:-[]}"
     ensure_jq
     local tmp
     tmp=$(mktemp)
     aws ecs describe-task-definition --task-definition "$family" \
         --query 'taskDefinition' --output json \
-        | jq --arg img "$new_image" '
-            .containerDefinitions |= map(.image = $img)
+        | jq --arg img "$new_image" --argjson extras "$extra_env_json" '
+            .containerDefinitions |= map(
+              .image = $img
+              | (.environment // []) as $cur
+              | .environment = (
+                  ($cur + $extras)
+                  | group_by(.name)
+                  | map(.[-1])
+                )
+            )
             | del(
                 .taskDefinitionArn, .revision, .status, .compatibilities,
                 .requiresAttributes, .registeredAt, .registeredBy,
@@ -577,7 +591,11 @@ if $DEPLOY_API; then
     docker push "$NEW_IMAGE" 2>&1 | tail -3
 
     echo "[api] Registering new task-def revision with image=:${DEPLOY_SHA}..."
-    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE")
+    # KS-2108/KS-2109: admin endpoints (feature flags) требуют список логинов
+    # в KS_ADMIN_USERS, default-deny если не задано. Прокидываем через
+    # env-overrides, существующая env остаётся как есть.
+    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"StanislavTelegram"}]'
+    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE" "$API_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
 
     echo "[api] Running Prisma migrations on new revision..."
