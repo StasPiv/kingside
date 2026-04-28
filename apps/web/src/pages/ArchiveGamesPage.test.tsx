@@ -122,7 +122,7 @@ describe('urlToMetadataFilters', () => {
       'player=Carlsen&event=Wijk&eco=C42&result=1-0&minElo=2600&since=2020-01-01&until=2024-01-01&minPly=20&maxPly=80&sort=topElo',
     );
     expect(urlToMetadataFilters(params)).toEqual({
-      player: 'Carlsen',
+      players: ['Carlsen'],
       event: 'Wijk',
       eco: 'C42',
       result: '1-0',
@@ -133,6 +133,15 @@ describe('urlToMetadataFilters', () => {
       maxPly: 80,
       sort: 'topElo',
     });
+  });
+
+  it('KS-2084: несколько ?player= в URL → массив', () => {
+    const params = new URLSearchParams(
+      'player=Carlsen,M&player=Caruana,F&result=1-0',
+    );
+    const r = urlToMetadataFilters(params);
+    expect(r.players).toEqual(['Carlsen,M', 'Caruana,F']);
+    expect(r.result).toBe('1-0');
   });
 
   it('невалидный sort/result/minElo откатывает к дефолту', () => {
@@ -153,7 +162,7 @@ describe('metadataFiltersToUrl', () => {
   it('сериализует все непустые поля + page>1 + pageSize≠20', () => {
     const params = metadataFiltersToUrl(
       {
-        player: 'Carlsen',
+        players: ['Carlsen'],
         event: 'Wijk',
         eco: 'B90',
         result: '1-0',

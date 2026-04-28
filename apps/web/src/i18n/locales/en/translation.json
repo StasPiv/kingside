@@ -1226,6 +1226,8 @@
       "colorBlack": "Black",
       "playerLabel": "Player",
       "playerPlaceholder": "Name…",
+      "playerAdd": "Add",
+      "playerRemove": "Remove {{name}}",
       "ecoLabel": "ECO",
       "reachedAt": "reached at move {{move}}",
       "nextMove": "next: {{san}}",

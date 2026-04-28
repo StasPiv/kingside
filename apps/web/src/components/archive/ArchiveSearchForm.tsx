@@ -34,7 +34,7 @@ const SORTS: readonly ArchiveGamesSortMetadata[] = [
 ];
 
 interface FormState {
-  player: string;
+  players: string[];
   event: string;
   eco: string;
   sinceYear: string;
@@ -45,7 +45,7 @@ interface FormState {
 }
 
 const EMPTY_STATE: FormState = {
-  player: '',
+  players: [],
   event: '',
   eco: '',
   sinceYear: '',
@@ -57,7 +57,12 @@ const EMPTY_STATE: FormState = {
 
 function buildSearchUrl(state: FormState): string {
   const params = new URLSearchParams();
-  if (state.player) params.set('player', state.player);
+  // KS-2084: каждый игрок — отдельный `?player=...`. См.
+  // metadataFiltersToUrl в ArchiveGamesPage — единая семантика.
+  for (const p of state.players) {
+    const trimmed = p.trim();
+    if (trimmed.length > 0) params.append('player', trimmed);
+  }
   if (state.event) params.set('event', state.event);
   if (state.eco) params.set('eco', state.eco.trim().toUpperCase());
   if (state.sinceYear) params.set('since', `${state.sinceYear}-01-01`);
@@ -73,15 +78,50 @@ export function ArchiveSearchForm() {
   const { t } = useTranslation('archive');
   const navigate = useNavigate();
   const [state, setState] = useState<FormState>(EMPTY_STATE);
+  // KS-2084: отдельный draft для текущего значения autocomplete'а.
+  // Когда пользователь выбирает игрока (или жмёт «Add»), имя
+  // переезжает в `state.players` chip'ом, а draft очищается, чтобы
+  // можно было сразу искать второго игрока («Carlsen» → submit chip
+  // → начать набирать «Caruana»).
+  const [playerDraft, setPlayerDraft] = useState('');
 
   const apply = (patch: Partial<FormState>) => setState((s) => ({ ...s, ...patch }));
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    navigate(buildSearchUrl(state));
+  const addPlayer = (name: string) => {
+    const v = name.trim();
+    if (v.length === 0) return;
+    if (state.players.some((p) => p.toLowerCase() === v.toLowerCase())) {
+      setPlayerDraft('');
+      return;
+    }
+    setState((s) => ({ ...s, players: [...s.players, v] }));
+    setPlayerDraft('');
   };
 
-  const handleReset = () => setState(EMPTY_STATE);
+  const removePlayer = (name: string) => {
+    setState((s) => ({ ...s, players: s.players.filter((p) => p !== name) }));
+  };
+
+  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    // Если в input ещё что-то есть, но не добавлено — добавим перед submit.
+    const submitState = (() => {
+      const v = playerDraft.trim();
+      if (
+        v.length === 0 ||
+        state.players.some((p) => p.toLowerCase() === v.toLowerCase())
+      ) {
+        return state;
+      }
+      return { ...state, players: [...state.players, v] };
+    })();
+    navigate(buildSearchUrl(submitState));
+  };
+
+  const handleReset = () => {
+    setState(EMPTY_STATE);
+    setPlayerDraft('');
+  };
 
   return (
     <form
@@ -90,11 +130,55 @@ export function ArchiveSearchForm() {
       onSubmit={handleSubmit}
     >
       <div className="archive-lobby__search-fields">
-        <ArchivePlayerAutocomplete
-          value={state.player}
-          onChange={(v) => apply({ player: v })}
-          onSelect={(sel) => apply({ player: sel.name })}
-        />
+        <div
+          className="archive-games-filters__field archive-games-filters__field--players"
+          data-testid="archive-search-form-players"
+        >
+          {state.players.length > 0 && (
+            <ul
+              className="archive-games-filters__chips"
+              data-testid="archive-search-form-players-chips"
+            >
+              {state.players.map((p) => (
+                <li
+                  key={p}
+                  className="archive-games-filters__chip"
+                  data-testid={`archive-search-form-player-chip-${p}`}
+                >
+                  <span>{p}</span>
+                  <button
+                    type="button"
+                    className="archive-games-filters__chip-remove"
+                    aria-label={t('lobby.form.playerRemove', {
+                      defaultValue: 'Remove {{name}}',
+                      name: p,
+                    })}
+                    onClick={() => removePlayer(p)}
+                    data-testid={`archive-search-form-player-remove-${p}`}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="archive-games-filters__chip-input">
+            <ArchivePlayerAutocomplete
+              value={playerDraft}
+              onChange={setPlayerDraft}
+              onSelect={(sel) => addPlayer(sel.name)}
+            />
+            <button
+              type="button"
+              className="archive-games-filters__chip-add"
+              onClick={() => addPlayer(playerDraft)}
+              disabled={playerDraft.trim().length === 0}
+              data-testid="archive-search-form-player-add"
+            >
+              {t('lobby.form.playerAdd', 'Add')}
+            </button>
+          </div>
+        </div>
 
         <ArchiveEventAutocomplete
           value={state.event}

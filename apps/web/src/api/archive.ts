@@ -166,12 +166,24 @@ export function getArchiveGamesMetadata(
   filters: ArchiveGamesRequest = {},
 ): Promise<ArchiveGamesResponse> {
   const params = new URLSearchParams();
+  // KS-2084: `player` теперь принимает массив (KS-2081 на бэке).
+  // Сериализуем КАЖДОГО игрока через `params.append('player', name)`,
+  // чтобы получился `?player=A&player=B` (Express парсит дубликаты
+  // query-параметра как массив). `params.set` тут НЕ подходит — он
+  // перезаписал бы значение и уехал бы только последний игрок.
+  if (Array.isArray(filters.player)) {
+    for (const name of filters.player) {
+      const trimmed = name.trim();
+      if (trimmed.length > 0) params.append('player', trimmed);
+    }
+  } else if (typeof filters.player === 'string' && filters.player.trim().length > 0) {
+    params.set('player', filters.player.trim());
+  }
   appendDefined(params, [
     ['fen', filters.fen],
     ['move', filters.move],
     ['white', filters.white],
     ['black', filters.black],
-    ['player', filters.player],
     ['eco', filters.eco],
     ['minElo', filters.minElo],
     ['result', filters.result],

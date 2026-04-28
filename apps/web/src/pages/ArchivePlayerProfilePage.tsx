@@ -93,7 +93,9 @@ interface UrlState {
 export function urlToPlayerState(params: URLSearchParams): UrlState {
   return {
     filters: {
-      player: '', // не показываем фильтр по player на странице игрока
+      // KS-2084: на странице игрока фильтр по другим игрокам не имеет
+      // смысла (профиль = один игрок), поэтому players всегда пустой.
+      players: [],
       event: params.get('event') ?? '',
       eco: params.get('eco') ?? '',
       result: parseResult(params.get('result')),

@@ -64,7 +64,7 @@ describe('__buildSearchUrl (ArchiveSearchForm)', () => {
   it('пустая форма → /archive/games без query', () => {
     expect(
       __buildSearchUrl({
-        player: '',
+        players: [],
         event: '',
         eco: '',
         sinceYear: '',
@@ -76,9 +76,24 @@ describe('__buildSearchUrl (ArchiveSearchForm)', () => {
     ).toBe('/archive/games');
   });
 
+  it('KS-2084: несколько игроков → несколько ?player=', () => {
+    const url = __buildSearchUrl({
+      players: ['Carlsen,M', 'Caruana,F'],
+      event: '',
+      eco: '',
+      sinceYear: '',
+      untilYear: '',
+      result: 'any',
+      minElo: null,
+      sort: 'recent',
+    });
+    const u = new URL(url, 'http://localhost');
+    expect(u.searchParams.getAll('player')).toEqual(['Carlsen,M', 'Caruana,F']);
+  });
+
   it('заполненная форма → URL c фильтрами и преобразованием годов', () => {
     const url = __buildSearchUrl({
-      player: 'Carlsen',
+      players: ['Carlsen'],
       event: 'Wijk aan Zee',
       eco: 'b90',
       sinceYear: '2020',
@@ -231,6 +246,70 @@ describe('ArchiveLobbyPage — autocomplete по игрокам', () => {
     await user.click(
       screen.getByTestId('archive-player-autocomplete-item-magnus-carlsen'),
     );
-    expect((input as HTMLInputElement).value).toBe('Magnus Carlsen');
+    // KS-2084: после выбора игрок становится chip'ом, draft input
+    // очищается — чтобы можно было сразу искать второго игрока.
+    expect((input as HTMLInputElement).value).toBe('');
+    expect(
+      screen.getByTestId('archive-search-form-player-chip-Magnus Carlsen'),
+    ).toBeInTheDocument();
+  });
+
+  it('KS-2084: можно добавить двух игроков → submit формирует ?player=A&player=B', async () => {
+    mockApi.searchArchivePlayers
+      .mockResolvedValueOnce({
+        total: 1,
+        items: [
+          { name: 'Magnus Carlsen', slug: 'magnus-carlsen', gamesCount: 4500, peakElo: 2882 },
+        ],
+      })
+      .mockResolvedValueOnce({
+        total: 1,
+        items: [
+          { name: 'Fabiano Caruana', slug: 'fabiano-caruana', gamesCount: 3500, peakElo: 2844 },
+        ],
+      });
+    const user = (await import('@testing-library/user-event')).default.setup();
+
+    renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
+    const input = screen.getByTestId('archive-player-autocomplete-input');
+
+    // Первый игрок — выбор из dropdown'а.
+    await user.type(input, 'Ma');
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('archive-player-autocomplete-item-magnus-carlsen'),
+      ).toBeInTheDocument(),
+    );
+    await user.click(
+      screen.getByTestId('archive-player-autocomplete-item-magnus-carlsen'),
+    );
+
+    // Второй игрок — выбор из dropdown'а.
+    await user.type(input, 'Cr');
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('archive-player-autocomplete-item-fabiano-caruana'),
+      ).toBeInTheDocument(),
+    );
+    await user.click(
+      screen.getByTestId('archive-player-autocomplete-item-fabiano-caruana'),
+    );
+
+    // Оба chip'а в форме.
+    expect(
+      screen.getByTestId('archive-search-form-player-chip-Magnus Carlsen'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId('archive-search-form-player-chip-Fabiano Caruana'),
+    ).toBeInTheDocument();
+
+    // Submit → navigate с двумя ?player=...
+    await user.click(screen.getByTestId('archive-search-form-submit'));
+    const arg = mockNavigate.mock.calls[0][0] as string;
+    const u = new URL(arg, 'http://localhost');
+    expect(u.searchParams.getAll('player')).toEqual([
+      'Magnus Carlsen',
+      'Fabiano Caruana',
+    ]);
   });
 });

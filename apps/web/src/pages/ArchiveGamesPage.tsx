@@ -84,8 +84,15 @@ function parsePageSize(raw: string | null): number {
 export function urlToMetadataFilters(
   params: URLSearchParams,
 ): ArchiveMetadataFilterValues {
+  // KS-2084: `player` приходит как 0..N значений (`?player=A&player=B`).
+  // `getAll` сохраняет все, `get` — только первое. Старые ссылки с
+  // одним `player=` тоже корректно превратятся в `[name]`.
+  const players = params
+    .getAll('player')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
   return {
-    player: params.get('player') ?? '',
+    players,
     event: params.get('event') ?? '',
     eco: params.get('eco') ?? '',
     result: parseResult(params.get('result')),
@@ -108,7 +115,12 @@ export function metadataFiltersToUrl(
   pageSize: number,
 ): URLSearchParams {
   const params = new URLSearchParams();
-  if (values.player) params.set('player', values.player);
+  // KS-2084: каждый игрок — отдельный `player=...` через `append`.
+  // `set` затёр бы массив до одного значения.
+  for (const p of values.players) {
+    const trimmed = p.trim();
+    if (trimmed.length > 0) params.append('player', trimmed);
+  }
   if (values.event) params.set('event', values.event);
   if (values.eco) params.set('eco', values.eco);
   if (values.result !== 'any') params.set('result', values.result);
@@ -134,7 +146,14 @@ export function metadataFiltersToRequest(
   pageSize: number,
 ): ArchiveGamesRequest {
   return {
-    player: values.player || undefined,
+    // KS-2084: 0 → undefined, 1 → string (бэк-совместимо), 2+ → string[].
+    // Контракт `ArchiveGamesRequest.player: string | string[] | undefined`.
+    player:
+      values.players.length === 0
+        ? undefined
+        : values.players.length === 1
+          ? values.players[0]
+          : values.players,
     event: values.event || undefined,
     eco: values.eco || undefined,
     result:
@@ -260,7 +279,11 @@ function ArchiveMetadataMode() {
 
   // ─── Сводка фильтров (для header'а) ──────────────────────────────
   const summaryParts: string[] = [];
-  if (filterValues.player) summaryParts.push(`player=${filterValues.player}`);
+  // KS-2084: для нескольких игроков показываем «player=A vs B» (S1
+  // «Карлсен против Каруаны» — visible в заголовке сразу).
+  if (filterValues.players.length > 0) {
+    summaryParts.push(`player=${filterValues.players.join(' vs ')}`);
+  }
   if (filterValues.event) summaryParts.push(`event=${filterValues.event}`);
   if (filterValues.eco) summaryParts.push(`ECO=${filterValues.eco}`);
   if (filterValues.result !== 'any')

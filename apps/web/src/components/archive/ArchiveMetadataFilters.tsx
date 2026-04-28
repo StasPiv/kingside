@@ -15,8 +15,14 @@ import type {
 
 export type MetadataResultFilter = ArchiveGameResult | 'any';
 
+/**
+ * KS-2084: фильтр игроков теперь массив. URL хранит несколько
+ * `?player=A&player=B`, бэк (KS-2081) на каждом из них делает AND-фильтр
+ * (партии, где обе стороны включают указанных игроков). UI отображает
+ * добавленных игроков как chips и даёт удалять/добавлять.
+ */
 export interface ArchiveMetadataFilterValues {
-  player: string;
+  players: string[];
   event: string;
   eco: string;
   result: MetadataResultFilter;
@@ -37,7 +43,7 @@ const MIN_ELO_PRESETS: number[] = [2000, 2200, 2400, 2600];
 const TEXT_DEBOUNCE_MS = 400;
 
 export const EMPTY_METADATA_FILTERS: ArchiveMetadataFilterValues = {
-  player: '',
+  players: [],
   event: '',
   eco: '',
   result: 'any',
@@ -64,7 +70,10 @@ export function ArchiveMetadataFilters({
 
   // Локальные drafts для текстовых полей с debounce — чтобы не
   // дёргать URL/сетевой запрос на каждой клавише.
-  const [playerDraft, setPlayerDraft] = useState(values.player);
+  // KS-2084: для players используется отдельный input как «add new».
+  // По Enter / клику Add — добавляется chip в `values.players` через
+  // `apply({ players: [...] })`. Сами chips — derived от values.players.
+  const [playerInput, setPlayerInput] = useState('');
   const [eventDraft, setEventDraft] = useState(values.event);
   const [ecoDraft, setEcoDraft] = useState(values.eco);
   const [minPlyDraft, setMinPlyDraft] = useState(
@@ -74,14 +83,12 @@ export function ArchiveMetadataFilters({
     values.maxPly === null ? '' : String(values.maxPly),
   );
 
-  const playerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ecoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const minPlyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxPlyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Синхронизация drafts с values при внешнем сбросе/смене URL.
-  useEffect(() => setPlayerDraft(values.player), [values.player]);
   useEffect(() => setEventDraft(values.event), [values.event]);
   useEffect(() => setEcoDraft(values.eco), [values.eco]);
   useEffect(() => {
@@ -93,7 +100,6 @@ export function ArchiveMetadataFilters({
 
   useEffect(
     () => () => {
-      if (playerTimerRef.current) clearTimeout(playerTimerRef.current);
       if (eventTimerRef.current) clearTimeout(eventTimerRef.current);
       if (ecoTimerRef.current) clearTimeout(ecoTimerRef.current);
       if (minPlyTimerRef.current) clearTimeout(minPlyTimerRef.current);
@@ -228,28 +234,93 @@ export function ArchiveMetadataFilters({
         />
       </label>
 
-      {/* Player */}
-      <label className="archive-games-filters__field">
+      {/* Players (multi, KS-2084).
+          UI: input + Add-кнопка → новый chip; chip имеет крестик
+          для удаления. Enter в input тоже добавляет. Дубликаты
+          (case-insensitive) игнорируются. */}
+      <div
+        className="archive-games-filters__field archive-games-filters__field--players"
+        data-testid="archive-metadata-filter-players"
+      >
         <span className="archive-games-filters__label">
           {t('archive.games.playerLabel', 'Player')}
         </span>
-        <input
-          type="text"
-          className="archive-games-filters__input"
-          value={playerDraft}
-          onChange={(e) => {
-            setPlayerDraft(e.target.value);
-            debounceText(
-              playerTimerRef,
-              e.target.value,
-              (v) => v.trim(),
-              'player',
-            );
-          }}
-          placeholder={t('archive.games.playerPlaceholder', 'Name…')}
-          data-testid="archive-metadata-filter-player"
-        />
-      </label>
+        {values.players.length > 0 && (
+          <ul
+            className="archive-games-filters__chips"
+            data-testid="archive-metadata-filter-players-chips"
+          >
+            {values.players.map((p) => (
+              <li
+                key={p}
+                className="archive-games-filters__chip"
+                data-testid={`archive-metadata-filter-player-chip-${p}`}
+              >
+                <span>{p}</span>
+                <button
+                  type="button"
+                  className="archive-games-filters__chip-remove"
+                  aria-label={t('archive.games.playerRemove', {
+                    defaultValue: 'Remove {{name}}',
+                    name: p,
+                  })}
+                  onClick={() =>
+                    apply({ players: values.players.filter((x) => x !== p) })
+                  }
+                  data-testid={`archive-metadata-filter-player-remove-${p}`}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="archive-games-filters__chip-input">
+          <input
+            type="text"
+            className="archive-games-filters__input"
+            value={playerInput}
+            onChange={(e) => setPlayerInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const v = playerInput.trim();
+                if (v.length === 0) return;
+                if (
+                  values.players.some((p) => p.toLowerCase() === v.toLowerCase())
+                ) {
+                  setPlayerInput('');
+                  return;
+                }
+                apply({ players: [...values.players, v] });
+                setPlayerInput('');
+              }
+            }}
+            placeholder={t('archive.games.playerPlaceholder', 'Name…')}
+            data-testid="archive-metadata-filter-player-input"
+          />
+          <button
+            type="button"
+            className="archive-games-filters__chip-add"
+            onClick={() => {
+              const v = playerInput.trim();
+              if (v.length === 0) return;
+              if (
+                values.players.some((p) => p.toLowerCase() === v.toLowerCase())
+              ) {
+                setPlayerInput('');
+                return;
+              }
+              apply({ players: [...values.players, v] });
+              setPlayerInput('');
+            }}
+            disabled={playerInput.trim().length === 0}
+            data-testid="archive-metadata-filter-player-add"
+          >
+            {t('archive.games.playerAdd', 'Add')}
+          </button>
+        </div>
+      </div>
 
       {/* Event */}
       <label className="archive-games-filters__field">

@@ -6,6 +6,8 @@
     "form": {
       "playerLabel": "Player",
       "playerPlaceholder": "Player name…",
+      "playerAdd": "Add",
+      "playerRemove": "Remove {{name}}",
       "eventLabel": "Event",
       "eventPlaceholder": "Tournament name…",
       "ecoLabel": "ECO",
