@@ -1356,6 +1356,8 @@
     "completeBelowThreshold": "Чтобы завершить урок, нужно пройти ≥ {{percent}}% шагов",
     "completeSuccess": "Урок завершён!",
     "completeError": "Не удалось зачесть урок",
+    "completedAlready": "Урок уже пройден ✓",
+    "completedAlreadyTooltip": "Вы уже завершили этот урок",
     "completionTitle": "Урок пройден!",
     "completionSubtitle": "Вы завершили «{{lesson}}». Отличная работа!",
     "completionNext": "К следующему уроку",

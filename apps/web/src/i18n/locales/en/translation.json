@@ -1348,6 +1348,8 @@
     "completeBelowThreshold": "Need ≥ {{percent}}% steps done to complete this lesson",
     "completeSuccess": "Lesson completed!",
     "completeError": "Failed to mark lesson as completed",
+    "completedAlready": "Lesson already completed ✓",
+    "completedAlreadyTooltip": "You have already completed this lesson",
     "completionTitle": "Lesson complete!",
     "completionSubtitle": "You finished “{{lesson}}”. Great job!",
     "completionNext": "Next lesson",

@@ -654,24 +654,54 @@ export function LessonPage() {
       })()}
 
       <footer className="lesson-footer">
-        <button
-          type="button"
-          className="lesson-complete-btn"
-          data-testid="lesson-complete-btn"
-          disabled={!canComplete || progress.isCompleting}
-          onClick={handleComplete}
-        >
-          {progress.isCompleting
-            ? t('lessons.completing', 'Saving…')
-            : canComplete
-              ? isReviewMode
-                ? t('lessons.review.finishReview', 'Finish review')
-                : t('lessons.complete', 'Complete lesson')
-              : t('lessons.completeNeedMore', {
-                  percent: Math.round(progress.threshold * 100),
-                  defaultValue: 'Need ≥ {{percent}}% steps',
-                })}
-        </button>
+        {/* KS-2078: если урок уже отмечен как пройденный (есть
+            `completedAt`) — блокируем повторное нажатие. Не относится
+            к режиму review: там пользователь намеренно повторяет
+            пройденный урок, кнопка «Finish review» должна работать.
+            Источник истины — серверный `lesson.progress.completedAt`,
+            а не локальный `progress.score`: после первого прохождения
+            он не сбрасывается, и блокировка переживёт перезагрузку
+            страницы. */}
+        {(() => {
+          const alreadyCompleted =
+            !isReviewMode && lesson.progress?.completedAt != null;
+          const disabled =
+            alreadyCompleted ||
+            !canComplete ||
+            progress.isCompleting;
+          const label = alreadyCompleted
+            ? t('lessons.completedAlready', 'Lesson already completed')
+            : progress.isCompleting
+              ? t('lessons.completing', 'Saving…')
+              : canComplete
+                ? isReviewMode
+                  ? t('lessons.review.finishReview', 'Finish review')
+                  : t('lessons.complete', 'Complete lesson')
+                : t('lessons.completeNeedMore', {
+                    percent: Math.round(progress.threshold * 100),
+                    defaultValue: 'Need ≥ {{percent}}% steps',
+                  });
+          return (
+            <button
+              type="button"
+              className="lesson-complete-btn"
+              data-testid="lesson-complete-btn"
+              data-already-completed={alreadyCompleted ? 'true' : undefined}
+              disabled={disabled}
+              title={
+                alreadyCompleted
+                  ? t(
+                      'lessons.completedAlreadyTooltip',
+                      'You have already completed this lesson',
+                    )
+                  : undefined
+              }
+              onClick={handleComplete}
+            >
+              {label}
+            </button>
+          );
+        })()}
         {completeMessage && (
           <p className="lesson-complete-msg" data-testid="lesson-complete-msg">
             {completeMessage}
