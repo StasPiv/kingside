@@ -3362,6 +3362,36 @@
   color: var(--danger);
 }
 
+/* KS-2087: «Подсказка» — кнопка + текст подсказки. */
+.lesson-puzzle-step__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.lesson-puzzle-step__hint-btn {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-link, var(--accent-primary));
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lesson-puzzle-step__hint-btn:hover {
+  background: var(--bg-muted);
+}
+.lesson-puzzle-step__hint-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.lesson-puzzle-step__hint-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Единый стиль кнопок внутри шагов ---------- */
 .lesson-text-step__next,
 .lesson-quiz-question__check,

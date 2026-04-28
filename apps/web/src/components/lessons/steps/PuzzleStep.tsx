@@ -117,11 +117,23 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
   const [moveIndex, setMoveIndex] = useState(0);
   const [status, setStatus] = useState<Status>('thinking');
   const [counters, setCounters] = useState<AttemptCounters>({ solved: 0, failed: 0 });
+  // KS-2087: «попробуй ещё раз» — короткое flash-сообщение под доской,
+  // показывается между неправильным ходом и откатом позиции. Не state
+  // самого статуса, а параллельный feedback — чтобы пользователь
+  // видел, почему доска вернулась в стартовое положение.
+  const [retryFlash, setRetryFlash] = useState(false);
+  // KS-2087: подсказка. `null` — не запрашивали, `1` — показан
+  // from-square ожидаемого хода («Попробуй с e2»), `2` — показан
+  // полный ход («Сыграй e2-e4»). Сбрасывается при смене ply / задачи.
+  const [hintLevel, setHintLevel] = useState<0 | 1 | 2>(0);
 
   const startTimeRef = useRef<number>(Date.now());
   const userMovesRef = useRef<string[]>([]);
   const attemptSubmittedRef = useRef<boolean>(false);
   const stepDoneFiredRef = useRef<boolean>(false);
+  // KS-2087: один failed на задачу, чтобы счётчик в `lessons_steps.attempts`
+  // не разбух от множества повторных попыток на одной позиции.
+  const failedCountedRef = useRef<boolean>(false);
 
   // Сериализация selection для стабильного dep — payload.selection часто
   // приходит «новым объектом каждый рендер», и сравнение по ссылке зацикливает
@@ -220,8 +232,11 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
     setOverrideGame(null);
     setMoveIndex(0);
     setStatus('thinking');
+    setRetryFlash(false);
+    setHintLevel(0);
     userMovesRef.current = [];
     attemptSubmittedRef.current = false;
+    failedCountedRef.current = false;
     startTimeRef.current = Date.now();
 
     if (!currentPuzzle) return;
@@ -300,17 +315,51 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
       // (engine-проверка) не реализуем — это PuzzlePage-фича, не Gherkin
       // L-09. Если задача требует разнообразия, подбирай payload через ids.
       if (sourceSquare !== expectedFrom || targetSquare !== expectedTo) {
-        // Пытаемся применить ход визуально — если ход легальный, покажем его,
-        // потом откатим и покажем «неверно».
+        // KS-2087: неправильный ход. Раньше status уезжал в 'incorrect'
+        // и доска становилась disabled — пользователь не мог попробовать
+        // ещё раз. Теперь:
+        //  1) применяем ход визуально + красная индикация status='incorrect'
+        //     на 700 мс (короткий feedback);
+        //  2) откатываем override на позицию ДО хода, status → 'thinking',
+        //     userMoves сжимаем (убираем неправильный) — пользователь
+        //     может пробовать снова.
+        // Failed-счётчик инкрементим только при ПЕРВОЙ ошибке на задаче
+        // (через failedCountedRef), чтобы attempts в БД отражали число
+        // задач с ошибкой, а не суммарные попытки.
         const test = new Chess(game.fen());
         const tested = test.move({ from: sourceSquare, to: targetSquare });
         if (!tested) return false;
         playSoundRef.current(soundEventFromSan(tested.san));
+        const preFen = game.fen();
         setOverrideGame(test);
         setStatus('incorrect');
+        setRetryFlash(true);
         playSoundRef.current('puzzle-incorrect');
-        setCounters((c) => ({ ...c, failed: c.failed + 1 }));
+        if (!failedCountedRef.current) {
+          failedCountedRef.current = true;
+          setCounters((c) => ({ ...c, failed: c.failed + 1 }));
+        }
+        // submitAttempt(false) тоже посылаем один раз — иначе на 5
+        // ошибках получим 5 записей в puzzle_attempts на ту же задачу.
+        // Защищён `attemptSubmittedRef.current` внутри submitAttempt.
         void submitAttempt(currentPuzzle, false);
+        // Убираем неправильный ход из userMovesRef — пользователь
+        // продолжает решение, неправильная попытка не должна попадать
+        // в `userMoves` следующего submitAttempt'а.
+        userMovesRef.current.pop();
+        // Через 700 мс откатываем доску и снова разрешаем ходить.
+        // Замыкаемся на стабильный `puzzleId` — если задача успела
+        // смениться, сравнение `puzzleAtRollback === puzzleId` в
+        // setOverrideGame через guard был бы надёжнее, но здесь нам
+        // достаточно того, что useEffect-ресет при смене задачи
+        // тоже сделает `setOverrideGame(null)` и затрёт нашу
+        // отложенную позицию (мы пишем тот же currentPuzzle.fen).
+        window.setTimeout(() => {
+          const back = new Chess(preFen);
+          setOverrideGame(back);
+          setStatus('thinking');
+          setRetryFlash(false);
+        }, 700);
         return true;
       }
 
@@ -379,6 +428,25 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
     }
   }, [index, total]);
 
+  // KS-2087: подсказка по двум уровням. Базовый ход подсказки —
+  // ожидаемый `currentMoves[moveIndex]`. Для setup-задач (moveIndex=0
+  // и подсказан setup-ход) `moveIndex` уже сдвинут на 1 при mount,
+  // так что подсказка указывает на ход игрока.
+  const expectedHintMove =
+    status === 'thinking' && currentMoves.length > moveIndex
+      ? currentMoves[moveIndex]
+      : null;
+  const hintFromSquare = expectedHintMove
+    ? expectedHintMove.slice(0, 2).toLowerCase()
+    : null;
+  const hintFullMove = expectedHintMove
+    ? `${expectedHintMove.slice(0, 2)}${expectedHintMove.length > 4 ? '-' : '-'}${expectedHintMove.slice(2, 4)}`.toLowerCase()
+    : null;
+  const handleHint = useCallback(() => {
+    if (!expectedHintMove) return;
+    setHintLevel((lvl) => (lvl >= 2 ? 2 : ((lvl + 1) as 0 | 1 | 2)));
+  }, [expectedHintMove]);
+
   // ─── Render ───────────────────────────────────────────────────────
   if (loadError) {
     return (
@@ -438,6 +506,21 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
       />
 
       <div className="lesson-puzzle-step__actions">
+        {/* KS-2087: «Попробуй ещё раз» — короткое сообщение, пока
+            доска визуально показывает ошибочный ход и через 700 мс
+            будет откатана. После отката retryFlash остаётся true
+            ещё 0 мс — мы сбросили его в setTimeout — это уже
+            «после» visualization. Сейчас retryFlash рендерится для
+            пользователя в момент incorrect-status'а. */}
+        {(status === 'incorrect' || retryFlash) && (
+          <p
+            className="lesson-puzzle-step__result lesson-puzzle-step__result--incorrect"
+            data-testid="lesson-puzzle-step-incorrect"
+            role="status"
+          >
+            {t('lessons.puzzleTryAgain', 'Not quite — try again')}
+          </p>
+        )}
         {status === 'correct' && (
           <p
             className="lesson-puzzle-step__result lesson-puzzle-step__result--correct"
@@ -446,16 +529,44 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
             {t('lessons.puzzleCorrect', 'Correct!')}
           </p>
         )}
-        {status === 'incorrect' && (
-          <p
-            className="lesson-puzzle-step__result lesson-puzzle-step__result--incorrect"
-            data-testid="lesson-puzzle-step-incorrect"
-          >
-            {t('lessons.puzzleIncorrect', 'Not quite — try the next one')}
-          </p>
+
+        {/* KS-2087: «Подсказка». Показывается только пока пользователь
+            ещё думает (status='thinking') и есть ожидаемый ход.
+            Двухступенчатая: 1-й клик → from-square, 2-й клик →
+            полный ход. */}
+        {status === 'thinking' && expectedHintMove && (
+          <div className="lesson-puzzle-step__hint">
+            <button
+              type="button"
+              className="lesson-puzzle-step__hint-btn"
+              data-testid="lesson-puzzle-step-hint"
+              onClick={handleHint}
+              disabled={hintLevel >= 2}
+            >
+              {hintLevel === 0
+                ? t('lessons.puzzleHint', 'Hint')
+                : t('lessons.puzzleHintMore', 'Reveal more')}
+            </button>
+            {hintLevel >= 1 && (
+              <span
+                className="lesson-puzzle-step__hint-text"
+                data-testid="lesson-puzzle-step-hint-text"
+              >
+                {hintLevel === 1
+                  ? t('lessons.puzzleHintFrom', {
+                      defaultValue: 'Try a piece on {{square}}',
+                      square: hintFromSquare,
+                    })
+                  : t('lessons.puzzleHintFull', {
+                      defaultValue: 'Play {{move}}',
+                      move: hintFullMove,
+                    })}
+              </span>
+            )}
+          </div>
         )}
 
-        {(status === 'correct' || status === 'incorrect') && index + 1 < total && (
+        {status === 'correct' && index + 1 < total && (
           <button
             type="button"
             className="lesson-puzzle-step__next"
@@ -466,7 +577,7 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
           </button>
         )}
 
-        {(status === 'done' || (allTried && status !== 'thinking')) && !hideNext && (
+        {(status === 'done' || (allTried && status === 'correct')) && !hideNext && (
           <button
             type="button"
             className="lesson-puzzle-step__complete"

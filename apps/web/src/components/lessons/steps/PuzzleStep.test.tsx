@@ -199,7 +199,7 @@ describe('<PuzzleStep>', () => {
     expect(onStepDone).toHaveBeenCalledTimes(2);
   });
 
-  it('сценарий «не решил»: неправильный ход → submitAttempt(failed), статус incorrect, onStepDone НЕ вызван, кнопка дизейблед', async () => {
+  it('KS-2087: неправильный ход → submitAttempt(failed) + flash «try again», шаг остаётся активным, complete-кнопки нет', async () => {
     mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([
       makePuzzle({ id: 'p1', moves: 'e2e4' }),
     ]);
@@ -221,19 +221,67 @@ describe('<PuzzleStep>', () => {
     );
     fireEvent.click(screen.getByTestId('board-move-wrong'));
 
+    // Сразу после неправильного хода — flash-сообщение «try again».
     await waitFor(() =>
-      expect(screen.getByTestId('lesson-puzzle-step-incorrect')).toBeInTheDocument(),
+      expect(
+        screen.getByTestId('lesson-puzzle-step-incorrect'),
+      ).toBeInTheDocument(),
     );
+    expect(
+      screen.getByTestId('lesson-puzzle-step-incorrect').textContent,
+    ).toMatch(/try again/i);
 
+    // submitAttempt(failed) ушёл, onStepDone НЕ вызван.
     expect(mockPuzzleApi.submitAttempt).toHaveBeenCalledWith(
       'p1',
       expect.objectContaining({ result: 'failed' }),
     );
     expect(onStepDone).not.toHaveBeenCalled();
 
-    const cont = screen.getByTestId('lesson-puzzle-step-complete');
-    expect(cont).toBeDisabled();
-    expect(cont).toHaveTextContent('Need more correct');
+    // Кнопки complete нет (старое поведение «Continue / Need more
+    // correct» больше не появляется при single-puzzle и ошибке).
+    expect(screen.queryByTestId('lesson-puzzle-step-complete')).toBeNull();
+
+    // Через ~700 мс позиция откатывается, статус → thinking,
+    // подсказка снова доступна.
+    await waitFor(
+      () =>
+        expect(
+          screen.getByTestId('lesson-puzzle-step-hint'),
+        ).toBeInTheDocument(),
+      { timeout: 1500 },
+    );
+  });
+
+  it('KS-2087: кнопка «Подсказка» — двухступенчатая', async () => {
+    mockLessonsApi.resolvePuzzleStep.mockResolvedValueOnce([
+      makePuzzle({ id: 'p1', moves: 'e2e4' }),
+    ]);
+    renderWithProviders(
+      <PuzzleStep
+        payload={{
+          type: 'puzzle',
+          selection: { mode: 'ids', puzzleIds: ['p1'] },
+        }}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('puzzle-board-mock')).toBeInTheDocument(),
+    );
+    const hintBtn = screen.getByTestId('lesson-puzzle-step-hint');
+    expect(hintBtn).toBeInTheDocument();
+    // Клик 1: подсказка показывает from-square.
+    fireEvent.click(hintBtn);
+    expect(
+      screen.getByTestId('lesson-puzzle-step-hint-text').textContent,
+    ).toMatch(/e2/);
+    // Клик 2: подсказка показывает полный ход.
+    fireEvent.click(hintBtn);
+    expect(
+      screen.getByTestId('lesson-puzzle-step-hint-text').textContent,
+    ).toMatch(/e2-e4/);
+    // На 2-м клике кнопка становится disabled (более раскрывать нечего).
+    expect(hintBtn).toBeDisabled();
   });
 
   it('пустой набор (ids=[]) → error-state, без сетевого вызова', async () => {
