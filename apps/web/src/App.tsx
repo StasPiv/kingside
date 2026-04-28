@@ -52,7 +52,7 @@ import { ArchivePlayerProfilePage } from './pages/ArchivePlayerProfilePage';
 import { ArchiveGamePage } from './pages/ArchiveGamePage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
-import { isLessonsEnabledLive } from './config/featureFlags';
+import { useFeatureFlag } from './context/FeatureFlagsContext';
 
 // Lazy-loaded heavy pages
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
@@ -144,6 +144,11 @@ export function App() {
   const devSecret = import.meta.env.VITE_DEV_BYPASS_SECRET;
 
   const location = useLocation();
+  // KS-2105: runtime флаг «Уроки» — через FeatureFlagsContext
+  // (источник правды backend `GET /config`). До этого тикета здесь
+  // дёргался build-time `isLessonsEnabledLive()`, который требовал
+  // rebuild + redeploy при смене.
+  const lessonsEnabled = useFeatureFlag('lessonsEnabled');
 
   if (devSecret && searchParams.has('dev_bypass')) {
     const returnParams = new URLSearchParams(searchParams);
@@ -181,7 +186,7 @@ export function App() {
         {/* KS-1928 / ADR-032: дневник ошибок в puzzle namespace. */}
         <Route path="/puzzles/mistakes" element={<ProtectedRoute><PuzzleMistakesPage /></ProtectedRoute>} />
         <Route path="/puzzles/mistakes-practice" element={<ProtectedRoute><PuzzleMistakesPracticePage /></ProtectedRoute>} />
-        {isLessonsEnabledLive() ? (
+        {lessonsEnabled ? (
           <>
             <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
             {/* KS-1941 (F-4): «Мои активные курсы» — страница со всеми

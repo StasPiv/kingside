@@ -2,9 +2,23 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { renderWithProviders, screen } from '../test/test-utils';
 
+// KS-2105: Sidebar читает флаги из FeatureFlagsContext (runtime,
+// backend `GET /config`). Мокаем сам контекст-хук — это позволяет
+// переключать флаг в тестах без рендера Provider'а и без сетевого мока.
 const flagControls = { lessons: true };
-vi.mock('../config/featureFlags', () => ({
-  isLessonsEnabledLive: () => flagControls.lessons,
+vi.mock('../context/FeatureFlagsContext', () => ({
+  useFeatureFlags: () => ({
+    flags: { lessonsEnabled: flagControls.lessons },
+    loading: false,
+    error: null,
+    refresh: async () => {},
+  }),
+  useFeatureFlag: (key: string) =>
+    key === 'lessonsEnabled' ? flagControls.lessons : false,
+  FeatureFlagsProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DEFAULT_FLAGS: { lessonsEnabled: true },
 }));
 
 // FeedbackModal зависит от api-запроса, для теста сайдбара не нужен.

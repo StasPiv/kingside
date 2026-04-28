@@ -2,10 +2,34 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { renderWithProviders, screen, waitFor } from './test/test-utils';
 
+// KS-2105: feature-flag читается из FeatureFlagsContext (runtime,
+// `GET /config`). В тесте мокаем `useFeatureFlag` напрямую — этого
+// достаточно, чтобы App.tsx (и Sidebar.tsx, если рендерится) увидели
+// нужное значение. `flags.lessons` остаётся как переменная-источник:
+// тесты переключают её перед render'ом.
 const flags = { lessons: true };
-vi.mock('./config/featureFlags', () => ({
-  isLessonsEnabledLive: () => flags.lessons,
-}));
+vi.mock('./context/FeatureFlagsContext', async () => {
+  const actual = await vi.importActual<
+    typeof import('./context/FeatureFlagsContext')
+  >('./context/FeatureFlagsContext');
+  return {
+    ...actual,
+    useFeatureFlag: (key: string) =>
+      key === 'lessonsEnabled' ? flags.lessons : false,
+    useFeatureFlags: () => ({
+      flags: { lessonsEnabled: flags.lessons },
+      loading: false,
+      error: null,
+      refresh: async () => {},
+    }),
+    // Обёртка-Provider тут не нужна — компоненты ходят к мокнутым
+    // хукам напрямую, но если кто-то рендерит Provider — оставляем
+    // pass-through.
+    FeatureFlagsProvider: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+  };
+});
 
 // MainLayout тянет api/auth/useChallenge/useNotifications — тяжёлое
 // дерево. Мокаем как proxy через Outlet, чтобы тесты роутинга App

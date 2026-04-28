@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { BoardSettingsProvider } from './context/BoardSettingsContext';
 import { ChatProvider } from './context/ChatContext';
+import { FeatureFlagsProvider } from './context/FeatureFlagsContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { App } from './App';
 import { initClientLogger } from './utils/clientLogger';
@@ -39,11 +40,13 @@ createRoot(document.getElementById('root')!).render(
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-          <ChatProvider>
-            <BoardSettingsProvider>
-              <App />
-            </BoardSettingsProvider>
-          </ChatProvider>
+          <FeatureFlagsProvider>
+            <ChatProvider>
+              <BoardSettingsProvider>
+                <App />
+              </BoardSettingsProvider>
+            </ChatProvider>
+          </FeatureFlagsProvider>
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>

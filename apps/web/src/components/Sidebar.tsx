@@ -1,16 +1,21 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { FeatureFlags } from '@kingside/shared';
 import { FeedbackModal } from './FeedbackModal';
-import { isLessonsEnabledLive } from '../config/featureFlags';
+import { useFeatureFlags } from '../context/FeatureFlagsContext';
 
 interface NavItem {
   path: string;
   icon: string;
   i18nKey: string;
   match: string[];
-  /** Если задан — пункт рендерится только когда хук вернул true. */
-  featureFlag?: () => boolean;
+  /**
+   * KS-2105: ключ feature-flag из `FeatureFlags`. Если задан — пункт
+   * рендерится только когда соответствующий флаг включён через
+   * `FeatureFlagsContext` (источник — backend `GET /config`).
+   */
+  featureFlag?: keyof FeatureFlags;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -24,8 +29,9 @@ const NAV_ITEMS: NavItem[] = [
     icon: '📚',
     i18nKey: 'nav.lessons',
     match: ['/lessons'],
-    // KS-1820: скрываем раздел целиком при `VITE_FEATURE_LESSONS !== 'true'`.
-    featureFlag: isLessonsEnabledLive,
+    // KS-2105: раздел скрывается, когда админ выключил
+    // `lessonsEnabled` через PATCH /admin/feature-flags/lessonsEnabled.
+    featureFlag: 'lessonsEnabled',
   },
   { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
   // KS-2066 (F0/ADR-033 §2): namespace архива — рядом с workshop.
@@ -44,11 +50,13 @@ export function Sidebar() {
   const { t } = useTranslation();
   const location = useLocation();
   const [showFeedback, setShowFeedback] = useState(false);
+  // KS-2105: runtime feature-flags из контекста (backend `GET /config`).
+  const { flags } = useFeatureFlags();
 
   const isActive = (match: string[]) => match.some((p) => location.pathname.startsWith(p));
 
   const visibleItems = NAV_ITEMS.filter((it) => {
-    if (it.featureFlag && !it.featureFlag()) return false;
+    if (it.featureFlag && !flags[it.featureFlag]) return false;
     return true;
   });
 
