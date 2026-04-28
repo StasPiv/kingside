@@ -1,14 +1,20 @@
 /* ==========================================================================
-   Archive Games by Position (KS-1614)
+   Archive Games by Position (KS-1614, KS-2071)
    Styles for /archive/games page — layout, header, filters, list, rows.
-   Palette aligned with analysis.css / workshop.css / tournaments.css.
+
+   KS-2071: переведены с raw `--c-XXX` токенов на семантические
+   (`--bg-surface`, `--border-subtle`, `--text-primary` и т.п.). Это
+   убирает визуальный диссонанс на светлой теме — раньше блоки были
+   жёстко-тёмными независимо от темы, поверх белого фона страницы
+   выглядели как иностранные «вставки». Теперь корректно следуют
+   `data-theme="dark"|"light"`.
    ========================================================================== */
 
 .archive-games-page {
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px 20px 48px;
-  color: var(--c-e0e0e0);
+  color: var(--text-primary);
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -18,7 +24,7 @@
   max-width: 640px;
   padding: 48px 20px;
   text-align: center;
-  color: var(--c-a0a0c0);
+  color: var(--text-secondary);
 }
 
 /* ---------- Header: mini-board + info ---------- */
@@ -28,9 +34,9 @@
   align-items: flex-start;
   gap: 20px;
   padding: 16px;
-  background: var(--c-0f172a);
-  border: 1px solid var(--c-1f2937);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
 }
 
 .archive-games-header__board {
@@ -39,7 +45,7 @@
   flex-shrink: 0;
   border-radius: 6px;
   overflow: hidden;
-  background: var(--c-1a1a2e);
+  background: var(--bg-muted);
 }
 
 .archive-games-header__info {
@@ -56,16 +62,16 @@
   gap: 10px;
   flex-wrap: wrap;
   font-size: 14px;
-  color: var(--c-c0c0d0);
+  color: var(--text-secondary);
 }
 
 .archive-games-header__eco {
   display: inline-block;
   padding: 2px 8px;
-  border: 1px solid var(--c-2a2a4e);
-  border-radius: 3px;
-  background: var(--ov-accent-08);
-  color: var(--c-7c83ff);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent-primary);
   font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   font-size: 12px;
   font-weight: 600;
@@ -74,7 +80,7 @@
 
 .archive-games-header__opening-name {
   font-weight: 500;
-  color: var(--c-e0e0e0);
+  color: var(--text-primary);
 }
 
 .archive-games-header__fen {
@@ -82,15 +88,17 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--c-808090);
+  color: var(--text-muted);
   min-width: 0;
   overflow: hidden;
 }
 
 .archive-games-header__fen-label {
-  color: var(--c-6b7280);
+  color: var(--text-muted);
   font-weight: 600;
   flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .archive-games-header__fen code {
@@ -100,7 +108,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--c-a0a0c0);
+  color: var(--text-secondary);
   font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 }
 
@@ -109,12 +117,13 @@
   align-items: center;
   align-self: flex-start;
   padding: 4px 12px;
-  background: var(--ov-accent-15);
-  border: 1px solid var(--ov-accent-30);
-  border-radius: 4px;
-  color: var(--c-7c83ff);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-soft-strong);
+  border-radius: 999px;
+  color: var(--accent-primary);
   font-size: 13px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Filters panel ---------- */
@@ -124,9 +133,9 @@
   flex-wrap: wrap;
   gap: 12px;
   padding: 14px 16px;
-  background: var(--c-0f172a);
-  border: 1px solid var(--c-1f2937);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
 }
 
 .archive-games-filters__field {
@@ -140,21 +149,22 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--c-6b7280);
+  color: var(--text-muted);
   font-weight: 600;
 }
 
 .archive-games-filters__select,
 .archive-games-filters__input {
-  background: var(--c-1a1a2e);
-  border: 1px solid var(--c-2a2a4e);
-  border-radius: 4px;
-  color: var(--c-e0e0e0);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
   font-size: 13px;
   padding: 6px 8px;
   height: 32px;
   min-width: 130px;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease,
+    background-color 0.15s ease;
 }
 
 .archive-games-filters__select {
@@ -163,17 +173,18 @@
 
 .archive-games-filters__select:hover,
 .archive-games-filters__input:hover {
-  border-color: var(--c-3a3a6e);
+  border-color: var(--border-mid);
 }
 
 .archive-games-filters__select:focus,
 .archive-games-filters__input:focus {
   outline: none;
-  border-color: var(--c-7c83ff);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .archive-games-filters__input::placeholder {
-  color: var(--c-6b7280);
+  color: var(--text-muted);
 }
 
 .archive-games-filters__input--eco {
@@ -190,28 +201,35 @@
 }
 
 .archive-games-filters__preset {
-  background: var(--c-1a1a2e);
-  border: 1px solid var(--c-2a2a4e);
-  border-radius: 4px;
-  color: var(--c-a0a0c0);
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-secondary);
   font-size: 12px;
   font-weight: 500;
   padding: 6px 10px;
   height: 32px;
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .archive-games-filters__preset:hover {
-  border-color: var(--c-3a3a6e);
-  color: var(--c-fff);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
 }
 
 .archive-games-filters__preset.is-active {
-  background: var(--ov-accent-18);
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.archive-games-filters__preset:focus-visible {
+  outline: none;
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 /* ---------- List wrapper ---------- */
@@ -225,9 +243,9 @@
 .archive-games-list__rows {
   display: flex;
   flex-direction: column;
-  background: var(--c-0f172a);
-  border: 1px solid var(--c-1f2937);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
   overflow: hidden;
 }
 
@@ -248,8 +266,8 @@
   padding: 10px 14px;
   background: transparent;
   border: none;
-  border-bottom: 1px solid var(--ov-slate-60-gray);
-  color: var(--c-e0e0e0);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
   text-align: left;
   font-size: 13px;
   line-height: 1.4;
@@ -264,19 +282,23 @@
 }
 
 .archive-game-row:hover {
-  background: var(--ov-accent-08);
+  background: var(--accent-soft);
 }
 
 .archive-game-row:focus-visible {
-  outline: 2px solid var(--c-7c83ff);
+  outline: 2px solid var(--accent-primary);
   outline-offset: -2px;
 }
 
-/* Result badge — consistent with WinDrawLossBar palette */
+/* Result badge — consistent with WinDrawLossBar palette.
+   Цвета результатов оставлены raw — это «семантика самих фигур»
+   (белый/чёрный/серый), а не «фон UI»: они не должны меняться от
+   темы. Единственное послабление — `--draw` берёт `--text-muted`
+   текст для контраста на сером плашке в обеих темах. */
 .archive-game-row__result {
   justify-self: center;
   padding: 4px 6px;
-  border-radius: 3px;
+  border-radius: 4px;
   font-weight: 700;
   font-size: 11px;
   min-width: 56px;
@@ -299,13 +321,13 @@
 
 .archive-game-row__result--draw {
   background: var(--c-9ca3af);
-  color: var(--c-0f172a);
+  color: var(--c-111827);
 }
 
 .archive-game-row__result--unknown {
   background: transparent;
-  color: var(--c-6b7280);
-  box-shadow: inset 0 0 0 1px var(--c-2a2a4e);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border-subtle);
 }
 
 /* Players */
@@ -319,42 +341,42 @@
 
 .archive-game-row__player {
   font-weight: 600;
-  color: var(--c-e0e0e0);
+  color: var(--text-primary);
 }
 
 .archive-game-row__elo {
-  color: var(--c-808090);
+  color: var(--text-muted);
   font-weight: 400;
   font-size: 12px;
 }
 
 .archive-game-row__vs {
-  color: var(--c-6b7280);
+  color: var(--text-muted);
   margin: 0 2px;
   font-weight: 400;
 }
 
 /* Meta columns */
 .archive-game-row__eco {
-  color: var(--c-a0a0c0);
+  color: var(--accent-primary);
   font-size: 11px;
   font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
   padding: 2px 6px;
-  background: var(--ov-accent-08);
-  border-radius: 3px;
+  background: var(--accent-soft);
+  border-radius: 4px;
   text-align: center;
   justify-self: start;
   font-weight: 600;
 }
 
 .archive-game-row__date {
-  color: var(--c-808090);
+  color: var(--text-secondary);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 .archive-game-row__event {
-  color: var(--c-808090);
+  color: var(--text-secondary);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -363,14 +385,14 @@
 }
 
 .archive-game-row__reached {
-  color: var(--c-6b7280);
+  color: var(--text-muted);
   font-size: 11px;
   text-align: right;
   font-style: italic;
 }
 
 .archive-game-row__next-move {
-  color: var(--c-7c83ff);
+  color: var(--accent-primary);
   font-size: 12px;
   font-weight: 600;
   text-align: right;
@@ -378,25 +400,29 @@
   white-space: nowrap;
 }
 
-/* ---------- Loading skeleton ---------- */
+/* ---------- Loading skeleton ----------
+   KS-2071: skeleton-row рисуем поверх `--bg-muted` с градиентным
+   shimmer'ом из `--bg-elevated`, чтобы и в светлой, и в тёмной теме
+   плавно «дышать» в рамках общей палитры. Высота строки совпадает с
+   реальной `.archive-game-row` (≈48px) — layout не «прыгает». */
 
 .archive-games-list--loading {
   display: flex;
   flex-direction: column;
-  background: var(--c-0f172a);
-  border: 1px solid var(--c-1f2937);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
   overflow: hidden;
 }
 
 .archive-games-list__skeleton-row {
   height: 48px;
-  border-bottom: 1px solid var(--ov-slate-60-gray);
+  border-bottom: 1px solid var(--border-subtle);
   background: linear-gradient(
     90deg,
-    var(--ov-slate-60-gray) 0%,
-    var(--ov-slate-70-gray) 50%,
-    var(--ov-slate-60-gray) 100%
+    var(--bg-muted) 0%,
+    var(--bg-elevated) 50%,
+    var(--bg-muted) 100%
   );
   background-size: 200% 100%;
   animation: archive-games-shimmer 1.4s ease-in-out infinite;
@@ -411,6 +437,20 @@
   100% { background-position: -200% 0; }
 }
 
+/* Generic skeleton-блок, применим к header/board/meta пока DOM
+   страниц загружается (used inline в loading-state'ах). */
+.archive-skeleton-block {
+  background: linear-gradient(
+    90deg,
+    var(--bg-muted) 0%,
+    var(--bg-elevated) 50%,
+    var(--bg-muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: archive-games-shimmer 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+
 /* ---------- Empty state ---------- */
 
 .archive-games-list--empty {
@@ -419,30 +459,33 @@
   align-items: center;
   gap: 14px;
   padding: 56px 20px;
-  background: var(--c-0f172a);
-  border: 1px dashed var(--c-2a2a4e);
-  border-radius: 8px;
-  color: var(--c-a0a0c0);
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-mid);
+  border-radius: 10px;
+  color: var(--text-secondary);
   text-align: center;
   font-size: 14px;
 }
 
 .archive-games-list__reset-filters {
   background: transparent;
-  border: 1px solid var(--c-2a2a4e);
-  color: var(--c-7c83ff);
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-primary);
   font-size: 13px;
   font-weight: 500;
   padding: 6px 16px;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .archive-games-list__reset-filters:hover {
-  background: var(--ov-accent-10);
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  background: var(--accent-soft);
+}
+
+.archive-games-list__reset-filters:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 /* ---------- Error states ---------- */
@@ -453,10 +496,10 @@
   justify-content: space-between;
   gap: 12px;
   padding: 16px 20px;
-  background: var(--ov-danger-08-r400);
-  border: 1px solid var(--ov-danger-25-r400);
-  border-radius: 8px;
-  color: var(--c-f87171);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 10px;
+  color: var(--danger);
   font-size: 14px;
 }
 
@@ -466,29 +509,29 @@
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  color: var(--c-f87171);
-  background: var(--ov-danger-08-r400);
-  border: 1px solid var(--ov-danger-25-r400);
-  border-radius: 6px;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: 8px;
   font-size: 13px;
 }
 
 .archive-games-list__retry {
   background: transparent;
-  border: 1px solid var(--ov-danger-40-r400);
-  color: var(--c-fca5a5);
+  border: 1px solid var(--danger);
+  color: var(--danger);
   font-size: 12px;
   font-weight: 500;
   padding: 4px 14px;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   flex-shrink: 0;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .archive-games-list__retry:hover {
-  background: var(--ov-danger-15-r400);
-  color: var(--c-fff);
+  background: var(--danger);
+  color: var(--text-on-accent);
 }
 
 /* ---------- Infinite scroll sentinel + load-more fallback ---------- */
@@ -500,21 +543,19 @@
 
 .archive-games-list__load-more {
   background: transparent;
-  border: 1px solid var(--c-2a2a4e);
-  border-radius: 6px;
-  color: var(--c-7c83ff);
+  border: 1px solid var(--accent-primary);
+  border-radius: 8px;
+  color: var(--accent-primary);
   font-size: 13px;
   font-weight: 500;
   padding: 10px 24px;
   align-self: center;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .archive-games-list__load-more:hover:not(:disabled) {
-  background: var(--ov-accent-10);
-  border-color: var(--c-7c83ff);
-  color: var(--c-fff);
+  background: var(--accent-soft);
 }
 
 .archive-games-list__load-more:disabled {
@@ -613,14 +654,14 @@
     grid-template-rows: auto auto auto auto;
     gap: 6px 10px;
     padding: 12px 14px;
-    background: var(--c-0f172a);
-    border: 1px solid var(--c-1f2937);
-    border-radius: 8px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 10px;
     font-size: 13px;
   }
 
   .archive-game-row:hover {
-    background: var(--c-16213e);
+    background: var(--bg-elevated);
   }
 
   /* row 1: players (left), result (right) */
@@ -751,16 +792,26 @@
 .archive-games-metadata__pagination button {
   min-width: 90px;
   padding: 8px 14px;
-  background: var(--bg-surface);
+  background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   cursor: pointer;
   font-size: 14px;
   color: var(--text-primary);
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .archive-games-metadata__pagination button:not(:disabled):hover {
-  background: var(--bg-muted);
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.archive-games-metadata__pagination button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--accent-primary);
 }
 
 .archive-games-metadata__pagination button:disabled {
@@ -866,9 +917,14 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 .archive-lobby__search-submit:hover {
-  background: var(--accent-primary-hover, var(--accent-primary));
+  background: var(--accent-hover, var(--accent-primary));
+}
+.archive-lobby__search-submit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .archive-lobby__search-reset {
   padding: 10px 14px;
@@ -878,9 +934,16 @@
   color: var(--text-primary);
   font-size: 14px;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 .archive-lobby__search-reset:hover {
   background: var(--bg-muted);
+  border-color: var(--border-mid);
+}
+.archive-lobby__search-reset:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--accent-primary);
 }
 
 .archive-lobby__by-position {
@@ -913,12 +976,20 @@
   text-decoration: none;
   font-weight: 600;
   font-size: 14px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 .archive-lobby__by-position-cta:hover {
-  background: var(--accent-primary-hover, var(--accent-primary));
+  background: var(--accent-hover, var(--accent-primary));
+}
+.archive-lobby__by-position-cta:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-/* Autocomplete */
+/* ---------- Autocomplete ----------
+   KS-2071: dropdown — z-index, тень, плавное появление сверху-вниз
+   при mount'е. Перекрывает соседние блоки лобби (z-index:60), но
+   остаётся ниже модалок/sticky-header'ов проекта. */
 .archive-autocomplete {
   position: relative;
   display: flex;
@@ -935,12 +1006,25 @@
   padding: 4px 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: 10px;
   list-style: none;
-  z-index: 50;
+  z-index: 60;
   max-height: 280px;
   overflow-y: auto;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  animation: archive-autocomplete-in 0.14s ease-out;
+  transform-origin: top center;
+}
+
+@keyframes archive-autocomplete-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .archive-autocomplete__item {
@@ -952,10 +1036,12 @@
   cursor: pointer;
   font-size: 14px;
   color: var(--text-primary);
+  transition: background-color 0.12s ease;
 }
 .archive-autocomplete__item--active,
 .archive-autocomplete__item:hover {
-  background: var(--bg-muted);
+  background: var(--accent-soft);
+  color: var(--accent-primary);
 }
 .archive-autocomplete__label {
   font-weight: 500;
@@ -1178,6 +1264,9 @@
   width: 100%;
   max-width: 560px;
   aspect-ratio: 1 / 1;
+  background: var(--bg-muted);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .archive-game-page__nav {
@@ -1200,8 +1289,18 @@
   cursor: pointer;
   color: var(--text-primary);
 }
+.archive-game-page__nav button {
+  transition: background-color 0.15s ease, color 0.15s ease,
+    box-shadow 0.15s ease;
+}
 .archive-game-page__nav button:not(:disabled):hover {
-  background: var(--bg-muted);
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+}
+.archive-game-page__nav button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--accent-primary);
 }
 .archive-game-page__nav button:disabled {
   opacity: 0.4;
@@ -1306,15 +1405,24 @@
 .archive-game-page__action {
   padding: 8px 14px;
   border: 1px solid var(--border-subtle);
-  background: var(--bg-surface);
+  background: var(--bg-input);
   color: var(--text-primary);
   border-radius: 8px;
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, box-shadow 0.15s ease;
 }
 .archive-game-page__action:hover {
-  background: var(--bg-muted);
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+.archive-game-page__action:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--accent-primary);
 }
 .archive-game-page__action--primary {
   background: var(--accent-primary);
@@ -1322,7 +1430,9 @@
   border-color: transparent;
 }
 .archive-game-page__action--primary:hover {
-  background: var(--accent-primary-hover, var(--accent-primary));
+  background: var(--accent-hover, var(--accent-primary));
+  color: var(--text-on-accent, #fff);
+  border-color: transparent;
 }
 .archive-game-page__action-msg {
   font-size: 13px;
@@ -1348,8 +1458,16 @@
   color: var(--text-primary);
   text-align: left;
 }
+.archive-other-games__toggle {
+  transition: background-color 0.15s ease;
+  border-radius: 10px;
+}
 .archive-other-games__toggle:hover {
   background: var(--bg-muted);
+}
+.archive-other-games__toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent-primary);
 }
 .archive-other-games__chevron {
   font-size: 12px;
@@ -1392,4 +1510,174 @@
 }
 .archive-other-games__see-all:hover {
   text-decoration: underline;
+}
+
+/* ==========================================================================
+   KS-2071 (L1): дополнительные адаптивные правки для всех страниц архива.
+
+   Основные ломки:
+   - tablet (760-1024px): подровнять lobby form, на game-page оставить
+     двухколоночный layout с уменьшенным side-col;
+   - mobile (≤760px): доска и панель — стопкой, кнопки действий
+     full-width (тач-удобство), фильтры metadata-режима компактнее;
+   - hover/focus: уже добавлены на компонентном уровне выше.
+   ========================================================================== */
+
+/* Tablet — оставляем таблицу 6-колоночной, но page paddings уменьшены
+   уже через `.archive-games-page` (см. блок выше при ≤1024). Здесь —
+   подровнять lobby и game-page под планшетную ширину. */
+@media (max-width: 1024px) {
+  .archive-lobby-page,
+  .archive-games-metadata,
+  .archive-player-profile-page,
+  .archive-game-page {
+    padding: 20px 16px 40px;
+  }
+
+  /* Lobby form — гарантируем минимум 3 поля в ряд на 800-1024px,
+     иначе auto-fit minmax(200px,1fr) может оставлять «пустое место»
+     с одиночным полем в строке (визуально неровно). */
+  .archive-lobby__search-fields {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  /* Game-page — сужаем правую колонку, доска занимает оставшееся. */
+  .archive-game-page__body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 320px);
+    gap: 18px;
+  }
+}
+
+/* Mobile (≤760px) — общие правила для всех страниц архива.
+   Уже частично есть в `@media (max-width: 768px)` выше для F2; здесь —
+   правила для F1/F3/F4, которых там не было. */
+@media (max-width: 760px) {
+  .archive-lobby-page,
+  .archive-games-metadata,
+  .archive-player-profile-page,
+  .archive-game-page {
+    padding: 14px 12px 32px;
+    gap: 14px;
+  }
+
+  /* Lobby — заголовок чуть мельче, форма — одна колонка. */
+  .archive-lobby__header h1 {
+    font-size: 20px;
+  }
+  .archive-lobby__search-form {
+    padding: 12px;
+  }
+  .archive-lobby__search-fields {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .archive-lobby__search-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .archive-lobby__search-submit,
+  .archive-lobby__search-reset {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Player profile — заголовок и stats компактнее (см. также блок 600px
+     ниже — он остаётся, мы лишь добавляем правила для 600-760px). */
+  .archive-player-profile-page__header {
+    padding: 12px;
+  }
+
+  /* Game-page — доска и панель стопкой, доска центрирована и
+     занимает всю ширину контейнера. Кнопки навигации по ходам
+     выравниваются по центру для удобства тача. */
+  .archive-game-page__body {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .archive-game-page__board-col {
+    align-items: center;
+  }
+  .archive-game-page__board {
+    max-width: 100%;
+  }
+  .archive-game-page__nav {
+    width: 100%;
+    justify-content: center;
+  }
+  .archive-game-page__nav button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .archive-game-page__counter {
+    font-size: 14px;
+  }
+  .archive-game-page__meta-row {
+    grid-template-columns: 90px 1fr;
+    gap: 8px;
+  }
+  /* Actions — кнопки full-width стопкой, чтобы их было удобно тапать
+     и сообщения о копировании не «прыгали» сбоку. */
+  .archive-game-page__actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .archive-game-page__action {
+    width: 100%;
+    text-align: center;
+    min-height: 44px;
+  }
+  .archive-game-page__action-msg {
+    text-align: center;
+  }
+  /* MoveList — компактнее, чтобы влез без overflow. */
+  .archive-game-page__moves {
+    max-height: 220px;
+    padding: 10px 12px;
+  }
+
+  /* Other games — toggle кнопка тач-удобной высоты. */
+  .archive-other-games__toggle {
+    min-height: 44px;
+  }
+
+  /* By-position header — миниатюра доски ограничена 220px и
+     центрирована (раньше было 260px — слишком много на узких
+     телефонах, занимало пол-экрана). */
+  .archive-games-header__board {
+    max-width: 220px;
+  }
+
+  /* Metadata-фильтры — сужаем минимальную ширину поля до 130px,
+     чтобы влезало 2 поля в строку на 360-380px вместо 1. */
+  .archive-games-filters__field {
+    flex: 1 1 130px;
+  }
+  /* Pagination — кнопки в колонку, чтобы prev/next не прижимались
+     друг к другу и текст page X/Y был читаемым. */
+  .archive-games-metadata__pagination {
+    gap: 8px;
+  }
+  .archive-games-metadata__pagination button {
+    min-width: 0;
+    flex: 1 1 100px;
+    min-height: 44px;
+  }
+  .archive-games-metadata__page-size {
+    width: 100%;
+    justify-content: space-between;
+    margin-left: 0;
+  }
+}
+
+/* Reduced motion — отключаем shimmer-анимацию skeleton'ов и
+   dropdown-fade. Skeleton остаётся видимым (статичный фон), но не
+   мигает. Важно для пользователей с vestibular disorders. */
+@media (prefers-reduced-motion: reduce) {
+  .archive-games-list__skeleton-row,
+  .archive-skeleton-block {
+    animation: none;
+  }
+  .archive-autocomplete__dropdown {
+    animation: none;
+  }
 }
