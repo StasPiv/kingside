@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Inject,
   Injectable,
   Logger,
@@ -18,6 +19,7 @@ import type {
   ArchiveGamesRequest,
   ArchiveGamesResponse,
   ArchiveGamesSort,
+  ArchiveGamesSortMetadata,
   ArchiveTreeRequest,
   ArchiveTreeResponse,
 } from '@kingside/shared';
@@ -27,7 +29,9 @@ import {
   ARCHIVE_STATS_REPOSITORY,
   ArchiveStatsRepository,
   GamesByPositionOpts,
+  RawArchiveGameRow,
   RawGamePositionRow,
+  SearchGamesOpts,
   TreeOpts,
 } from './archive-stats.repository';
 import { ArchiveMetricsService } from './archive-metrics.service';
@@ -47,6 +51,14 @@ const DEFAULT_GAMES_LIMIT = 50;
 const MAX_GAMES_LIMIT = 200;
 const DEFAULT_GAMES_BY_POSITION_LIMIT = 20;
 const MAX_GAMES_BY_POSITION_LIMIT = 50;
+/**
+ * Жёсткий потолок offset-пагинации в metadata-листе (KS-2063).
+ * Глубокий offset на больших корпусах (~10⁵+ партий) приводит к full
+ * sequential scan'у — UX (бесконечный скролл) при таких offset бесполезен.
+ * Клиенты должны переключаться на сортировку/фильтры или keyset (по
+ * by-position эндпоинту).
+ */
+const MAX_GAMES_OFFSET = 5000;
 const TREE_CACHE_TTL_SEC = 3600;
 const GAMES_BY_POSITION_CACHE_TTL_SEC = 600; // 10 min, ADR-014 §7
 const PREWARM_INTERVAL_MS = 15 * 60 * 1000; // 15 min, ADR-014 §7
@@ -159,42 +171,50 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
 
   async getGames(req: ArchiveGamesRequest): Promise<ArchiveGamesResponse> {
     const limit = this.clampLimit(req.limit, DEFAULT_GAMES_LIMIT, MAX_GAMES_LIMIT);
-    const offset = req.offset && req.offset > 0 ? Math.floor(req.offset) : 0;
+    const offsetRaw = req.offset && req.offset > 0 ? Math.floor(req.offset) : 0;
 
-    const where: Record<string, unknown> = {};
-    if (req.eco) where.eco = req.eco;
-    if (req.result) where.result = req.result;
-    if (req.since) {
-      where.playedAt = { gte: new Date(req.since) };
+    if (offsetRaw > MAX_GAMES_OFFSET) {
+      throw new BadRequestException(
+        `offset must be <= ${MAX_GAMES_OFFSET} (got ${offsetRaw}); use filters or by-position keyset for deeper navigation`,
+      );
     }
-    if (req.white) where.whiteName = { contains: req.white, mode: 'insensitive' };
-    if (req.black) where.blackName = { contains: req.black, mode: 'insensitive' };
 
-    if (req.player) {
-      where.OR = [
-        { whiteName: { contains: req.player, mode: 'insensitive' } },
-        { blackName: { contains: req.player, mode: 'insensitive' } },
-      ];
+    if (
+      req.minPly != null &&
+      req.maxPly != null &&
+      req.minPly > req.maxPly
+    ) {
+      throw new BadRequestException('minPly must be <= maxPly');
     }
+
+    const sort: ArchiveGamesSortMetadata = req.sort ?? 'recent';
 
     // NOTE: fen/move filters require a position_stats join and are deferred
     // to a follow-up (KS-1581 MVP scope, see ADR §4.2). They are accepted
     // by the DTO but silently ignored at the service level for now.
 
-    const [total, items] = await Promise.all([
-      this.prisma.archiveGame.count({ where }),
-      this.prisma.archiveGame.findMany({
-        where,
-        orderBy: [{ playedAt: 'desc' }, { createdAt: 'desc' }],
-        take: limit,
-        skip: offset,
-        select: this.gameSummarySelect(),
-      }),
-    ]);
+    const opts: SearchGamesOpts = {
+      white: req.white,
+      black: req.black,
+      player: req.player,
+      eco: req.eco,
+      event: req.event,
+      result: req.result,
+      minElo: req.minElo,
+      minPly: req.minPly,
+      maxPly: req.maxPly,
+      since: req.since ? new Date(req.since) : undefined,
+      until: req.until ? new Date(req.until) : undefined,
+      sort,
+      limit,
+      offset: offsetRaw,
+    };
+
+    const page = await this.stats.searchGames(opts);
 
     return {
-      total,
-      items: items.map((g) => this.toSummary(g)),
+      total: page.total,
+      items: page.items.map((g) => this.rawRowToSummary(g)),
     };
   }
 
@@ -355,25 +375,26 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
 
   // ─── Helpers ─────────────────────────────────────────────────────
 
-  private gameSummarySelect() {
+  /** Маппит raw-строку из `archive_games` в публичный {@link ArchiveGameSummary}. */
+  private rawRowToSummary(r: RawArchiveGameRow): ArchiveGameSummary {
     return {
-      id: true,
-      event: true,
-      site: true,
-      round: true,
-      date: true,
-      playedAt: true,
-      whiteName: true,
-      blackName: true,
-      whiteElo: true,
-      blackElo: true,
-      whiteTitle: true,
-      blackTitle: true,
-      result: true,
-      eco: true,
-      opening: true,
-      plyCount: true,
-      pgn: true,
+      id: r.id,
+      white: {
+        name: r.white_name,
+        elo: r.white_elo == null ? null : Number(r.white_elo),
+        title: r.white_title,
+      },
+      black: {
+        name: r.black_name,
+        elo: r.black_elo == null ? null : Number(r.black_elo),
+        title: r.black_title,
+      },
+      result: (r.result ?? null) as ArchiveGameResult | null,
+      eco: r.eco,
+      opening: r.opening,
+      event: r.event,
+      date: r.played_at ? r.played_at.toISOString() : r.date ?? null,
+      plyCount: r.ply_count == null ? null : Number(r.ply_count),
     };
   }
 

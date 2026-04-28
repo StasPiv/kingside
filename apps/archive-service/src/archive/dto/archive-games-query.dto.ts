@@ -8,9 +8,14 @@ import {
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { ArchiveGameResult, ArchiveGamesRequest } from '@kingside/shared';
+import type {
+  ArchiveGameResult,
+  ArchiveGamesRequest,
+  ArchiveGamesSortMetadata,
+} from '@kingside/shared';
 
 const RESULT_VALUES: ArchiveGameResult[] = ['1-0', '0-1', '1/2-1/2', '*'];
+const SORT_VALUES: ArchiveGamesSortMetadata[] = ['recent', 'topElo', 'oldest'];
 
 export class ArchiveGamesQueryDto implements ArchiveGamesRequest {
   @IsOptional()
@@ -51,6 +56,32 @@ export class ArchiveGamesQueryDto implements ArchiveGamesRequest {
   @IsOptional()
   @IsISO8601()
   since?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  until?: string;
+
+  @IsOptional()
+  @IsString()
+  event?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(600)
+  minPly?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(600)
+  maxPly?: number;
+
+  @IsOptional()
+  @IsIn(SORT_VALUES)
+  sort?: ArchiveGamesSortMetadata;
 
   @IsOptional()
   @Type(() => Number)

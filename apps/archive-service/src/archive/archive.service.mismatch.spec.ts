@@ -89,6 +89,9 @@ class ConfigurableRepo implements ArchiveStatsRepository {
   async listTopPositions(): Promise<Array<{ positionKey: Buffer; total: number }>> {
     return [];
   }
+  async searchGames(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
 }
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

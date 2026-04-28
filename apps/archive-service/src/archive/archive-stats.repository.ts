@@ -2,8 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Chess } from 'chess.js';
 import type {
   ArchiveBucket,
+  ArchiveGameResult,
   ArchiveGamesByPositionItem,
   ArchiveGamesSort,
+  ArchiveGamesSortMetadata,
   ArchiveTreeMove,
   ArchiveTreeResponse,
 } from '@kingside/shared';
@@ -39,6 +41,51 @@ export interface GamesByPositionPage {
   items: ArchiveGamesByPositionItem[];
   /** Raw N+1 row (if present), used by the service to build `nextCursor`. */
   overflow: RawGamePositionRow | null;
+}
+
+/** Опции для metadata-поиска `archive_games` без position-фильтра. */
+export type SearchGamesOpts = {
+  fen?: string;   // принят DTO, но в metadata-поиске игнорируется (нужен JOIN)
+  move?: string;  // то же
+  white?: string;
+  black?: string;
+  player?: string;
+  eco?: string;
+  event?: string;
+  result?: ArchiveGameResult;
+  minElo?: number;
+  minPly?: number;
+  maxPly?: number;
+  since?: Date;
+  until?: Date;
+  sort: ArchiveGamesSortMetadata;
+  limit: number;
+  offset: number;
+};
+
+/** Row shape returned by the metadata search — соответствует столбцам `archive_games`. */
+export interface RawArchiveGameRow {
+  id: string;
+  event: string | null;
+  site: string | null;
+  round: string | null;
+  date: string | null;
+  played_at: Date | null;
+  white_name: string | null;
+  black_name: string | null;
+  white_elo: number | null;
+  black_elo: number | null;
+  white_title: string | null;
+  black_title: string | null;
+  result: string | null;
+  eco: string | null;
+  opening: string | null;
+  ply_count: number | null;
+}
+
+export interface SearchGamesPage {
+  total: number;
+  items: RawArchiveGameRow[];
 }
 
 /** Row shape returned by the JOIN — used internally by the service too. */
@@ -103,6 +150,13 @@ export interface ArchiveStatsRepository {
     bucket: ArchiveBucket,
     limit: number,
   ): Promise<Array<{ positionKey: Buffer; total: number }>>;
+  /**
+   * Metadata-search в `archive_games` без position-привязки.
+   * Поддерживает фильтры по игроку/eco/event/elo/result/датам/ply и
+   * сортировки `recent`/`topElo`/`oldest`. Используется
+   * `ArchiveService.getGames` (KS-2063 / ADR-033 §4.2, §4.3).
+   */
+  searchGames(opts: SearchGamesOpts): Promise<SearchGamesPage>;
 }
 
 export const ARCHIVE_STATS_REPOSITORY = Symbol('ARCHIVE_STATS_REPOSITORY');
@@ -241,6 +295,25 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
     );
     const v = rows[0]?.total ?? 0;
     return typeof v === 'bigint' ? Number(v) : Number(v);
+  }
+
+  async searchGames(opts: SearchGamesOpts): Promise<SearchGamesPage> {
+    const builder = new MetadataSqlBuilder(opts);
+
+    const [items, totals] = await Promise.all([
+      this.prisma.$queryRawUnsafe<RawArchiveGameRow[]>(
+        builder.itemsSql,
+        ...builder.itemsParams,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ total: bigint | number }>>(
+        builder.totalSql,
+        ...builder.whereParams,
+      ),
+    ]);
+
+    const totalRaw = totals[0]?.total ?? 0;
+    const total = typeof totalRaw === 'bigint' ? Number(totalRaw) : Number(totalRaw);
+    return { total, items };
   }
 
   async listTopPositions(
@@ -392,6 +465,100 @@ class KeysetSqlBuilder {
   private register(value: unknown): string {
     this.params.push(value);
     return `$${this.params.length}`;
+  }
+}
+
+/**
+ * Builds parameterized SQL для `ArchiveStatsRepository.searchGames`
+ * (KS-2063 / ADR-033 §4.2). Возвращает 2 SQL: items (LIMIT/OFFSET) и
+ * total (COUNT(*) с тем же WHERE). Параметры WHERE общие; для items
+ * добавляются ещё два параметра — limit и offset.
+ *
+ * Сортировки:
+ *   - `recent`: `played_at DESC NULLS LAST, id DESC` (используется существующий
+ *     индекс `(played_at DESC)`, NULL-партии в хвосте — для устойчивой
+ *     keyset-семантики).
+ *   - `topElo`: `GREATEST(white_elo, black_elo) DESC NULLS LAST, id DESC`
+ *     (индекс `archive_games_top_elo_idx`, миграция KS-2063).
+ *   - `oldest`: `played_at ASC NULLS LAST, id ASC` (NULL в конце; иначе пустые
+ *     даты пользователю показались бы первыми, что бесполезно).
+ */
+class MetadataSqlBuilder {
+  public readonly itemsSql: string;
+  public readonly totalSql: string;
+  public readonly itemsParams: unknown[] = [];
+  public readonly whereParams: unknown[] = [];
+
+  constructor(opts: SearchGamesOpts) {
+    const conds: string[] = [];
+    const reg = (v: unknown): string => {
+      this.whereParams.push(v);
+      return `$${this.whereParams.length}`;
+    };
+
+    if (opts.eco) conds.push(`eco = ${reg(opts.eco)}`);
+    if (opts.result) conds.push(`result = ${reg(opts.result)}`);
+    if (opts.since) conds.push(`played_at >= ${reg(opts.since)}`);
+    if (opts.until) conds.push(`played_at <= ${reg(opts.until)}`);
+    if (opts.white) {
+      conds.push(`white_name ILIKE ${reg(`%${opts.white}%`)}`);
+    }
+    if (opts.black) {
+      conds.push(`black_name ILIKE ${reg(`%${opts.black}%`)}`);
+    }
+    if (opts.player) {
+      const p = reg(`%${opts.player}%`);
+      conds.push(`(white_name ILIKE ${p} OR black_name ILIKE ${p})`);
+    }
+    if (opts.event) {
+      conds.push(`event ILIKE ${reg(`%${opts.event}%`)}`);
+    }
+    if (opts.minElo != null) {
+      const e = reg(opts.minElo);
+      // Оба игрока должны быть выше порога — иначе фильтр имеет мало смысла.
+      conds.push(`white_elo >= ${e} AND black_elo >= ${e}`);
+    }
+    if (opts.minPly != null) conds.push(`ply_count >= ${reg(opts.minPly)}`);
+    if (opts.maxPly != null) conds.push(`ply_count <= ${reg(opts.maxPly)}`);
+
+    const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
+
+    let orderBy: string;
+    switch (opts.sort) {
+      case 'topElo':
+        orderBy = 'GREATEST(white_elo, black_elo) DESC NULLS LAST, id DESC';
+        break;
+      case 'oldest':
+        orderBy = 'played_at ASC NULLS LAST, id ASC';
+        break;
+      case 'recent':
+      default:
+        orderBy = 'played_at DESC NULLS LAST, id DESC';
+        break;
+    }
+
+    // itemsParams = [...whereParams, limit, offset]; placeholders для
+    // limit/offset идут после whereParams.
+    this.itemsParams = [...this.whereParams, opts.limit, opts.offset];
+    const pLimit = `$${this.whereParams.length + 1}`;
+    const pOffset = `$${this.whereParams.length + 2}`;
+
+    this.itemsSql = `
+      SELECT
+        id, event, site, round, date, played_at,
+        white_name, black_name, white_elo, black_elo,
+        white_title, black_title, result, eco, opening, ply_count
+      FROM archive_games
+      ${where}
+      ORDER BY ${orderBy}
+      LIMIT ${pLimit} OFFSET ${pOffset}
+    `;
+
+    this.totalSql = `
+      SELECT COUNT(*)::bigint AS total
+      FROM archive_games
+      ${where}
+    `;
   }
 }
 

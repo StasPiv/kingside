@@ -78,6 +78,9 @@ class MockStatsRepository implements ArchiveStatsRepository {
   ): Promise<Array<{ positionKey: Buffer; total: number }>> {
     return [];
   }
+  async searchGames(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
 }
 
 const startFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
