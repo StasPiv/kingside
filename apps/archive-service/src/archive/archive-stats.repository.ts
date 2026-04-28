@@ -37,7 +37,10 @@ export type GamesByPositionOpts = {
   result?: 'w' | 'b' | 'd' | null;
   sideToMove?: 'w' | 'b';
   move?: string;
-  player?: string;
+  /**
+   * KS-2081: один substring или массив (AND-логика по элементам).
+   */
+  player?: string | string[];
   eco?: string;
 };
 
@@ -122,7 +125,11 @@ export type SearchGamesOpts = {
   move?: string;  // то же
   white?: string;
   black?: string;
-  player?: string;
+  /**
+   * KS-2081: один substring или массив. Массив — AND-логика
+   * (`(white|black ILIKE %A%) AND (white|black ILIKE %B%)`).
+   */
+  player?: string | string[];
   eco?: string;
   event?: string;
   result?: ArchiveGameResult;
@@ -675,8 +682,10 @@ class KeysetSqlBuilder {
     if (opts.eco) {
       conds.push(`g.eco = ${this.register(opts.eco)}`);
     }
-    if (opts.player) {
-      const pPlayer = this.register(`%${opts.player}%`);
+    // KS-2081: player может быть строкой или массивом — AND-логика для массива.
+    const playerList = normalizePlayerFilter(opts.player);
+    for (const player of playerList) {
+      const pPlayer = this.register(`%${player}%`);
       conds.push(
         `(g.white_name ILIKE ${pPlayer} OR g.black_name ILIKE ${pPlayer})`,
       );
@@ -804,8 +813,13 @@ class MetadataSqlBuilder {
     if (opts.black) {
       conds.push(`g.black_name ILIKE ${reg(`%${opts.black}%`)}`);
     }
-    if (opts.player) {
-      const p = reg(`%${opts.player}%`);
+    // KS-2081: player может быть строкой или массивом. Массив — AND-логика
+    // («партии, где встречаются ВСЕ перечисленные игроки»). Каждый элемент
+    // даёт отдельный OR-блок (white_name|black_name) — клаузы соединяются
+    // общим AND через `conds.join(' AND ')`.
+    const playerList = normalizePlayerFilter(opts.player);
+    for (const player of playerList) {
+      const p = reg(`%${player}%`);
       conds.push(`(g.white_name ILIKE ${p} OR g.black_name ILIKE ${p})`);
     }
     if (opts.event) {
@@ -1012,6 +1026,25 @@ export function resolveArchivePlayerSlug(
   if (!name) return '';
   if (slugFromDb) return slugFromDb;
   return archiveSlug(name);
+}
+
+/**
+ * KS-2081: нормализует фильтр `player` в массив непустых строк.
+ *
+ * Принимает `undefined`, одиночную строку или массив; возвращает
+ * массив строк (после `trim` и фильтрации пустых). Используется в
+ * `MetadataSqlBuilder` и `KeysetSqlBuilder` для генерации AND-блоков:
+ * каждая строка → отдельный `(white_name|black_name ILIKE %X%)`,
+ * AND между ними получается за счёт `conds.join(' AND ')`.
+ */
+export function normalizePlayerFilter(
+  player: string | string[] | undefined,
+): string[] {
+  if (player === undefined || player === null) return [];
+  const arr = Array.isArray(player) ? player : [player];
+  return arr
+    .map((s) => (typeof s === 'string' ? s.trim() : ''))
+    .filter((s) => s.length > 0);
 }
 
 function normalizeResult(raw: string | null): '1-0' | '0-1' | '1/2-1/2' | '*' | null {

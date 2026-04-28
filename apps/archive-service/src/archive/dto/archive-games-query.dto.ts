@@ -1,4 +1,7 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsIn,
   IsInt,
   IsISO8601,
@@ -7,7 +10,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import type {
   ArchiveGameResult,
   ArchiveGamesRequest,
@@ -34,9 +37,25 @@ export class ArchiveGamesQueryDto implements ArchiveGamesRequest {
   @IsString()
   black?: string;
 
+  /**
+   * KS-2081: фильтр по игроку, поддерживает 1..N substring'ов.
+   *
+   * Express парсит `?player=A&player=B` как массив строк, а одиночное
+   * `?player=A` — как строку. Здесь нормализуем оба варианта в массив,
+   * чтобы downstream-логика (service / SQL builder) была однообразной.
+   * Лимит 5 — защита от случайного дисбаланса (запросов с 5+ AND-ветками
+   * не предусмотрено UX).
+   */
   @IsOptional()
-  @IsString()
-  player?: string;
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    return Array.isArray(value) ? value : [value];
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @IsString({ each: true })
+  player?: string[];
 
   @IsOptional()
   @IsString()

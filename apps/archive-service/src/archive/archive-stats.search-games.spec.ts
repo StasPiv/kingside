@@ -146,7 +146,7 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       expect(items.sql).not.toMatch(/ply_count <= /);
     });
 
-    it('player → OR на оба имени с одинаковым параметром', async () => {
+    it('player (строка) → OR на оба имени с одинаковым параметром', async () => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);
       await repo.searchGames({ ...defaults(), player: 'Carlsen' });
@@ -154,6 +154,51 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       const items = findItemsCall(calls);
       expect(items.sql).toMatch(/g\.white_name ILIKE \$\d+ OR g\.black_name ILIKE \$\d+/);
       expect(items.params).toContain('%Carlsen%');
+    });
+
+    it('player (массив, KS-2081) → AND из двух OR-блоков', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({ ...defaults(), player: ['Carlsen,M', 'Caruana,F'] });
+
+      const items = findItemsCall(calls);
+      // Два независимых OR-блока с разными плейсхолдерами.
+      const orBlocks = items.sql.match(
+        /\(g\.white_name ILIKE \$\d+ OR g\.black_name ILIKE \$\d+\)/g,
+      );
+      expect(orBlocks).not.toBeNull();
+      expect(orBlocks!.length).toBe(2);
+      // Параметры обоих игроков обёрнуты в %...%.
+      expect(items.params).toContain('%Carlsen,M%');
+      expect(items.params).toContain('%Caruana,F%');
+
+      // Тот же фильтр в COUNT-запросе.
+      const total = findTotalCall(calls);
+      expect(total.params).toContain('%Carlsen,M%');
+      expect(total.params).toContain('%Caruana,F%');
+    });
+
+    it('player (массив с пустыми и пробельными элементами) → пропуск пустых', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({ ...defaults(), player: ['Carlsen', '', '  '] });
+
+      const items = findItemsCall(calls);
+      const orBlocks = items.sql.match(
+        /\(g\.white_name ILIKE \$\d+ OR g\.black_name ILIKE \$\d+\)/g,
+      );
+      // Только один валидный элемент — Carlsen.
+      expect(orBlocks!.length).toBe(1);
+      expect(items.params).toContain('%Carlsen%');
+    });
+
+    it('player (пустой массив) → нет WHERE-веток на player', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({ ...defaults(), player: [] });
+
+      const items = findItemsCall(calls);
+      expect(items.sql).not.toMatch(/g\.white_name ILIKE/);
     });
 
     it('LIMIT и OFFSET идут параметрами после фильтров', async () => {

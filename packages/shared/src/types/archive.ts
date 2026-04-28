@@ -80,8 +80,16 @@ export type ArchiveGamesRequest = {
   white?: string;
   /** Black player name filter. */
   black?: string;
-  /** Either-colour player filter. */
-  player?: string;
+  /**
+   * Either-colour player filter. Принимает один substring или массив
+   * substring'ов (KS-2081, S1 «двое игроков»). Для массива применяется
+   * AND-логика: `(white|black ILIKE %A%) AND (white|black ILIKE %B%)` —
+   * партия подходит, если каждый элемент массива встречается на стороне
+   * белых ИЛИ чёрных.
+   *
+   * Сеть: `?player=A&player=B` (Express парсит дубликаты query как массив).
+   */
+  player?: string | string[];
   /** ECO code filter, e.g. "B90". */
   eco?: string;
   /** Minimum Elo of both players. */
@@ -180,8 +188,11 @@ export type ArchiveGamesByPositionRequest = {
   color?: ArchiveGameColor;
   /** Only games where next move from `fen` was this UCI move. */
   move?: string;
-  /** Either-colour player name filter. */
-  player?: string;
+  /**
+   * Either-colour player name filter. Поддерживает массив (KS-2081);
+   * семантика — AND по элементам.
+   */
+  player?: string | string[];
   /** ECO code filter, e.g. "B90". */
   eco?: string;
 };
