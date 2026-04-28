@@ -592,14 +592,17 @@
   text-decoration: underline;
 }
 
-/* KS-2103: panel-body engine'а (multi-PV строки) ограничен max-height
-   c внутренним скроллом — длинные PV-строки больше не растягивают
-   sidebar. modifier `--scroll` ниже остаётся как был (moves: flex:1
-   снаружи, scroll внутри). */
+/* KS-2103/KS-2107: panel-body engine'а — фиксированная высота 240px
+   (min == max). max-height (KS-2103) — длинные PV не выталкивают
+   соседей. min-height (KS-2107) — engine с одной короткой PV-строкой
+   тоже занимает свои 240px, чтобы tree/moves ниже не «подскакивали»
+   при включении/выключении движка или смене позиции. modifier
+   `--scroll` ниже сбрасывает min/max (для moves-panel). */
 .analysis-panel-body {
   padding: 10px 12px;
   background: var(--c-0f172a);
   overflow-y: auto;
+  min-height: 240px;
   max-height: 240px;
 }
 
@@ -607,10 +610,10 @@
   display: flex;
   flex-direction: column;
   flex: 1;
+  /* KS-2103/KS-2107: переопределяет min/max-height с base
+     `.analysis-panel-body` — для moves-panel внешняя высота
+     определяется flex:1 в sidebar'е, а внутри уже скролл. */
   min-height: 0;
-  /* KS-2103: переопределяет max-height с base `.analysis-panel-body` —
-     для moves-panel внешняя высота определяется flex:1 в sidebar'е,
-     а внутри уже скролл. */
   max-height: none;
   overflow-y: auto;
   padding: 0;
@@ -2250,12 +2253,12 @@
    (KS-1583, components from KS-1582). Visually matches Engine & Moves panels.
    ========================================================================== */
 
-/* KS-2103: tree-panel в analysis-sidebar — фиксированная max-height
-   с внутренним скроллом таблицы. Раньше при разворачивании дерева
-   панель росла на всю высоту контента (сотни ходов из мастер-базы),
-   и нижние блоки (moves, game-report) выталкивались за viewport.
-   Теперь tree-panel максимум 360px по высоте: header 40 + body ≤ 320,
-   таблица скроллится внутри body. */
+/* KS-2103/KS-2107: tree-panel в analysis-sidebar — ФИКСИРОВАННАЯ
+   высота 360px (min == max). max-height: 360 (KS-2103) — чтобы при
+   длинной таблице мастер-базы дерево не выталкивало нижние блоки.
+   min-height: 360 (KS-2107) — чтобы при коротком списке (редкий вариант,
+   2-3 строки) панель не сжималась и moves/report ниже не «подскакивали»
+   вверх. Внутри пустое место остаётся, но позиция соседей предсказуема. */
 .archive-tree-panel {
   display: flex;
   flex-direction: column;
@@ -2265,7 +2268,7 @@
   overflow: hidden;
   flex-shrink: 0;
   margin-bottom: 8px;
-  max-height: 360px;
+  height: 360px;
 }
 
 .archive-tree-panel__header {
@@ -2593,9 +2596,17 @@
 
 /* ---------- Mobile (≤768px): full-width panel inside Tree tab ---------- */
 @media (max-width: 768px) {
+  /* KS-2107: на mobile вертикальный stack, фиксированная высота не
+     нужна — пускай tree-panel растёт по контенту, как раньше. Снимаем
+     ограничения с десктопа. То же для analysis-panel-body (engine). */
   .archive-tree-panel {
     border-radius: 4px;
     margin-bottom: 6px;
+    height: auto;
+  }
+  .analysis-panel-body {
+    min-height: 0;
+    max-height: none;
   }
 
   .archive-tree-panel__header {
