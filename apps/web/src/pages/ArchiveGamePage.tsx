@@ -45,26 +45,94 @@ interface ParsedMove {
 }
 
 /**
+ * Извлекает значение PGN-тега вида `[Tag "value"]`. Возвращает строку
+ * либо `null`, если тег отсутствует. Регэксп толерантен к whitespace
+ * между ключом, кавычками и значением — встречается в реальных PGN-ах.
+ */
+function extractTag(pgn: string, tag: string): string | null {
+  const re = new RegExp(`\\[\\s*${tag}\\s+"([^"]*)"\\s*\\]`, 'i');
+  const m = re.exec(pgn);
+  return m ? m[1] : null;
+}
+
+/**
+ * Возвращает «тело» PGN — всё, что после блока тегов, очищенное от
+ * `{ ... }` комментариев, `( ... )` вариантов, NAG-меток (`$N`), номеров
+ * хода и финального результата. Полученная строка уже содержит только
+ * SAN-токены, разделённые пробелами.
+ */
+function pgnBodyTokens(pgn: string): string[] {
+  // Срезаем заголовочные теги: всё до первой пустой строки (между
+  // блоком тегов и movetext'ом). Если пустой строки нет — берём
+  // PGN целиком.
+  const sepIdx = pgn.search(/\n\s*\n/);
+  const body = sepIdx >= 0 ? pgn.slice(sepIdx) : pgn;
+
+  // Удаляем `{ ... }` комментарии (включая многострочные).
+  let cleaned = body.replace(/\{[^}]*\}/g, ' ');
+  // Удаляем `( ... )` варианты — поддерживаем вложенность через цикл,
+  // потому что обычный regex не съест nested группы.
+  let prev: string;
+  do {
+    prev = cleaned;
+    cleaned = cleaned.replace(/\([^()]*\)/g, ' ');
+  } while (cleaned !== prev);
+  // NAG-метки `$1`, `$12`.
+  cleaned = cleaned.replace(/\$\d+/g, ' ');
+  // Номера ходов: `1.`, `12.`, `1...` (после многоточия — чёрные).
+  cleaned = cleaned.replace(/\d+\.(\.\.)?/g, ' ');
+
+  return cleaned
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0)
+    .filter((t) => t !== '1-0' && t !== '0-1' && t !== '1/2-1/2' && t !== '*');
+}
+
+/**
  * Парсит PGN в плоский список ходов с FEN после каждого. Если PGN
  * битый — возвращает `null` (страница покажет fallback).
+ *
+ * KS-2083: поддержка Chess960 / partial-setup PGN-ов. Если в шапке
+ * есть `[FEN "..."]` (с `[SetUp "1"]` — каноническая пара по PGN-стандарту),
+ * стартовая позиция — оттуда, а не дефолтная. `chess.js` v1.4
+ * `loadPgn(...)` для PGN с `[Variant "Chess960"]` ведёт себя нестабильно
+ * (иногда молча падает на хедерах), поэтому делаем парсинг тела PGN
+ * вручную: чистим комментарии/варианты/номера, передаём SAN-токены в
+ * `chess.move()` поштучно. На обычных ходах (которых в Chess960-партиях
+ * подавляющее большинство) это надёжно работает; нестандартные кастлинги
+ * Chess960 могут не распознаться, но это already-broken-edge-case и
+ * лучше хотя бы показать частичный список ходов до точки сбоя, чем
+ * пустую партию.
  */
 function parsePgn(pgn: string): { moves: ParsedMove[]; initialFen: string } | null {
   if (!pgn || pgn.trim().length === 0) {
     return { moves: [], initialFen: STARTING_FEN };
   }
   try {
-    const chess = new Chess();
-    chess.loadPgn(pgn);
-    const verbose = chess.history({ verbose: true });
-    // Реплей с нуля, чтобы получить FEN ПОСЛЕ каждого хода (history()
-    // возвращает только метаданные ходов, без FEN-снапшотов).
-    const replay = new Chess();
+    const setUpTag = extractTag(pgn, 'SetUp');
+    const fenTag = extractTag(pgn, 'FEN');
+    // По PGN-стандарту начальная FEN считается активной только если
+    // `[SetUp "1"]` явно стоит. На практике встречаются PGN-ы с FEN
+    // без SetUp — на них тоже подменяем, иначе доска стояла бы в
+    // дефолте (особенно критично для Chess960, где без FEN нет
+    // никакого способа понять расстановку).
+    const initialFen =
+      fenTag && (setUpTag === '1' || setUpTag === null) ? fenTag : STARTING_FEN;
+
+    const chess = new Chess(initialFen);
+    const tokens = pgnBodyTokens(pgn);
     const moves: ParsedMove[] = [];
-    for (const m of verbose) {
-      replay.move({ from: m.from, to: m.to, promotion: m.promotion });
-      moves.push({ san: m.san, fenAfter: replay.fen() });
+    for (const san of tokens) {
+      const result = chess.move(san);
+      if (!result) {
+        // На нераспознанном ходе останавливаемся, но возвращаем то, что
+        // успели распарсить — это лучше пустого списка.
+        break;
+      }
+      moves.push({ san: result.san, fenAfter: chess.fen() });
     }
-    return { moves, initialFen: STARTING_FEN };
+    return { moves, initialFen };
   } catch {
     return null;
   }
@@ -138,8 +206,11 @@ export function ArchiveGamePage() {
     }
   }, [game]);
 
+  // KS-2083: на ply=0 показываем initialFen из PGN (для Chess960 это
+  // нестандартная стартовая позиция), а не хардкодед STARTING_FEN.
+  const initialFen = parsed?.initialFen ?? STARTING_FEN;
   const currentFen =
-    ply === 0 ? STARTING_FEN : moves[ply - 1]?.fenAfter ?? STARTING_FEN;
+    ply === 0 ? initialFen : moves[ply - 1]?.fenAfter ?? initialFen;
 
   const goTo = useCallback(
     (target: number) => {

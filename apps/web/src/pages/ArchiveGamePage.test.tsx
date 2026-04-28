@@ -166,6 +166,105 @@ describe('ArchiveGamePage — загрузка', () => {
   });
 });
 
+describe('ArchiveGamePage — Chess960 / setup-FEN PGN (KS-2083)', () => {
+  const chess960Pgn = `[Event "grenke Freestyle Open"]
+[Site "Karlsruhe"]
+[Date "2026.04.10"]
+[White "Yakubboev,Nodirbek"]
+[Black "Carlsen,M"]
+[Result "0-1"]
+[Variant "Chess960"]
+[SetUp "1"]
+[FEN "nbrqkrbn/pppppppp/8/8/8/8/PPPPPPPP/NBRQKBNR w KQkq - 0 1"]
+
+1. c4 c5 2. Be4 Qc7 3. g4 Nb6 0-1`;
+
+  it('берёт начальный FEN из PGN-тега и парсит ходы тела', async () => {
+    mockArchiveApi.getArchiveGameById.mockResolvedValueOnce({
+      ...baseGame,
+      pgn: chess960Pgn,
+      result: '0-1' as const,
+    });
+
+    renderWithProviders(<ArchiveGamePage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-page')).toHaveAttribute(
+        'data-state',
+        'ready',
+      ),
+    );
+
+    // На ply=0 доска показывает Chess960-FEN, не дефолтную позицию.
+    const board = screen.getByTestId('archive-game-page-board');
+    expect(board.getAttribute('data-fen')).toContain(
+      'nbrqkrbn/pppppppp/8/8/8/8/PPPPPPPP/NBRQKBNR',
+    );
+
+    // Все ходы из тела PGN должны разобраться в плоский список.
+    expect(screen.getByTestId('archive-game-page-counter')).toHaveTextContent(
+      '0/6',
+    );
+    expect(screen.getByTestId('archive-game-page-move-1')).toHaveTextContent(
+      'c4',
+    );
+    expect(screen.getByTestId('archive-game-page-move-2')).toHaveTextContent(
+      'c5',
+    );
+    expect(screen.getByTestId('archive-game-page-move-3')).toHaveTextContent(
+      'Be4',
+    );
+    expect(screen.getByTestId('archive-game-page-move-6')).toHaveTextContent(
+      'Nb6',
+    );
+  });
+
+  it('обычный PGN с full-tag header не теряет ходы (regress-проверка)', async () => {
+    mockArchiveApi.getArchiveGameById.mockResolvedValueOnce({
+      ...baseGame,
+      pgn: `[Event "Test"]\n[White "A"]\n[Black "B"]\n[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 *`,
+    });
+
+    renderWithProviders(<ArchiveGamePage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-page')).toHaveAttribute(
+        'data-state',
+        'ready',
+      ),
+    );
+    expect(screen.getByTestId('archive-game-page-counter')).toHaveTextContent(
+      '0/4',
+    );
+    expect(screen.getByTestId('archive-game-page-move-1')).toHaveTextContent(
+      'e4',
+    );
+    expect(screen.getByTestId('archive-game-page-move-4')).toHaveTextContent(
+      'Nc6',
+    );
+  });
+
+  it('PGN с комментариями `{...}` и вариантами `(...)` — комментарии и варианты выкидываются', async () => {
+    mockArchiveApi.getArchiveGameById.mockResolvedValueOnce({
+      ...baseGame,
+      pgn: `1. e4 {Best by test} e5 (1... c5 2. Nf3) 2. Nf3 Nc6 *`,
+    });
+
+    renderWithProviders(<ArchiveGamePage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-page')).toHaveAttribute(
+        'data-state',
+        'ready',
+      ),
+    );
+    // 4 хода в main line (c5/Nf3 в варианте не должны попасть).
+    expect(screen.getByTestId('archive-game-page-counter')).toHaveTextContent(
+      '0/4',
+    );
+    expect(screen.getByTestId('archive-game-page-move-2')).toHaveTextContent(
+      'e5',
+    );
+  });
+});
+
 describe('ArchiveGamePage — навигация по ходам', () => {
   it('клик «next» меняет ply и FEN доски', async () => {
     mockArchiveApi.getArchiveGameById.mockResolvedValueOnce(baseGame);
