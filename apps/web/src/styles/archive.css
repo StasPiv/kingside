@@ -933,9 +933,21 @@
   min-width: 0;
 }
 .archive-games-filters__chip-add {
-  flex-shrink: 0;
+  /* KS-2089: гарантия что кнопка получает ширину под полный текст
+     («Добавить»/«Add»). У `<button>` user-agent CSS ставит
+     `overflow: hidden`, поэтому если flex-расчёт сужает кнопку
+     ниже content width, текст обрезается БЕЗ ellipsis. Чтобы
+     гарантировать достаточную ширину независимо от каскада / flex
+     поведения, фиксируем явное `min-width: 110px` (больше чем
+     нужно для «Добавить»: 8 char × 8px = 64px + padding 36px).
+     `flex: 0 0 auto` запрещает сжатие. `box-sizing: border-box`
+     явно — на случай если родитель переопределил `content-box`. */
+  flex: 0 0 auto;
+  min-width: 130px;
+  white-space: nowrap;
+  box-sizing: border-box;
   height: 32px;
-  padding: 0 14px;
+  padding: 0 20px;
   background: var(--accent-primary);
   color: var(--text-on-accent, #fff);
   border: 1px solid transparent;
