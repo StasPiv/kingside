@@ -41,6 +41,7 @@ import {
   SearchGamesOpts,
   SearchPlayerGamesOpts,
   TreeOpts,
+  resolveArchivePlayerSlug,
 } from './archive-stats.repository';
 import { ArchiveMetricsService } from './archive-metrics.service';
 import { positionKey, positionKeyHex } from './position-key';
@@ -382,12 +383,38 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException(`Archive game ${id} not found`);
     }
 
+    // KS-2074: подтягиваем slug'и обоих игроков из archive_players
+    // одним батч-запросом (LEFT JOIN не делаем — у Prisma модели нет
+    // relation, проще отдельный SELECT).
+    const slugByName = await this.lookupPlayerSlugs([
+      game.whiteName,
+      game.blackName,
+    ]);
+
     return {
-      ...this.toSummary(game),
+      ...this.toSummary(game, slugByName),
       pgn: game.pgn,
       site: game.site ?? null,
       round: game.round ?? null,
     };
+  }
+
+  /**
+   * KS-2074: батч-резолвинг slug'ов игроков по `name_canonical`.
+   * Возвращает Map<name_canonical, slug>. Имена с null/пустые — пропускаются.
+   */
+  private async lookupPlayerSlugs(
+    names: Array<string | null>,
+  ): Promise<Map<string, string>> {
+    const unique = [...new Set(names.filter((n): n is string => !!n))];
+    if (unique.length === 0) return new Map();
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{ name_canonical: string; slug: string }>
+    >(
+      `SELECT name_canonical, slug FROM archive_players WHERE name_canonical = ANY($1)`,
+      unique,
+    );
+    return new Map(rows.map((r) => [r.name_canonical, r.slug]));
   }
 
   // ─── Players & events (KS-2065) ──────────────────────────────────
@@ -497,11 +524,13 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       id: r.id,
       white: {
         name: r.white_name,
+        slug: resolveArchivePlayerSlug(r.white_name, r.white_slug),
         elo: r.white_elo == null ? null : Number(r.white_elo),
         title: r.white_title,
       },
       black: {
         name: r.black_name,
+        slug: resolveArchivePlayerSlug(r.black_name, r.black_slug),
         elo: r.black_elo == null ? null : Number(r.black_elo),
         title: r.black_title,
       },
@@ -531,11 +560,28 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       opening: string | null;
       plyCount: number | null;
     },
+    slugByName: Map<string, string> = new Map(),
   ): ArchiveGameSummary {
     return {
       id: g.id,
-      white: { name: g.whiteName, elo: g.whiteElo, title: g.whiteTitle },
-      black: { name: g.blackName, elo: g.blackElo, title: g.blackTitle },
+      white: {
+        name: g.whiteName,
+        slug: resolveArchivePlayerSlug(
+          g.whiteName,
+          g.whiteName ? slugByName.get(g.whiteName) ?? null : null,
+        ),
+        elo: g.whiteElo,
+        title: g.whiteTitle,
+      },
+      black: {
+        name: g.blackName,
+        slug: resolveArchivePlayerSlug(
+          g.blackName,
+          g.blackName ? slugByName.get(g.blackName) ?? null : null,
+        ),
+        elo: g.blackElo,
+        title: g.blackTitle,
+      },
       result: (g.result ?? null) as ArchiveGameResult | null,
       eco: g.eco,
       opening: g.opening,
@@ -614,11 +660,13 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       id: r.id,
       white: {
         name: r.white_name,
+        slug: resolveArchivePlayerSlug(r.white_name, r.white_slug),
         elo: r.white_elo == null ? null : Number(r.white_elo),
         title: r.white_title,
       },
       black: {
         name: r.black_name,
+        slug: resolveArchivePlayerSlug(r.black_name, r.black_slug),
         elo: r.black_elo == null ? null : Number(r.black_elo),
         title: r.black_title,
       },

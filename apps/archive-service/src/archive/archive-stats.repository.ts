@@ -12,7 +12,7 @@ import type {
   ArchiveTreeMove,
   ArchiveTreeResponse,
 } from '@kingside/shared';
-import { normalizeArchiveName } from '@kingside/shared';
+import { archiveSlug, normalizeArchiveName } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { positionKeyHex } from './position-key';
 import { storageToResult } from './result-format';
@@ -106,6 +106,9 @@ export interface RawPlayerGameRow {
   opening: string | null;
   ply_count: number | null;
   player_color: 'white' | 'black';
+  /** KS-2074: slug из `archive_players` (LEFT JOIN), null если игрок ещё не в таблице. */
+  white_slug: string | null;
+  black_slug: string | null;
 }
 
 export interface SearchPlayerGamesPage {
@@ -151,6 +154,9 @@ export interface RawArchiveGameRow {
   eco: string | null;
   opening: string | null;
   ply_count: number | null;
+  /** KS-2074: slug из `archive_players` (LEFT JOIN), null если игрок ещё не в таблице. */
+  white_slug: string | null;
+  black_slug: string | null;
 }
 
 export interface SearchGamesPage {
@@ -180,6 +186,9 @@ export interface RawGamePositionRow {
   g_date: string | null;
   g_played_at: Date | null;
   g_ply_count: number | null;
+  /** KS-2074: slug из `archive_players` (LEFT JOIN), null если игрок ещё не в таблице. */
+  g_white_slug: string | null;
+  g_black_slug: string | null;
 }
 
 /**
@@ -680,6 +689,10 @@ class KeysetSqlBuilder {
 
     const pLimit = this.register(opts.limit + 1);
 
+    // KS-2074: добавляем LEFT JOIN на archive_players (pw/pb) для slug'ов
+    // обоих сторон. `p` здесь занят за `archive_game_positions` (legacy
+    // алиас в этом builder'е), поэтому для players-table используем pw/pb
+    // — они не конфликтуют.
     this.sql = `
       SELECT
         p.game_id,
@@ -701,9 +714,13 @@ class KeysetSqlBuilder {
         g.event AS g_event,
         g.date AS g_date,
         g.played_at AS g_played_at,
-        g.ply_count AS g_ply_count
+        g.ply_count AS g_ply_count,
+        pw.slug AS g_white_slug,
+        pb.slug AS g_black_slug
       FROM archive_game_positions p
       JOIN archive_games g ON g.id = p.game_id
+      LEFT JOIN archive_players pw ON pw.name_canonical = g.white_name
+      LEFT JOIN archive_players pb ON pb.name_canonical = g.black_name
       WHERE ${conds.join(' AND ')}
       ORDER BY ${orderBy}
       LIMIT ${pLimit}
@@ -766,50 +783,55 @@ class MetadataSqlBuilder {
   public readonly whereParams: unknown[] = [];
 
   constructor(opts: SearchGamesOpts) {
+    // KS-2074: items SQL дополнительно LEFT JOIN'ит archive_players ×2
+    // под алиасами `pw`/`pb` для резолвинга slug по name_canonical.
+    // total SQL остаётся без JOIN'ов — лишний overhead. WHERE строится
+    // с префиксом `g.` (всегда однозначен), для total `g.` тоже работает
+    // через `FROM archive_games g`.
     const conds: string[] = [];
     const reg = (v: unknown): string => {
       this.whereParams.push(v);
       return `$${this.whereParams.length}`;
     };
 
-    if (opts.eco) conds.push(`eco = ${reg(opts.eco)}`);
-    if (opts.result) conds.push(`result = ${reg(opts.result)}`);
-    if (opts.since) conds.push(`played_at >= ${reg(opts.since)}`);
-    if (opts.until) conds.push(`played_at <= ${reg(opts.until)}`);
+    if (opts.eco) conds.push(`g.eco = ${reg(opts.eco)}`);
+    if (opts.result) conds.push(`g.result = ${reg(opts.result)}`);
+    if (opts.since) conds.push(`g.played_at >= ${reg(opts.since)}`);
+    if (opts.until) conds.push(`g.played_at <= ${reg(opts.until)}`);
     if (opts.white) {
-      conds.push(`white_name ILIKE ${reg(`%${opts.white}%`)}`);
+      conds.push(`g.white_name ILIKE ${reg(`%${opts.white}%`)}`);
     }
     if (opts.black) {
-      conds.push(`black_name ILIKE ${reg(`%${opts.black}%`)}`);
+      conds.push(`g.black_name ILIKE ${reg(`%${opts.black}%`)}`);
     }
     if (opts.player) {
       const p = reg(`%${opts.player}%`);
-      conds.push(`(white_name ILIKE ${p} OR black_name ILIKE ${p})`);
+      conds.push(`(g.white_name ILIKE ${p} OR g.black_name ILIKE ${p})`);
     }
     if (opts.event) {
-      conds.push(`event ILIKE ${reg(`%${opts.event}%`)}`);
+      conds.push(`g.event ILIKE ${reg(`%${opts.event}%`)}`);
     }
     if (opts.minElo != null) {
       const e = reg(opts.minElo);
       // Оба игрока должны быть выше порога — иначе фильтр имеет мало смысла.
-      conds.push(`white_elo >= ${e} AND black_elo >= ${e}`);
+      conds.push(`g.white_elo >= ${e} AND g.black_elo >= ${e}`);
     }
-    if (opts.minPly != null) conds.push(`ply_count >= ${reg(opts.minPly)}`);
-    if (opts.maxPly != null) conds.push(`ply_count <= ${reg(opts.maxPly)}`);
+    if (opts.minPly != null) conds.push(`g.ply_count >= ${reg(opts.minPly)}`);
+    if (opts.maxPly != null) conds.push(`g.ply_count <= ${reg(opts.maxPly)}`);
 
     const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
 
     let orderBy: string;
     switch (opts.sort) {
       case 'topElo':
-        orderBy = 'GREATEST(white_elo, black_elo) DESC NULLS LAST, id DESC';
+        orderBy = 'GREATEST(g.white_elo, g.black_elo) DESC NULLS LAST, g.id DESC';
         break;
       case 'oldest':
-        orderBy = 'played_at ASC NULLS LAST, id ASC';
+        orderBy = 'g.played_at ASC NULLS LAST, g.id ASC';
         break;
       case 'recent':
       default:
-        orderBy = 'played_at DESC NULLS LAST, id DESC';
+        orderBy = 'g.played_at DESC NULLS LAST, g.id DESC';
         break;
     }
 
@@ -821,10 +843,14 @@ class MetadataSqlBuilder {
 
     this.itemsSql = `
       SELECT
-        id, event, site, round, date, played_at,
-        white_name, black_name, white_elo, black_elo,
-        white_title, black_title, result, eco, opening, ply_count
-      FROM archive_games
+        g.id, g.event, g.site, g.round, g.date, g.played_at,
+        g.white_name, g.black_name, g.white_elo, g.black_elo,
+        g.white_title, g.black_title, g.result, g.eco, g.opening, g.ply_count,
+        pw.slug AS white_slug,
+        pb.slug AS black_slug
+      FROM archive_games g
+      LEFT JOIN archive_players pw ON pw.name_canonical = g.white_name
+      LEFT JOIN archive_players pb ON pb.name_canonical = g.black_name
       ${where}
       ORDER BY ${orderBy}
       LIMIT ${pLimit} OFFSET ${pOffset}
@@ -832,7 +858,7 @@ class MetadataSqlBuilder {
 
     this.totalSql = `
       SELECT COUNT(*)::bigint AS total
-      FROM archive_games
+      FROM archive_games g
       ${where}
     `;
   }
@@ -905,14 +931,22 @@ class PlayerGamesSqlBuilder {
     const pLimit = `$${this.whereParams.length + 1}`;
     const pOffset = `$${this.whereParams.length + 2}`;
 
+    // KS-2074: добавляем LEFT JOIN на archive_players (×2) для slug'ов обоих
+    // сторон. Алиас `p` уже занят за самим игроком — для slug'ов используем
+    // `pw`/`pb`. Это всегда совпадение (slug pw для White-стороны), но при
+    // color=any одна из сторон ≠ p. total — без JOIN'ов на pw/pb.
     this.itemsSql = `
       SELECT
         g.id, g.event, g.site, g.round, g.date, g.played_at,
         g.white_name, g.black_name, g.white_elo, g.black_elo,
         g.white_title, g.black_title, g.result, g.eco, g.opening, g.ply_count,
-        CASE WHEN g.white_name = p.name_canonical THEN 'white' ELSE 'black' END AS player_color
+        CASE WHEN g.white_name = p.name_canonical THEN 'white' ELSE 'black' END AS player_color,
+        pw.slug AS white_slug,
+        pb.slug AS black_slug
       FROM archive_players p
       JOIN archive_games g ON (g.white_name = p.name_canonical OR g.black_name = p.name_canonical)
+      LEFT JOIN archive_players pw ON pw.name_canonical = g.white_name
+      LEFT JOIN archive_players pb ON pb.name_canonical = g.black_name
       ${where}
       ORDER BY ${orderBy}
       LIMIT ${pLimit} OFFSET ${pOffset}
@@ -935,11 +969,13 @@ function rowToItem(r: RawGamePositionRow): ArchiveGamesByPositionItem {
     id: r.game_id,
     white: {
       name: r.g_white_name,
+      slug: resolveArchivePlayerSlug(r.g_white_name, r.g_white_slug),
       elo: r.g_white_elo == null ? null : Number(r.g_white_elo),
       title: r.g_white_title,
     },
     black: {
       name: r.g_black_name,
+      slug: resolveArchivePlayerSlug(r.g_black_name, r.g_black_slug),
       elo: r.g_black_elo == null ? null : Number(r.g_black_elo),
       title: r.g_black_title,
     },
@@ -956,6 +992,26 @@ function rowToItem(r: RawGamePositionRow): ArchiveGamesByPositionItem {
     nextMoveUci: r.move_uci,
     sideToMove: r.side_to_move === 'b' ? 'b' : 'w',
   };
+}
+
+/**
+ * KS-2074: резолвит slug игрока, который попадает в `ArchivePlayerInfo`.
+ *
+ *   1. если есть запись в `archive_players` (slug пришёл из LEFT JOIN) —
+ *      берём её (поддерживает тёзок с числовым суффиксом, `carlsen-2`);
+ *   2. иначе fallback `archiveSlug(name)` — это тот же алгоритм
+ *      нормализации, что и при backfill; нужно для случая «партия
+ *      импортирована, но `archive_players` ещё не пересинхронизирована»;
+ *   3. если name пустой — возвращаем '' (фронт не должен формировать
+ *      ссылку при отсутствии имени).
+ */
+export function resolveArchivePlayerSlug(
+  name: string | null,
+  slugFromDb: string | null,
+): string {
+  if (!name) return '';
+  if (slugFromDb) return slugFromDb;
+  return archiveSlug(name);
 }
 
 function normalizeResult(raw: string | null): '1-0' | '0-1' | '1/2-1/2' | '*' | null {

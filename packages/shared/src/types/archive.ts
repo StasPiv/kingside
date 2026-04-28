@@ -108,6 +108,18 @@ export type ArchiveGamesRequest = {
 
 export type ArchivePlayerInfo = {
   name: string | null;
+  /**
+   * Серверный slug игрока в нормализованной таблице `archive_players`
+   * (KS-2074). Стабильный URL-safe идентификатор: для уникальных имён
+   * совпадает с `archiveSlug(name)`, для тёзок с числовым суффиксом
+   * (`carlsen-2`) — резолвится через JOIN `archive_players` по
+   * `name_canonical = name`. Если name отсутствует — `""` (пустая строка).
+   * Когда игрок ещё не успел попасть в `archive_players` (между импортом
+   * и инкрементальным backfill'ом) — fallback на `archiveSlug(name)`.
+   * Поле обязательное: фронт ссылается на `/archive/players/:slug` без
+   * клиентской `slugifyPlayerName`.
+   */
+  slug: string;
   elo: number | null;
   title: string | null;
 };

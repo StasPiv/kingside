@@ -83,9 +83,9 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
 
   describe('сортировки', () => {
     it.each([
-      ['recent', 'played_at DESC NULLS LAST, id DESC'],
-      ['topElo', 'GREATEST(white_elo, black_elo) DESC NULLS LAST, id DESC'],
-      ['oldest', 'played_at ASC NULLS LAST, id ASC'],
+      ['recent', 'g.played_at DESC NULLS LAST, g.id DESC'],
+      ['topElo', 'GREATEST(g.white_elo, g.black_elo) DESC NULLS LAST, g.id DESC'],
+      ['oldest', 'g.played_at ASC NULLS LAST, g.id ASC'],
     ] as const)('%s → ORDER BY %s', async (sort, expected) => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);
@@ -152,7 +152,7 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       await repo.searchGames({ ...defaults(), player: 'Carlsen' });
 
       const items = findItemsCall(calls);
-      expect(items.sql).toMatch(/white_name ILIKE \$\d+ OR black_name ILIKE \$\d+/);
+      expect(items.sql).toMatch(/g\.white_name ILIKE \$\d+ OR g\.black_name ILIKE \$\d+/);
       expect(items.params).toContain('%Carlsen%');
     });
 

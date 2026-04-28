@@ -177,8 +177,8 @@ describe('ArchiveService.getGames — KS-2063', () => {
 
     expect(res.total).toBe(1);
     expect(res.items[0].id).toBe('g1');
-    expect(res.items[0].white).toEqual({ name: 'A', elo: 2700, title: null });
-    expect(res.items[0].black).toEqual({ name: 'B', elo: 2650, title: null });
+    expect(res.items[0].white).toEqual({ name: 'A', slug: 'a', elo: 2700, title: null });
+    expect(res.items[0].black).toEqual({ name: 'B', slug: 'b', elo: 2650, title: null });
     expect(res.items[0].date).toBe('2026-04-01T00:00:00.000Z');
     expect(res.items[0].plyCount).toBe(40);
   });

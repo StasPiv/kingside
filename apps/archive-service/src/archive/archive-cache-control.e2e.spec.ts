@@ -57,8 +57,8 @@ const fakeGamesByPosition: ArchiveGamesByPositionResponse = {
 
 const fakeGameDetail: ArchiveGameDetail = {
   id: '00000000-0000-0000-0000-000000000001',
-  white: { name: 'W', elo: 2500, title: 'GM' },
-  black: { name: 'B', elo: 2500, title: 'GM' },
+  white: { name: 'W', slug: 'w', elo: 2500, title: 'GM' },
+  black: { name: 'B', slug: 'b', elo: 2500, title: 'GM' },
   result: '1-0',
   eco: 'C20',
   opening: null,
