@@ -592,18 +592,22 @@
   text-decoration: underline;
 }
 
-/* KS-2103/KS-2107: panel-body engine'а — фиксированная высота 240px
-   (min == max). max-height (KS-2103) — длинные PV не выталкивают
-   соседей. min-height (KS-2107) — engine с одной короткой PV-строкой
-   тоже занимает свои 240px, чтобы tree/moves ниже не «подскакивали»
-   при включении/выключении движка или смене позиции. modifier
-   `--scroll` ниже сбрасывает min/max (для moves-panel). */
+/* KS-2103/KS-2107: panel-body engine'а — фиксированная высота под
+   ровно 3 PV-линии (= то, на что мы лимитируем MultiPV в UI).
+   Расчёт: 3 × ~28px (14px × 1.4 + 8px scrollbar reserve)
+         + 2 × 8px gap между линиями
+         + 8px margin-top у `.stockfish-lines`
+         + 2 × 10px вертикальный padding panel-body
+         ≈ 130px. Берём 132px с запасом. min == max — не растёт от
+   длины PV (горизонтальный скролл внутри строки) и не схлопывается
+   при выключенном движке. modifier `--scroll` ниже сбрасывает min/max
+   (для moves-panel). */
 .analysis-panel-body {
   padding: 10px 12px;
   background: var(--c-0f172a);
   overflow-y: auto;
-  min-height: 240px;
-  max-height: 240px;
+  min-height: 132px;
+  max-height: 132px;
 }
 
 .analysis-panel-body--scroll {
