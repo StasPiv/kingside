@@ -135,6 +135,24 @@ export default defineConfig({
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
+    // KS-2079 / L1: dev-proxy для archive-сервиса. Прод archive-сервис
+    // отдаёт CORS только для своих доменов (archive.kingside.site,
+    // kingside.site), запросы с http://localhost:5173 он режет.
+    // Решение: в dev фронт ходит на относительный `/__archive/...`,
+    // vite сам проксирует на `https://archive.kingside.site` с
+    // `changeOrigin: true` — браузер видит same-origin, CORS не
+    // применяется. В prod-сборке `VITE_ARCHIVE_URL` инжектируется
+    // нормальным абсолютным URL'ом (`https://archive.kingside.site`)
+    // через scripts/deploy-aws.sh, так что proxy задействован только
+    // в dev.
+    proxy: {
+      '/__archive': {
+        target: 'https://archive.kingside.site',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (p) => p.replace(/^\/__archive/, ''),
+      },
+    },
   },
   preview: {
     headers: {

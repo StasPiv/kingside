@@ -1358,6 +1358,15 @@
     "completeError": "Не удалось зачесть урок",
     "completedAlready": "Урок уже пройден ✓",
     "completedAlreadyTooltip": "Вы уже завершили этот урок",
+    "activeHero": {
+      "continueTitle": "Продолжить",
+      "startTitle": "Начать обучение",
+      "lessonOf": "Урок {{n}} из {{total}}",
+      "continueCta": "Продолжить",
+      "startCta": "Начать урок",
+      "courseCompletedTitle": "Курс пройден",
+      "courseCompletedSubtitle": "Вы завершили все уроки этого курса."
+    },
     "completionTitle": "Урок пройден!",
     "completionSubtitle": "Вы завершили «{{lesson}}». Отличная работа!",
     "completionNext": "К следующему уроку",

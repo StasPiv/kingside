@@ -1350,6 +1350,15 @@
     "completeError": "Failed to mark lesson as completed",
     "completedAlready": "Lesson already completed ✓",
     "completedAlreadyTooltip": "You have already completed this lesson",
+    "activeHero": {
+      "continueTitle": "Continue",
+      "startTitle": "Start learning",
+      "lessonOf": "Lesson {{n}} of {{total}}",
+      "continueCta": "Continue",
+      "startCta": "Start lesson",
+      "courseCompletedTitle": "Course completed",
+      "courseCompletedSubtitle": "You have completed every lesson in this course."
+    },
     "completionTitle": "Lesson complete!",
     "completionSubtitle": "You finished “{{lesson}}”. Great job!",
     "completionNext": "Next lesson",

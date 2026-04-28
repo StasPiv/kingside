@@ -313,6 +313,143 @@
   white-space: nowrap;
 }
 
+/* ──────────────── KS-2079: hero-плашка активного урока ──────────────── */
+.course-active-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 28px;
+  margin: 0 0 18px;
+  background: linear-gradient(
+    135deg,
+    var(--accent-primary, #4f7cff) 0%,
+    var(--accent-primary-hover, #3d63cc) 100%
+  );
+  color: var(--text-on-accent, #fff);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.course-active-hero--completed {
+  background: linear-gradient(
+    135deg,
+    var(--success, #1f7a3a) 0%,
+    color-mix(in srgb, var(--success, #1f7a3a) 75%, #000) 100%
+  );
+}
+
+.course-active-hero__eyebrow {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.course-active-hero__title {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.course-active-hero__lesson-position {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.85;
+}
+
+.course-active-hero__lesson-title {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.course-active-hero__subtitle {
+  margin: 0;
+  font-size: 15px;
+  opacity: 0.92;
+  line-height: 1.5;
+}
+
+.course-active-hero__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.course-active-hero__progress-bar {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.course-active-hero__progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--text-on-accent, #fff);
+  border-radius: 999px;
+  transition: width 0.18s ease;
+}
+
+.course-active-hero__progress-text {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.course-active-hero__cta {
+  align-self: flex-start;
+  padding: 12px 24px;
+  background: var(--text-on-accent, #fff);
+  color: var(--accent-primary, #3d63cc);
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 16px;
+  text-decoration: none;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+  margin-top: 4px;
+}
+.course-active-hero__cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.course-active-hero__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+@media (max-width: 760px) {
+  .course-active-hero {
+    padding: 18px 18px;
+    border-radius: 12px;
+  }
+  .course-active-hero__title,
+  .course-active-hero__lesson-title {
+    font-size: 20px;
+  }
+  .course-active-hero__cta {
+    align-self: stretch;
+    text-align: center;
+    padding: 14px 20px;
+    font-size: 15px;
+  }
+}
+
 /* Список уроков */
 .course-lesson-list {
   list-style: none;
