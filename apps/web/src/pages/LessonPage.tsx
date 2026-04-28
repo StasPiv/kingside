@@ -351,7 +351,16 @@ export function LessonPage() {
   };
 
   const percent = Math.round(progress.score * 100);
-  const canComplete = progress.score >= progress.threshold;
+  // KS-2091: «Завершить урок» доступна только когда ВСЕ шаги имеют
+  // статус `done` — не процентный порог, а полное прохождение. Для
+  // review-режима оставляем старую логику score-порога: там частичный
+  // повтор всё равно засчитывается через SM-2.
+  const allStepsDone =
+    sortedSteps.length > 0 &&
+    sortedSteps.every((s) => progress.stepsState[s.id] === 'done');
+  const canComplete = isReviewMode
+    ? progress.score >= progress.threshold
+    : allStepsDone;
 
   // ─── Review: экран результата повтора ──────────────────────────────
   if (isReviewMode && reviewOutcome) {
@@ -677,16 +686,29 @@ export function LessonPage() {
                 ? isReviewMode
                   ? t('lessons.review.finishReview', 'Finish review')
                   : t('lessons.complete', 'Complete lesson')
-                : t('lessons.completeNeedMore', {
-                    percent: Math.round(progress.threshold * 100),
-                    defaultValue: 'Need ≥ {{percent}}% steps',
-                  });
+                : isReviewMode
+                  ? t('lessons.completeNeedMore', {
+                      percent: Math.round(progress.threshold * 100),
+                      defaultValue: 'Need ≥ {{percent}}% steps',
+                    })
+                  : t(
+                      'lessons.completeAllStepsRequired',
+                      'Complete all steps first',
+                    );
+          // KS-2091: отдельный data-атрибут для disabled-state «не все
+          // шаги пройдены» — пригодится в CSS/E2E, чтобы отличить от
+          // «урок уже пройден».
+          const allStepsRequiredState =
+            !alreadyCompleted && !canComplete && !isReviewMode;
           return (
             <button
               type="button"
               className="lesson-complete-btn"
               data-testid="lesson-complete-btn"
               data-already-completed={alreadyCompleted ? 'true' : undefined}
+              data-all-steps-required={
+                allStepsRequiredState ? 'true' : undefined
+              }
               disabled={disabled}
               title={
                 alreadyCompleted
@@ -694,7 +716,12 @@ export function LessonPage() {
                       'lessons.completedAlreadyTooltip',
                       'You have already completed this lesson',
                     )
-                  : undefined
+                  : allStepsRequiredState
+                    ? t(
+                        'lessons.completeAllStepsRequiredTooltip',
+                        'Mark every step as done before completing the lesson',
+                      )
+                    : undefined
               }
               onClick={handleComplete}
             >
