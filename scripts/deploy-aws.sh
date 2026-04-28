@@ -155,6 +155,55 @@ fi
 
 export AWS_DEFAULT_REGION="$REGION"
 
+# KS-2085 follow-up: подтянуть актуальный main в $REPO_DIR перед сборкой.
+# Раньше DEPLOY_SHA брался из произвольного локального HEAD — если у запускающего
+# был stale checkout, прод собирался без свежих коммитов (KS-2086/KS-2087 case).
+# Теперь явно: fetch + fast-forward main. По проектному правилу деплой идёт
+# только из main (нет feature-веток), поэтому checkout другой ветки = ошибка.
+# Отключить можно через KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 (для отладки/hotfix
+# из специально подготовленного HEAD).
+ensure_main_synced() {
+    if [ "${KINGSIDE_DEPLOY_SKIP_GIT_PULL:-0}" = "1" ]; then
+        echo "[pre-deploy] KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 — skipping git fetch/pull (using whatever HEAD is)"
+        return 0
+    fi
+    local branch
+    branch="$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD)"
+    if [ "$branch" != "main" ]; then
+        echo "[pre-deploy] ERROR: current branch is '$branch', deploy expects 'main'." >&2
+        echo "[pre-deploy] Switch to main and retry, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
+        exit 1
+    fi
+    if ! git -C "$REPO_DIR" diff-index --quiet HEAD --; then
+        echo "[pre-deploy] ERROR: working tree has uncommitted changes." >&2
+        echo "[pre-deploy] Stash or commit them, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
+        git -C "$REPO_DIR" status --short >&2 | head -10
+        exit 1
+    fi
+    echo "[pre-deploy] git fetch origin main..."
+    if ! git -C "$REPO_DIR" fetch --quiet origin main; then
+        echo "[pre-deploy] WARN: git fetch failed (network/auth). Building from local HEAD." >&2
+        return 0
+    fi
+    local local_sha remote_sha
+    local_sha="$(git -C "$REPO_DIR" rev-parse HEAD)"
+    remote_sha="$(git -C "$REPO_DIR" rev-parse origin/main)"
+    if [ "$local_sha" = "$remote_sha" ]; then
+        echo "[pre-deploy] main already at origin/main (${remote_sha:0:7})"
+        return 0
+    fi
+    # Strict fast-forward; если локально есть коммиты, которых нет в origin/main — фейл.
+    if ! git -C "$REPO_DIR" merge-base --is-ancestor HEAD origin/main; then
+        echo "[pre-deploy] ERROR: local main has commits not in origin/main." >&2
+        echo "[pre-deploy] Local HEAD ${local_sha:0:7}, origin/main ${remote_sha:0:7}." >&2
+        echo "[pre-deploy] Push or rebase before deploy, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
+        exit 1
+    fi
+    echo "[pre-deploy] fast-forward main: ${local_sha:0:7} → ${remote_sha:0:7}"
+    git -C "$REPO_DIR" merge --ff-only --quiet origin/main
+}
+ensure_main_synced
+
 # SHA текущего HEAD — используется и как docker-тег, и как ECR tag.
 DEPLOY_SHA="$(git -C "$REPO_DIR" rev-parse --short HEAD)"
 
