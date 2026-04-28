@@ -85,8 +85,8 @@ const sampleResponse = {
   items: [
     {
       id: 'g1',
-      white: { name: 'Magnus Carlsen', elo: 2870, title: 'GM' },
-      black: { name: 'Hikaru Nakamura', elo: 2780, title: 'GM' },
+      white: { name: 'Magnus Carlsen', slug: 'magnus-carlsen', elo: 2870, title: 'GM' },
+      black: { name: 'Hikaru Nakamura', slug: 'hikaru-nakamura', elo: 2780, title: 'GM' },
       result: '1-0' as const,
       eco: 'C42',
       opening: 'Petroff Defense',
@@ -96,8 +96,8 @@ const sampleResponse = {
     },
     {
       id: 'g2',
-      white: { name: 'Fabiano Caruana', elo: 2810, title: 'GM' },
-      black: { name: 'Magnus Carlsen', elo: 2870, title: 'GM' },
+      white: { name: 'Fabiano Caruana', slug: 'fabiano-caruana', elo: 2810, title: 'GM' },
+      black: { name: 'Magnus Carlsen', slug: 'magnus-carlsen', elo: 2870, title: 'GM' },
       result: '1/2-1/2' as const,
       eco: 'B90',
       opening: 'Sicilian',

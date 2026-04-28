@@ -73,22 +73,6 @@ function uciToSan(positionFen: string, uci: string | null): string | null {
   }
 }
 
-/**
- * KS-2068: клиентский slug. На бэке (KS-2069/B3) появится явный
- * `slug` в `ArchivePlayerInfo`/`ArchiveGameSummary` — после этого
- * заменить на серверный.
- */
-function slugifyPlayerName(name: string | null | undefined): string | null {
-  if (!name) return null;
-  const slug = name
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug.length > 0 ? slug : null;
-}
-
 function isByPositionItem(
   item: ArchiveAnyItem,
 ): item is ArchiveGamesByPositionItem {
@@ -125,8 +109,11 @@ export function ArchiveGameRow({
   const resultText = item.result ?? '*';
   const resultClass = RESULT_CLASS[resultText] ?? RESULT_CLASS['*'];
 
-  const whiteSlug = slugifyPlayerName(item.white.name);
-  const blackSlug = slugifyPlayerName(item.black.name);
+  // KS-2075: серверный slug из `ArchivePlayerInfo` (B4-follow-up
+  // KS-2074). Если name отсутствует — slug приходит как `""`; в этом
+  // случае ссылку на профиль не рендерим, выводим имя как plain-текст.
+  const whiteSlug = item.white.slug || null;
+  const blackSlug = item.black.slug || null;
 
   const handleRowClick = () => onClick(item);
   const handleRowKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {

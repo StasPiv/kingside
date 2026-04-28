@@ -53,8 +53,8 @@ const clipboardWriteText = vi.fn().mockResolvedValue(undefined);
 
 const baseGame = {
   id: 'g-1',
-  white: { name: 'Magnus Carlsen', elo: 2870, title: 'GM' },
-  black: { name: 'Hikaru Nakamura', elo: 2780, title: 'GM' },
+  white: { name: 'Magnus Carlsen', slug: 'magnus-carlsen', elo: 2870, title: 'GM' },
+  black: { name: 'Hikaru Nakamura', slug: 'hikaru-nakamura', elo: 2780, title: 'GM' },
   result: '1-0' as const,
   eco: 'C42',
   opening: 'Petroff Defense',
@@ -337,8 +337,8 @@ describe('ArchiveGamePage — lazy-блок «Other games»', () => {
     mockArchiveApi.getArchiveGameById.mockResolvedValueOnce(baseGame);
     const fakeItems = Array.from({ length: 5 }, (_, i) => ({
       id: `o-${i}`,
-      white: { name: `W${i}`, elo: 2500, title: null },
-      black: { name: `B${i}`, elo: 2400, title: null },
+      white: { name: `W${i}`, slug: `w-${i}`, elo: 2500, title: null },
+      black: { name: `B${i}`, slug: `b-${i}`, elo: 2400, title: null },
       result: '1-0',
       eco: 'C42',
       opening: null,

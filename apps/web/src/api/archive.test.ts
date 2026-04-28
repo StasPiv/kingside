@@ -186,8 +186,8 @@ describe('archiveApi.getArchiveGameById', () => {
     mockFetch.mockResolvedValueOnce(
       okJson({
         id: 'g-1',
-        white: { name: null, elo: null, title: null },
-        black: { name: null, elo: null, title: null },
+        white: { name: null, slug: '', elo: null, title: null },
+        black: { name: null, slug: '', elo: null, title: null },
         result: null,
         eco: null,
         opening: null,

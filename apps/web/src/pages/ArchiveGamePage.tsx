@@ -30,11 +30,10 @@ import { ArchiveOtherGamesBlock } from '../components/archive/ArchiveOtherGamesB
  *
  * 404: если game не найден — отдельный экран с возвратом на `/archive`.
  *
- * Имена игроков ведут на `/archive/players/:slug` (F3). `slug` в
- * `ArchivePlayerInfo` отсутствует на этом контракте, поэтому строим его
- * на клиенте из `name` через `slugify` (минимальный slug, см. ADR-033
- * §4.4 — фактический slug на бэке резолвится отдельно, но для
- * deep-link'а до F3 этого достаточно).
+ * Имена игроков ведут на `/archive/players/:slug` (F3). `slug` берётся
+ * напрямую из `ArchivePlayerInfo` — серверный slug из таблицы
+ * `archive_players` (KS-2074). Если у игрока нет имени, бэк отдаёт
+ * пустую строку — в этом случае ссылка не рендерится.
  */
 
 const STARTING_FEN =
@@ -69,17 +68,6 @@ function parsePgn(pgn: string): { moves: ParsedMove[]; initialFen: string } | nu
   } catch {
     return null;
   }
-}
-
-function slugifyPlayerName(name: string | null | undefined): string | null {
-  if (!name) return null;
-  const slug = name
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug.length > 0 ? slug : null;
 }
 
 function formatResult(result: string | null): string {
@@ -256,8 +244,10 @@ export function ArchiveGamePage() {
     );
   }
 
-  const whiteSlug = slugifyPlayerName(game.white.name);
-  const blackSlug = slugifyPlayerName(game.black.name);
+  // KS-2075: серверный slug из ArchivePlayerInfo (KS-2074). Пустая
+  // строка означает «у игрока нет имени» — ссылку не рендерим.
+  const whiteSlug = game.white.slug || null;
+  const blackSlug = game.black.slug || null;
 
   return (
     <div className="archive-page archive-game-page" data-testid="archive-game-page" data-state="ready">
