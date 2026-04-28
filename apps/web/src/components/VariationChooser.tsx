@@ -50,6 +50,10 @@ export function VariationChooser({
       const opt = options[idx];
       if (opt) onSelect(opt.move);
     },
+    // KS-2034: deps — `mainLine`/`variations`, на основе которых строится
+    // `options`. Сам `options` мемоизирован через них, и его прямой
+    // depend вызовет лишний пересчёт callback'а при той же логической
+    // позиции.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [onSelect, mainLine, variations],
   );

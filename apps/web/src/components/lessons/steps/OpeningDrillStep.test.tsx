@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent } from '@testing-library/react';
+import { fireEvent } from '@testing-library/react';
 import type { OpeningDrillStepPayload } from '@kingside/shared';
 
 import { renderWithProviders, screen, waitFor } from '../../../test/test-utils';
@@ -17,7 +17,7 @@ const engineControls: {
 };
 
 vi.mock('../../../hooks/useStockfish', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- внутри vi.mock factory можно только синхронный require: динамический import() не разрешается, а ES-import создаст cycle на самой замоканной зависимости.
   const { useState, useEffect } = require('react') as typeof import('react');
   return {
     useStockfish: () => {

@@ -28,7 +28,6 @@ function resolveArchiveUrl(): string {
   }
 
   if (import.meta.env.DEV) {
-    // eslint-disable-next-line no-console
     console.warn(
       '[archiveUrl] VITE_ARCHIVE_URL is not set. ' +
         `Falling back to ${DEV_DEFAULT_ARCHIVE_URL} for dev. ` +

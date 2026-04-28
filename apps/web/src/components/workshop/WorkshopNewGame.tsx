@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
-import { useTimeControl, CATEGORIES, PRESETS, presetKey, TC_LABEL_KEYS } from '../../hooks/useTimeControl';
+import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../../hooks/useTimeControl';
 import { useMatchmaking } from '../../hooks/useMatchmaking';
 import { useBotGame } from '../../hooks/useBotGame';
 

@@ -107,19 +107,22 @@ export function MyCoursesBlock() {
     }
   };
 
+  const isEmpty = courses !== null && courses.length === 0;
+  const isLoading = courses === null;
+  // KS-1924: анти-flicker. Skeleton рисуем только если загрузка
+  // длится >200мс — иначе пользователь увидит «вспышку» перед
+  // настоящим контентом.
+  // KS-2034: вызов хука перенесён ВЫШЕ early return'ов
+  // (rules-of-hooks). Хуки должны вызываться в одном и том же
+  // порядке при каждом рендере.
+  const showSkeleton = useDelayedFlag(isLoading, 200);
+
   // Гости не видят блок: без user нет смысла показывать «мои курсы» и CTA.
   if (!user) return null;
 
   // Тихо: ошибка загрузки своих курсов не должна прятать системные курсы
   // под блоком «Error» — компонент просто не показывается.
   if (errored) return null;
-
-  const isEmpty = courses !== null && courses.length === 0;
-  const isLoading = courses === null;
-  // KS-1924: анти-flicker. Skeleton рисуем только если загрузка
-  // длится >200мс — иначе пользователь увидит «вспышку» перед
-  // настоящим контентом.
-  const showSkeleton = useDelayedFlag(isLoading, 200);
 
   return (
     <section

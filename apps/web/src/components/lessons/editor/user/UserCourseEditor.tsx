@@ -221,22 +221,10 @@ export function UserCourseEditor() {
     [actions],
   );
 
-  const moveLesson = (lessonId: string, direction: -1 | 1) => {
-    const idx = state.lessons.findIndex((l) => l.id === lessonId);
-    if (idx === -1) return;
-    const target = idx + direction;
-    if (target < 0 || target >= state.lessons.length) return;
-    const currentIds = state.lessons.map((l) => l.id);
-    const orderedIds = swapAt(currentIds, idx, target);
-    actions.reorderLessons(orderedIds);
-    // PATCH обоих переставленных lesson'ов.
-    userCoursesApi
-      .updateLesson(orderedIds[idx], { order: idx })
-      .catch(() => {});
-    userCoursesApi
-      .updateLesson(orderedIds[target], { order: target })
-      .catch(() => {});
-  };
+  // KS-2034: legacy `moveLesson(lessonId, direction)` удалён —
+  // перестановка уроков делается только через DnD (`onLessonsDndEnd`)
+  // ниже. Если потребуется снова кнопочный «вверх/вниз», восстановить
+  // из истории git.
 
   /**
    * FE-R13: произвольная перестановка уроков из DnD (`@dnd-kit`).

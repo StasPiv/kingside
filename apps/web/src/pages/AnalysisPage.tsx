@@ -152,6 +152,10 @@ export function AnalysisPage() {
     if (!gameId && localIdRef.current && !analysisId) {
       window.history.replaceState(null, '', '/analysis/' + localIdRef.current);
     }
+    // KS-2034: эффект «при монтировании выставить URL по локальному id»
+    // должен запускаться один раз. Зависимости (`gameId`, `analysisId`)
+    // не нужны — при их смене `replaceState` бы перезатёр URL,
+    // подставленный пользователем.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -211,7 +215,12 @@ export function AnalysisPage() {
         } catch { /* ignore parse errors */ }
       }
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // KS-2034: эффект «загрузить позицию из puzzle при монтировании»
+    // запускается один раз. Если положить `puzzleFen/puzzleSide/...` в
+    // deps, при их обновлении (router-state) восстановление позиции
+    // перетрёт работу пользователя в редакторе.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Game Report
   const { report: gameReport, analyzing: reportAnalyzing, error: reportError, fetchReport, analyze: analyzeGame } = useGameReport(gameId);
@@ -649,20 +658,9 @@ export function AnalysisPage() {
     [onSquareClick],
   );
 
-  const handlePieceDrop = useCallback(
-    ({ sourceSquare, targetSquare }: { piece: unknown; sourceSquare: string; targetSquare: string | null }): boolean => {
-      if (!targetSquare) return false;
-      if (isPromotionMove(sourceSquare, targetSquare)) {
-        const testGame = new Chess(currentFen);
-        const testMove = testGame.move({ from: sourceSquare as Square, to: targetSquare as Square, promotion: 'q' });
-        if (!testMove) return false;
-        setPendingPromotion({ from: sourceSquare, to: targetSquare });
-        return true;
-      }
-      return makeVariantMove(sourceSquare, targetSquare);
-    },
-    [makeVariantMove, isPromotionMove, currentFen],
-  );
+  // KS-2034: legacy `handlePieceDrop` удалён — вместо него используется
+  // `handleFastDragDrop` (быстрый drop без анимации). Если потребуется
+  // вернуть «классический» drop — восстановить из истории git.
 
   const handleFastDragDrop = useCallback(
     ({ sourceSquare, targetSquare }: { sourceSquare: string; targetSquare: string | null }): boolean => {

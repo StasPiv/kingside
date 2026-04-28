@@ -161,6 +161,17 @@ export function InlinePgnViewer({
     return () => root.removeEventListener('keydown', onKey);
   }, [parsed, gotoNext, gotoPrevious, gotoFirst, gotoLast]);
 
+  // KS-2035 (final): нотация «чистая» — без `{...}`-комментариев.
+  // Авторские примечания живут только в активной выноске возле доски.
+  // NAG-аннотации сохраняются — это часть SAN-нотации.
+  // KS-2034: useMemo вызывается ДО early return по `parsed.ok`
+  // (rules-of-hooks). Хук должен вызываться в одном и том же порядке
+  // при каждом рендере.
+  const movesWithoutInlineComments = useMemo(
+    () => history.map((m) => ({ ...m, comment: undefined })),
+    [history],
+  );
+
   if (!parsed.ok) {
     return (
       <div
@@ -207,14 +218,6 @@ export function InlinePgnViewer({
   const handleMoveClick = (move: ChessMove) => {
     gotoMove(move);
   };
-
-  // KS-2035 (final): нотация «чистая» — без `{...}`-комментариев.
-  // Авторские примечания живут только в активной выноске возле доски.
-  // NAG-аннотации сохраняются — это часть SAN-нотации.
-  const movesWithoutInlineComments = useMemo(
-    () => history.map((m) => ({ ...m, comment: undefined })),
-    [history],
-  );
 
   return (
     <div

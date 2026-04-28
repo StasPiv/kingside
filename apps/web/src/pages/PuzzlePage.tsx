@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Chess } from 'chess.js';
 import { puzzleApi } from '../api-puzzle';
-import { api } from '../api';
 import { PuzzleBoard } from '../components/PuzzleBoard';
 import { HelpButton } from '../components/HelpButton';
 import { MistakesDiaryHint } from '../components/puzzle/MistakesDiaryHint';
@@ -32,7 +31,10 @@ export function PuzzlePage() {
   const [totalSolved, setTotalSolved] = useState(0);
   const [solutionMove, setSolutionMove] = useState<string | null>(null);
   const [altMoveMsg, setAltMoveMsg] = useState<string | null>(null);
-  const [allSolved, setAllSolved] = useState(false);
+  // KS-2034: setter не используется (флаг не выставляется в коде); сейчас
+  // allSolved всегда false. Префикс `_` помечает осознанно
+  // неиспользуемый элемент destructure.
+  const [allSolved] = useState(false);
   const [ratingChange, setRatingChange] = useState<{ before: number; after: number } | null>(null);
   const startTimeRef = useRef(Date.now());
   const attemptSubmittedRef = useRef(false);
@@ -67,11 +69,9 @@ export function PuzzlePage() {
     } catch { /* ignore */ }
   }, []);
 
-  const getSolvedIds = useCallback((): string[] => {
-    try {
-      return JSON.parse(localStorage.getItem('solvedGeneratedPuzzles') || '[]');
-    } catch { return []; }
-  }, []);
+  // KS-2034: legacy `getSolvedIds()` удалён — не вызывался в коде. Сами
+  // id хранятся через `markSolved` выше; чтение списка реализовано
+  // прямо там, где требуется.
 
   const boardOrientation = useMemo(() => {
     if (!puzzle || !game) return 'white' as const;

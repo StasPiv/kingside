@@ -26,10 +26,6 @@ import { LazySection } from '../components/lessons/LazySection';
 
 const LEVEL_ORDER: CourseLevel[] = ['beginner', 'intermediate', 'advanced'];
 
-function levelLabelKey(level: CourseLevel): string {
-  return `lessons.level.${level}`;
-}
-
 export function LessonsPage() {
   const { t } = useTranslation();
   const [courses, setCourses] = useState<CourseListItem[]>([]);

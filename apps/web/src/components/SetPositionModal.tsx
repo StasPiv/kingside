@@ -28,19 +28,6 @@ const PIECE_TO_FEN: Record<string, string> = {
   bK: 'k', bQ: 'q', bR: 'r', bB: 'b', bN: 'n', bP: 'p',
 };
 
-const SQUARES = (() => {
-  const s: string[] = [];
-  for (let r = 8; r >= 1; r--) {
-    for (const f of 'abcdefgh') s.push(`${f}${r}`);
-  }
-  return s;
-})();
-
-function boardToPosition(board: Record<string, string>): Record<string, string> {
-  // react-chessboard wants { a1: 'wR', ... }
-  return { ...board };
-}
-
 function positionToFen(board: Record<string, string>, turn: 'w' | 'b', castling: string): string {
   const rows: string[] = [];
   for (let r = 8; r >= 1; r--) {
@@ -176,8 +163,6 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
       return next;
     });
   }, []);
-
-  const editorPosition = useMemo(() => boardToPosition(board), [board]);
 
   const editorFen = useMemo(() => positionToFen(board, editorTurn, castling), [board, editorTurn, castling]);
 

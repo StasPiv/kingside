@@ -32,7 +32,6 @@ const CLASSIFICATION_COLORS: Record<string, string> = {
 };
 
 export function EvalGraph({ moves, currentMoveIndex, onSelectMove }: EvalGraphProps) {
-  const width = 100; // percentage
   const height = 120;
   const midY = height / 2;
 

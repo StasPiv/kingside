@@ -84,7 +84,11 @@ export function useStockfish(options: UseStockfishOptions = {}) {
   const {
     depth = 20,
     multiPv = 3,
-    autoStart = true,
+    // KS-2034: `autoStart` сохранён в типе UseStockfishOptions для
+    // обратной совместимости с вызывающим кодом, но реально хук не
+    // делает auto-start (старт только по явному `analyze()`).
+    // Префикс `_` помечает осознанно неиспользуемое значение.
+    autoStart: _autoStart = true,
     skillLevel,
     prefetch = false,
   } = options;

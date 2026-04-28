@@ -56,6 +56,9 @@ export function TournamentsPage() {
       setStatusFilter(DEFAULT_TAB);
       updateUrl(DEFAULT_TAB, typeFilter, tcFilter);
     }
+    // KS-2034: deps намеренно ограничены auth-условиями. `typeFilter`
+    // и `tcFilter` НЕ должны триггерить «сброс на DEFAULT_TAB» — они
+    // используются только для построения URL внутри ветки гостя.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, authLoading, statusFilter]);
 

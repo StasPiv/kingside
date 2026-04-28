@@ -10,10 +10,12 @@ vi.mock('./context/AuthContext', () => ({
   useAuth: (...args: unknown[]) => mockUseAuth(...args),
 }));
 
-vi.mock('./layouts/MainLayout', () => ({
-  MainLayout: () => {
-    const { Outlet, Link } = require('react-router-dom');
-    return (
+vi.mock('./layouts/MainLayout', async () => {
+  const { Outlet, Link } = await vi.importActual<
+    typeof import('react-router-dom')
+  >('react-router-dom');
+  return {
+    MainLayout: () => (
       <div>
         <nav>
           <Link to="/puzzle-rush">Puzzle Rush Nav</Link>
@@ -21,9 +23,9 @@ vi.mock('./layouts/MainLayout', () => ({
         </nav>
         <Outlet />
       </div>
-    );
-  },
-}));
+    ),
+  };
+});
 
 vi.mock('./pages/LobbyPage', () => ({
   LobbyPage: () => <div>Lobby</div>,
@@ -54,13 +56,19 @@ vi.mock('./pages/PuzzleMistakesPage', () => ({
   PuzzleMistakesPage: () => <div>Puzzle Mistakes</div>,
 }));
 
-vi.mock('./pages/PuzzleMistakesPracticePage', () => ({
-  PuzzleMistakesPracticePage: () => {
-    const { useSearchParams } = require('react-router-dom');
-    const [params] = useSearchParams();
-    return <div>Puzzle Mistakes Practice theme={params.get('theme') ?? ''}</div>;
-  },
-}));
+vi.mock('./pages/PuzzleMistakesPracticePage', async () => {
+  const { useSearchParams } = await vi.importActual<
+    typeof import('react-router-dom')
+  >('react-router-dom');
+  return {
+    PuzzleMistakesPracticePage: () => {
+      const [params] = useSearchParams();
+      return (
+        <div>Puzzle Mistakes Practice theme={params.get('theme') ?? ''}</div>
+      );
+    },
+  };
+});
 
 vi.mock('./pages/PuzzleRushPage', () => ({
   PuzzleRushPage: () => <div>Puzzle Rush</div>,

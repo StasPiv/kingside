@@ -1,7 +1,6 @@
 import {
     safeClone,
     linkAllMovesRecursively,
-    searchInHistory,
     buildLineFromMove,
     buildLineFromVariation,
     cloneMoveWithoutVariations,

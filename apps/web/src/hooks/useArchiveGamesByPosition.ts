@@ -111,6 +111,9 @@ export function useArchiveGamesByPosition(
 
   const key = useMemo(
     () => serializeKey(fen, filters),
+    // KS-2034: deps — конкретные поля `filters`, а не весь объект,
+    // чтобы новая ссылка `filters` (которую родитель пересоздаёт каждый
+    // рендер) не инвалидировала memo при тех же значениях.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       fen,
@@ -179,6 +182,9 @@ export function useArchiveGamesByPosition(
         debounceRef.current = null;
       }
     };
+    // KS-2034: используем сериализованный `key` вместо самого `filters`
+    // — это и есть стабильная зависимость; добавлять туда `filters` =
+    // зацикливание (новая ссылка каждый render → бесконечные перезапросы).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fen, key, refetchToken]);
 

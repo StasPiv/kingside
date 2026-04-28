@@ -22,7 +22,7 @@ export function safeClone(obj: any, visited = new WeakMap()): any {
 
     const cloned: any = {};
     for (const key in obj) {
-        if (obj.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(obj, key)) {
             // Пропускаем циклические ссылки при клонировании
             // Их восстановим позже через linkAllMovesRecursively
             if (key === 'next' || key === 'previous') {

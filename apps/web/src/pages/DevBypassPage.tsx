@@ -33,6 +33,10 @@ export function DevBypassPage({ secret, user, returnTo }: DevBypassPageProps) {
           state: { oauthError: 'Dev bypass failed' },
         });
       });
+  // KS-2034: одноразовый эффект — выполнить dev-bypass при mount.
+  // `secret`, `user`, `returnTo`, `navigate`, `loginWithTokens`
+  // в этом потоке не меняются; включение в deps вызвало бы повторный
+  // bypass-запрос.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

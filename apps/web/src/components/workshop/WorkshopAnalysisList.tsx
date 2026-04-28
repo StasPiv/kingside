@@ -44,7 +44,10 @@ export function WorkshopAnalysisList() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [searching, setSearching] = useState(false);
+  // KS-2034: используется только setter (для поиска через timeout) — флаг
+  // `searching` по факту не читается в JSX. Префикс `_` помечает
+  // намеренно неиспользуемый элемент destructure.
+  const [, setSearching] = useState(false);
   const [error, setError] = useState('');
   const sentinelRef = useRef<HTMLDivElement>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

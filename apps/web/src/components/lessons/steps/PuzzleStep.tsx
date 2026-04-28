@@ -170,6 +170,9 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
     return () => {
       cancelled = true;
     };
+    // KS-2034: `selectionKey` уже инкапсулирует все источники выбора
+    // (puzzleIds + theme + count). Перечисление всех первичных deps
+    // только дублирует тот же сигнал и приводит к лишним перезапросам.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionKey]);
 
@@ -241,6 +244,10 @@ export function PuzzleStep({ payload, onStepDone, hideNext }: PuzzleStepProps) {
       }, 300);
       return () => clearTimeout(timer);
     }
+    // KS-2034: эффект «авто-разыграть первый ход после смены задачи»
+    // зависит от `puzzleKey`. Все остальные значения (`puzzles`,
+    // `playSoundRef`, …) — refs или производные от puzzleKey;
+    // их добавление приведёт к ре-играм первого хода при тех же данных.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puzzleKey]);
 

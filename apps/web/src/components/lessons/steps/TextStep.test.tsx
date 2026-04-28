@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent } from '@testing-library/react';
 import { renderWithProviders, screen } from '../../../test/test-utils';
 import { TextStep, parseTextStepSegments } from './TextStep';
 import type { TextStepPayload } from '@kingside/shared';

@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import type { EngineAdapter, AnalysisResult, InfoLine, BridgeConfig } from './engineAdapter';
+import type { EngineAdapter, BridgeConfig } from './engineAdapter';
 import { WasmEngineAdapter, BridgeEngineAdapter } from './engineAdapter';
 
 export type { BridgeConfig };
@@ -303,7 +303,9 @@ export async function generatePuzzlesFromPgn(
       const evalAtShallow = analysis.evalByDepth.get(1) ?? analysis.evalByDepth.get(2) ?? bestCp;
       const evalAtDeep = bestCp;
       const evalGrowth = evalAtDeep - evalAtShallow;
-      const EVAL_GROWTH_THRESHOLD = 25;
+      // KS-2034: EVAL_GROWTH_THRESHOLD удалён — нигде не сравнивался,
+      // только лог `growth=...` использовал `evalGrowth`. Если вернутся
+      // условия по eval-growth — добавлять явно с использованием.
 
       // Analyze bestMove properties
       let isHangingCapture = false;
@@ -337,7 +339,7 @@ export async function generatePuzzlesFromPgn(
               testChess.move(moveObj.san); // replay to check own defense
               // Swap turn to check if own side defends
               // chess.js doesn't have "isDefended" — approximate: undo, check if own piece attacks the square
-              const ownColor = moveObj.color;
+              // (`ownColor = moveObj.color` удалён — переменная не использовалась).
               const preMove = new Chess(fen);
               // Check if any own piece (other than the moved one) attacks the target square
               const ownAttacks = preMove.moves({ verbose: true }).filter(m => m.to === to && m.from !== from);

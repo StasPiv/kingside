@@ -192,7 +192,6 @@ export function useLessonProgress({
       for (const id of stepIds) {
         const timer = pendingTimersRef.current.get(id);
         if (timer) clearTimeout(timer);
-        // eslint-disable-next-line no-await-in-loop
         await flushStep(id);
       }
       setIsCompleting(true);

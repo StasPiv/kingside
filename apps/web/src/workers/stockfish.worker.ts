@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-globals */
 /// <reference lib="webworker" />
 
 type InMessage =

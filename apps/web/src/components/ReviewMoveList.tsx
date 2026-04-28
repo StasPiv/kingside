@@ -47,11 +47,6 @@ function formatDisplay(
   return isWhite ? `${moveNumber}.${move.san}` : move.san;
 }
 
-let keyCounter = 0;
-function nextKey(): string {
-  return String(keyCounter++);
-}
-
 function processHistory(
   moves: GameMove[],
   currentGlobalIndex: number | null,

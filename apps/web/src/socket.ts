@@ -35,7 +35,6 @@ function resolveServiceUrl(
   if (envValue) {
     if (isProdOrigin && isLocalHostUrl(envValue)) {
       const derived = typeof window !== 'undefined' ? window.location.origin : devFallback;
-      // eslint-disable-next-line no-console
       console.error(
         `[socket] ${varName}="${envValue}" points to localhost but the page is served from ${
           typeof window !== 'undefined' ? window.location.origin : '(non-browser)'

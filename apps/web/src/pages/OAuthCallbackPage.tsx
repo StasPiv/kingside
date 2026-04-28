@@ -27,6 +27,11 @@ export function OAuthCallbackPage() {
         accessTokenPreview: accessToken.slice(0, 20) + '...',
       });
     }
+    // KS-2034: запускаем один раз при mount — токены из URL сохраняем
+    // ДО того как любой эффект-зависимость по `searchParams` сменится.
+    // Включение `searchParams` в deps приведёт к повторной записи в
+    // localStorage и потенциальной перезаписи только что обновлённого
+    // refresh token.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -61,6 +66,9 @@ export function OAuthCallbackPage() {
     console.log('[OAuthCallback] calling loginWithTokens');
     loginWithTokens(accessToken, refreshToken);
     setInitialized(true);
+  // KS-2034: одноразовый init по содержимому URL. `loginWithTokens`,
+  // `navigate`, `searchParams` стабильны в рамках mount — повторный
+  // запуск только заново обработает уже использованный auth-callback.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
