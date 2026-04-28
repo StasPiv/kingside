@@ -534,15 +534,6 @@ echo ""
 # --- Frontend: vite build → S3 sync → CloudFront invalidation ---
 # Frontend не использует ECR — атомарность ECR-тегов не применима.
 if $DEPLOY_FRONTEND; then
-    # === DIAG (one-shot, KS-2089 investigation) ===
-    echo "[diag] git show 0ba53bf5 --stat:"
-    git -C "$REPO_DIR" show 0ba53bf5 --stat 2>&1 | head -10 | sed 's/^/  /'
-    echo "[diag] grep autocomplete dropdown rules in archive.css:"
-    grep -n -E 'archive-autocomplete__(dropdown|item|name|count)|right:|width:' "$REPO_DIR/apps/web/src/styles/archive.css" 2>/dev/null | head -25 | sed 's/^/  /'
-    echo "[diag] vite cache size before clean:"
-    du -sh "$REPO_DIR/node_modules/.vite" "$REPO_DIR/apps/web/node_modules/.vite" 2>/dev/null | sed 's/^/  /' || echo "  no vite cache"
-    echo "[diag] === end diag ==="
-
     # KS-2085 follow-up: чистим vite-cache и старый dist перед сборкой.
     # Без этого Vite иногда переиспользует кэш транзформаций даже при
     # изменении исходников, и asset-hash остаётся прежним, маскируя
