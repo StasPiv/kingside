@@ -2362,23 +2362,28 @@
   margin-top: -2px;
 }
 
-/* Main moves table */
+/* Main moves table.
+   KS-2098: повышены размеры шрифтов и paddings — пользователь жаловался,
+   что 11-12px было «слишком мелко» и приходилось напрягать глаза. Теперь
+   tbody 14px (вместо 12), thead 11px UPPERCASE (вместо 10), числовые
+   ячейки 13px (вместо 11). Padding ячеек 6×8 (вместо 4×6) — строки выше
+   и комфортнее читаются. */
 .archive-tree-panel__table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--c-c0c0d0);
   table-layout: auto;
 }
 
 .archive-tree-panel__table thead th {
   text-align: left;
-  font-weight: 500;
-  font-size: 10px;
+  font-weight: 600;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--c-6b7280);
-  padding: 4px 6px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--c-1f2937);
   white-space: nowrap;
 }
@@ -2398,30 +2403,31 @@
 }
 
 .archive-tree-panel__table td {
-  padding: 4px 6px;
+  padding: 6px 8px;
   vertical-align: middle;
   white-space: nowrap;
 }
 
 .archive-tree-panel__san {
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 14px;
   color: var(--c-e0e0ff);
-  min-width: 44px;
+  min-width: 50px;
 }
 
 .archive-tree-panel__total,
 .archive-tree-panel__avg-elo,
 .archive-tree-panel__last-seen {
   font-family: 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--c-a0a0c0);
   text-align: right;
 }
 
 .archive-tree-panel__wdl {
   width: 1%;
-  padding-right: 4px;
-  padding-left: 4px;
+  padding-right: 6px;
+  padding-left: 6px;
 }
 
 /* Footer with "View N games" button */
@@ -2514,12 +2520,16 @@
   100% { background-position: -200% 0; }
 }
 
-/* ---------- WinDrawLossBar (wdl-bar) ---------- */
+/* ---------- WinDrawLossBar (wdl-bar) ----------
+   KS-2098: высота 10→18px, ширина 88→128px. Внутренние подписи
+   (проценты win/draw/loss) рендерятся с font-size 11px вместо 8px —
+   ранее они были нечитабельны. Радиус скруглён сильнее (4px) под
+   увеличенный размер. */
 .wdl-bar {
   display: flex;
-  width: 88px;
-  height: 10px;
-  border-radius: 2px;
+  width: 128px;
+  height: 18px;
+  border-radius: 4px;
   overflow: hidden;
   background: var(--c-1f2937);
   box-shadow: inset 0 0 0 1px var(--ov-black-25);
@@ -2553,8 +2563,8 @@
 }
 
 .wdl-bar__label {
-  font-size: 8px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   line-height: 1;
   letter-spacing: -0.02em;
   white-space: nowrap;
@@ -2578,25 +2588,29 @@
     gap: 6px;
   }
 
+  /* KS-2098 mobile: тоже подняли размеры (но чуть скромнее десктопных,
+     чтобы строки не «расползались» по узкому экрану). */
   .archive-tree-panel__table {
-    font-size: 11px;
+    font-size: 13px;
   }
 
   .archive-tree-panel__table thead th,
   .archive-tree-panel__table td {
-    padding: 3px 4px;
+    padding: 5px 6px;
   }
 
-  /* On very narrow screens avgElo column takes most space — keep it readable */
   .archive-tree-panel__total,
   .archive-tree-panel__avg-elo,
   .archive-tree-panel__last-seen {
-    font-size: 10px;
+    font-size: 12px;
   }
 
   .wdl-bar {
-    width: 72px;
-    height: 9px;
+    width: 96px;
+    height: 16px;
+  }
+  .wdl-bar__label {
+    font-size: 10px;
   }
 
   .bucket-select {
