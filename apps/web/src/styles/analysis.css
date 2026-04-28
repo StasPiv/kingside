@@ -2308,27 +2308,43 @@
   overflow: hidden;
 }
 
-/* Bucket select (Masters / Lichess 2000+ / All) — compact pill */
+/* Bucket select (Masters / Lichess 2000+ / All) — compact pill.
+   KS-2097: переведён с raw `--c-XXX` на семантические токены.
+   Раньше при светлой теме `<option>` рендерились системно белым по
+   белому (color родителя `--c-d0d0e0` уходил в опции, фон option
+   системно-белый). */
 .bucket-select {
-  background: var(--c-1a1a2e);
-  border: 1px solid var(--c-2a2a4e);
-  border-radius: 4px;
-  color: var(--c-d0d0e0);
-  font-size: 11px;
-  padding: 3px 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 4px 8px;
   cursor: pointer;
   max-width: 140px;
   flex-shrink: 0;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .bucket-select:hover {
-  border-color: var(--c-3a3a6e);
-  color: var(--c-fff);
+  border-color: var(--border-mid);
 }
 
 .bucket-select:focus {
   outline: none;
-  border-color: var(--c-7c83ff);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* KS-2097: явные цвета для `<option>` — Chromium рендерит options через
+   системный picker и НЕ наследует color/background от parent select
+   корректно (особенно в светлой теме). Без этого правила пользователь
+   видел «белое на белом»: фон option системно-белый, текст — светлый
+   от inherited `color`. Привязываем к семантическим токенам, чтобы
+   опции читались в обеих темах. */
+.bucket-select option {
+  background: var(--bg-input);
+  color: var(--text-primary);
 }
 
 /* Opening line (e.g. "B90 — Sicilian, Najdorf") */
