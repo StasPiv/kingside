@@ -344,6 +344,85 @@ describe('LessonPage', () => {
     expect(btn).not.toHaveAttribute('data-already-completed');
   });
 
+  it('KS-2091: не все шаги done → кнопка disabled с текстом «Complete all steps first»', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: null,
+        // s1 done, s2 ещё нет → не все шаги пройдены.
+        score: 0.5,
+        stepsState: { s1: 'done' },
+      },
+    });
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    const btn = await screen.findByTestId('lesson-complete-btn');
+    await waitFor(() => expect(btn).toBeDisabled());
+    expect(btn).toHaveAttribute('data-all-steps-required', 'true');
+    expect(btn).toHaveTextContent('Complete all steps first');
+    expect(btn).toHaveAttribute(
+      'title',
+      'Mark every step as done before completing the lesson',
+    );
+    expect(btn).not.toHaveAttribute('data-already-completed');
+  });
+
+  it('KS-2091: клик по disabled-кнопке (не все шаги done) НЕ зовёт completeLesson', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: null,
+        score: 0.5,
+        stepsState: { s1: 'done' },
+      },
+    });
+    const user = (
+      await import('@testing-library/user-event')
+    ).default.setup();
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    const btn = await screen.findByTestId('lesson-complete-btn');
+    await waitFor(() => expect(btn).toBeDisabled());
+    await user.click(btn);
+    expect(mockLessonsApi.completeLesson).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('lesson-completion-overlay')).toBeNull();
+  });
+
+  it('KS-2091: все шаги done → кнопка active с «Complete lesson»', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: null,
+        score: 1,
+        stepsState: { s1: 'done', s2: 'done' },
+      },
+    });
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces',
+    });
+    const btn = await screen.findByTestId('lesson-complete-btn');
+    await waitFor(() => expect(btn).not.toBeDisabled());
+    expect(btn).toHaveTextContent('Complete lesson');
+    expect(btn).not.toHaveAttribute('data-all-steps-required');
+    expect(btn).not.toHaveAttribute('data-already-completed');
+  });
+
   it('KS-2076: на pending-шаге «Далее» отсутствует (KS-2056 поведение)', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);

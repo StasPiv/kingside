@@ -1357,6 +1357,8 @@
     "completeError": "Failed to mark lesson as completed",
     "completedAlready": "Lesson already completed ✓",
     "completedAlreadyTooltip": "You have already completed this lesson",
+    "completeAllStepsRequired": "Complete all steps first",
+    "completeAllStepsRequiredTooltip": "Mark every step as done before completing the lesson",
     "activeHero": {
       "continueTitle": "Continue",
       "startTitle": "Start learning",

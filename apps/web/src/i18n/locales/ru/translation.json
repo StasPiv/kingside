@@ -1365,6 +1365,8 @@
     "completeError": "Не удалось зачесть урок",
     "completedAlready": "Урок уже пройден ✓",
     "completedAlreadyTooltip": "Вы уже завершили этот урок",
+    "completeAllStepsRequired": "Сначала пройдите все шаги",
+    "completeAllStepsRequiredTooltip": "Отметьте каждый шаг как пройденный, чтобы завершить урок",
     "activeHero": {
       "continueTitle": "Продолжить",
       "startTitle": "Начать обучение",

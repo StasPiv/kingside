@@ -42,20 +42,26 @@ type CompleteResponse = import('@kingside/shared').CompleteLessonResponse;
 const hookConfig: {
   score: number;
   threshold: number;
+  stepsState: Record<string, 'done' | 'pending' | 'failed'>;
   completeLessonResponse: CompleteResponse | null;
   capturedCalls: Array<{ quality?: number }>;
 } = {
   score: 0,
   threshold: 0.7,
+  // KS-2091: моковый stepsState нужен, чтобы LessonPage мог проверить
+  // «все шаги done» (новая логика canComplete). По умолчанию пуст —
+  // ни один шаг не пройден.
+  stepsState: {},
   completeLessonResponse: null,
   capturedCalls: [],
 };
 
 vi.mock('../hooks/useLessonProgress', () => ({
   useLessonProgress: () => ({
-    stepsState: {},
+    stepsState: hookConfig.stepsState,
     score: hookConfig.score,
-    doneCount: 0,
+    doneCount: Object.values(hookConfig.stepsState).filter((s) => s === 'done')
+      .length,
     totalSteps: 1,
     threshold: hookConfig.threshold,
     isCompleting: false,
@@ -133,6 +139,7 @@ beforeEach(() => {
   mockLessonsApi.getLesson.mockReset();
   hookConfig.score = 0;
   hookConfig.threshold = 0.7;
+  hookConfig.stepsState = {};
   hookConfig.completeLessonResponse = null;
   hookConfig.capturedCalls = [];
 
@@ -256,6 +263,9 @@ describe('LessonPage review result screen', () => {
 
   it('обычный режим (без ?mode=review) — quality не передаётся', async () => {
     hookConfig.score = 1.0;
+    // KS-2091: для активной «Complete lesson» все шаги фикстуры
+    // должны быть done.
+    hookConfig.stepsState = { s1: 'done' };
     hookConfig.completeLessonResponse = {
       userId: 'u1',
       lessonId: 'l1',
