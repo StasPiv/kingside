@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { UsernameSetupModal } from '../components/UsernameSetupModal';
+import { consumeAuthReturnUrl } from '../utils/authReturnUrl';
 
 export function OAuthCallbackPage() {
   const [searchParams] = useSearchParams();
@@ -78,8 +79,13 @@ export function OAuthCallbackPage() {
     // If username setup is required — wait for modal interaction, don't navigate
     if (requiresUsernameSetup) return;
     if (user) {
-      console.log('[OAuthCallback] user found, navigating to /lobby', { userId: user.id, username: user.username });
-      navigate('/', { replace: true });
+      // KS-2110: после OAuth-callback'а возвращаем пользователя на
+      // сохранённый returnUrl (sessionStorage), чтобы прямой переход
+      // на `/lessons` → `/login` → Google → callback → `/lessons`
+      // действительно довёл его до запрошенной страницы.
+      const target = consumeAuthReturnUrl() ?? '/';
+      console.log('[OAuthCallback] user found, navigating to target', { userId: user.id, username: user.username, target });
+      navigate(target, { replace: true });
     } else {
       console.log('[OAuthCallback] no user after loading complete, navigating to /login');
       navigate('/login', {
@@ -91,7 +97,9 @@ export function OAuthCallbackPage() {
 
   const handleUsernameSetupSuccess = async () => {
     await refreshUser();
-    navigate('/', { replace: true });
+    // KS-2110: после username-setup тоже возвращаем на returnUrl.
+    const target = consumeAuthReturnUrl() ?? '/';
+    navigate(target, { replace: true });
   };
 
   if (requiresUsernameSetup) {

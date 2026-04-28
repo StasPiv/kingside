@@ -55,6 +55,10 @@ import { api } from './api';
 import { useFeatureFlag } from './context/FeatureFlagsContext';
 import { useAdminStatus } from './hooks/useAdminStatus';
 import { AdminFeatureFlagsPage } from './pages/AdminFeatureFlagsPage';
+import {
+  consumeAuthReturnUrl,
+  setAuthReturnUrl,
+} from './utils/authReturnUrl';
 
 // Lazy-loaded heavy pages
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
@@ -85,7 +89,20 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  if (!user) return <Navigate to="/login" state={{ returnUrl: location.pathname }} replace />;
+  if (!user) {
+    // KS-2110: сохраняем точный путь+query в sessionStorage перед
+    // редиректом — `state` через react-router не выживает OAuth-флоу
+    // (`window.location.href = '/auth/google'` уносит браузер целиком).
+    const returnUrl = `${location.pathname}${location.search}`;
+    setAuthReturnUrl(returnUrl);
+    return (
+      <Navigate
+        to="/login"
+        state={{ returnUrl: location.pathname }}
+        replace
+      />
+    );
+  }
   return <>{children}</>;
 }
 
@@ -117,7 +134,12 @@ function GuestRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { t } = useTranslation();
   if (loading) return <div className="loading">{t('common.loading')}</div>;
-  if (user) return <Navigate to="/lobby" replace />;
+  if (user) {
+    // KS-2110: если уже залогинен и заходит на /login — отправляем
+    // на сохранённый returnUrl (одноразово, чтобы не зацикливалось).
+    const returnUrl = consumeAuthReturnUrl();
+    return <Navigate to={returnUrl ?? '/lobby'} replace />;
+  }
   return <>{children}</>;
 }
 

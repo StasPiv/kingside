@@ -4,6 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import { redirectToTelegramOAuth } from '../utils/telegramOAuth';
+import {
+  consumeAuthReturnUrl,
+  setAuthReturnUrl,
+} from '../utils/authReturnUrl';
 import type { TelegramAuthResponse } from '@kingside/shared';
 
 interface TelegramUser {
@@ -26,6 +30,18 @@ export function LoginPage() {
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [error, setError] = useState<string | null>(oauthErrorFromState ?? null);
   const [telegramData, setTelegramData] = useState<TelegramUser | null>(null);
+
+  // KS-2110: если на /login пришли через ProtectedRoute, returnUrl
+  // уже в sessionStorage. На случай прямого `/login?returnUrl=` или
+  // `state.returnUrl` (внутри SPA) — закрепляем то же значение там же,
+  // чтобы OAuth-callback его прочитал.
+  useEffect(() => {
+    const stateReturnUrl = (location.state as { returnUrl?: string } | null)
+      ?.returnUrl;
+    if (stateReturnUrl) {
+      setAuthReturnUrl(stateReturnUrl);
+    }
+  }, [location.state]);
 
   useEffect(() => {
     if (loadingProvider) {
@@ -69,7 +85,12 @@ export function LoginPage() {
           );
         } else {
           loginWithTokens(accessToken, refreshToken);
-          navigate('/', { replace: true });
+          // KS-2110: возвращаем пользователя туда, откуда его кинуло
+          // на /login (sessionStorage, см. `setAuthReturnUrl`).
+          // Без этого после Telegram-логина из /lessons его всегда
+          // отправляло на /, и он терял контекст.
+          const target = consumeAuthReturnUrl() ?? '/';
+          navigate(target, { replace: true });
         }
       })
       .catch(() => {
