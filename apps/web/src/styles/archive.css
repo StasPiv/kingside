@@ -1107,19 +1107,22 @@
   gap: 4px;
 }
 
-/* KS-2086: dropdown шире input'а.
-   `right: auto` снимает старое равенство ширине input'а; `min-width:
-   100%` гарантирует что dropdown НЕ уже input'a (важно для UX —
-   виден контекст поля); `width: max-content` даёт ему ровно столько,
-   сколько нужно для самого длинного label+meta. `max-width` ограничен
-   420px и шириной viewport'а (-32px на гарантированный отступ от
-   границ экрана) — иначе при очень длинных названиях турниров
-   dropdown выходил бы за форму или за screen. */
+/* KS-2086 → KS-2089: dropdown точно по ширине input'а.
+   Раньше (KS-2086): `width: max-content; max-width: min(420px, …)` —
+   dropdown расширялся ровно до самого длинного label, но на desktop
+   формы это означало, что правый край накрывал соседнюю кнопку
+   «Добавить» в `.chip-input` (текст обрезался до «Ad…»). Простое
+   решение — выровнять dropdown под input: `right: 0` + `width: auto`
+   (равно `left: 0; right: 0`). Длинные имена теперь wrap'ятся в 2
+   строки благодаря `white-space: normal` на `.archive-autocomplete__label`
+   (тоже из KS-2086) — обрезок не возникает. На mobile поведение не
+   меняется: input всё равно занимает почти всю ширину field'а,
+   dropdown следует за ним. */
 .archive-autocomplete__dropdown {
   position: absolute;
   top: 100%;
   left: 0;
-  right: auto;
+  right: 0;
   margin: 4px 0 0;
   padding: 4px 0;
   background: var(--bg-surface);
@@ -1127,9 +1130,6 @@
   border-radius: 10px;
   list-style: none;
   z-index: 60;
-  min-width: 100%;
-  width: max-content;
-  max-width: min(420px, calc(100vw - 32px));
   max-height: 280px;
   overflow-y: auto;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
@@ -1148,11 +1148,20 @@
   }
 }
 
+/* KS-2086 → KS-2089: item — column layout (label сверху, meta снизу).
+   Раньше label и meta стояли в строку (`flex-direction: row`), но
+   ширина dropdown'а после KS-2089 = ширина input'а (~180px на
+   desktop). Длинное имя «Carlsen,M» + meta «741 партия» + gap не
+   помещались — `overflow-wrap: anywhere` начинал ломать имя по
+   буквам. Column фикс: имя теперь занимает всю ширину item'а на
+   одной строке, meta — мелкая строка под ним. Высота item'а вырастает
+   с ~36px до ~50px, но dropdown ограничен 280px — это всё ещё ~5
+   видимых items. */
 .archive-autocomplete__item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   padding: 8px 12px;
   cursor: pointer;
   font-size: 14px;
@@ -1165,25 +1174,22 @@
   color: var(--accent-primary);
 }
 /* KS-2086: имя НЕ обрезаем ellipsis'ом — было `Caru…` вместо
-   `Caruana,F`. Теперь wrap по словам, чтобы длинные имена/события
-   разбивались на 2 строки (а не теряли символы). Шрифт чуть жирнее —
-   подчёркивает primary-info. Meta справа остаётся одной строкой
-   (короткая, типа «718 партий»). */
+   `Caruana,F`. KS-2089: при сжатой ширине dropdown'а wrap по словам
+   (`overflow-wrap: break-word`) — длинные имена / названия турниров
+   могут перенестись на 2 строки, но НЕ режутся посимвольно. */
 .archive-autocomplete__label {
-  font-weight: 500;
-  flex: 1;
+  font-weight: 600;
   min-width: 0;
   white-space: normal;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
   line-height: 1.3;
 }
 .archive-autocomplete__meta {
-  flex-shrink: 0;
   font-size: 12px;
   color: var(--text-secondary);
-  white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 .archive-autocomplete__item--active .archive-autocomplete__meta,
 .archive-autocomplete__item:hover .archive-autocomplete__meta {
