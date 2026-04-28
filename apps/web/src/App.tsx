@@ -45,6 +45,11 @@ import { LessonEditorPage } from './pages/LessonEditorPage';
 import { UserCourseEditor } from './components/lessons/editor/user/UserCourseEditor';
 import { UserCoursePage } from './pages/UserCoursePage';
 import { UserLessonPage } from './pages/UserLessonPage';
+// KS-2066 (F0/ADR-033 §2): namespace архива — заглушки.
+import { ArchiveLobbyPage } from './pages/ArchiveLobbyPage';
+import { ArchiveGamesPage } from './pages/ArchiveGamesPage';
+import { ArchivePlayerProfilePage } from './pages/ArchivePlayerProfilePage';
+import { ArchiveGamePage } from './pages/ArchiveGamePage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { isLessonsEnabledLive } from './config/featureFlags';
@@ -246,8 +251,20 @@ export function App() {
         <Route path="/tournaments/:id" element={<TournamentLobbyPage />} />
         <Route path="/arena/:id" element={<TournamentLobbyPage />} />
         <Route path="/t/:code" element={<ProtectedRoute><InviteRedirect /></ProtectedRoute>} />
+        {/* KS-2066 (F0/ADR-033 §2): namespace архива партий.
+            • `/archive` — лобби (F1)
+            • `/archive/games` — список партий с metadata-фильтрами (F2)
+            • `/archive/players/:slug` — профиль игрока (F3)
+            • `/archive/games/:id` — одна партия (F4)
+            Поиск по позиции переехал на `/archive/by-position` (раньше
+            висел на `/archive/games`); 301-редирект сохраняет старые
+            ссылки `/archive/games?fen=...&pos=...`. */}
+        <Route path="/archive" element={<ArchiveLobbyPage />} />
+        <Route path="/archive/games" element={<ArchiveGamesPage />} />
+        <Route path="/archive/games/:id" element={<ArchiveGamePage />} />
+        <Route path="/archive/players/:slug" element={<ArchivePlayerProfilePage />} />
         <Route
-          path="/archive/games"
+          path="/archive/by-position"
           element={
             <Suspense fallback={<LazyFallback />}>
               <ArchiveGamesByPositionPage />

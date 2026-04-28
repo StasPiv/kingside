@@ -143,7 +143,11 @@ export function ArchiveTreePanel({
                   to={(() => {
                     const params = new URLSearchParams({ fen: currentFen, sort: 'topElo' });
                     if (bucket !== 'all') params.set('bucket', bucket);
-                    return `/archive/games?${params.toString()}`;
+                    // KS-2066 (F0/ADR-033 §2): поиск по позиции переехал
+                    // с `/archive/games` на `/archive/by-position`,
+                    // чтобы освободить namespace под полный список
+                    // партий с metadata-фильтрами (F2).
+                    return `/archive/by-position?${params.toString()}`;
                   })()}
                   data-testid="archive-tree-view-games"
                 >

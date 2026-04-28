@@ -28,6 +28,10 @@ const NAV_ITEMS: NavItem[] = [
     featureFlag: isLessonsEnabledLive,
   },
   { path: '/workshop', icon: '🔬', i18nKey: 'nav.workshop', match: ['/workshop', '/analysis'] },
+  // KS-2066 (F0/ADR-033 §2): namespace архива — рядом с workshop.
+  // i18n-ключ — отдельный namespace `archive` (`archive.menuTitle`),
+  // см. `apps/web/src/i18n/locales/{ru,en}/archive.json`.
+  { path: '/archive', icon: '🗂', i18nKey: 'archive:menuTitle', match: ['/archive'] },
   { path: '/broadcasts', icon: '📺', i18nKey: 'nav.tv', match: ['/broadcasts'] },
   { path: '', icon: '', i18nKey: '', match: [] }, // divider
   { path: '/feedback', icon: '📋', i18nKey: 'nav.feedback', match: ['/feedback'] },

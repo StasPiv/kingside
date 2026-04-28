@@ -1,0 +1,20 @@
+{
+  "menuTitle": "Архив",
+  "lobby": {
+    "title": "Архив партий",
+    "placeholder": "TODO: F1 — лобби архива (поиск, недавние партии)"
+  },
+  "games": {
+    "title": "Партии в архиве",
+    "placeholder": "TODO: F2 — список партий с фильтрами",
+    "breadcrumb": "Архив партий"
+  },
+  "player": {
+    "title": "Игрок",
+    "placeholder": "TODO: F3 — профиль игрока {{slug}}"
+  },
+  "gamePage": {
+    "title": "Партия в архиве",
+    "placeholder": "TODO: F4 — страница архивной партии {{id}}"
+  }
+}

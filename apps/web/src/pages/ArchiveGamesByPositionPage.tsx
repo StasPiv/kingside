@@ -184,7 +184,8 @@ export function ArchiveGamesByPositionPage() {
             pgn: detail.pgn,
             title: `${whiteLabel} vs ${blackLabel}`,
             breadcrumbSection: t('archive.games.breadcrumb', 'Archive games'),
-            breadcrumbBackUrl: `/archive/games?${searchParams.toString()}`,
+            // KS-2066 (F0): URL обновлён на `/archive/by-position`.
+            breadcrumbBackUrl: `/archive/by-position?${searchParams.toString()}`,
           },
         });
       } catch {

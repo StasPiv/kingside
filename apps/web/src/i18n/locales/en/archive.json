@@ -1,0 +1,20 @@
+{
+  "menuTitle": "Archive",
+  "lobby": {
+    "title": "Game Archive",
+    "placeholder": "TODO: F1 — archive lobby (search, recent games)"
+  },
+  "games": {
+    "title": "Archive games",
+    "placeholder": "TODO: F2 — list of archive games with filters",
+    "breadcrumb": "Archive games"
+  },
+  "player": {
+    "title": "Player",
+    "placeholder": "TODO: F3 — player profile {{slug}}"
+  },
+  "gamePage": {
+    "title": "Archive game",
+    "placeholder": "TODO: F4 — single archive game {{id}}"
+  }
+}
