@@ -1,6 +1,7 @@
 import {
   Controller,
   Get,
+  InternalServerErrorException,
   Logger,
   Request,
   Res,
@@ -48,8 +49,9 @@ export class OAuthCallbackController {
       this.logger.error(
         `[Google OAuth] findOrCreateOAuthUser failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-      const frontendUrl = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
-      return res.redirect(`${frontendUrl}/login?oauthError=1`);
+      const url = new URL('/login', this.resolveFrontendOrigin());
+      url.searchParams.set('oauthError', '1');
+      return res.redirect(url.toString());
     }
   }
 
@@ -71,8 +73,9 @@ export class OAuthCallbackController {
       this.logger.error(
         `[Facebook OAuth] findOrCreateOAuthUser failed: ${err instanceof Error ? err.message : String(err)}`,
       );
-      const frontendUrl = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
-      return res.redirect(`${frontendUrl}/login?oauthError=1`);
+      const url = new URL('/login', this.resolveFrontendOrigin());
+      url.searchParams.set('oauthError', '1');
+      return res.redirect(url.toString());
     }
   }
 
@@ -84,8 +87,7 @@ export class OAuthCallbackController {
       requiresUsernameSetup: boolean;
     },
   ) {
-    const frontendUrl = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
-    const url = new URL('/oauth/callback', frontendUrl);
+    const url = new URL('/oauth/callback', this.resolveFrontendOrigin());
     url.searchParams.set('accessToken', tokens.accessToken);
     url.searchParams.set('refreshToken', tokens.refreshToken);
     if (tokens.requiresUsernameSetup) {
@@ -95,5 +97,48 @@ export class OAuthCallbackController {
       `[OAuth] redirect to ${url.origin}/oauth/callback?accessToken=...`,
     );
     return res.redirect(url.toString());
+  }
+
+  /**
+   * KS-2112: формирование redirect URL для OAuth-callback'ов.
+   *
+   * Источник истины — отдельная переменная `FRONTEND_URL` (один origin, без CSV).
+   * Если она не задана, fallback — первый элемент `CORS_ORIGIN.split(',')`
+   * (исторически на проде там CSV `https://kingside.site,https://www.kingside.site`,
+   * см. KS-2112). Локальный дефолт — `http://localhost:5173`.
+   *
+   * Возвращается ровно `URL.origin` (схема + хост + порт), чтобы случайно
+   * указанный путь/query не попали в base URL и не сломали `new URL(path, base)`.
+   * При невалидном значении бросаем 500 — лучше явная ошибка, чем битый redirect
+   * с JWT в URL на чужой хост.
+   */
+  private resolveFrontendOrigin(): string {
+    const candidate =
+      process.env.FRONTEND_URL?.trim() ||
+      process.env.CORS_ORIGIN?.split(',')[0]?.trim() ||
+      'http://localhost:5173';
+
+    let parsed: URL;
+    try {
+      parsed = new URL(candidate);
+    } catch {
+      this.logger.error(
+        `[OAuth] invalid frontend origin: "${candidate}". Set FRONTEND_URL to a single valid URL (e.g. https://kingside.site).`,
+      );
+      throw new InternalServerErrorException(
+        'OAuth redirect misconfigured: invalid FRONTEND_URL/CORS_ORIGIN',
+      );
+    }
+
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      this.logger.error(
+        `[OAuth] unsupported frontend origin protocol "${parsed.protocol}" in "${candidate}"`,
+      );
+      throw new InternalServerErrorException(
+        'OAuth redirect misconfigured: unsupported FRONTEND_URL protocol',
+      );
+    }
+
+    return parsed.origin;
   }
 }
