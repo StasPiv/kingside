@@ -32,7 +32,7 @@
  * нагрузка на 250k оценивается в 10-30s, асинхронно (ADR-033 §4.4.6).
  */
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { archiveSlug, normalizeArchiveName } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
@@ -103,13 +103,35 @@ export interface SyncDeltaReport {
 }
 
 @Injectable()
-export class PlayersEventsBackfillService {
+export class PlayersEventsBackfillService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PlayersEventsBackfillService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly metrics: ArchiveImportMetricsService,
   ) {}
+
+  /**
+   * KS-2077: при старте сервиса один раз публикуем gauges
+   * `archive_players_total` / `archive_events_total` через SELECT COUNT.
+   * Без этого после рестарта HTTP-сервиса метрики пустые до первого
+   * импорта TWIC (cron 20:00 UTC) — дашборды показывают «нет данных».
+   *
+   * Backfill отдельный CLI-pod (ECS run-task) тоже публикует, но в
+   * своём process-memory; долгоживущий archive-service ему недоступен.
+   *
+   * Не блокируем bootstrap при ошибке: метрика временно пустая лучше,
+   * чем недоступный сервис. publishGauges сам ловит исключения внутри,
+   * этот try/catch — страховка на возможный throw из неё в будущем.
+   */
+  async onApplicationBootstrap(): Promise<void> {
+    try {
+      await this.publishGauges();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`onApplicationBootstrap publishGauges failed: ${msg}`);
+    }
+  }
 
   // ─── Public API ──────────────────────────────────────────────────
 

@@ -250,4 +250,51 @@ describe('PlayersEventsBackfillService — KS-2064', () => {
       expect(findCalls(calls, /REFRESH/)).toHaveLength(0);
     });
   });
+
+  // ─── KS-2077: bootstrap-публикация gauges ─────────────────────────
+  describe('onApplicationBootstrap (KS-2077)', () => {
+    it('публикует gauges archive_players_total / archive_events_total из БД', async () => {
+      // Кастомная fake-prisma — возвращает конкретные числа на COUNT.
+      const calls: SqlCall[] = [];
+      const $queryRawUnsafe = async <T>(sql: string): Promise<T> => {
+        calls.push({ sql, params: [] });
+        if (/FROM archive_players/i.test(sql)) {
+          return [{ n: BigInt(123) }] as unknown as T;
+        }
+        if (/FROM archive_events/i.test(sql)) {
+          return [{ n: BigInt(45) }] as unknown as T;
+        }
+        return [] as unknown as T;
+      };
+      const $executeRawUnsafe = async (): Promise<number> => 0;
+      const prisma = { $queryRawUnsafe, $executeRawUnsafe } as unknown as PrismaService;
+
+      const metrics = makeMetrics();
+      const svc = new PlayersEventsBackfillService(prisma, metrics);
+
+      await svc.onApplicationBootstrap();
+
+      // Ожидаем 2 SELECT'а: один на archive_players, один на archive_events.
+      expect(calls.filter((c) => /FROM archive_players/i.test(c.sql))).toHaveLength(1);
+      expect(calls.filter((c) => /FROM archive_events/i.test(c.sql))).toHaveLength(1);
+
+      // Проверяем фактически выставленные значения через prom-client API.
+      const playersMetric = await metrics.archivePlayersTotal.get();
+      const eventsMetric = await metrics.archiveEventsTotal.get();
+      expect(playersMetric.values[0]?.value).toBe(123);
+      expect(eventsMetric.values[0]?.value).toBe(45);
+    });
+
+    it('не падает приложением при ошибке SELECT COUNT', async () => {
+      const $queryRawUnsafe = async (): Promise<unknown[]> => {
+        throw new Error('connection refused');
+      };
+      const $executeRawUnsafe = async (): Promise<number> => 0;
+      const prisma = { $queryRawUnsafe, $executeRawUnsafe } as unknown as PrismaService;
+
+      const svc = new PlayersEventsBackfillService(prisma, makeMetrics());
+      // Не должно бросить.
+      await expect(svc.onApplicationBootstrap()).resolves.toBeUndefined();
+    });
+  });
 });
