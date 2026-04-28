@@ -201,6 +201,28 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       expect(items.sql).not.toMatch(/g\.white_name ILIKE/);
     });
 
+    it('skipTotal (KS-2090) → COUNT(*) не выполняется, total = items.length', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      const page = await repo.searchGames({ ...defaults(), skipTotal: true });
+
+      // Только items-запрос, COUNT не должен быть.
+      const totalCalls = calls.filter((c) => /COUNT\(\*\)::bigint/.test(c.sql));
+      expect(totalCalls).toHaveLength(0);
+      expect(calls.filter((c) => /SELECT[\s\S]+FROM archive_games g/.test(c.sql)
+        && !/COUNT/.test(c.sql))).toHaveLength(1);
+      // total = длина items (1 фиктивная строка из fakePrisma).
+      expect(page.total).toBe(page.items.length);
+    });
+
+    it('skipTotal не задан → COUNT(*) выполняется как раньше (регрессия)', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames(defaults());
+
+      expect(calls.filter((c) => /COUNT\(\*\)::bigint/.test(c.sql))).toHaveLength(1);
+    });
+
     it('LIMIT и OFFSET идут параметрами после фильтров', async () => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);

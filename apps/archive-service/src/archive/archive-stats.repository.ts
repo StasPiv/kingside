@@ -131,6 +131,13 @@ export type SearchGamesOpts = {
    */
   player?: string | string[];
   eco?: string;
+  /**
+   * KS-2090: если `true`, не делаем `SELECT COUNT(*)` (фронту total не нужен
+   * для recent-блока на лобби, а COUNT на ~6M партий с прогретым кэшем
+   * стоит ~50-100мс на t3.micro RDS, на холодном — на порядок дороже).
+   * Возвращаемый `total` в этом случае = `items.length`.
+   */
+  skipTotal?: boolean;
   event?: string;
   result?: ArchiveGameResult;
   minElo?: number;
@@ -408,6 +415,16 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
 
   async searchGames(opts: SearchGamesOpts): Promise<SearchGamesPage> {
     const builder = new MetadataSqlBuilder(opts);
+
+    if (opts.skipTotal) {
+      // KS-2090: skip COUNT(*) — фронту total не нужен для recent-блока
+      // на лобби; вернём `items.length` как proxy. Один SQL вместо двух.
+      const items = await this.prisma.$queryRawUnsafe<RawArchiveGameRow[]>(
+        builder.itemsSql,
+        ...builder.itemsParams,
+      );
+      return { total: items.length, items };
+    }
 
     const [items, totals] = await Promise.all([
       this.prisma.$queryRawUnsafe<RawArchiveGameRow[]>(

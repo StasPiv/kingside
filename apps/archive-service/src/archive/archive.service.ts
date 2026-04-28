@@ -75,6 +75,10 @@ const PLAYERS_SEARCH_CACHE_TTL_SEC = 300;       // 5 min
 const PLAYERS_PROFILE_CACHE_TTL_SEC = 3600;     // 1 hour
 const PLAYERS_GAMES_CACHE_TTL_SEC = 300;        // 5 min
 const EVENTS_SEARCH_CACHE_TTL_SEC = 300;        // 5 min
+// KS-2090: «Последние партии» на лобби `/archive`. TTL 60s — баланс между
+// свежестью (TWIC импортируется ~раз в неделю, инвалидация по
+// ARCHIVE_IMPORTED_CHANNEL мгновенная) и устранением cold-start'а.
+const RECENT_GAMES_CACHE_TTL_SEC = 60;
 const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_SEARCH_LIMIT = 50;
 const DEFAULT_PLAYER_GAMES_LIMIT = 50;
@@ -131,6 +135,35 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       }, PREWARM_INTERVAL_MS);
       // First run slightly after boot so DB pool is ready.
       setTimeout(() => void this.prewarmTopPositions(), 30_000).unref();
+      // KS-2090: «Последние партии» лобби. Прогревает page cache индекса
+      // archive_games_played_at_idx и сразу кладёт ответ в Redis с
+      // TTL 60s — следующий пользователь, открывший /archive в первые
+      // 60 секунд после старта, получит данные мгновенно. Запускаем
+      // через 5 секунд, чтобы DB pool успел поднять connection.
+      setTimeout(() => void this.prewarmRecentGames(), 5_000).unref();
+    }
+  }
+
+  /**
+   * KS-2090: прогрев «Последних партий» (`/archive` лобби).
+   *
+   * Делает один dummy-вызов `getGames({sort:'recent', limit:DEFAULT})`,
+   * который:
+   *   1) выполняет `SELECT ... FROM archive_games ORDER BY played_at DESC
+   *      LIMIT N` — ставит relevant pages индекса `played_at` и таблицы
+   *      в page cache PostgreSQL (актуально для t3.micro RDS, KS-2090);
+   *   2) кладёт ответ в Redis под ключ `arch:games:recent:<N>` с TTL 60s.
+   *
+   * Не блокирует startup; ошибки только логирует.
+   */
+  async prewarmRecentGames(): Promise<void> {
+    try {
+      await this.getGames({});
+      this.logger.log('prewarmRecentGames: ok');
+    } catch (err) {
+      this.logger.warn(
+        `prewarmRecentGames failed: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -211,6 +244,31 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     // to a follow-up (KS-1581 MVP scope, see ADR §4.2). They are accepted
     // by the DTO but silently ignored at the service level for now.
 
+    // KS-2090: «чистый recent» (sort=recent + offset=0 + нет фильтров) —
+    // это тот самый блок «Последние партии» на `/archive`. Кэшируем в Redis
+    // на 60s + не делаем COUNT(*) (фронту total не нужен — он показывает
+    // ровно N последних партий). Инвалидация — по ARCHIVE_IMPORTED_CHANNEL
+    // через `arch:games:*` паттерн (KS-2065).
+    const isCleanRecent = sort === 'recent' && offsetRaw === 0 && this.hasNoFilters(req);
+    if (isCleanRecent) {
+      const cacheKey = `arch:games:recent:${limit}`;
+      const cached = await this.safeGetJson<ArchiveGamesResponse>(cacheKey);
+      if (cached) return cached;
+
+      const page = await this.stats.searchGames({
+        sort: 'recent',
+        limit,
+        offset: 0,
+        skipTotal: true,
+      });
+      const response: ArchiveGamesResponse = {
+        total: page.total,
+        items: page.items.map((g) => this.rawRowToSummary(g)),
+      };
+      await this.safeSetJson(cacheKey, response, RECENT_GAMES_CACHE_TTL_SEC);
+      return response;
+    }
+
     const opts: SearchGamesOpts = {
       white: req.white,
       black: req.black,
@@ -234,6 +292,24 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       total: page.total,
       items: page.items.map((g) => this.rawRowToSummary(g)),
     };
+  }
+
+  /**
+   * KS-2090: проверка «нет ни одного фильтра, влияющего на выборку».
+   * Если все поля отсутствуют — `searchGames` сводится к
+   * `SELECT ... ORDER BY played_at DESC LIMIT N` (с LEFT JOIN
+   * archive_players за slug'ами). Это «recent-режим» лобби.
+   */
+  private hasNoFilters(req: ArchiveGamesRequest): boolean {
+    if (req.fen || req.move) return false;
+    if (req.white || req.black) return false;
+    if (Array.isArray(req.player) ? req.player.length > 0 : !!req.player) return false;
+    if (req.eco || req.event) return false;
+    if (req.result) return false;
+    if (req.minElo != null) return false;
+    if (req.minPly != null || req.maxPly != null) return false;
+    if (req.since || req.until) return false;
+    return true;
   }
 
   // ─── Games by position ───────────────────────────────────────────
