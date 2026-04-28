@@ -27,7 +27,8 @@ import { LazySection } from '../components/lessons/LazySection';
 const LEVEL_ORDER: CourseLevel[] = ['beginner', 'intermediate', 'advanced'];
 
 export function LessonsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [recommendedLevel, setRecommendedLevel] = useState<CourseLevel | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,12 +39,16 @@ export function LessonsPage() {
   // (см. PuzzleStatsPage и compact hint на /puzzle). На /lessons его
   // больше нет — здесь только learning-контент.
 
+  // KS-2099: при смене UI-языка перезапрашиваем список курсов с
+  // новым `lang`. Эффект завязан на `lang` — `i18n.changeLanguage()`
+  // меняет `i18n.language`, react-i18next дёргает re-render и effect
+  // отстреливает заново.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     lessonsApi
-      .listCourses()
+      .listCourses(lang)
       .then((res) => {
         if (cancelled) return;
         setCourses(res.data ?? []);
@@ -59,7 +64,7 @@ export function LessonsPage() {
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [t, lang]);
 
   // SM-2 «К повторению сегодня» (L-22, KS-1799). Ошибка этого запроса не
   // блокирует страницу — блок просто скрывается. Список пустой — блок
@@ -155,7 +160,10 @@ export function LessonsPage() {
           recommendedLevel={recommendedLevel}
           loading={loading}
           error={error}
-          emptyText={t('lessons.empty', 'No courses available yet')}
+          emptyText={t(
+            'lessons.emptyForLang',
+            'No courses are available in your language yet',
+          )}
         />
       </LazySection>
 

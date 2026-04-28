@@ -1241,10 +1241,17 @@
     "title": "Lessons",
     "subtitle": "Structured chess curriculum",
     "empty": "No courses available yet",
+    "emptyForLang": "No courses are available in your language yet",
     "loadError": "Failed to load courses",
     "invalidCourse": "Invalid course slug",
     "invalidLesson": "Invalid lesson URL",
     "courseNotFound": "Course not found",
+    "courseUnavailableInLang": {
+      "title": "Course is not available in this language",
+      "description": "This course has not been translated yet. Switch the interface language to access another version.",
+      "switchEn": "Switch to English",
+      "switchRu": "Переключиться на русский"
+    },
     "lessonNotFound": "Lesson not found",
     "noLessons": "No lessons in this course yet",
     "noSteps": "No steps in this lesson yet",

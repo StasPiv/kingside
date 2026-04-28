@@ -45,12 +45,15 @@ export function MyActiveCoursesPage() {
     courses: [],
   });
 
+  // KS-2099: язык UI пробрасываем в listActiveCourses, чтобы карточки
+  // активных курсов соответствовали выбранной локали.
+  const lang = i18n.language;
   useEffect(() => {
     let cancelled = false;
     setState({ status: 'loading', courses: [] });
 
     lessonsApi
-      .listActiveCourses()
+      .listActiveCourses(lang)
       .then((list) => {
         if (cancelled) return;
         setState({ status: 'ready', courses: mapActiveCourses(list) });
@@ -63,7 +66,7 @@ export function MyActiveCoursesPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [lang]);
 
   // useMemo фиксирует «сейчас» один раз на готовый стейт — relative-time
   // в карточках считается от одного timestamp, чтобы все «N часов назад»

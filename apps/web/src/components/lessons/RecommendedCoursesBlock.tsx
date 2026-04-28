@@ -56,17 +56,20 @@ function ctaForRecommended(course: CourseListItem): CourseCardCtaVariant {
 }
 
 export function RecommendedCoursesBlock() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const [state, setState] = useState<RecommendedState>({
     loading: true,
     level: null,
     courses: [],
   });
 
+  // KS-2099: рефетч при смене UI-языка — рекомендации должны
+  // показывать курсы того же языка, что и список на /lessons.
   useEffect(() => {
     let cancelled = false;
     lessonsApi
-      .listCourses()
+      .listCourses(lang)
       .then((res) => {
         if (cancelled) return;
         const level = res.recommendedLevel ?? null;
@@ -88,7 +91,7 @@ export function RecommendedCoursesBlock() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [lang]);
 
   if (state.loading) {
     return (

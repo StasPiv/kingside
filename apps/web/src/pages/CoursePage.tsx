@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { CourseWithLessonsResponse } from '@kingside/shared';
 
 import { lessonsApi } from '../api/lessonsApi';
+import { ApiError } from '../ApiError';
 import { groupLessonsByBlock } from '../components/lessons/courseBlocks';
 import { CourseActiveLessonHero } from '../components/lessons/CourseActiveLessonHero';
 import { resolveInlineText } from '../utils/inlineI18nText';
@@ -18,26 +19,40 @@ import { resolveInlineText } from '../utils/inlineI18nText';
  */
 
 export function CoursePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const { courseSlug } = useParams<{ courseSlug: string }>();
 
   const [data, setData] = useState<CourseWithLessonsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // KS-2099: при отсутствии перевода курса на текущем языке backend
+  // возвращает 404. На фронте это отдельный экран «Курс недоступен на
+  // этом языке» с предложением переключить язык — фолбэка на ru нет
+  // (поведение Acceptance из задачи).
+  const [unavailableInLang, setUnavailableInLang] = useState(false);
 
+  // KS-2099: рефетч при смене UI-языка. Эффект пересобирается при
+  // изменении `lang` — `i18n.changeLanguage()` обновит зависимость.
   useEffect(() => {
     if (!courseSlug) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setUnavailableInLang(false);
     lessonsApi
-      .getCourse(courseSlug)
+      .getCourse(courseSlug, lang)
       .then((res) => {
         if (cancelled) return;
         setData(res);
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         if (cancelled) return;
+        if (e instanceof ApiError && e.status === 404) {
+          setUnavailableInLang(true);
+          setData(null);
+          return;
+        }
         setError(t('lessons.loadError', 'Failed to load course'));
       })
       .finally(() => {
@@ -46,7 +61,17 @@ export function CoursePage() {
     return () => {
       cancelled = true;
     };
-  }, [courseSlug, t]);
+  }, [courseSlug, t, lang]);
+
+  // KS-2099: переключение языка из экрана «недоступно на этом языке».
+  // `i18n.changeLanguage` подхватит rerender списочной страницы и
+  // эффекта здесь — getCourse уйдёт повторно с новым lang.
+  const switchTo = useCallback(
+    (target: 'ru' | 'en') => {
+      void i18n.changeLanguage(target);
+    },
+    [i18n],
+  );
 
   if (!courseSlug) {
     return (
@@ -68,6 +93,53 @@ export function CoursePage() {
     return (
       <div className="error" data-testid="course-error">
         {error}
+      </div>
+    );
+  }
+
+  if (unavailableInLang) {
+    // KS-2099: на текущем UI-языке курс недоступен. Предлагаем
+    // переключить язык на «противоположный» — у нас всего две
+    // локали (ru/en), поэтому фолбэк всегда однозначен.
+    const isEn = lang.toLowerCase().startsWith('en');
+    const altLang: 'ru' | 'en' = isEn ? 'ru' : 'en';
+    return (
+      <div
+        className="lessons-empty course-unavailable"
+        data-testid="course-unavailable-in-lang"
+        data-lang={isEn ? 'en' : 'ru'}
+      >
+        <h1>
+          {t(
+            'lessons.courseUnavailableInLang.title',
+            'Course is not available in this language',
+          )}
+        </h1>
+        <p>
+          {t(
+            'lessons.courseUnavailableInLang.description',
+            'This course has not been translated yet. Switch the interface language to access another version.',
+          )}
+        </p>
+        <div className="course-unavailable-actions">
+          <button
+            type="button"
+            className="course-unavailable-switch"
+            data-testid="course-unavailable-switch-lang"
+            onClick={() => switchTo(altLang)}
+          >
+            {altLang === 'en'
+              ? t('lessons.courseUnavailableInLang.switchEn', 'Switch to English')
+              : t('lessons.courseUnavailableInLang.switchRu', 'Переключиться на русский')}
+          </button>
+          <Link
+            to="/lessons"
+            className="course-unavailable-back"
+            data-testid="course-unavailable-back-link"
+          >
+            ← {t('lessons.backToList', 'All courses')}
+          </Link>
+        </div>
       </div>
     );
   }

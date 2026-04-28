@@ -48,7 +48,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       const retry = await fetch(`${API_URL}${path}`, { ...options, headers });
       if (!retry.ok) {
         const body = await retry.json().catch(() => ({}));
-        throw new ApiError(body.message ?? `Request failed: ${retry.status}`, body.errorCode);
+        throw new ApiError(
+          body.message ?? `Request failed: ${retry.status}`,
+          body.errorCode,
+          retry.status,
+        );
       }
       return retry.json();
     } catch {
@@ -58,7 +62,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(body.message ?? `Request failed: ${res.status}`, body.errorCode);
+    throw new ApiError(
+      body.message ?? `Request failed: ${res.status}`,
+      body.errorCode,
+      res.status,
+    );
   }
 
   if (res.status === 204) {

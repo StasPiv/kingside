@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+import { renderWithProviders, screen, waitFor, testI18n } from '../test/test-utils';
 import { CoursePage } from './CoursePage';
+import { ApiError } from '../ApiError';
+import { act } from 'react';
+import userEvent from '@testing-library/user-event';
 
 const mockLessonsApi = {
   getCourse: vi.fn(),
@@ -359,6 +362,113 @@ describe('CoursePage', () => {
     expect(
       screen.getByTestId('course-lesson-step-count-rules').textContent,
     ).toMatch(/5/);
+  });
+
+  describe('KS-2099: lang в API курсов и резолв по UI-языку', () => {
+    it('передаёт текущий язык UI в getCourse', async () => {
+      mockLessonsApi.getCourse.mockResolvedValue({
+        course: {
+          id: 'c1',
+          slug: 'beginner-basics',
+          level: 'beginner',
+          titleI18nKey: 'beginner-basics-title',
+          descriptionI18nKey: 'beginner-basics-desc',
+          order: 1,
+          isPublished: true,
+          lessonCount: 0,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        lessons: [],
+        progress: null,
+      });
+      // testI18n стартует на 'en' (см. test-utils).
+      renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+      await waitFor(() =>
+        expect(mockLessonsApi.getCourse).toHaveBeenCalledWith(
+          'beginner-basics',
+          'en',
+        ),
+      );
+    });
+
+    it('при 404 — показывает экран «Курс недоступен на этом языке» с кнопкой переключения', async () => {
+      mockLessonsApi.getCourse.mockRejectedValueOnce(
+        new ApiError('Course not found', 'COURSE_NOT_FOUND', 404),
+      );
+      renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('course-unavailable-in-lang'),
+        ).toBeInTheDocument(),
+      );
+      // Lang=en → предложить переключиться на ru.
+      expect(
+        screen.getByTestId('course-unavailable-switch-lang'),
+      ).toHaveTextContent(/Переключиться на русский/i);
+    });
+
+    it('при не-404 — обычный экран ошибки (фолбэка на ru нет)', async () => {
+      mockLessonsApi.getCourse.mockRejectedValueOnce(
+        new ApiError('boom', undefined, 500),
+      );
+      renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+      await waitFor(() =>
+        expect(screen.getByTestId('course-error')).toBeInTheDocument(),
+      );
+      expect(
+        screen.queryByTestId('course-unavailable-in-lang'),
+      ).not.toBeInTheDocument();
+    });
+
+    it('клик «Переключиться на русский» → i18n.changeLanguage("ru") + getCourse снова с lang="ru"', async () => {
+      // Изначально 404 (нет en-версии). После переключения на ru —
+      // курс находится. Используем стабильный mockResolvedValue
+      // (а не Once), потому что эффект может срабатывать чаще из-за
+      // обновлений зависимостей.
+      mockLessonsApi.getCourse
+        .mockRejectedValueOnce(
+          new ApiError('not found', 'COURSE_NOT_FOUND', 404),
+        )
+        .mockResolvedValue({
+          course: {
+            id: 'c1',
+            slug: 'beginner-basics',
+            level: 'beginner',
+            titleI18nKey: 'beginner-basics-title',
+            descriptionI18nKey: 'beginner-basics-desc',
+            order: 1,
+            isPublished: true,
+            lessonCount: 0,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+          lessons: [],
+          progress: null,
+        });
+
+      const user = userEvent.setup();
+      renderWithProviders(<CoursePage />, { route: '/lessons/beginner-basics' });
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('course-unavailable-in-lang'),
+        ).toBeInTheDocument(),
+      );
+
+      await user.click(screen.getByTestId('course-unavailable-switch-lang'));
+
+      await waitFor(() =>
+        expect(mockLessonsApi.getCourse).toHaveBeenCalledWith(
+          'beginner-basics',
+          'ru',
+        ),
+      );
+
+      // Возврат i18n в 'en' — чтобы соседние тесты не сломались.
+      await act(async () => {
+        await testI18n.changeLanguage('en');
+      });
+    });
   });
 
   it('KS-1978: при отсутствии inline.title — fallback на slug через t(i18nKey)', async () => {

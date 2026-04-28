@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderWithProviders, screen, waitFor } from '../test/test-utils';
+import { act } from 'react';
+import { renderWithProviders, screen, waitFor, testI18n } from '../test/test-utils';
 import { LessonsPage } from './LessonsPage';
 
 const mockLessonsApi = {
@@ -246,5 +247,50 @@ describe('LessonsPage', () => {
     expect(
       screen.getByTestId('create-course-cta-mock'),
     ).toBeInTheDocument();
+  });
+
+  // ─── KS-2099: фильтр курсов по UI-языку ─────────────────────────────
+
+  describe('KS-2099: lang в API курсов', () => {
+    it('передаёт текущий язык UI в listCourses', async () => {
+      mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+      renderWithProviders(<LessonsPage />, { route: '/lessons' });
+      // testI18n стартует на 'en' — listCourses должен получить 'en'.
+      await waitFor(() =>
+        expect(mockLessonsApi.listCourses).toHaveBeenCalledWith('en'),
+      );
+    });
+
+    it('при смене i18n.language → перезапрос listCourses с новым lang', async () => {
+      // Стабильный mock — эффект может вызываться больше двух раз
+      // (например, при гонках с обновлением `t`).
+      mockLessonsApi.listCourses.mockResolvedValue({ data: [] });
+      renderWithProviders(<LessonsPage />, { route: '/lessons' });
+      await waitFor(() =>
+        expect(mockLessonsApi.listCourses).toHaveBeenCalledWith('en'),
+      );
+
+      await act(async () => {
+        await testI18n.changeLanguage('ru');
+      });
+
+      await waitFor(() =>
+        expect(mockLessonsApi.listCourses).toHaveBeenCalledWith('ru'),
+      );
+
+      // Возврат языка для соседних тестов.
+      await act(async () => {
+        await testI18n.changeLanguage('en');
+      });
+    });
+
+    it('пустой data → empty-стейт «Пока нет курсов на вашем языке»', async () => {
+      mockLessonsApi.listCourses.mockResolvedValueOnce({ data: [] });
+      renderWithProviders(<LessonsPage />, { route: '/lessons' });
+      await waitFor(() => expect(pillarState()).toBe('empty'));
+      expect(screen.getByTestId('lessons-empty')).toHaveTextContent(
+        /No courses are available in your language yet/i,
+      );
+    });
   });
 });

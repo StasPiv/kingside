@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type {
   ActiveCourseDto,
   CourseLevel,
@@ -115,6 +116,10 @@ interface UseLessonsHeroContextReturn {
 
 export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
   const { user, loading: authLoading } = useAuth();
+  // KS-2099: язык UI прокидываем в `listActiveCourses`/`listCourses`,
+  // чтобы hero брал курсы той же локали, что и /lessons список.
+  const { i18n } = useTranslation();
+  const lang = i18n.language;
 
   // KS-1957: единый источник активности — `/lessons/active-courses`.
   const [active, setActive] = useState<ActiveCourseDto[] | null>(null);
@@ -145,7 +150,7 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
     setOwn(null);
 
     lessonsApi
-      .listActiveCourses()
+      .listActiveCourses(lang)
       .then((res) => {
         if (cancelled) return;
         setActive(res ?? []);
@@ -157,7 +162,7 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
       });
 
     lessonsApi
-      .listCourses()
+      .listCourses(lang)
       .then((res) => {
         if (cancelled) return;
         setSystem(res.data ?? []);
@@ -183,7 +188,7 @@ export function useLessonsHeroContext(): UseLessonsHeroContextReturn {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, lang]);
 
   const state = useMemo<LessonsHeroState>(() => {
     if (authLoading) return { kind: 'loading' };
