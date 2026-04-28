@@ -174,11 +174,13 @@ ensure_main_synced() {
         echo "[pre-deploy] Switch to main and retry, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
         exit 1
     fi
+    # Информативный warn про локальные правки — не блокируем deploy.
+    # Untracked файлы (??) игнорируются всегда (test-results, локальные конфиги).
+    # Modified/Deleted tracked файлы оставляем как есть; ff-merge ниже либо
+    # успешно их сохранит, либо фейл скажет про конфликт.
     if ! git -C "$REPO_DIR" diff-index --quiet HEAD --; then
-        echo "[pre-deploy] ERROR: working tree has uncommitted changes." >&2
-        echo "[pre-deploy] Stash or commit them, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
-        git -C "$REPO_DIR" status --short >&2 | head -10
-        exit 1
+        echo "[pre-deploy] WARN: working tree has tracked modifications (will be preserved if ff-clean):" >&2
+        git -C "$REPO_DIR" diff --name-only HEAD -- 2>/dev/null | head -10 | sed 's/^/  /' >&2
     fi
     echo "[pre-deploy] git fetch origin main..."
     if ! git -C "$REPO_DIR" fetch --quiet origin main; then
@@ -200,7 +202,11 @@ ensure_main_synced() {
         exit 1
     fi
     echo "[pre-deploy] fast-forward main: ${local_sha:0:7} → ${remote_sha:0:7}"
-    git -C "$REPO_DIR" merge --ff-only --quiet origin/main
+    if ! git -C "$REPO_DIR" merge --ff-only --quiet origin/main; then
+        echo "[pre-deploy] ERROR: fast-forward merge failed (likely local edits conflict with incoming changes)." >&2
+        echo "[pre-deploy] Stash conflicting files manually, or set KINGSIDE_DEPLOY_SKIP_GIT_PULL=1 to bypass." >&2
+        exit 1
+    fi
 }
 ensure_main_synced
 
