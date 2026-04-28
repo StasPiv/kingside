@@ -1,14 +1,21 @@
 import { Controller, Get, Header, Param, Query } from '@nestjs/common';
 import type {
+  ArchiveEventSearchResponse,
   ArchiveGameDetail,
   ArchiveGamesByPositionResponse,
   ArchiveGamesResponse,
+  ArchivePlayerGamesResponse,
+  ArchivePlayerProfileResponse,
+  ArchivePlayerSearchResponse,
   ArchiveTreeResponse,
 } from '@kingside/shared';
 import { ArchiveService } from './archive.service';
 import { ArchiveTreeQueryDto } from './dto/archive-tree-query.dto';
 import { ArchiveGamesQueryDto } from './dto/archive-games-query.dto';
 import { ArchiveGamesByPositionQueryDto } from './dto/archive-games-by-position-query.dto';
+import { ArchivePlayersSearchQueryDto } from './dto/archive-players-search-query.dto';
+import { ArchiveEventsSearchQueryDto } from './dto/archive-events-search-query.dto';
+import { ArchivePlayerGamesQueryDto } from './dto/archive-player-games-query.dto';
 
 /**
  * KS-1690: все read-эндпоинты отдают `Cache-Control: no-cache, must-revalidate`.
@@ -64,5 +71,50 @@ export class ArchiveController {
   @Header('Cache-Control', CACHE_CONTROL_REVALIDATE)
   getGames(@Query() query: ArchiveGamesQueryDto): Promise<ArchiveGamesResponse> {
     return this.archive.getGames(query);
+  }
+
+  // ─── Players & events (KS-2065 / ADR-033 §6.3) ───────────────────
+
+  /**
+   * Players autocomplete via FTS (pg_trgm).
+   * Маршрут объявлен ДО `players/:slug`, чтобы NestJS не сматчил
+   * `search` как параметр slug.
+   */
+  @Get('players/search')
+  @Header('Cache-Control', CACHE_CONTROL_REVALIDATE)
+  searchPlayers(
+    @Query() query: ArchivePlayersSearchQueryDto,
+  ): Promise<ArchivePlayerSearchResponse> {
+    return this.archive.searchPlayers(query);
+  }
+
+  /**
+   * Player profile (MV `archive_player_stats`). 404 если slug не найден.
+   * Маршрут `players/:slug/games` объявлен ДО `players/:slug`, чтобы
+   * NestJS не сматчил `:slug` как `slug/games`.
+   */
+  @Get('players/:slug/games')
+  @Header('Cache-Control', CACHE_CONTROL_REVALIDATE)
+  getPlayerGames(
+    @Param('slug') slug: string,
+    @Query() query: ArchivePlayerGamesQueryDto,
+  ): Promise<ArchivePlayerGamesResponse> {
+    return this.archive.getPlayerGames(slug, query);
+  }
+
+  @Get('players/:slug')
+  @Header('Cache-Control', CACHE_CONTROL_REVALIDATE)
+  getPlayerProfile(
+    @Param('slug') slug: string,
+  ): Promise<ArchivePlayerProfileResponse> {
+    return this.archive.getPlayerProfile(slug);
+  }
+
+  @Get('events/search')
+  @Header('Cache-Control', CACHE_CONTROL_REVALIDATE)
+  searchEvents(
+    @Query() query: ArchiveEventsSearchQueryDto,
+  ): Promise<ArchiveEventSearchResponse> {
+    return this.archive.searchEvents(query);
   }
 }

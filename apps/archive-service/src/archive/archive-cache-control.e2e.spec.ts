@@ -16,9 +16,13 @@ import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import type {
+  ArchiveEventSearchResponse,
   ArchiveGameDetail,
   ArchiveGamesByPositionResponse,
   ArchiveGamesResponse,
+  ArchivePlayerGamesResponse,
+  ArchivePlayerProfileResponse,
+  ArchivePlayerSearchResponse,
   ArchiveTreeResponse,
 } from '@kingside/shared';
 import { ArchiveController } from './archive.controller';
@@ -66,11 +70,29 @@ const fakeGameDetail: ArchiveGameDetail = {
   round: null,
 };
 
+const fakePlayerSearch: ArchivePlayerSearchResponse = { total: 0, items: [] };
+const fakePlayerProfile: ArchivePlayerProfileResponse = {
+  name: 'Carlsen, Magnus',
+  slug: 'carlsen-magnus',
+  gamesCount: 1234,
+  peakElo: 2882,
+  byColor: { white: 700, black: 534 },
+  byResult: { wins: 600, draws: 500, losses: 134 },
+  firstSeenAt: '2010-01-01T00:00:00.000Z',
+  lastSeenAt: '2026-04-01T00:00:00.000Z',
+};
+const fakePlayerGames: ArchivePlayerGamesResponse = { total: 0, items: [] };
+const fakeEventSearch: ArchiveEventSearchResponse = { total: 0, items: [] };
+
 const mockService = {
   getTree: jest.fn().mockResolvedValue(fakeTree),
   getGames: jest.fn().mockResolvedValue(fakeGames),
   getGamesByPosition: jest.fn().mockResolvedValue(fakeGamesByPosition),
   getGameById: jest.fn().mockResolvedValue(fakeGameDetail),
+  searchPlayers: jest.fn().mockResolvedValue(fakePlayerSearch),
+  getPlayerProfile: jest.fn().mockResolvedValue(fakePlayerProfile),
+  getPlayerGames: jest.fn().mockResolvedValue(fakePlayerGames),
+  searchEvents: jest.fn().mockResolvedValue(fakeEventSearch),
 };
 
 describe('archive controller — Cache-Control headers (KS-1690)', () => {
@@ -110,6 +132,22 @@ describe('archive controller — Cache-Control headers (KS-1690)', () => {
     {
       name: '/games/:id',
       url: '/games/00000000-0000-0000-0000-000000000001',
+    },
+    {
+      name: '/players/search',
+      url: '/players/search?q=carlsen&limit=10',
+    },
+    {
+      name: '/players/:slug',
+      url: '/players/carlsen-magnus',
+    },
+    {
+      name: '/players/:slug/games',
+      url: '/players/carlsen-magnus/games?limit=20',
+    },
+    {
+      name: '/events/search',
+      url: '/events/search?q=tata&limit=10',
     },
   ];
 

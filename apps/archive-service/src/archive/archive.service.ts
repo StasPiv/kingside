@@ -11,6 +11,7 @@ import { createHash } from 'crypto';
 import Redis from 'ioredis';
 import type {
   ArchiveBucket,
+  ArchiveEventSearchResponse,
   ArchiveGameDetail,
   ArchiveGameResult,
   ArchiveGameSummary,
@@ -20,6 +21,11 @@ import type {
   ArchiveGamesResponse,
   ArchiveGamesSort,
   ArchiveGamesSortMetadata,
+  ArchivePlayerGameItem,
+  ArchivePlayerGamesRequest,
+  ArchivePlayerGamesResponse,
+  ArchivePlayerProfileResponse,
+  ArchivePlayerSearchResponse,
   ArchiveTreeRequest,
   ArchiveTreeResponse,
 } from '@kingside/shared';
@@ -31,7 +37,9 @@ import {
   GamesByPositionOpts,
   RawArchiveGameRow,
   RawGamePositionRow,
+  RawPlayerGameRow,
   SearchGamesOpts,
+  SearchPlayerGamesOpts,
   TreeOpts,
 } from './archive-stats.repository';
 import { ArchiveMetricsService } from './archive-metrics.service';
@@ -61,6 +69,15 @@ const MAX_GAMES_BY_POSITION_LIMIT = 50;
 const MAX_GAMES_OFFSET = 5000;
 const TREE_CACHE_TTL_SEC = 3600;
 const GAMES_BY_POSITION_CACHE_TTL_SEC = 600; // 10 min, ADR-014 §7
+// KS-2065 / ADR-033 §4.4.7
+const PLAYERS_SEARCH_CACHE_TTL_SEC = 300;       // 5 min
+const PLAYERS_PROFILE_CACHE_TTL_SEC = 3600;     // 1 hour
+const PLAYERS_GAMES_CACHE_TTL_SEC = 300;        // 5 min
+const EVENTS_SEARCH_CACHE_TTL_SEC = 300;        // 5 min
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_SEARCH_LIMIT = 50;
+const DEFAULT_PLAYER_GAMES_LIMIT = 50;
+const MAX_PLAYER_GAMES_LIMIT = 200;
 const PREWARM_INTERVAL_MS = 15 * 60 * 1000; // 15 min, ADR-014 §7
 const PREWARM_TOP_N = 30;
 export const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
@@ -373,6 +390,105 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // ─── Players & events (KS-2065) ──────────────────────────────────
+
+  async searchPlayers(req: {
+    q: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ArchivePlayerSearchResponse> {
+    const limit = this.clampLimit(req.limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
+    const offset = req.offset && req.offset > 0 ? Math.floor(req.offset) : 0;
+    const cacheKey = `arch:players:search:${this.hashQ(req.q, limit, offset)}`;
+    const cached = await this.safeGetJson<ArchivePlayerSearchResponse>(cacheKey);
+    if (cached) return cached;
+
+    const page = await this.stats.searchPlayers({ q: req.q, limit, offset });
+    const response: ArchivePlayerSearchResponse = page;
+    await this.safeSetJson(cacheKey, response, PLAYERS_SEARCH_CACHE_TTL_SEC);
+    return response;
+  }
+
+  async searchEvents(req: {
+    q: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<ArchiveEventSearchResponse> {
+    const limit = this.clampLimit(req.limit, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
+    const offset = req.offset && req.offset > 0 ? Math.floor(req.offset) : 0;
+    const cacheKey = `arch:events:search:${this.hashQ(req.q, limit, offset)}`;
+    const cached = await this.safeGetJson<ArchiveEventSearchResponse>(cacheKey);
+    if (cached) return cached;
+
+    const page = await this.stats.searchEvents({ q: req.q, limit, offset });
+    const response: ArchiveEventSearchResponse = page;
+    await this.safeSetJson(cacheKey, response, EVENTS_SEARCH_CACHE_TTL_SEC);
+    return response;
+  }
+
+  async getPlayerProfile(slug: string): Promise<ArchivePlayerProfileResponse> {
+    const cacheKey = `arch:players:profile:${slug}`;
+    const cached = await this.safeGetJson<ArchivePlayerProfileResponse>(cacheKey);
+    if (cached) return cached;
+
+    const profile = await this.stats.getPlayerProfile(slug);
+    if (!profile) {
+      throw new NotFoundException(`Archive player ${slug} not found`);
+    }
+    await this.safeSetJson(cacheKey, profile, PLAYERS_PROFILE_CACHE_TTL_SEC);
+    return profile;
+  }
+
+  async getPlayerGames(
+    slug: string,
+    req: Omit<ArchivePlayerGamesRequest, 'slug'>,
+  ): Promise<ArchivePlayerGamesResponse> {
+    const limit = this.clampLimit(
+      req.limit,
+      DEFAULT_PLAYER_GAMES_LIMIT,
+      MAX_PLAYER_GAMES_LIMIT,
+    );
+    const offset = req.offset && req.offset > 0 ? Math.floor(req.offset) : 0;
+    if (offset > 5000) {
+      throw new BadRequestException(
+        `offset must be <= 5000 (got ${offset}); use filters for deeper navigation`,
+      );
+    }
+    if (req.minPly != null && req.maxPly != null && req.minPly > req.maxPly) {
+      throw new BadRequestException('minPly must be <= maxPly');
+    }
+
+    const sort: ArchiveGamesSortMetadata = req.sort ?? 'recent';
+    const filtersHash = this.hashPlayerGamesFilters({ ...req, limit, offset, sort });
+    const cacheKey = `arch:players:games:${slug}:${filtersHash}`;
+    const cached = await this.safeGetJson<ArchivePlayerGamesResponse>(cacheKey);
+    if (cached) return cached;
+
+    const opts: SearchPlayerGamesOpts = {
+      slug,
+      color: req.color,
+      result: req.result,
+      eco: req.eco,
+      event: req.event,
+      minElo: req.minElo,
+      since: req.since ? new Date(req.since) : undefined,
+      until: req.until ? new Date(req.until) : undefined,
+      minPly: req.minPly,
+      maxPly: req.maxPly,
+      sort,
+      limit,
+      offset,
+    };
+
+    const page = await this.stats.searchPlayerGames(opts);
+    const response: ArchivePlayerGamesResponse = {
+      total: page.total,
+      items: page.items.map((g) => this.playerGameRowToItem(g)),
+    };
+    await this.safeSetJson(cacheKey, response, PLAYERS_GAMES_CACHE_TTL_SEC);
+    return response;
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────────
 
   /** Маппит raw-строку из `archive_games` в публичный {@link ArchiveGameSummary}. */
@@ -462,6 +578,78 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     return createHash('sha1').update(canon).digest('hex').slice(0, 12);
   }
 
+  private hashQ(q: string, limit: number, offset: number): string {
+    return createHash('sha1')
+      .update(JSON.stringify({ q, limit, offset }))
+      .digest('hex')
+      .slice(0, 16);
+  }
+
+  private hashPlayerGamesFilters(
+    req: Omit<ArchivePlayerGamesRequest, 'slug'> & {
+      limit: number;
+      offset: number;
+      sort: ArchiveGamesSortMetadata;
+    },
+  ): string {
+    const canon = JSON.stringify({
+      color: req.color ?? null,
+      result: req.result ?? null,
+      eco: req.eco ?? null,
+      event: req.event ?? null,
+      minElo: req.minElo ?? null,
+      since: req.since ?? null,
+      until: req.until ?? null,
+      minPly: req.minPly ?? null,
+      maxPly: req.maxPly ?? null,
+      sort: req.sort,
+      limit: req.limit,
+      offset: req.offset,
+    });
+    return createHash('sha1').update(canon).digest('hex').slice(0, 16);
+  }
+
+  private playerGameRowToItem(r: RawPlayerGameRow): ArchivePlayerGameItem {
+    return {
+      id: r.id,
+      white: {
+        name: r.white_name,
+        elo: r.white_elo == null ? null : Number(r.white_elo),
+        title: r.white_title,
+      },
+      black: {
+        name: r.black_name,
+        elo: r.black_elo == null ? null : Number(r.black_elo),
+        title: r.black_title,
+      },
+      result: (r.result ?? null) as ArchiveGameResult | null,
+      eco: r.eco,
+      opening: r.opening,
+      event: r.event,
+      date: r.played_at ? r.played_at.toISOString() : r.date ?? null,
+      plyCount: r.ply_count == null ? null : Number(r.ply_count),
+      playerColor: r.player_color,
+    };
+  }
+
+  private async safeGetJson<T>(key: string): Promise<T | null> {
+    try {
+      const raw = await this.redis.get(key);
+      return raw ? (JSON.parse(raw) as T) : null;
+    } catch (err) {
+      this.logger.warn(`cache read failed (${key}): ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  private async safeSetJson<T>(key: string, value: T, ttlSec: number): Promise<void> {
+    try {
+      await this.redis.set(key, JSON.stringify(value), 'EX', ttlSec);
+    } catch (err) {
+      this.logger.warn(`cache write failed (${key}): ${(err as Error).message}`);
+    }
+  }
+
   /**
    * `color` resolution (MVP):
    *   - `white`/`black` → side_to_move filter on the position.
@@ -515,30 +703,39 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Invalidates both tree and games-by-position caches on import events.
+   * Invalidates all archive caches on import events.
    * Called in response to the `archive:imported` Redis pub/sub channel
-   * (ADR-014 §7). A single SCAN would be faster, but `KEYS` is fine for
-   * the MVP cache size and mirrors the existing tree-invalidation path.
+   * (ADR-014 §7, ADR-033 §4.4.7). KS-2065 расширил список паттернов:
+   *   - arch:tree:*           — opening tree
+   *   - arch:games:*          — games-by-position
+   *   - arch:players:*        — players search/profile/games (KS-2065)
+   *   - arch:events:*         — events search (KS-2065)
+   *
+   * A single SCAN would be faster, но `KEYS` для MVP-объёма достаточно
+   * и идёт за один батч на каждый паттерн.
    */
   private async invalidateArchiveCache(): Promise<void> {
     await Promise.all([
       this.invalidateTreeCache(),
-      this.invalidateGamesByPositionCache(),
+      this.invalidateByPattern('arch:games:*', 'games-by-position'),
+      this.invalidateByPattern('arch:players:*', 'players'),
+      this.invalidateByPattern('arch:events:*', 'events'),
     ]);
   }
 
-  private async invalidateGamesByPositionCache(): Promise<void> {
+  /** Generic пакетная инвалидация по KEYS-паттерну. */
+  private async invalidateByPattern(pattern: string, label: string): Promise<void> {
     try {
-      const keys = await this.redis.keys('arch:games:*');
+      const keys = await this.redis.keys(pattern);
       if (keys.length > 0) {
         await this.redis.del(...keys);
         this.logger.log(
-          `Invalidated ${keys.length} games-by-position cache entries after import`,
+          `Invalidated ${keys.length} ${label} cache entries after import`,
         );
       }
     } catch (err) {
       this.logger.warn(
-        `games-by-position cache invalidation failed: ${(err as Error).message}`,
+        `${label} cache invalidation failed: ${(err as Error).message}`,
       );
     }
   }

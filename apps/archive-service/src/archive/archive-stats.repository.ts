@@ -2,13 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Chess } from 'chess.js';
 import type {
   ArchiveBucket,
+  ArchiveEventSummary,
   ArchiveGameResult,
   ArchiveGamesByPositionItem,
   ArchiveGamesSort,
   ArchiveGamesSortMetadata,
+  ArchivePlayerProfile,
+  ArchivePlayerSummary,
   ArchiveTreeMove,
   ArchiveTreeResponse,
 } from '@kingside/shared';
+import { normalizeArchiveName } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { positionKeyHex } from './position-key';
 import { storageToResult } from './result-format';
@@ -41,6 +45,72 @@ export interface GamesByPositionPage {
   items: ArchiveGamesByPositionItem[];
   /** Raw N+1 row (if present), used by the service to build `nextCursor`. */
   overflow: RawGamePositionRow | null;
+}
+
+/** Опции для FTS-поиска по `archive_players` (KS-2065). */
+export type SearchPlayersOpts = {
+  q: string;
+  limit: number;
+  offset: number;
+};
+
+/** Опции для FTS-поиска по `archive_events` (KS-2065). */
+export type SearchEventsOpts = {
+  q: string;
+  limit: number;
+  offset: number;
+};
+
+export interface SearchPlayersPage {
+  total: number;
+  items: ArchivePlayerSummary[];
+}
+
+export interface SearchEventsPage {
+  total: number;
+  items: ArchiveEventSummary[];
+}
+
+/** Опции для списка партий игрока (KS-2065). */
+export type SearchPlayerGamesOpts = {
+  slug: string;
+  color?: 'white' | 'black' | 'any';
+  result?: ArchiveGameResult;
+  eco?: string;
+  event?: string;
+  minElo?: number;
+  since?: Date;
+  until?: Date;
+  minPly?: number;
+  maxPly?: number;
+  sort: ArchiveGamesSortMetadata;
+  limit: number;
+  offset: number;
+};
+
+export interface RawPlayerGameRow {
+  id: string;
+  event: string | null;
+  site: string | null;
+  round: string | null;
+  date: string | null;
+  played_at: Date | null;
+  white_name: string | null;
+  black_name: string | null;
+  white_elo: number | null;
+  black_elo: number | null;
+  white_title: string | null;
+  black_title: string | null;
+  result: string | null;
+  eco: string | null;
+  opening: string | null;
+  ply_count: number | null;
+  player_color: 'white' | 'black';
+}
+
+export interface SearchPlayerGamesPage {
+  total: number;
+  items: RawPlayerGameRow[];
 }
 
 /** Опции для metadata-поиска `archive_games` без position-фильтра. */
@@ -157,6 +227,29 @@ export interface ArchiveStatsRepository {
    * `ArchiveService.getGames` (KS-2063 / ADR-033 §4.2, §4.3).
    */
   searchGames(opts: SearchGamesOpts): Promise<SearchGamesPage>;
+
+  /**
+   * KS-2065 / ADR-033 §4.4.4: FTS-поиск по `archive_players`.
+   * Возвращает игроков с ранжированием `games_count DESC, similarity DESC`.
+   */
+  searchPlayers(opts: SearchPlayersOpts): Promise<SearchPlayersPage>;
+
+  /**
+   * KS-2065: FTS-поиск по `archive_events`.
+   */
+  searchEvents(opts: SearchEventsOpts): Promise<SearchEventsPage>;
+
+  /**
+   * KS-2065 / ADR-033 §6.3: профиль игрока — JOIN `archive_players` ×
+   * MV `archive_player_stats`. Возвращает null, если slug не найден.
+   */
+  getPlayerProfile(slug: string): Promise<ArchivePlayerProfile | null>;
+
+  /**
+   * KS-2065: партии игрока с фильтрами `ArchiveGamesQueryDto` + `color`.
+   * JOIN `archive_players` × `archive_games` через `name_canonical`.
+   */
+  searchPlayerGames(opts: SearchPlayerGamesOpts): Promise<SearchPlayerGamesPage>;
 }
 
 export const ARCHIVE_STATS_REPOSITORY = Symbol('ARCHIVE_STATS_REPOSITORY');
@@ -338,6 +431,189 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
         : Buffer.from(r.position_key),
       total: typeof r.total === 'bigint' ? Number(r.total) : Number(r.total),
     }));
+  }
+
+  // ─── Players & events search (KS-2065) ────────────────────────────
+
+  async searchPlayers(opts: SearchPlayersOpts): Promise<SearchPlayersPage> {
+    return this.searchTrgmEntity({
+      table: 'archive_players',
+      trgmCol: 'name_aliases',
+      orderCol: 'name_normalized',
+      q: opts.q,
+      limit: opts.limit,
+      offset: opts.offset,
+      mapRow: (r): ArchivePlayerSummary => ({
+        name: r.name_canonical as string,
+        slug: r.slug as string,
+        gamesCount: Number(r.games_count),
+        peakElo: r.peak_elo == null ? null : Number(r.peak_elo),
+      }),
+      extraSelect: 'peak_elo',
+    });
+  }
+
+  async searchEvents(opts: SearchEventsOpts): Promise<SearchEventsPage> {
+    return this.searchTrgmEntity({
+      table: 'archive_events',
+      trgmCol: 'name_normalized',
+      orderCol: 'name_normalized',
+      q: opts.q,
+      limit: opts.limit,
+      offset: opts.offset,
+      mapRow: (r): ArchiveEventSummary => ({
+        name: r.name_canonical as string,
+        slug: r.slug as string,
+        gamesCount: Number(r.games_count),
+        firstDate: (r.first_date as string | null) ?? null,
+        lastDate: (r.last_date as string | null) ?? null,
+      }),
+      extraSelect: 'first_date, last_date',
+    });
+  }
+
+  /**
+   * Унифицированный FTS-поиск для players/events. ADR-033 §4.4.4.
+   * Использует `pg_trgm` оператор `%` (через GIN-индекс) + prefix-fast
+   * path `ILIKE q || '%'`. Сортировка — `games_count DESC, similarity
+   * DESC, name_normalized ASC`.
+   */
+  private async searchTrgmEntity<T>(args: {
+    table: 'archive_players' | 'archive_events';
+    trgmCol: 'name_aliases' | 'name_normalized';
+    orderCol: 'name_normalized';
+    q: string;
+    limit: number;
+    offset: number;
+    mapRow: (r: Record<string, unknown>) => T;
+    extraSelect: string;
+  }): Promise<{ total: number; items: T[] }> {
+    const qNorm = normalizeArchiveName(args.q);
+    if (!qNorm) {
+      return { total: 0, items: [] };
+    }
+
+    // WHERE одинаков для items и total.
+    const whereSql = `WHERE ${args.trgmCol} % $1 OR ${args.orderCol} ILIKE $1 || '%'`;
+    const orderBySql = `
+      ORDER BY
+        games_count DESC,
+        similarity(${args.orderCol}, $1) DESC,
+        ${args.orderCol} ASC
+    `;
+
+    const itemsSql = `
+      SELECT slug, name_canonical, name_normalized, games_count, ${args.extraSelect}
+        FROM ${args.table}
+        ${whereSql}
+        ${orderBySql}
+        LIMIT $2 OFFSET $3
+    `;
+    const totalSql = `
+      SELECT COUNT(*)::bigint AS total
+        FROM ${args.table}
+        ${whereSql}
+    `;
+
+    const [rows, totals] = await Promise.all([
+      this.prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+        itemsSql,
+        qNorm,
+        args.limit,
+        args.offset,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ total: bigint | number }>>(
+        totalSql,
+        qNorm,
+      ),
+    ]);
+
+    const totalRaw = totals[0]?.total ?? 0;
+    const total = typeof totalRaw === 'bigint' ? Number(totalRaw) : Number(totalRaw);
+    return { total, items: rows.map((r) => args.mapRow(r)) };
+  }
+
+  async getPlayerProfile(slug: string): Promise<ArchivePlayerProfile | null> {
+    // LEFT JOIN на MV — если у игрока нет ещё ни одной партии в MV (только
+    // что добавлен, REFRESH ещё не прошёл), вернём профиль с нулевыми
+    // агрегатами и теми first/last_seenAt, что лежат в `archive_players`.
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        slug: string;
+        name_canonical: string;
+        peak_elo: number | null;
+        first_seen_at: Date | null;
+        last_seen_at: Date | null;
+        games_count: number | bigint | null;
+        games_white: number | bigint | null;
+        games_black: number | bigint | null;
+        wins: number | bigint | null;
+        draws: number | bigint | null;
+        losses: number | bigint | null;
+        s_peak_elo: number | null;
+        s_first_seen_at: Date | null;
+        s_last_seen_at: Date | null;
+      }>
+    >(
+      `SELECT
+         p.slug,
+         p.name_canonical,
+         p.peak_elo,
+         p.first_seen_at,
+         p.last_seen_at,
+         COALESCE(s.games_count, 0)::int AS games_count,
+         COALESCE(s.games_white, 0)::int AS games_white,
+         COALESCE(s.games_black, 0)::int AS games_black,
+         COALESCE(s.wins, 0)::int AS wins,
+         COALESCE(s.draws, 0)::int AS draws,
+         COALESCE(s.losses, 0)::int AS losses,
+         s.peak_elo AS s_peak_elo,
+         s.first_seen_at AS s_first_seen_at,
+         s.last_seen_at AS s_last_seen_at
+       FROM archive_players p
+       LEFT JOIN archive_player_stats s ON s.slug = p.slug
+       WHERE p.slug = $1`,
+      slug,
+    );
+    const r = rows[0];
+    if (!r) return null;
+    const peakElo = r.s_peak_elo ?? r.peak_elo ?? null;
+    const firstSeenAt = r.s_first_seen_at ?? r.first_seen_at ?? null;
+    const lastSeenAt = r.s_last_seen_at ?? r.last_seen_at ?? null;
+    return {
+      name: r.name_canonical,
+      slug: r.slug,
+      gamesCount: Number(r.games_count ?? 0),
+      peakElo: peakElo == null ? null : Number(peakElo),
+      byColor: {
+        white: Number(r.games_white ?? 0),
+        black: Number(r.games_black ?? 0),
+      },
+      byResult: {
+        wins: Number(r.wins ?? 0),
+        draws: Number(r.draws ?? 0),
+        losses: Number(r.losses ?? 0),
+      },
+      firstSeenAt: firstSeenAt instanceof Date ? firstSeenAt.toISOString() : null,
+      lastSeenAt: lastSeenAt instanceof Date ? lastSeenAt.toISOString() : null,
+    };
+  }
+
+  async searchPlayerGames(opts: SearchPlayerGamesOpts): Promise<SearchPlayerGamesPage> {
+    const builder = new PlayerGamesSqlBuilder(opts);
+    const [rows, totals] = await Promise.all([
+      this.prisma.$queryRawUnsafe<RawPlayerGameRow[]>(
+        builder.itemsSql,
+        ...builder.itemsParams,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ total: bigint | number }>>(
+        builder.totalSql,
+        ...builder.whereParams,
+      ),
+    ]);
+    const totalRaw = totals[0]?.total ?? 0;
+    const total = typeof totalRaw === 'bigint' ? Number(totalRaw) : Number(totalRaw);
+    return { total, items: rows };
   }
 }
 
@@ -557,6 +833,95 @@ class MetadataSqlBuilder {
     this.totalSql = `
       SELECT COUNT(*)::bigint AS total
       FROM archive_games
+      ${where}
+    `;
+  }
+}
+
+/**
+ * SQL для `searchPlayerGames` (KS-2065). JOIN `archive_players` ×
+ * `archive_games` через `name_canonical`. Дополнительно к фильтрам
+ * `MetadataSqlBuilder` поддерживает `color` (white/black/any).
+ */
+class PlayerGamesSqlBuilder {
+  public readonly itemsSql: string;
+  public readonly totalSql: string;
+  public readonly itemsParams: unknown[] = [];
+  public readonly whereParams: unknown[] = [];
+
+  constructor(opts: SearchPlayerGamesOpts) {
+    const conds: string[] = [];
+    const reg = (v: unknown): string => {
+      this.whereParams.push(v);
+      return `$${this.whereParams.length}`;
+    };
+
+    // Slug — обязательный фильтр; идёт первым в whereParams.
+    const pSlug = reg(opts.slug);
+    conds.push(`p.slug = ${pSlug}`);
+
+    // Color: по умолчанию any — оба цвета (g.white_name = canonical OR g.black_name = canonical).
+    if (opts.color === 'white') {
+      conds.push(`g.white_name = p.name_canonical`);
+    } else if (opts.color === 'black') {
+      conds.push(`g.black_name = p.name_canonical`);
+    } else {
+      conds.push(
+        `(g.white_name = p.name_canonical OR g.black_name = p.name_canonical)`,
+      );
+    }
+
+    if (opts.eco) conds.push(`g.eco = ${reg(opts.eco)}`);
+    if (opts.result) conds.push(`g.result = ${reg(opts.result)}`);
+    if (opts.since) conds.push(`g.played_at >= ${reg(opts.since)}`);
+    if (opts.until) conds.push(`g.played_at <= ${reg(opts.until)}`);
+    if (opts.event) {
+      conds.push(`g.event ILIKE ${reg(`%${opts.event}%`)}`);
+    }
+    if (opts.minElo != null) {
+      const e = reg(opts.minElo);
+      conds.push(`g.white_elo >= ${e} AND g.black_elo >= ${e}`);
+    }
+    if (opts.minPly != null) conds.push(`g.ply_count >= ${reg(opts.minPly)}`);
+    if (opts.maxPly != null) conds.push(`g.ply_count <= ${reg(opts.maxPly)}`);
+
+    const where = `WHERE ${conds.join(' AND ')}`;
+
+    let orderBy: string;
+    switch (opts.sort) {
+      case 'topElo':
+        orderBy = 'GREATEST(g.white_elo, g.black_elo) DESC NULLS LAST, g.id DESC';
+        break;
+      case 'oldest':
+        orderBy = 'g.played_at ASC NULLS LAST, g.id ASC';
+        break;
+      case 'recent':
+      default:
+        orderBy = 'g.played_at DESC NULLS LAST, g.id DESC';
+        break;
+    }
+
+    this.itemsParams = [...this.whereParams, opts.limit, opts.offset];
+    const pLimit = `$${this.whereParams.length + 1}`;
+    const pOffset = `$${this.whereParams.length + 2}`;
+
+    this.itemsSql = `
+      SELECT
+        g.id, g.event, g.site, g.round, g.date, g.played_at,
+        g.white_name, g.black_name, g.white_elo, g.black_elo,
+        g.white_title, g.black_title, g.result, g.eco, g.opening, g.ply_count,
+        CASE WHEN g.white_name = p.name_canonical THEN 'white' ELSE 'black' END AS player_color
+      FROM archive_players p
+      JOIN archive_games g ON (g.white_name = p.name_canonical OR g.black_name = p.name_canonical)
+      ${where}
+      ORDER BY ${orderBy}
+      LIMIT ${pLimit} OFFSET ${pOffset}
+    `;
+
+    this.totalSql = `
+      SELECT COUNT(*)::bigint AS total
+      FROM archive_players p
+      JOIN archive_games g ON (g.white_name = p.name_canonical OR g.black_name = p.name_canonical)
       ${where}
     `;
   }

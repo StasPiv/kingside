@@ -92,6 +92,18 @@ class ConfigurableRepo implements ArchiveStatsRepository {
   async searchGames(): Promise<{ total: number; items: never[] }> {
     return { total: 0, items: [] };
   }
+  async searchPlayers(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
+  async searchEvents(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
+  async getPlayerProfile(): Promise<null> {
+    return null;
+  }
+  async searchPlayerGames(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
 }
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

@@ -54,6 +54,18 @@ class CapturingRepo implements ArchiveStatsRepository {
   async listTopPositions(): Promise<Array<{ positionKey: Buffer; total: number }>> {
     return [];
   }
+  async searchPlayers(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
+  async searchEvents(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
+  async getPlayerProfile(): Promise<null> {
+    return null;
+  }
+  async searchPlayerGames(): Promise<{ total: number; items: never[] }> {
+    return { total: 0, items: [] };
+  }
   async searchGames(opts: SearchGamesOpts): Promise<SearchGamesPage> {
     this.lastSearchOpts = opts;
     const row: RawArchiveGameRow = {
