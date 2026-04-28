@@ -193,6 +193,94 @@ describe('LessonPage', () => {
     );
   });
 
+  it('KS-2076: на пройденном (done) шаге в нижней панели появляется «Далее»', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    // s1 уже пройден, s2 — pending. Открываем шаг 1 явно через ?step=1.
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: null,
+        score: 0.5,
+        stepsState: { s1: 'done' },
+      },
+    });
+
+    const { default: userEventLib } = await import(
+      '@testing-library/user-event'
+    );
+    const user = userEventLib.setup();
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces?step=1',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-1')).toHaveAttribute(
+        'data-step-state',
+        'done',
+      ),
+    );
+
+    // Кнопка «Далее» теперь доступна — потому что шаг done и не последний.
+    const nextBtn = screen.getByTestId('lesson-step-nav-next');
+    expect(nextBtn).toBeInTheDocument();
+
+    // Клик переключает на следующий шаг.
+    await user.click(nextBtn);
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-2')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('lesson-step-1')).toBeNull();
+  });
+
+  it('KS-2076: на последнем шаге даже при done кнопки «Далее» нет', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce({
+      ...lessonFixture,
+      progress: {
+        userId: 'u1',
+        lessonId: 'l1',
+        startedAt: '2026-04-01T00:00:00.000Z',
+        completedAt: '2026-04-10T00:00:00.000Z',
+        score: 1,
+        stepsState: { s1: 'done', s2: 'done' },
+      },
+    });
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces?step=2',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-2')).toHaveAttribute(
+        'data-step-state',
+        'done',
+      ),
+    );
+    // Шаг 2 — последний (всего 2 шага). «Далее» не показываем,
+    // даже если он done.
+    expect(screen.queryByTestId('lesson-step-nav-next')).toBeNull();
+    // «Назад» — показывается.
+    expect(screen.getByTestId('lesson-step-nav-prev')).toBeInTheDocument();
+  });
+
+  it('KS-2076: на pending-шаге «Далее» отсутствует (KS-2056 поведение)', async () => {
+    mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
+    mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);
+
+    renderWithProviders(<LessonPage />, {
+      route: '/lessons/beginner-basics/pieces?step=1',
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId('lesson-step-1')).toHaveAttribute(
+        'data-step-state',
+        'pending',
+      ),
+    );
+    expect(screen.queryByTestId('lesson-step-nav-next')).toBeNull();
+  });
+
   it('KS-2041: ?step=2 в URL открывает второй шаг сразу при mount', async () => {
     mockLessonsApi.getCourse.mockResolvedValueOnce(courseFixture);
     mockLessonsApi.getLesson.mockResolvedValueOnce(lessonFixture);

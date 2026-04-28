@@ -238,12 +238,15 @@ export function LessonPage() {
   // ходы партии — `InlinePgnViewer`), реагируем только когда фокус НЕ
   // внутри inline-pgn-viewer'а. Также игнорируем ввод в текстовых
   // полях (input/textarea/contenteditable).
-  // KS-2056: переход вперёд — только через «Готово» внутри шага,
-  // поэтому стрелка → больше не листает шаги.
+  // KS-2056: переход вперёд через клавиатуру — только если шаг уже
+  // пройден (`done`). На непройденном шаге стрелка → не работает —
+  // переход возможен только через «Готово».
+  // KS-2076: симметрично с UI-кнопкой «Далее», стрелка → активна на
+  // пройденных шагах, кроме последнего.
   useEffect(() => {
     if (sortedSteps.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'ArrowLeft') return;
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
       const tag = target.tagName?.toLowerCase();
@@ -252,12 +255,24 @@ export function LessonPage() {
       // Если фокус внутри inline-pgn-viewer (game_review) — не
       // перехватываем; viewer обрабатывает стрелки сам.
       if (target.closest('[data-testid="inline-pgn-viewer"]')) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        goToStep(currentStepIndex - 1);
+        return;
+      }
+      // ArrowRight — только на пройденных шагах (KS-2076).
+      const activeStep = sortedSteps[currentStepIndex];
+      if (!activeStep) return;
+      const activeStepDone =
+        progress.stepsState[activeStep.id] === 'done';
+      const isLastStep = currentStepIndex >= sortedSteps.length - 1;
+      if (!activeStepDone || isLastStep) return;
       e.preventDefault();
-      goToStep(currentStepIndex - 1);
+      goToStep(currentStepIndex + 1);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [currentStepIndex, goToStep, sortedSteps.length]);
+  }, [currentStepIndex, goToStep, sortedSteps, progress.stepsState]);
 
   if (!courseSlug || !lessonSlug) {
     return (
@@ -580,40 +595,63 @@ export function LessonPage() {
 
       {/* KS-2041: навигация между шагами. «Назад» ведёт к предыдущему
           шагу (на первом — disabled).
-          KS-2056: кнопка «Далее» удалена — переход вперёд возможен
-          только через кнопку «Готово» внутри текущего шага
-          (`StepRenderer` вызывает `onStepDone`, который помечает шаг
-          done и сам переключает на следующий). На последнем шаге
-          «Завершить урок» — в footer-кнопке. */}
-      {sortedSteps.length > 0 && (
-        <nav
-          className="lesson-step-nav"
-          data-testid="lesson-step-nav"
-          aria-label={t('lessons.stepNavLabel', 'Step navigation')}
-        >
-          <button
-            type="button"
-            className="lesson-step-nav__btn lesson-step-nav__btn--prev"
-            data-testid="lesson-step-nav-prev"
-            onClick={() => goToStep(currentStepIndex - 1)}
-            disabled={currentStepIndex === 0}
-            aria-label={t('lessons.prev', 'Previous')}
+          KS-2056: на непройденном шаге кнопки «Далее» НЕТ — переход
+          вперёд возможен только через «Готово» внутри шага
+          (`StepRenderer.onStepDone` сам переключит на следующий).
+          KS-2076: при возврате через «Назад» на УЖЕ ПРОЙДЕННЫЙ шаг
+          (state === 'done') кнопку «Далее» возвращаем — пользователю
+          не нужно повторно нажимать «Готово», чтобы пролистать
+          вперёд. На последнем шаге «Далее» не показываем (некуда
+          идти, действие переехало в footer-кнопку «Завершить урок»). */}
+      {sortedSteps.length > 0 && (() => {
+        const activeStep = sortedSteps[currentStepIndex];
+        const isLastStep = currentStepIndex >= sortedSteps.length - 1;
+        const activeStepDone =
+          activeStep
+            ? progress.stepsState[activeStep.id] === 'done'
+            : false;
+        const showNext = activeStepDone && !isLastStep;
+        return (
+          <nav
+            className="lesson-step-nav"
+            data-testid="lesson-step-nav"
+            aria-label={t('lessons.stepNavLabel', 'Step navigation')}
           >
-            ◀ {t('lessons.prev', 'Previous')}
-          </button>
-          <span
-            className="lesson-step-nav__counter"
-            data-testid="lesson-step-nav-counter"
-            aria-live="polite"
-          >
-            {t('lessons.stepCounter', {
-              current: currentStepIndex + 1,
-              total: sortedSteps.length,
-              defaultValue: '{{current}}/{{total}}',
-            })}
-          </span>
-        </nav>
-      )}
+            <button
+              type="button"
+              className="lesson-step-nav__btn lesson-step-nav__btn--prev"
+              data-testid="lesson-step-nav-prev"
+              onClick={() => goToStep(currentStepIndex - 1)}
+              disabled={currentStepIndex === 0}
+              aria-label={t('lessons.prev', 'Previous')}
+            >
+              ◀ {t('lessons.prev', 'Previous')}
+            </button>
+            <span
+              className="lesson-step-nav__counter"
+              data-testid="lesson-step-nav-counter"
+              aria-live="polite"
+            >
+              {t('lessons.stepCounter', {
+                current: currentStepIndex + 1,
+                total: sortedSteps.length,
+                defaultValue: '{{current}}/{{total}}',
+              })}
+            </span>
+            {showNext && (
+              <button
+                type="button"
+                className="lesson-step-nav__btn lesson-step-nav__btn--next"
+                data-testid="lesson-step-nav-next"
+                onClick={() => goToStep(currentStepIndex + 1)}
+                aria-label={t('lessons.next', 'Next')}
+              >
+                {t('lessons.next', 'Next')} ▶
+              </button>
+            )}
+          </nav>
+        );
+      })()}
 
       <footer className="lesson-footer">
         <button
