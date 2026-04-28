@@ -336,7 +336,10 @@
 .app:has(.analysis-page) {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  /* KS-2107: 100dvh вместо 100vh — учитывает динамику адресной строки
+     на мобильных и нижних UI-панелей. Без этого moves panel могла
+     не упираться в реально видимый низ экрана. */
+  height: 100dvh;
 }
 
 .main:has(.analysis-page) {

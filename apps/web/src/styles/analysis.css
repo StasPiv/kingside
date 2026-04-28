@@ -106,7 +106,11 @@
   }
 }
 
-/* Analysis page */
+/* Analysis page.
+   KS-2107 (final): нижний padding убран — moves panel должна упираться
+   нижней границей в низ viewport, а 8px нижний gap создавал «дырку»
+   между концом нотации и низом экрана. Боковые/верхний padding 8px
+   оставлены — для зазоров от краёв экрана и top-bar. */
 .analysis-page {
   display: flex;
   gap: 0;
@@ -116,7 +120,7 @@
   width: 100%;
   flex: 1;
   min-height: 0;
-  padding: 8px;
+  padding: 8px 8px 0;
   box-sizing: border-box;
 }
 
