@@ -925,12 +925,24 @@
 .archive-games-filters__chip-input {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 10px;
   order: 1;
+  /* KS-2089-fix: ширина поля «Игрок» в grid лобби auto-fit minmax(200px,1fr)
+     даёт field ~225px на 1280px viewport. После того как кнопка «Добавить»
+     получила min-width: 130px, input внутри autocomplete (min-width:130px
+     по дефолту от .archive-games-filters__input) перестал помещаться в
+     остаток места (225 - 130 - 10 ≈ 85px) и «выпирал» вправо под кнопку.
+     `min-width: 0` ниже сбрасывает min-width input'а в этом контексте,
+     чтобы autocomplete мог реально сжаться до доступного остатка и
+     gap между input и кнопкой стал видим. */
 }
 .archive-games-filters__chip-input > :first-child {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
+}
+.archive-games-filters__chip-input .archive-games-filters__input {
+  min-width: 0;
+  width: 100%;
 }
 .archive-games-filters__chip-add {
   /* KS-2089: гарантия что кнопка получает ширину под полный текст
