@@ -37,18 +37,18 @@ afterEach(() => {
 });
 
 describe('archiveApi.searchArchivePlayers', () => {
-  it('собирает GET /players?q=... без limit', async () => {
+  it('собирает GET /players/search?q=... без limit', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ total: 0, items: [] }));
     await archiveApi.searchArchivePlayers('Carlsen');
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/players?q=Carlsen`);
+    expect(url).toBe(`${BASE}/players/search?q=Carlsen`);
   });
 
   it('передаёт limit в query', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ total: 0, items: [] }));
     await archiveApi.searchArchivePlayers('Mag', 5);
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/players?q=Mag&limit=5`);
+    expect(url).toBe(`${BASE}/players/search?q=Mag&limit=5`);
   });
 });
 
@@ -141,11 +141,11 @@ describe('archiveApi.getArchivePlayerGames', () => {
 });
 
 describe('archiveApi.searchArchiveEvents', () => {
-  it('GET /events?q=...&limit=...', async () => {
+  it('GET /events/search?q=...&limit=...', async () => {
     mockFetch.mockResolvedValueOnce(okJson({ total: 0, items: [] }));
     await archiveApi.searchArchiveEvents('Wijk', 7);
     const [url] = lastCallArgs();
-    expect(url).toBe(`${BASE}/events?q=Wijk&limit=7`);
+    expect(url).toBe(`${BASE}/events/search?q=Wijk&limit=7`);
   });
 });
 

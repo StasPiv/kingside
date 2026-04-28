@@ -72,7 +72,7 @@ function appendDefined(
 // ─── Players ─────────────────────────────────────────────────────────
 
 /**
- * GET /players?q=... — autocomplete и поиск игроков по имени.
+ * GET /players/search?q=... — autocomplete и поиск игроков по имени.
  *
  * Используется на лобби (F1) и списке партий (F2) для выбора игрока в
  * фильтре. `limit` — page size (бэкенд по умолчанию 10).
@@ -86,7 +86,10 @@ export function searchArchivePlayers(
     ['q', q],
     ['limit', limit],
   ]);
-  return archiveGet<ArchivePlayerSearchResponse>('/players', params);
+  // KS-2080: backend B3 (KS-2065) реализовал autocomplete на
+  // `/players/search` (см. ADR-033 §6.3). Старый путь `/players?q=`
+  // отдавал 404 — отсюда «Не удалось загрузить подсказки» на лобби.
+  return archiveGet<ArchivePlayerSearchResponse>('/players/search', params);
 }
 
 /**
@@ -136,7 +139,7 @@ export function getArchivePlayerGames(
 // ─── Events ──────────────────────────────────────────────────────────
 
 /**
- * GET /events?q=... — autocomplete и поиск турниров/событий по названию.
+ * GET /events/search?q=... — autocomplete и поиск турниров/событий по названию.
  * Используется на лобби (F1) и в фильтре «Событие» на списке партий (F2).
  */
 export function searchArchiveEvents(
@@ -148,7 +151,8 @@ export function searchArchiveEvents(
     ['q', q],
     ['limit', limit],
   ]);
-  return archiveGet<ArchiveEventSearchResponse>('/events', params);
+  // KS-2080: backend в B3 — на `/events/search` (ADR-033 §6.3).
+  return archiveGet<ArchiveEventSearchResponse>('/events/search', params);
 }
 
 // ─── Games (metadata list & single) ─────────────────────────────────
