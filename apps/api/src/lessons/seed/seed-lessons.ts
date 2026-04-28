@@ -48,8 +48,9 @@ async function main(): Promise<void> {
     let stepsWritten = 0;
 
     for (const course of COURSES) {
+      // KS-2095: seed-режим всегда RU (root). Composite-key (slug, lang).
       const dbCourse = await prisma.course.upsert({
-        where: { slug: course.slug },
+        where: { slug_lang: { slug: course.slug, lang: 'ru' } },
         update: {
           level: course.level,
           titleKey: course.titleKey,

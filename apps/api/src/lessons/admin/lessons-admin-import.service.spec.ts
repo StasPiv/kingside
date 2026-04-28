@@ -27,6 +27,8 @@ import type {
 interface CourseRow {
   id: string;
   slug: string;
+  lang: string;
+  parentCourseId: string | null;
   level: string;
   titleKey: string;
   descriptionKey: string;
@@ -50,6 +52,8 @@ interface LessonRow {
   id: string;
   courseId: string;
   slug: string;
+  lang: string;
+  parentLessonId: string | null;
   blockKey: string;
   kind: string;
   titleKey: string;
@@ -106,15 +110,41 @@ function makePrismaMock() {
 
   const tx = {
     course: {
-      findUnique: jest.fn(async (args: { where: { slug?: string; id?: string } }) => {
-        if (args.where.slug) return courses.find((c) => c.slug === args.where.slug) ?? null;
-        if (args.where.id) return courses.find((c) => c.id === args.where.id) ?? null;
-        return null;
-      }),
+      findUnique: jest.fn(
+        async (args: {
+          where: {
+            slug?: string;
+            id?: string;
+            slug_lang?: { slug: string; lang: string };
+          };
+        }) => {
+          if (args.where.slug_lang) {
+            const { slug, lang } = args.where.slug_lang;
+            return (
+              courses.find((c) => c.slug === slug && c.lang === lang) ?? null
+            );
+          }
+          if (args.where.slug) return courses.find((c) => c.slug === args.where.slug) ?? null;
+          if (args.where.id) return courses.find((c) => c.id === args.where.id) ?? null;
+          return null;
+        },
+      ),
+      // KS-2095: новые места в импортёре зовут findMany для поиска parent.
+      findMany: jest.fn(
+        async (args: { where: { slug?: string; lang?: { not: string } } }) => {
+          return courses.filter((c) => {
+            if (args.where.slug && c.slug !== args.where.slug) return false;
+            if (args.where.lang?.not && c.lang === args.where.lang.not) return false;
+            return true;
+          });
+        },
+      ),
       create: jest.fn(async (args: { data: Partial<CourseRow> }) => {
         const row: CourseRow = {
           id: `course-${nextCourseId++}`,
           slug: args.data.slug!,
+          lang: (args.data.lang as string) ?? 'ru',
+          parentCourseId: (args.data.parentCourseId as string | null) ?? null,
           level: (args.data.level as string) ?? 'beginner',
           titleKey: (args.data.titleKey as string) ?? '',
           descriptionKey: (args.data.descriptionKey as string) ?? '',
@@ -164,6 +194,8 @@ function makePrismaMock() {
           id: `lesson-${nextLessonId++}`,
           courseId: args.data.courseId!,
           slug: args.data.slug!,
+          lang: args.data.lang ?? 'ru',
+          parentLessonId: args.data.parentLessonId ?? null,
           blockKey: args.data.blockKey ?? '',
           kind: args.data.kind ?? 'theory',
           titleKey: args.data.titleKey ?? '',

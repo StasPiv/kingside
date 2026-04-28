@@ -30,6 +30,23 @@ export class ProgressService {
     private readonly sm2: Sm2Service,
   ) {}
 
+  /**
+   * KS-2095: резолвит `effectiveLessonId` — root-id урока. Прогресс
+   * пользователя пишется и читается только по root-id, чтобы переключение
+   * языка (RU↔EN) не сбрасывало прогресс. Локальные lessonId (для EN-
+   * варианта) приходят в API, но для записи в БД они переводятся в root.
+   */
+  private async resolveLessonRootId(lessonId: string): Promise<string> {
+    const row = await this.prisma.lesson.findUnique({
+      where: { id: lessonId },
+      select: { id: true, parentLessonId: true },
+    });
+    if (!row) {
+      throw new NotFoundException('Lesson not found');
+    }
+    return row.parentLessonId ?? row.id;
+  }
+
   /** POST /api/lessons/progress/step — upsert состояния одного шага. */
   async updateStep(
     userId: string,
@@ -46,8 +63,11 @@ export class ProgressService {
       throw new NotFoundException('Step not found in lesson');
     }
 
+    // KS-2095: прогресс пишем по root-id (единый между языковыми вариантами).
+    const rootLessonId = await this.resolveLessonRootId(lessonId);
+
     const existing = await this.prisma.userLessonProgress.findUnique({
-      where: { userId_lessonId: { userId, lessonId } },
+      where: { userId_lessonId: { userId, lessonId: rootLessonId } },
     });
 
     // Сохраняем служебные ключи (`__adaptive` от KS-1803) при merge —
@@ -60,10 +80,10 @@ export class ProgressService {
     };
 
     const record = await this.prisma.userLessonProgress.upsert({
-      where: { userId_lessonId: { userId, lessonId } },
+      where: { userId_lessonId: { userId, lessonId: rootLessonId } },
       create: {
         userId,
-        lessonId,
+        lessonId: rootLessonId,
         startedAt: new Date(),
         score: 0,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,7 +98,10 @@ export class ProgressService {
 
     await this.touchCourseProgress(userId, lessonId);
 
-    return this.toShared(record);
+    // KS-2095: возвращаем фронту локальный lessonId, который он прислал —
+    // фронт оперирует UI-сторонним id текущего языка. БД хранит root,
+    // но клиенту это знать не обязательно.
+    return this.toShared({ ...record, lessonId });
   }
 
   /**
@@ -99,11 +122,14 @@ export class ProgressService {
     }
     const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
-      select: { id: true, courseId: true },
+      select: { id: true, courseId: true, parentLessonId: true },
     });
     if (!lesson) {
       throw new NotFoundException('Lesson not found');
     }
+
+    // KS-2095: пишем по root-id урока.
+    const rootLessonId = lesson.parentLessonId ?? lesson.id;
 
     const score100 = Math.round(scoreNormalized * 100);
     const completedAt = score100 >= this.COMPLETE_THRESHOLD ? new Date() : null;
@@ -115,14 +141,14 @@ export class ProgressService {
     }
 
     const existing = await this.prisma.userLessonProgress.findUnique({
-      where: { userId_lessonId: { userId, lessonId } },
+      where: { userId_lessonId: { userId, lessonId: rootLessonId } },
     });
 
     const record = await this.prisma.userLessonProgress.upsert({
-      where: { userId_lessonId: { userId, lessonId } },
+      where: { userId_lessonId: { userId, lessonId: rootLessonId } },
       create: {
         userId,
-        lessonId,
+        lessonId: rootLessonId,
         startedAt: new Date(),
         completedAt,
         score: score100,
@@ -141,13 +167,17 @@ export class ProgressService {
     // только в первый раз (updateMany с `masteredAt: null`).
     // `scheduleReview` вызывается и при первом «освоении», и при
     // каждом последующем повторе — обновляет параметры SM-2.
-    const baseResponse: CompleteLessonResponse = this.toShared(record);
+    // KS-2095: SM-2 пишем по root-id (общий между языками).
+    const baseResponse: CompleteLessonResponse = this.toShared({
+      ...record,
+      lessonId,
+    });
     if (score100 >= this.MASTER_THRESHOLD) {
-      await this.sm2.markLessonMastered(userId, lessonId);
+      await this.sm2.markLessonMastered(userId, rootLessonId);
       // L-22 / KS-1809: если клиент передал явный `quality` (UI повторений:
       // кнопки 0..5), используем его; иначе — классический маппинг из score.
       const q = quality ?? Sm2Service.scoreToQuality(score100);
-      const review = await this.sm2.scheduleReview(userId, lessonId, q);
+      const review = await this.sm2.scheduleReview(userId, rootLessonId, q);
       baseResponse.nextDueAt = review.dueAt.toISOString();
       baseResponse.intervalDays = review.interval;
       baseResponse.easeFactor = review.easiness;
@@ -164,37 +194,49 @@ export class ProgressService {
   private async touchCourseProgress(userId: string, lessonId: string): Promise<void> {
     const lesson = await this.prisma.lesson.findUnique({
       where: { id: lessonId },
-      select: { courseId: true },
+      select: {
+        courseId: true,
+        parentLessonId: true,
+        course: { select: { parentCourseId: true } },
+      },
     });
     if (!lesson) return;
 
+    // KS-2095: прогресс курса хранится по root-id курса. currentLessonId
+    // и connectivity-чек тоже считаются по root.
+    const rootCourseId = lesson.course.parentCourseId ?? lesson.courseId;
+    const rootLessonId = lesson.parentLessonId ?? lessonId;
+
     await this.prisma.userCourseProgress.upsert({
-      where: { userId_courseId: { userId, courseId: lesson.courseId } },
+      where: { userId_courseId: { userId, courseId: rootCourseId } },
       create: {
         userId,
-        courseId: lesson.courseId,
+        courseId: rootCourseId,
         startedAt: new Date(),
-        currentLessonId: lessonId,
+        currentLessonId: rootLessonId,
       },
       update: {
-        currentLessonId: lessonId,
+        currentLessonId: rootLessonId,
       },
     });
 
-    // Проверим, все ли опубликованные уроки курса пройдены
+    // KS-2095: проверка завершённости курса. Считаем по уроком root-курса
+    // (это RU-эталон). Если у root-курса все опубликованные уроки пройдены,
+    // курс completed. Используем lessonId по root для join'а на
+    // userLessonProgress.
     const totalPublished = await this.prisma.lesson.count({
-      where: { courseId: lesson.courseId, isPublished: true },
+      where: { courseId: rootCourseId, isPublished: true },
     });
     const completed = await this.prisma.userLessonProgress.count({
       where: {
         userId,
         completedAt: { not: null },
-        lesson: { courseId: lesson.courseId, isPublished: true },
+        lesson: { courseId: rootCourseId, isPublished: true },
       },
     });
     if (totalPublished > 0 && completed >= totalPublished) {
       await this.prisma.userCourseProgress.update({
-        where: { userId_courseId: { userId, courseId: lesson.courseId } },
+        where: { userId_courseId: { userId, courseId: rootCourseId } },
         data: { completedAt: new Date() },
       });
     }

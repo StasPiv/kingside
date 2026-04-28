@@ -766,7 +766,17 @@ model FeedbackVote {
 
 model Course {
   id               String   @id @default(uuid()) @db.Uuid
-  slug             String   @unique
+  slug             String
+  /// KS-2095: язык контента курса. У одного `parentCourseId` максимум
+  /// один курс на каждый lang. Root-курсы (parentCourseId=NULL) имеют
+  /// один lang каждый; через `parentCourseId` к ним привязываются
+  /// языковые варианты (`Course.parent` ↔ `Course.translations`).
+  lang             String   @default("ru")
+  /// KS-2095: ссылка на «канонический» курс — обычно root (RU). Для
+  /// root равен NULL. Используется фильтрами /api/lessons/courses?lang=
+  /// и нормализацией прогресса (UserCourseProgress.courseId всегда
+  /// хранится как root id).
+  parentCourseId   String?  @map("parent_course_id") @db.Uuid
   level            String // "beginner" | "intermediate" | "advanced"
   titleKey         String   @map("title_key")
   descriptionKey   String   @map("description_key")
@@ -795,11 +805,20 @@ model Course {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  lessons  Lesson[]
-  progress UserCourseProgress[]
+  lessons      Lesson[]
+  progress     UserCourseProgress[]
+  /// KS-2095: self-relation для языковых вариантов.
+  parent       Course?   @relation("CourseTranslations", fields: [parentCourseId], references: [id], onDelete: SetNull)
+  translations Course[]  @relation("CourseTranslations")
 
+  @@unique([slug, lang])
+  /// KS-2095: один lang на parent. PostgreSQL UNIQUE с NULL trips каждый
+  /// NULL distinct, поэтому root-курсы с одинаковым lang не конфликтуют —
+  /// уникальность работает только когда parent_course_id IS NOT NULL.
+  @@unique([parentCourseId, lang])
   @@index([level, order])
   @@index([isPublished])
+  @@index([lang, isPublished])
   @@map("courses")
 }
 
@@ -816,19 +835,31 @@ model Lesson {
   title       String?
   summary     String?
   estMinutes  Int      @default(10) @map("est_minutes")
+  /// KS-2095: язык контента. Денормализован из Course.lang — упрощает
+  /// фильтрацию выборок и проверки в API/импортёре. Значение должно
+  /// совпадать с Course.lang курса-владельца.
+  lang        String   @default("ru")
+  /// KS-2095: ссылка на «канонический» урок (обычно из root-RU курса).
+  /// Для уроков root-курса равен NULL. Используется нормализацией
+  /// прогресса: UserLessonProgress.lessonId всегда хранится как root.
+  parentLessonId String? @map("parent_lesson_id") @db.Uuid
   isPublished Boolean  @default(false) @map("is_published")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  course   Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  steps    LessonStep[]
-  progress UserLessonProgress[]
-  reviews  LessonReview[]
+  course       Course               @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  steps        LessonStep[]
+  progress     UserLessonProgress[]
+  reviews      LessonReview[]
+  /// KS-2095: self-relation для языковых вариантов урока.
+  parent       Lesson?  @relation("LessonTranslations", fields: [parentLessonId], references: [id], onDelete: SetNull)
+  translations Lesson[] @relation("LessonTranslations")
 
   @@unique([courseId, slug])
   @@index([courseId, order])
   @@index([courseId, blockKey, order])
   @@index([isPublished])
+  @@index([parentLessonId])
   @@map("lessons")
 }
 

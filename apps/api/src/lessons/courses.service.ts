@@ -26,10 +26,18 @@ export class CoursesService {
    * (MAX по `UserCourseProgress.updatedAt` и `UserLessonProgress.updatedAt`)
    * и `currentLesson*` (первый незавершённый урок по `order` ASC) —
    * нужно для Hero Variant B на странице «Уроки».
+   *
+   * KS-2095: фильтр по `lang` (default 'ru'). Возвращаются только курсы
+   * на запрошенном языке. Для прогресса используется `parentCourseId`
+   * как канонический ключ — пользователь, начавший RU-курс и переключивший
+   * UI на EN, видит свой прогресс на EN-варианте.
    */
-  async listCourses(userId: string | null): Promise<CourseListResponse> {
+  async listCourses(
+    userId: string | null,
+    lang: string = 'ru',
+  ): Promise<CourseListResponse> {
     const courses = await this.prisma.course.findMany({
-      where: { isPublished: true },
+      where: { isPublished: true, lang },
       orderBy: [{ level: 'asc' }, { order: 'asc' }],
       include: {
         _count: { select: { lessons: true } },
@@ -39,12 +47,20 @@ export class CoursesService {
         lessons: {
           where: { isPublished: true },
           orderBy: [{ blockKey: 'asc' }, { order: 'asc' }],
-          select: { id: true, slug: true, titleKey: true, order: true },
+          select: {
+            id: true,
+            slug: true,
+            titleKey: true,
+            order: true,
+            parentLessonId: true,
+          },
         },
       },
     });
 
-    const courseProgressByCourseId = new Map<
+    // KS-2095: rootId = parentCourseId ?? id. Прогресс хранится только по
+    // root-курсу — переключение языка не сбрасывает прогресс.
+    const courseProgressByRootId = new Map<
       string,
       {
         startedAt: Date;
@@ -53,17 +69,18 @@ export class CoursesService {
         updatedAt: Date;
       }
     >();
-    const lessonProgressByLessonId = new Map<
+    const lessonProgressByRootId = new Map<
       string,
       { completedAt: Date | null; updatedAt: Date }
     >();
 
     if (userId) {
+      const rootCourseIds = courses.map((c) => c.parentCourseId ?? c.id);
       const courseRows = await this.prisma.userCourseProgress.findMany({
-        where: { userId },
+        where: { userId, courseId: { in: rootCourseIds } },
       });
       for (const row of courseRows) {
-        courseProgressByCourseId.set(row.courseId, {
+        courseProgressByRootId.set(row.courseId, {
           startedAt: row.startedAt,
           completedAt: row.completedAt,
           currentLessonId: row.currentLessonId,
@@ -71,12 +88,13 @@ export class CoursesService {
         });
       }
 
-      // KS-1955: один батч-запрос вместо N+1 count'ов. Берём только
-      // уроки публикуемых курсов из выборки выше.
-      const allLessonIds = courses.flatMap((c) => c.lessons.map((l) => l.id));
-      if (allLessonIds.length > 0) {
+      // KS-1955 + KS-2095: lessons тоже резолвим к root для прогресса.
+      const allLessonRootIds = courses.flatMap((c) =>
+        c.lessons.map((l) => l.parentLessonId ?? l.id),
+      );
+      if (allLessonRootIds.length > 0) {
         const lessonRows = await this.prisma.userLessonProgress.findMany({
-          where: { userId, lessonId: { in: allLessonIds } },
+          where: { userId, lessonId: { in: allLessonRootIds } },
           select: {
             lessonId: true,
             completedAt: true,
@@ -84,7 +102,7 @@ export class CoursesService {
           },
         });
         for (const row of lessonRows) {
-          lessonProgressByLessonId.set(row.lessonId, {
+          lessonProgressByRootId.set(row.lessonId, {
             completedAt: row.completedAt,
             updatedAt: row.updatedAt,
           });
@@ -92,8 +110,13 @@ export class CoursesService {
       }
     }
 
+    /** KS-2095: helper — root-id урока. */
+    const lessonRootId = (l: { id: string; parentLessonId: string | null }) =>
+      l.parentLessonId ?? l.id;
+
     const data = courses.map((c) => {
-      const courseProgress = courseProgressByCourseId.get(c.id);
+      const rootCourseId = c.parentCourseId ?? c.id;
+      const courseProgress = courseProgressByRootId.get(rootCourseId);
       const lessons = c.lessons;
 
       let progressDto: CourseListItemProgress | null | undefined;
@@ -103,13 +126,13 @@ export class CoursesService {
         progressDto = null;
       } else {
         const lessonsCompleted = lessons.filter(
-          (l) => lessonProgressByLessonId.get(l.id)?.completedAt != null,
+          (l) => lessonProgressByRootId.get(lessonRootId(l))?.completedAt != null,
         ).length;
 
         // KS-1955: первый незавершённый урок по списку (lessons уже
         // отсортированы blockKey/order ASC). Если все пройдены — null.
         const currentIdx = lessons.findIndex(
-          (l) => lessonProgressByLessonId.get(l.id)?.completedAt == null,
+          (l) => lessonProgressByRootId.get(lessonRootId(l))?.completedAt == null,
         );
         const currentLesson = currentIdx >= 0 ? lessons[currentIdx] : null;
 
@@ -118,7 +141,7 @@ export class CoursesService {
         // (на случай курсов с миграции, у которых updatedAt = миг.время).
         let lastActivity = courseProgress.updatedAt;
         for (const l of lessons) {
-          const lp = lessonProgressByLessonId.get(l.id);
+          const lp = lessonProgressByRootId.get(lessonRootId(l));
           if (lp && lp.updatedAt > lastActivity) {
             lastActivity = lp.updatedAt;
           }
@@ -172,13 +195,18 @@ export class CoursesService {
     return { data, recommendedLevel: recommendedLevel?.level };
   }
 
-  /** GET /api/lessons/courses/:slug — курс с блоками и уроками. */
+  /**
+   * GET /api/lessons/courses/:slug — курс с блоками и уроками.
+   * KS-2095: lang — обязателен для резолвинга slug. Если запрошенный
+   * slug существует только на другом языке — 404.
+   */
   async getCourseBySlug(
     slug: string,
     userId: string | null,
+    lang: string = 'ru',
   ): Promise<CourseWithLessonsResponse> {
     const course = await this.prisma.course.findUnique({
-      where: { slug },
+      where: { slug_lang: { slug, lang } },
       include: {
         lessons: {
           where: { isPublished: true },
@@ -192,6 +220,13 @@ export class CoursesService {
       throw new NotFoundException('Course not found');
     }
 
+    // KS-2095: rootCourseId — для прогресса. Если этот вариант сам root,
+    // parentCourseId IS NULL → используем его id.
+    const rootCourseId = course.parentCourseId ?? course.id;
+    /** KS-2095: helper — root-id урока. */
+    const lessonRootId = (l: { id: string; parentLessonId: string | null }) =>
+      l.parentLessonId ?? l.id;
+
     const lessonProgressMap = new Map<
       string,
       {
@@ -204,13 +239,29 @@ export class CoursesService {
     >();
     const reviewDueMap = new Map<string, Date>();
     if (userId) {
-      const lessonIds = course.lessons.map((l) => l.id);
+      // KS-2095: прогресс/SM-2 хранится по root-id урока. Сопоставляем
+      // root-id обратно к локальному id текущего языкового варианта.
+      const localToRoot = new Map<string, string>();
+      for (const l of course.lessons) {
+        localToRoot.set(l.id, lessonRootId(l));
+      }
+      const rootLessonIds = [...new Set(localToRoot.values())];
       const rows = await this.prisma.userLessonProgress.findMany({
         where: {
           userId,
-          lessonId: { in: lessonIds },
+          lessonId: { in: rootLessonIds },
         },
       });
+      const progressByRoot = new Map<
+        string,
+        {
+          completedAt: Date | null;
+          startedAt: Date | null;
+          masteredAt: Date | null;
+          updatedAt: Date;
+          completedStepsCount: number;
+        }
+      >();
       for (const row of rows) {
         // KS-1992: count('done') в stepsState — для индикатора
         // «N/M шагов» на карточке урока. stepsState — JSONB
@@ -219,7 +270,7 @@ export class CoursesService {
         const completedStepsCount = Object.values(stepsState).filter(
           (s) => s === 'done',
         ).length;
-        lessonProgressMap.set(row.lessonId, {
+        progressByRoot.set(row.lessonId, {
           completedAt: row.completedAt,
           startedAt: row.startedAt,
           masteredAt: row.masteredAt,
@@ -227,16 +278,23 @@ export class CoursesService {
           completedStepsCount,
         });
       }
+      for (const [localId, rootId] of localToRoot) {
+        const p = progressByRoot.get(rootId);
+        if (p) lessonProgressMap.set(localId, p);
+      }
 
       // Ближайший плановый повтор SM-2 (L-22): один LessonReview на пару
       // (userId, lessonId) — тянем `dueAt` одним запросом по всем урокам
       // текущего курса и отдаём на фронт как бейдж «К повторению».
       const reviews = await this.prisma.lessonReview.findMany({
-        where: { userId, lessonId: { in: lessonIds } },
+        where: { userId, lessonId: { in: rootLessonIds } },
         select: { lessonId: true, dueAt: true },
       });
-      for (const r of reviews) {
-        reviewDueMap.set(r.lessonId, r.dueAt);
+      const reviewByRoot = new Map<string, Date>();
+      for (const r of reviews) reviewByRoot.set(r.lessonId, r.dueAt);
+      for (const [localId, rootId] of localToRoot) {
+        const due = reviewByRoot.get(rootId);
+        if (due) reviewDueMap.set(localId, due);
       }
     }
 
@@ -275,8 +333,9 @@ export class CoursesService {
 
     let userProgress = null;
     if (userId) {
+      // KS-2095: прогресс хранится по root-id курса.
       const p = await this.prisma.userCourseProgress.findUnique({
-        where: { userId_courseId: { userId, courseId: course.id } },
+        where: { userId_courseId: { userId, courseId: rootCourseId } },
       });
       if (p) {
         const lessonsCompleted = lessons.filter((l) => l.progressState === 'completed').length;

@@ -57,15 +57,29 @@ export class LessonsAdminImportService {
       );
     }
 
+    // KS-2095: lang курса. Default 'ru' для обратной совместимости.
+    const lang: 'ru' | 'en' = course?.lang ?? 'ru';
+
     const ROLLBACK_TOKEN = '__import_dry_run_rollback__';
 
     try {
       const result = await this.prisma.$transaction(async (tx) => {
         // 1. Course upsert (если передан) или lookup.
-        const courseRow = await this.upsertCourse(tx, lesson.courseSlug, course);
+        const courseRow = await this.upsertCourse(
+          tx,
+          lesson.courseSlug,
+          course,
+          lang,
+        );
 
-        // 2. Lesson upsert.
-        const lessonRow = await this.upsertLesson(tx, courseRow.id, lesson);
+        // 2. Lesson upsert (с резолвингом parentLessonId через root-курс).
+        const lessonRow = await this.upsertLesson(
+          tx,
+          courseRow.id,
+          courseRow.parentCourseId,
+          lang,
+          lesson,
+        );
 
         // 3. Steps replace (с сохранением id).
         const diff = await this.syncSteps(tx, lessonRow.id, lesson.steps);
@@ -120,19 +134,57 @@ export class LessonsAdminImportService {
     tx: Prisma.TransactionClient,
     slug: string,
     payload: ImportCoursePayloadDto | undefined,
-  ): Promise<{ id: string; slug: string; _meta: { created: boolean; updated: boolean } }> {
-    const existing = await tx.course.findUnique({ where: { slug } });
+    lang: 'ru' | 'en',
+  ): Promise<{
+    id: string;
+    slug: string;
+    parentCourseId: string | null;
+    _meta: { created: boolean; updated: boolean };
+  }> {
+    // KS-2095: lookup курса в выбранном языке.
+    const existing = await tx.course.findUnique({
+      where: { slug_lang: { slug, lang } },
+    });
 
     if (!existing) {
       if (!payload) {
         throw new NotFoundException(
-          `Course "${slug}" does not exist and no course payload was provided`,
+          `Course "${slug}" (lang=${lang}) does not exist and no course payload was provided`,
         );
       }
+
+      // KS-2095: для не-root языка резолвим parent. Логика:
+      //   1) если в payload явно задан `parentSlug` — берём его (любой lang
+      //      кроме текущего, root которого выйдет в parentCourseId);
+      //   2) иначе ищем курс с тем же slug на другом языке (типичный
+      //      сценарий: импортируем `course.yml` с тем же slug, lang=en, и
+      //      хотим связать с уже существующим RU);
+      //   3) если ничего не нашли и lang != 'ru' — это новый «root»-курс
+      //      на не-русском языке; разрешаем (parentCourseId=null).
+      let parentCourseId: string | null = null;
+      if (lang !== 'ru') {
+        const parentLookupSlug = payload.parentSlug ?? slug;
+        const parents = await tx.course.findMany({
+          where: { slug: parentLookupSlug, lang: { not: lang } },
+        });
+        // Выбираем root: parentCourseId IS NULL — это «канонический».
+        const root = parents.find((p) => p.parentCourseId === null) ?? parents[0];
+        if (root) {
+          parentCourseId = root.id;
+        } else if (payload.parentSlug) {
+          // Пользователь явно попросил привязать к parentSlug, а его нет.
+          throw new NotFoundException(
+            `parent course "${payload.parentSlug}" (any lang ≠ ${lang}) not found`,
+          );
+        }
+      }
+
       const order = payload.order ?? (await this.computeNextCourseOrder(tx));
       const created = await tx.course.create({
         data: {
           slug: payload.slug,
+          lang,
+          parentCourseId,
           level: payload.level,
           titleKey: payload.titleKey,
           descriptionKey: payload.descriptionKey,
@@ -154,7 +206,12 @@ export class LessonsAdminImportService {
           isPublished: payload.isPublished ?? false,
         },
       });
-      return { id: created.id, slug: created.slug, _meta: { created: true, updated: false } };
+      return {
+        id: created.id,
+        slug: created.slug,
+        parentCourseId: created.parentCourseId,
+        _meta: { created: true, updated: false },
+      };
     }
 
     if (!payload) {
@@ -162,6 +219,7 @@ export class LessonsAdminImportService {
       return {
         id: existing.id,
         slug: existing.slug,
+        parentCourseId: existing.parentCourseId,
         _meta: { created: false, updated: false },
       };
     }
@@ -208,6 +266,7 @@ export class LessonsAdminImportService {
       return {
         id: existing.id,
         slug: existing.slug,
+        parentCourseId: existing.parentCourseId,
         _meta: { created: false, updated: false },
       };
     }
@@ -216,6 +275,7 @@ export class LessonsAdminImportService {
     return {
       id: updated.id,
       slug: updated.slug,
+      parentCourseId: updated.parentCourseId,
       _meta: { created: false, updated: true },
     };
   }
@@ -230,6 +290,8 @@ export class LessonsAdminImportService {
   private async upsertLesson(
     tx: Prisma.TransactionClient,
     courseId: string,
+    parentCourseId: string | null,
+    lang: 'ru' | 'en',
     payload: ImportLessonPayloadDto,
   ): Promise<{ id: string; slug: string; _meta: { created: boolean; updated: boolean } }> {
     const existing = await tx.lesson.findUnique({
@@ -237,10 +299,27 @@ export class LessonsAdminImportService {
     });
 
     if (!existing) {
+      // KS-2095: для урока в не-root курсе — резолвим parentLessonId.
+      // Канонический урок ищем в parent-курсе (parentCourseId) по тому же slug.
+      let parentLessonId: string | null = null;
+      if (parentCourseId !== null) {
+        const parentLesson = await tx.lesson.findUnique({
+          where: { courseId_slug: { courseId: parentCourseId, slug: payload.slug } },
+          select: { id: true },
+        });
+        parentLessonId = parentLesson?.id ?? null;
+        // Не throw'аем, если parent-урока нет: бывает, что англ. версия
+        // содержит уроки, которых нет в RU (или порядок импорта не совпал).
+        // В этом случае lesson становится «root» в EN-семье; прогресс
+        // EN<->RU не сольётся, но система не падает.
+      }
+
       const created = await tx.lesson.create({
         data: {
           courseId,
           slug: payload.slug,
+          lang,
+          parentLessonId,
           blockKey: payload.blockKey,
           kind: payload.kind,
           titleKey: payload.titleKey,

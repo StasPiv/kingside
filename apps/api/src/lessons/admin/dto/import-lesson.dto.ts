@@ -76,6 +76,28 @@ export class ImportCoursePayloadDto {
   })
   slug!: string;
 
+  /**
+   * KS-2095: язык контента курса. Default 'ru' — сохраняет обратную
+   * совместимость с существующими course.yml. Допустимые значения —
+   * `'ru' | 'en'`; импортёр может расширить whitelist по мере роста.
+   */
+  @IsOptional()
+  @IsIn(['ru', 'en'])
+  lang?: 'ru' | 'en';
+
+  /**
+   * KS-2095: slug курса-родителя (root) на другом языке. Используется
+   * только при импорте не-RU варианта. Если не задан — импортёр
+   * автоматически ищет root по тому же slug на любом другом языке (см.
+   * `LessonsAdminImportService.upsertCourse`).
+   */
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(80)
+  @Matches(SLUG_REGEX)
+  parentSlug?: string;
+
   @IsString()
   @IsIn([...COURSE_LEVELS])
   level!: CourseLevel;

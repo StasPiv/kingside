@@ -72,7 +72,13 @@ describe('ProgressService', () => {
         score: 0,
         stepsState: { 'S0': 'done', 'S1': 'failed' },
       });
-      prisma.lesson.findUnique.mockResolvedValue({ courseId: 'C1' });
+      // KS-2095: универсальный объект для всех вариантов select.
+      prisma.lesson.findUnique.mockResolvedValue({
+        id: lessonId,
+        courseId: 'C1',
+        parentLessonId: null,
+        course: { parentCourseId: null },
+      });
       prisma.userCourseProgress.upsert.mockResolvedValue({});
       prisma.lesson.count.mockResolvedValue(5);
       prisma.userLessonProgress.count.mockResolvedValue(1);
@@ -107,7 +113,13 @@ describe('ProgressService', () => {
         score: 80,
         stepsState: { 'S1': 'done' },
       });
-      prisma.lesson.findUnique.mockResolvedValue({ courseId: 'C1' });
+      // KS-2095: универсальный объект для всех вариантов select.
+      prisma.lesson.findUnique.mockResolvedValue({
+        id: lessonId,
+        courseId: 'C1',
+        parentLessonId: null,
+        course: { parentCourseId: null },
+      });
       prisma.userCourseProgress.upsert.mockResolvedValue({});
       prisma.lesson.count.mockResolvedValue(5);
       prisma.userLessonProgress.count.mockResolvedValue(0);
@@ -121,7 +133,12 @@ describe('ProgressService', () => {
 
   describe('completeLesson', () => {
     beforeEach(() => {
-      prisma.lesson.findUnique.mockResolvedValue({ id: lessonId, courseId: 'C1' });
+      prisma.lesson.findUnique.mockResolvedValue({
+        id: lessonId,
+        courseId: 'C1',
+        parentLessonId: null,
+        course: { parentCourseId: null },
+      });
       prisma.userCourseProgress.upsert.mockResolvedValue({});
       prisma.lesson.count.mockResolvedValue(3);
       prisma.userLessonProgress.count.mockResolvedValue(0);

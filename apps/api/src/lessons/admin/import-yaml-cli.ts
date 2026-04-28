@@ -43,12 +43,17 @@ interface CliArgs {
   lessonPath: string;
   coursePath?: string;
   dryRun: boolean;
+  /** KS-2095: язык контента (ru|en). Передаётся в course.lang. */
+  lang?: 'ru' | 'en';
+  /** KS-2095: slug курса-родителя на другом языке (опц.). */
+  parent?: string;
 }
 
 function printUsage(stream: NodeJS.WritableStream): void {
   stream.write(
     [
-      'Usage: import-yaml-cli <lesson.yml> [--course <course.yml>] [--dry-run]',
+      'Usage: import-yaml-cli <lesson.yml> [--course <course.yml>]',
+      '       [--lang ru|en] [--parent <slug>] [--dry-run]',
       '',
       'Импортирует один lesson.yml в БД через LessonsAdminImportService',
       '(тот же путь, что HTTP /api/lessons/admin/import — но без авторизации,',
@@ -56,6 +61,12 @@ function printUsage(stream: NodeJS.WritableStream): void {
       '',
       'Options:',
       '  --course <path>   опциональный course.yml — upsert метаданных курса',
+      '  --lang <code>     язык контента ru|en (default: значение из course.yml,',
+      '                    иначе ru). Передаётся как course.lang.',
+      '  --parent <slug>   slug курса-родителя на другом языке. Используется',
+      '                    при --lang en для связи с русским вариантом.',
+      '                    Если не задан — импортёр находит parent сам по',
+      '                    тому же slug.',
       '  --dry-run         выполнить и откатить транзакцию, вернуть diff',
       '  -h, --help        показать эту справку',
       '',
@@ -84,6 +95,23 @@ function parseArgs(argv: string[]): CliArgs {
       }
       continue;
     }
+    if (a === '--lang') {
+      const v = argv[++i];
+      if (v !== 'ru' && v !== 'en') {
+        process.stderr.write('error: --lang requires "ru" or "en"\n');
+        process.exit(2);
+      }
+      out.lang = v;
+      continue;
+    }
+    if (a === '--parent') {
+      out.parent = argv[++i];
+      if (!out.parent) {
+        process.stderr.write('error: --parent requires a slug argument\n');
+        process.exit(2);
+      }
+      continue;
+    }
     if (a.startsWith('-')) {
       process.stderr.write(`error: unknown option: ${a}\n`);
       printUsage(process.stderr);
@@ -105,6 +133,8 @@ function parseArgs(argv: string[]): CliArgs {
     lessonPath: positional,
     coursePath: out.coursePath,
     dryRun: out.dryRun!,
+    lang: out.lang,
+    parent: out.parent,
   };
 }
 
@@ -152,6 +182,20 @@ async function main(): Promise<number> {
   } catch (e) {
     process.stderr.write(`✗ failed to load YAML: ${(e as Error).message}\n`);
     return 1;
+  }
+
+  // KS-2095: CLI-флаги `--lang` / `--parent` переопределяют значения из
+  // course.yml. Без course.yml эти флаги без эффекта (course-payload
+  // вообще не передаётся в DTO; для существующего курса language уже
+  // выставлен). При наличии course.yml — флаги впрыскиваются в payload.
+  if (courseRaw) {
+    if (args.lang !== undefined) courseRaw.lang = args.lang;
+    if (args.parent !== undefined) courseRaw.parentSlug = args.parent;
+  } else if (args.lang !== undefined || args.parent !== undefined) {
+    process.stderr.write(
+      'error: --lang/--parent require --course <course.yml> (нужно создать/обновить курс с этими параметрами)\n',
+    );
+    return 2;
   }
 
   // 2. plain → DTO (class-transformer строит дискриминированный union по step.type).
