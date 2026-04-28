@@ -26,7 +26,41 @@
   },
   "player": {
     "title": "Игрок",
-    "placeholder": "TODO: F3 — профиль игрока {{slug}}"
+    "loading": "Загружаем профиль игрока…",
+    "loadError": "Не удалось загрузить профиль. Обновите страницу.",
+    "backToArchive": "В архив",
+    "gamesCount": "Партий",
+    "peakElo": "Пиковый Эло",
+    "activePeriod": "Период активности",
+    "colorLabel": "Цвет в партиях",
+    "colorAny": "Любой",
+    "colorWhite": "Белые",
+    "colorBlack": "Чёрные",
+    "byColor": {
+      "white": "Белыми: {{count}} ({{percent}}%)",
+      "black": "Чёрными: {{count}} ({{percent}}%)"
+    },
+    "byResult": {
+      "barLabel": "Распределение результатов: победы/ничьи/поражения",
+      "wins": "Победы: {{count}} ({{percent}}%)",
+      "draws": "Ничьи: {{count}} ({{percent}}%)",
+      "losses": "Поражения: {{count}} ({{percent}}%)"
+    },
+    "games": {
+      "empty": "По заданным фильтрам партии не найдены.",
+      "error": "Не удалось загрузить партии",
+      "resetFilters": "Сбросить фильтры",
+      "paginationLabel": "Постраничная навигация",
+      "prev": "Назад",
+      "next": "Вперёд",
+      "pageInfo": "Страница {{page}} из {{total}}",
+      "pageSizeLabel": "На странице"
+    },
+    "notFound": {
+      "title": "Игрок не найден",
+      "description": "По этому адресу игрок не найден. Возможно, он был удалён из архива.",
+      "backToArchive": "Назад в архив"
+    }
   },
   "gamePage": {
     "title": "Партия",

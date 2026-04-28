@@ -806,6 +806,140 @@
 }
 
 /* ==========================================================================
+   KS-2069 (F3): /archive/players/:slug — profile + games
+   ========================================================================== */
+
+.archive-player-profile-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.archive-player-profile-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+}
+
+.archive-player-profile-page__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.archive-player-profile-page__name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.archive-player-profile-page__back {
+  font-size: 14px;
+  color: var(--text-link, var(--accent-primary));
+  text-decoration: none;
+}
+.archive-player-profile-page__back:hover {
+  text-decoration: underline;
+}
+
+.archive-player-profile-page__stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  font-size: 14px;
+}
+.archive-player-profile-page__stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.archive-player-profile-page__stats dt {
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+.archive-player-profile-page__stats dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-player-profile-page__by-color {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.archive-player-profile-page__by-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.archive-player-profile-page__by-result-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-muted);
+}
+
+.archive-player-profile-page__by-result-segment {
+  display: block;
+  height: 100%;
+}
+.archive-player-profile-page__by-result-segment--win {
+  background: var(--success, #1f7a3a);
+}
+.archive-player-profile-page__by-result-segment--draw {
+  background: var(--text-muted, #888);
+}
+.archive-player-profile-page__by-result-segment--loss {
+  background: var(--danger, #c33);
+}
+
+.archive-player-profile-page__by-result-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+
+.archive-player-profile-page__filters-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .archive-player-profile-page__stats {
+    grid-template-columns: 1fr 1fr;
+  }
+  .archive-player-profile-page__name {
+    font-size: 20px;
+  }
+}
+
+/* ==========================================================================
    KS-2070 (F4): /archive/games/:id — single game viewer
    ========================================================================== */
 

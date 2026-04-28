@@ -25,7 +25,41 @@
   },
   "player": {
     "title": "Player",
-    "placeholder": "TODO: F3 — player profile {{slug}}"
+    "loading": "Loading player profile…",
+    "loadError": "Failed to load player profile. Try refreshing the page.",
+    "backToArchive": "Back to archive",
+    "gamesCount": "Games",
+    "peakElo": "Peak Elo",
+    "activePeriod": "Active period",
+    "colorLabel": "Plays as",
+    "colorAny": "Any colour",
+    "colorWhite": "White",
+    "colorBlack": "Black",
+    "byColor": {
+      "white": "White: {{count}} ({{percent}}%)",
+      "black": "Black: {{count}} ({{percent}}%)"
+    },
+    "byResult": {
+      "barLabel": "Result distribution: wins/draws/losses",
+      "wins": "Wins: {{count}} ({{percent}}%)",
+      "draws": "Draws: {{count}} ({{percent}}%)",
+      "losses": "Losses: {{count}} ({{percent}}%)"
+    },
+    "games": {
+      "empty": "No games match these filters.",
+      "error": "Failed to load games",
+      "resetFilters": "Reset filters",
+      "paginationLabel": "Pagination",
+      "prev": "Prev",
+      "next": "Next",
+      "pageInfo": "Page {{page}} of {{total}}",
+      "pageSizeLabel": "Per page"
+    },
+    "notFound": {
+      "title": "Player not found",
+      "description": "No player matches this URL. They may have been removed from the archive.",
+      "backToArchive": "Back to archive"
+    }
   },
   "gamePage": {
     "title": "Archive game",
