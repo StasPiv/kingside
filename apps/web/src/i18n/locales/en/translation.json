@@ -29,7 +29,26 @@
     "features": "Features",
     "home": "Home",
     "feedback": "Feedback",
-    "lessons": "Lessons"
+    "lessons": "Lessons",
+    "admin": "Admin"
+  },
+  "admin": {
+    "featureFlags": {
+      "title": "Feature Flags",
+      "subtitle": "Toggle runtime flags. Changes take effect without redeploy.",
+      "empty": "No feature flags configured.",
+      "saving": "…",
+      "saved": "Saved",
+      "on": "On",
+      "off": "Off",
+      "col": {
+        "key": "Key",
+        "description": "Description",
+        "value": "Value",
+        "default": "Default",
+        "updatedAt": "Updated at"
+      }
+    }
   },
   "theme": {
     "toggle": "Toggle theme",

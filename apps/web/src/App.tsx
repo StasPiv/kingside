@@ -53,6 +53,8 @@ import { ArchiveGamePage } from './pages/ArchiveGamePage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag } from './context/FeatureFlagsContext';
+import { useAdminStatus } from './hooks/useAdminStatus';
+import { AdminFeatureFlagsPage } from './pages/AdminFeatureFlagsPage';
 
 // Lazy-loaded heavy pages
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage').then(m => ({ default: m.AnalysisPage })));
@@ -84,6 +86,30 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
   if (loading) return <div className="loading">{t('common.loading')}</div>;
   if (!user) return <Navigate to="/login" state={{ returnUrl: location.pathname }} replace />;
+  return <>{children}</>;
+}
+
+/**
+ * KS-2109 — admin-only маршрут. Гости и не-админы редиректятся на
+ * корень. Источник правды — `useAdminStatus` (`GET /profile/me/admin-status`).
+ * Реальная авторизация эндпоинтов админки — на бэке (KS-2108
+ * `AdminUserGuard`); фронт-проверка нужна, чтобы не светить страницу,
+ * которая всё равно покажет пустой/error-state не-админу.
+ */
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading: authLoading } = useAuth();
+  const { isAdmin, loading: adminLoading } = useAdminStatus();
+  const { t } = useTranslation();
+  const location = useLocation();
+  if (authLoading || adminLoading) {
+    return <div className="loading">{t('common.loading')}</div>;
+  }
+  if (!user) {
+    return (
+      <Navigate to="/login" state={{ returnUrl: location.pathname }} replace />
+    );
+  }
+  if (!isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -176,6 +202,12 @@ export function App() {
         <Route path="/game/:id" element={<ProtectedRoute><GamePage /></ProtectedRoute>} />
         <Route path="/game/:gameId/review" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+        {/* KS-2109: админ-страница feature-flags. Только для админов
+            (whitelist `KS_ADMIN_USERS` на бэке). */}
+        <Route
+          path="/admin/feature-flags"
+          element={<AdminRoute><AdminFeatureFlagsPage /></AdminRoute>}
+        />
         <Route path="/daily" element={<DailyPuzzlePage />} />
         <Route path="/puzzle-rush" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><PuzzleRushPage /></Suspense></ProtectedRoute>} />
         <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />

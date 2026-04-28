@@ -26,10 +26,17 @@ vi.mock('./FeedbackModal', () => ({
   FeedbackModal: () => <div data-testid="feedback-modal-mock" />,
 }));
 
+// KS-2109: пункт «Админка» зависит от useAdminStatus.
+const adminControls = { isAdmin: false };
+vi.mock('../hooks/useAdminStatus', () => ({
+  useAdminStatus: () => ({ isAdmin: adminControls.isAdmin, loading: false }),
+}));
+
 import { Sidebar } from './Sidebar';
 
 beforeEach(() => {
   flagControls.lessons = true;
+  adminControls.isAdmin = false;
 });
 
 afterEach(() => {
@@ -56,5 +63,18 @@ describe('<Sidebar>', () => {
     expect(screen.getByTitle(/play/i)).toBeInTheDocument();
     expect(screen.getByTitle(/workshop|мастерская/i)).toBeInTheDocument();
     expect(screen.getByTitle(/settings|настройки/i)).toBeInTheDocument();
+  });
+
+  it('KS-2109: пункт «Админка» виден ТОЛЬКО админам', () => {
+    adminControls.isAdmin = false;
+    const { unmount } = renderWithProviders(<Sidebar />);
+    expect(screen.queryByTitle(/admin|админка/i)).not.toBeInTheDocument();
+    unmount();
+
+    adminControls.isAdmin = true;
+    renderWithProviders(<Sidebar />);
+    const adminLink = screen.getByTitle(/admin|админка/i);
+    expect(adminLink).toBeInTheDocument();
+    expect(adminLink.getAttribute('href')).toBe('/admin/feature-flags');
   });
 });

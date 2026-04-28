@@ -1,0 +1,76 @@
+/**
+ * KS-2109: страница `/admin/feature-flags` — таблица с тумблерами.
+ * Стили минимальные, в том же тёмном тоне, что и `settings.css`.
+ */
+
+.admin-feature-flags-page {
+  padding: 24px 32px;
+  max-width: 960px;
+  margin: 0 auto;
+  color: var(--c-e0e0e0);
+}
+
+.admin-feature-flags-page__header {
+  margin-bottom: 24px;
+}
+
+.admin-feature-flags-page__header h1 {
+  font-size: 24px;
+  margin: 0 0 6px;
+}
+
+.admin-feature-flags-page__subtitle {
+  color: var(--c-9aa);
+  margin: 0;
+  font-size: 14px;
+}
+
+.admin-feature-flags-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-feature-flags-table th,
+.admin-feature-flags-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--c-1f2937);
+  vertical-align: top;
+}
+
+.admin-feature-flags-table th {
+  background: var(--c-111827);
+  font-weight: 600;
+  color: var(--c-e0e0e0);
+}
+
+.admin-feature-flags-table code {
+  background: var(--c-1f2937);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.admin-feature-flags-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.admin-feature-flags-toggle input {
+  /* Не возимся с кастомным переключателем — браузерный
+     `input[type=checkbox]` под `role="switch"` уже семантичен.
+     Для админ-страницы достаточно базового вида. */
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.admin-feature-flags-saved {
+  margin-left: 10px;
+  color: var(--c-16a34a, #16a34a);
+  font-size: 12px;
+}

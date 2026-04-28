@@ -1,4 +1,6 @@
 import type {
+  AdminFeatureFlagItem,
+  AdminStatusResponse,
   ConfigResponse,
   UpdateFeatureFlagRequest,
   UpdateFeatureFlagResponse,
@@ -35,5 +37,23 @@ export const configApi = {
       `/admin/feature-flags/${encodeURIComponent(String(key))}`,
       body,
     );
+  },
+
+  /**
+   * KS-2109 / KS-2108: список всех known-флагов с метаданными для
+   * админ-страницы `/admin/feature-flags`. Гард на бэке `AdminUserGuard`
+   * (whitelist `KS_ADMIN_USERS`) — для не-админа вернёт 403.
+   */
+  listAdminFeatureFlags(): Promise<AdminFeatureFlagItem[]> {
+    return api.get<AdminFeatureFlagItem[]>('/admin/feature-flags');
+  },
+
+  /**
+   * KS-2109 / KS-2108: статус админа текущего пользователя — фронт
+   * скрывает пункт «Админка» и редиректит с `/admin/*` для не-админов.
+   * Под аутентификацией; для гостей UI сам не зовёт эндпоинт.
+   */
+  getAdminStatus(): Promise<AdminStatusResponse> {
+    return api.get<AdminStatusResponse>('/profile/me/admin-status');
   },
 };

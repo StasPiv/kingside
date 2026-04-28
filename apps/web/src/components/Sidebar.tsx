@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { FeatureFlags } from '@kingside/shared';
 import { FeedbackModal } from './FeedbackModal';
 import { useFeatureFlags } from '../context/FeatureFlagsContext';
+import { useAdminStatus } from '../hooks/useAdminStatus';
 
 interface NavItem {
   path: string;
@@ -16,6 +17,11 @@ interface NavItem {
    * `FeatureFlagsContext` (источник — backend `GET /config`).
    */
   featureFlag?: keyof FeatureFlags;
+  /**
+   * KS-2109: пункт виден только админам (`useAdminStatus().isAdmin`).
+   * Авторизация на бэке независима — это эстетика sidebar.
+   */
+  adminOnly?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -44,6 +50,14 @@ const NAV_ITEMS: NavItem[] = [
   { path: '/features', icon: '✨', i18nKey: 'nav.features', match: ['/features'] },
   { path: '/friends', icon: '👥', i18nKey: 'nav.friends', match: ['/friends'] },
   { path: '/settings', icon: '⚙', i18nKey: 'nav.settings', match: ['/settings'] },
+  // KS-2109: пункт «Админка» — только для админов (env `KS_ADMIN_USERS`).
+  {
+    path: '/admin/feature-flags',
+    icon: '🛡',
+    i18nKey: 'nav.admin',
+    match: ['/admin'],
+    adminOnly: true,
+  },
 ];
 
 export function Sidebar() {
@@ -52,11 +66,14 @@ export function Sidebar() {
   const [showFeedback, setShowFeedback] = useState(false);
   // KS-2105: runtime feature-flags из контекста (backend `GET /config`).
   const { flags } = useFeatureFlags();
+  // KS-2109: статус админа (`GET /profile/me/admin-status`).
+  const { isAdmin } = useAdminStatus();
 
   const isActive = (match: string[]) => match.some((p) => location.pathname.startsWith(p));
 
   const visibleItems = NAV_ITEMS.filter((it) => {
     if (it.featureFlag && !flags[it.featureFlag]) return false;
+    if (it.adminOnly && !isAdmin) return false;
     return true;
   });
 
