@@ -26,7 +26,7 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
     expect(params.get('application_name')).toBe('archive-service');
     // server-side timeouts через libpq options
     expect(params.get('options')).toBe(
-      '-c idle_session_timeout=60000 -c statement_timeout=60000',
+      '-c idle_session_timeout=1800000 -c statement_timeout=60000',
     );
   });
 
@@ -54,7 +54,7 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
     const fullUrl =
       `${BASE_URL}?connection_limit=20` +
       `&connect_timeout=5&application_name=archive-service` +
-      `&options=${encodeURIComponent('-c idle_session_timeout=60000 -c statement_timeout=60000')}`;
+      `&options=${encodeURIComponent('-c idle_session_timeout=1800000 -c statement_timeout=60000')}`;
     expect(augmentArchiveDatabaseUrl(fullUrl, 20)).toBe(fullUrl);
   });
 

@@ -44,10 +44,27 @@ const DEFAULT_CONNECTION_LIMIT = 20;
  * Prisma client implementation.
  *
  * Параметры (фаза 2):
- *   - `options=-c idle_session_timeout=60000 -c statement_timeout=60000`
- *     — Postgres сам закроет idle сессии через 60 сек и убьёт запросы
- *     дольше 60 сек. На archive-importer (тяжёлые INSERT'ы) 60 сек
- *     достаточно с запасом — типичный INSERT 1k partий ~ 5 сек.
+ *   - `options=-c idle_session_timeout=1800000 -c statement_timeout=60000`
+ *     — Postgres закроет idle сессии через 30 мин и убьёт запросы дольше
+ *     60 сек.
+ *
+ *     **KS-2138 hotfix.** Изначально стояло `idle_session_timeout=60000`
+ *     (60 сек), но devops локализовал что это сжимает пул до 1 коннекта
+ *     при простое >60 сек: warmup-коннекты сами закрываются, и любой
+ *     запрос пользователя форсирует Prisma открыть новое соединение
+ *     Fargate→RDS через NAT (5-7 сек). Параллельные запросы (count +
+ *     list) выстраиваются в очередь до 20 сек.
+ *
+ *     30 мин компромисс: leak-страховка через `.catch()` в HealthController
+ *     + pool=20 + 30 мин самоистечение делают leak самозалечивающимся
+ *     (через 30 мин leak-сессия закроется, новых не доливается).
+ *
+ *     После KS-2137 (RDS Proxy) сможем убрать idle_session_timeout совсем —
+ *     Proxy сам держит warm pool на AWS-side.
+ *
+ *     `statement_timeout=60000` оставлен — лимитирует тяжёлые запросы
+ *     (защита от runaway query), не идёт по idle-таймеру.
+ *
  *   - `connect_timeout=5` — быстрый фейл при недоступности RDS.
  *   - `application_name=archive-service` — для diagnostic'ов
  *     `pg_stat_activity`.
@@ -55,9 +72,9 @@ const DEFAULT_CONNECTION_LIMIT = 20;
  * Параметры из фазы 1 (`socket_timeout`, TCP keepalive) — убраны как
  * нерабочие в текущей сетевой топологии.
  *
- * Лечение холодного first-hit — отдельно через `OnModuleInit` warm-up
- * (см. `PrismaService.onModuleInit`): открываем N коннектов параллельно
- * через `SELECT 1`, чтобы пул был наполнен к моменту первого
+ * Лечение холодного first-hit — комбинация из `OnModuleInit` warm-up
+ * (см. `PrismaService.onModuleInit`) + длинный `idle_session_timeout`,
+ * чтобы warmup-коннекты не закрывались сервером раньше первого
  * пользовательского запроса.
  *
  * Override через env: если параметр уже задан в `ARCHIVE_DATABASE_URL`,
@@ -66,7 +83,7 @@ const DEFAULT_CONNECTION_LIMIT = 20;
 const DEFAULT_DATABASE_URL_PARAMS: Record<string, string> = {
   connect_timeout: '5',
   application_name: 'archive-service',
-  options: '-c idle_session_timeout=60000 -c statement_timeout=60000',
+  options: '-c idle_session_timeout=1800000 -c statement_timeout=60000',
 };
 
 /**
