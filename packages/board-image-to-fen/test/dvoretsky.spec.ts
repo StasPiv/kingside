@@ -63,18 +63,33 @@ const HAS_CV2 = pythonHasCv2();
  * 8×8 уезжает на пиксели; требуют точного ручного кропа. См. README,
  * раздел «Профиль Дворецкого».
  */
-const EXPECTED_FENS: Array<{ diagram: string; fenBoard: string; sideToMove: 'w' | 'b' }> = [
-  { diagram: '1_3',  fenBoard: '5k2/8/8/8/1P6/8/8/3K4',          sideToMove: 'w' },
-  { diagram: '1_4',  fenBoard: '2k5/8/8/7p/8/8/6P1/5K2',         sideToMove: 'w' },
-  { diagram: '1_5',  fenBoard: '8/3p4/3P4/8/5k2/3K4/8/8',        sideToMove: 'b' },
-  { diagram: '2_20', fenBoard: '8/7p/4K3/4N3/6k1/6P1/8/8',       sideToMove: 'b' },
-  { diagram: '4_1',  fenBoard: '6k1/8/6Bp/8/8/8/2K5/8',          sideToMove: 'b' },
-  { diagram: '8_33', fenBoard: '1R6/8/7K/2p5/8/8/pk6/8',         sideToMove: 'b' },
-  { diagram: '12_1', fenBoard: '8/5pk1/8/3Q4/3P2K1/6P1/4q3/8',   sideToMove: 'b' },
+const EXPECTED_FENS: Array<{
+  diagram: string;
+  filename: string;
+  fenBoard: string;
+  sideToMove: 'w' | 'b';
+}> = [
+  // Set 1: backend's растеризация (`ddjvu -format=ppm`, 441×449 для гл.1).
+  { diagram: '1_3',  filename: 'dvoretsky_1_3.png',  fenBoard: '5k2/8/8/8/1P6/8/8/3K4',          sideToMove: 'w' },
+  { diagram: '1_4',  filename: 'dvoretsky_1_4.png',  fenBoard: '2k5/8/8/7p/8/8/6P1/5K2',         sideToMove: 'w' },
+  { diagram: '1_5',  filename: 'dvoretsky_1_5.png',  fenBoard: '8/3p4/3P4/8/5k2/3K4/8/8',        sideToMove: 'b' },
+  { diagram: '2_20', filename: 'dvoretsky_2_20.png', fenBoard: '8/7p/4K3/4N3/6k1/6P1/8/8',       sideToMove: 'b' },
+  { diagram: '4_1',  filename: 'dvoretsky_4_1.png',  fenBoard: '6k1/8/6Bp/8/8/8/2K5/8',          sideToMove: 'b' },
+  { diagram: '8_33', filename: 'dvoretsky_8_33.png', fenBoard: '1R6/8/7K/2p5/8/8/pk6/8',         sideToMove: 'b' },
+  { diagram: '12_1', filename: 'dvoretsky_12_1.png', fenBoard: '8/5pk1/8/3Q4/3P2K1/6P1/4q3/8',   sideToMove: 'b' },
+  // Set 2: content's растеризация того же DjVu (356×363 для гл.1).
+  // KS-2132 фаза 2: профиль натренирован на обеих, чтобы шаблоны
+  // обобщались между разными антиалиасингами / DPI ddjvu.
+  { diagram: 'content_1.1', filename: 'diag_1.1.png', fenBoard: '8/3k4/8/3K4/3P4/8/8/8', sideToMove: 'w' },
+  { diagram: 'content_1.2', filename: 'diag_1.2.png', fenBoard: '1k6/8/1K6/1P6/8/8/8/8', sideToMove: 'w' },
+  { diagram: 'content_1.3', filename: 'diag_1.3.png', fenBoard: '5k2/8/8/8/1P6/8/8/3K4', sideToMove: 'w' },
+  { diagram: 'content_1.4', filename: 'diag_1.4.png', fenBoard: '2k5/8/8/7p/8/8/6P1/5K2', sideToMove: 'w' },
+  { diagram: 'content_1.5', filename: 'diag_1.5.png', fenBoard: '8/3p4/3P4/8/5k2/3K4/8/8', sideToMove: 'b' },
+  { diagram: 'content_1.7', filename: 'diag_1.7.png', fenBoard: '8/1k6/1p6/1K6/P1P5/8/8/8', sideToMove: 'b' },
 ];
 
-function fixturePath(diag: string): string {
-  return resolve(FIXTURES_DIR, `dvoretsky_${diag}.png`);
+function fixturePath(filename: string): string {
+  return resolve(FIXTURES_DIR, filename);
 }
 
 function fenIsEightRows(fenBoard: string): boolean {
@@ -82,9 +97,9 @@ function fenIsEightRows(fenBoard: string): boolean {
 }
 
 describe('Dvoretsky profile — infrastructure (KS-2132)', () => {
-  for (const { diagram } of EXPECTED_FENS) {
+  for (const { diagram, filename } of EXPECTED_FENS) {
     it(`recognizeBoardImage не падает на фикстуре ${diagram} с профилем dvoretsky`, async () => {
-      const path = fixturePath(diagram);
+      const path = fixturePath(filename);
       if (!existsSync(path)) return; // фикстура опциональна
       if (!HAS_CV2) return; // cv2 не установлен в этом окружении — skip
       const result = await recognizeBoardImage(path, { profile: 'dvoretsky' });
@@ -97,7 +112,7 @@ describe('Dvoretsky profile — infrastructure (KS-2132)', () => {
   }
 
   it('findDiagramsOnPage возвращает ≥ 1 кандидат на одиночной фикстуре', async () => {
-    const path = fixturePath('1_3');
+    const path = fixturePath('dvoretsky_1_3.png');
     if (!existsSync(path)) return;
     if (!HAS_CV2) return;
     const { diagrams } = await findDiagramsOnPage(path);
@@ -113,7 +128,7 @@ describe('Dvoretsky profile — infrastructure (KS-2132)', () => {
     // Без options.profile должно работать как раньше — на любой фикстуре,
     // используя дефолтный maizelis-профиль. Тут проверяем только что
     // вызов проходит без ошибки и метки профиля проставляются.
-    const path = fixturePath('1_3');
+    const path = fixturePath('dvoretsky_1_3.png');
     if (!existsSync(path)) return;
     if (!HAS_CV2) return;
     const result = await recognizeBoardImage(path); // без profile → default maizelis
@@ -129,9 +144,9 @@ describe('Dvoretsky profile — infrastructure (KS-2132)', () => {
  * с профилем Дворецкого после калибровки порогов и загрузки шаблонов.
  */
 describe('Dvoretsky profile — точные FEN', () => {
-  for (const { diagram, fenBoard } of EXPECTED_FENS) {
+  for (const { diagram, filename, fenBoard } of EXPECTED_FENS) {
     it(`${diagram} → ${fenBoard}`, async () => {
-      const path = fixturePath(diagram);
+      const path = fixturePath(filename);
       if (!existsSync(path)) return;
       if (!HAS_CV2) return;
       const result = await recognizeBoardImage(path, { profile: 'dvoretsky' });
@@ -139,13 +154,13 @@ describe('Dvoretsky profile — точные FEN', () => {
     }, 20_000);
   }
 
-  it('aggregate: 100% per-piece accuracy на 7 эталонах', async () => {
+  it('aggregate: 100% per-piece accuracy на эталонах обеих растеризаций', async () => {
     if (!HAS_CV2) return;
     let total = 0;
     let ok = 0;
     let evaluated = 0;
-    for (const { diagram, fenBoard } of EXPECTED_FENS) {
-      const path = fixturePath(diagram);
+    for (const { diagram, filename, fenBoard } of EXPECTED_FENS) {
+      const path = fixturePath(filename);
       if (!existsSync(path)) continue;
       evaluated++;
       const result = await recognizeBoardImage(path, { profile: 'dvoretsky' });

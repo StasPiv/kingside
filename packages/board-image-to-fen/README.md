@@ -284,13 +284,29 @@ python3 packages/board-image-to-fen/src/python/recognizer.py /tmp/courses/parsed
 
 ### Результат
 
-7 эталонных диаграмм с верифицированными FEN'ами (главы 1, 2, 4, 8, 12 —
-покрывают king/queen/rook/bishop/knight/pawn × white/black, светлая и
-тёмная клетки): `test/fixtures/dvoretsky/`. На них:
-- **100%** per-piece accuracy (448/448 клеток);
-- **7/7** exact-FEN сверка.
+13 эталонных диаграмм из двух разных растеризаций одного DjVu
+(`test/fixtures/dvoretsky/`):
+
+- Set 1 — backend's растеризация, 7 фикстур, главы 1, 2, 4, 8, 12
+  (`dvoretsky_*.png`, 441×449 для гл.1 / 510×510 для остальных). Покрывает
+  king/queen/rook/bishop/knight/pawn × white/black, светлая и тёмная клетки.
+- Set 2 — content's растеризация того же DjVu, 6 фикстур только из главы 1
+  (`diag_1.{1..7}.png` без 1.6, 356×363). KS-2132 фаза 2: при первой
+  итерации профиль работал на Set 1, но на Set 2 (другой DPI/антиалиасинг
+  ddjvu) выдавал мусор. Фикс — загружать шаблоны из обеих растеризаций;
+  L2-distance находит ближайшую.
+
+На объединённом наборе:
+- **100%** per-piece accuracy (832/832 клеток);
+- **13/13** exact-FEN сверка.
 
 Spec: `test/dvoretsky.spec.ts` (skip-by-default если в среде нет cv2).
+
+**Если recognizer выдаёт мусор на твоём кропе:** скорее всего у тебя
+третья растеризация (другой ddjvu / Pillow / DPI), не покрытая текущими
+шаблонами. Решение — добавь свой кроп в `src/templates/dvoretsky/` и
+строку в `DVORETSKY_TEMPLATE_SOURCES` (Python). Шаблоны мульти-растеризации
+объединяются автоматически.
 
 ## Известные ограничения
 
