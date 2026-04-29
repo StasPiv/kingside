@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type {
@@ -144,6 +144,7 @@ export function metadataFiltersToUrl(
   values: ArchiveMetadataFilterValues,
   page: number,
   pageSize: number,
+  cursor?: string,
 ): URLSearchParams {
   const params = new URLSearchParams();
   // KS-2084: каждый игрок — отдельный `player=...` через `append`.
@@ -169,6 +170,11 @@ export function metadataFiltersToUrl(
   if (page > 1) params.set('page', String(page));
   if (pageSize !== DEFAULT_PAGE_SIZE)
     params.set('pageSize', String(pageSize));
+  // KS-2143: opaque keyset cursor сохраняется в URL, чтобы reload
+  // конкретной страницы возвращал ту же позицию без COUNT/offset. На
+  // первой странице (`page === 1`) cursor не нужен — backend отдаёт
+  // первую страницу нужного sort'а.
+  if (cursor && page > 1) params.set('cursor', cursor);
   return params;
 }
 
@@ -180,6 +186,7 @@ export function metadataFiltersToRequest(
   values: ArchiveMetadataFilterValues,
   page: number,
   pageSize: number,
+  cursor?: string,
 ): ArchiveGamesRequest {
   return {
     // KS-2084: 0 → undefined, 1 → string (бэк-совместимо), 2+ → string[].
@@ -209,7 +216,12 @@ export function metadataFiltersToRequest(
           ? values.timeControlCategory[0]
           : values.timeControlCategory,
     limit: pageSize,
-    offset: (page - 1) * pageSize,
+    // KS-2143: keyset cursor имеет приоритет на бэке (offset
+    // игнорируется). Передаём cursor когда он есть в URL — типичный
+    // путь после Next-клика. Если cursor пуст (deep-link reload
+    // `?page=N`) — fallback на offset, бэкенд это поддерживает.
+    cursor: cursor || undefined,
+    offset: cursor ? undefined : (page - 1) * pageSize,
   };
 }
 
@@ -239,18 +251,37 @@ function ArchiveMetadataMode() {
     parseNonNegativeInt(searchParams.get('page')) ?? 1,
   );
   const pageSize = parsePageSize(searchParams.get('pageSize'));
+  // KS-2143: keyset cursor читается из URL. На первой странице
+  // отсутствует. На последующих кладётся при клике Next; reload
+  // `?page=N&cursor=<opaque>` восстанавливает ту же позицию.
+  const cursor = searchParams.get('cursor') ?? undefined;
 
   const [data, setData] = useState<ArchiveGamesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // KS-2143: cursor-стек в SPA-памяти. Map page-number → cursor,
+  // который ВЁЛ к этой странице (т.е. cursor который мы передали в
+  // запросе при загрузке этой страницы). pageCursorMap.get(1) всегда
+  // undefined (page 1 без cursor). pageCursorMap.get(N) хранит
+  // nextCursor возвращённый при загрузке page=N-1. Стек живёт только
+  // в текущей сессии страницы — при reload очищается, и Prev опускается
+  // на offset-fallback (через URL `?page=N`).
+  const pageCursorMapRef = useRef<Map<number, string>>(new Map());
 
   const writeFilters = useCallback(
     (
       next: ArchiveMetadataFilterValues,
       nextPage: number,
       nextPageSize: number,
+      nextCursor?: string,
     ) => {
-      const params = metadataFiltersToUrl(next, nextPage, nextPageSize);
+      const params = metadataFiltersToUrl(
+        next,
+        nextPage,
+        nextPageSize,
+        nextCursor,
+      );
       setSearchParams(params, { replace: true });
     },
     [setSearchParams],
@@ -259,6 +290,10 @@ function ArchiveMetadataMode() {
   const handleFiltersChange = useCallback(
     (next: ArchiveMetadataFilterValues) => {
       // KS-2068: смена фильтра сбрасывает страницу на 1 (offset=0).
+      // KS-2143: и стек cursor'ов — старые cursor'ы относятся к
+      // другому набору фильтров, бэк их «silently» проигнорирует
+      // и отдаст 1-ю страницу, но логичнее очистить локально.
+      pageCursorMapRef.current.clear();
       writeFilters(next, 1, pageSize);
     },
     [pageSize, writeFilters],
@@ -266,6 +301,10 @@ function ArchiveMetadataMode() {
 
   const handlePageSizeChange = useCallback(
     (size: number) => {
+      // KS-2143: pageSize меняет «гранулярность» страниц — старые
+      // cursor'ы считались под другим limit, могут быть «не на
+      // границе». Сбрасываем стек, page=1.
+      pageCursorMapRef.current.clear();
       writeFilters(filterValues, 1, size);
     },
     [filterValues, writeFilters],
@@ -273,29 +312,46 @@ function ArchiveMetadataMode() {
 
   const handlePrev = useCallback(() => {
     if (page <= 1) return;
-    writeFilters(filterValues, page - 1, pageSize);
+    const prevPage = page - 1;
+    // KS-2143: cursor для предыдущей страницы — из стека (если эта
+    // страница была загружена в текущей сессии). Page=1 → cursor нет
+    // вовсе. Если стек пуст (deep-link reload без сессии) — Prev уведёт
+    // через offset-fallback.
+    const prevCursor =
+      prevPage <= 1 ? undefined : pageCursorMapRef.current.get(prevPage);
+    writeFilters(filterValues, prevPage, pageSize, prevCursor);
   }, [filterValues, page, pageSize, writeFilters]);
 
   const handleNext = useCallback(() => {
-    // KS-2141: после `skipTotal` бэкенд может не знать `total` (вернёт
-    // `null`), но всегда отдаёт `hasNext`. Если `hasNext === false` —
-    // страницы-2 нет. Backward-compat: если бэк ещё старого формата
-    // (нет `hasNext` в DTO), считаем по total/pageSize, иначе блокируем.
     if (!data) return;
-    let canNext: boolean;
-    if (typeof data.hasNext === 'boolean') {
-      canNext = data.hasNext;
+    // KS-2143: keyset-курсор. Если бэк отдал `nextCursor` (= `null` →
+    // конца достигли) — переходим на следующую страницу с этим
+    // cursor'ом. Стек пополняется. Backward-compat: если бэк ещё на
+    // старом DTO без `nextCursor` (стадия 1, KS-2140) — пытаемся через
+    // total/pageSize, иначе блокируем кнопку.
+    let nextCursor: string | undefined;
+    if (data.nextCursor) {
+      nextCursor = data.nextCursor;
+    } else if (data.nextCursor === null) {
+      // явно null → конца достигли
+      return;
+    } else if (data.hasNext) {
+      // старый бэк (без nextCursor): cursor undefined, fallback на offset
+      nextCursor = undefined;
     } else if (data.total !== null && data.total > 0) {
       const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-      canNext = page < totalPages;
+      if (page >= totalPages) return;
+      nextCursor = undefined;
     } else {
-      canNext = false;
+      return;
     }
-    if (!canNext) return;
-    writeFilters(filterValues, page + 1, pageSize);
+    const nextPage = page + 1;
+    if (nextCursor) pageCursorMapRef.current.set(nextPage, nextCursor);
+    writeFilters(filterValues, nextPage, pageSize, nextCursor);
   }, [data, filterValues, page, pageSize, writeFilters]);
 
   const handleResetFilters = useCallback(() => {
+    pageCursorMapRef.current.clear();
     writeFilters(EMPTY_METADATA_FILTERS, 1, pageSize);
   }, [pageSize, writeFilters]);
 
@@ -311,7 +367,7 @@ function ArchiveMetadataMode() {
     setError(null);
     archiveApi
       .getArchiveGamesMetadata(
-        metadataFiltersToRequest(filterValues, page, pageSize),
+        metadataFiltersToRequest(filterValues, page, pageSize, cursor),
       )
       .then((res) => {
         if (cancelled) return;
@@ -327,7 +383,7 @@ function ArchiveMetadataMode() {
     return () => {
       cancelled = true;
     };
-  }, [filterValues, page, pageSize]);
+  }, [filterValues, page, pageSize, cursor]);
 
   const items: ArchiveGameSummary[] = data?.items ?? [];
   // KS-2141: `total` теперь nullable. `null` означает «бэк пропустил
