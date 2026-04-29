@@ -380,8 +380,13 @@ function ArchiveMetadataMode() {
         onReset={handleResetFilters}
       />
 
-      {/* Список */}
-      {loading && items.length === 0 && (
+      {/* Список.
+          KS-2135: скелет показываем при ЛЮБОМ запросе (initial / смена
+          фильтра / сортировка / пагинация), а не только на первой
+          загрузке. Иначе при холодном `/games` (5-7 сек, см. KS-2134)
+          пользователь видит старые данные с зависшими кнопками и не
+          понимает, что идёт загрузка. */}
+      {loading && (
         <div
           className="archive-games-list archive-games-list--loading"
           data-testid="archive-games-skeleton"
@@ -422,7 +427,7 @@ function ArchiveMetadataMode() {
         </div>
       )}
 
-      {items.length > 0 && (
+      {!loading && items.length > 0 && (
         <div
           className="archive-games-list"
           data-testid="archive-games-list"
@@ -439,8 +444,11 @@ function ArchiveMetadataMode() {
         </div>
       )}
 
-      {/* Пагинация */}
-      {items.length > 0 && (
+      {/* Пагинация.
+          KS-2135: оставляем видимой при наличии данных (даже если идёт
+          перезапрос соседней страницы / смена sort / page-size) — кнопки
+          уже `disabled={loading}`, но сама панель не должна мигать. */}
+      {(items.length > 0 || total > 0) && (
         <nav
           className="archive-games-metadata__pagination"
           data-testid="archive-games-metadata-pagination"

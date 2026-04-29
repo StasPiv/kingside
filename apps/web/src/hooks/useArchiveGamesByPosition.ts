@@ -141,6 +141,14 @@ export function useArchiveGamesByPosition(
       return undefined;
     }
 
+    // KS-2135: при смене ключа (fen/фильтры/сортировка) сбрасываем
+    // список и курсор. Иначе условие в `<ArchiveGamesList>`
+    // (`isLoading && items.length === 0`) не сработает — старые items
+    // останутся в кадре, скелет не покажется, и пользователь не поймёт,
+    // что идёт перезапрос (на холодном `/games` это 5-7 сек, KS-2134).
+    setItems([]);
+    setNextCursor(null);
+    setHasMore(false);
     setIsLoading(true);
     setError(null);
 
