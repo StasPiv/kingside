@@ -467,6 +467,10 @@ DVORETSKY_TEMPLATE_SOURCES: List[Tuple[str, str]] = [
     ('diag_1.4.png', '2k5/8/8/7p/8/8/6P1/5K2'),
     ('diag_1.5.png', '8/3p4/3P4/8/5k2/3K4/8/8'),
     ('diag_1.7.png', '8/1k6/1p6/1K6/P1P5/8/8/8'),
+    # Set 3 — content's batch2 (KS-2132 фаза 4): новые позиции главы 1
+    # с другим размером/центрированием фигур внутри клетки.
+    ('diag_1.10.png', '4k3/8/3p4/3P4/2P5/8/8/5K2'),  # И. Дртина, 1907
+    ('diag_1.11.png', '8/8/2p5/K1p2k2/p1P5/P7/8/8'), # Ф. Закман, 1913
 ]
 
 DVORETSKY_PROFILE = Profile(
@@ -654,17 +658,11 @@ class Recognizer:
         # попиксельного соответствия — устойчивее к субпиксельным сдвигам
         # шрифта и разнице антиалиасинга между ddjvu-растеризациями.
         if prof.classifier_mode == 'iou':
-            cell_bw = _otsu_mask(cell)
-            best_class = '.'
-            best_iou = -1.0
-            for (piece, tpl_bg), masks in self.templates.items():
-                if tpl_bg != bg:
-                    continue
-                local_best = max(_iou(cell_bw, t) for t in masks)
-                if local_best > best_iou:
-                    best_iou = local_best
-                    best_class = piece
-            return best_class, best_iou
+            scores = self._classify_cell_iou_scored(cell, bg)
+            if not scores:
+                return '?', 0.0
+            best_class = max(scores, key=lambda p: scores[p])
+            return best_class, scores[best_class]
 
         # KS-2132: Maizelis использует morph open 3×3 (толстые силуэты);
         # Дворецкий — 2×2 (тонкие фигуры, 3×3 убивает короля). Шаблоны
@@ -768,6 +766,62 @@ class Recognizer:
 
         return best_piece, best_score
 
+    def _classify_cell_iou_scored(
+        self,
+        cell: np.ndarray,
+        bg: str,
+    ) -> Dict[str, float]:
+        """KS-2132 фаза 4. Полный scores-словарь {piece: best_iou_for_class}.
+
+        Используется в `recognize()` для пост-обработки `>1 короля каждого
+        цвета`: если argmax даёт двух K, для лишнего берём 2nd-best класс
+        по этому же scores-словарю.
+        """
+        cell_bw = _otsu_mask(cell)
+        scores: Dict[str, float] = {}
+        for (piece, tpl_bg), masks in self.templates.items():
+            if tpl_bg != bg:
+                continue
+            scores[piece] = max(_iou(cell_bw, t) for t in masks)
+        return scores
+
+    @staticmethod
+    def _enforce_unique_kings(
+        grid: List[List[str]],
+        scored_grid: List[List[Dict[str, float]]],
+    ) -> int:
+        """KS-2132 фаза 4. Sanity-check: не более 1 короля каждого цвета.
+
+        У content batch2 recognizer выдавал нелегальные позиции с двумя K
+        или двумя k одновременно. Корень — IoU между шаблонами K и P
+        близкий, и для крупных пешек побеждал K. Лечение: после первой
+        классификации находим все клетки данного king-класса, если их >1 —
+        оставляем ту с max iou, остальным присваиваем 2nd-best класс
+        (исключая сам king-класс).
+
+        Возвращает число изменённых клеток (для diagnostic'а).
+        """
+        changed = 0
+        for king in ('K', 'k'):
+            cells = [
+                (r, c, scored_grid[r][c].get(king, 0.0))
+                for r in range(8) for c in range(8)
+                if grid[r][c] == king
+            ]
+            if len(cells) <= 1:
+                continue
+            cells.sort(key=lambda x: x[2], reverse=True)
+            # Оставляем top-1, для остальных берём 2nd-best класс.
+            for r, c, _ in cells[1:]:
+                scores = dict(scored_grid[r][c])
+                scores.pop(king, None)
+                if not scores:
+                    grid[r][c] = '.'
+                else:
+                    grid[r][c] = max(scores, key=lambda p: scores[p])
+                changed += 1
+        return changed
+
     def recognize(
         self,
         image_path: str,
@@ -793,12 +847,27 @@ class Recognizer:
                 )
         cells = _slice_cells(img, bbox)
         grid: List[List[str]] = [['.'] * 8 for _ in range(8)]
+        # KS-2132 фаза 4: для iou-режима сохраняем полный scores-словарь
+        # каждой клетки — нужен для post-process «не более одного короля».
+        scored_grid: List[List[Dict[str, float]]] = [
+            [{} for _ in range(8)] for _ in range(8)
+        ]
         cell_diag: List[Dict[str, object]] = []
         low_conf: List[Dict[str, object]] = []
+        is_iou = self.profile.classifier_mode == 'iou'
         for r in range(8):
             for c in range(8):
                 bg = 'd' if _square_is_dark(r, c, orientation) else 'l'
-                piece, score = self.classify_cell(cells[r][c], bg)
+                if is_iou:
+                    scores = self._classify_cell_iou_scored(cells[r][c], bg)
+                    scored_grid[r][c] = scores
+                    if scores:
+                        piece = max(scores, key=lambda p: scores[p])
+                        score = scores[piece]
+                    else:
+                        piece, score = '?', 0.0
+                else:
+                    piece, score = self.classify_cell(cells[r][c], bg)
                 grid[r][c] = piece
                 cell_diag.append({
                     'row': r,
@@ -810,6 +879,10 @@ class Recognizer:
                 })
                 if piece != '.' and score < self.profile.low_confidence_threshold:
                     low_conf.append(cell_diag[-1])
+        # KS-2132 фаза 4: дубль королей → 2nd-best для лишних.
+        kings_fixed = 0
+        if is_iou:
+            kings_fixed = self._enforce_unique_kings(grid, scored_grid)
         fen_board = _grid_to_fen(grid)
         return {
             'fen': f'{fen_board} w - - 0 1',
@@ -818,6 +891,7 @@ class Recognizer:
             'bbox': list(bbox),
             'profile': self.profile.name,
             'low_confidence_cells': low_conf,
+            'kings_fixed': kings_fixed,
             'cells': cell_diag,
         }
 
