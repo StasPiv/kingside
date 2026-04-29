@@ -72,6 +72,7 @@ describe('__buildSearchUrl (ArchiveSearchForm)', () => {
         result: 'any',
         minElo: null,
         sort: 'recent',
+        timeControlCategory: [],
       }),
     ).toBe('/archive/games');
   });
@@ -86,6 +87,7 @@ describe('__buildSearchUrl (ArchiveSearchForm)', () => {
       result: 'any',
       minElo: null,
       sort: 'recent',
+      timeControlCategory: [],
     });
     const u = new URL(url, 'http://localhost');
     expect(u.searchParams.getAll('player')).toEqual(['Carlsen,M', 'Caruana,F']);
@@ -101,6 +103,7 @@ describe('__buildSearchUrl (ArchiveSearchForm)', () => {
       result: '1-0',
       minElo: 2700,
       sort: 'topElo',
+      timeControlCategory: [],
     });
     const u = new URL(url, 'http://localhost');
     expect(u.pathname).toBe('/archive/games');
@@ -113,6 +116,41 @@ describe('__buildSearchUrl (ArchiveSearchForm)', () => {
     expect(u.searchParams.get('result')).toBe('1-0');
     expect(u.searchParams.get('minElo')).toBe('2700');
     expect(u.searchParams.get('sort')).toBe('topElo');
+  });
+
+  it('KS-2122: timeControlCategory массивом → дубликаты ?timeControlCategory', () => {
+    const url = __buildSearchUrl({
+      players: [],
+      event: '',
+      eco: '',
+      sinceYear: '',
+      untilYear: '',
+      result: 'any',
+      minElo: null,
+      sort: 'recent',
+      timeControlCategory: ['classical', 'rapid'],
+    });
+    const u = new URL(url, 'http://localhost');
+    expect(u.searchParams.getAll('timeControlCategory')).toEqual([
+      'classical',
+      'rapid',
+    ]);
+  });
+
+  it('KS-2122: пустой timeControlCategory не добавляется в query', () => {
+    const url = __buildSearchUrl({
+      players: [],
+      event: '',
+      eco: '',
+      sinceYear: '',
+      untilYear: '',
+      result: 'any',
+      minElo: null,
+      sort: 'recent',
+      timeControlCategory: [],
+    });
+    const u = new URL(url, 'http://localhost');
+    expect(u.searchParams.getAll('timeControlCategory')).toEqual([]);
   });
 });
 
@@ -147,6 +185,52 @@ describe('ArchiveLobbyPage — header и форма', () => {
     expect(arg).toContain('eco=B90');
     expect(arg).toContain('result=1-0');
     expect(arg).toContain('minElo=2600');
+  });
+
+  it('KS-2122: клик по «Классика» + Submit → ?timeControlCategory=classical', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
+
+    await user.click(
+      screen.getByTestId('archive-search-form-time-control-classical'),
+    );
+    await user.click(screen.getByTestId('archive-search-form-submit'));
+
+    const arg = mockNavigate.mock.calls[0][0] as string;
+    const u = new URL(arg, 'http://localhost');
+    expect(u.searchParams.getAll('timeControlCategory')).toEqual([
+      'classical',
+    ]);
+  });
+
+  it('KS-2122: повторный клик по той же категории снимает её', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
+
+    const classical = screen.getByTestId(
+      'archive-search-form-time-control-classical',
+    );
+    await user.click(classical);
+    await user.click(classical);
+    await user.click(screen.getByTestId('archive-search-form-submit'));
+
+    const arg = mockNavigate.mock.calls[0][0] as string;
+    const u = new URL(arg, 'http://localhost');
+    expect(u.searchParams.getAll('timeControlCategory')).toEqual([]);
+  });
+
+  it('KS-2122: Reset очищает выбранную категорию', async () => {
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
+
+    await user.click(
+      screen.getByTestId('archive-search-form-time-control-classical'),
+    );
+    await user.click(screen.getByTestId('archive-search-form-reset'));
+    await user.click(screen.getByTestId('archive-search-form-submit'));
+
+    const arg = mockNavigate.mock.calls[0][0] as string;
+    expect(arg).toBe('/archive/games');
   });
 });
 

@@ -4,9 +4,11 @@ import { useTranslation } from 'react-i18next';
 import type {
   ArchiveGameResult,
   ArchiveGamesSortMetadata,
+  ArchiveTimeControlCategory,
 } from '@kingside/shared';
 import { ArchivePlayerAutocomplete } from './ArchivePlayerAutocomplete';
 import { ArchiveEventAutocomplete } from './ArchiveEventAutocomplete';
+import { ArchiveTimeControlChips } from './ArchiveTimeControlChips';
 
 /**
  * KS-2067 (F1): форма поиска на лобби `/archive`.
@@ -42,6 +44,12 @@ interface FormState {
   result: ResultFilter;
   minElo: number | null;
   sort: ArchiveGamesSortMetadata;
+  /**
+   * KS-2122: фильтр «Контроль времени» на лобби. Пустой массив = «Любой»;
+   * несколько значений сериализуются дубликатами `?timeControlCategory=...`
+   * (контракт KS-2118: OR между значениями, AND с прочими фильтрами).
+   */
+  timeControlCategory: ArchiveTimeControlCategory[];
 }
 
 const EMPTY_STATE: FormState = {
@@ -53,6 +61,7 @@ const EMPTY_STATE: FormState = {
   result: 'any',
   minElo: null,
   sort: 'recent',
+  timeControlCategory: [],
 };
 
 function buildSearchUrl(state: FormState): string {
@@ -70,6 +79,12 @@ function buildSearchUrl(state: FormState): string {
   if (state.result !== 'any') params.set('result', state.result);
   if (state.minElo !== null) params.set('minElo', String(state.minElo));
   if (state.sort !== 'recent') params.set('sort', state.sort);
+  // KS-2122: каждая категория контроля времени — отдельный append,
+  // как в `metadataFiltersToUrl` (см. ArchiveGamesPage). `set` затёр
+  // бы массив до одного значения.
+  for (const cat of state.timeControlCategory) {
+    params.append('timeControlCategory', cat);
+  }
   const qs = params.toString();
   return qs ? `/archive/games?${qs}` : '/archive/games';
 }
@@ -276,6 +291,14 @@ export function ArchiveSearchForm() {
             ))}
           </div>
         </div>
+
+        {/* KS-2122: фильтр «Контроль времени» на лобби. Чипы переиспользуются
+            из ArchiveMetadataFilters. Ключи i18n общие — `archive.games.*`. */}
+        <ArchiveTimeControlChips
+          values={state.timeControlCategory}
+          onChange={(next) => apply({ timeControlCategory: next })}
+          testIdPrefix="archive-search-form"
+        />
 
         <label className="archive-games-filters__field">
           <span className="archive-games-filters__label">

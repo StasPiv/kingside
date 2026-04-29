@@ -5,6 +5,12 @@ import type {
   ArchiveGamesSortMetadata,
   ArchiveTimeControlCategory,
 } from '@kingside/shared';
+import { ArchiveTimeControlChips } from './ArchiveTimeControlChips';
+
+// KS-2122: пресеты переехали в `ArchiveTimeControlChips`. Ре-экспорт
+// сохраняется для обратной совместимости — на него ссылаются тесты
+// и потенциальные внешние потребители фильтров.
+export { TIME_CONTROL_PRESETS } from './ArchiveTimeControlChips';
 
 /**
  * KS-2068 (F2): фильтры metadata-режима `/archive/games`.
@@ -44,17 +50,6 @@ export interface ArchiveMetadataFilterValues {
    */
   timeControlCategory: ArchiveTimeControlCategory[];
 }
-
-/**
- * Допустимые значения для UI-чипов «Контроль времени». `unknown` сюда
- * не входит — см. JSDoc к {@link ArchiveMetadataFilterValues.timeControlCategory}.
- */
-export const TIME_CONTROL_PRESETS: readonly ArchiveTimeControlCategory[] = [
-  'bullet',
-  'blitz',
-  'rapid',
-  'classical',
-];
 
 interface ArchiveMetadataFiltersProps {
   values: ArchiveMetadataFilterValues;
@@ -231,47 +226,13 @@ export function ArchiveMetadataFilters({
         </div>
       </div>
 
-      {/* Time control (KS-2115).
-          Множественный выбор — клик по чипу добавляет/убирает категорию.
-          «Любой» = пустой массив (фильтр не применяется). */}
-      <div
-        className="archive-games-filters__field"
-        data-testid="archive-metadata-filter-time-control"
-      >
-        <span className="archive-games-filters__label">
-          {t('archive.games.timeControlLabel', 'Time control')}
-        </span>
-        <div className="archive-games-filters__presets">
-          <button
-            type="button"
-            className={`archive-games-filters__preset${values.timeControlCategory.length === 0 ? ' is-active' : ''}`}
-            onClick={() => apply({ timeControlCategory: [] })}
-            data-testid="archive-metadata-filter-time-control-any"
-          >
-            {t('archive.games.timeControlAny', 'Any')}
-          </button>
-          {TIME_CONTROL_PRESETS.map((cat) => {
-            const active = values.timeControlCategory.includes(cat);
-            return (
-              <button
-                key={cat}
-                type="button"
-                className={`archive-games-filters__preset${active ? ' is-active' : ''}`}
-                aria-pressed={active}
-                onClick={() => {
-                  const next = active
-                    ? values.timeControlCategory.filter((c) => c !== cat)
-                    : [...values.timeControlCategory, cat];
-                  apply({ timeControlCategory: next });
-                }}
-                data-testid={`archive-metadata-filter-time-control-${cat}`}
-              >
-                {t(`archive.games.timeControl_${cat}`, cat)}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* Time control (KS-2115). Общий компонент-чипы переиспользуется
+          в ArchiveSearchForm на лобби (KS-2122). */}
+      <ArchiveTimeControlChips
+        values={values.timeControlCategory}
+        onChange={(next) => apply({ timeControlCategory: next })}
+        testIdPrefix="archive-metadata-filter"
+      />
 
       {/* Date range */}
       <label className="archive-games-filters__field">
