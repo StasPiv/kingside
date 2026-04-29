@@ -1,8 +1,10 @@
 /* Lobby */
 /* KS-1112: full width in sidebar layout, max-width only applies to inner content */
+/* KS-2117: уменьшены вертикальные отступы, чтобы все карточки помещались
+   на десктопной высоте ~900px без скролла. */
 .lobby-page {
   text-align: center;
-  padding: 24px;
+  padding: 16px 24px 24px;
   max-width: none;
   width: 100%;
   box-sizing: border-box;
@@ -12,8 +14,8 @@
 .lobby-teasers {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 24px;
-  margin-top: 32px;
+  gap: 16px;
+  margin-top: 16px;
 }
 
 @media (min-width: 900px) {
@@ -32,11 +34,11 @@
   background: var(--c-16213e);
   border: 1px solid transparent;
   border-radius: 16px;
-  padding: 28px 20px 24px;
+  padding: 18px 18px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   transition: transform 0.15s, box-shadow 0.15s, background 0.15s, border-color 0.15s;
   /* KS-1575: защищаемся от глобального a:hover underline на случай,
      если карточку в будущем завернут в <a>. */
@@ -77,9 +79,9 @@
 }
 
 .lobby-teaser__image {
-  font-size: 56px;
+  font-size: 40px;
   line-height: 1;
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .lobby-teaser__title {
@@ -98,8 +100,8 @@
 }
 
 .lobby-teaser__btn {
-  margin-top: 8px;
-  padding: 10px 24px;
+  margin-top: 4px;
+  padding: 8px 20px;
   background: var(--c-7c83ff);
   color: var(--c-fff);
   border: none;
@@ -304,12 +306,15 @@
 }
 
 .lobby-page h1 {
-  margin-bottom: 8px;
+  margin-top: 0;
+  margin-bottom: 4px;
+  font-size: 24px;
 }
 
 .user-info {
   color: var(--c-a0a0c0);
-  margin-bottom: 24px;
+  margin: 0 0 12px;
+  font-size: 13px;
 }
 
 /* Lobby mode tabs (mobile only) */
@@ -763,6 +768,8 @@
 
 
 /* Feedback teaser */
+/* KS-2117: ужата высота + явно убрано подчёркивание у заголовка/подзаголовка
+   (перебивает глобальное a:hover { text-decoration: underline }). */
 .lobby-feedback-teaser {
   display: flex;
   align-items: center;
@@ -770,15 +777,21 @@
   background: var(--c-1e293b);
   border: 1px solid var(--c-334155);
   border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  padding: 8px 14px;
+  margin-bottom: 0;
   text-decoration: none;
   color: var(--c-e2e8f0);
   transition: border-color 0.15s;
 }
+.lobby-feedback-teaser,
+.lobby-feedback-teaser:hover,
+.lobby-feedback-teaser:focus,
+.lobby-feedback-teaser:focus-visible {
+  text-decoration: none;
+}
 .lobby-feedback-teaser:hover { border-color: var(--c-7c83ff); }
-.lobby-feedback-teaser__icon { font-size: 24px; }
-.lobby-feedback-teaser__text { display: flex; flex-direction: column; gap: 2px; flex: 1; }
-.lobby-feedback-teaser__text strong { font-size: 14px; }
-.lobby-feedback-teaser__text span { font-size: 12px; color: var(--c-94a3b8); }
+.lobby-feedback-teaser__icon { font-size: 20px; }
+.lobby-feedback-teaser__text { display: flex; flex-direction: column; gap: 1px; flex: 1; text-align: left; }
+.lobby-feedback-teaser__text strong { font-size: 13px; text-decoration: none; }
+.lobby-feedback-teaser__text span { font-size: 12px; color: var(--c-94a3b8); text-decoration: none; }
 .lobby-feedback-teaser__arrow { font-size: 18px; color: var(--c-64748b); }
