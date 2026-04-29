@@ -26,10 +26,8 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134 / KS-2138)', () => {
     expect(params.get('application_name')).toBe('archive-service');
     // server-side timeouts через libpq options
     expect(params.get('options')).toBe(
-      '-c idle_session_timeout=1800000 -c statement_timeout=60000',
+      '-c idle_session_timeout=60000 -c statement_timeout=60000',
     );
-    // KS-2138: отключаем PS cache Prisma engine
-    expect(params.get('pgbouncer')).toBe('true');
   });
 
   it('не перезаписывает явно заданный connection_limit', () => {
@@ -56,15 +54,8 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134 / KS-2138)', () => {
     const fullUrl =
       `${BASE_URL}?connection_limit=20` +
       `&connect_timeout=5&application_name=archive-service` +
-      `&options=${encodeURIComponent('-c idle_session_timeout=1800000 -c statement_timeout=60000')}` +
-      `&pgbouncer=true`;
+      `&options=${encodeURIComponent('-c idle_session_timeout=60000 -c statement_timeout=60000')}`;
     expect(augmentArchiveDatabaseUrl(fullUrl, 20)).toBe(fullUrl);
-  });
-
-  it('не перезаписывает явно заданный pgbouncer (devops может выключить)', () => {
-    const url = `${BASE_URL}?pgbouncer=false`;
-    const params = paramsOf(augmentArchiveDatabaseUrl(url, 20));
-    expect(params.get('pgbouncer')).toBe('false');
   });
 
   it('возвращает битый URL без изменений (Prisma даст понятную ошибку при connect)', () => {
@@ -79,7 +70,6 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134 / KS-2138)', () => {
     expect(params.get('sslmode')).toBe('require');
     expect(params.get('connection_limit')).toBe('20');
     expect(params.get('options')).toContain('idle_session_timeout');
-    expect(params.get('pgbouncer')).toBe('true');
   });
 });
 

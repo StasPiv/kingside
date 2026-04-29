@@ -96,6 +96,18 @@ model ArchiveGame {
   // metadata-фильтры, которые не сочетаются с `source_id`. Вернуть, если
   // появится оперативная задача «партии этого источника за дату».
   @@index([timeControlCategory], name: "archive_games_time_control_category_idx")
+  // KS-2138 фаза 4: композитные индексы под `MetadataSqlBuilder.itemsSql`
+  // — фильтр по time_control_category + ORDER BY played_at DESC, id DESC.
+  // Без них planner делал Parallel Seq Scan на 330K строк / 760 МБ
+  // (Execution Time 5.6 сек на cold cache db.t3.micro).
+  @@index(
+    [timeControlCategory, playedAt(sort: Desc), id(sort: Desc)],
+    name: "archive_games_tcc_played_at_id_idx",
+  )
+  @@index(
+    [playedAt(sort: Desc), id(sort: Desc)],
+    name: "archive_games_played_at_id_idx",
+  )
   @@map("archive_games")
 }
 
@@ -171,7 +183,12 @@ model ArchivePlayer {
   // (см. миграцию `20260428000001_archive_players_events_mv`), а точные
   // lookup'ы по name_canonical — через unique-индекс на `slug` (имя →
   // slug → запись). Plain B-tree не используется ни одним запросом.
+  // KS-2138 фаза 4: индекс на `name_canonical` ВЕРНУЛИ — JOIN из
+  // `MetadataSqlBuilder.itemsSql` (`pw.name_canonical = g.white_name`,
+  // `pb.name_canonical = g.black_name`) шёл Hash Join по большой
+  // таблице. Это часть cold first-hit penalty в /games.
   @@index([gamesCount(sort: Desc)])
+  @@index([nameCanonical], name: "archive_players_name_canonical_idx")
   @@map("archive_players")
 }
 
