@@ -63,6 +63,8 @@ const baseProfile = {
 
 const baseGames = {
   total: 50,
+  // KS-2141: бэкенд теперь отдаёт `hasNext` через LIMIT+1 trick.
+  hasNext: true,
   items: [
     {
       id: 'g1',
@@ -349,7 +351,7 @@ describe('ArchivePlayerProfilePage — список и фильтры', () => {
 
   it('пустой список + активный color-фильтр → empty + Reset filters', async () => {
     mockApi.getArchivePlayerProfile.mockResolvedValueOnce(baseProfile);
-    mockApi.getArchivePlayerGames.mockResolvedValueOnce({ total: 0, items: [] });
+    mockApi.getArchivePlayerGames.mockResolvedValueOnce({ total: 0, hasNext: false, items: [] });
     const user = (await import('@testing-library/user-event')).default.setup();
 
     renderWithProviders(<ArchivePlayerProfilePage />, {
@@ -363,7 +365,7 @@ describe('ArchivePlayerProfilePage — список и фильтры', () => {
     const reset = screen.getByTestId('archive-player-profile-reset-filters');
     expect(reset).toBeInTheDocument();
 
-    mockApi.getArchivePlayerGames.mockResolvedValueOnce({ total: 0, items: [] });
+    mockApi.getArchivePlayerGames.mockResolvedValueOnce({ total: 0, hasNext: false, items: [] });
     await user.click(reset);
     await waitFor(() =>
       expect(mockApi.getArchivePlayerGames).toHaveBeenLastCalledWith(
@@ -409,6 +411,54 @@ describe('ArchivePlayerProfilePage — список и фильтры', () => {
     );
 
     mockApi.getArchivePlayerGames.mockResolvedValueOnce(baseGames);
+    await user.click(screen.getByTestId('archive-player-profile-next'));
+    await waitFor(() =>
+      expect(mockApi.getArchivePlayerGames).toHaveBeenLastCalledWith(
+        'magnus-carlsen',
+        expect.objectContaining({ offset: 20 }),
+      ),
+    );
+  });
+
+  // ─── KS-2141: total nullable + hasNext-pagination ────────────────
+  it('KS-2141: `hasNext: false` блокирует Next даже при total === null', async () => {
+    mockApi.getArchivePlayerProfile.mockResolvedValueOnce(baseProfile);
+    mockApi.getArchivePlayerGames.mockResolvedValueOnce({
+      total: null,
+      hasNext: false,
+      items: baseGames.items,
+    });
+
+    renderWithProviders(<ArchivePlayerProfilePage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('archive-player-profile-next')).toBeDisabled();
+    // Page-info без «/ N» — total неизвестен.
+    const pageInfo = screen.getByTestId('archive-player-profile-page-info');
+    expect(pageInfo.textContent).toMatch(/Page\s*1\b/);
+    expect(pageInfo.textContent).not.toMatch(/\/\s*\d/);
+  });
+
+  it('KS-2141: `hasNext: true` + total === null → Next активен и переключает offset', async () => {
+    mockApi.getArchivePlayerProfile.mockResolvedValueOnce(baseProfile);
+    mockApi.getArchivePlayerGames.mockResolvedValueOnce({
+      total: null,
+      hasNext: true,
+      items: baseGames.items,
+    });
+    const user = (await import('@testing-library/user-event')).default.setup();
+
+    renderWithProviders(<ArchivePlayerProfilePage />);
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+
+    mockApi.getArchivePlayerGames.mockResolvedValueOnce({
+      total: null,
+      hasNext: false,
+      items: baseGames.items,
+    });
     await user.click(screen.getByTestId('archive-player-profile-next'));
     await waitFor(() =>
       expect(mockApi.getArchivePlayerGames).toHaveBeenLastCalledWith(

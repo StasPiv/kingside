@@ -328,9 +328,20 @@ export function ArchivePlayerProfilePage() {
   }, [state, writeState]);
 
   const handleNext = useCallback(() => {
-    const total = games?.total ?? 0;
-    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
-    if (state.page >= totalPages) return;
+    // KS-2141: с skipTotal `total` может быть null — двигаемся вперёд
+    // через `hasNext`. Backward-compat: если бэк ещё на старом DTO
+    // (нет `hasNext`), считаем по total/pageSize.
+    if (!games) return;
+    let canNext: boolean;
+    if (typeof games.hasNext === 'boolean') {
+      canNext = games.hasNext;
+    } else if (games.total !== null && games.total > 0) {
+      const totalPages = Math.max(1, Math.ceil(games.total / state.pageSize));
+      canNext = state.page < totalPages;
+    } else {
+      canNext = false;
+    }
+    if (!canNext) return;
     writeState({ ...state, page: state.page + 1 });
   }, [games, state, writeState]);
 
@@ -406,8 +417,18 @@ export function ArchivePlayerProfilePage() {
   const blackPct = pct(profile.byColor.black, totalColorGames);
 
   const items: ArchivePlayerGameItem[] = games?.items ?? [];
-  const total = games?.total ?? 0;
-  const totalPages = total > 0 ? Math.max(1, Math.ceil(total / state.pageSize)) : 1;
+  // KS-2141: `total` теперь nullable — `null` означает что бэкенд
+  // пропустил COUNT(*) при skipTotal (любой фильтр / non-recent sort /
+  // offset>0). См. ArchiveGamesPage для деталей контракта.
+  const total: number | null = games?.total ?? null;
+  const totalPages =
+    total !== null && total > 0
+      ? Math.max(1, Math.ceil(total / state.pageSize))
+      : null;
+  // KS-2141: backward-compat для старого DTO без `hasNext` —
+  // см. ArchiveGamesPage.
+  const hasNext =
+    games?.hasNext ?? (totalPages !== null ? state.page < totalPages : false);
 
   const hasActiveFilters =
     state.color !== 'any' ||
@@ -646,17 +667,23 @@ export function ArchivePlayerProfilePage() {
             className="archive-games-metadata__page-info"
             data-testid="archive-player-profile-page-info"
           >
-            {t('player.games.pageInfo', {
-              defaultValue: 'Page {{page}} / {{total}}',
-              page: state.page,
-              total: totalPages,
-            })}
+            {totalPages !== null
+              ? t('player.games.pageInfo', {
+                  defaultValue: 'Page {{page}} / {{total}}',
+                  page: state.page,
+                  total: totalPages,
+                })
+              : // KS-2141: total неизвестен — без «/ N».
+                t('player.games.pageInfoNoTotal', {
+                  defaultValue: 'Page {{page}}',
+                  page: state.page,
+                })}
           </span>
           <button
             type="button"
             data-testid="archive-player-profile-next"
             onClick={handleNext}
-            disabled={state.page >= totalPages || gamesLoading}
+            disabled={!hasNext || gamesLoading}
           >
             {t('player.games.next', 'Next')} →
           </button>

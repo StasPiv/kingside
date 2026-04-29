@@ -82,6 +82,10 @@ afterEach(() => {
 
 const sampleResponse = {
   total: 42,
+  // KS-2141: с расширенным `skipTotal` бэкенд считает COUNT только для
+  // clean recent (cache-path); во всех остальных случаях возвращает
+  // `total: null`. `hasNext` — обязательное поле для пагинации.
+  hasNext: true,
   items: [
     {
       id: 'g1',
@@ -312,7 +316,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
   });
 
   it('пустой ответ + активные фильтры → empty + Reset filters', async () => {
-    mockGetGamesMetadata.mockResolvedValueOnce({ total: 0, items: [] });
+    mockGetGamesMetadata.mockResolvedValueOnce({ total: 0, hasNext: false, items: [] });
     const user = (await import('@testing-library/user-event')).default.setup();
     renderWithProviders(<ArchiveGamesPage />, {
       route: '/archive/games?player=Carlsen',
@@ -324,7 +328,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
     const reset = screen.getByTestId('archive-games-reset-filters');
     expect(reset).toBeInTheDocument();
 
-    mockGetGamesMetadata.mockResolvedValueOnce({ total: 0, items: [] });
+    mockGetGamesMetadata.mockResolvedValueOnce({ total: 0, hasNext: false, items: [] });
     await user.click(reset);
     // После сброса URL очищается — страница должна перезапросить без player.
     await waitFor(() =>
@@ -335,7 +339,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
   });
 
   it('пустой ответ без фильтров → empty без Reset filters', async () => {
-    mockGetGamesMetadata.mockResolvedValueOnce({ total: 0, items: [] });
+    mockGetGamesMetadata.mockResolvedValueOnce({ total: 0, hasNext: false, items: [] });
     renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
     await waitFor(() =>
       expect(screen.getByTestId('archive-games-empty')).toBeInTheDocument(),
@@ -354,6 +358,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
 
     mockGetGamesMetadata.mockResolvedValueOnce({
       total: 42,
+      hasNext: false,
       items: [sampleResponse.items[1]],
     });
     await user.click(screen.getByTestId('archive-games-metadata-next'));
@@ -440,5 +445,84 @@ describe('ArchiveGamesPage — metadata режим', () => {
         expect.objectContaining({ sort: 'topElo', offset: 0 }),
       ),
     );
+  });
+
+  // ─── KS-2141: total nullable + hasNext-pagination ────────────────
+  it('KS-2141: `total === null` → счётчик «Total: N» скрыт, pagination видна, «Page N»', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: true,
+      items: sampleResponse.items,
+    });
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    // Total-строка не отрендерена.
+    expect(screen.queryByTestId('archive-games-metadata-total')).toBeNull();
+    // Page-info без «/ N».
+    const pageInfo = screen.getByTestId('archive-games-metadata-page-info');
+    expect(pageInfo.textContent).toMatch(/Page\s*1\b/);
+    expect(pageInfo.textContent).not.toMatch(/\/\s*\d/);
+  });
+
+  it('KS-2141: `hasNext: false` → кнопка Next disabled даже при total === null', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: false,
+      items: sampleResponse.items,
+    });
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('archive-games-metadata-next')).toBeDisabled();
+  });
+
+  it('KS-2141: `hasNext: true` + `total === null` → клик Next переключает на page=2 (offset=pageSize)', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: true,
+      items: sampleResponse.items,
+    });
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: false,
+      items: [sampleResponse.items[1]],
+    });
+    await user.click(screen.getByTestId('archive-games-metadata-next'));
+
+    await waitFor(() =>
+      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 20 }),
+      ),
+    );
+  });
+
+  it('KS-2141: `total: 42` (cache-path recent) → «Total: 42» виден, «Page 1 / 3»', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: 42,
+      hasNext: true,
+      items: sampleResponse.items,
+    });
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    expect(
+      screen.getByTestId('archive-games-metadata-total').textContent,
+    ).toMatch(/42/);
+    const pageInfo = screen.getByTestId('archive-games-metadata-page-info');
+    expect(pageInfo.textContent).toMatch(/Page\s*1\s*\/\s*3/);
   });
 });

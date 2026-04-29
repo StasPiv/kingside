@@ -277,9 +277,21 @@ function ArchiveMetadataMode() {
   }, [filterValues, page, pageSize, writeFilters]);
 
   const handleNext = useCallback(() => {
+    // KS-2141: после `skipTotal` бэкенд может не знать `total` (вернёт
+    // `null`), но всегда отдаёт `hasNext`. Если `hasNext === false` —
+    // страницы-2 нет. Backward-compat: если бэк ещё старого формата
+    // (нет `hasNext` в DTO), считаем по total/pageSize, иначе блокируем.
     if (!data) return;
-    const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-    if (page >= totalPages) return;
+    let canNext: boolean;
+    if (typeof data.hasNext === 'boolean') {
+      canNext = data.hasNext;
+    } else if (data.total !== null && data.total > 0) {
+      const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
+      canNext = page < totalPages;
+    } else {
+      canNext = false;
+    }
+    if (!canNext) return;
     writeFilters(filterValues, page + 1, pageSize);
   }, [data, filterValues, page, pageSize, writeFilters]);
 
@@ -318,8 +330,23 @@ function ArchiveMetadataMode() {
   }, [filterValues, page, pageSize]);
 
   const items: ArchiveGameSummary[] = data?.items ?? [];
-  const total = data?.total ?? 0;
-  const totalPages = total > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+  // KS-2141: `total` теперь nullable. `null` означает «бэк пропустил
+  // COUNT(*)» (любой фильтр / non-recent sort / offset>0). Не делаем
+  // подстановку 0 — она спутала бы UI с настоящим «нет партий».
+  const total: number | null = data?.total ?? null;
+  // totalPages считаем только когда total известен. Иначе — пагинация
+  // через `hasNext`, без знания «последней страницы».
+  const totalPages =
+    total !== null && total > 0
+      ? Math.max(1, Math.ceil(total / pageSize))
+      : null;
+  // KS-2141: `hasNext` — обязательное поле в новом DTO. Если бэк ещё
+  // на старом формате (deploy окно: фронт может уехать раньше) и
+  // прислал ответ без `hasNext`, fallback'имся к расчёту через total
+  // (классическая offset-pagination), чтобы не блокировать пользователю
+  // переход на следующую страницу.
+  const hasNext =
+    data?.hasNext ?? (totalPages !== null ? page < totalPages : false);
 
   // ─── Сводка фильтров (для header'а) ──────────────────────────────
   const summaryParts: string[] = [];
@@ -363,15 +390,23 @@ function ArchiveMetadataMode() {
         >
           {summaryText}
         </p>
-        <p
-          className="archive-games-metadata__total"
-          data-testid="archive-games-metadata-total"
-        >
-          {t('games.metadata.totalCount', {
-            defaultValue: 'Total: {{count}}',
-            count: total,
-          })}
-        </p>
+        {/* KS-2141: «Total: N» показываем только когда бэкенд реально
+            посчитал COUNT(*) (clean recent / cache-path KS-2090). При
+            любом фильтре `total === null` — просто не выводим строку,
+            чтобы не врать пользователю «0 партий» и не показывать
+            прочерк. Пагинация при этом продолжает работать через
+            `hasNext`. */}
+        {total !== null && (
+          <p
+            className="archive-games-metadata__total"
+            data-testid="archive-games-metadata-total"
+          >
+            {t('games.metadata.totalCount', {
+              defaultValue: 'Total: {{count}}',
+              count: total,
+            })}
+          </p>
+        )}
       </header>
 
       <ArchiveMetadataFilters
@@ -447,8 +482,11 @@ function ArchiveMetadataMode() {
       {/* Пагинация.
           KS-2135: оставляем видимой при наличии данных (даже если идёт
           перезапрос соседней страницы / смена sort / page-size) — кнопки
-          уже `disabled={loading}`, но сама панель не должна мигать. */}
-      {(items.length > 0 || total > 0) && (
+          уже `disabled={loading}`, но сама панель не должна мигать.
+          KS-2141: pagination показываем при `items.length > 0` ИЛИ
+          когда total>0 (cached recent). При `total === null` нет «Page
+          N / total», только «Page N»; «Next» управляется `hasNext`. */}
+      {(items.length > 0 || (total !== null && total > 0)) && (
         <nav
           className="archive-games-metadata__pagination"
           data-testid="archive-games-metadata-pagination"
@@ -466,17 +504,25 @@ function ArchiveMetadataMode() {
             className="archive-games-metadata__page-info"
             data-testid="archive-games-metadata-page-info"
           >
-            {t('games.metadata.pageInfo', {
-              defaultValue: 'Page {{page}} / {{total}}',
-              page,
-              total: totalPages,
-            })}
+            {totalPages !== null
+              ? t('games.metadata.pageInfo', {
+                  defaultValue: 'Page {{page}} / {{total}}',
+                  page,
+                  total: totalPages,
+                })
+              : // KS-2141: total неизвестен (skipTotal на бэке) — показываем
+                // только «Page N», без «/ N» (нет данных для последней
+                // страницы, не врём пользователю).
+                t('games.metadata.pageInfoNoTotal', {
+                  defaultValue: 'Page {{page}}',
+                  page,
+                })}
           </span>
           <button
             type="button"
             data-testid="archive-games-metadata-next"
             onClick={handleNext}
-            disabled={page >= totalPages || loading}
+            disabled={!hasNext || loading}
           >
             {t('games.metadata.next', 'Next')} →
           </button>

@@ -54,7 +54,7 @@ beforeEach(() => {
   mockNavigate.mockReset();
   // Дефолт: recent games пустые, чтобы тесты, которые их не интересуют,
   // не зависели от них.
-  mockApi.getArchiveGamesMetadata.mockResolvedValue({ total: 0, items: [] });
+  mockApi.getArchiveGamesMetadata.mockResolvedValue({ total: 0, hasNext: false, items: [] });
 });
 
 afterEach(() => {
@@ -250,6 +250,7 @@ describe('ArchiveLobbyPage — Recent games', () => {
     mockApi.getArchiveGamesMetadata.mockReset();
     mockApi.getArchiveGamesMetadata.mockResolvedValueOnce({
       total: 1,
+      hasNext: false,
       items: [
         {
           id: 'g1',
@@ -291,6 +292,7 @@ describe('ArchiveLobbyPage — Recent games', () => {
 
     mockApi.getArchiveGamesMetadata.mockResolvedValueOnce({
       total: 0,
+      hasNext: false,
       items: [],
     });
     await user.click(screen.getByTestId('archive-lobby-recent-retry'));
