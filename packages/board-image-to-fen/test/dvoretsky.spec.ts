@@ -86,10 +86,13 @@ const EXPECTED_FENS: Array<{
   { diagram: 'content_1.4', filename: 'diag_1.4.png', fenBoard: '2k5/8/8/7p/8/8/6P1/5K2', sideToMove: 'w' },
   { diagram: 'content_1.5', filename: 'diag_1.5.png', fenBoard: '8/3p4/3P4/8/5k2/3K4/8/8', sideToMove: 'b' },
   { diagram: 'content_1.7', filename: 'diag_1.7.png', fenBoard: '8/1k6/1p6/1K6/P1P5/8/8/8', sideToMove: 'b' },
-  // Set 3: content's batch2 (KS-2132 фаза 4) — другие позиции той же
+  // Set 3: content's batch2 (KS-2132 фаза 4-5) — другие позиции той же
   // растеризации; смена L2→IoU + sanity-check на дубль королей.
   { diagram: 'content_1.10', filename: 'diag_1.10.png', fenBoard: '4k3/8/3p4/3P4/2P5/8/8/5K2', sideToMove: 'w' },
   { diagram: 'content_1.11', filename: 'diag_1.11.png', fenBoard: '8/8/2p5/K1p2k2/p1P5/P7/8/8', sideToMove: 'b' },
+  // Фаза 5: тяжёлые фигуры (ферзь / ладья).
+  { diagram: 'content_1.12', filename: 'diag_1.12.png', fenBoard: '8/8/1p1k4/pR6/PP6/3q4/8/1K6', sideToMove: 'w' },
+  { diagram: 'content_1.13', filename: 'diag_1.13.png', fenBoard: '8/5p2/3k1p2/5R1p/3K3P/5rP1/8/8', sideToMove: 'w' },
 ];
 
 function fixturePath(filename: string): string {
