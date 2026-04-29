@@ -26,49 +26,61 @@ const moduleLogger = new Logger('PrismaService');
 const DEFAULT_CONNECTION_LIMIT = 20;
 
 /**
- * KS-2134. Дополнительные defaults для DATABASE_URL, лечащие холодный
- * first-hit 5-7 сек и leak `SELECT 1` в `pg_stat_activity` (16+ мин).
+ * KS-2134. Дополнительные defaults для DATABASE_URL.
  *
- * Корень leak'а — `HealthController.pingWithTimeout()` использует
- * `Promise.race([ping, timeout])`, но pending Prisma-запрос не
- * отменяется при срабатывании 500мс таймаута. В сочетании с RDS
- * default `idle_session_timeout=0` (Postgres сам не выкидывает
- * idle-сессии) и долгим TCP keepalive-default (5 мин + 2×30 с до
- * детекции мёртвого сокета) соединение зависает.
+ * Фаза 1 (коммит e58cdbf1): `socket_timeout`, TCP keepalive — на проде
+ * НЕ помогли. Devops снимок:
+ *   - холодный first-hit `/games` 5.88 сек (без улучшения);
+ *   - висящие SELECT 1 от archive-service остались (3+ мин);
+ *   - WARN `db ping timeout` участился — 6 событий за 5 мин;
+ *   - сработал только `application_name=archive-service`.
+ * Гипотеза devops: TCP keepalive не пробрасывается через NAT/SG между
+ * ECS и RDS; client-side `socket_timeout` не отменяет idle session
+ * на сервере.
  *
- * Server-side timeouts на kingside-archive-db (snapshot devops):
- *   idle_in_transaction_session_timeout = 24 ч
- *   idle_session_timeout = 0 (без лимита)
- *   tcp_keepalives_idle/interval/count = 300/30/2
+ * Фаза 2: переключаемся на server-side timeouts через Postgres
+ * `options=-c parameter=value` query parameter (libpq стандарт).
+ * Параметры применяются к session при connect и НЕ зависят от
+ * Prisma client implementation.
  *
- * Параметры:
- *   - `socket_timeout=10` — Prisma сама закроет запрос дольше 10 сек.
- *     Главный фикс leak'а: даже если HealthController отбросит
- *     результат через 500мс race-таймаут, реальное соединение
- *     закроется через 10 сек (вместо 16+ мин на проде).
- *   - `connect_timeout=5` — быстрый фейл при недоступности RDS,
- *     вместо TCP-default ~30 сек.
+ * Параметры (фаза 2):
+ *   - `options=-c idle_session_timeout=60000 -c statement_timeout=60000`
+ *     — Postgres сам закроет idle сессии через 60 сек и убьёт запросы
+ *     дольше 60 сек. На archive-importer (тяжёлые INSERT'ы) 60 сек
+ *     достаточно с запасом — типичный INSERT 1k partий ~ 5 сек.
+ *   - `connect_timeout=5` — быстрый фейл при недоступности RDS.
  *   - `application_name=archive-service` — для diagnostic'ов
- *     `pg_stat_activity` (devops снимок: текущее application_name
- *     пустое, не видно кто держит коннекты).
- *   - TCP keepalive: `keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3`
- *     — обнаружить мёртвое соединение за ~60 сек вместо TCP-default
- *     2 часа. Если NAT/SG между ECS и RDS режет idle-TCP раньше,
- *     keepalive поднимет это до того, как пользовательский запрос
- *     попадёт на дохлый коннект.
+ *     `pg_stat_activity`.
+ *
+ * Параметры из фазы 1 (`socket_timeout`, TCP keepalive) — убраны как
+ * нерабочие в текущей сетевой топологии.
+ *
+ * Лечение холодного first-hit — отдельно через `OnModuleInit` warm-up
+ * (см. `PrismaService.onModuleInit`): открываем N коннектов параллельно
+ * через `SELECT 1`, чтобы пул был наполнен к моменту первого
+ * пользовательского запроса.
  *
  * Override через env: если параметр уже задан в `ARCHIVE_DATABASE_URL`,
  * НЕ перезаписываем — devops сохраняет контроль через secret.
  */
 const DEFAULT_DATABASE_URL_PARAMS: Record<string, string> = {
-  socket_timeout: '10',
   connect_timeout: '5',
   application_name: 'archive-service',
-  keepalives: '1',
-  keepalives_idle: '30',
-  keepalives_interval: '10',
-  keepalives_count: '3',
+  options: '-c idle_session_timeout=60000 -c statement_timeout=60000',
 };
+
+/**
+ * KS-2134 фаза 2. При старте `PrismaService` открываем N коннектов
+ * параллельно через `SELECT 1`. Это лечит холодный first-hit 5-7 сек на
+ * `/games` после fresh deploy: Prisma lazy pool init создаёт коннекты
+ * только при первом запросе, а первый коннект к RDS из ECS-Fargate +
+ * NAT может занимать ~5 сек (TCP handshake + TLS).
+ *
+ * 5 коннектов — половина типичного `connection_limit=20`. Этого хватит
+ * чтобы первые ~5 параллельных `/games` запросов сразу попали на готовые
+ * коннекты, остальные подождут <100 мс пока пул допарсит.
+ */
+const WARMUP_CONNECTIONS = 5;
 
 /**
  * Prisma-клиент для archive-service. Использует пакет `@kingside/archive-db`
@@ -89,6 +101,35 @@ export class PrismaService
 
   async onModuleInit() {
     await this.$connect();
+    // KS-2134 фаза 2: warm-up пула параллельными SELECT 1, чтобы первый
+    // пользовательский запрос не платил TCP handshake + TLS (~5 сек на
+    // ECS-Fargate → RDS через NAT).
+    await this.warmupPool(WARMUP_CONNECTIONS);
+  }
+
+  /**
+   * KS-2134 фаза 2. Прогрев пула: N параллельных `SELECT 1`. Каждый
+   * запрос берёт свободный коннект из пула, что заставляет Prisma
+   * создать новый (если пул пуст) или переиспользовать существующий.
+   * После Promise.all'а в пуле гарантированно ≥ N открытых коннектов.
+   *
+   * Ошибки логируем, но НЕ кидаем — health check всё равно покажет
+   * degraded если RDS недоступен, и фаталить старт сервиса из-за
+   * прогрева избыточно.
+   */
+  private async warmupPool(n: number): Promise<void> {
+    try {
+      await Promise.all(
+        Array.from({ length: n }, () =>
+          this.$queryRawUnsafe<Array<{ ok: number }>>('SELECT 1 AS ok'),
+        ),
+      );
+      moduleLogger.log(`prisma pool warmed up: ${n} connections`);
+    } catch (err) {
+      moduleLogger.warn(
+        `prisma pool warmup failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async onModuleDestroy() {

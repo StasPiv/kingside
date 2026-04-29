@@ -18,31 +18,29 @@ function paramsOf(url: string): URLSearchParams {
 }
 
 describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
-  it('добавляет все KS-2134 defaults к чистому URL', () => {
+  it('добавляет все KS-2134 фаза 2 defaults к чистому URL', () => {
     const result = augmentArchiveDatabaseUrl(BASE_URL, 20);
     const params = paramsOf(result);
     expect(params.get('connection_limit')).toBe('20');
-    expect(params.get('socket_timeout')).toBe('10');
     expect(params.get('connect_timeout')).toBe('5');
     expect(params.get('application_name')).toBe('archive-service');
-    expect(params.get('keepalives')).toBe('1');
-    expect(params.get('keepalives_idle')).toBe('30');
-    expect(params.get('keepalives_interval')).toBe('10');
-    expect(params.get('keepalives_count')).toBe('3');
+    // server-side timeouts через libpq options
+    expect(params.get('options')).toBe(
+      '-c idle_session_timeout=60000 -c statement_timeout=60000',
+    );
   });
 
   it('не перезаписывает явно заданный connection_limit', () => {
     const url = `${BASE_URL}?connection_limit=5`;
     const params = paramsOf(augmentArchiveDatabaseUrl(url, 20));
     expect(params.get('connection_limit')).toBe('5');
-    // Остальные KS-2134 defaults всё равно подставлены.
-    expect(params.get('socket_timeout')).toBe('10');
+    expect(params.get('options')).toContain('idle_session_timeout');
   });
 
-  it('не перезаписывает явно заданный socket_timeout', () => {
-    const url = `${BASE_URL}?socket_timeout=30`;
+  it('не перезаписывает явно заданный options (если devops уже выставил свой)', () => {
+    const url = `${BASE_URL}?options=-c%20statement_timeout%3D30000`;
     const params = paramsOf(augmentArchiveDatabaseUrl(url, 20));
-    expect(params.get('socket_timeout')).toBe('30');
+    expect(params.get('options')).toBe('-c statement_timeout=30000');
     expect(params.get('connection_limit')).toBe('20');
   });
 
@@ -52,21 +50,11 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
     expect(params.get('application_name')).toBe('archive-importer-daily');
   });
 
-  it('не перезаписывает keepalives* если уже заданы', () => {
-    const url = `${BASE_URL}?keepalives=0&keepalives_idle=60`;
-    const params = paramsOf(augmentArchiveDatabaseUrl(url, 20));
-    expect(params.get('keepalives')).toBe('0');
-    expect(params.get('keepalives_idle')).toBe('60');
-    // не заданные — добавлены
-    expect(params.get('keepalives_interval')).toBe('10');
-    expect(params.get('keepalives_count')).toBe('3');
-  });
-
   it('возвращает URL как есть, если он уже содержит все defaults (нет изменений)', () => {
     const fullUrl =
       `${BASE_URL}?connection_limit=20` +
-      `&socket_timeout=10&connect_timeout=5&application_name=archive-service` +
-      `&keepalives=1&keepalives_idle=30&keepalives_interval=10&keepalives_count=3`;
+      `&connect_timeout=5&application_name=archive-service` +
+      `&options=${encodeURIComponent('-c idle_session_timeout=60000 -c statement_timeout=60000')}`;
     expect(augmentArchiveDatabaseUrl(fullUrl, 20)).toBe(fullUrl);
   });
 
@@ -81,7 +69,7 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
     expect(params.get('schema')).toBe('public');
     expect(params.get('pgbouncer')).toBe('true');
     expect(params.get('connection_limit')).toBe('20');
-    expect(params.get('socket_timeout')).toBe('10');
+    expect(params.get('options')).toContain('idle_session_timeout');
   });
 });
 
