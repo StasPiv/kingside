@@ -138,6 +138,16 @@ ${tcLine}
     expect(parsed?.timeControlCategory).toBe('blitz');
   });
 
+  it('KS-2131-fix: сокращённая форма TWIC `Titled Tue 17th Jun Early` → "blitz"', () => {
+    const parsed = parseGame(
+      pgnWithTC(null, {
+        event: 'Titled Tue 17th Jun Early',
+        site: 'chess.com',
+      }),
+    );
+    expect(parsed?.timeControlCategory).toBe('blitz');
+  });
+
   it('KS-2131: нет TC + Event «Bullet Brawl» + chess.com → "bullet" (bullet раньше blitz)', () => {
     const parsed = parseGame(
       pgnWithTC(null, {

@@ -123,9 +123,18 @@ const EVENT_BULLET_HINTS = [
   'bullet',
 ];
 
-/** Подстроки в `Event`, однозначно указывающие на blitz (KS-2131). */
+/**
+ * Подстроки в `Event`, однозначно указывающие на blitz (KS-2131).
+ *
+ * Заметка о `titled tue` (а не `titled tuesday`): TWIC хранит сокращённую
+ * форму вроде `Titled Tue 17th Jun Early`, `Titled Tue 23rd Sep 2025`.
+ * Подстрока `titled tue` покрывает и полную (`Titled Tuesday Blitz`),
+ * и сокращённую формы. Замена `titled tuesday → titled tue` сделана в
+ * KS-2131-fix после обнаружения 113 609 партий `Titled Tue …` в проде,
+ * которые после первого деплоя ушли в `unknown`.
+ */
 const EVENT_BLITZ_HINTS = [
-  'titled tuesday',
+  'titled tue',
   'titled cup',
   'blitz arena',
   'arena titled',

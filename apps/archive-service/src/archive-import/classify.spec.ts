@@ -241,6 +241,23 @@ describe('deriveArchiveTimeControlCategory (KS-2131)', () => {
     expect(deriveArchiveTimeControlCategory(c, 'Titled Tuesday Blitz 21st Apr 2026')).toBe('blitz');
   });
 
+  it('online-unknown + сокращённая форма TWIC `Titled Tue …` → blitz (KS-2131-fix)', () => {
+    // На проде после первого деплоя 113 609 партий с такой формой ушли в
+    // unknown — словарь содержал `titled tuesday`, а в архиве `Titled Tue`.
+    // После фикса хинт `titled tue` покрывает обе формы.
+    const events = [
+      'Titled Tue 17th Jun Early',
+      'Titled Tue 23rd Sep 2025',
+      'Titled Tue 17th Jun Late',
+      'Titled Tue 24th Mar 2026',
+    ];
+    for (const event of events) {
+      const c = classifyGame({ timeControl: null, site: 'chess.com', event });
+      expect(c.category).toBe('online-unknown');
+      expect(deriveArchiveTimeControlCategory(c, event)).toBe('blitz');
+    }
+  });
+
   it('online-unknown + Bullet Brawl → bullet (bullet проверяется до blitz)', () => {
     const c = classifyGame({
       timeControl: '-',

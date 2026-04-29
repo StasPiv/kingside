@@ -99,10 +99,12 @@ describe('classifyPgnTimeControl', () => {
 
 describe('ARCHIVE_TIME_CONTROL_EVENT_HINTS (KS-2131)', () => {
   it('экспортирует hint-списки для миграции backfill и runtime-классификатора', () => {
-    // sanity: blitz-list содержит titled tuesday, bullet-list — нет.
-    expect(ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz).toContain('titled tuesday');
+    // KS-2131-fix: подстрока `titled tue` (а не `titled tuesday`) — TWIC
+    // хранит сокращённую форму `Titled Tue 17th Jun Early`. Substring
+    // покрывает и полную форму `Titled Tuesday`.
+    expect(ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz).toContain('titled tue');
     expect(ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet).toContain('bullet brawl');
-    expect(ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet).not.toContain('titled tuesday');
+    expect(ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet).not.toContain('titled tue');
   });
 
   it('bullet-hints не пересекаются с blitz-hints (кроме generic-keyword порядка)', () => {
@@ -112,6 +114,23 @@ describe('ARCHIVE_TIME_CONTROL_EVENT_HINTS (KS-2131)', () => {
     const bulletSet = new Set<string>(ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet);
     for (const blitz of ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz) {
       expect(bulletSet.has(blitz)).toBe(false);
+    }
+  });
+
+  it('подстрока `titled tue` матчит и полную, и сокращённую форму TWIC', () => {
+    // sanity: реальные значения event'ов из прода (devops отчёт KS-2131).
+    const samples = [
+      'Titled Tuesday Blitz 21st Apr 2026',
+      'Titled Tue 17th Jun Early',
+      'Titled Tue 23rd Sep 2025',
+      'Titled Tue 17th Jun Late',
+    ];
+    for (const event of samples) {
+      const lower = event.toLowerCase();
+      const matched = ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz.some((h) =>
+        lower.includes(h),
+      );
+      expect(matched).toBe(true);
     }
   });
 });
