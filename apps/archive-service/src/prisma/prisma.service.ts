@@ -84,6 +84,25 @@ const DEFAULT_DATABASE_URL_PARAMS: Record<string, string> = {
   connect_timeout: '5',
   application_name: 'archive-service',
   options: '-c idle_session_timeout=1800000 -c statement_timeout=60000',
+  // KS-2138 фаза 3. Отключаем prepared statement cache в Prisma engine.
+  //
+  // Devops после фикса idle_session_timeout=30мин и развёртывания RDS Proxy
+  // (KS-2137) подтвердил, что cold first-hit на «уникальных» WHERE-шейпах
+  // /games (recent / classical / blitz / unknown) всё равно 6-7 сек, а
+  // повтор той же комбинации — 70 мс. Sidecar psql через Proxy быстрый
+  // → корень внутри Prisma engine, не в TCP/RDS.
+  //
+  // Гипотеза: каждый новый WHERE-shape `$queryRawUnsafe` создаёт новый
+  // PS у engine (`PREPARE` на стороне сервера), и эта операция в Prisma
+  // 6.x по какой-то причине занимает 5-7 сек на cold path. С
+  // `pgbouncer=true` Prisma не использует server-side prepared statements
+  // и шлёт каждый запрос как simple query. Это типичная рекомендация для
+  // pgbouncer/RDS Proxy в transaction-pooling режиме, но также избавляет
+  // от PS cache penalty в любой setup.
+  //
+  // Альтернатива была бы `statement_cache_size=0` — но это libpq
+  // параметр, Prisma его не пробрасывает.
+  pgbouncer: 'true',
 };
 
 /**

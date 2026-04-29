@@ -17,8 +17,8 @@ function paramsOf(url: string): URLSearchParams {
   return new URL(url).searchParams;
 }
 
-describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
-  it('добавляет все KS-2134 фаза 2 defaults к чистому URL', () => {
+describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134 / KS-2138)', () => {
+  it('добавляет все defaults к чистому URL', () => {
     const result = augmentArchiveDatabaseUrl(BASE_URL, 20);
     const params = paramsOf(result);
     expect(params.get('connection_limit')).toBe('20');
@@ -28,6 +28,8 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
     expect(params.get('options')).toBe(
       '-c idle_session_timeout=1800000 -c statement_timeout=60000',
     );
+    // KS-2138: отключаем PS cache Prisma engine
+    expect(params.get('pgbouncer')).toBe('true');
   });
 
   it('не перезаписывает явно заданный connection_limit', () => {
@@ -54,8 +56,15 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
     const fullUrl =
       `${BASE_URL}?connection_limit=20` +
       `&connect_timeout=5&application_name=archive-service` +
-      `&options=${encodeURIComponent('-c idle_session_timeout=1800000 -c statement_timeout=60000')}`;
+      `&options=${encodeURIComponent('-c idle_session_timeout=1800000 -c statement_timeout=60000')}` +
+      `&pgbouncer=true`;
     expect(augmentArchiveDatabaseUrl(fullUrl, 20)).toBe(fullUrl);
+  });
+
+  it('не перезаписывает явно заданный pgbouncer (devops может выключить)', () => {
+    const url = `${BASE_URL}?pgbouncer=false`;
+    const params = paramsOf(augmentArchiveDatabaseUrl(url, 20));
+    expect(params.get('pgbouncer')).toBe('false');
   });
 
   it('возвращает битый URL без изменений (Prisma даст понятную ошибку при connect)', () => {
@@ -64,12 +73,13 @@ describe('augmentArchiveDatabaseUrl (KS-2119 / KS-2134)', () => {
   });
 
   it('сохраняет существующие query-параметры в URL', () => {
-    const url = `${BASE_URL}?schema=public&pgbouncer=true`;
+    const url = `${BASE_URL}?schema=public&sslmode=require`;
     const params = paramsOf(augmentArchiveDatabaseUrl(url, 20));
     expect(params.get('schema')).toBe('public');
-    expect(params.get('pgbouncer')).toBe('true');
+    expect(params.get('sslmode')).toBe('require');
     expect(params.get('connection_limit')).toBe('20');
     expect(params.get('options')).toContain('idle_session_timeout');
+    expect(params.get('pgbouncer')).toBe('true');
   });
 });
 
