@@ -86,6 +86,10 @@ function activeSystem(over: Record<string, unknown> = {}) {
     lastActivityAt: over.lastActivityAt ?? '2026-04-20T00:00:00Z',
     currentLessonSlug: over.currentLessonSlug ?? null,
     currentLessonTitleI18nKey: over.currentLessonTitleI18nKey ?? null,
+    // KS-2147 / KS-2148: backend добавил inline `currentLessonTitle`
+    // в `ActiveSystemCourseDto`. Тест-хелпер дефолтит null, чтобы
+    // моки не падали с undefined.
+    currentLessonTitle: over.currentLessonTitle ?? null,
     currentLessonOrder: over.currentLessonOrder ?? null,
     coverUrl: over.coverUrl ?? null,
     ...over,

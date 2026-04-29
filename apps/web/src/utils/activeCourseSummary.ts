@@ -38,7 +38,11 @@ function mapSystem(c: ActiveSystemCourseDto): ActiveCourseSummary {
     lastActivityAt: c.lastActivityAt,
     currentLessonSlug: c.currentLessonSlug,
     currentLessonTitleI18nKey: c.currentLessonTitleI18nKey,
-    currentLessonTitle: null,
+    // KS-2147 / KS-2148: backend теперь шлёт inline `currentLessonTitle`
+    // в `ActiveSystemCourseDto`. Раньше тут хардкодом стоял `null`,
+    // и `LessonsHero` (variant continue) рендерил slug, когда ключа
+    // не было в `translation.json` (системные уроки Capablanca и т.п.).
+    currentLessonTitle: c.currentLessonTitle,
     currentLessonOrder: c.currentLessonOrder,
     href: `/lessons/${c.slug}`,
   };

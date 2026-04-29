@@ -369,6 +369,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
     await waitFor(() =>
       expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
         expect.objectContaining({ player: undefined }),
+        expect.anything(),
       ),
     );
   });
@@ -400,6 +401,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
     await waitFor(() =>
       expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
         expect.objectContaining({ limit: 50, offset: 0 }),
+        expect.anything(),
       ),
     );
   });
@@ -455,6 +457,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
     await waitFor(() =>
       expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
         expect.objectContaining({ sort: 'topElo', offset: 0 }),
+        expect.anything(),
       ),
     );
   });
@@ -582,6 +585,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
       // Cursor 'C2' из первой страницы передан во второй запрос.
       expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
         expect.objectContaining({ cursor: 'C2', offset: undefined }),
+        expect.anything(),
       );
       // nextCursor: null → end-of-archive.
       expect(screen.getByTestId('archive-games-end')).toBeInTheDocument();
@@ -621,6 +625,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
           cursor: undefined,
           offset: 0,
         }),
+        expect.anything(),
       ),
     );
     // Старая партия g1 пропала из списка (items очищены).
@@ -643,6 +648,7 @@ describe('ArchiveGamesPage — metadata режим', () => {
     await waitFor(() =>
       expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
         expect.objectContaining({ cursor: 'abc', offset: undefined }),
+        expect.anything(),
       ),
     );
   });
@@ -660,9 +666,114 @@ describe('ArchiveGamesPage — metadata режим', () => {
     await waitFor(() =>
       expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
         expect.objectContaining({ offset: 40, cursor: undefined }),
+        expect.anything(),
       ),
     );
   });
 
   // KS-2143 Next/Prev/page-info тесты заменены на KS-2144 (infinite scroll выше).
+
+  // ─── KS-2149: race-condition / dedup ─────────────────────────────
+  it('KS-2149: inflight ответ от старого reqKey игнорируется при смене фильтра', async () => {
+    // Готовим deferred promise для первой initial-загрузки. Не
+    // резолвим, пока не сменим URL — имитируем «висящий запрос».
+    let resolveInitialA: (v: unknown) => void = () => {};
+    const initialAPromise = new Promise((r) => {
+      resolveInitialA = r;
+    });
+    mockGetGamesMetadata.mockImplementationOnce(() => initialAPromise);
+
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    // Меняем sort до прихода ответа A. После selectOptions URL
+    // меняется, новый useEffect инкрементит seq, abort'ит controller A.
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: false,
+      nextCursor: null,
+      items: [{ ...sampleResponse.items[0], id: 'B1' }],
+    });
+    await user.selectOptions(
+      screen.getByTestId('archive-metadata-filter-sort'),
+      'topElo',
+    );
+
+    // Ответ B пришёл — на странице B1.
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-B1')).toBeInTheDocument(),
+    );
+
+    // Резолвим устаревший A-ответ. Он должен быть проигнорирован
+    // через seq-guard — items НЕ должны содержать A1.
+    resolveInitialA({
+      total: null,
+      hasNext: false,
+      nextCursor: null,
+      items: [{ ...sampleResponse.items[0], id: 'A1' }],
+    });
+    // Дай React шанс прогнать .then() — ничего не должно произойти.
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(screen.queryByTestId('archive-game-row-A1')).toBeNull();
+    expect(screen.getByTestId('archive-game-row-B1')).toBeInTheDocument();
+  });
+
+  it('KS-2149: dedup в loadMore — если ответ содержит уже виденный id, не дублируется', async () => {
+    // Кастомный IntersectionObserver — сами триггерим callback.
+    const observerCallbacks: Array<
+      (entries: Array<{ isIntersecting: boolean }>) => void
+    > = [];
+    class FakeIO {
+      cb: (entries: Array<{ isIntersecting: boolean }>) => void;
+      constructor(cb: (entries: Array<{ isIntersecting: boolean }>) => void) {
+        this.cb = cb;
+        observerCallbacks.push(cb);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeIO);
+
+    try {
+      // Page 1 с двумя items g1, g2 и nextCursor C2.
+      mockGetGamesMetadata.mockResolvedValueOnce({
+        total: null,
+        hasNext: true,
+        nextCursor: 'C2',
+        items: sampleResponse.items, // g1, g2
+      });
+      renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+      await waitFor(() =>
+        expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+      );
+
+      // Page 2 — backend ошибочно отдал g1 ещё раз + новый g3.
+      mockGetGamesMetadata.mockResolvedValueOnce({
+        total: null,
+        hasNext: false,
+        nextCursor: null,
+        items: [
+          sampleResponse.items[0], // g1 (дубль)
+          { ...sampleResponse.items[0], id: 'g3' },
+        ],
+      });
+      observerCallbacks.forEach((cb) => cb([{ isIntersecting: true }]));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('archive-game-row-g3')).toBeInTheDocument(),
+      );
+
+      // g1 должен быть один (не два) — dedup сработал.
+      expect(screen.getAllByTestId('archive-game-row-g1')).toHaveLength(1);
+      // g2 на месте, g3 добавлен.
+      expect(screen.getByTestId('archive-game-row-g2')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

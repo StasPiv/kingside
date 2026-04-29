@@ -40,11 +40,19 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
-async function archiveGet<T>(path: string, params?: URLSearchParams): Promise<T> {
+async function archiveGet<T>(
+  path: string,
+  params?: URLSearchParams,
+  signal?: AbortSignal,
+): Promise<T> {
   const qs = params && params.toString().length > 0 ? `?${params.toString()}` : '';
   const res = await fetch(`${ARCHIVE_URL}${path}${qs}`, {
     method: 'GET',
     headers: authHeaders(),
+    // KS-2149: AbortSignal — отменяем in-flight запросы при rapid
+    // filter change / unmount, чтобы устаревшие ответы не аппендились
+    // в новый список через race condition.
+    signal,
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -174,6 +182,7 @@ export function searchArchiveEvents(
  */
 export function getArchiveGamesMetadata(
   filters: ArchiveGamesRequest = {},
+  signal?: AbortSignal,
 ): Promise<ArchiveGamesResponse> {
   const params = new URLSearchParams();
   // KS-2084: `player` теперь принимает массив (KS-2081 на бэке).
@@ -214,8 +223,9 @@ export function getArchiveGamesMetadata(
     ['sort', filters.sort],
     ['limit', filters.limit],
     ['offset', filters.offset],
+    ['cursor', filters.cursor],
   ]);
-  return archiveGet<ArchiveGamesResponse>('/games', params);
+  return archiveGet<ArchiveGamesResponse>('/games', params, signal);
 }
 
 /**

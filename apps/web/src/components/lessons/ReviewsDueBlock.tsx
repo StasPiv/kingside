@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { ReviewDueItem } from '@kingside/shared';
 
+import { resolveInlineText } from '../../utils/inlineI18nText';
+
 /**
  * Блок «К повторению сегодня» (L-22 / KS-1799).
  *
@@ -80,10 +82,26 @@ export function ReviewsDueBlock({ items, errored }: ReviewsDueBlockProps) {
           >
             <div className="reviews-due-block__item-text">
               <div className="reviews-due-block__course">
-                {t(item.courseTitleI18nKey, item.courseSlug)}
+                {/* KS-2147: inline `courseTitle` имеет приоритет над
+                    i18n-ключом. Если в `translation.json` ключа нет
+                    (типичный случай для системных уроков курсов
+                    Capablanca / fundamentals) — раньше fallback падал
+                    на slug; теперь backend (KS-2148) присылает raw
+                    `Course.title` / `Lesson.title` из БД. */}
+                {resolveInlineText(
+                  item.courseTitle,
+                  item.courseTitleI18nKey,
+                  t,
+                  item.courseSlug,
+                )}
               </div>
               <div className="reviews-due-block__lesson">
-                {t(item.lessonTitleI18nKey, item.lessonSlug)}
+                {resolveInlineText(
+                  item.lessonTitle,
+                  item.lessonTitleI18nKey,
+                  t,
+                  item.lessonSlug,
+                )}
               </div>
               <div className="reviews-due-block__meta">
                 <span data-testid={`reviews-due-lastreviewed-${item.lessonSlug}`}>

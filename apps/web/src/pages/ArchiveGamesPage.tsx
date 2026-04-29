@@ -285,6 +285,16 @@ function ArchiveMetadataMode() {
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<() => void>(() => {});
 
+  // KS-2149: race-condition guard'ы.
+  //  - `requestSeqRef` — монотонный счётчик. Каждый запрос (initial /
+  //    loadMore) инкрементирует и захватывает локальный `mySeq`.
+  //    Перед setState проверяет `mySeq === requestSeqRef.current` —
+  //    игнорирует устаревшие ответы, пришедшие после смены фильтра.
+  //  - `inflightAbortRef` — AbortController последнего in-flight
+  //    запроса. При reset / повторном loadMore — abort предыдущего.
+  const requestSeqRef = useRef(0);
+  const inflightAbortRef = useRef<AbortController | null>(null);
+
   const writeFilters = useCallback(
     (next: ArchiveMetadataFilterValues, nextPageSize: number) => {
       // KS-2144: после любого изменения формы URL чистый — без cursor
@@ -322,8 +332,19 @@ function ArchiveMetadataMode() {
   // KS-2144: reqKey меняется при любом изменении формы или deep-link
   // — обнуляем items, скроллим вверх, запрашиваем первую страницу
   // (с учётом deep-link initial cursor / page).
+  // KS-2149: AbortController + seq-guard. При rapid filter change
+  // (debounce 400ms на player input, KS-2125) inflight loadMore от
+  // старого фильтра мог раньше прийти быстрее новой initial и
+  // зааппендиться в свежий список — отсюда дубли. Теперь:
+  //   1. Перед новым запросом — abort предыдущего.
+  //   2. Ответ применяется только если `mySeq === requestSeqRef.current`
+  //      — иначе тихо игнорируем (пришёл от старого фильтра).
   useEffect(() => {
-    let cancelled = false;
+    const mySeq = ++requestSeqRef.current;
+    inflightAbortRef.current?.abort();
+    const controller = new AbortController();
+    inflightAbortRef.current = controller;
+
     setItems([]);
     setNextCursor(undefined);
     setFirstPageTotal(null);
@@ -343,21 +364,26 @@ function ArchiveMetadataMode() {
           pageSize,
           initialCursor,
         ),
+        controller.signal,
       )
       .then((res) => {
-        if (cancelled) return;
+        if (mySeq !== requestSeqRef.current) return;
         setItems(res.items);
         setNextCursor(res.nextCursor ?? null);
         setFirstPageTotal(res.total);
         setLoading(false);
       })
       .catch((e: Error) => {
-        if (cancelled) return;
+        if (mySeq !== requestSeqRef.current) return;
+        if (e.name === 'AbortError') return;
         setError(e.message);
         setLoading(false);
       });
     return () => {
-      cancelled = true;
+      // Cleanup на unmount / следующем рендере с новым reqKey:
+      // отменяем in-flight, помечаем seq устаревшим (через инкремент
+      // в новом запуске).
+      controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqKey]);
@@ -365,21 +391,37 @@ function ArchiveMetadataMode() {
   // KS-2144: дозагрузка следующей страницы по cursor. Никаких
   // повторных запросов пока loading/loadingMore = true. Если бэк
   // отдал `nextCursor: null` — больше не дёргаемся.
+  // KS-2149: тот же seq-guard + abort — чтобы inflight loadMore от
+  // старого фильтра не аппендился в новый список.
   const loadMore = useCallback(() => {
     if (loading || loadingMore) return;
     if (!nextCursor) return; // null или undefined
+    const mySeq = ++requestSeqRef.current;
+    inflightAbortRef.current?.abort();
+    const controller = new AbortController();
+    inflightAbortRef.current = controller;
     setLoadingMore(true);
     setError(null);
     archiveApi
       .getArchiveGamesMetadata(
         metadataFiltersToRequest(filterValues, 1, pageSize, nextCursor),
+        controller.signal,
       )
       .then((res) => {
-        setItems((prev) => [...prev, ...res.items]);
+        if (mySeq !== requestSeqRef.current) return;
+        setItems((prev) => {
+          // KS-2149: дедупликация по id — safety net на случай если
+          // бэк/observer прислал ту же страницу дважды.
+          const seen = new Set(prev.map((p) => p.id));
+          const fresh = res.items.filter((it) => !seen.has(it.id));
+          return [...prev, ...fresh];
+        });
         setNextCursor(res.nextCursor ?? null);
         setLoadingMore(false);
       })
       .catch((e: Error) => {
+        if (mySeq !== requestSeqRef.current) return;
+        if (e.name === 'AbortError') return;
         setError(e.message);
         setLoadingMore(false);
       });
