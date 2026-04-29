@@ -225,6 +225,29 @@ class AgentDaemon:
         self._current_sender: str = ""
         self._current_reply_channel: str | None = None
         self._current_replied: bool = False
+        # Текущая активность для UI: kind in {idle,thinking,tool,writing,compacting,offline}
+        self._activity: dict = {"kind": "offline", "detail": "", "ts": time.time()}
+
+    def _emit_status(self, kind: str, detail: str = ""):
+        """Обновляет self._activity и пишет событие agent_status в agents.log.
+        SSE-стрим подхватит и пересылает как event: status. Записываем только
+        реальные изменения (kind+detail отличаются от текущего), чтобы не
+        раздувать лог.
+        """
+        if self._activity.get("kind") == kind and self._activity.get("detail") == detail:
+            return
+        now = time.time()
+        self._activity = {"kind": kind, "detail": detail, "ts": now}
+        try:
+            with open(os.path.join(LOG_DIR, "agents.log"), "a") as lf:
+                lf.write(_json_with_ts({
+                    "type": "agent_status",
+                    "agent": self.name,
+                    "kind": kind,
+                    "detail": detail,
+                }))
+        except OSError:
+            pass
 
     def _build_cmd(self) -> list[str]:
         volumes = _get_agent_volumes(self.name)
@@ -280,6 +303,7 @@ class AgentDaemon:
         self._total_cost = 0.0
         self._message_count = 0
         log(f"Daemon {self.name} запущен (PID: {self.proc.pid})")
+        self._emit_status("idle")
 
         # Поток чтения stdout
         self._reader_thread = threading.Thread(
@@ -315,20 +339,38 @@ class AgentDaemon:
 
                 # Отслеживаем tool_use: если агент вызвал agent_message/telegram_send
                 # с правильным адресатом — считаем что ответ отправителю дан.
-                if data.get("type") == "assistant" and self._current_reply_channel:
+                # Параллельно обновляем UI-статус активности.
+                t = data.get("type")
+                if t == "assistant":
                     msg = data.get("message") or {}
                     for c in msg.get("content") or []:
-                        if c.get("type") != "tool_use":
-                            continue
-                        tname = c.get("name", "")
-                        tinp = c.get("input") or {}
-                        expected = self._current_reply_channel
-                        if tname == "mcp__agent__agent_message":
-                            if expected == f"agent:{tinp.get('to') or ''}":
-                                self._current_replied = True
-                        elif tname == "mcp__agent__telegram_send":
-                            if expected == "telegram":
-                                self._current_replied = True
+                        ct = c.get("type")
+                        if ct == "thinking":
+                            self._emit_status("thinking")
+                        elif ct == "text":
+                            self._emit_status("writing")
+                        elif ct == "tool_use":
+                            tname = c.get("name", "")
+                            short = tname.replace("mcp__agent__", "").replace("mcp__", "")
+                            self._emit_status("tool", short)
+                            tinp = c.get("input") or {}
+                            expected = self._current_reply_channel
+                            if expected:
+                                if tname == "mcp__agent__agent_message":
+                                    if expected == f"agent:{tinp.get('to') or ''}":
+                                        self._current_replied = True
+                                elif tname == "mcp__agent__telegram_send":
+                                    if expected == "telegram":
+                                        self._current_replied = True
+                elif t == "user":
+                    # tool_result — вернулись в LLM, агент снова "думает"
+                    msg = data.get("message") or {}
+                    for c in msg.get("content") or []:
+                        if c.get("type") == "tool_result":
+                            self._emit_status("thinking")
+                            break
+                elif t == "system" and data.get("subtype") == "compact_boundary":
+                    self._emit_status("compacting")
 
                 # result означает что агент закончил обработку текущего сообщения
                 if data.get("type") == "result":
@@ -348,6 +390,7 @@ class AgentDaemon:
                     self._current_replied = False
 
                     _set_idle(self.name)
+                    self._emit_status("idle")
 
                     if expected and not replied:
                         log(f"Daemon {self.name}: ответ не отправлен (expected={expected}, sender={sender}) — шлю корректирующее")
@@ -371,6 +414,7 @@ class AgentDaemon:
         finally:
             if proc.stdout:
                 proc.stdout.close()
+            self._emit_status("offline")
             log(f"Daemon {self.name}: stdout reader завершён")
 
     def _send_raw(self, message_json: str):
@@ -505,6 +549,7 @@ class AgentDaemon:
             log(f"Daemon {self.name} остановлен (session_id={self.session_id} сохранён для resume)")
             self.proc = None
             _set_idle(self.name)
+            self._emit_status("offline")
 
 
 # ---------------------------------------------------------------------------
@@ -1649,6 +1694,10 @@ def _format_log_line(data: dict, agents_map: dict, agent_sid: dict, current_task
     t = data.get("type", "")
     sid = data.get("session_id", "")[:8]
 
+    # agent_status — отдельный SSE event 'status', не лог-строка
+    if t == "agent_status":
+        return None
+
     if t == "user_prompt":
         agent = data.get("agent", "")
         text = data.get("text", "")
@@ -1788,12 +1837,50 @@ def _inject_ts_attr(html: str, ts) -> str:
     return re.sub(r'<div class="(ev[^"]*)"', f'<div data-ts="{ts_f}" class="\\1"', html)
 
 
+def _send_status_event(wfile, payload: dict):
+    """Шлёт SSE-событие типа 'status' с JSON-пейлоадом."""
+    wfile.write(b"event: status\n")
+    wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
+
+
+def _snapshot_agent_statuses() -> list[dict]:
+    """Возвращает текущее состояние всех валидных агентов для UI-панели."""
+    statuses = []
+    valid = sorted(get_valid_agents())
+    with agent_daemons_lock:
+        for name in valid:
+            d = agent_daemons.get(name)
+            if d and d.proc and d.proc.poll() is None:
+                act = dict(d._activity)
+                act["alive"] = True
+            else:
+                act = {"kind": "offline", "detail": "", "ts": time.time(), "alive": False}
+            act["agent"] = name
+            statuses.append(act)
+    return statuses
+
+
 def _stream_logs_sse(wfile):
-    """SSE-стрим: читает agents.log и шлёт форматированные события."""
+    """SSE-стрим: читает agents.log и шлёт форматированные события.
+    Два типа сообщений:
+      - default 'message' — HTML-фрагмент лога;
+      - 'status' — JSON c активностью агента, для боковой панели.
+    """
     log_file = os.path.join(LOG_DIR, "agents.log")
     agents_map = {}
     agent_sid_map = {}
     current_task_map = {}
+
+    # Snapshot статусов всем агентам — клиент сразу заполнит панель
+    for s in _snapshot_agent_statuses():
+        try:
+            _send_status_event(wfile, s)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+    try:
+        wfile.flush()
+    except (BrokenPipeError, ConnectionResetError):
+        return
 
     with open(log_file, "r") as f:
         # Прочитаем весь файл для инициализации маппингов, отправим последние 100 строк
@@ -1821,6 +1908,8 @@ def _stream_logs_sse(wfile):
         for line in recent:
             try:
                 data = json.loads(line.strip())
+                if data.get("type") == "agent_status":
+                    continue  # snapshot уже выслан выше — старые статус-события не нужны
                 formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
                 if formatted:
                     formatted = _inject_ts_attr(formatted, data.get("ts"))
@@ -1838,6 +1927,17 @@ def _stream_logs_sse(wfile):
                 continue
             try:
                 data = json.loads(line.strip())
+                # Статус-события уходят отдельным каналом, не как HTML
+                if data.get("type") == "agent_status":
+                    _send_status_event(wfile, {
+                        "agent": data.get("agent", ""),
+                        "kind": data.get("kind", "idle"),
+                        "detail": data.get("detail", ""),
+                        "ts": data.get("ts", time.time()),
+                        "alive": data.get("kind", "idle") != "offline",
+                    })
+                    wfile.flush()
+                    continue
                 formatted = _format_log_line(data, agents_map, agent_sid_map, current_task_map)
                 if formatted:
                     formatted = _inject_ts_attr(formatted, data.get("ts"))
@@ -1898,8 +1998,33 @@ LOGS_HTML = """<!DOCTYPE html>
     --mic-rec-bg: #fff0ee;
   }
   body { background: var(--bg); color: var(--fg); font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 14px;
-         padding-bottom: 80px; }
-  #log { padding: 8px; max-width: 1200px; margin: 0 auto; }
+         padding-bottom: 80px; display: flex; align-items: flex-start; }
+  #log { flex: 1; padding: 8px; min-width: 0; max-width: 1200px; }
+  #status-panel { width: 280px; flex-shrink: 0; border-left: 1px solid var(--border-dim);
+                  padding: 10px 12px; position: sticky; top: 0; max-height: 100vh; overflow-y: auto;
+                  background: var(--panel); }
+  #status-panel h3 { font-size: 12px; color: var(--fg-muted); letter-spacing: 0.5px; text-transform: uppercase;
+                     margin-bottom: 8px; font-weight: 600; }
+  .agent-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border-dim);
+               font-size: 13px; }
+  .agent-row .ar-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--fg-faint); }
+  .agent-row.k-idle      .ar-dot { background: var(--fg-dim); }
+  .agent-row.k-thinking  .ar-dot { background: var(--accent-yellow); animation: ar-pulse 1.2s infinite; }
+  .agent-row.k-tool      .ar-dot { background: var(--link); animation: ar-pulse 1.2s infinite; }
+  .agent-row.k-writing   .ar-dot { background: var(--accent-green); animation: ar-pulse 1.2s infinite; }
+  .agent-row.k-compacting .ar-dot { background: var(--accent-orange); animation: ar-pulse 1.2s infinite; }
+  .agent-row.k-offline   { opacity: 0.5; }
+  .agent-row.k-offline   .ar-dot { background: var(--fg-faint); }
+  @keyframes ar-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .ar-name { font-weight: 600; flex-shrink: 0; }
+  .ar-state { color: var(--fg-muted); font-size: 12px; flex: 1; min-width: 0;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ar-since { color: var(--fg-faint); font-size: 11px; font-family: monospace; flex-shrink: 0; }
+  @media (max-width: 800px) {
+    body { flex-direction: column; }
+    #status-panel { width: 100%; max-height: none; position: static; border-left: none;
+                    border-bottom: 1px solid var(--border-dim); }
+  }
   .ev { padding: 6px 10px; margin: 2px 0; border-radius: 6px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .ev-msg { background: var(--ev-msg-bg); border-left: 3px solid var(--ev-msg-bd); }
   .ev-init { background: var(--ev-init-bg); border-left: 3px solid var(--ev-init-bd); }
@@ -1982,6 +2107,10 @@ LOGS_HTML = """<!DOCTYPE html>
 </head><body>
 <div id="status">connected</div>
 <div id="log"></div>
+<aside id="status-panel">
+  <h3>Агенты</h3>
+  <div id="agents-status"></div>
+</aside>
 <div id="input-bar">
   <select id="agent-select">{{AGENT_OPTIONS}}</select>
   <textarea id="prompt-input" placeholder="Сообщение агенту..." rows="1" autofocus></textarea>
@@ -2007,7 +2136,57 @@ const authToken = urlParams.get('token') || '';
 const authHeader = authToken ? {'Authorization': 'Bearer ' + authToken} : {};
 const tokenQS = authToken ? '?token=' + encodeURIComponent(authToken) : '';
 
+// Панель статусов агентов: agent → {kind, detail, ts}
+const agentsStatus = {};
+const agentsContainer = document.getElementById('agents-status');
+const KIND_LABEL = {
+  idle: 'свободен', thinking: 'думает', tool: 'tool', writing: 'пишет ответ',
+  compacting: 'сжатие контекста', offline: 'не запущен',
+};
+function fmtSince(ts) {
+  const sec = Math.max(0, Math.floor(Date.now()/1000 - ts));
+  if (sec < 60) return sec + 'с';
+  if (sec < 3600) return Math.floor(sec/60) + 'м';
+  return Math.floor(sec/3600) + 'ч';
+}
+function renderAgent(name) {
+  const s = agentsStatus[name];
+  if (!s) return;
+  let row = document.getElementById('ag-' + name);
+  if (!row) {
+    row = document.createElement('div');
+    row.id = 'ag-' + name;
+    row.className = 'agent-row';
+    row.innerHTML = '<span class="ar-dot"></span><span class="ar-name"></span>'
+                  + '<span class="ar-state"></span><span class="ar-since"></span>';
+    // Сортировка по имени — вставляем с учётом порядка
+    const rows = Array.from(agentsContainer.children);
+    const after = rows.find(r => r.id > row.id);
+    if (after) agentsContainer.insertBefore(row, after); else agentsContainer.appendChild(row);
+  }
+  row.className = 'agent-row k-' + s.kind;
+  row.querySelector('.ar-name').textContent = name;
+  const label = KIND_LABEL[s.kind] || s.kind;
+  const detail = s.detail ? ': ' + s.detail : '';
+  row.querySelector('.ar-state').textContent = label + detail;
+  row.querySelector('.ar-since').textContent = fmtSince(s.ts);
+}
+setInterval(() => {
+  for (const name of Object.keys(agentsStatus)) {
+    const row = document.getElementById('ag-' + name);
+    if (row) row.querySelector('.ar-since').textContent = fmtSince(agentsStatus[name].ts);
+  }
+}, 1000);
+
 const es = new EventSource('/logs/stream' + tokenQS);
+es.addEventListener('status', (e) => {
+  try {
+    const s = JSON.parse(e.data);
+    if (!s.agent) return;
+    agentsStatus[s.agent] = s;
+    renderAgent(s.agent);
+  } catch (err) { /* ignore */ }
+});
 es.onmessage = (e) => {
   const div = document.createElement('div');
   div.innerHTML = e.data;
