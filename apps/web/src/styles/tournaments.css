@@ -194,7 +194,10 @@
   justify-content: center;
   gap: 8px;
   margin-top: 12px;
-  padding: 40px 24px 48px;
+  padding: 56px 24px;
+  /* KS-2116 (повтор): растягиваем карточку до ~60% видимой высоты,
+     чтобы под ней не оставалось ~500px пустоты на 1280×900. */
+  min-height: 60vh;
   background: var(--c-1e1e3e);
   border: 1px dashed var(--c-3a3a5e);
   border-radius: 12px;
