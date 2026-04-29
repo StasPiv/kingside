@@ -353,7 +353,7 @@ class AgentDaemon:
                         log(f"Daemon {self.name}: ответ не отправлен (expected={expected}, sender={sender}) — шлю корректирующее")
                         if expected.startswith("agent:"):
                             who = expected.split(":", 1)[1]
-                            hint = f"вызови `agent_message(to=\"{who}\", message=...)`"
+                            hint = f"вызови `agent_message(to=\"{who}\", message=..., reply_required=false)` (false — твой ответ дополнительного ответа не требует)"
                         elif expected == "telegram":
                             hint = "вызови `telegram_send(message=...)`"
                         else:
@@ -648,7 +648,13 @@ def handle_agent_message(handler, payload):
         handler.wfile.write(json.dumps({"error": f"unknown agent '{target}'"}).encode())
         return
 
-    prefix = f"[from {sender}] " if sender else ""
+    # Префикс делает явным контракт ответа — без этого target не отличает
+    # «вопрос/задача» от «ACK/уведомление» и часто отвечает на ACK → пинг-понг.
+    if sender:
+        tag = "нужен ответ" if reply_required else "ACK"
+        prefix = f"[from {sender} · {tag}] "
+    else:
+        prefix = ""
     sender_tag = f"agent:{sender}" if sender else ""
     reply_channel = f"agent:{sender}" if (sender and reply_required) else None
 
