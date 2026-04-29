@@ -50,6 +50,7 @@ export class CoursesService {
           select: {
             id: true,
             slug: true,
+            title: true, // KS-2148: inline-заголовок (KS-1964)
             titleKey: true,
             order: true,
             parentLessonId: true,
@@ -154,6 +155,8 @@ export class CoursesService {
           currentLessonId: courseProgress.currentLessonId,
           lastActivityAt: lastActivity.toISOString(),
           currentLessonSlug: currentLesson?.slug ?? null,
+          // KS-2148: inline-заголовок (UI fallback в порядке title → i18nKey → slug).
+          currentLessonTitle: currentLesson?.title ?? null,
           currentLessonTitleI18nKey: currentLesson?.titleKey ?? null,
           currentLessonOrder: currentLesson ? currentIdx + 1 : null,
         };
@@ -367,6 +370,8 @@ export class CoursesService {
           lessonsTotal: lessons.length,
           lastActivityAt: lastActivity.toISOString(),
           currentLessonSlug: currentLessonRow?.slug ?? null,
+          // KS-2148: inline title рядом с i18nKey.
+          currentLessonTitle: currentLessonRow?.title ?? null,
           currentLessonTitleI18nKey: currentLessonRow?.titleKey ?? null,
           currentLessonOrder: currentLessonRow ? currentIdx + 1 : null,
         };

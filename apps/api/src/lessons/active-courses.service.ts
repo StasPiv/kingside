@@ -58,7 +58,7 @@ export class ActiveCoursesService {
             lessons: {
               where: { isPublished: true },
               orderBy: [{ blockKey: 'asc' }, { order: 'asc' }],
-              select: { id: true, slug: true, titleKey: true, order: true },
+              select: { id: true, slug: true, title: true, titleKey: true, order: true },
             },
           },
         },
@@ -140,6 +140,10 @@ export class ActiveCoursesService {
         lessonsCompleted,
         lastActivityAt: lastActivity.toISOString(),
         currentLessonSlug: currentLesson?.slug ?? null,
+        // KS-2148: inline title — UI использует если *I18nKey отсутствует
+        // в translation.json (был fallback на slug → видно сырой
+        // `mate-bishop-knight` вместо «Мат слоном и конём»).
+        currentLessonTitle: currentLesson?.title ?? null,
         currentLessonTitleI18nKey: currentLesson?.titleKey ?? null,
         currentLessonOrder: currentLesson ? currentIdx + 1 : null,
         // KS-2037: порядок блоков курса (см. `Course.blockOrder`).

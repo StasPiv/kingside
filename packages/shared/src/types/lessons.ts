@@ -555,6 +555,14 @@ export interface UserCourseProgress {
    * если курс пройден. Поля повторены в `CourseListItem.progress`.
    */
   currentLessonSlug: string | null;
+  /**
+   * KS-2148: inline-заголовок текущего урока из `Lesson.title` (KS-1964),
+   * симметрично `CourseListItem.progress.currentLessonTitle` и
+   * `ActiveSystemCourseDto.currentLessonTitle`. UI fallback в порядке
+   * title → i18nKey → slug — раньше при отсутствии ключа в
+   * `translation.json` пользователь видел сырой `mate-bishop-knight`.
+   */
+  currentLessonTitle: string | null;
   currentLessonTitleI18nKey: string | null;
   /** Порядковый номер текущего урока, 1-based — для «Урок N из M». */
   currentLessonOrder: number | null;
@@ -611,6 +619,13 @@ export interface CourseListItem extends CourseCardFields, CourseInlineFields {
      * `null`, если курс пройден.
      */
     currentLessonSlug: string | null;
+    /**
+     * KS-2148: inline-заголовок текущего урока из `Lesson.title` (KS-1964).
+     * Парный к `currentLessonTitleI18nKey` — если ключ отсутствует в
+     * `translation.json`, UI показывает inline вместо fallback'а на slug.
+     * `null` если у урока нет inline title или нет current lesson.
+     */
+    currentLessonTitle: string | null;
     currentLessonTitleI18nKey: string | null;
     /** 1-based номер текущего урока — для «Урок N из M». */
     currentLessonOrder: number | null;
@@ -768,6 +783,14 @@ export interface ActiveSystemCourseDto extends CourseCardFields, CourseInlineFie
   lastActivityAt: string;
   /** Первый незавершённый урок курса по `order` ASC. */
   currentLessonSlug: string | null;
+  /**
+   * KS-2148: inline-заголовок текущего урока из `Lesson.title` (KS-1964).
+   * Симметрично `ActiveEnrolledCourseDto.currentLessonTitle`. UI
+   * использует inline когда `currentLessonTitleI18nKey` отсутствует в
+   * `translation.json` (вместо fallback'а на slug — пользователь видел
+   * `mate-bishop-knight` вместо «Мат слоном и конём»).
+   */
+  currentLessonTitle: string | null;
   currentLessonTitleI18nKey: string | null;
   currentLessonOrder: number | null;
   /**
@@ -823,8 +846,20 @@ export interface ActiveCoursesResponse {
 /** Одна строка списка «к повторению сегодня». */
 export interface ReviewDueItem {
   courseSlug: string;
+  /**
+   * KS-2148: inline-заголовок курса из `Course.title` (если есть).
+   * UI использует inline когда `courseTitleI18nKey` отсутствует в
+   * `translation.json`. `null` если у курса нет inline title.
+   */
+  courseTitle: string | null;
   courseTitleI18nKey: string;
   lessonSlug: string;
+  /**
+   * KS-2148: inline-заголовок урока из `Lesson.title` (KS-1964).
+   * UI использует inline когда `lessonTitleI18nKey` отсутствует.
+   * `null` если у урока нет inline title.
+   */
+  lessonTitle: string | null;
   lessonTitleI18nKey: string;
   /** ISO — когда плановый повтор стал/станет доступен. */
   dueAt: string;

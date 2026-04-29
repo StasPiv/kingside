@@ -39,8 +39,9 @@ export class LessonReviewsController {
       select: {
         id: true,
         slug: true,
+        title: true, // KS-2148: inline-заголовок (KS-1964)
         titleKey: true,
-        course: { select: { slug: true, titleKey: true } },
+        course: { select: { slug: true, title: true, titleKey: true } },
       },
     });
     const byId = new Map(lessons.map((l) => [l.id, l]));
@@ -51,8 +52,11 @@ export class LessonReviewsController {
         if (!lesson) return null;
         return {
           courseSlug: lesson.course.slug,
+          // KS-2148: inline title — UI fallback в порядке title → i18nKey → slug
+          courseTitle: lesson.course.title ?? null,
           courseTitleI18nKey: lesson.course.titleKey,
           lessonSlug: lesson.slug,
+          lessonTitle: lesson.title ?? null,
           lessonTitleI18nKey: lesson.titleKey,
           dueAt: r.dueAt.toISOString(),
           lastReviewedAt: r.lastReviewedAt?.toISOString() ?? null,

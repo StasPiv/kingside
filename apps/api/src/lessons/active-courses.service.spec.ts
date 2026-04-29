@@ -44,8 +44,8 @@ describe('ActiveCoursesService (KS-1937)', () => {
           tags: [],
           _count: { lessons: 2 },
           lessons: [
-            { id: 'sys-L1', slug: 'l1', titleKey: 'l1.title', order: 0 },
-            { id: 'sys-L2', slug: 'l2', titleKey: 'l2.title', order: 1 },
+            { id: 'sys-L1', slug: 'l1', title: 'L1 inline', titleKey: 'l1.title', order: 0 },
+            { id: 'sys-L2', slug: 'l2', title: 'L2 inline', titleKey: 'l2.title', order: 1 },
           ],
         },
       },
@@ -125,6 +125,8 @@ describe('ActiveCoursesService (KS-1937)', () => {
       expect(system.lastActivityAt).toBe('2026-04-22T00:00:00.000Z');
       expect(system.currentLessonSlug).toBe('l2');
       expect(system.currentLessonTitleI18nKey).toBe('l2.title');
+      // KS-2148: inline currentLessonTitle для system-курса.
+      expect(system.currentLessonTitle).toBe('L2 inline');
       expect(system.currentLessonOrder).toBe(2);
     }
   });

@@ -43,8 +43,9 @@ describe('LessonReviewsController (KS-1809 / L-22)', () => {
       {
         id: 'L1',
         slug: 'how-knight-moves',
+        title: 'Как ходит конь', // KS-2148
         titleKey: 'lessons.beginner.how-knight-moves.title',
-        course: { slug: 'beginner', titleKey: 'lessons.beginner.title' },
+        course: { slug: 'beginner', title: 'Курс для начинающих', titleKey: 'lessons.beginner.title' },
       },
     ]);
 
@@ -53,8 +54,11 @@ describe('LessonReviewsController (KS-1809 / L-22)', () => {
     expect(res.items).toHaveLength(1);
     expect(res.items[0]).toEqual({
       courseSlug: 'beginner',
+      // KS-2148: inline title рядом с i18nKey, fallback в UI: title → i18nKey → slug.
+      courseTitle: 'Курс для начинающих',
       courseTitleI18nKey: 'lessons.beginner.title',
       lessonSlug: 'how-knight-moves',
+      lessonTitle: 'Как ходит конь',
       lessonTitleI18nKey: 'lessons.beginner.how-knight-moves.title',
       dueAt: '2026-04-24T08:00:00.000Z',
       lastReviewedAt: '2026-04-18T08:00:00.000Z',
@@ -78,14 +82,18 @@ describe('LessonReviewsController (KS-1809 / L-22)', () => {
       {
         id: 'L1',
         slug: 'l1',
+        title: null, // KS-2148: null валиден — UI fallback на i18nKey
         titleKey: 'l.title',
-        course: { slug: 'c1', titleKey: 'c.title' },
+        course: { slug: 'c1', title: null, titleKey: 'c.title' },
       },
     ]);
 
     const res = await controller.getDueReviews(req);
     expect(res.items[0].lastReviewedAt).toBeNull();
     expect(res.items[0].intervalDays).toBe(1);
+    // KS-2148: null inline title пробрасывается как null.
+    expect(res.items[0].lessonTitle).toBeNull();
+    expect(res.items[0].courseTitle).toBeNull();
   });
 
   it('если lesson не найден в БД — запись отфильтровывается', async () => {

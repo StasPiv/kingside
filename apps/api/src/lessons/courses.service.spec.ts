@@ -355,9 +355,10 @@ describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)'
     updatedAt: new Date('2026-04-01T00:00:00Z'),
     _count: { lessons: 3 },
     lessons: [
-      { id: 'L1', slug: 'l-1', titleKey: 'l1.title', order: 0 },
-      { id: 'L2', slug: 'l-2', titleKey: 'l2.title', order: 1 },
-      { id: 'L3', slug: 'l-3', titleKey: 'l3.title', order: 2 },
+      // KS-2148: inline title пробрасывается в DTO как currentLessonTitle.
+      { id: 'L1', slug: 'l-1', title: 'Lesson 1 inline', titleKey: 'l1.title', order: 0 },
+      { id: 'L2', slug: 'l-2', title: 'Lesson 2 inline', titleKey: 'l2.title', order: 1 },
+      { id: 'L3', slug: 'l-3', title: null, titleKey: 'l3.title', order: 2 },
     ],
   };
 
@@ -404,6 +405,8 @@ describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)'
 
     expect(p.currentLessonSlug).toBe('l-2');
     expect(p.currentLessonTitleI18nKey).toBe('l2.title');
+    // KS-2148: inline title параллельно с i18nKey.
+    expect(p.currentLessonTitle).toBe('Lesson 2 inline');
     expect(p.currentLessonOrder).toBe(2);
     expect(p.lessonsCompleted).toBe(1);
   });
@@ -506,6 +509,8 @@ describe('CoursesService — progress.lastActivityAt / currentLesson* (KS-1955)'
 
     expect(p.currentLessonSlug).toBe('l-2');
     expect(p.currentLessonTitleI18nKey).toBe('l2.title');
+    // KS-2148: inline title для getCourseBySlug.
+    expect(p.currentLessonTitle).toBe('Lesson 2 inline');
     expect(p.currentLessonOrder).toBe(2);
     // MAX = updatedAt L2 (2026-04-23), не courseProgress.updatedAt (2026-04-15).
     expect(p.lastActivityAt).toBe('2026-04-23T00:00:00.000Z');
