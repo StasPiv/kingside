@@ -137,10 +137,18 @@ model ArchiveGamePosition {
   @@id([positionKey, bucket, gameId])
   // KS-2120: индекс `archive_game_positions_recent` удалён — 298 МБ,
   // idx_scan=0 (pg_stat_user_indexes). Сортировка `recent` для by-position
-  // теперь использует PK `(position_key, bucket, game_id)` + `played_at`
-  // через heap-fetch; для популярных позиций это всё ещё быстро благодаря
-  // selective `position_key`. Если понадобится top-N по `played_at`,
-  // вернуть как partial-индекс.
+  // должна была пойти через PK `(position_key, bucket, game_id)` + heap
+  // fetch, но в реальности pg_stat_statements (KS-2138/KS-2139) показал
+  // 3079/3163 ms mean → возвращён в KS-2139 миграцией
+  // `20260429050000_archive_game_positions_recent_idx` уже как
+  // `(position_key, bucket, played_at DESC NULLS LAST, game_id DESC)`.
+  //
+  // ВАЖНО: Prisma `@@index` не поддерживает явное `NULLS LAST` в DDL —
+  // только sort direction. Если добавить декларацию, при следующем
+  // `prisma migrate dev` Prisma решит что индекс «отличается» (БД =
+  // NULLS LAST, schema = default NULLS FIRST) и попытается дропнуть/
+  // пересоздать. Поэтому декларация для `_recent_idx` НЕ добавлена
+  // здесь — единственный источник правды — миграция SQL.
   @@index([positionKey, bucket, avgElo(sort: Desc), gameId(sort: Desc)], name: "archive_game_positions_top_elo")
   @@map("archive_game_positions")
 }

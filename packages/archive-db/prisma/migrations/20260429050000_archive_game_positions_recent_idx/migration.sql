@@ -1,0 +1,36 @@
+-- KS-2139: индекс под `KeysetSqlBuilder` sort=recent на archive_game_positions.
+--
+-- Корень. По pg_stat_statements (devops, KS-2138/KS-2139) два запроса
+-- mean ~3079/3163 ms на /games/by-position?sort=recent:
+--   SELECT … FROM archive_game_positions p JOIN archive_games g …
+--    WHERE p.position_key = $1 AND p.bucket = $2
+--    ORDER BY p.played_at DESC NULLS LAST, p.game_id DESC LIMIT $3
+-- Существующий `archive_game_positions_top_elo (position_key, bucket,
+-- avg_elo DESC, game_id DESC)` покрывает sort=topElo, для sort=recent
+-- нет подходящего индекса — Parallel Seq Scan / Heap.
+--
+-- Решение. Композитный btree:
+--   (position_key, bucket, played_at DESC NULLS LAST, game_id DESC)
+-- C явным `NULLS LAST` (default для DESC — NULLS FIRST), чтобы порядок
+-- индекса совпал с ORDER BY и планировщик мог использовать btree для
+-- упорядоченного чтения. Это критичная деталь — см. регрессию KS-2130
+-- (top_elo cursor сломался именно из-за рассинхрона NULL-порядка).
+--
+-- ─── Почему БЕЗ CONCURRENTLY ─────────────────────────────────────────
+--
+-- См. обоснование в `20260429000000_archive_games_time_control_category`:
+-- директива `-- prisma:disable_transaction` в Prisma 6 молча игнорируется,
+-- миграция оборачивается в BEGIN/COMMIT, `CREATE INDEX CONCURRENTLY`
+-- падает с `25001`. Таблица archive_game_positions ~4.68M строк, но в
+-- read-mostly режиме (importer пишет раз в сутки cron) ACCESS EXCLUSIVE
+-- лок на ~30-60 сек приемлем для разовой миграции.
+--
+-- ─── Acceptance ─────────────────────────────────────────────────────
+--
+-- - EXPLAIN ANALYZE на типичном sort=recent запросе → Index Scan
+--   archive_game_positions_recent_idx, < 100 мс.
+-- - pg_stat_statements не показывает их в топ медленных через 30 мин
+--   после деплоя.
+
+CREATE INDEX IF NOT EXISTS archive_game_positions_recent_idx
+  ON archive_game_positions (position_key, bucket, played_at DESC NULLS LAST, game_id DESC);
