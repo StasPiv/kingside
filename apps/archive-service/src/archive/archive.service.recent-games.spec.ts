@@ -195,4 +195,28 @@ describe('ArchiveService.getGames recent-cache — KS-2090', () => {
     expect(repo.searchGamesCalls).toBe(1);
     expect([...redis.store.keys()]).toContain('arch:games:recent:50');
   });
+
+  it('KS-2146-2: cursor → НЕ clean-recent (не отдаём cached page1, иначе зацикливание)', async () => {
+    const repo = new CapturingRepo();
+    const { svc, redis } = makeService(repo);
+
+    // Сначала прогреем кэш чистым recent-запросом.
+    await svc.getGames({});
+    expect([...redis.store.keys()]).toContain('arch:games:recent:50');
+    expect(repo.searchGamesCalls).toBe(1);
+
+    // Теперь запрос с cursor — раньше попадал в cache-path и отдавал
+    // cached первую страницу с тем же nextCursor → зацикливание архива
+    // на проде (devops зафиксировал 30 страниц × 20 items = 580 дублей).
+    const result = await svc.getGames({
+      cursor: 'eyJ0IjoiMjAyNi0wNC0yN1QwMDowMDowMC4wMDBaIiwiZyI6ImFiYyJ9',
+    });
+    // Новый репо-вызов (cache miss → keyset query).
+    expect(repo.searchGamesCalls).toBe(2);
+    // С cursor backend передаёт его в opts (раньше нет).
+    expect(repo.lastSearchGamesOpts?.cursor).toBeDefined();
+    // skipTotal=true как для всех не-clean-recent.
+    expect(repo.lastSearchGamesOpts?.skipTotal).toBe(true);
+    expect(result.total).toBeNull();
+  });
 });

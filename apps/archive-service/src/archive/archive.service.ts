@@ -283,7 +283,15 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     // на 60s + не делаем COUNT(*) (фронту total не нужен — он показывает
     // ровно N последних партий). Инвалидация — по ARCHIVE_IMPORTED_CHANNEL
     // через `arch:games:*` паттерн (KS-2065).
-    const isCleanRecent = sort === 'recent' && offsetRaw === 0 && this.hasNoFilters(req);
+    // KS-2146-2: если задан `cursor`, это уже **page 2+** keyset
+    // pagination — НЕ clean recent, нельзя возвращать кэш первой страницы.
+    // Раньше (KS-2142) cursor не проверялся в `isCleanRecent`, и запрос
+    // с cursor попадал в cache-path → отдавалась cached первая страница
+    // (с тем же cached nextCursor) → бесконечный цикл page1↔page1 на
+    // фронте (devops zaфиксировал на проде: 30 страниц × 20 items =
+    // 580 дублей, cursor1==cursor2 символ-в-символ).
+    const isCleanRecent =
+      sort === 'recent' && offsetRaw === 0 && !req.cursor && this.hasNoFilters(req);
     if (isCleanRecent) {
       const cacheKey = `arch:games:recent:${limit}`;
       const cached = await this.safeGetJson<ArchiveGamesResponse>(cacheKey);
