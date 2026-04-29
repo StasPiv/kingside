@@ -213,7 +213,7 @@ interface TickResult {
 **Отличия от существующего `tick()`:**
 1. Не использует `this.running` guard — он избыточен при one-shot invocation (нет параллельного tick'а).
 2. Возвращает `TickResult` (сейчас `tick()` возвращает `void`). `TickResult` попадает в EMF snapshot и в CloudWatch Logs.
-3. Global timeout: внутри — `Promise.race([this.processAllSources(), timeoutPromise(8*60*1000)])` — 8 минут hard cap, если TWIC сервер повис / COPY зависает. После таймаута — throw, exit code 2, EventBridge DLQ retry. *Обоснование лимита:* нормальный TWIC tick занимает 30–120 сек (один zip 2–5 MiB + ~2–10 k партий + COPY). 8 минут — 4x safety margin, меньше чем ECS `stopTimeout` (см. §2.1 task-def).
+3. Global timeout: внутри — `Promise.race([this.processAllSources(), timeoutPromise(resolveTickOnceTimeoutMs())])` — 30 минут hard cap (default, env-override `IMPORTER_TICK_TIMEOUT_MS`, см. §2.7.1). После таймаута — throw, exit code 2, EventBridge DLQ retry. *Обоснование лимита:* TWIC weekly после 24-04-2026 парсится 5–17 мин (ранее 30–120 сек, регрессия — KS-2128); 30 мин — запас на ~2× от наблюдаемого пика. Backstop в `importer-once.ts` 35 мин (env `IMPORTER_BACKSTOP_TIMEOUT_MS`) — отдельным уровнем выше. ECS `stopTimeout` (см. §2.1 task-def, 120 сек) — про graceful shutdown после `process.exit()`, не про прикладной таймаут; не пересекается.
 4. `tick()` (loop-mode, остаётся) может делегировать в `tickOnce()` + set `this.running` — чтобы логика не раздваивалась. Это рефакторинг backend'ом; архитектурно оба метода идут из одной функции `processAllSources()`.
 
 **Dockerfile НЕ меняется**. `nest build` продолжает строить весь `src/`, новые файлы попадают в `dist/` автоматически. В `apps/archive-service/Dockerfile` `CMD` остаётся `["node","dist/main.js"]` — это default для HTTP image, task-def для importer-oneshot переопределяет.
@@ -230,12 +230,12 @@ TWIC выпускается раз в неделю, обычно вторник 
 | **Every 6h**: `cron(0 */6 ? * * *)` | 28 | до 6 ч | ~\$0.084/неделя | Минимальный, но excessive |
 
 **Стоимостная калькуляция:**
-Fargate 256 CPU / 512 MiB on-demand (us-east-1) ≈ \$0.0122/vCPU-hour + \$0.00134/GB-hour = \$0.00371/task-hour при 256/512. Один invocation длится 30 сек–8 мин; medium estimate 2 минуты = ~\$0.00012/task. Значит:
-- Weekly: 1 × \$0.00012 = \$0.00012/week ≈ **\$0.0005/мес**.
-- Daily: 7 × \$0.00012 = \$0.00084/week ≈ **\$0.0036/мес**.
-- Every 6h: 28 × \$0.00012 = \$0.0034/week ≈ **\$0.014/мес**.
+Fargate 256 CPU / 512 MiB on-demand (us-east-1) ≈ \$0.0122/vCPU-hour + \$0.00134/GB-hour = \$0.00371/task-hour при 256/512. Один invocation длится 30 сек–30 мин (потолок поднят 2026-04-29, KS-2123, см. §2.7.1); medium estimate ≈ 5 мин при текущем размере TWIC weekly = ~\$0.00031/task. Значит:
+- Weekly: 1 × \$0.00031 = \$0.00031/week ≈ **\$0.0013/мес**.
+- Daily: 7 × \$0.00031 = \$0.00217/week ≈ **\$0.0094/мес**.
+- Every 6h: 28 × \$0.00031 = \$0.0087/week ≈ **\$0.038/мес**.
 
-Разница между weekly и daily — **менее цента в месяц**. Все три варианта — drop-in замена текущим \$10–15/мес за 24/7 Fargate.
+Разница между weekly и daily — **менее цента в месяц**. Все три варианта — drop-in замена текущим \$10–15/мес за 24/7 Fargate. (Числа пересчитаны 2026-04-29 после повышения medium estimate до 5 мин, см. §2.7.1.)
 
 **Рекомендация — Daily: `cron(0 20 ? * * *)` UTC (каждый день в 20:00 UTC).**
 
@@ -417,7 +417,7 @@ aws ecs run-task \
 
 ### 2.5 Мониторинг short-lived tasks
 
-**Проблема:** Prometheus scrape работает только при running-контейнере, достижимом по ecs-discovery. Short-lived task (живёт 30с–8мин) не попадёт в scrape interval (15–30с) на N=1 scrape'е гарантированно, а на продолжительности 30с — вероятность ~50%. Потеря метрик недопустима для CloudWatch Alarm'а из §2.6.
+**Проблема:** Prometheus scrape работает только при running-контейнере, достижимом по ecs-discovery. Short-lived task (живёт 30с–30мин — потолок поднят 2026-04-29 KS-2123, см. §2.7.1) не попадёт в scrape interval (15–30с) на N=1 scrape'е гарантированно, а на продолжительности 30с — вероятность ~50%. Потеря метрик недопустима для CloudWatch Alarm'а из §2.6.
 
 **Варианты (уже сравнены в постановке):**
 
@@ -541,7 +541,7 @@ AlarmActions: [SNS topic kingside-archive-importer-alerts]
 | 2 | RunTask отвергнут (permissions, capacity, task-def invalid) | EventBridge sends event to DLQ. CloudWatch metric `AWS/Scheduler InvocationAttemptCount` vs `InvocationDroppedCount`. Alarm. | 1–5 мин |
 | 3 | Task запустилась, но контейнер не стартанул (image pull fail, task-def malformed) | EventBridge ECS Task State Change → `lastStatus=STOPPED`, `stopCode != EssentialContainerExited` → SNS. | 1–2 мин |
 | 4 | Контейнер стартовал, упал с non-zero exit code | EventBridge ECS Task State Change → `containers[*].exitCode != 0` → SNS. | 30 сек |
-| 5 | Контейнер вечно висит (TWIC server unresponsive, Redis/DB stall) | Global timeout 8 мин в `tickOnce()` → throw → exit 2 → детектор #4. ECS `stopTimeout: 120` как backstop. | до 10 мин |
+| 5 | Контейнер вечно висит (TWIC server unresponsive, Redis/DB stall) | Global timeout 30 мин в `tickOnce()` (env `IMPORTER_TICK_TIMEOUT_MS`, default 1 800 000) → throw → exit 2 → детектор #4. Backstop 35 мин в `importer-once.ts` (env `IMPORTER_BACKSTOP_TIMEOUT_MS`, default 2 100 000) ловит зависание самой timeout-ветки. ECS `stopTimeout: 120` остаётся отдельным уровнем graceful shutdown. См. §2.7.1 — обновлено 2026-04-29 (KS-2123). | до 35 мин |
 | 6 | Контейнер успешно отработал, но `archive_sources.last_success_at` НЕ обновился (например, один source failed среди нескольких) | EMF metric `SourcesFailed > 0` → CloudWatch Alarm `period=1h, threshold>0`. | 1 ч |
 | 7 | `LastSuccessAgeSeconds > 14 days` | §2.6 alarm. | 14 дней |
 | 8 | EventBridge Scheduler disabled случайно (человек кликнул в AWS console) | CloudWatch Metric `AWS/Scheduler Invocations` = 0 за >24 ч → alarm. Отдельный от #7, более быстрый. | 1–2 дня |
@@ -554,6 +554,38 @@ AlarmActions: [SNS topic kingside-archive-importer-alerts]
 - A5: `AWS/Scheduler Invocations == 0` за 24 ч (1 день)
 
 Все → single SNS topic `kingside-archive-importer-alerts` → Slack webhook / email.
+
+### 2.7.1 Update 2026-04-29 (KS-2123): дефолты таймаутов повышены до 30 / 35 мин
+
+**Контекст.** С 24-04-2026 дневной импортёр (`kingside-archive-importer-daily`, EventBridge cron 20:00 UTC) стабильно падал с exit 124. Корень — рост размера TWIC weekly: выпуск `twic1642` (7 119 партий) парсится ~17 мин при исторических 30–120 сек. Прежний потолок `tickOnce` 8 мин (480 000 мс) и backstop 10 мин (600 000 мс), изначально заявленный как «4×–60× safety margin», перестал покрывать реальный размер.
+
+**Решение (в коде, KS-2123, commit `0bc38406`).**
+
+| Параметр | Было | Стало (default) | Env-override |
+| - | - | - | - |
+| `tickOnce` global timeout | 480 000 мс (8 мин) | 1 800 000 мс (30 мин) | `IMPORTER_TICK_TIMEOUT_MS` |
+| `importer-once.ts` backstop | 600 000 мс (10 мин) | 2 100 000 мс (35 мин) | `IMPORTER_BACKSTOP_TIMEOUT_MS` |
+
+Дефолты и резолверы env вынесены в `apps/archive-service/src/archive-import/importer-timeouts.ts`. Контракт резолвера: пустой / отсутствующий / `NaN` / `≤0` env → fallback на default без ошибки. Резолв происходит на каждый `tickOnce()` / bootstrap — менять значения через task definition env можно без redeploy кода (только перезапуск task'а).
+
+**Инвариант (зафиксирован в `importer-timeouts.spec.ts`):** `backstop > tickOnce` (35 > 30 мин). Backstop ловит зависание самой timeout-ветки `tickOnce` (Promise.race / EMF flush / Nest shutdown hooks); если эти 5 мин запаса исчезнут, контейнер может зависнуть на отдельном уровне выше exit 2 — детектор #4 §2.7 потеряет достоверность.
+
+**ECS `stopTimeout: 120` остаётся 120 сек.** Это про SIGTERM→SIGKILL после прикладного `process.exit()`, а не про прикладной таймаут. Внутренний `exit(124)` всегда опережает ECS stop. Если контейнер не успевает завершиться за 120 сек после внутреннего exit — отдельная задача devops, не покрывается этим ADR.
+
+**Known issue (KS-2128, параллельно).** Парсер деградировал: 7 119 партий за ~17 мин ≈ 7 партий/сек против исторических ~50–100 партий/сек на меньших выпусках. Это не блокирует импорт после повышения таймаутов, но указывает на регрессию (возможно — O(N²) в дедупликации, position-indexer'е или PGN-парсере). KS-2128 — профилирование. **Если устранится — defaults можно вернуть к меньшим значениям**, не трогая контракт env-override.
+
+**Откат / тюнинг без redeploy.** Через task definition env:
+
+```
+IMPORTER_TICK_TIMEOUT_MS=2400000      # 40 мин (если 30 окажется мало)
+IMPORTER_BACKSTOP_TIMEOUT_MS=2700000  # 45 мин (соблюдая инвариант backstop > tickOnce)
+```
+
+Любая правка должна сохранять `backstop > tickOnce` и оставлять оба меньше суммарного времени, после которого EventBridge может стартовать следующий tick (для weekly schedule — 7 дней, не угроза; для daily — 24 ч, тоже не угроза при потолке 35 мин).
+
+**Влияние на §2.7 таблицу:** строка #5 «Контейнер вечно висит» — обновлена inline (timeout 30 мин, backstop 35 мин, лаг детекции «до 35 мин» вместо «до 10 мин»).
+
+**Влияние на §2.3 cost.** Medium estimate task duration вырос 2 мин → 5 мин (TWIC weekly после роста выпусков). Числа в §2.3 пересчитаны; общий вывод «копейки против \$10–15/мес 24/7» не меняется.
 
 ### 2.8 План миграции без риска
 
