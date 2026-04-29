@@ -25,6 +25,16 @@ const PDF_RECOGNIZER_PY = resolve(__dirname, '..', 'src', 'python', 'pdf_recogni
 
 export type Orientation = 'white' | 'black';
 
+/**
+ * Профиль шрифта диаграмм (KS-2132).
+ *
+ *   - `maizelis` — учебник Майзелиса, KS-2028. Профиль по умолчанию.
+ *   - `dvoretsky` — «Учебник эндшпиля» Дворецкого (Russian Chess House),
+ *     KS-2132. Шаблоны и пороги отличаются от Майзелиса (другая плотность
+ *     штриховки тёмных клеток, другой шрифт фигур).
+ */
+export type RecognizeProfile = 'maizelis' | 'dvoretsky';
+
 export interface CellResult {
   /** 0 — верхний ряд изображения; для orientation=white это ранг 8. */
   row: number;
@@ -49,6 +59,8 @@ export interface RecognizeResult {
   orientation: Orientation;
   /** Inner-bbox доски в исходных координатах изображения [x0, y0, x1, y1]. */
   bbox: [number, number, number, number];
+  /** Имя профиля, по которому шёл матчинг (KS-2132). */
+  profile?: RecognizeProfile;
   /** Клетки с подозрительно низким NCC — кандидаты на ручной просмотр. */
   low_confidence_cells: CellResult[];
   /** Полный список 64 клеток с предсказаниями и метаданными. */
@@ -61,6 +73,25 @@ export interface RecognizeOptions {
   pythonPath?: string;
   /** Альтернативная картинка-источник шаблонов вместо встроенных. */
   templatesImage?: string;
+  /** Профиль шрифта диаграмм. По умолчанию `'maizelis'`. */
+  profile?: RecognizeProfile;
+}
+
+/** Одна доска, найденная на странице книги (KS-2132 мульти-диаграммный pre-step). */
+export interface PageDiagram {
+  /** Порядковый индекс на странице (0..N-1, в порядке чтения). */
+  index: number;
+  /** Bbox в исходных координатах изображения [x0, y0, x1, y1] с padding'ом. */
+  bbox: [number, number, number, number];
+}
+
+export interface ScanPageResult {
+  diagrams: PageDiagram[];
+}
+
+export interface ScanPageOptions {
+  /** Путь к интерпретатору Python (по умолчанию `python3`). */
+  pythonPath?: string;
 }
 
 /** Одна доска, найденная в PDF. */
@@ -120,19 +151,47 @@ async function runJsonScript<T>(scriptPath: string, args: string[], pythonPath: 
 }
 
 /**
- * Распознать шахматную диаграмму (растр, стиль Майзелиса). Возвращает
- * полный JSON-результат Python-скрипта (см. `RecognizeResult`).
+ * Распознать шахматную диаграмму (растр). По умолчанию использует профиль
+ * Майзелиса (KS-2028); для книги Дворецкого передавай `profile: 'dvoretsky'`
+ * (KS-2132). Возвращает полный JSON-результат Python-скрипта
+ * (см. `RecognizeResult`).
  */
 export async function recognizeBoardImage(
   imagePath: string,
   options: RecognizeOptions = {},
 ): Promise<RecognizeResult> {
-  const { orientation = 'white', pythonPath = 'python3', templatesImage } = options;
-  const args = [imagePath, '--orientation', orientation, '--json'];
+  const {
+    orientation = 'white',
+    pythonPath = 'python3',
+    templatesImage,
+    profile = 'maizelis',
+  } = options;
+  const args = [imagePath, '--orientation', orientation, '--json', '--profile', profile];
   if (templatesImage) {
     args.push('--templates', templatesImage);
   }
   return runJsonScript<RecognizeResult>(RECOGNIZER_PY, args, pythonPath);
+}
+
+/**
+ * Найти все шахматные доски на странице книги (KS-2132).
+ *
+ * Полные страницы Дворецкого содержат 1–4 диаграммы вперемешку с текстом и
+ * подписями (`1.7`, `?`, `1-6`); основной `recognizeBoardImage` рассчитан
+ * на одну изолированную доску. Этот pre-step возвращает bbox-ы кандидатов
+ * (с небольшим padding'ом), каждый из которых потом можно вырезать и
+ * подать в `recognizeBoardImage`.
+ *
+ * Ограничение: диаграммы без внешней рамки (например, иллюстрация 1.1 в
+ * Дворецком) могут быть пропущены — для них вырежи кроп вручную.
+ */
+export async function findDiagramsOnPage(
+  imagePath: string,
+  options: ScanPageOptions = {},
+): Promise<ScanPageResult> {
+  const { pythonPath = 'python3' } = options;
+  const args = [imagePath, '--scan-page'];
+  return runJsonScript<ScanPageResult>(RECOGNIZER_PY, args, pythonPath);
 }
 
 /** Удобный шорткат: вернуть только board-часть FEN растровой диаграммы. */

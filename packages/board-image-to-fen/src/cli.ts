@@ -38,6 +38,10 @@ interface CliOptions {
   pythonPath: string;
   page?: number;
   allPages: boolean;
+  /** KS-2132. Профиль шрифта для растрового пути. По умолчанию `maizelis`. */
+  profile: 'maizelis' | 'dvoretsky';
+  /** KS-2132. Сканировать страницу на список диаграмм (bbox-ов), не распознавать. */
+  scanPage: boolean;
 }
 
 function printUsage(stream: NodeJS.WritableStream): void {
@@ -57,6 +61,9 @@ function printUsage(stream: NodeJS.WritableStream): void {
       '',
       'Image-only options:',
       '      --templates <path>     custom starting-position template image',
+      '      --profile <name>       diagram font profile: maizelis (default) | dvoretsky',
+      '      --scan-page            instead of recognizing the board, list',
+      '                             chess-board bboxes detected on the page (JSON)',
       '',
       'PDF-only options:',
       '      --page <N>             recognize a single 1-indexed page',
@@ -72,6 +79,8 @@ function parseArgs(argv: string[]): CliOptions {
     json: false,
     pythonPath: 'python3',
     allPages: false,
+    profile: 'maizelis',
+    scanPage: false,
   };
   let positional: string | null = null;
   for (let i = 0; i < argv.length; i++) {
@@ -119,6 +128,19 @@ function parseArgs(argv: string[]): CliOptions {
       opts.allPages = true;
       continue;
     }
+    if (a === '--profile') {
+      const v = argv[++i];
+      if (v !== 'maizelis' && v !== 'dvoretsky') {
+        process.stderr.write(`error: invalid profile: ${v} (expected maizelis|dvoretsky)\n`);
+        process.exit(2);
+      }
+      opts.profile = v;
+      continue;
+    }
+    if (a === '--scan-page') {
+      opts.scanPage = true;
+      continue;
+    }
     if (a.startsWith('-')) {
       process.stderr.write(`error: unknown option: ${a}\n`);
       printUsage(process.stderr);
@@ -149,6 +171,14 @@ function parseArgs(argv: string[]): CliOptions {
       process.stderr.write('error: --templates is valid only for image input\n');
       process.exit(2);
     }
+    if (opts.profile !== 'maizelis') {
+      process.stderr.write('error: --profile is valid only for image input\n');
+      process.exit(2);
+    }
+    if (opts.scanPage) {
+      process.stderr.write('error: --scan-page is valid only for image input\n');
+      process.exit(2);
+    }
     if (opts.page !== undefined && opts.allPages) {
       process.stderr.write('error: --page and --all-pages are mutually exclusive\n');
       process.exit(2);
@@ -168,15 +198,22 @@ function parseArgs(argv: string[]): CliOptions {
     pythonPath: opts.pythonPath!,
     page: opts.page,
     allPages: opts.allPages!,
+    profile: opts.profile!,
+    scanPage: opts.scanPage!,
   };
 }
 
 async function runRecognizer(options: CliOptions): Promise<number> {
   const args: string[] = [];
   if (options.inputKind === 'image') {
-    args.push(RECOGNIZER_PY, options.input, '--orientation', options.orientation);
-    if (options.json) args.push('--json');
-    if (options.templates) args.push('--templates', options.templates);
+    if (options.scanPage) {
+      args.push(RECOGNIZER_PY, options.input, '--scan-page');
+    } else {
+      args.push(RECOGNIZER_PY, options.input, '--orientation', options.orientation);
+      args.push('--profile', options.profile);
+      if (options.json) args.push('--json');
+      if (options.templates) args.push('--templates', options.templates);
+    }
   } else {
     args.push(PDF_RECOGNIZER_PY, options.input, '--orientation', options.orientation);
     if (options.json) args.push('--json');

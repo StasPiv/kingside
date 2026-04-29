@@ -31,6 +31,7 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
 import cv2
@@ -40,7 +41,9 @@ import numpy as np
 CELL_SIZE = 50  # клетка нормализуется до 50×50 при матчинге
 START_FEN_BOARD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'
 
-# Эмпирические пороги (см. README §«Калибровка порогов»).
+# Эмпирические пороги для профиля Майзелиса (см. README §«Калибровка порогов»).
+# Сохранены как модульные константы ради обратной совместимости с тестами и
+# скриптами; для нового кода используй `Profile` (см. ниже).
 # Признаки:
 #   sw  — sw3_30: морф-открытие 3×3 + центральная зона 30×30 (макс 900);
 #   cm5 — морф-открытие 5×5 + центральная зона 34×34 (макс 1156).
@@ -269,7 +272,7 @@ def _extract_templates_from_image(
     return out
 
 
-# Стандартный набор шаблонных диаграмм. Каждая — путь относительно
+# Стандартный набор шаблонных диаграмм Майзелиса. Каждая — путь относительно
 # каталога templates/, и FEN-доска (без статуса side-to-move).
 DEFAULT_TEMPLATE_SOURCES: List[Tuple[str, str]] = [
     # Начальная позиция (id0): покрывает все 6 типов фигур обоих цветов.
@@ -284,33 +287,113 @@ DEFAULT_TEMPLATE_SOURCES: List[Tuple[str, str]] = [
 ]
 
 
+# ─────────────────────────── Профили распознавателя (KS-2132) ──────────────
+
+
+@dataclass(frozen=True)
+class Profile:
+    """Конфигурация распознавателя под конкретный шрифт диаграмм.
+
+    KS-2028 ввёл единственный профиль Майзелиса (вшитые константы и список
+    шаблонов в `recognizer.py`). KS-2132 добавляет профиль Дворецкого
+    (Russian Chess House) — у него своя плотность диагональной штриховки
+    тёмных клеток и другой шрифт фигур, поэтому пороги «пусто/фигура» и
+    набор шаблонов отличаются.
+
+    Атрибуты:
+        name — короткий идентификатор для CLI (`maizelis`, `dvoretsky`).
+        templates_subdir — подкаталог в `src/templates/<name>` (по умолчанию
+            совпадает с `name`). Для совместимости профиль `maizelis`
+            хранит шаблоны прямо в `src/templates/` (subdir = '').
+        template_sources — список (basename, fen-board) внутри подкаталога.
+        color_mass5_threshold — cm5 ≥ N → чёрная фигура.
+        solid_white_dark_piece — sw > N на тёмной клетке → белая фигура.
+        solid_white_light_empty — sw ≥ N на светлой клетке → пусто.
+        low_confidence_threshold — NCC ниже — клетка попадает в
+            `low_confidence_cells` (диагностика).
+    """
+
+    name: str
+    template_sources: List[Tuple[str, str]] = field(default_factory=list)
+    templates_subdir: str = ''
+    color_mass5_threshold: int = COLOR_MASS5_THRESHOLD
+    solid_white_dark_piece: int = SOLID_WHITE_DARK_PIECE
+    solid_white_light_empty: int = SOLID_WHITE_LIGHT_EMPTY
+    low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD
+
+
+MAIZELIS_PROFILE = Profile(
+    name='maizelis',
+    template_sources=list(DEFAULT_TEMPLATE_SOURCES),
+    templates_subdir='',
+)
+
+# KS-2132. Заглушка профиля Дворецкого. Шаблоны и пороги будут добавлены,
+# когда content пришлёт верифицированные FEN с фигурами Q/R/B/N (см.
+# `src/templates/dvoretsky/`). Пока пороги — копия Майзелиса; на пешечных
+# эндшпилях из главы 1 это даёт ложноположительные пешки на пустых тёмных
+# клетках (известное ограничение, см. README §«Профиль Дворецкого»).
+DVORETSKY_PROFILE = Profile(
+    name='dvoretsky',
+    template_sources=[],
+    templates_subdir='dvoretsky',
+)
+
+
+PROFILES: Dict[str, Profile] = {
+    MAIZELIS_PROFILE.name: MAIZELIS_PROFILE,
+    DVORETSKY_PROFILE.name: DVORETSKY_PROFILE,
+}
+
+
+def resolve_profile(name: str) -> Profile:
+    """Получить профиль по имени или поднять `ValueError` со списком известных."""
+    if name not in PROFILES:
+        known = ', '.join(sorted(PROFILES))
+        raise ValueError(f'unknown profile {name!r}; known: {known}')
+    return PROFILES[name]
+
+
 def build_templates(
     reference_image_path: Optional[str] = None,
     fen_board: Optional[str] = None,
     *,
     extra_sources: Optional[List[Tuple[str, str]]] = None,
+    profile: Optional[Profile] = None,
 ) -> Dict[Tuple[str, str], List[np.ndarray]]:
     """Собрать словарь шаблонов (piece, bg) → list[mask].
 
-    По умолчанию используется встроенный список DEFAULT_TEMPLATE_SOURCES
-    из 3 картинок. Можно переопределить:
-      - передать `reference_image_path` + `fen_board` → используется только
-        эта одна картинка (legacy-вызов с одним источником);
-      - передать `extra_sources` → дополнительные пары (path, fen).
+    Без аргументов используется профиль Майзелиса (3 встроенных шаблона).
+    Способы переопределить:
+      - `profile=DVORETSKY_PROFILE` — взять список шаблонов из профиля;
+        сами картинки лежат в `src/templates/<profile.templates_subdir>/`.
+      - `reference_image_path` + `fen_board` → одна картинка (legacy-вызов
+        с одним источником, перебивает профиль).
+      - `extra_sources` → дополнительные пары (path, fen) сверху.
 
     Для каждой (piece, bg)-пары хранится список масок: при матчинге берём
     максимум по NCC.
+
+    Если в итоговом словаре для какого-то (piece, bg) шаблонов нет, но
+    есть на противоположном фоне, копия проставляется автоматически —
+    морф-открытие 3×3 практически не зависит от фона, поэтому это
+    безопасно.
     """
     sources: List[Tuple[str, str]] = []
+    templates_root = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), '..', 'templates'
+    )
     if reference_image_path is not None:
         if fen_board is None:
             fen_board = START_FEN_BOARD
         sources.append((reference_image_path, fen_board))
     else:
-        templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'templates')
+        prof = profile if profile is not None else MAIZELIS_PROFILE
+        templates_dir = os.path.join(templates_root, prof.templates_subdir) \
+            if prof.templates_subdir else templates_root
         sources.extend(
             (os.path.join(templates_dir, rel), fen)
-            for rel, fen in DEFAULT_TEMPLATE_SOURCES
+            for rel, fen in prof.template_sources
         )
     if extra_sources:
         sources.extend(extra_sources)
@@ -342,15 +425,30 @@ def build_templates(
 
 
 class Recognizer:
-    """Классификатор клеток на основе словаря шаблонов.
+    """Классификатор клеток на основе словаря шаблонов и профиля порогов.
 
     `templates` — отображение (piece_char, bg) → список 50×50 масок (uint8).
     При матчинге для каждой кандидатной фигуры считается max(NCC) по всем
     её шаблонам.
+
+    `profile` — `Profile` с порогами «пусто/фигура» и `low_confidence`.
+    По умолчанию — `MAIZELIS_PROFILE` (для обратной совместимости с
+    KS-2028, где Recognizer создавался как `Recognizer(templates)`).
     """
 
-    def __init__(self, templates: Dict[Tuple[str, str], List[np.ndarray]]):
+    def __init__(
+        self,
+        templates: Dict[Tuple[str, str], List[np.ndarray]],
+        profile: Optional[Profile] = None,
+    ):
         self.templates = templates
+        self.profile = profile if profile is not None else MAIZELIS_PROFILE
+
+    @classmethod
+    def from_profile(cls, profile: Profile) -> 'Recognizer':
+        """Удобный конструктор: собрать шаблоны для профиля и завернуть в Recognizer."""
+        templates = build_templates(profile=profile)
+        return cls(templates, profile=profile)
 
     def classify_cell(
         self,
@@ -382,20 +480,22 @@ class Recognizer:
         cm5 = int((m5[8:42, 8:42] > 0).sum())
         sw = _solid_white_central(cell)
 
+        prof = self.profile
+
         # Шаг 1: по sw отделяем пустоту/белую фигуру от чёрной фигуры/смеси.
         if bg == 'l':
-            if sw >= SOLID_WHITE_LIGHT_EMPTY:
+            if sw >= prof.solid_white_light_empty:
                 return '.', 1.0
             # На светлой клетке пусто = «всё белое». Любое снижение sw —
             # значит, в центре есть тёмные пиксели, т. е. есть фигура.
-            is_black = cm5 >= COLOR_MASS5_THRESHOLD
+            is_black = cm5 >= prof.color_mass5_threshold
         else:  # bg == 'd'
-            if sw > SOLID_WHITE_DARK_PIECE:
+            if sw > prof.solid_white_dark_piece:
                 # Белая фигура на тёмной клетке — внутренние просветы видны.
                 is_black = False
             else:
                 # Либо пусто, либо чёрная фигура. Различаем по cm5.
-                if cm5 < COLOR_MASS5_THRESHOLD:
+                if cm5 < prof.color_mass5_threshold:
                     return '.', 1.0
                 is_black = True
 
@@ -468,7 +568,7 @@ class Recognizer:
                     'piece': piece,
                     'confidence': round(score, 4),
                 })
-                if piece != '.' and score < LOW_CONFIDENCE_THRESHOLD:
+                if piece != '.' and score < self.profile.low_confidence_threshold:
                     low_conf.append(cell_diag[-1])
         fen_board = _grid_to_fen(grid)
         return {
@@ -476,6 +576,7 @@ class Recognizer:
             'fen_board': fen_board,
             'orientation': orientation,
             'bbox': list(bbox),
+            'profile': self.profile.name,
             'low_confidence_cells': low_conf,
             'cells': cell_diag,
         }
@@ -491,13 +592,88 @@ def _algebraic_square(row: int, col: int, orientation: str) -> str:
     return f"{chr(ord('a') + file_idx)}{rank_idx + 1}"
 
 
+# ─────────────────────────── Мульти-диаграммный pre-step (KS-2132) ─────────
+
+
+def find_diagrams_on_page(
+    image_path: str,
+    *,
+    min_size: int = 280,
+    max_size: int = 600,
+    aspect_tol: float = 0.15,
+    pad: int = 4,
+    dilate_iter: int = 1,
+) -> List[Dict[str, object]]:
+    """Найти все шахматные доски на странице книги (KS-2132).
+
+    Полные страницы Дворецкого содержат 1–4 диаграммы вперемешку с текстом и
+    подписями (`1.7`, `?`, `1-6`). Существующий `_find_board_inner_bbox`
+    рассчитан на одну изолированную доску и не справится со страницей
+    целиком. Этот pre-step вычленяет квадратные кандидаты по внешним
+    контурам после лёгкой дилатации (склеить пунктирные рамки), фильтрует
+    их по размеру и aspect-ratio.
+
+    Возвращает список словарей `{ "index", "bbox": [x0, y0, x1, y1] }`,
+    отсортированных в порядке чтения (сверху вниз, слева направо). bbox
+    включает `pad` пикселей с каждой стороны, чтобы существующий
+    `_find_board_inner_bbox` потом успешно находил рамку внутри кропа.
+
+    Замечание про диаграммы без рамки (страница 9, 1.1): такие доски этот
+    pre-step может пропустить — внешняя линия рамки слишком тонкая или
+    отсутствует. Это известное ограничение профиля Дворецкого; в README
+    рекомендуется для них вырезать кроп вручную и подавать прямо в
+    `recognize`.
+    """
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        raise FileNotFoundError(f'image not readable: {image_path}')
+    h_img, w_img = img.shape
+    _, thresh = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    if dilate_iter > 0:
+        thresh = cv2.dilate(thresh, np.ones((3, 3), np.uint8), iterations=dilate_iter)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes: List[Tuple[int, int, int, int]] = []
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        if not (min_size < w < max_size and min_size < h < max_size):
+            continue
+        if abs(w - h) / max(w, h) > aspect_tol:
+            continue
+        boxes.append((x, y, w, h))
+
+    # Дедупликация: контур может содержать вложенные дубли (рамка + первый
+    # ряд клеток). Считаем дубликаты по близости центра.
+    boxes.sort(key=lambda b: (b[1], b[0]))
+    deduped: List[Tuple[int, int, int, int]] = []
+    for b in boxes:
+        cx, cy = b[0] + b[2] // 2, b[1] + b[3] // 2
+        is_dup = False
+        for d in deduped:
+            dcx, dcy = d[0] + d[2] // 2, d[1] + d[3] // 2
+            if abs(dcx - cx) < 50 and abs(dcy - cy) < 50:
+                is_dup = True
+                break
+        if not is_dup:
+            deduped.append(b)
+
+    out: List[Dict[str, object]] = []
+    for idx, (x, y, w, h) in enumerate(deduped):
+        x0 = max(0, x - pad)
+        y0 = max(0, y - pad)
+        x1 = min(w_img, x + w + pad)
+        y1 = min(h_img, y + h + pad)
+        out.append({'index': idx, 'bbox': [x0, y0, x1, y1]})
+    return out
+
+
 # ─────────────────────────── CLI ──────────────────────────────────────────
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         prog='board-image-to-fen',
-        description='Распознать шахматную диаграмму (стиль Майзелиса) в FEN.',
+        description='Распознать шахматную диаграмму в FEN '
+                    '(профили Майзелиса и Дворецкого).',
     )
     parser.add_argument('image', help='путь к картинке диаграммы (jpg/png)')
     parser.add_argument(
@@ -511,16 +687,36 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     parser.add_argument(
         '--templates', default=None,
         help='путь к эталонной картинке начальной позиции для шаблонов; '
-             'по умолчанию используется встроенный набор источников.',
+             'по умолчанию используется встроенный набор профиля.',
+    )
+    parser.add_argument(
+        '--profile', choices=tuple(sorted(PROFILES)), default='maizelis',
+        help='профиль шрифта диаграмм: `maizelis` (KS-2028) или `dvoretsky` '
+             '(KS-2132, Russian Chess House). По умолчанию `maizelis`.',
+    )
+    parser.add_argument(
+        '--scan-page', action='store_true',
+        help='не распознавать саму доску, а вернуть JSON со списком найденных '
+             'на странице досок (bbox-ов). Для книжных страниц с 1–4 диаграммами.',
     )
     args = parser.parse_args(list(argv) if argv is not None else None)
 
+    if args.scan_page:
+        try:
+            diagrams = find_diagrams_on_page(args.image)
+        except (FileNotFoundError, RuntimeError, ValueError) as exc:
+            print(f'error: {exc}', file=sys.stderr)
+            return 1
+        print(json.dumps({'diagrams': diagrams}, ensure_ascii=False, indent=2))
+        return 0
+
     try:
+        profile = resolve_profile(args.profile)
         if args.templates:
-            templates = build_templates(args.templates)
+            templates = build_templates(args.templates, profile=profile)
         else:
-            templates = build_templates()
-        recognizer = Recognizer(templates)
+            templates = build_templates(profile=profile)
+        recognizer = Recognizer(templates, profile=profile)
         result = recognizer.recognize(args.image, orientation=args.orientation)
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         print(f'error: {exc}', file=sys.stderr)
@@ -533,7 +729,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         if result['low_confidence_cells']:
             print(
                 f'warning: {len(result["low_confidence_cells"])} cells with low '
-                f'confidence (< {LOW_CONFIDENCE_THRESHOLD}):',
+                f'confidence (< {recognizer.profile.low_confidence_threshold}):',
                 file=sys.stderr,
             )
             for cell in result['low_confidence_cells']:

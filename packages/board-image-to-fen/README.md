@@ -53,6 +53,14 @@ board-image-to-fen /path/to/diagram.jpg --orientation black
 # Подробный JSON-результат (включает confidence по каждой клетке).
 board-image-to-fen /path/to/diagram.jpg --json
 
+# Профиль шрифта диаграмм (KS-2132): maizelis (default) | dvoretsky.
+board-image-to-fen /path/to/dvoretsky_diagram.png --profile dvoretsky
+
+# Сканировать страницу книги — найти все диаграммы (bbox-ы) на ней.
+# Полезно когда на странице 2–4 диаграммы с текстом вокруг — потом каждый
+# bbox можно вырезать (Pillow/OpenCV) и подать в обычный recognize.
+board-image-to-fen /tmp/page17.png --scan-page
+
 # PDF: одна страница (1-indexed) — печатает FEN(ы), найденные на ней.
 board-image-to-fen /path/to/book.pdf --page 21
 
@@ -70,6 +78,7 @@ import {
   recognizeBoardImage,
   recognizeBoardFen,
   recognizePdfBoards,
+  findDiagramsOnPage,
 } from '@kingside/board-image-to-fen';
 
 // Растровый: полный результат.
@@ -80,6 +89,17 @@ console.log(result.low_confidence_cells); // клетки, которые сто
 
 // Растровый: только FEN-board.
 const fenBoard = await recognizeBoardFen('/path/to/diagram.jpg');
+
+// Растровый с профилем Дворецкого (KS-2132).
+const dvor = await recognizeBoardImage('/tmp/dvoretsky_1_3.png', {
+  profile: 'dvoretsky',
+});
+
+// Найти все доски на странице книги (KS-2132 мульти-диаграммный pre-step).
+const { diagrams } = await findDiagramsOnPage('/tmp/page17.png');
+for (const d of diagrams) {
+  console.log(`#${d.index}: bbox=${d.bbox.join(',')}`);
+}
 
 // PDF: все диаграммы со всех страниц.
 const boards = await recognizePdfBoards('/path/to/book.pdf');
@@ -97,6 +117,8 @@ const pageBoards = await recognizePdfBoards('/path/to/book.pdf', { page: 21 });
 - `pythonPath: string` — путь к интерпретатору Python (по умолчанию `python3`).
 - `templatesImage: string` — переопределить встроенный набор шаблонов
   одной размеченной картинкой начальной позиции.
+- `profile: 'maizelis' | 'dvoretsky'` — профиль шрифта диаграмм (KS-2132).
+  По умолчанию `'maizelis'`.
 
 Опции (PDF):
 
@@ -200,6 +222,47 @@ python3 packages/board-image-to-fen/src/python/recognizer.py /tmp/courses/parsed
 
 Если шрифт диаграмм в новой книге другой — нужно будет расширить
 `PIECE_MAP` (новые кодпойнты) и/или паттерн рамки.
+
+## Профиль Дворецкого (KS-2132, в работе)
+
+Книги издательства Russian Chess House («Учебник эндшпиля» Дворецкого и др.)
+используют собственный шрифт фигур и более плотную диагональную штриховку
+тёмных клеток. Для такого источника:
+
+- Источник DjVu (без текстового слоя), извлекается в PNG через `ddjvu`
+  (`apt install djvulibre-bin`):
+
+  ```sh
+  ddjvu -format=ppm -page=11 dvoretsky.djvu /tmp/page11.ppm
+  python3 -c "from PIL import Image; Image.open('/tmp/page11.ppm').save('/tmp/page11.png')"
+  ```
+
+- На странице книги обычно несколько диаграмм; найди их через
+  `--scan-page`, вырежи каждый bbox в отдельный PNG (`Pillow.crop`), затем
+  для каждой запусти `recognizeBoardImage(path, { profile: 'dvoretsky' })`.
+
+- На странице 9 (диаграмма 1.1 «Учебника эндшпиля») внешняя рамка доски
+  отсутствует — `--scan-page` её пропустит. Такие диаграммы вырезаются
+  вручную и подаются в `recognize` напрямую.
+
+- Дворецкий часто помечает ключевые поля внутри клеток звёздочками,
+  кружочками и стрелками. Эти пометки не часть позиции, но
+  template-матчинг может ошибочно подобрать им «фигуру» (обычно с очень
+  низким NCC → попадают в `low_confidence_cells`). После распознавания
+  такие клетки нужно вычитать вручную или сравнить с верифицированным
+  FEN. Полностью игнорировать пометки можно будет только после
+  тренировки отдельного «не-фигурного» классификатора — это вне MVP.
+
+- Шаблоны фигур и калибровочные пороги — в работе (KS-2132). Сейчас
+  `dvoretsky`-профиль **запускается без падения**, но шаблонов фигур ещё
+  нет: распознавалка отдаёт `?` для каждой фигурной клетки. Полная
+  калибровка появится после получения 4 верифицированных FEN с фигурами
+  Q/R/B/N от content (в work).
+
+Фикстуры эталонов главы 1 (стр. 9–11 djvu): `test/fixtures/dvoretsky/`,
+`test/dvoretsky.spec.ts`. Сейчас exact-FEN сверка skip'нута, инфраструктурные
+проверки (профиль пробрасывается, JSON-shape валиден, `findDiagramsOnPage`
+возвращает кандидатов) активны.
 
 ## Известные ограничения
 
