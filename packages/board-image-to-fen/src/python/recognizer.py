@@ -250,25 +250,47 @@ def _grid_to_fen(grid: List[List[str]]) -> str:
 
 
 def _extract_templates_from_image(
-    image_path: str, fen_board: str
+    image_path: str,
+    fen_board: str,
+    *,
+    include_empty: bool = False,
+    mask_kernel: int = 3,
+    frame_detection: str = 'auto',
 ) -> Dict[Tuple[str, str], List[np.ndarray]]:
-    """Извлечь все возможные (piece, bg) → list[mask] из одной размеченной картинки."""
+    """Извлечь все возможные (piece, bg) → list[mask] из одной размеченной картинки.
+
+    Если `include_empty=True` — также собираются маски пустых клеток (ключи
+    `('.', 'l')` / `('.', 'd')`). Это используется в профилях, где пустые
+    клетки нельзя отличить от фигур по простому порогу sw/cm5 (например,
+    Дворецкий: плотная штриховка тёмной клетки даёт sw до 466 — выше
+    Maizelis-порога 150). Тогда `classify_cell` сравнивает NCC всех 12
+    фигур + пустого через единый argmax.
+    """
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     if img is None:
         raise FileNotFoundError(f'reference image not readable: {image_path}')
-    bbox = _find_board_inner_bbox(img)
-    if bbox is None:
-        raise RuntimeError(f'cannot locate board frame in reference: {image_path}')
+    if frame_detection == 'frameless':
+        h, w = img.shape
+        bbox = (0, 0, w, h)
+    else:
+        bbox = _find_board_inner_bbox(img)
+        if bbox is None:
+            # Не нашлось — последний шанс взять весь кадр (полезно для
+            # источников без рамки в auto-режиме).
+            h, w = img.shape
+            bbox = (0, 0, w, h)
     cells = _slice_cells(img, bbox)
     grid = _fen_to_grid(fen_board)
     out: Dict[Tuple[str, str], List[np.ndarray]] = {}
     for r in range(8):
         for c in range(8):
             piece = grid[r][c]
-            if piece == '.':
-                continue
             bg = 'd' if _square_is_dark(r, c) else 'l'
-            out.setdefault((piece, bg), []).append(_open_mask(cells[r][c], 3))
+            if piece == '.':
+                if include_empty:
+                    out.setdefault(('.', bg), []).append(_open_mask(cells[r][c], mask_kernel))
+                continue
+            out.setdefault((piece, bg), []).append(_open_mask(cells[r][c], mask_kernel))
     return out
 
 
@@ -320,6 +342,38 @@ class Profile:
     solid_white_dark_piece: int = SOLID_WHITE_DARK_PIECE
     solid_white_light_empty: int = SOLID_WHITE_LIGHT_EMPTY
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD
+    # KS-2132. Стратегия определения inner-bbox доски:
+    #   'auto'      — Otsu + проекции (KS-2028); если рамка не найдена,
+    #                 поднимается RuntimeError. Default для Maizelis.
+    #   'frameless' — всегда используется весь кадр как inner-bbox;
+    #                 _find_board_inner_bbox не вызывается. Подразумевается
+    #                 точный кроп под доску (через `--scan-page` или ручное
+    #                 вырезание). Default для Дворецкого: часть диаграмм без
+    #                 рамки (1.1), часть с прерванной звёздочками рамкой
+    #                 (1.2/1.7), а у диаграмм с рамкой автоматический поиск
+    #                 даёт смещённый bbox (4.1/12.1) — клетки уезжают на
+    #                 пиксели, фигуры в углах теряются.
+    frame_detection: str = 'auto'
+    # KS-2132. Если True — `classify_cell` сравнивает L2-distance маски
+    # клетки со всеми 12 фигурами + шаблоном пустой клетки и выбирает
+    # argmin. Нужен для профилей с плотной диагональной штриховкой
+    # (Дворецкий: пустая тёмная имеет sw до 466, что выше Maizelis-порога
+    # 150 → простой sw/cm5 threshold даёт ложные «фигуры» на пустых клетках).
+    # Когда True, build_templates автоматически собирает шаблоны `('.', 'd')`
+    # и `('.', 'l')` из source-картинок (требует include_empty=True).
+    # Maizelis: False (sw/cm5 порогов достаточно, см. KS-2028).
+    use_empty_templates: bool = False
+    # KS-2132. Множитель distance для empty-класса при argmin. Empty-маска
+    # часто оказывается ближе к лёгкой фигуре (тонкий контур ≈ штриховка
+    # после morph open) — тонкий bias > 1.0 склоняет argmin в сторону
+    # фигуры при близких distance. Откалибровано на 7 эталонах: 1.15 даёт
+    # 7/7 exact-FEN. Применяется только при `use_empty_templates=True`.
+    empty_distance_bias: float = 1.0
+    # KS-2132. Размер ядра морф-открытия для построения masks (templates и
+    # классификации). У Maizelis фигуры толстые (3×3 не съедает контур);
+    # у Дворецкого фигуры тонкие, 3×3 убивает короля и пешку → 2×2 сохраняет
+    # контур и не даёт штриховке тёмной клетки переживать целиком.
+    mask_open_kernel: int = 3
 
 
 MAIZELIS_PROFILE = Profile(
@@ -333,10 +387,44 @@ MAIZELIS_PROFILE = Profile(
 # `src/templates/dvoretsky/`). Пока пороги — копия Майзелиса; на пешечных
 # эндшпилях из главы 1 это даёт ложноположительные пешки на пустых тёмных
 # клетках (известное ограничение, см. README §«Профиль Дворецкого»).
+# KS-2132. Шаблонные диаграммы Дворецкого. 7 фикстур из глав 1, 2, 4, 8, 12
+# (пешечные, конь, слон, ладья, ферзь — все 6 типов фигур × оба цвета).
+# Файлы лежат в `src/templates/dvoretsky/` (симлинки/копии из
+# `test/fixtures/dvoretsky/`).
+DVORETSKY_TEMPLATE_SOURCES: List[Tuple[str, str]] = [
+    ('dvoretsky_1_3.png', '5k2/8/8/8/1P6/8/8/3K4'),
+    ('dvoretsky_1_4.png', '2k5/8/8/7p/8/8/6P1/5K2'),
+    ('dvoretsky_1_5.png', '8/3p4/3P4/8/5k2/3K4/8/8'),
+    ('dvoretsky_2_20.png', '8/7p/4K3/4N3/6k1/6P1/8/8'),
+    ('dvoretsky_4_1.png', '6k1/8/6Bp/8/8/8/2K5/8'),
+    ('dvoretsky_8_33.png', '1R6/8/7K/2p5/8/8/pk6/8'),
+    ('dvoretsky_12_1.png', '8/5pk1/8/3Q4/3P2K1/6P1/4q3/8'),
+]
+
 DVORETSKY_PROFILE = Profile(
     name='dvoretsky',
-    template_sources=[],
+    template_sources=DVORETSKY_TEMPLATE_SOURCES,
     templates_subdir='dvoretsky',
+    # Книга Дворецкого: автоматический поиск рамки даёт смещённый bbox
+    # (фигуры в углах теряются). Подразумевается точный кроп под доску
+    # через `--scan-page`; см. описание `frame_detection`.
+    frame_detection='frameless',
+    # Калибровка по 7 эталонам с Stockfish-валидированными FEN
+    # (см. `test/dvoretsky.spec.ts::EXPECTED_FENS`):
+    #   - SOLID_WHITE_LIGHT_EMPTY: пустая светлая клетка sw min=415,
+    #     p10=900. Maizelis-порог 800 их бы отбросил как «не пусто».
+    #     Снижаем до 400.
+    #   - SOLID_WHITE_DARK_PIECE: оставляем 150 (как Maizelis); white+dark
+    #     с sw < 150 пойдёт через NCC.
+    #   - COLOR_MASS5_THRESHOLD: оставляем 350; empty+dark cm5 max=552
+    #     (выбросы) — здесь NCC дополнительно отделит.
+    solid_white_light_empty=400,
+    solid_white_dark_piece=150,
+    color_mass5_threshold=350,
+    # NCC-based empty/piece разрешение на тёмных клетках (см. поле выше).
+    use_empty_templates=True,
+    empty_distance_bias=1.15,
+    mask_open_kernel=2,
 )
 
 
@@ -398,10 +486,18 @@ def build_templates(
     if extra_sources:
         sources.extend(extra_sources)
 
+    include_empty = bool(profile and profile.use_empty_templates)
+    mask_kernel = profile.mask_open_kernel if profile is not None else 3
+    frame_detection = profile.frame_detection if profile is not None else 'auto'
     templates: Dict[Tuple[str, str], List[np.ndarray]] = {}
     for path, fen in sources:
         try:
-            extracted = _extract_templates_from_image(path, fen)
+            extracted = _extract_templates_from_image(
+                path, fen,
+                include_empty=include_empty,
+                mask_kernel=mask_kernel,
+                frame_detection=frame_detection,
+            )
         except FileNotFoundError:
             # Источник не найден — пропускаем (например, в тестах подменяют пути).
             continue
@@ -474,13 +570,54 @@ class Recognizer:
              - иначе → белая фигура.
           4. Для фигур запускаем NCC против шаблонов нужного цвета и фона.
         """
-        m3 = _open_mask(cell, 3)
+        prof = self.profile
+        # KS-2132: Maizelis использует morph open 3×3 (толстые силуэты);
+        # Дворецкий — 2×2 (тонкие фигуры, 3×3 убивает короля). Шаблоны
+        # строятся с тем же kernel'ом — иначе попиксельное сравнение даст
+        # 0 везде (пустая cell-маска матчится с пустыми шаблонами).
+        m3 = _open_mask(cell, prof.mask_open_kernel)
         m5 = _open_mask(cell, 5)
         cm3 = int((m3[8:42, 8:42] > 0).sum())
         cm5 = int((m5[8:42, 8:42] > 0).sum())
         sw = _solid_white_central(cell)
 
-        prof = self.profile
+        # KS-2132: для профилей с use_empty_templates=True (Дворецкий)
+        # сравниваем cell-маску с шаблонами всех 13 классов (12 фигур +
+        # 'empty') попиксельно через L2-distance и берём argmin. NCC
+        # `TM_CCOEFF_NORMED` для масок одинакового размера склонен
+        # возвращать 1.0 для нескольких классов сразу (вырожденная
+        # ковариация), поэтому здесь он не работает.
+        #
+        # Confidence для совместимости с `low_confidence_cells` считается
+        # по обратной шкале: conf = 1 - dist / max_distance, где
+        # max_distance = sqrt(50*50*255^2) для 50×50 uint8 маски.
+        if prof.use_empty_templates:
+            m3_f = m3.astype(np.float32)
+            max_dist = float(np.sqrt(m3.size) * 255.0)
+            best_class = '.'
+            best_dist = float('inf')
+            for (piece, tpl_bg), masks in self.templates.items():
+                if tpl_bg != bg:
+                    continue
+                local_best = float('inf')
+                for tpl in masks:
+                    diff = m3_f - tpl.astype(np.float32)
+                    d = float(np.linalg.norm(diff))
+                    if d < local_best:
+                        local_best = d
+                # KS-2132: empty получает penalty ×EMPTY_BIAS — иначе на
+                # тёмных клетках штриховка-only маска часто оказывается
+                # ближе к пустому шаблону, чем к шаблону фигуры (особенно
+                # для лёгких фигур: K/k/p/q, у которых тонкий контур
+                # сравним с фоном после morph open). На 7 эталонах
+                # калибровка bias=1.15 даёт 7/7 exact-FEN.
+                if piece == '.':
+                    local_best *= prof.empty_distance_bias
+                if local_best < best_dist:
+                    best_dist = local_best
+                    best_class = piece
+            conf = 1.0 - min(best_dist / max_dist, 1.0)
+            return best_class, conf
 
         # Шаг 1: по sw отделяем пустоту/белую фигуру от чёрной фигуры/смеси.
         if bg == 'l':
@@ -545,12 +682,20 @@ class Recognizer:
         img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if img is None:
             raise FileNotFoundError(f'image not readable: {image_path}')
-        bbox = _find_board_inner_bbox(img)
-        if bbox is None:
-            raise RuntimeError(
-                f'cannot locate board frame in {image_path}; '
-                'is this a Maizelis-style chess diagram?'
-            )
+        if self.profile.frame_detection == 'frameless':
+            # KS-2132: профиль не использует поиск рамки — весь кадр
+            # принимается за inner-bbox. Подразумевается точный кроп
+            # (через `--scan-page` либо ручное вырезание).
+            h_img, w_img = img.shape
+            bbox = (0, 0, w_img, h_img)
+        else:
+            bbox = _find_board_inner_bbox(img)
+            if bbox is None:
+                raise RuntimeError(
+                    f'cannot locate board frame in {image_path}; '
+                    'is this a Maizelis-style chess diagram? '
+                    "(set profile.frame_detection='frameless' to bypass)"
+                )
         cells = _slice_cells(img, bbox)
         grid: List[List[str]] = [['.'] * 8 for _ in range(8)]
         cell_diag: List[Dict[str, object]] = []
