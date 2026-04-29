@@ -377,6 +377,7 @@ function ArchiveMetadataMode() {
       <ArchiveMetadataFilters
         values={filterValues}
         onChange={handleFiltersChange}
+        onReset={handleResetFilters}
       />
 
       {/* Список */}

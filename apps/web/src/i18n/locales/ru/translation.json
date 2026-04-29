@@ -1243,6 +1243,7 @@
       "resultDraw": "Ничья",
       "minEloLabel": "Мин. Эло",
       "minEloAny": "Любое",
+      "resetAll": "Сбросить всё",
       "timeControlLabel": "Контроль времени",
       "timeControlAny": "Любой",
       "timeControl_bullet": "Пуля",

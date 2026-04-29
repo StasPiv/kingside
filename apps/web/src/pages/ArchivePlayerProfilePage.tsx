@@ -567,6 +567,7 @@ export function ArchivePlayerProfilePage() {
         <ArchiveMetadataFilters
           values={state.filters}
           onChange={handleFiltersChange}
+          onReset={handleResetFilters}
         />
       </div>
 

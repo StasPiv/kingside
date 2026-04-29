@@ -1,345 +1,98 @@
-import { useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import type {
-  ArchiveGameResult,
-  ArchiveGamesSortMetadata,
-  ArchiveTimeControlCategory,
-} from '@kingside/shared';
-import { ArchivePlayerAutocomplete } from './ArchivePlayerAutocomplete';
-import { ArchiveEventAutocomplete } from './ArchiveEventAutocomplete';
-import { ArchiveTimeControlChips } from './ArchiveTimeControlChips';
+import {
+  ArchiveFiltersForm,
+  EMPTY_FILTERS,
+  type ArchiveFiltersValues,
+} from './ArchiveFiltersForm';
 
 /**
- * KS-2067 (F1): форма поиска на лобби `/archive`.
+ * KS-2125: форма поиска на лобби `/archive`. После унификации
+ * (KS-2125) — тонкая обёртка над общим `ArchiveFiltersForm` с
+ * autoNavigate-семантикой:
  *
- * Поля: player (autocomplete), event (autocomplete), eco, since/until
- * (year picker — обычный `<input type="number">` с валидацией 1850..now+1
- * на бэке отдаём как `YYYY-01-01`/`YYYY-12-31`), result, minElo, sort.
+ *   • любое изменение фильтра, когда state ≠ EMPTY_FILTERS, →
+ *     `navigate('/archive/games?<query>')`. Пользователь сразу
+ *     попадает на список с применённым фильтром (живое применение).
+ *   • Reset → setState(EMPTY) и `navigate('/archive')`, лобби
+ *     остаётся видимым (Recent games + by-position CTA).
  *
- * Submit → `navigate('/archive/games?<query>')` (F2-страница списка
- * читает фильтры из URL).
+ * URL-сериализация дублирует `metadataFiltersToUrl` (см.
+ * `ArchiveGamesPage`) — каждый player и timeControlCategory кладётся
+ * через `append`, остальное через `set`. Прежние form-state поля
+ * `sinceYear`/`untilYear` в KS-2125 отменены — на лобби, как и в
+ * списке, теперь обычные ISO-даты.
  */
 
-type ResultFilter = ArchiveGameResult | 'any';
-const VALID_RESULTS: readonly ResultFilter[] = [
-  'any',
-  '1-0',
-  '0-1',
-  '1/2-1/2',
-];
-const MIN_ELO_PRESETS = [2000, 2200, 2400, 2600] as const;
-const SORTS: readonly ArchiveGamesSortMetadata[] = [
-  'recent',
-  'topElo',
-  'oldest',
-];
-
-interface FormState {
-  players: string[];
-  event: string;
-  eco: string;
-  sinceYear: string;
-  untilYear: string;
-  result: ResultFilter;
-  minElo: number | null;
-  sort: ArchiveGamesSortMetadata;
-  /**
-   * KS-2122: фильтр «Контроль времени» на лобби. Пустой массив = «Любой»;
-   * несколько значений сериализуются дубликатами `?timeControlCategory=...`
-   * (контракт KS-2118: OR между значениями, AND с прочими фильтрами).
-   */
-  timeControlCategory: ArchiveTimeControlCategory[];
-}
-
-const EMPTY_STATE: FormState = {
-  players: [],
-  event: '',
-  eco: '',
-  sinceYear: '',
-  untilYear: '',
-  result: 'any',
-  minElo: null,
-  sort: 'recent',
-  timeControlCategory: [],
-};
-
-function buildSearchUrl(state: FormState): string {
+function buildSearchUrl(values: ArchiveFiltersValues): string {
   const params = new URLSearchParams();
   // KS-2084: каждый игрок — отдельный `?player=...`. См.
   // metadataFiltersToUrl в ArchiveGamesPage — единая семантика.
-  for (const p of state.players) {
+  for (const p of values.players) {
     const trimmed = p.trim();
     if (trimmed.length > 0) params.append('player', trimmed);
   }
-  if (state.event) params.set('event', state.event);
-  if (state.eco) params.set('eco', state.eco.trim().toUpperCase());
-  if (state.sinceYear) params.set('since', `${state.sinceYear}-01-01`);
-  if (state.untilYear) params.set('until', `${state.untilYear}-12-31`);
-  if (state.result !== 'any') params.set('result', state.result);
-  if (state.minElo !== null) params.set('minElo', String(state.minElo));
-  if (state.sort !== 'recent') params.set('sort', state.sort);
-  // KS-2122: каждая категория контроля времени — отдельный append,
-  // как в `metadataFiltersToUrl` (см. ArchiveGamesPage). `set` затёр
-  // бы массив до одного значения.
-  for (const cat of state.timeControlCategory) {
+  if (values.event) params.set('event', values.event);
+  if (values.eco) params.set('eco', values.eco);
+  if (values.since) params.set('since', values.since);
+  if (values.until) params.set('until', values.until);
+  if (values.result !== 'any') params.set('result', values.result);
+  if (values.minElo !== null) params.set('minElo', String(values.minElo));
+  if (values.minPly !== null) params.set('minPly', String(values.minPly));
+  if (values.maxPly !== null) params.set('maxPly', String(values.maxPly));
+  if (values.sort !== 'recent') params.set('sort', values.sort);
+  for (const cat of values.timeControlCategory) {
     params.append('timeControlCategory', cat);
   }
   const qs = params.toString();
   return qs ? `/archive/games?${qs}` : '/archive/games';
 }
 
+/**
+ * Считает фильтры «непустыми», то есть отличающимися от EMPTY_FILTERS,
+ * чтобы понять, нужно ли уходить на список.
+ */
+function hasAnyFilter(values: ArchiveFiltersValues): boolean {
+  return (
+    values.players.length > 0 ||
+    values.event !== '' ||
+    values.eco !== '' ||
+    values.since !== '' ||
+    values.until !== '' ||
+    values.result !== 'any' ||
+    values.minElo !== null ||
+    values.minPly !== null ||
+    values.maxPly !== null ||
+    values.sort !== 'recent' ||
+    values.timeControlCategory.length > 0
+  );
+}
+
 export function ArchiveSearchForm() {
-  const { t } = useTranslation('archive');
   const navigate = useNavigate();
-  const [state, setState] = useState<FormState>(EMPTY_STATE);
-  // KS-2084: отдельный draft для текущего значения autocomplete'а.
-  // Когда пользователь выбирает игрока (или жмёт «Add»), имя
-  // переезжает в `state.players` chip'ом, а draft очищается, чтобы
-  // можно было сразу искать второго игрока («Carlsen» → submit chip
-  // → начать набирать «Caruana»).
-  const [playerDraft, setPlayerDraft] = useState('');
+  const [values, setValues] = useState<ArchiveFiltersValues>(EMPTY_FILTERS);
 
-  const apply = (patch: Partial<FormState>) => setState((s) => ({ ...s, ...patch }));
-
-  const addPlayer = (name: string) => {
-    const v = name.trim();
-    if (v.length === 0) return;
-    if (state.players.some((p) => p.toLowerCase() === v.toLowerCase())) {
-      setPlayerDraft('');
-      return;
+  const handleChange = (next: ArchiveFiltersValues) => {
+    setValues(next);
+    if (hasAnyFilter(next)) {
+      navigate(buildSearchUrl(next));
     }
-    setState((s) => ({ ...s, players: [...s.players, v] }));
-    setPlayerDraft('');
-  };
-
-  const removePlayer = (name: string) => {
-    setState((s) => ({ ...s, players: s.players.filter((p) => p !== name) }));
-  };
-
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    // Если в input ещё что-то есть, но не добавлено — добавим перед submit.
-    const submitState = (() => {
-      const v = playerDraft.trim();
-      if (
-        v.length === 0 ||
-        state.players.some((p) => p.toLowerCase() === v.toLowerCase())
-      ) {
-        return state;
-      }
-      return { ...state, players: [...state.players, v] };
-    })();
-    navigate(buildSearchUrl(submitState));
   };
 
   const handleReset = () => {
-    setState(EMPTY_STATE);
-    setPlayerDraft('');
+    setValues(EMPTY_FILTERS);
+    navigate('/archive');
   };
 
   return (
-    <form
-      className="archive-lobby__search-form"
-      data-testid="archive-search-form"
-      onSubmit={handleSubmit}
-    >
-      <div className="archive-lobby__search-fields">
-        <div
-          className="archive-games-filters__field archive-games-filters__field--players"
-          data-testid="archive-search-form-players"
-        >
-          {state.players.length > 0 && (
-            <ul
-              className="archive-games-filters__chips"
-              data-testid="archive-search-form-players-chips"
-            >
-              {state.players.map((p) => (
-                <li
-                  key={p}
-                  className="archive-games-filters__chip"
-                  data-testid={`archive-search-form-player-chip-${p}`}
-                >
-                  <span>{p}</span>
-                  <button
-                    type="button"
-                    className="archive-games-filters__chip-remove"
-                    aria-label={t('lobby.form.playerRemove', {
-                      defaultValue: 'Remove {{name}}',
-                      name: p,
-                    })}
-                    onClick={() => removePlayer(p)}
-                    data-testid={`archive-search-form-player-remove-${p}`}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {/* KS-2092: кнопка «Add» удалена. Способы добавить chip:
-              — выбрать игрока из dropdown'а autocomplete'а;
-              — нажать Enter в input (если в нём непустой draft) —
-                см. onEnterUnselected в ArchiveAutocomplete;
-              — submit формы — handleSubmit подхватит draft. */}
-          <ArchivePlayerAutocomplete
-            value={playerDraft}
-            onChange={setPlayerDraft}
-            onSelect={(sel) => addPlayer(sel.name)}
-            onEnterUnselected={addPlayer}
-          />
-        </div>
-
-        <ArchiveEventAutocomplete
-          value={state.event}
-          onChange={(v) => apply({ event: v })}
-          onSelect={(sel) => apply({ event: sel.name })}
-        />
-
-        <label className="archive-games-filters__field">
-          <span className="archive-games-filters__label">
-            {t('lobby.form.ecoLabel', 'ECO')}
-          </span>
-          <input
-            type="text"
-            className="archive-games-filters__input archive-games-filters__input--eco"
-            value={state.eco}
-            placeholder="B90"
-            maxLength={3}
-            data-testid="archive-search-form-eco"
-            onChange={(e) => apply({ eco: e.target.value })}
-          />
-        </label>
-
-        <label className="archive-games-filters__field">
-          <span className="archive-games-filters__label">
-            {t('lobby.form.sinceYearLabel', 'From year')}
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min={1850}
-            max={new Date().getFullYear() + 1}
-            className="archive-games-filters__input archive-games-filters__input--narrow"
-            value={state.sinceYear}
-            data-testid="archive-search-form-since-year"
-            onChange={(e) => apply({ sinceYear: e.target.value })}
-          />
-        </label>
-
-        <label className="archive-games-filters__field">
-          <span className="archive-games-filters__label">
-            {t('lobby.form.untilYearLabel', 'To year')}
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min={1850}
-            max={new Date().getFullYear() + 1}
-            className="archive-games-filters__input archive-games-filters__input--narrow"
-            value={state.untilYear}
-            data-testid="archive-search-form-until-year"
-            onChange={(e) => apply({ untilYear: e.target.value })}
-          />
-        </label>
-
-        <label className="archive-games-filters__field">
-          <span className="archive-games-filters__label">
-            {t('lobby.form.resultLabel', 'Result')}
-          </span>
-          <select
-            className="archive-games-filters__select"
-            value={state.result}
-            data-testid="archive-search-form-result"
-            onChange={(e) => {
-              const v = e.target.value as ResultFilter;
-              apply({
-                result: VALID_RESULTS.includes(v) ? v : 'any',
-              });
-            }}
-          >
-            <option value="any">{t('lobby.form.resultAny', 'Any')}</option>
-            <option value="1-0">{t('lobby.form.resultWhite', 'White wins')}</option>
-            <option value="0-1">{t('lobby.form.resultBlack', 'Black wins')}</option>
-            <option value="1/2-1/2">{t('lobby.form.resultDraw', 'Draw')}</option>
-          </select>
-        </label>
-
-        <div className="archive-games-filters__field">
-          <span className="archive-games-filters__label">
-            {t('lobby.form.minEloLabel', 'Min Elo')}
-          </span>
-          <div className="archive-games-filters__presets">
-            <button
-              type="button"
-              className={`archive-games-filters__preset${state.minElo === null ? ' is-active' : ''}`}
-              onClick={() => apply({ minElo: null })}
-              data-testid="archive-search-form-min-elo-any"
-            >
-              {t('lobby.form.minEloAny', 'Any')}
-            </button>
-            {MIN_ELO_PRESETS.map((n) => (
-              <button
-                key={n}
-                type="button"
-                className={`archive-games-filters__preset${state.minElo === n ? ' is-active' : ''}`}
-                onClick={() => apply({ minElo: n })}
-                data-testid={`archive-search-form-min-elo-${n}`}
-              >
-                {n}+
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* KS-2122: фильтр «Контроль времени» на лобби. Чипы переиспользуются
-            из ArchiveMetadataFilters. Ключи i18n общие — `archive.games.*`. */}
-        <ArchiveTimeControlChips
-          values={state.timeControlCategory}
-          onChange={(next) => apply({ timeControlCategory: next })}
-          testIdPrefix="archive-search-form"
-        />
-
-        <label className="archive-games-filters__field">
-          <span className="archive-games-filters__label">
-            {t('lobby.form.sortLabel', 'Sort')}
-          </span>
-          <select
-            className="archive-games-filters__select"
-            value={state.sort}
-            data-testid="archive-search-form-sort"
-            onChange={(e) => {
-              const v = e.target.value as ArchiveGamesSortMetadata;
-              apply({
-                sort: SORTS.includes(v) ? v : 'recent',
-              });
-            }}
-          >
-            <option value="recent">{t('lobby.form.sortRecent', 'Recent')}</option>
-            <option value="topElo">{t('lobby.form.sortTopElo', 'Top Elo')}</option>
-            <option value="oldest">{t('lobby.form.sortOldest', 'Oldest first')}</option>
-          </select>
-        </label>
-      </div>
-
-      <div className="archive-lobby__search-actions">
-        <button
-          type="submit"
-          className="archive-lobby__search-submit"
-          data-testid="archive-search-form-submit"
-        >
-          {t('lobby.form.submit', 'Search')}
-        </button>
-        <button
-          type="button"
-          className="archive-lobby__search-reset"
-          data-testid="archive-search-form-reset"
-          onClick={handleReset}
-        >
-          {t('lobby.form.reset', 'Reset')}
-        </button>
-      </div>
-    </form>
+    <div className="archive-lobby__search-form">
+      <ArchiveFiltersForm
+        values={values}
+        onChange={handleChange}
+        onReset={handleReset}
+        testIdPrefix="archive-search-form"
+      />
+    </div>
   );
 }
 
