@@ -541,6 +541,32 @@
   width: 100%;
 }
 
+/* KS-2144: skeleton-rows во время дозагрузки. Используем те же
+   правила что и initial loading skeleton, но без верхнего border —
+   визуально продолжает уже отрисованный список. */
+.archive-games-list--loading-more {
+  margin-top: 0;
+  border-top: none;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* KS-2144: «End of archive» — финальная подпись после nextCursor=null. */
+.archive-games-metadata__end {
+  text-align: center;
+  padding: 24px 0 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* KS-2144: footer с page-size селектором — отдельная зона под списком,
+   pagination больше нет. */
+.archive-games-metadata__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 0;
+}
+
 .archive-games-list__load-more {
   background: transparent;
   border: 1px solid var(--accent-primary);

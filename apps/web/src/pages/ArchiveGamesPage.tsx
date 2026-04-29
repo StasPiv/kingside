@@ -5,7 +5,6 @@ import type {
   ArchiveGameResult,
   ArchiveGameSummary,
   ArchiveGamesRequest,
-  ArchiveGamesResponse,
   ArchiveGamesSortMetadata,
   ArchiveTimeControlCategory,
 } from '@kingside/shared';
@@ -246,42 +245,51 @@ function ArchiveMetadataMode() {
     () => urlToMetadataFilters(searchParams),
     [searchParams],
   );
-  const page = Math.max(
+  const pageSize = parsePageSize(searchParams.get('pageSize'));
+  // KS-2144: deep-link `?cursor=...` или `?page=N` поддерживаем как
+  // «начальная позиция»: с этой страницы дозагружаем дальше через
+  // scroll. Дальше URL не обновляется — состояние живёт в SPA-памяти.
+  const initialPage = Math.max(
     1,
     parseNonNegativeInt(searchParams.get('page')) ?? 1,
   );
-  const pageSize = parsePageSize(searchParams.get('pageSize'));
-  // KS-2143: keyset cursor читается из URL. На первой странице
-  // отсутствует. На последующих кладётся при клике Next; reload
-  // `?page=N&cursor=<opaque>` восстанавливает ту же позицию.
-  const cursor = searchParams.get('cursor') ?? undefined;
+  const initialCursor = searchParams.get('cursor') ?? undefined;
 
-  const [data, setData] = useState<ArchiveGamesResponse | null>(null);
+  // KS-2144: ключ запроса для reset-эффекта. Меняется при смене
+  // фильтров / sort / pageSize / deep-link cursor'а — это и есть
+  // сигнал «список нужно очистить и начать сначала». Сериализуем
+  // через JSON, чтобы primitives & вложенные массивы сравнивались по
+  // содержимому (не по ссылке).
+  const reqKey = useMemo(
+    () => JSON.stringify({ filterValues, pageSize, initialPage, initialCursor }),
+    [filterValues, pageSize, initialPage, initialCursor],
+  );
+
+  const [items, setItems] = useState<ArchiveGameSummary[]>([]);
+  // `nextCursor` из последнего ответа: `null` — достигли конца архива
+  // (`undefined` — данных пока нет; стартовый запрос ещё не вернулся).
+  const [nextCursor, setNextCursor] = useState<string | null | undefined>(
+    undefined,
+  );
+  // Метаданные первой страницы — нужно знать total для clean recent
+  // (cache-path). На дозагрузках total из ответа игнорируем, оно всё
+  // равно `null` для всех не-cache путей.
+  const [firstPageTotal, setFirstPageTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // KS-2143: cursor-стек в SPA-памяти. Map page-number → cursor,
-  // который ВЁЛ к этой странице (т.е. cursor который мы передали в
-  // запросе при загрузке этой страницы). pageCursorMap.get(1) всегда
-  // undefined (page 1 без cursor). pageCursorMap.get(N) хранит
-  // nextCursor возвращённый при загрузке page=N-1. Стек живёт только
-  // в текущей сессии страницы — при reload очищается, и Prev опускается
-  // на offset-fallback (через URL `?page=N`).
-  const pageCursorMapRef = useRef<Map<number, string>>(new Map());
+  // KS-2144: sentinel для IntersectionObserver и стабильная ссылка на
+  // loader, чтобы пересоздание observer'а на каждый рендер не
+  // приводил к лишним вызовам.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef<() => void>(() => {});
 
   const writeFilters = useCallback(
-    (
-      next: ArchiveMetadataFilterValues,
-      nextPage: number,
-      nextPageSize: number,
-      nextCursor?: string,
-    ) => {
-      const params = metadataFiltersToUrl(
-        next,
-        nextPage,
-        nextPageSize,
-        nextCursor,
-      );
+    (next: ArchiveMetadataFilterValues, nextPageSize: number) => {
+      // KS-2144: после любого изменения формы URL чистый — без cursor
+      // и без page (page=1, pageSize пишется только если ≠ дефолта).
+      const params = metadataFiltersToUrl(next, 1, nextPageSize);
       setSearchParams(params, { replace: true });
     },
     [setSearchParams],
@@ -289,70 +297,20 @@ function ArchiveMetadataMode() {
 
   const handleFiltersChange = useCallback(
     (next: ArchiveMetadataFilterValues) => {
-      // KS-2068: смена фильтра сбрасывает страницу на 1 (offset=0).
-      // KS-2143: и стек cursor'ов — старые cursor'ы относятся к
-      // другому набору фильтров, бэк их «silently» проигнорирует
-      // и отдаст 1-ю страницу, но логичнее очистить локально.
-      pageCursorMapRef.current.clear();
-      writeFilters(next, 1, pageSize);
+      writeFilters(next, pageSize);
     },
     [pageSize, writeFilters],
   );
 
   const handlePageSizeChange = useCallback(
     (size: number) => {
-      // KS-2143: pageSize меняет «гранулярность» страниц — старые
-      // cursor'ы считались под другим limit, могут быть «не на
-      // границе». Сбрасываем стек, page=1.
-      pageCursorMapRef.current.clear();
-      writeFilters(filterValues, 1, size);
+      writeFilters(filterValues, size);
     },
     [filterValues, writeFilters],
   );
 
-  const handlePrev = useCallback(() => {
-    if (page <= 1) return;
-    const prevPage = page - 1;
-    // KS-2143: cursor для предыдущей страницы — из стека (если эта
-    // страница была загружена в текущей сессии). Page=1 → cursor нет
-    // вовсе. Если стек пуст (deep-link reload без сессии) — Prev уведёт
-    // через offset-fallback.
-    const prevCursor =
-      prevPage <= 1 ? undefined : pageCursorMapRef.current.get(prevPage);
-    writeFilters(filterValues, prevPage, pageSize, prevCursor);
-  }, [filterValues, page, pageSize, writeFilters]);
-
-  const handleNext = useCallback(() => {
-    if (!data) return;
-    // KS-2143: keyset-курсор. Если бэк отдал `nextCursor` (= `null` →
-    // конца достигли) — переходим на следующую страницу с этим
-    // cursor'ом. Стек пополняется. Backward-compat: если бэк ещё на
-    // старом DTO без `nextCursor` (стадия 1, KS-2140) — пытаемся через
-    // total/pageSize, иначе блокируем кнопку.
-    let nextCursor: string | undefined;
-    if (data.nextCursor) {
-      nextCursor = data.nextCursor;
-    } else if (data.nextCursor === null) {
-      // явно null → конца достигли
-      return;
-    } else if (data.hasNext) {
-      // старый бэк (без nextCursor): cursor undefined, fallback на offset
-      nextCursor = undefined;
-    } else if (data.total !== null && data.total > 0) {
-      const totalPages = Math.max(1, Math.ceil(data.total / pageSize));
-      if (page >= totalPages) return;
-      nextCursor = undefined;
-    } else {
-      return;
-    }
-    const nextPage = page + 1;
-    if (nextCursor) pageCursorMapRef.current.set(nextPage, nextCursor);
-    writeFilters(filterValues, nextPage, pageSize, nextCursor);
-  }, [data, filterValues, page, pageSize, writeFilters]);
-
   const handleResetFilters = useCallback(() => {
-    pageCursorMapRef.current.clear();
-    writeFilters(EMPTY_METADATA_FILTERS, 1, pageSize);
+    writeFilters(EMPTY_METADATA_FILTERS, pageSize);
   }, [pageSize, writeFilters]);
 
   const handleRowClick = useCallback(
@@ -360,49 +318,106 @@ function ArchiveMetadataMode() {
     [navigate],
   );
 
-  // ─── Загрузка ────────────────────────────────────────────────────
+  // ─── Initial / reset загрузка ────────────────────────────────────
+  // KS-2144: reqKey меняется при любом изменении формы или deep-link
+  // — обнуляем items, скроллим вверх, запрашиваем первую страницу
+  // (с учётом deep-link initial cursor / page).
   useEffect(() => {
     let cancelled = false;
+    setItems([]);
+    setNextCursor(undefined);
+    setFirstPageTotal(null);
     setLoading(true);
     setError(null);
+    // Скролл к верху — чтобы при смене фильтра пользователь не
+    // оставался на середине предыдущего списка.
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
     archiveApi
       .getArchiveGamesMetadata(
-        metadataFiltersToRequest(filterValues, page, pageSize, cursor),
+        metadataFiltersToRequest(
+          filterValues,
+          initialPage,
+          pageSize,
+          initialCursor,
+        ),
       )
       .then((res) => {
         if (cancelled) return;
-        setData(res);
+        setItems(res.items);
+        setNextCursor(res.nextCursor ?? null);
+        setFirstPageTotal(res.total);
+        setLoading(false);
       })
       .catch((e: Error) => {
         if (cancelled) return;
         setError(e.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [filterValues, page, pageSize, cursor]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqKey]);
 
-  const items: ArchiveGameSummary[] = data?.items ?? [];
-  // KS-2141: `total` теперь nullable. `null` означает «бэк пропустил
-  // COUNT(*)» (любой фильтр / non-recent sort / offset>0). Не делаем
-  // подстановку 0 — она спутала бы UI с настоящим «нет партий».
-  const total: number | null = data?.total ?? null;
-  // totalPages считаем только когда total известен. Иначе — пагинация
-  // через `hasNext`, без знания «последней страницы».
-  const totalPages =
-    total !== null && total > 0
-      ? Math.max(1, Math.ceil(total / pageSize))
-      : null;
-  // KS-2141: `hasNext` — обязательное поле в новом DTO. Если бэк ещё
-  // на старом формате (deploy окно: фронт может уехать раньше) и
-  // прислал ответ без `hasNext`, fallback'имся к расчёту через total
-  // (классическая offset-pagination), чтобы не блокировать пользователю
-  // переход на следующую страницу.
-  const hasNext =
-    data?.hasNext ?? (totalPages !== null ? page < totalPages : false);
+  // KS-2144: дозагрузка следующей страницы по cursor. Никаких
+  // повторных запросов пока loading/loadingMore = true. Если бэк
+  // отдал `nextCursor: null` — больше не дёргаемся.
+  const loadMore = useCallback(() => {
+    if (loading || loadingMore) return;
+    if (!nextCursor) return; // null или undefined
+    setLoadingMore(true);
+    setError(null);
+    archiveApi
+      .getArchiveGamesMetadata(
+        metadataFiltersToRequest(filterValues, 1, pageSize, nextCursor),
+      )
+      .then((res) => {
+        setItems((prev) => [...prev, ...res.items]);
+        setNextCursor(res.nextCursor ?? null);
+        setLoadingMore(false);
+      })
+      .catch((e: Error) => {
+        setError(e.message);
+        setLoadingMore(false);
+      });
+  }, [loading, loadingMore, nextCursor, filterValues, pageSize]);
+
+  // Стабилизируем ссылку на loadMore — observer создаётся реже.
+  useEffect(() => {
+    loadMoreRef.current = loadMore;
+  }, [loadMore]);
+
+  // ─── IntersectionObserver: триггер дозагрузки ────────────────────
+  useEffect(() => {
+    // Дозагрузка не нужна — observer не вешаем.
+    if (!nextCursor) return undefined;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            loadMoreRef.current();
+          }
+        }
+      },
+      // rootMargin: дозагружаем за 200px ДО появления sentinel в
+      // viewport — пользователь не успевает заметить пустоту.
+      { root: null, rootMargin: '200px', threshold: 0 },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [nextCursor, items.length]);
+
+  // KS-2141: `total` показывается только если бэк его реально посчитал
+  // (clean recent / cache-path KS-2090). При фильтре `total === null`.
+  // KS-2144: первая страница могла прийти с total для cache-path —
+  // используем её, дальше total из дозагрузок игнорируем.
+  const total: number | null = firstPageTotal;
 
   // ─── Сводка фильтров (для header'а) ──────────────────────────────
   const summaryParts: string[] = [];
@@ -532,57 +547,73 @@ function ArchiveMetadataMode() {
               />
             ))}
           </div>
+
+          {/* KS-2144: дозагрузка по scroll. Skeleton-rows во время
+              сетевого запроса — переиспользуем тот же класс что в
+              initial skeleton, чтобы визуально продолжить список без
+              прыжка. Sentinel — невидимый div для IntersectionObserver
+              со 200px rootMargin: дозагрузка начинается до того, как
+              пользователь увидит пустоту. */}
+          {loadingMore && (
+            <div
+              className="archive-games-list archive-games-list--loading-more"
+              data-testid="archive-games-loading-more"
+            >
+              {Array.from({ length: 3 }, (_, i) => (
+                <div
+                  key={i}
+                  className="archive-games-list__skeleton-row"
+                />
+              ))}
+            </div>
+          )}
+
+          {nextCursor && !loadingMore && (
+            <div
+              ref={sentinelRef}
+              className="archive-games-list__sentinel"
+              data-testid="archive-games-sentinel"
+              aria-hidden="true"
+            />
+          )}
+
+          {nextCursor === null && (
+            <p
+              className="archive-games-metadata__end"
+              data-testid="archive-games-end"
+            >
+              {t('games.metadata.end', 'End of archive')}
+            </p>
+          )}
+
+          {error && items.length > 0 && (
+            <div
+              className="archive-games-list__inline-error"
+              data-testid="archive-games-inline-error"
+            >
+              <span>
+                {t('games.metadata.error', 'Failed to load games')}
+              </span>
+              <button
+                type="button"
+                onClick={() => loadMore()}
+                className="archive-games-list__retry"
+              >
+                {t('common.retry', 'Retry')}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Пагинация.
-          KS-2135: оставляем видимой при наличии данных (даже если идёт
-          перезапрос соседней страницы / смена sort / page-size) — кнопки
-          уже `disabled={loading}`, но сама панель не должна мигать.
-          KS-2141: pagination показываем при `items.length > 0` ИЛИ
-          когда total>0 (cached recent). При `total === null` нет «Page
-          N / total», только «Page N»; «Next» управляется `hasNext`. */}
+      {/* KS-2144: page-size селектор остался — теперь это единственный
+          элемент управления «гранулярностью». Total-строка (если есть)
+          и сам селектор живут отдельно от списка. */}
       {(items.length > 0 || (total !== null && total > 0)) && (
-        <nav
-          className="archive-games-metadata__pagination"
-          data-testid="archive-games-metadata-pagination"
-          aria-label={t('games.metadata.paginationLabel', 'Pagination')}
+        <div
+          className="archive-games-metadata__footer"
+          data-testid="archive-games-metadata-footer"
         >
-          <button
-            type="button"
-            data-testid="archive-games-metadata-prev"
-            onClick={handlePrev}
-            disabled={page <= 1 || loading}
-          >
-            ← {t('games.metadata.prev', 'Prev')}
-          </button>
-          <span
-            className="archive-games-metadata__page-info"
-            data-testid="archive-games-metadata-page-info"
-          >
-            {totalPages !== null
-              ? t('games.metadata.pageInfo', {
-                  defaultValue: 'Page {{page}} / {{total}}',
-                  page,
-                  total: totalPages,
-                })
-              : // KS-2141: total неизвестен (skipTotal на бэке) — показываем
-                // только «Page N», без «/ N» (нет данных для последней
-                // страницы, не врём пользователю).
-                t('games.metadata.pageInfoNoTotal', {
-                  defaultValue: 'Page {{page}}',
-                  page,
-                })}
-          </span>
-          <button
-            type="button"
-            data-testid="archive-games-metadata-next"
-            onClick={handleNext}
-            disabled={!hasNext || loading}
-          >
-            {t('games.metadata.next', 'Next')} →
-          </button>
-
           <label className="archive-games-metadata__page-size">
             <span>{t('games.metadata.pageSizeLabel', 'Per page')}</span>
             <select
@@ -597,7 +628,7 @@ function ArchiveMetadataMode() {
               ))}
             </select>
           </label>
-        </nav>
+        </div>
       )}
     </div>
   );

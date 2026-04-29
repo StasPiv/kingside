@@ -382,35 +382,6 @@ describe('ArchiveGamesPage — metadata режим', () => {
     expect(screen.queryByTestId('archive-games-reset-filters')).toBeNull();
   });
 
-  it('Next переходит на страницу 2 (cursor из ответа)', async () => {
-    // KS-2143: после введения keyset Next теперь идёт через cursor,
-    // а не offset. sampleResponse имеет `nextCursor: 'cursor-page-2'`.
-    mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
-    const user = (await import('@testing-library/user-event')).default.setup();
-    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
-    );
-
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: 42,
-      hasNext: false,
-      nextCursor: null,
-      items: [sampleResponse.items[1]],
-    });
-    await user.click(screen.getByTestId('archive-games-metadata-next'));
-
-    await waitFor(() =>
-      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          cursor: 'cursor-page-2',
-          offset: undefined,
-        }),
-      ),
-    );
-  });
-
   it('изменение page-size сбрасывает page → 1', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
     const user = (await import('@testing-library/user-event')).default.setup();
@@ -488,11 +459,12 @@ describe('ArchiveGamesPage — metadata режим', () => {
     );
   });
 
-  // ─── KS-2141: total nullable + hasNext-pagination ────────────────
-  it('KS-2141: `total === null` → счётчик «Total: N» скрыт, pagination видна, «Page N»', async () => {
+  // ─── KS-2141: total nullable ─────────────────────────────────────
+  it('KS-2141: `total === null` → счётчик «Total: N» скрыт', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce({
       total: null,
       hasNext: true,
+      nextCursor: 'C2',
       items: sampleResponse.items,
     });
     renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
@@ -500,59 +472,14 @@ describe('ArchiveGamesPage — metadata режим', () => {
     await waitFor(() =>
       expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
     );
-    // Total-строка не отрендерена.
     expect(screen.queryByTestId('archive-games-metadata-total')).toBeNull();
-    // Page-info без «/ N».
-    const pageInfo = screen.getByTestId('archive-games-metadata-page-info');
-    expect(pageInfo.textContent).toMatch(/Page\s*1\b/);
-    expect(pageInfo.textContent).not.toMatch(/\/\s*\d/);
   });
 
-  it('KS-2141: `hasNext: false` → кнопка Next disabled даже при total === null', async () => {
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: false,
-      items: sampleResponse.items,
-    });
-    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('archive-games-metadata-next')).toBeDisabled();
-  });
-
-  it('KS-2141: `hasNext: true` + `total === null` → клик Next переключает на page=2 (offset=pageSize)', async () => {
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: true,
-      items: sampleResponse.items,
-    });
-    const user = (await import('@testing-library/user-event')).default.setup();
-    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
-
-    await waitFor(() =>
-      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
-    );
-
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: false,
-      items: [sampleResponse.items[1]],
-    });
-    await user.click(screen.getByTestId('archive-games-metadata-next'));
-
-    await waitFor(() =>
-      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
-        expect.objectContaining({ offset: 20 }),
-      ),
-    );
-  });
-
-  it('KS-2141: `total: 42` (cache-path recent) → «Total: 42» виден, «Page 1 / 3»', async () => {
+  it('KS-2141: `total: 42` (cache-path recent) → «Total: 42» виден', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce({
       total: 42,
       hasNext: true,
+      nextCursor: 'C2',
       items: sampleResponse.items,
     });
     renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
@@ -563,12 +490,107 @@ describe('ArchiveGamesPage — metadata режим', () => {
     expect(
       screen.getByTestId('archive-games-metadata-total').textContent,
     ).toMatch(/42/);
-    const pageInfo = screen.getByTestId('archive-games-metadata-page-info');
-    expect(pageInfo.textContent).toMatch(/Page\s*1\s*\/\s*3/);
   });
 
-  // ─── KS-2143: cursor pagination ──────────────────────────────────
-  it('KS-2143: клик Next → запрос с `cursor` из ответа, offset не передаётся', async () => {
+  // ─── KS-2144: infinite scroll (sentinel + IntersectionObserver) ──
+  it('KS-2144: первая страница → sentinel в DOM, конец списка не показан', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: true,
+      nextCursor: 'C2',
+      items: sampleResponse.items,
+    });
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId('archive-games-sentinel')).toBeInTheDocument();
+    expect(screen.queryByTestId('archive-games-end')).toBeNull();
+  });
+
+  it('KS-2144: `nextCursor: null` → sentinel убран, видим «End of archive»', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: false,
+      nextCursor: null,
+      items: sampleResponse.items,
+    });
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('archive-games-sentinel')).toBeNull();
+    expect(screen.getByTestId('archive-games-end')).toBeInTheDocument();
+  });
+
+  it('KS-2144: дозагрузка через observer → items конкатятся, не replace', async () => {
+    // Кастомный IntersectionObserver-mock через vi.stubGlobal —
+    // happy-dom не имитирует viewport intersection, поэтому
+    // подменяем глобал и сами триггерим callback. `class` нужен
+    // потому что компонент вызывает `new IntersectionObserver(cb)`.
+    const observerCallbacks: Array<
+      (entries: Array<{ isIntersecting: boolean }>) => void
+    > = [];
+    class FakeIO {
+      cb: (entries: Array<{ isIntersecting: boolean }>) => void;
+      constructor(cb: (entries: Array<{ isIntersecting: boolean }>) => void) {
+        this.cb = cb;
+        observerCallbacks.push(cb);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', FakeIO);
+
+    try {
+      // Page 1
+      mockGetGamesMetadata.mockResolvedValueOnce({
+        total: null,
+        hasNext: true,
+        nextCursor: 'C2',
+        items: sampleResponse.items,
+      });
+      renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+      await waitFor(() =>
+        expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+      );
+      // Sentinel зарегистрировал минимум один observer.
+      expect(observerCallbacks.length).toBeGreaterThan(0);
+
+      // Page 2 ответ — другая партия с id=g3.
+      mockGetGamesMetadata.mockResolvedValueOnce({
+        total: null,
+        hasNext: false,
+        nextCursor: null,
+        items: [{ ...sampleResponse.items[0], id: 'g3' }],
+      });
+
+      // Триггерим callback — имитируем «sentinel попал в viewport».
+      observerCallbacks.forEach((cb) => cb([{ isIntersecting: true }]));
+
+      await waitFor(() =>
+        expect(screen.getByTestId('archive-game-row-g3')).toBeInTheDocument(),
+      );
+      // items конкатенированы: g1 (страница 1) остался.
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument();
+      // Cursor 'C2' из первой страницы передан во второй запрос.
+      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cursor: 'C2', offset: undefined }),
+      );
+      // nextCursor: null → end-of-archive.
+      expect(screen.getByTestId('archive-games-end')).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('KS-2144: смена sort → items очищаются, page=1 без cursor', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce({
       total: null,
       hasNext: true,
@@ -577,7 +599,6 @@ describe('ArchiveGamesPage — metadata режим', () => {
     });
     const user = (await import('@testing-library/user-event')).default.setup();
     renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
-
     await waitFor(() =>
       expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
     );
@@ -585,94 +606,52 @@ describe('ArchiveGamesPage — metadata режим', () => {
     mockGetGamesMetadata.mockResolvedValueOnce({
       total: null,
       hasNext: true,
-      nextCursor: 'C3',
-      items: [sampleResponse.items[1]],
+      nextCursor: 'C2new',
+      items: [{ ...sampleResponse.items[0], id: 'gx' }],
     });
-    await user.click(screen.getByTestId('archive-games-metadata-next'));
+    await user.selectOptions(
+      screen.getByTestId('archive-metadata-filter-sort'),
+      'topElo',
+    );
 
     await waitFor(() =>
       expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
-        expect.objectContaining({ cursor: 'C2', offset: undefined }),
+        expect.objectContaining({
+          sort: 'topElo',
+          cursor: undefined,
+          offset: 0,
+        }),
+      ),
+    );
+    // Старая партия g1 пропала из списка (items очищены).
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-gx')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('archive-game-row-g1')).toBeNull();
+  });
+
+  it('KS-2144: deep-link `?cursor=abc` → запрос с этим cursor', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce({
+      total: null,
+      hasNext: true,
+      nextCursor: 'C-next',
+      items: sampleResponse.items,
+    });
+    renderWithProviders(<ArchiveGamesPage />, {
+      route: '/archive/games?page=2&cursor=abc',
+    });
+    await waitFor(() =>
+      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
+        expect.objectContaining({ cursor: 'abc', offset: undefined }),
       ),
     );
   });
 
-  it('KS-2143: Next×2 затем Prev → возвращается на page=2 с cursor из стека', async () => {
-    // page 1
+  it('KS-2144: deep-link `?page=3` без cursor → fallback offset=40', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce({
       total: null,
       hasNext: true,
-      nextCursor: 'C2',
-      items: sampleResponse.items,
-    });
-    const user = (await import('@testing-library/user-event')).default.setup();
-    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
-    await waitFor(() =>
-      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
-    );
-
-    // Next → page 2 (cursor C2)
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: true,
-      nextCursor: 'C3',
-      items: sampleResponse.items,
-    });
-    await user.click(screen.getByTestId('archive-games-metadata-next'));
-    await waitFor(() =>
-      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
-        expect.objectContaining({ cursor: 'C2' }),
-      ),
-    );
-
-    // Next → page 3 (cursor C3)
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: false,
-      nextCursor: null,
-      items: sampleResponse.items,
-    });
-    await user.click(screen.getByTestId('archive-games-metadata-next'));
-    await waitFor(() =>
-      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
-        expect.objectContaining({ cursor: 'C3' }),
-      ),
-    );
-
-    // Prev → page 2 снова с cursor=C2 из стека
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: true,
-      nextCursor: 'C3',
-      items: sampleResponse.items,
-    });
-    await user.click(screen.getByTestId('archive-games-metadata-prev'));
-    await waitFor(() =>
-      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
-        expect.objectContaining({ cursor: 'C2', offset: undefined }),
-      ),
-    );
-  });
-
-  it('KS-2143: `nextCursor: null` → кнопка Next disabled', async () => {
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: false,
-      nextCursor: null,
-      items: sampleResponse.items,
-    });
-    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
-    await waitFor(() =>
-      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
-    );
-    expect(screen.getByTestId('archive-games-metadata-next')).toBeDisabled();
-  });
-
-  it('KS-2143: deep-link `?page=3` без cursor → fallback offset=40', async () => {
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: true,
-      nextCursor: 'C4',
+      nextCursor: 'C-next',
       items: sampleResponse.items,
     });
     renderWithProviders(<ArchiveGamesPage />, {
@@ -685,41 +664,5 @@ describe('ArchiveGamesPage — metadata режим', () => {
     );
   });
 
-  it('KS-2143: смена sort → стек cursor очищается, page=1 без cursor', async () => {
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: true,
-      nextCursor: 'C2',
-      items: sampleResponse.items,
-    });
-    const user = (await import('@testing-library/user-event')).default.setup();
-    // Стартуем на page=2 с cursor=C2 из URL.
-    renderWithProviders(<ArchiveGamesPage />, {
-      route: '/archive/games?page=2&cursor=C2',
-    });
-    await waitFor(() =>
-      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
-    );
-
-    // Меняем sort → page=1, cursor=undefined (offset тоже 0).
-    mockGetGamesMetadata.mockResolvedValueOnce({
-      total: null,
-      hasNext: true,
-      nextCursor: 'C2new',
-      items: sampleResponse.items,
-    });
-    await user.selectOptions(
-      screen.getByTestId('archive-metadata-filter-sort'),
-      'topElo',
-    );
-    await waitFor(() =>
-      expect(mockGetGamesMetadata).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          sort: 'topElo',
-          cursor: undefined,
-          offset: 0,
-        }),
-      ),
-    );
-  });
+  // KS-2143 Next/Prev/page-info тесты заменены на KS-2144 (infinite scroll выше).
 });
