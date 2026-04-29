@@ -2005,8 +2005,15 @@ LOGS_HTML = """<!DOCTYPE html>
                   background: var(--panel); }
   #status-panel h3 { font-size: 12px; color: var(--fg-muted); letter-spacing: 0.5px; text-transform: uppercase;
                      margin-bottom: 8px; font-weight: 600; }
+  .panel-head { display: flex; align-items: center; gap: 8px; padding: 4px 4px 8px;
+                border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .panel-head h3 { margin: 0; flex: 1; }
+  .panel-head label { display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 11px; color: var(--fg-muted); }
+  .panel-head input[type=checkbox], .agent-row input[type=checkbox] { cursor: pointer; accent-color: var(--link); }
+  .ev.hidden-by-filter { display: none !important; }
   .agent-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--border-dim);
-               font-size: 13px; }
+               font-size: 13px; cursor: pointer; }
+  .agent-row.k-offline { cursor: default; }
   .agent-row .ar-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; background: var(--fg-faint); }
   .agent-row.k-idle      .ar-dot { background: var(--fg-dim); }
   .agent-row.k-thinking  .ar-dot { background: var(--accent-yellow); animation: ar-pulse 1.2s infinite; }
@@ -2108,7 +2115,10 @@ LOGS_HTML = """<!DOCTYPE html>
 <div id="status">connected</div>
 <div id="log"></div>
 <aside id="status-panel">
-  <h3>Агенты</h3>
+  <div class="panel-head">
+    <h3>Агенты</h3>
+    <label><input type="checkbox" id="filter-all" checked> Все</label>
+  </div>
   <div id="agents-status"></div>
 </aside>
 <div id="input-bar">
@@ -2156,21 +2166,61 @@ function renderAgent(name) {
   if (!row) {
     row = document.createElement('div');
     row.id = 'ag-' + name;
+    row.dataset.agent = name;
     row.className = 'agent-row';
-    row.innerHTML = '<span class="ar-dot"></span><span class="ar-name"></span>'
+    row.innerHTML = '<input type="checkbox" class="ar-cb" checked>'
+                  + '<span class="ar-dot"></span><span class="ar-name"></span>'
                   + '<span class="ar-state"></span><span class="ar-since"></span>';
-    // Сортировка по имени — вставляем с учётом порядка
     const rows = Array.from(agentsContainer.children);
     const after = rows.find(r => r.id > row.id);
     if (after) agentsContainer.insertBefore(row, after); else agentsContainer.appendChild(row);
+    row.querySelector('.ar-cb').addEventListener('change', onAgentCbChange);
+    // Клик по строке (вне чекбокса) тоже переключает чекбокс
+    row.addEventListener('click', (ev) => {
+      if (ev.target.tagName === 'INPUT') return;
+      const cb = row.querySelector('.ar-cb');
+      cb.checked = !cb.checked;
+      onAgentCbChange();
+    });
   }
+  // Сохраняем класс с состоянием чекбокса (k-* отвечает за вид строки)
+  const wasChecked = row.querySelector('.ar-cb').checked;
   row.className = 'agent-row k-' + s.kind;
   row.querySelector('.ar-name').textContent = name;
   const label = KIND_LABEL[s.kind] || s.kind;
   const detail = s.detail ? ': ' + s.detail : '';
   row.querySelector('.ar-state').textContent = label + detail;
   row.querySelector('.ar-since').textContent = fmtSince(s.ts);
+  row.querySelector('.ar-cb').checked = wasChecked;
 }
+
+const filterAllCb = document.getElementById('filter-all');
+function getEnabledAgents() {
+  const set = new Set();
+  agentsContainer.querySelectorAll('.agent-row .ar-cb').forEach(cb => {
+    if (cb.checked) set.add(cb.closest('.agent-row').dataset.agent);
+  });
+  return set;
+}
+function applyFilter() {
+  const enabled = getEnabledAgents();
+  const total = agentsContainer.querySelectorAll('.ar-cb').length;
+  filterAllCb.checked = (total > 0 && enabled.size === total);
+  // Обходим все .ev в логе
+  document.querySelectorAll('#log .ev').forEach(ev => {
+    const ag = ev.dataset.agent;
+    // Без data-agent (системные/user prompts) — всегда видимы
+    if (!ag) { ev.classList.remove('hidden-by-filter'); return; }
+    if (enabled.has(ag)) ev.classList.remove('hidden-by-filter');
+    else ev.classList.add('hidden-by-filter');
+  });
+}
+function onAgentCbChange() { applyFilter(); }
+filterAllCb.addEventListener('change', () => {
+  const v = filterAllCb.checked;
+  agentsContainer.querySelectorAll('.ar-cb').forEach(cb => { cb.checked = v; });
+  applyFilter();
+});
 setInterval(() => {
   for (const name of Object.keys(agentsStatus)) {
     const row = document.getElementById('ag-' + name);
@@ -2190,11 +2240,21 @@ es.addEventListener('status', (e) => {
 es.onmessage = (e) => {
   const div = document.createElement('div');
   div.innerHTML = e.data;
+  const enabled = getEnabledAgents();
+  const totalAgents = agentsContainer.querySelectorAll('.ar-cb').length;
+  const filterActive = totalAgents > 0 && enabled.size < totalAgents;
   div.querySelectorAll('.ev').forEach(ev => {
     const tsAttr = ev.getAttribute('data-ts');
     const tsMs = tsAttr ? parseFloat(tsAttr) * 1000 : Date.now();
     const tsStr = new Date(tsMs).toLocaleTimeString('en-GB', {hour12: false});
     ev.insertAdjacentHTML('afterbegin', '<span class="ts">' + tsStr + '</span>');
+    // Прокидываем data-agent на сам ev из первого badge[data-agent] внутри
+    const badgeAgent = ev.querySelector('.badge[data-agent]');
+    if (badgeAgent) ev.dataset.agent = badgeAgent.dataset.agent;
+    // Применяем текущий фильтр сразу при появлении
+    if (filterActive && ev.dataset.agent && !enabled.has(ev.dataset.agent)) {
+      ev.classList.add('hidden-by-filter');
+    }
   });
   div.querySelectorAll('.text-body').forEach(el => {
     el.innerHTML = marked.parse(el.textContent);
