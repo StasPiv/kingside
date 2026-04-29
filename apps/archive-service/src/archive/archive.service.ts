@@ -26,6 +26,7 @@ import type {
   ArchivePlayerGamesResponse,
   ArchivePlayerProfileResponse,
   ArchivePlayerSearchResponse,
+  ArchiveTimeControlCategory,
   ArchiveTreeRequest,
   ArchiveTreeResponse,
 } from '@kingside/shared';
@@ -295,13 +296,18 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
         skipTotal: true,
       });
       const response: ArchiveGamesResponse = {
-        total: page.total,
+        total: null,
+        hasNext: page.hasNext,
         items: page.items.map((g) => this.rawRowToSummary(g)),
       };
       await this.safeSetJson(cacheKey, response, RECENT_GAMES_CACHE_TTL_SEC);
       return response;
     }
 
+    // KS-2140: для всех запросов с фильтрами / non-recent sort / offset>0
+    // COUNT(*) уходит в Parallel Seq Scan на 760 МБ heap (5-6 сек I/O на
+    // db.t3.micro). Пропускаем COUNT — frontend (KS-2141) использует
+    // `hasNext` от backend (LIMIT+1) вместо «N..M из total».
     const opts: SearchGamesOpts = {
       white: req.white,
       black: req.black,
@@ -314,15 +320,20 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       maxPly: req.maxPly,
       since: req.since ? new Date(req.since) : undefined,
       until: req.until ? new Date(req.until) : undefined,
+      timeControlCategory: normalizeTimeControlCategoryFilter(
+        req.timeControlCategory,
+      ),
       sort,
       limit,
       offset: offsetRaw,
+      skipTotal: true,
     };
 
     const page = await this.stats.searchGames(opts);
 
     return {
-      total: page.total,
+      total: null,
+      hasNext: page.hasNext,
       items: page.items.map((g) => this.rawRowToSummary(g)),
     };
   }
@@ -342,6 +353,14 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     if (req.minElo != null) return false;
     if (req.minPly != null || req.maxPly != null) return false;
     if (req.since || req.until) return false;
+    // KS-2118: фильтр по контролю времени тоже отключает recent-кэш.
+    if (
+      Array.isArray(req.timeControlCategory)
+        ? req.timeControlCategory.length > 0
+        : !!req.timeControlCategory
+    ) {
+      return false;
+    }
     return true;
   }
 
@@ -633,6 +652,8 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     const cached = await this.safeGetJson<ArchivePlayerGamesResponse>(cacheKey);
     if (cached) return cached;
 
+    // KS-2140: skip COUNT(*) для всех player-games запросов — та же
+    // archive_games таблица, та же Parallel Seq Scan на фильтрах.
     const opts: SearchPlayerGamesOpts = {
       slug,
       color: req.color,
@@ -644,14 +665,19 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       until: req.until ? new Date(req.until) : undefined,
       minPly: req.minPly,
       maxPly: req.maxPly,
+      timeControlCategory: normalizeTimeControlCategoryFilter(
+        req.timeControlCategory,
+      ),
       sort,
       limit,
       offset,
+      skipTotal: true,
     };
 
     const page = await this.stats.searchPlayerGames(opts);
     const response: ArchivePlayerGamesResponse = {
-      total: page.total,
+      total: null,
+      hasNext: page.hasNext,
       items: page.items.map((g) => this.playerGameRowToItem(g)),
     };
     await this.safeSetJson(cacheKey, response, PLAYERS_GAMES_CACHE_TTL_SEC);
@@ -682,6 +708,10 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       event: r.event,
       date: r.played_at ? r.played_at.toISOString() : r.date ?? null,
       plyCount: r.ply_count == null ? null : Number(r.ply_count),
+      timeControl: r.time_control ?? null,
+      timeControlCategory: normalizeTimeControlCategoryValue(
+        r.time_control_category,
+      ),
     };
   }
 
@@ -701,6 +731,8 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       eco: string | null;
       opening: string | null;
       plyCount: number | null;
+      timeControl: string | null;
+      timeControlCategory: string | null;
     },
     slugByName: Map<string, string> = new Map(),
   ): ArchiveGameSummary {
@@ -730,6 +762,10 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       event: g.event,
       date: g.playedAt ? g.playedAt.toISOString() : g.date ?? null,
       plyCount: g.plyCount,
+      timeControl: g.timeControl ?? null,
+      timeControlCategory: normalizeTimeControlCategoryValue(
+        g.timeControlCategory,
+      ),
     };
   }
 
@@ -790,6 +826,11 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       until: req.until ?? null,
       minPly: req.minPly ?? null,
       maxPly: req.maxPly ?? null,
+      // KS-2118: важно — массив сортируем для стабильного хэша
+      // (?tcc=blitz&tcc=rapid и обратный порядок — один и тот же результат).
+      timeControlCategory: normalizeTimeControlCategoryFilter(
+        req.timeControlCategory,
+      )?.slice().sort() ?? null,
       sort: req.sort,
       limit: req.limit,
       offset: req.offset,
@@ -818,6 +859,10 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       event: r.event,
       date: r.played_at ? r.played_at.toISOString() : r.date ?? null,
       plyCount: r.ply_count == null ? null : Number(r.ply_count),
+      timeControl: r.time_control ?? null,
+      timeControlCategory: normalizeTimeControlCategoryValue(
+        r.time_control_category,
+      ),
       playerColor: r.player_color,
     };
   }
@@ -992,4 +1037,45 @@ function buildCursor(
     t: row.played_at ? row.played_at.toISOString() : null,
     g: row.game_id,
   };
+}
+
+const TIME_CONTROL_CATEGORY_VALUES = new Set<ArchiveTimeControlCategory>([
+  'bullet',
+  'blitz',
+  'rapid',
+  'classical',
+  'unknown',
+]);
+
+/**
+ * KS-2118. Нормализует входной фильтр `?timeControlCategory=...` из DTO в
+ * массив валидных категорий. DTO уже валидирует элементы (`@IsIn`),
+ * но допускает пропуск — здесь сводим `undefined` / пустой массив к
+ * `undefined` (downstream трактует как «фильтр выключен»).
+ */
+function normalizeTimeControlCategoryFilter(
+  raw: ArchiveTimeControlCategory | ArchiveTimeControlCategory[] | undefined,
+): ArchiveTimeControlCategory[] | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const arr = Array.isArray(raw) ? raw : [raw];
+  const filtered = arr.filter((v): v is ArchiveTimeControlCategory =>
+    TIME_CONTROL_CATEGORY_VALUES.has(v as ArchiveTimeControlCategory),
+  );
+  return filtered.length > 0 ? filtered : undefined;
+}
+
+/**
+ * KS-2118. Нормализует значение колонки `time_control_category` из БД
+ * в публичный {@link ArchiveTimeControlCategory} | null. Любое
+ * неожиданное (не из 5 допустимых) значение сводим к `null` — сильно
+ * лучше, чем отдать на фронт мусор. Полностью нулевое поле
+ * (NULL в БД) — переходный период до полного backfill, тоже null.
+ */
+function normalizeTimeControlCategoryValue(
+  raw: string | null,
+): ArchiveTimeControlCategory | null {
+  if (raw == null) return null;
+  return TIME_CONTROL_CATEGORY_VALUES.has(raw as ArchiveTimeControlCategory)
+    ? (raw as ArchiveTimeControlCategory)
+    : null;
 }

@@ -79,13 +79,13 @@ class CapturingRepo implements ArchiveStatsRepository {
       white_slug: null,
       black_slug: null,
     };
-    return { total: 1, items: [row] };
+    return { total: 1, hasNext: false, items: [row] };
   }
   async searchPlayers() { return { total: 0, items: [] as never[] }; }
   async searchEvents() { return { total: 0, items: [] as never[] }; }
   async getPlayerProfile() { return null; }
   async searchPlayerGames(_o: SearchPlayerGamesOpts): Promise<SearchPlayerGamesPage> {
-    return { total: 0, items: [] };
+    return { total: 0, hasNext: false, items: [] };
   }
 }
 
@@ -97,7 +97,7 @@ function makeService(repo: CapturingRepo): { svc: ArchiveService; redis: FakeRed
 }
 
 describe('ArchiveService.getGames recent-cache — KS-2090', () => {
-  it('clean-recent (default request) → skipTotal=true, total=items.length, COUNT не делается', async () => {
+  it('clean-recent (default request) → skipTotal=true, total=null (KS-2140), COUNT не делается', async () => {
     const repo = new CapturingRepo();
     const { svc } = makeService(repo);
 
@@ -105,8 +105,10 @@ describe('ArchiveService.getGames recent-cache — KS-2090', () => {
 
     expect(repo.lastSearchGamesOpts?.skipTotal).toBe(true);
     expect(repo.lastSearchGamesOpts?.sort).toBe('recent');
-    // total приходит как длина items (1).
-    expect(res.total).toBe(1);
+    // KS-2140: total = null (явный контракт «не считали»). Пагинация
+    // через hasNext.
+    expect(res.total).toBeNull();
+    expect(typeof res.hasNext).toBe('boolean');
     expect(res.items).toHaveLength(1);
   });
 
@@ -135,7 +137,7 @@ describe('ArchiveService.getGames recent-cache — KS-2090', () => {
     );
   });
 
-  it('sort=topElo → НЕ clean-recent: skipTotal=false, COUNT делается, кэш не используется', async () => {
+  it('sort=topElo → НЕ clean-recent: skipTotal=true (KS-2140), кэш не используется', async () => {
     const repo = new CapturingRepo();
     const { svc, redis } = makeService(repo);
 
@@ -144,7 +146,9 @@ describe('ArchiveService.getGames recent-cache — KS-2090', () => {
 
     // Каждый вызов идёт в repo (без кэша на topElo).
     expect(repo.searchGamesCalls).toBe(2);
-    expect(repo.lastSearchGamesOpts?.skipTotal).toBeFalsy();
+    // KS-2140: skipTotal теперь авто-true для любых не-clean-recent
+    // запросов — COUNT(*) на 760 МБ heap идёт Parallel Seq Scan.
+    expect(repo.lastSearchGamesOpts?.skipTotal).toBe(true);
     // Ключ recent в Redis не появлялся.
     expect([...redis.store.keys()].filter((k) => k.startsWith('arch:games:recent:'))).toHaveLength(0);
   });
@@ -165,11 +169,14 @@ describe('ArchiveService.getGames recent-cache — KS-2090', () => {
     ['maxPly', { maxPly: 80 }],
     ['fen', { fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }],
     ['move', { move: 'e2e4' }],
-  ])('фильтр %s → НЕ clean-recent (skipTotal=false)', async (_name, req) => {
+  ])('фильтр %s → НЕ clean-recent, skipTotal=true (KS-2140)', async (_name, req) => {
     const repo = new CapturingRepo();
     const { svc } = makeService(repo);
     await svc.getGames(req);
-    expect(repo.lastSearchGamesOpts?.skipTotal).toBeFalsy();
+    // KS-2140: для любых запросов с фильтрами / non-recent / offset>0
+    // backend сам выставляет skipTotal=true. Раньше тут было false и
+    // COUNT(*) шёл Parallel Seq Scan на 5-6 сек.
+    expect(repo.lastSearchGamesOpts?.skipTotal).toBe(true);
   });
 
   it('player=[] (пустой массив) → считается отсутствием фильтра, clean-recent', async () => {

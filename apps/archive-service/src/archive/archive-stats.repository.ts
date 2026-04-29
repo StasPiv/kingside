@@ -93,6 +93,12 @@ export type SearchPlayerGamesOpts = {
    * фильтрами. `undefined` или пустой массив — фильтр отключён.
    */
   timeControlCategory?: ArchiveTimeControlCategory[];
+  /**
+   * KS-2140: пропустить `SELECT COUNT(*)`. Для запросов с фильтрами на
+   * /players/:slug/games COUNT тоже идёт Parallel Seq Scan (та же
+   * archive_games таблица). Возвращаемый `total` будет `null`.
+   */
+  skipTotal?: boolean;
   sort: ArchiveGamesSortMetadata;
   limit: number;
   offset: number;
@@ -126,7 +132,10 @@ export interface RawPlayerGameRow {
 }
 
 export interface SearchPlayerGamesPage {
-  total: number;
+  /** KS-2140: `null` если COUNT(*) пропущен (`skipTotal=true`). */
+  total: number | null;
+  /** KS-2140: есть ли следующая страница (LIMIT+1 trick). */
+  hasNext: boolean;
   items: RawPlayerGameRow[];
 }
 
@@ -195,7 +204,10 @@ export interface RawArchiveGameRow {
 }
 
 export interface SearchGamesPage {
-  total: number;
+  /** KS-2140: `null` если COUNT(*) пропущен (`skipTotal=true`). */
+  total: number | null;
+  /** KS-2140: есть ли следующая страница (LIMIT+1 trick). */
+  hasNext: boolean;
   items: RawArchiveGameRow[];
 }
 
@@ -435,32 +447,30 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
   }
 
   async searchGames(opts: SearchGamesOpts): Promise<SearchGamesPage> {
-    const builder = new MetadataSqlBuilder(opts);
+    // KS-2140: builder получает LIMIT+1, чтобы один лишний row показал
+    // наличие следующей страницы. После запроса фактические items режутся
+    // до `opts.limit`.
+    const builder = new MetadataSqlBuilder({ ...opts, limit: opts.limit + 1 });
+    const rawItems = await this.prisma.$queryRawUnsafe<RawArchiveGameRow[]>(
+      builder.itemsSql,
+      ...builder.itemsParams,
+    );
+    const hasNext = rawItems.length > opts.limit;
+    const items = hasNext ? rawItems.slice(0, opts.limit) : rawItems;
 
     if (opts.skipTotal) {
-      // KS-2090: skip COUNT(*) — фронту total не нужен для recent-блока
-      // на лобби; вернём `items.length` как proxy. Один SQL вместо двух.
-      const items = await this.prisma.$queryRawUnsafe<RawArchiveGameRow[]>(
-        builder.itemsSql,
-        ...builder.itemsParams,
-      );
-      return { total: items.length, items };
+      // KS-2090 / KS-2140: COUNT(*) пропущен. `total: null` — явный
+      // контракт «не считали» (фронт показывает «← Назад / Вперёд →»
+      // вместо «N..M из total»).
+      return { total: null, hasNext, items };
     }
 
-    const [items, totals] = await Promise.all([
-      this.prisma.$queryRawUnsafe<RawArchiveGameRow[]>(
-        builder.itemsSql,
-        ...builder.itemsParams,
-      ),
-      this.prisma.$queryRawUnsafe<Array<{ total: bigint | number }>>(
-        builder.totalSql,
-        ...builder.whereParams,
-      ),
-    ]);
-
+    const totals = await this.prisma.$queryRawUnsafe<
+      Array<{ total: bigint | number }>
+    >(builder.totalSql, ...builder.whereParams);
     const totalRaw = totals[0]?.total ?? 0;
     const total = typeof totalRaw === 'bigint' ? Number(totalRaw) : Number(totalRaw);
-    return { total, items };
+    return { total, hasNext, items };
   }
 
   async listTopPositions(
@@ -654,20 +664,25 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
   }
 
   async searchPlayerGames(opts: SearchPlayerGamesOpts): Promise<SearchPlayerGamesPage> {
-    const builder = new PlayerGamesSqlBuilder(opts);
-    const [rows, totals] = await Promise.all([
-      this.prisma.$queryRawUnsafe<RawPlayerGameRow[]>(
-        builder.itemsSql,
-        ...builder.itemsParams,
-      ),
-      this.prisma.$queryRawUnsafe<Array<{ total: bigint | number }>>(
-        builder.totalSql,
-        ...builder.whereParams,
-      ),
-    ]);
+    // KS-2140: LIMIT+1 для hasNext, COUNT(*) опционально через skipTotal.
+    const builder = new PlayerGamesSqlBuilder({ ...opts, limit: opts.limit + 1 });
+    const rawRows = await this.prisma.$queryRawUnsafe<RawPlayerGameRow[]>(
+      builder.itemsSql,
+      ...builder.itemsParams,
+    );
+    const hasNext = rawRows.length > opts.limit;
+    const items = hasNext ? rawRows.slice(0, opts.limit) : rawRows;
+
+    if (opts.skipTotal) {
+      return { total: null, hasNext, items };
+    }
+
+    const totals = await this.prisma.$queryRawUnsafe<
+      Array<{ total: bigint | number }>
+    >(builder.totalSql, ...builder.whereParams);
     const totalRaw = totals[0]?.total ?? 0;
     const total = typeof totalRaw === 'bigint' ? Number(totalRaw) : Number(totalRaw);
-    return { total, items: rows };
+    return { total, hasNext, items };
   }
 }
 

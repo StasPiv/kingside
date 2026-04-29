@@ -40,13 +40,13 @@ class StubRepo implements ArchiveStatsRepository {
   async countApprox(_p: Buffer, _b: ArchiveBucket): Promise<number> { return 0; }
   async listTopPositions(): Promise<Array<{ positionKey: Buffer; total: number }>> { return []; }
   async searchGames(_o: SearchGamesOpts): Promise<SearchGamesPage> {
-    return { total: 0, items: [] as RawArchiveGameRow[] };
+    return { total: 0, hasNext: false, items: [] as RawArchiveGameRow[] };
   }
   async searchPlayers() { return { total: 0, items: [] as never[] }; }
   async searchEvents() { return { total: 0, items: [] as never[] }; }
   async getPlayerProfile() { return null; }
   async searchPlayerGames(_o: SearchPlayerGamesOpts): Promise<SearchPlayerGamesPage> {
-    return { total: 0, items: [] };
+    return { total: 0, hasNext: false, items: [] };
   }
 }
 

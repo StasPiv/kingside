@@ -89,8 +89,8 @@ class ConfigurableRepo implements ArchiveStatsRepository {
   async listTopPositions(): Promise<Array<{ positionKey: Buffer; total: number }>> {
     return [];
   }
-  async searchGames(): Promise<{ total: number; items: never[] }> {
-    return { total: 0, items: [] };
+  async searchGames(): Promise<{ total: number; hasNext: boolean; items: never[] }> {
+    return { total: 0, hasNext: false, items: [] };
   }
   async searchPlayers(): Promise<{ total: number; items: never[] }> {
     return { total: 0, items: [] };
@@ -101,8 +101,8 @@ class ConfigurableRepo implements ArchiveStatsRepository {
   async getPlayerProfile(): Promise<null> {
     return null;
   }
-  async searchPlayerGames(): Promise<{ total: number; items: never[] }> {
-    return { total: 0, items: [] };
+  async searchPlayerGames(): Promise<{ total: number; hasNext: boolean; items: never[] }> {
+    return { total: 0, hasNext: false, items: [] };
   }
 }
 

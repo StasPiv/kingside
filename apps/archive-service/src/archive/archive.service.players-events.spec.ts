@@ -63,7 +63,7 @@ class CapturingRepo implements ArchiveStatsRepository {
   async countApprox(_p: Buffer, _b: ArchiveBucket): Promise<number> { return 0; }
   async listTopPositions(): Promise<Array<{ positionKey: Buffer; total: number }>> { return []; }
   async searchGames(_o: SearchGamesOpts): Promise<SearchGamesPage> {
-    return { total: 0, items: [] as RawArchiveGameRow[] };
+    return { total: 0, hasNext: false, items: [] as RawArchiveGameRow[] };
   }
   async searchPlayers(opts: { q: string; limit: number; offset: number }) {
     this.lastPlayersOpts = opts;
@@ -88,7 +88,7 @@ class CapturingRepo implements ArchiveStatsRepository {
   }
   async searchPlayerGames(opts: SearchPlayerGamesOpts): Promise<SearchPlayerGamesPage> {
     this.lastPlayerGamesOpts = opts;
-    return { total: 0, items: [] };
+    return { total: 0, hasNext: false, items: [] };
   }
 }
 

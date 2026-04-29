@@ -68,7 +68,7 @@ class CapturingRepo implements ArchiveStatsRepository {
   }
   async searchGames(opts: SearchGamesOpts): Promise<SearchGamesPage> {
     this.lastSearchOpts = opts;
-    const row: RawArchiveGameRow = {
+    const row = {
       id: 'g1',
       event: 'Test',
       site: null,
@@ -85,8 +85,12 @@ class CapturingRepo implements ArchiveStatsRepository {
       eco: 'C50',
       opening: null,
       ply_count: 40,
-    };
-    return { total: 1, items: [row] };
+      time_control: '5400+30',
+      time_control_category: 'classical',
+      white_slug: null,
+      black_slug: null,
+    } as unknown as RawArchiveGameRow;
+    return { total: 1, hasNext: false, items: [row] };
   }
 }
 
@@ -175,11 +179,71 @@ describe('ArchiveService.getGames — KS-2063', () => {
 
     const res = await svc.getGames({});
 
-    expect(res.total).toBe(1);
+    // KS-2140: total = null (skipTotal по умолчанию).
+    expect(res.total).toBeNull();
     expect(res.items[0].id).toBe('g1');
     expect(res.items[0].white).toEqual({ name: 'A', slug: 'a', elo: 2700, title: null });
     expect(res.items[0].black).toEqual({ name: 'B', slug: 'b', elo: 2650, title: null });
     expect(res.items[0].date).toBe('2026-04-01T00:00:00.000Z');
     expect(res.items[0].plyCount).toBe(40);
+    expect(res.items[0].timeControl).toBe('5400+30');
+    expect(res.items[0].timeControlCategory).toBe('classical');
+  });
+
+  // ─── KS-2118 — фильтр по timeControlCategory ─────────────────────────
+
+  it('KS-2118: единичная категория пробрасывается как массив [X]', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    await svc.getGames({ timeControlCategory: 'classical' });
+
+    expect(repo.lastSearchOpts?.timeControlCategory).toEqual(['classical']);
+  });
+
+  it('KS-2118: массив категорий пробрасывается как есть', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    await svc.getGames({ timeControlCategory: ['rapid', 'classical'] });
+
+    expect(repo.lastSearchOpts?.timeControlCategory).toEqual(['rapid', 'classical']);
+  });
+
+  it('KS-2118: пустой массив сводится к undefined (фильтр выключен)', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    await svc.getGames({ timeControlCategory: [] });
+
+    expect(repo.lastSearchOpts?.timeControlCategory).toBeUndefined();
+  });
+
+  it('KS-2118: невалидные значения отсеиваются', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    await svc.getGames({
+      timeControlCategory: ['classical', 'totally-bogus' as never],
+    });
+
+    expect(repo.lastSearchOpts?.timeControlCategory).toEqual(['classical']);
+  });
+
+  it('KS-2118: фильтр выключает recent-кэш (вызывается полный searchGames)', async () => {
+    const repo = new CapturingRepo();
+    const svc = makeService(repo);
+
+    // Без фильтра — clean recent path использует skipTotal=true.
+    await svc.getGames({});
+    expect(repo.lastSearchOpts?.skipTotal).toBe(true);
+
+    repo.lastSearchOpts = null;
+
+    // KS-2140: с фильтром backend тоже ставит skipTotal=true (раньше
+    // здесь был undefined и COUNT(*) шёл Parallel Seq Scan ~5-6 сек).
+    await svc.getGames({ timeControlCategory: 'classical' });
+    expect(repo.lastSearchOpts?.skipTotal).toBe(true);
+    expect(repo.lastSearchOpts?.timeControlCategory).toEqual(['classical']);
   });
 });

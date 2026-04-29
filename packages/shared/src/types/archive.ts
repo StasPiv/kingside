@@ -8,6 +8,8 @@
  *   - /api/archive/sources   — archive source admin
  */
 
+import type { ArchiveTimeControlCategory } from '../utils/time-control.js';
+
 export type ArchiveBucket = 'master' | 'user';
 
 export type ArchiveGameResult = '1-0' | '0-1' | '1/2-1/2' | '*';
@@ -106,6 +108,14 @@ export type ArchiveGamesRequest = {
   minPly?: number;
   /** Maximum number of plies (half-moves) in the game. */
   maxPly?: number;
+  /**
+   * KS-2118. Фильтр по категории контроля времени (`bullet`/`blitz`/
+   * `rapid`/`classical`/`unknown`). Принимает одно значение или массив —
+   * массив сериализуется как `?timeControlCategory=classical&timeControlCategory=rapid`
+   * (Express парсит дубликаты query как массив). Семантика — OR между
+   * элементами массива; AND с другими фильтрами.
+   */
+  timeControlCategory?: ArchiveTimeControlCategory | ArchiveTimeControlCategory[];
   /** Sort order — defaults to `recent` server-side. */
   sort?: ArchiveGamesSortMetadata;
   /** Page size. */
@@ -143,6 +153,19 @@ export type ArchiveGameSummary = {
   /** ISO date of the game, or raw PGN date string when normalized date is unavailable. */
   date: string | null;
   plyCount: number | null;
+  /**
+   * KS-2118. Сырая строка `[TimeControl]` из PGN-хедера для отображения
+   * (`5400+30`, `300+3`, `40/7200:1800+30`). `null`, если у партии нет тега
+   * или он пустой/`-`/`?`.
+   */
+  timeControl: string | null;
+  /**
+   * KS-2118. Категория контроля времени для индекса/фильтра — `bullet`,
+   * `blitz`, `rapid`, `classical` или `unknown` (нет тега, correspondence,
+   * нераспознанная форма). `null` только в переходный период до backfill;
+   * после миграции поле заполнено для всех партий.
+   */
+  timeControlCategory: ArchiveTimeControlCategory | null;
 };
 
 /** GET /api/archive/games/:id */
@@ -153,8 +176,25 @@ export type ArchiveGameDetail = ArchiveGameSummary & {
   round: string | null;
 };
 
+/**
+ * GET /api/archive/games
+ *
+ * KS-2140: `total` стало nullable. Backend пропускает `COUNT(*)` (Parallel
+ * Seq Scan на 760 МБ heap, 5-6 сек I/O на t3.micro) для любых запросов с
+ * фильтрами или non-recent sort или offset>0 — возвращает `total: null`.
+ * `hasNext` — флаг от backend через LIMIT+1, фронт его использует вместо
+ * сравнения `items.length === limit` (последнее ломается когда totals ровно
+ * делится на limit).
+ *
+ * Frontend контракт (KS-2141):
+ *   - `total === null` → скрыть «всего N партий», пагинация только через
+ *     `hasNext` + следующий offset;
+ *   - `total !== null` → fast-path для clean recent (cache); UI может
+ *     показать total если уже прошёл cache.
+ */
 export type ArchiveGamesResponse = {
-  total: number;
+  total: number | null;
+  hasNext: boolean;
   items: ArchiveGameSummary[];
 };
 
@@ -317,6 +357,11 @@ export type ArchivePlayerGamesRequest = {
   minPly?: number;
   /** Maximum number of plies (half-moves) in the game. */
   maxPly?: number;
+  /**
+   * KS-2118. Фильтр по категории контроля времени — формат идентичен
+   * {@link ArchiveGamesRequest.timeControlCategory}.
+   */
+  timeControlCategory?: ArchiveTimeControlCategory | ArchiveTimeControlCategory[];
   /** Sort order — defaults to `recent` server-side. */
   sort?: ArchiveGamesSortMetadata;
   /** Page size. */
@@ -330,8 +375,15 @@ export type ArchivePlayerGameItem = ArchiveGameSummary & {
   playerColor: 'white' | 'black';
 };
 
+/**
+ * GET /api/archive/players/:slug/games
+ *
+ * KS-2140: те же изменения что и в `ArchiveGamesResponse` — `total`
+ * nullable, добавлен `hasNext`.
+ */
 export type ArchivePlayerGamesResponse = {
-  total: number;
+  total: number | null;
+  hasNext: boolean;
   items: ArchivePlayerGameItem[];
 };
 

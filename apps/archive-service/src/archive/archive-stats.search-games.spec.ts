@@ -201,7 +201,7 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       expect(items.sql).not.toMatch(/g\.white_name ILIKE/);
     });
 
-    it('skipTotal (KS-2090) → COUNT(*) не выполняется, total = items.length', async () => {
+    it('skipTotal (KS-2090 / KS-2140) → COUNT(*) не выполняется, total = null', async () => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);
       const page = await repo.searchGames({ ...defaults(), skipTotal: true });
@@ -211,8 +211,11 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       expect(totalCalls).toHaveLength(0);
       expect(calls.filter((c) => /SELECT[\s\S]+FROM archive_games g/.test(c.sql)
         && !/COUNT/.test(c.sql))).toHaveLength(1);
-      // total = длина items (1 фиктивная строка из fakePrisma).
-      expect(page.total).toBe(page.items.length);
+      // KS-2140: total = null (явный контракт «не считали»), а не
+      // items.length. Frontend (KS-2141) использует hasNext для
+      // пагинации.
+      expect(page.total).toBeNull();
+      expect(typeof page.hasNext).toBe('boolean');
     });
 
     it('skipTotal не задан → COUNT(*) выполняется как раньше (регрессия)', async () => {
@@ -223,18 +226,19 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       expect(calls.filter((c) => /COUNT\(\*\)::bigint/.test(c.sql))).toHaveLength(1);
     });
 
-    it('LIMIT и OFFSET идут параметрами после фильтров', async () => {
+    it('LIMIT+1 (KS-2140) и OFFSET идут параметрами после фильтров', async () => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);
       await repo.searchGames({ ...defaults(), eco: 'B90', limit: 25, offset: 100 });
 
       const items = findItemsCall(calls);
-      // LIMIT/OFFSET — последние два параметра.
-      expect(items.params[items.params.length - 2]).toBe(25);
+      // KS-2140: items SQL запрашивает limit+1 (n+1 для hasNext).
+      expect(items.params[items.params.length - 2]).toBe(26);
       expect(items.params[items.params.length - 1]).toBe(100);
       // total-запрос не получает limit/offset.
       const total = findTotalCall(calls);
       expect(total.params).not.toContain(25);
+      expect(total.params).not.toContain(26);
       expect(total.params).not.toContain(100);
     });
 
