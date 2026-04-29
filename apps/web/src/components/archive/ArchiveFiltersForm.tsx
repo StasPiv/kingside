@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type {
   ArchiveGameResult,
@@ -6,6 +6,8 @@ import type {
   ArchiveTimeControlCategory,
 } from '@kingside/shared';
 import { ArchiveTimeControlChips } from './ArchiveTimeControlChips';
+import { ArchivePlayerAutocomplete } from './ArchivePlayerAutocomplete';
+import { ArchiveEventAutocomplete } from './ArchiveEventAutocomplete';
 
 /**
  * KS-2125: единая форма фильтров архива партий.
@@ -141,6 +143,36 @@ export function ArchiveFiltersForm({
     onChange({ ...values, ...patch });
   };
 
+  // KS-2136: добавление игрока в чипы (с дедупликацией по case-insensitive).
+  // `useCallback` нужен потому, что эти функции уходят в проп
+  // `<ArchivePlayerAutocomplete>` — она memoizes loader через useCallback,
+  // и стабильные обработчики уменьшают перерисовки.
+  const addPlayerFromSelection = useCallback(
+    (sel: { name: string; slug: string }) => {
+      const name = sel.name.trim();
+      if (name.length === 0) return;
+      const exists = values.players.some(
+        (p) => p.toLowerCase() === name.toLowerCase(),
+      );
+      if (!exists) onChange({ ...values, players: [...values.players, name] });
+      setPlayerInput('');
+    },
+    [values, onChange],
+  );
+
+  const addPlayerFromRaw = useCallback(
+    (raw: string) => {
+      const v = raw.trim();
+      if (v.length === 0) return;
+      const exists = values.players.some(
+        (p) => p.toLowerCase() === v.toLowerCase(),
+      );
+      if (!exists) onChange({ ...values, players: [...values.players, v] });
+      setPlayerInput('');
+    },
+    [values, onChange],
+  );
+
   const debounceText = (
     timerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
     value: string,
@@ -269,14 +301,18 @@ export function ArchiveFiltersForm({
         />
       </label>
 
-      {/* Players (multi). */}
+      {/* Players (multi).
+          KS-2136: после унификации формы (KS-2125) тут был обычный
+          `<input>` без подсказок — компоненты `ArchivePlayerAutocomplete`
+          / `ArchiveEventAutocomplete` оказались орфанами. Возвращаем
+          живой автокомплит к `/players/search`. Multi-chip-семантика
+          сохранена: onSelect → добавить chip, onEnterUnselected → raw как
+          chip (для случая «бэк ничего не нашёл, всё равно фильтруем по
+          этой строке»). */}
       <div
         className="archive-games-filters__field archive-games-filters__field--players"
         data-testid={tid('players')}
       >
-        <span className="archive-games-filters__label">
-          {t('archive.games.playerLabel', 'Player')}
-        </span>
         {values.players.length > 0 && (
           <ul
             className="archive-games-filters__chips"
@@ -307,53 +343,37 @@ export function ArchiveFiltersForm({
             ))}
           </ul>
         )}
-        <input
-          type="text"
-          className="archive-games-filters__input archive-games-filters__chip-input--solo"
+        <ArchivePlayerAutocomplete
           value={playerInput}
-          onChange={(e) => setPlayerInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              const v = playerInput.trim();
-              if (v.length === 0) return;
-              if (
-                values.players.some(
-                  (p) => p.toLowerCase() === v.toLowerCase(),
-                )
-              ) {
-                setPlayerInput('');
-                return;
-              }
-              apply({ players: [...values.players, v] });
-              setPlayerInput('');
-            }
-          }}
-          placeholder={t('archive.games.playerPlaceholder', 'Name…')}
-          data-testid={tid('player-input')}
+          onChange={setPlayerInput}
+          onSelect={addPlayerFromSelection}
+          onEnterUnselected={addPlayerFromRaw}
+          testIdPrefix={tid('player')}
         />
       </div>
 
-      {/* Event */}
+      {/* Event.
+          KS-2136: тоже автокомплит вместо «голого» input'а. На select
+          из dropdown'а — apply сразу с item.name; на печать без
+          выбора — debounce 400 ms на apply (как было). */}
       <label className="archive-games-filters__field">
-        <span className="archive-games-filters__label">
-          {t('archive.games.eventLabel', 'Event')}
-        </span>
-        <input
-          type="text"
-          className="archive-games-filters__input"
+        <ArchiveEventAutocomplete
           value={eventDraft}
-          onChange={(e) => {
-            setEventDraft(e.target.value);
+          onChange={(v) => {
+            setEventDraft(v);
             debounceText(
               eventTimerRef,
-              e.target.value,
-              (v) => v.trim(),
+              v,
+              (x) => x.trim(),
               'event',
             );
           }}
-          placeholder={t('archive.games.eventPlaceholder', 'Tournament name…')}
-          data-testid={tid('event')}
+          onSelect={({ name }) => {
+            setEventDraft(name);
+            if (eventTimerRef.current) clearTimeout(eventTimerRef.current);
+            apply({ event: name });
+          }}
+          testIdPrefix={tid('event')}
         />
       </label>
 

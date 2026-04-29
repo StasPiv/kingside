@@ -153,7 +153,11 @@ describe('ArchiveLobbyPage — header и форма', () => {
     expect(
       screen.getByTestId('archive-search-form-player-input'),
     ).toBeInTheDocument();
-    expect(screen.getByTestId('archive-search-form-event')).toBeInTheDocument();
+    // KS-2136: «Event» переехал на `<ArchiveEventAutocomplete>`,
+    // у его input'а data-testid='<prefix>-input' (см. ArchiveAutocomplete).
+    expect(
+      screen.getByTestId('archive-search-form-event-input'),
+    ).toBeInTheDocument();
     expect(screen.getByTestId('archive-search-form-eco')).toBeInTheDocument();
     expect(screen.getByTestId('archive-search-form-min-ply')).toBeInTheDocument();
     expect(screen.getByTestId('archive-search-form-max-ply')).toBeInTheDocument();

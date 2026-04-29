@@ -61,7 +61,9 @@ describe('ArchiveFiltersForm — рендер всех полей', () => {
     expect(screen.getByTestId('form-since')).toBeInTheDocument();
     expect(screen.getByTestId('form-until')).toBeInTheDocument();
     expect(screen.getByTestId('form-player-input')).toBeInTheDocument();
-    expect(screen.getByTestId('form-event')).toBeInTheDocument();
+    // KS-2136: «Event» переехал на `<ArchiveEventAutocomplete>`,
+    // у его input'а data-testid='<prefix>-input' (см. ArchiveAutocomplete).
+    expect(screen.getByTestId('form-event-input')).toBeInTheDocument();
     expect(screen.getByTestId('form-eco')).toBeInTheDocument();
     expect(screen.getByTestId('form-min-ply')).toBeInTheDocument();
     expect(screen.getByTestId('form-max-ply')).toBeInTheDocument();
