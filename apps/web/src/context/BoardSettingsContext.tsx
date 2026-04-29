@@ -11,6 +11,13 @@ import {
 export type BoardThemeId = 'default' | 'green' | 'blue' | 'brown';
 export type PieceSetId = 'standard' | 'cburnett' | 'alpha' | 'merida';
 export type InputMode = 'drag' | 'click';
+/**
+ * KS-2114: размер доски на странице анализа.
+ * Применяется через CSS-переменную `--analysis-board-size-scale` на body
+ * (атрибут `data-board-size`), которая умножается на текущий max-width
+ * `.analysis-page .board-container`. Сохраняется в localStorage.
+ */
+export type BoardSizeId = 'sm' | 'md' | 'lg';
 
 export interface BoardTheme {
   id: BoardThemeId;
@@ -38,10 +45,24 @@ export const PIECE_SETS: PieceSet[] = [
   { id: 'merida',   label: 'Merida' },
 ];
 
+export interface BoardSizePreset {
+  id: BoardSizeId;
+  label: string;
+  /** Множитель к max-width контейнера доски (см. CSS analysis.css). */
+  scale: number;
+}
+
+export const BOARD_SIZES: BoardSizePreset[] = [
+  { id: 'sm', label: 'S', scale: 0.78 },
+  { id: 'md', label: 'M', scale: 0.92 },
+  { id: 'lg', label: 'L', scale: 1.0 },
+];
+
 const LS_THEME_KEY = 'boardTheme';
 const LS_PIECE_SET_KEY = 'pieceSet';
 const LS_NOTATION_KEY = 'showNotation';
 const LS_INPUT_MODE_KEY = 'inputMode';
+const LS_BOARD_SIZE_KEY = 'analysisBoardSize';
 
 function readTheme(): BoardThemeId {
   const stored = localStorage.getItem(LS_THEME_KEY) as BoardThemeId | null;
@@ -72,6 +93,16 @@ function readInputMode(): InputMode {
   const stored = localStorage.getItem(LS_INPUT_MODE_KEY) as InputMode | null;
   if (stored === 'drag' || stored === 'click') return stored;
   return detectDefaultInputMode();
+}
+
+function readBoardSize(): BoardSizeId {
+  try {
+    const stored = localStorage.getItem(LS_BOARD_SIZE_KEY) as BoardSizeId | null;
+    if (stored && BOARD_SIZES.some((s) => s.id === stored)) return stored;
+  } catch {
+    /* ignore */
+  }
+  return 'md';
 }
 
 type PieceRenderer = (props?: {
@@ -111,10 +142,12 @@ interface BoardSettingsContextValue {
   pieceSet: PieceSetId;
   showNotation: boolean;
   inputMode: InputMode;
+  boardSize: BoardSizeId;
   selectTheme: (id: BoardThemeId) => void;
   selectPieceSet: (id: PieceSetId) => void;
   setShowNotation: (value: boolean) => void;
   setInputMode: (mode: InputMode) => void;
+  setBoardSize: (size: BoardSizeId) => void;
   currentTheme: BoardTheme;
   customPieces: CustomPieces | undefined;
   darkSquareStyle: React.CSSProperties;
@@ -128,10 +161,18 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const [pieceSet, setPieceSet] = useState<PieceSetId>(readPieceSet);
   const [showNotation, setShowNotationState] = useState<boolean>(readShowNotation);
   const [inputMode, setInputModeState] = useState<InputMode>(readInputMode);
+  const [boardSize, setBoardSizeState] = useState<BoardSizeId>(readBoardSize);
 
   useEffect(() => {
     document.body.setAttribute('data-board-theme', boardTheme);
   }, [boardTheme]);
+
+  // KS-2114: пробрасываем размер доски как data-атрибут body, чтобы CSS
+  // в `analysis.css` мог через селектор `body[data-board-size="lg"]`
+  // выставить нужный множитель `--analysis-board-size-scale`.
+  useEffect(() => {
+    document.body.setAttribute('data-board-size', boardSize);
+  }, [boardSize]);
 
   const selectTheme = useCallback((id: BoardThemeId) => {
     localStorage.setItem(LS_THEME_KEY, id);
@@ -151,6 +192,15 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
   const setInputMode = useCallback((mode: InputMode) => {
     localStorage.setItem(LS_INPUT_MODE_KEY, mode);
     setInputModeState(mode);
+  }, []);
+
+  const setBoardSize = useCallback((size: BoardSizeId) => {
+    try {
+      localStorage.setItem(LS_BOARD_SIZE_KEY, size);
+    } catch {
+      /* ignore */
+    }
+    setBoardSizeState(size);
   }, []);
 
   const currentTheme = useMemo(
@@ -179,10 +229,12 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       pieceSet,
       showNotation,
       inputMode,
+      boardSize,
       selectTheme,
       selectPieceSet,
       setShowNotation,
       setInputMode,
+      setBoardSize,
       currentTheme,
       customPieces,
       darkSquareStyle,
@@ -193,10 +245,12 @@ export function BoardSettingsProvider({ children }: { children: ReactNode }) {
       pieceSet,
       showNotation,
       inputMode,
+      boardSize,
       selectTheme,
       selectPieceSet,
       setShowNotation,
       setInputMode,
+      setBoardSize,
       currentTheme,
       customPieces,
       darkSquareStyle,

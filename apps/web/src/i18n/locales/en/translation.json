@@ -540,7 +540,9 @@
     "notSupported": "Not supported",
     "notSupportedMobile": "Not supported on mobile",
     "editTitle": "Click to edit title",
-    "report": "Report"
+    "report": "Report",
+    "boardSize": "Board size",
+    "flipBoard": "Flip board"
   },
   "puzzle": {
     "title": "Puzzles",

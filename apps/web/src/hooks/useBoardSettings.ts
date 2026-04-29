@@ -4,6 +4,7 @@ export {
   BoardSettingsContext,
   BOARD_THEMES,
   PIECE_SETS,
+  BOARD_SIZES,
 } from '../context/BoardSettingsContext';
 export type {
   BoardThemeId,
@@ -11,4 +12,6 @@ export type {
   BoardTheme,
   PieceSet,
   InputMode,
+  BoardSizeId,
+  BoardSizePreset,
 } from '../context/BoardSettingsContext';

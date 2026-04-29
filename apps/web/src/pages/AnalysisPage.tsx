@@ -19,6 +19,7 @@ import { useEngineConfig } from '../hooks/useEngineConfig';
 import { useContainerSize } from '../hooks/useContainerSize';
 import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
+import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -104,6 +105,10 @@ export function AnalysisPage() {
   const location = useLocation();
   const { t } = useTranslation();
   const { user } = useAuth();
+  // KS-2114: размер доски на странице анализа (S/M/L) — пресет из общего
+  // BoardSettingsContext, сохраняется в localStorage (см. ключ
+  // `analysisBoardSize`). UI-переключатель ниже в `.analysis-board-controls`.
+  const { boardSize, setBoardSize } = useBoardSettings();
   const [gameData, setGameData] = useState<GameData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -878,6 +883,28 @@ export function AnalysisPage() {
             >
               ⇅
             </button>
+            {/* KS-2114: переключатель размера доски S/M/L. Значение
+                сохраняется в localStorage через BoardSettingsContext и
+                применяется к `.analysis-page .board-container` через
+                CSS-переменную `--analysis-board-size-scale`. */}
+            <div
+              className="analysis-board-size"
+              role="group"
+              aria-label={t('analysis.boardSize', 'Board size')}
+            >
+              {BOARD_SIZES.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`analysis-board-size__btn${boardSize === preset.id ? ' is-active' : ''}`}
+                  onClick={() => setBoardSize(preset.id)}
+                  title={t('analysis.boardSize', 'Board size') + ': ' + preset.label}
+                  aria-pressed={boardSize === preset.id}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
             {/* Inline eval indicator - mobile only */}
             {topLine && analysisEnabled && sfState === 'analyzing' && (
               <span className="analysis-inline-eval">

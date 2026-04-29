@@ -138,15 +138,17 @@
   max-width: 65%;
 }
 
+/* KS-2114: расширил eval-bar с 38px до 44px, чтобы подпись оценки
+   читалась без напряжения. */
 .eval-bar-container {
-  width: 38px;
+  width: 44px;
   flex-shrink: 0;
   display: flex;
   align-items: stretch;
 }
 
 .eval-bar {
-  width: 38px;
+  width: 44px;
   /* KS-1812: fixed colors — fill represents the player's side (white / black),
      not the UI theme. Previously var(--c-333) / var(--c-f0f0f0) inverted with
      the light theme, making «white advantage» render dark. */
@@ -166,17 +168,24 @@
   will-change: transform;
 }
 
+/* KS-2114: подпись оценки была 11px серого цвета — пользователь жаловался,
+   что цифра «+0.34» не считывается с обычного расстояния. Подняли до 15px,
+   цвет — почти-белый, и добавили плотный тёмный обвод (text-shadow),
+   чтобы цифра оставалась читаемой и на светлой (#f5f5f5), и на тёмной
+   (#262626) половине шкалы. */
 .eval-bar-label {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  font-size: 11px;
-  font-weight: 700;
-  /* KS-1812: neutral grey + faint shadow to stay readable on both the light
-     (#f5f5f5) and dark (#262626) halves regardless of UI theme. */
-  color: #a0a0a0;
-  text-shadow: 0 0 2px rgba(0, 0, 0, 0.35);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #f0f0f5;
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 0.95),
+    0 0 3px rgba(0, 0, 0, 0.7),
+    0 0 6px rgba(0, 0, 0, 0.5);
   writing-mode: vertical-rl;
   text-orientation: mixed;
   white-space: nowrap;
@@ -218,14 +227,22 @@
    KS-970: flex: 1 fills remaining space after eval-bar (which has flex-shrink: 0).
    max-width caps board size based on viewport height so it stays square.
    On wide screens: board fills space up to max-width.
-   On narrow screens: board shrinks with available space. */
-/* KS-1193: 240px reserves space for header+metabar+controls+padding */
+   On narrow screens: board shrinks with available space.
+   KS-1193: 240px reserves space for header+metabar+controls+padding.
+   KS-2114: размер доски управляется пользователем через
+   `BoardSettingsContext.boardSize` (S/M/L). Контекст пишет атрибут
+   `data-board-size` на body, селекторы ниже выставляют множитель
+   `--analysis-board-size-scale`, который применяется к max-width. */
 .analysis-page .board-container {
   flex: 1 1 0%;
-  max-width: calc(100vh - 240px);
+  max-width: calc((100vh - 240px) * var(--analysis-board-size-scale, 0.92));
   min-width: 0;
   align-self: flex-start;
 }
+
+body[data-board-size='sm'] { --analysis-board-size-scale: 0.78; }
+body[data-board-size='md'] { --analysis-board-size-scale: 0.92; }
+body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
 
 .analysis-player-info {
   display: flex;
@@ -284,6 +301,47 @@
 .analysis-flip-btn {
   font-size: 16px !important;
   padding: 6px 10px !important;
+}
+
+/* KS-2114: переключатель размера доски S/M/L. Группа кнопок выровнена
+   слитно (gap=0, общая рамка), чтобы визуально читаться как один контрол
+   и не путаться с одиночными кнопками навигации. */
+.analysis-board-size {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--c-4a4a7e);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.analysis-board-controls .analysis-board-size__btn {
+  background: var(--c-2a2a4e);
+  color: var(--c-a0a0ff);
+  border: none !important;
+  border-left: 1px solid var(--c-4a4a7e) !important;
+  border-radius: 0 !important;
+  padding: 6px 10px !important;
+  min-width: 28px;
+  font-size: 12px !important;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.analysis-board-controls .analysis-board-size__btn:first-child {
+  border-left: none !important;
+}
+
+.analysis-board-controls .analysis-board-size__btn:hover:not(:disabled) {
+  background: var(--c-3a3a6e);
+}
+
+.analysis-board-controls .analysis-board-size__btn.is-active {
+  background: var(--c-7c83ff);
+  color: var(--c-fff);
 }
 
 .analysis-export-btn {
@@ -2405,7 +2463,12 @@
    что 11-12px было «слишком мелко» и приходилось напрягать глаза. Теперь
    tbody 14px (вместо 12), thead 11px UPPERCASE (вместо 10), числовые
    ячейки 13px (вместо 11). Padding ячеек 6×8 (вместо 4×6) — строки выше
-   и комфортнее читаются. */
+   и комфортнее читаются.
+   KS-2114: колонки разносило по всей ширине, строка читалась с трудом.
+   Сжали все текстовые колонки до содержимого (`width: 1%`, паддинги 4-6px),
+   а лишнее пространство забирает WDL-полоса (`width: auto`) — она и так
+   визуальный fill. Заголовки числовых колонок выравнены по правому краю,
+   чтобы совпадать с цифрами. */
 .archive-tree-panel__table {
   width: 100%;
   border-collapse: collapse;
@@ -2421,9 +2484,16 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--c-6b7280);
-  padding: 6px 8px;
+  padding: 6px 6px;
   border-bottom: 1px solid var(--c-1f2937);
   white-space: nowrap;
+}
+
+/* Числовые заголовки — справа, чтобы совпадали с правовыравненными ячейками. */
+.archive-tree-panel__table thead th:nth-child(2),
+.archive-tree-panel__table thead th:nth-child(4),
+.archive-tree-panel__table thead th:nth-child(5) {
+  text-align: right;
 }
 
 .archive-tree-panel__table tbody tr {
@@ -2441,16 +2511,20 @@
 }
 
 .archive-tree-panel__table td {
-  padding: 6px 8px;
+  padding: 6px 6px;
   vertical-align: middle;
   white-space: nowrap;
 }
 
+/* KS-2114: текстовые колонки сжимаем до содержимого через `width: 1%` —
+   так они отдают всё лишнее пространство колонке WDL, которая теперь
+   расширяется и тянет визуальную полосу через всю строку. */
 .archive-tree-panel__san {
   font-weight: 700;
   font-size: 14px;
   color: var(--c-e0e0ff);
-  min-width: 50px;
+  width: 1%;
+  padding-right: 10px;
 }
 
 .archive-tree-panel__total,
@@ -2460,10 +2534,13 @@
   font-size: 13px;
   color: var(--c-a0a0c0);
   text-align: right;
+  width: 1%;
 }
 
+/* KS-2114: WDL раньше имел `width: 1%` — поэтому строка разносилась,
+   а полоса висела посередине. Теперь колонка тянется на остаток ширины. */
 .archive-tree-panel__wdl {
-  width: 1%;
+  width: auto;
   padding-right: 6px;
   padding-left: 6px;
 }
