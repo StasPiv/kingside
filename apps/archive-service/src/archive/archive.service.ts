@@ -298,6 +298,7 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       const response: ArchiveGamesResponse = {
         total: null,
         hasNext: page.hasNext,
+        nextCursor: page.nextCursor,
         items: page.items.map((g) => this.rawRowToSummary(g)),
       };
       await this.safeSetJson(cacheKey, response, RECENT_GAMES_CACHE_TTL_SEC);
@@ -308,6 +309,21 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     // COUNT(*) уходит в Parallel Seq Scan на 760 МБ heap (5-6 сек I/O на
     // db.t3.micro). Пропускаем COUNT — frontend (KS-2141) использует
     // `hasNext` от backend (LIMIT+1) вместо «N..M из total».
+    //
+    // KS-2142: keyset cursor имеет приоритет над offset. Если cursor
+    // задан и offset>0 — offset игнорируется, лог warning. Невалидный
+    // для текущего sort'а cursor → откат на первую страницу (без cursor).
+    const cursor = decodeCursor(req.cursor);
+    const cursorValid =
+      cursor !== null &&
+      ((sort === 'topElo' && isTopEloCursor(cursor)) ||
+        ((sort === 'recent' || sort === 'oldest') && isRecentCursor(cursor)));
+    if (req.cursor && offsetRaw > 0) {
+      this.logger.warn(
+        `getGames: both cursor and offset=${offsetRaw} provided — cursor wins, offset ignored`,
+      );
+    }
+
     const opts: SearchGamesOpts = {
       white: req.white,
       black: req.black,
@@ -325,7 +341,9 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
       ),
       sort,
       limit,
-      offset: offsetRaw,
+      // KS-2142: при наличии валидного cursor offset не используется.
+      offset: cursorValid ? 0 : offsetRaw,
+      cursor: cursorValid ? cursor : undefined,
       skipTotal: true,
     };
 
@@ -334,6 +352,7 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     return {
       total: null,
       hasNext: page.hasNext,
+      nextCursor: page.nextCursor,
       items: page.items.map((g) => this.rawRowToSummary(g)),
     };
   }

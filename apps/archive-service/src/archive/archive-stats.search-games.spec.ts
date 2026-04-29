@@ -57,6 +57,47 @@ function defaults(): SearchGamesOpts {
   return { sort: 'recent', limit: 50, offset: 0 };
 }
 
+/**
+ * KS-2142: фейковая Prisma, возвращающая N items-rows (для проверки
+ * hasNext/nextCursor когда нужно > 1 row). COUNT(*) возвращает фиксированно 42.
+ */
+function fakeMultiRowPrisma(n: number): { prisma: PrismaService; calls: CapturedCall[] } {
+  const calls: CapturedCall[] = [];
+  const $queryRawUnsafe = async <T>(sql: string, ...params: unknown[]): Promise<T> => {
+    calls.push({ sql, params });
+    if (/COUNT\(\*\)::bigint/.test(sql)) {
+      return [{ total: BigInt(42) }] as unknown as T;
+    }
+    const rows: RawArchiveGameRow[] = Array.from({ length: n }, (_, i) => ({
+      id: `00000000-0000-0000-0000-${String(i + 1).padStart(12, '0')}`,
+      event: null,
+      site: null,
+      round: null,
+      date: null,
+      played_at: new Date(`2026-04-${String(i + 1).padStart(2, '0')}T00:00:00Z`),
+      white_name: null,
+      black_name: null,
+      white_elo: 2700 + i,
+      black_elo: 2600 + i,
+      white_title: null,
+      black_title: null,
+      result: null,
+      eco: null,
+      opening: null,
+      ply_count: null,
+      time_control: null,
+      time_control_category: null,
+      white_slug: null,
+      black_slug: null,
+    }));
+    return rows as unknown as T;
+  };
+  return {
+    prisma: { $queryRawUnsafe } as unknown as PrismaService,
+    calls,
+  };
+}
+
 function findItemsCall(calls: CapturedCall[]): CapturedCall {
   const c = calls.find((x) => /SELECT[\s\S]+FROM archive_games/.test(x.sql) && !/COUNT\(\*\)/.test(x.sql));
   if (!c) throw new Error('items SQL not captured');
@@ -284,6 +325,104 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       // Массив проброшен как один параметр, не разворачивается.
       const arrayParam = items.params.find((p) => Array.isArray(p));
       expect(arrayParam).toEqual(['blitz', 'rapid']);
+    });
+
+    // ─── KS-2142 — keyset cursor ──────────────────────────────────────
+
+    it('KS-2142: cursor (recent) → WHERE OR-разложение `played_at < t OR (= AND id <)`', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      const t = '2026-04-01T00:00:00.000Z';
+      const g = '00000000-0000-0000-0000-000000000abc';
+      await repo.searchGames({
+        ...defaults(),
+        sort: 'recent',
+        cursor: { t, g },
+      });
+
+      const items = findItemsCall(calls);
+      // OR-разложение для recent (DESC).
+      expect(items.sql).toMatch(
+        /g\.played_at\s*<\s*\$\d+\s+OR\s+\(g\.played_at\s*=\s*\$\d+\s+AND\s+g\.id\s*<\s*\$\d+::uuid\)/,
+      );
+      // Параметры включают date и uuid из cursor'а.
+      expect(items.params.some((p) => p instanceof Date && (p as Date).toISOString() === t)).toBe(true);
+      expect(items.params).toContain(g);
+    });
+
+    it('KS-2142: cursor (oldest) → WHERE с `>` (ASC направление)', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({
+        ...defaults(),
+        sort: 'oldest',
+        cursor: { t: '2026-01-01T00:00:00.000Z', g: '00000000-0000-0000-0000-0000000000bb' },
+      });
+      const items = findItemsCall(calls);
+      expect(items.sql).toMatch(
+        /g\.played_at\s*>\s*\$\d+\s+OR\s+\(g\.played_at\s*=\s*\$\d+\s+AND\s+g\.id\s*>\s*\$\d+::uuid\)/,
+      );
+    });
+
+    it('KS-2142: cursor (topElo) → WHERE через GREATEST(white_elo, black_elo)', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({
+        ...defaults(),
+        sort: 'topElo',
+        cursor: { e: 2700, g: '00000000-0000-0000-0000-0000000000cc' },
+      });
+      const items = findItemsCall(calls);
+      expect(items.sql).toMatch(
+        /GREATEST\(g\.white_elo,\s*g\.black_elo\)\s*<\s*\$\d+\s+OR\s+\(GREATEST\(g\.white_elo,\s*g\.black_elo\)\s*=\s*\$\d+\s+AND\s+g\.id\s*<\s*\$\d+::uuid\)/,
+      );
+      expect(items.params).toContain(2700);
+    });
+
+    it('KS-2142: cursor с t=null → no-op (нет дополнительного WHERE)', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({
+        ...defaults(),
+        sort: 'recent',
+        cursor: { t: null, g: '00000000-0000-0000-0000-0000000000dd' },
+      });
+      const items = findItemsCall(calls);
+      // Нет played_at <-сравнений из-за null t.
+      expect(items.sql).not.toMatch(/g\.played_at\s*<\s*\$/);
+    });
+
+    it('KS-2142: searchGames возвращает nextCursor при hasNext=true (recent)', async () => {
+      // Фейк возвращает 3 rows; при limit=2 получим hasNext=true,
+      // items=2, nextCursor построен из items[1].
+      const { prisma } = fakeMultiRowPrisma(3);
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      const page = await repo.searchGames({
+        ...defaults(),
+        limit: 2,
+        sort: 'recent',
+        skipTotal: true,
+      });
+      expect(page.items).toHaveLength(2);
+      expect(page.hasNext).toBe(true);
+      expect(typeof page.nextCursor).toBe('string');
+      // Декодируется как RecentCursor с t (ISO date) и g (uuid).
+      const decoded = JSON.parse(Buffer.from(page.nextCursor!, 'base64url').toString('utf8'));
+      expect(typeof decoded.t).toBe('string');
+      expect(typeof decoded.g).toBe('string');
+    });
+
+    it('KS-2142: nextCursor = null когда hasNext=false', async () => {
+      // limit=10 — fakePrisma даёт 1 row, hasNext=false, nextCursor=null.
+      const { prisma } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      const page = await repo.searchGames({
+        ...defaults(),
+        limit: 10,
+        skipTotal: true,
+      });
+      expect(page.hasNext).toBe(false);
+      expect(page.nextCursor).toBeNull();
     });
 
     it('KS-2118: SELECT включает time_control и time_control_category', async () => {

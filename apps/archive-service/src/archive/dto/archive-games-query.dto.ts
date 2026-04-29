@@ -15,10 +15,18 @@ import type {
   ArchiveGameResult,
   ArchiveGamesRequest,
   ArchiveGamesSortMetadata,
+  ArchiveTimeControlCategory,
 } from '@kingside/shared';
 
 const RESULT_VALUES: ArchiveGameResult[] = ['1-0', '0-1', '1/2-1/2', '*'];
 const SORT_VALUES: ArchiveGamesSortMetadata[] = ['recent', 'topElo', 'oldest'];
+const TIME_CONTROL_CATEGORY_VALUES: ArchiveTimeControlCategory[] = [
+  'bullet',
+  'blitz',
+  'rapid',
+  'classical',
+  'unknown',
+];
 
 export class ArchiveGamesQueryDto implements ArchiveGamesRequest {
   @IsOptional()
@@ -98,6 +106,26 @@ export class ArchiveGamesQueryDto implements ArchiveGamesRequest {
   @Max(600)
   maxPly?: number;
 
+  /**
+   * KS-2118: фильтр по категории контроля времени.
+   *
+   * Express парсит `?timeControlCategory=classical&timeControlCategory=rapid`
+   * как массив строк, одиночное `?timeControlCategory=blitz` — как строку.
+   * Нормализуем оба варианта в массив. Лимит 5 — по числу допустимых
+   * значений (`bullet|blitz|rapid|classical|unknown`); защита от
+   * случайных дублей.
+   */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    return Array.isArray(value) ? value : [value];
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5)
+  @IsIn(TIME_CONTROL_CATEGORY_VALUES, { each: true })
+  timeControlCategory?: ArchiveTimeControlCategory[];
+
   @IsOptional()
   @IsIn(SORT_VALUES)
   sort?: ArchiveGamesSortMetadata;
@@ -114,4 +142,14 @@ export class ArchiveGamesQueryDto implements ArchiveGamesRequest {
   @IsInt()
   @Min(0)
   offset?: number;
+
+  /**
+   * KS-2142. Keyset cursor для пагинации (base64-encoded). Если задан —
+   * `offset` игнорируется (приоритет cursor). Декодирование — в сервисе
+   * через `decodeCursor` из `cursor-codec.ts`. Невалидная/чужая для
+   * текущего sort строка → молча игнорируется (fallback на первую страницу).
+   */
+  @IsOptional()
+  @IsString()
+  cursor?: string;
 }

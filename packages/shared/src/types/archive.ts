@@ -72,7 +72,12 @@ export type ArchiveTreeResponse = {
  */
 export type ArchiveGamesSortMetadata = 'recent' | 'topElo' | 'oldest';
 
-/** GET /api/archive/games */
+/**
+ * GET /api/archive/games
+ *
+ * KS-2142: keyset pagination через `cursor`. `offset` deprecated, но
+ * остаётся для backward-compat (см. JSDoc на полях).
+ */
 export type ArchiveGamesRequest = {
   /** Only games that reached this FEN. */
   fen?: string;
@@ -120,8 +125,23 @@ export type ArchiveGamesRequest = {
   sort?: ArchiveGamesSortMetadata;
   /** Page size. */
   limit?: number;
-  /** Page offset. */
+  /**
+   * Page offset. **Deprecated** since KS-2142 — keyset-пагинация через
+   * `cursor` правильнее (deep pagination мгновенна, не зависит от
+   * offset). Backend продолжает поддерживать `offset` для backward-compat
+   * (SSR-ссылки), но с warning log. Не комбинируй `offset` и `cursor` —
+   * `cursor` имеет приоритет, `offset` игнорируется.
+   */
   offset?: number;
+  /**
+   * KS-2142. Keyset cursor для пагинации. Opaque base64-строка с полем
+   * последнего показанного элемента (зависит от `sort`):
+   *   sort=recent / oldest → `{ t: ISO-date | null, g: UUID }`
+   *   sort=topElo          → `{ e: number | null,    g: UUID }`
+   * Возвращается из ответа как `nextCursor` — клиент передаёт обратно
+   * для следующей страницы. На первой странице — `undefined`.
+   */
+  cursor?: string;
 };
 
 export type ArchivePlayerInfo = {
@@ -186,15 +206,23 @@ export type ArchiveGameDetail = ArchiveGameSummary & {
  * сравнения `items.length === limit` (последнее ломается когда totals ровно
  * делится на limit).
  *
- * Frontend контракт (KS-2141):
+ * KS-2142: добавлен `nextCursor` для keyset-пагинации. Если `hasNext=true`,
+ * `nextCursor` содержит opaque строку для следующей страницы — клиент
+ * передаёт обратно как `?cursor=...`. Если страниц больше нет —
+ * `nextCursor: null` (даже если `hasNext: false` — сразу понятно «конец»).
+ *
+ * Frontend контракт (KS-2141 / KS-2142):
  *   - `total === null` → скрыть «всего N партий», пагинация только через
- *     `hasNext` + следующий offset;
+ *     `hasNext` + `nextCursor`;
  *   - `total !== null` → fast-path для clean recent (cache); UI может
- *     показать total если уже прошёл cache.
+ *     показать total если уже прошёл cache;
+ *   - `nextCursor !== null` → передавать как `?cursor=...` для следующей
+ *     страницы. Старые offset+limit продолжают работать (backward-compat).
  */
 export type ArchiveGamesResponse = {
   total: number | null;
   hasNext: boolean;
+  nextCursor: string | null;
   items: ArchiveGameSummary[];
 };
 
@@ -379,7 +407,10 @@ export type ArchivePlayerGameItem = ArchiveGameSummary & {
  * GET /api/archive/players/:slug/games
  *
  * KS-2140: те же изменения что и в `ArchiveGamesResponse` — `total`
- * nullable, добавлен `hasNext`.
+ * nullable, добавлен `hasNext`. KS-2142: cursor-пагинация **не** добавлена
+ * для player-games в первой итерации — UX `/players/:slug/games` пока
+ * через offset работает приемлемо. Если deep pagination станет проблемой
+ * — отдельный тикет с тем же подходом.
  */
 export type ArchivePlayerGamesResponse = {
   total: number | null;

@@ -17,6 +17,7 @@ import { archiveSlug, normalizeArchiveName } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { positionKeyHex } from './position-key';
 import { storageToResult } from './result-format';
+import { encodeCursor } from './cursor-codec';
 import type { ArchiveCursor, RecentCursor, TopEloCursor } from './cursor-codec';
 
 export type TreeOpts = {
@@ -158,6 +159,15 @@ export type SearchGamesOpts = {
    * Возвращаемый `total` в этом случае = `items.length`.
    */
   skipTotal?: boolean;
+  /**
+   * KS-2142. Keyset cursor — если задан, в WHERE добавляется
+   * ROW-comparison `(played_at, id) < (t, g)` для recent /
+   * `(played_at, id) > (t, g)` для oldest / `(GREATEST(white_elo,
+   * black_elo), id) < (e, g)` для topElo. `offset` игнорируется когда
+   * cursor задан. Невалидный для текущего sort cursor — расценивается
+   * как «нет cursor'а» (первая страница).
+   */
+  cursor?: ArchiveCursor;
   event?: string;
   result?: ArchiveGameResult;
   minElo?: number;
@@ -208,6 +218,13 @@ export interface SearchGamesPage {
   total: number | null;
   /** KS-2140: есть ли следующая страница (LIMIT+1 trick). */
   hasNext: boolean;
+  /**
+   * KS-2142: keyset cursor для следующей страницы. `null` если текущая
+   * страница последняя (`hasNext === false`). Кодируется через
+   * `encodeCursor` из `cursor-codec.ts`. Расчёт делается в репозитории
+   * — он знает sort и поля row'а, чтобы извлечь правильные t/e/g.
+   */
+  nextCursor: string | null;
   items: RawArchiveGameRow[];
 }
 
@@ -457,12 +474,15 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
     );
     const hasNext = rawItems.length > opts.limit;
     const items = hasNext ? rawItems.slice(0, opts.limit) : rawItems;
+    // KS-2142: nextCursor строится из последнего показанного row'а
+    // (с учётом sort'а). null если страниц больше нет.
+    const nextCursor = hasNext ? buildNextCursor(items, opts.sort) : null;
 
     if (opts.skipTotal) {
       // KS-2090 / KS-2140: COUNT(*) пропущен. `total: null` — явный
       // контракт «не считали» (фронт показывает «← Назад / Вперёд →»
       // вместо «N..M из total»).
-      return { total: null, hasNext, items };
+      return { total: null, hasNext, nextCursor, items };
     }
 
     const totals = await this.prisma.$queryRawUnsafe<
@@ -470,7 +490,7 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
     >(builder.totalSql, ...builder.whereParams);
     const totalRaw = totals[0]?.total ?? 0;
     const total = typeof totalRaw === 'bigint' ? Number(totalRaw) : Number(totalRaw);
-    return { total, hasNext, items };
+    return { total, hasNext, nextCursor, items };
   }
 
   async listTopPositions(
@@ -684,6 +704,34 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
     const total = typeof totalRaw === 'bigint' ? Number(totalRaw) : Number(totalRaw);
     return { total, hasNext, items };
   }
+}
+
+/**
+ * KS-2142. Построить opaque-cursor для следующей страницы из
+ * последнего показанного row'а. Возвращает `null` если items пустой.
+ *
+ *   sort=recent / oldest → `{ t: ISO date | null, g: UUID }`
+ *   sort=topElo          → `{ e: GREATEST(white_elo, black_elo) | null, g: UUID }`
+ */
+function buildNextCursor(
+  items: RawArchiveGameRow[],
+  sort: ArchiveGamesSortMetadata,
+): string | null {
+  if (items.length === 0) return null;
+  const last = items[items.length - 1]!;
+  if (sort === 'topElo') {
+    const we = last.white_elo;
+    const be = last.black_elo;
+    const e =
+      we == null && be == null ? null
+      : we == null ? be
+      : be == null ? we
+      : Math.max(we, be);
+    return encodeCursor({ e, g: last.id });
+  }
+  // recent / oldest
+  const t = last.played_at instanceof Date ? last.played_at.toISOString() : null;
+  return encodeCursor({ t, g: last.id });
 }
 
 // ─── Query builder ────────────────────────────────────────────────────
@@ -927,6 +975,53 @@ class MetadataSqlBuilder {
         conds.push(`g.time_control_category = ${reg(opts.timeControlCategory[0])}`);
       } else {
         conds.push(`g.time_control_category = ANY(${reg(opts.timeControlCategory)})`);
+      }
+    }
+
+    // KS-2142: keyset cursor для /games. Невалидный для текущего sort'а
+    // cursor молча игнорируется (откат на первую страницу — service
+    // фильтрует через isRecentCursor/isTopEloCursor до передачи в opts).
+    //
+    //   sort=recent (DESC) → played_at < t OR (played_at = t AND id < g)
+    //   sort=oldest (ASC)  → played_at > t OR (played_at = t AND id > g)
+    //   sort=topElo (DESC) → GREATEST(...) < e OR (GREATEST(...) = e AND id < g)
+    //
+    // Используем явное OR-разложение вместо ROW-comparison: индексы у нас
+    // DESC NULLS LAST, ROW не везде корректно матчится с этим. На главных
+    // путях (recent с tcc) есть `archive_games_tcc_played_at_id_idx`
+    // (KS-2138 фаза 4) — Index Cond + быстрая deep pagination.
+    if (opts.cursor) {
+      const c = opts.cursor;
+      if (opts.sort === 'topElo' && 'e' in c) {
+        if (c.e !== null) {
+          const pE1 = reg(c.e);
+          const pE2 = reg(c.e);
+          const pG = reg(c.g);
+          conds.push(
+            `(GREATEST(g.white_elo, g.black_elo) < ${pE1} ` +
+              `OR (GREATEST(g.white_elo, g.black_elo) = ${pE2} AND g.id < ${pG}::uuid))`,
+          );
+        }
+        // c.e === null → cursor указывает на «после NULL-блока». Без
+        // explicit NULL-handling возвращаем пустую страницу (no-op).
+      } else if ('t' in c) {
+        // recent / oldest
+        if (c.t !== null) {
+          const pT1 = reg(new Date(c.t));
+          const pT2 = reg(new Date(c.t));
+          const pG = reg(c.g);
+          if (opts.sort === 'oldest') {
+            conds.push(
+              `(g.played_at > ${pT1} OR (g.played_at = ${pT2} AND g.id > ${pG}::uuid))`,
+            );
+          } else {
+            // recent (default)
+            conds.push(
+              `(g.played_at < ${pT1} OR (g.played_at = ${pT2} AND g.id < ${pG}::uuid))`,
+            );
+          }
+        }
+        // c.t === null → аналогично: пустая страница как no-op.
       }
     }
 
