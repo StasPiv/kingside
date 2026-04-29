@@ -707,11 +707,23 @@ export class PostgresArchiveStatsRepository implements ArchiveStatsRepository {
 }
 
 /**
- * KS-2142. Построить opaque-cursor для следующей страницы из
- * последнего показанного row'а. Возвращает `null` если items пустой.
+ * KS-2142 / KS-2146. Построить opaque-cursor для следующей страницы из
+ * последнего показанного row'а.
  *
- *   sort=recent / oldest → `{ t: ISO date | null, g: UUID }`
- *   sort=topElo          → `{ e: GREATEST(white_elo, black_elo) | null, g: UUID }`
+ *   sort=recent / oldest → `{ t: ISO date, g: UUID }`
+ *   sort=topElo          → `{ e: GREATEST(white_elo, black_elo), g: UUID }`
+ *
+ * KS-2146: возвращает `null` если ключ-сортировки в last item NULL
+ * (`played_at=null` для recent/oldest, оба elo=null для topElo). Иначе
+ * cursor содержал бы `t: null` / `e: null`, и на следующем запросе
+ * builder с фильтром `if (c.t !== null)` пропускал бы WHERE — отдавая
+ * первую страницу (= зацикливание архива).
+ *
+ * Trade-off: NULL-партии не доступны через cursor-пагинацию (видны
+ * только в самом конце, без возможности «загрузить ещё»). Через
+ * `?offset=N` старые backward-compat ссылки до них доходят. Если
+ * NULL-партий много и UX страдает — отдельный тикет на NULL-block
+ * cursor (как `cursor-codec.ts` уже описывает в JSDoc).
  */
 function buildNextCursor(
   items: RawArchiveGameRow[],
@@ -722,16 +734,13 @@ function buildNextCursor(
   if (sort === 'topElo') {
     const we = last.white_elo;
     const be = last.black_elo;
-    const e =
-      we == null && be == null ? null
-      : we == null ? be
-      : be == null ? we
-      : Math.max(we, be);
+    if (we == null && be == null) return null; // нет ключа — конец cursor-цепочки
+    const e = we == null ? be! : be == null ? we : Math.max(we, be);
     return encodeCursor({ e, g: last.id });
   }
   // recent / oldest
-  const t = last.played_at instanceof Date ? last.played_at.toISOString() : null;
-  return encodeCursor({ t, g: last.id });
+  if (!(last.played_at instanceof Date)) return null;
+  return encodeCursor({ t: last.played_at.toISOString(), g: last.id });
 }
 
 // ─── Query builder ────────────────────────────────────────────────────
@@ -790,6 +799,17 @@ class KeysetSqlBuilder {
       conds.push(
         `(g.white_name ILIKE ${pPlayer} OR g.black_name ILIKE ${pPlayer})`,
       );
+    }
+
+    // KS-2146: для sort=topElo отсекаем партии без рейтинга через
+    // `WHERE GREATEST(white_elo, black_elo) IS NOT NULL`. Аналогично
+    // KS-2130 для archive_game_positions top_elo. На archive_games это
+    // 6793 партии (~2% — старые OTB без elo по devops snapshot).
+    // Дополнительно избавляет от NULL-edge case в keyset cursor: last
+    // item не может иметь GREATEST=NULL, поэтому buildNextCursor никогда
+    // не вернёт cursor с e=null для sort=topElo.
+    if (opts.sort === 'topElo') {
+      conds.push('GREATEST(g.white_elo, g.black_elo) IS NOT NULL');
     }
 
     // KS-2130: для sort=topElo отсекаем партии без рейтинга через
@@ -1001,9 +1021,14 @@ class MetadataSqlBuilder {
             `(GREATEST(g.white_elo, g.black_elo) < ${pE1} ` +
               `OR (GREATEST(g.white_elo, g.black_elo) = ${pE2} AND g.id < ${pG}::uuid))`,
           );
+        } else {
+          // KS-2146: cursor с e=null означает «прошли всех с рейтингом».
+          // NULL-block для GREATEST не реализован в WHERE — возвращаем
+          // пустую страницу (FALSE), а не первую (no-op без cursor).
+          // Без этого происходило зацикливание: старый клиент с
+          // cursor.e=null → no-op WHERE → первая страница → дубликаты.
+          conds.push('FALSE');
         }
-        // c.e === null → cursor указывает на «после NULL-блока». Без
-        // explicit NULL-handling возвращаем пустую страницу (no-op).
       } else if ('t' in c) {
         // recent / oldest
         if (c.t !== null) {
@@ -1020,8 +1045,12 @@ class MetadataSqlBuilder {
               `(g.played_at < ${pT1} OR (g.played_at = ${pT2} AND g.id < ${pG}::uuid))`,
             );
           }
+        } else {
+          // KS-2146: cursor с t=null — аналогично topElo, NULL-block
+          // не реализован → пустая страница как страховка от
+          // зацикливания. См. подробное обоснование в `buildNextCursor`.
+          conds.push('FALSE');
         }
-        // c.t === null → аналогично: пустая страница как no-op.
       }
     }
 

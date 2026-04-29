@@ -379,7 +379,7 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       expect(items.params).toContain(2700);
     });
 
-    it('KS-2142: cursor с t=null → no-op (нет дополнительного WHERE)', async () => {
+    it('KS-2146: cursor с t=null → WHERE FALSE (страховка от зацикливания)', async () => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);
       await repo.searchGames({
@@ -388,8 +388,53 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
         cursor: { t: null, g: '00000000-0000-0000-0000-0000000000dd' },
       });
       const items = findItemsCall(calls);
-      // Нет played_at <-сравнений из-за null t.
+      // Раньше (KS-2142) WHERE-cursor пропускался при t=null, и backend
+      // отдавал первую страницу — пользователь видел зацикливание.
+      // Сейчас cursor с t=null расценивается как «конец cursor-цепочки»,
+      // WHERE = FALSE, страница пуста.
+      expect(items.sql).toMatch(/\bFALSE\b/);
       expect(items.sql).not.toMatch(/g\.played_at\s*<\s*\$/);
+    });
+
+    it('KS-2146: cursor с e=null (topElo) → WHERE FALSE', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({
+        ...defaults(),
+        sort: 'topElo',
+        cursor: { e: null, g: '00000000-0000-0000-0000-0000000000ee' },
+      });
+      const items = findItemsCall(calls);
+      expect(items.sql).toMatch(/\bFALSE\b/);
+      expect(items.sql).not.toMatch(/GREATEST\(g\.white_elo,\s*g\.black_elo\)\s*</);
+    });
+
+    it('KS-2146: buildNextCursor возвращает null если LAST shown row имеет played_at=null', async () => {
+      // limit=1, fakePrisma возвращает 2 rows: 1-й played_at=null (попадёт
+      // в last shown), 2-й с датой (триггерит hasNext=true). Раньше
+      // (KS-2142 баг) cursor получал t=null → зацикливание архива.
+      const $queryRawUnsafe = async <T>(sql: string): Promise<T> => {
+        if (/COUNT\(\*\)::bigint/.test(sql)) return [{ total: BigInt(0) }] as unknown as T;
+        const rows: RawArchiveGameRow[] = [
+          // last shown row (с played_at=null) — раньше cursor получал t=null.
+          { id: 'g1', event: null, site: null, round: null, date: null, played_at: null, white_name: null, black_name: null, white_elo: null, black_elo: null, white_title: null, black_title: null, result: null, eco: null, opening: null, ply_count: null, time_control: null, time_control_category: null, white_slug: null, black_slug: null },
+          // дополнительный row для hasNext=true (LIMIT+1 trick).
+          { id: 'g2', event: null, site: null, round: null, date: null, played_at: new Date('2026-01-02'), white_name: null, black_name: null, white_elo: null, black_elo: null, white_title: null, black_title: null, result: null, eco: null, opening: null, ply_count: null, time_control: null, time_control_category: null, white_slug: null, black_slug: null },
+        ];
+        return rows as unknown as T;
+      };
+      const prisma = { $queryRawUnsafe } as unknown as PrismaService;
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      const page = await repo.searchGames({
+        ...defaults(),
+        limit: 1,
+        sort: 'recent',
+        skipTotal: true,
+      });
+      // 2 rows, limit=1 → hasNext=true, items=[g1]. last shown = g1 (played_at=null)
+      // → cursor=null (страховка от зацикливания).
+      expect(page.hasNext).toBe(true);
+      expect(page.nextCursor).toBeNull();
     });
 
     it('KS-2142: searchGames возвращает nextCursor при hasNext=true (recent)', async () => {
