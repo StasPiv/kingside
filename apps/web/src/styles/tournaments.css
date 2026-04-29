@@ -166,15 +166,55 @@
 }
 
 /* Arena Tournaments */
-.tournaments-page { max-width: 800px; margin: 0 auto; padding: 24px 16px; }
-.tnr-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+/* KS-2116: уплотнили вертикали страницы и расширили max-width на десктопе,
+   чтобы пустое состояние и шапка не «терялись» в большом пустом пространстве. */
+.tournaments-page { max-width: 960px; margin: 0 auto; padding: 16px 16px 24px; }
+.tnr-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.tnr-header h1 { margin: 0; font-size: 24px; line-height: 1.2; }
 .tournaments-create-btn { background: var(--c-7c83ff); color: var(--c-fff); border: none; border-radius: 6px; padding: 8px 16px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.tournaments-create-btn:hover { background: var(--c-6366f1); }
 .tournaments-list { display: flex; flex-direction: column; gap: 8px; }
-.tournaments-empty { color: var(--c-666); text-align: center; padding: 32px; }
+
+/* KS-2116: empty-state — карточка с иконкой вместо одинокой серой строчки.
+   `::before` с эмодзи-кубком даёт визуальный фокус, dashed-рамка
+   подсказывает «здесь могло быть что-то». Внутри empty подсветим
+   тонкую подсказку через `::after` (язык-нейтрально, юникод-стрелка
+   указывает на кнопку «Создать турнир» в шапке). */
+.tournaments-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 40px 24px 48px;
+  background: var(--c-1e1e3e);
+  border: 1px dashed var(--c-3a3a5e);
+  border-radius: 12px;
+  color: var(--c-aaa);
+  font-size: 15px;
+  text-align: center;
+}
+
+.tournaments-empty::before {
+  content: '♚';
+  font-size: 56px;
+  line-height: 1;
+  margin-bottom: 4px;
+  color: var(--c-7c83ff);
+  opacity: 0.7;
+}
 
 /* Filters */
-.tnr-filters { margin-bottom: 16px; }
-.tnr-status-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--c-333); margin-bottom: 10px; }
+.tnr-filters { margin-bottom: 12px; }
+.tnr-status-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--c-333); margin-bottom: 8px; }
 .tnr-status-tab { padding: 8px 16px; background: none; border: none; border-bottom: 2px solid transparent; color: var(--c-888); font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 0; }
 .tnr-status-tab.active { color: var(--c-7c83ff); border-bottom-color: var(--c-7c83ff); }
 .tnr-chips-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
