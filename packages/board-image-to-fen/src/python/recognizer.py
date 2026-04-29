@@ -153,6 +153,37 @@ def _open_mask(cell: np.ndarray, ksize: int) -> np.ndarray:
     return cv2.morphologyEx(bw, cv2.MORPH_OPEN, kernel)
 
 
+def _otsu_mask(cell: np.ndarray) -> np.ndarray:
+    """KS-2132 фаза 3. Otsu-бинаризация для IoU-сравнения шаблонов.
+
+    Возвращает 50×50 uint8 mask, где тёмные пиксели (фигура и штриховка
+    тёмных клеток) = 255, светлые = 0. В отличие от `_open_mask` ядро
+    морф-открытия не применяется — IoU считается по сырым бинарным
+    силуэтам и учитывает площадь пересечения, что устойчивее к
+    субпиксельным сдвигам и антиалиасингу.
+
+    Otsu автоматически адаптирует threshold под контраст конкретной
+    клетки, что помогает на разных ddjvu-растеризациях одного DjVu
+    (см. KS-2132 фаза 2/3).
+    """
+    _, bw = cv2.threshold(cell, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    return bw
+
+
+def _iou(a: np.ndarray, b: np.ndarray) -> float:
+    """Intersection-over-Union для двух бинарных масок (uint8 0/non-zero).
+
+    Возвращает 0.0 при пустых масках (обе) — иначе |A∩B| / |A∪B|.
+    """
+    am = a > 0
+    bm = b > 0
+    union = int((am | bm).sum())
+    if union == 0:
+        return 0.0
+    inter = int((am & bm).sum())
+    return inter / union
+
+
 def _count_top_peaks(cell: np.ndarray) -> int:
     """Сколько отдельных «зубцов» в верхней 1/6 части силуэта фигуры (mask 3×3).
 
@@ -256,6 +287,7 @@ def _extract_templates_from_image(
     include_empty: bool = False,
     mask_kernel: int = 3,
     frame_detection: str = 'auto',
+    classifier_mode: str = 'l2',
 ) -> Dict[Tuple[str, str], List[np.ndarray]]:
     """Извлечь все возможные (piece, bg) → list[mask] из одной размеченной картинки.
 
@@ -286,11 +318,15 @@ def _extract_templates_from_image(
         for c in range(8):
             piece = grid[r][c]
             bg = 'd' if _square_is_dark(r, c) else 'l'
+            if classifier_mode == 'iou':
+                mask = _otsu_mask(cells[r][c])
+            else:
+                mask = _open_mask(cells[r][c], mask_kernel)
             if piece == '.':
-                if include_empty:
-                    out.setdefault(('.', bg), []).append(_open_mask(cells[r][c], mask_kernel))
+                if include_empty or classifier_mode == 'iou':
+                    out.setdefault(('.', bg), []).append(mask)
                 continue
-            out.setdefault((piece, bg), []).append(_open_mask(cells[r][c], mask_kernel))
+            out.setdefault((piece, bg), []).append(mask)
     return out
 
 
@@ -373,7 +409,24 @@ class Profile:
     # классификации). У Maizelis фигуры толстые (3×3 не съедает контур);
     # у Дворецкого фигуры тонкие, 3×3 убивает короля и пешку → 2×2 сохраняет
     # контур и не даёт штриховке тёмной клетки переживать целиком.
+    # Не используется при `classifier_mode='iou'`.
     mask_open_kernel: int = 3
+    # KS-2132 фаза 3. Стратегия попиксельного сравнения cell vs шаблон
+    # внутри `classify_cell`:
+    #   'l2'  — морф-открытие → попиксельный L2-distance, argmin по
+    #           классам. Используется в Maizelis (back-compat KS-2028) и
+    #           изначально в Dvoretsky фаза 1-2. Чувствителен к
+    #           антиалиасингу шрифта между разными ddjvu-растеризациями
+    #           (фаза 2: добавляли шаблоны из 2 растеризаций; фаза 3:
+    #           batch2 от content показал что и этого мало для других
+    #           позиций).
+    #   'iou' — Otsu-threshold (тёмные пиксели = 1) → IoU между бинарными
+    #           масками cell и шаблона, argmax. Otsu адаптируется к
+    #           контрасту изображения, IoU считает площадь пересечения
+    #           вместо попиксельного соответствия — устойчивее к
+    #           субпиксельным сдвигам и разнице антиалиасинга.
+    # Maizelis: 'l2'. Dvoretsky: 'iou' (KS-2132 фаза 3).
+    classifier_mode: str = 'l2'
 
 
 MAIZELIS_PROFILE = Profile(
@@ -440,6 +493,12 @@ DVORETSKY_PROFILE = Profile(
     use_empty_templates=True,
     empty_distance_bias=1.15,
     mask_open_kernel=2,
+    # KS-2132 фаза 3: переключаем с L2 на IoU. Otsu-threshold + IoU
+    # устраняет зависимость от антиалиасинга шрифта между разными
+    # ddjvu-растеризациями. На batch2 от content (новые позиции, та же
+    # растеризация) L2 давал мусор `q` повсеместно; IoU убирает мусор и
+    # выдаёт корректные классы в большинстве клеток.
+    classifier_mode='iou',
 )
 
 
@@ -504,6 +563,7 @@ def build_templates(
     include_empty = bool(profile and profile.use_empty_templates)
     mask_kernel = profile.mask_open_kernel if profile is not None else 3
     frame_detection = profile.frame_detection if profile is not None else 'auto'
+    classifier_mode = profile.classifier_mode if profile is not None else 'l2'
     templates: Dict[Tuple[str, str], List[np.ndarray]] = {}
     for path, fen in sources:
         try:
@@ -512,6 +572,7 @@ def build_templates(
                 include_empty=include_empty,
                 mask_kernel=mask_kernel,
                 frame_detection=frame_detection,
+                classifier_mode=classifier_mode,
             )
         except FileNotFoundError:
             # Источник не найден — пропускаем (например, в тестах подменяют пути).
@@ -586,6 +647,25 @@ class Recognizer:
           4. Для фигур запускаем NCC против шаблонов нужного цвета и фона.
         """
         prof = self.profile
+
+        # KS-2132 фаза 3: IoU-классификатор для Дворецкого. Otsu-бинаризация
+        # cell + IoU vs все шаблоны того же фона, argmax. Otsu адаптируется
+        # к контрасту изображения, IoU считает площадь пересечения вместо
+        # попиксельного соответствия — устойчивее к субпиксельным сдвигам
+        # шрифта и разнице антиалиасинга между ddjvu-растеризациями.
+        if prof.classifier_mode == 'iou':
+            cell_bw = _otsu_mask(cell)
+            best_class = '.'
+            best_iou = -1.0
+            for (piece, tpl_bg), masks in self.templates.items():
+                if tpl_bg != bg:
+                    continue
+                local_best = max(_iou(cell_bw, t) for t in masks)
+                if local_best > best_iou:
+                    best_iou = local_best
+                    best_class = piece
+            return best_class, best_iou
+
         # KS-2132: Maizelis использует morph open 3×3 (толстые силуэты);
         # Дворецкий — 2×2 (тонкие фигуры, 3×3 убивает короля). Шаблоны
         # строятся с тем же kernel'ом — иначе попиксельное сравнение даст
