@@ -83,7 +83,7 @@ describe('PostgresArchiveStatsRepository.getGamesByPosition — keyset cursor', 
       expect(eloOccurrences).toBe(1);
     });
 
-    it('cursor.e=null → переход в NULL-блок (`avg_elo IS NULL AND game_id <`)', async () => {
+    it('KS-2130: cursor.e=null → блок пуст (FALSE), потому что WHERE avg_elo IS NOT NULL', async () => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);
       const cur: TopEloCursor = {
@@ -94,18 +94,28 @@ describe('PostgresArchiveStatsRepository.getGamesByPosition — keyset cursor', 
       await repo.getGamesByPosition(POS_KEY, { ...defaults(), cursor: cur });
 
       const { sql } = calls[0]!;
-      expect(sql).toMatch(/p\.avg_elo IS NULL\s+AND\s+p\.game_id\s*<\s*\$\d+::uuid/);
+      // Со стороны прежнего клиента (cursor `e=null`) блок NULL'ов теперь
+      // пуст — отдаём заведомо ложное условие.
+      expect(sql).toMatch(/\bFALSE\b/);
+      // Ни ROW-comparison, ни прежний `IS NULL AND game_id <` не уместны.
       expect(sql).not.toMatch(/\(p\.avg_elo,\s*p\.game_id\)\s*</);
+      expect(sql).not.toMatch(/p\.avg_elo IS NULL\s+AND\s+p\.game_id\s*</);
     });
 
-    it('ORDER BY остался `p.avg_elo DESC NULLS LAST, p.game_id DESC`', async () => {
+    it('KS-2130: ORDER BY без NULLS LAST + WHERE avg_elo IS NOT NULL', async () => {
       const { prisma, calls } = fakePrisma();
       const repo = new PostgresArchiveStatsRepository(prisma);
 
       await repo.getGamesByPosition(POS_KEY, defaults());
 
       const { sql } = calls[0]!;
-      expect(sql).toContain('ORDER BY p.avg_elo DESC NULLS LAST, p.game_id DESC');
+      // KS-2130: ORDER BY совпадает с порядком индекса
+      // archive_game_positions_top_elo (без NULLS LAST), позволяет
+      // использовать btree для упорядоченного чтения.
+      expect(sql).toContain('ORDER BY p.avg_elo DESC, p.game_id DESC');
+      expect(sql).not.toContain('NULLS LAST');
+      // Партии без рейтинга отсекаются — у них нет avg_elo для top.
+      expect(sql).toContain('p.avg_elo IS NOT NULL');
     });
   });
 

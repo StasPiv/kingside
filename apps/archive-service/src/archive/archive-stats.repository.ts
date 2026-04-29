@@ -744,9 +744,30 @@ class KeysetSqlBuilder {
       );
     }
 
+    // KS-2130: для sort=topElo отсекаем партии без рейтинга через
+    // `WHERE p.avg_elo IS NOT NULL` и убираем `NULLS LAST` из ORDER BY.
+    //
+    // Регрессия из коммита `3625beae` (KS-2120): `ORDER BY p.avg_elo
+    // DESC NULLS LAST` несовместим с порядком индекса
+    // `archive_game_positions_top_elo (position_key, bucket, avg_elo DESC,
+    // game_id DESC)` — btree DESC по дефолту хранит NULL'ы FIRST, не LAST.
+    // Планировщик не мог использовать btree для упорядоченного чтения и
+    // откатывался на Parallel Bitmap Heap Scan + top-N heapsort: Q1
+    // 15ms→21704ms, Q2 2173ms→9317ms, Q3 0.25ms→8048ms (devops re-check
+    // KS-2124).
+    //
+    // С `WHERE avg_elo IS NOT NULL` + `ORDER BY ... DESC` (без NULLS LAST)
+    // планировщик использует Index Cond + Index Scan по тому же индексу.
+    // Семантика для top-elo: партии без рейтинга всё равно не должны
+    // входить в top — фильтр логичен, не убирает данные которые имели бы
+    // смысл в выдаче.
+    if (opts.sort === 'topElo') {
+      conds.push('p.avg_elo IS NOT NULL');
+    }
+
     const orderBy =
       opts.sort === 'topElo'
-        ? 'p.avg_elo DESC NULLS LAST, p.game_id DESC'
+        ? 'p.avg_elo DESC, p.game_id DESC'
         : 'p.played_at DESC NULLS LAST, p.game_id DESC';
 
     const pLimit = this.register(opts.limit + 1);
@@ -809,26 +830,21 @@ class KeysetSqlBuilder {
     const cur = c as TopEloCursor;
     if (typeof cur.g !== 'string') return null;
     if (cur.e === null) {
-      return `p.avg_elo IS NULL AND p.game_id < ${this.register(cur.g)}::uuid`;
+      // KS-2130: для sort=topElo теперь WHERE p.avg_elo IS NOT NULL
+      // (удалены NULL-партии — у них нет рейтинга для top-list). Раньше
+      // эта ветка обслуживала NULLS LAST переход в NULL-блок; теперь
+      // блок пуст по WHERE. Cursor с `e=null` от старых клиентов
+      // безопасно интерпретируется как «дальше ничего нет» —
+      // возвращаем заведомо ложное условие.
+      return 'FALSE';
     }
-    // KS-2120. ROW-comparison `(avg_elo, game_id) < (X, Y)` эквивалентна
-    // выражению `avg_elo < X OR (avg_elo = X AND game_id < Y)`, но
-    // распознаётся btree-планировщиком как продолжение Index Scan на индексе
-    // `archive_game_positions_top_elo (position_key, bucket, avg_elo DESC,
-    // game_id DESC)`. Прежний OR-вариант сводился к `Filter` поверх Index
-    // Scan, отрезая ~120K строк уже после чтения с диска: на стартовой
-    // позиции это давало 2173 мс cold cache (EXPLAIN ANALYZE — KS-2121,
-    // комментарий координатора в KS-2120). С ROW-comparison Index Cond
-    // отрезает строки на уровне btree-traversal'а, latency возвращается к
-    // ~15 мс Q1 без cursor.
-    //
-    // Семантика NULLs не меняется: ROW-comparison со строкой, где
-    // `avg_elo IS NULL`, даёт UNKNOWN и строка отбрасывается. Чтобы
-    // отдать NULL-блок (NULLS LAST), клиент получает следующий cursor с
-    // `e=null`, и срабатывает ветка `cur.e === null` выше — там IS NULL
-    // прописан явно. Поведение совпадает с предыдущей реализацией
-    // OR-варианта, поэтому не нужно ни миграции данных, ни инвалидации
-    // выпущенных cursor'ов.
+    // KS-2120 / KS-2130. ROW-comparison `(avg_elo, game_id) < (X, Y)`
+    // распознаётся btree-планировщиком как продолжение Index Scan на
+    // индексе `archive_game_positions_top_elo (position_key, bucket,
+    // avg_elo DESC, game_id DESC)`. Сейчас работает корректно — после
+    // KS-2130 убрали `NULLS LAST` из ORDER BY (он несовместим с порядком
+    // индекса) и добавили `WHERE avg_elo IS NOT NULL`, поэтому
+    // ROW-comparison с UNKNOWN на NULL'ах больше не релевантен.
     const pE = this.register(cur.e);
     const pG = this.register(cur.g);
     return `(p.avg_elo, p.game_id) < (${pE}, ${pG}::uuid)`;
