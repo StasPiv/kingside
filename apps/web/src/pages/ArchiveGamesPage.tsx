@@ -7,6 +7,7 @@ import type {
   ArchiveGamesRequest,
   ArchiveGamesResponse,
   ArchiveGamesSortMetadata,
+  ArchiveTimeControlCategory,
 } from '@kingside/shared';
 
 import { archiveApi } from '../api/archive';
@@ -51,6 +52,30 @@ const VALID_RESULTS: readonly MetadataResultFilter[] = [
   '0-1',
   '1/2-1/2',
 ];
+// KS-2115: набор валидных категорий контроля времени для URL-парсера.
+// `unknown` тоже валиден на бэке (KS-2118), но в UI-форме скрыт —
+// пользователь не выбирает его, deep-link с ним всё равно пройдёт корректно.
+const VALID_TIME_CONTROL_CATEGORIES: readonly ArchiveTimeControlCategory[] = [
+  'bullet',
+  'blitz',
+  'rapid',
+  'classical',
+  'unknown',
+];
+
+function parseTimeControlCategories(
+  raw: string[],
+): ArchiveTimeControlCategory[] {
+  const seen = new Set<ArchiveTimeControlCategory>();
+  for (const r of raw) {
+    if (
+      VALID_TIME_CONTROL_CATEGORIES.includes(r as ArchiveTimeControlCategory)
+    ) {
+      seen.add(r as ArchiveTimeControlCategory);
+    }
+  }
+  return Array.from(seen);
+}
 
 function parseSort(raw: string | null): ArchiveGamesSortMetadata {
   return VALID_SORTS.includes(raw as ArchiveGamesSortMetadata)
@@ -102,6 +127,12 @@ export function urlToMetadataFilters(
     minPly: parseNonNegativeInt(params.get('minPly')),
     maxPly: parseNonNegativeInt(params.get('maxPly')),
     sort: parseSort(params.get('sort')),
+    // KS-2115: множественный фильтр контроля времени. Каждое значение —
+    // отдельный `?timeControlCategory=...` (Express парсит дубликаты как
+    // массив). Невалидные значения тихо отбрасываем.
+    timeControlCategory: parseTimeControlCategories(
+      params.getAll('timeControlCategory'),
+    ),
   };
 }
 
@@ -130,6 +161,11 @@ export function metadataFiltersToUrl(
   if (values.minPly !== null) params.set('minPly', String(values.minPly));
   if (values.maxPly !== null) params.set('maxPly', String(values.maxPly));
   if (values.sort !== 'recent') params.set('sort', values.sort);
+  // KS-2115: каждый элемент — отдельный `timeControlCategory=...` через
+  // append (`set` затёр бы массив до одного значения).
+  for (const cat of values.timeControlCategory) {
+    params.append('timeControlCategory', cat);
+  }
   if (page > 1) params.set('page', String(page));
   if (pageSize !== DEFAULT_PAGE_SIZE)
     params.set('pageSize', String(pageSize));
@@ -164,6 +200,14 @@ export function metadataFiltersToRequest(
     minPly: values.minPly ?? undefined,
     maxPly: values.maxPly ?? undefined,
     sort: values.sort,
+    // KS-2115: 0 → undefined, 1 → string (бэк-совместимо), 2+ → string[].
+    // Контракт `ArchiveGamesRequest.timeControlCategory: T | T[] | undefined`.
+    timeControlCategory:
+      values.timeControlCategory.length === 0
+        ? undefined
+        : values.timeControlCategory.length === 1
+          ? values.timeControlCategory[0]
+          : values.timeControlCategory,
     limit: pageSize,
     offset: (page - 1) * pageSize,
   };
@@ -296,6 +340,8 @@ function ArchiveMetadataMode() {
     summaryParts.push(`plies≥${filterValues.minPly}`);
   if (filterValues.maxPly !== null)
     summaryParts.push(`plies≤${filterValues.maxPly}`);
+  if (filterValues.timeControlCategory.length > 0)
+    summaryParts.push(`tc=${filterValues.timeControlCategory.join(',')}`);
   const hasActiveFilters = summaryParts.length > 0;
   const summaryText = hasActiveFilters
     ? summaryParts.join(' · ')

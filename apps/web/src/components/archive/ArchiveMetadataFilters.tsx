@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type {
   ArchiveGameResult,
   ArchiveGamesSortMetadata,
+  ArchiveTimeControlCategory,
 } from '@kingside/shared';
 
 /**
@@ -32,7 +33,28 @@ export interface ArchiveMetadataFilterValues {
   minPly: number | null;
   maxPly: number | null;
   sort: ArchiveGamesSortMetadata;
+  /**
+   * KS-2115. Категории контроля времени для фильтра. Пустой массив —
+   * «любой» (фильтр не применяется). Несколько значений — OR на бэке
+   * (`?timeControlCategory=classical&timeControlCategory=rapid`).
+   *
+   * `unknown` исключён из UI намеренно: на проде партий с этой категорией
+   * нет (KS-2118 завершил backfill 323К/323К), а пользователю термин
+   * «Неизвестный контроль» не нужен в форме фильтра.
+   */
+  timeControlCategory: ArchiveTimeControlCategory[];
 }
+
+/**
+ * Допустимые значения для UI-чипов «Контроль времени». `unknown` сюда
+ * не входит — см. JSDoc к {@link ArchiveMetadataFilterValues.timeControlCategory}.
+ */
+export const TIME_CONTROL_PRESETS: readonly ArchiveTimeControlCategory[] = [
+  'bullet',
+  'blitz',
+  'rapid',
+  'classical',
+];
 
 interface ArchiveMetadataFiltersProps {
   values: ArchiveMetadataFilterValues;
@@ -53,6 +75,7 @@ export const EMPTY_METADATA_FILTERS: ArchiveMetadataFilterValues = {
   minPly: null,
   maxPly: null,
   sort: 'recent',
+  timeControlCategory: [],
 };
 
 function nullableNumberInput(raw: string): number | null {
@@ -205,6 +228,48 @@ export function ArchiveMetadataFilters({
               {n}+
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Time control (KS-2115).
+          Множественный выбор — клик по чипу добавляет/убирает категорию.
+          «Любой» = пустой массив (фильтр не применяется). */}
+      <div
+        className="archive-games-filters__field"
+        data-testid="archive-metadata-filter-time-control"
+      >
+        <span className="archive-games-filters__label">
+          {t('archive.games.timeControlLabel', 'Time control')}
+        </span>
+        <div className="archive-games-filters__presets">
+          <button
+            type="button"
+            className={`archive-games-filters__preset${values.timeControlCategory.length === 0 ? ' is-active' : ''}`}
+            onClick={() => apply({ timeControlCategory: [] })}
+            data-testid="archive-metadata-filter-time-control-any"
+          >
+            {t('archive.games.timeControlAny', 'Any')}
+          </button>
+          {TIME_CONTROL_PRESETS.map((cat) => {
+            const active = values.timeControlCategory.includes(cat);
+            return (
+              <button
+                key={cat}
+                type="button"
+                className={`archive-games-filters__preset${active ? ' is-active' : ''}`}
+                aria-pressed={active}
+                onClick={() => {
+                  const next = active
+                    ? values.timeControlCategory.filter((c) => c !== cat)
+                    : [...values.timeControlCategory, cat];
+                  apply({ timeControlCategory: next });
+                }}
+                data-testid={`archive-metadata-filter-time-control-${cat}`}
+              >
+                {t(`archive.games.timeControl_${cat}`, cat)}
+              </button>
+            );
+          })}
         </div>
       </div>
 

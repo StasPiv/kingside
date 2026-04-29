@@ -134,6 +134,15 @@ describe('urlToPlayerState', () => {
     expect(s.color).toBe('any');
     expect(s.pageSize).toBe(20);
   });
+
+  it('KS-2115: timeControlCategory читается из URL как массив', () => {
+    const s = urlToPlayerState(
+      new URLSearchParams(
+        'timeControlCategory=classical&timeControlCategory=rapid',
+      ),
+    );
+    expect(s.filters.timeControlCategory).toEqual(['classical', 'rapid']);
+  });
 });
 
 describe('playerStateToUrl', () => {
@@ -157,6 +166,22 @@ describe('playerStateToUrl', () => {
     expect(params.get('color')).toBe('white');
     expect(params.get('page')).toBe('2');
     expect(params.get('pageSize')).toBe('50');
+  });
+
+  it('KS-2115: timeControlCategory сериализуется дубликатами', () => {
+    const params = playerStateToUrl({
+      filters: {
+        ...EMPTY_METADATA_FILTERS,
+        timeControlCategory: ['classical', 'rapid'],
+      },
+      color: 'any',
+      page: 1,
+      pageSize: 20,
+    });
+    expect(params.getAll('timeControlCategory')).toEqual([
+      'classical',
+      'rapid',
+    ]);
   });
 });
 
@@ -183,6 +208,36 @@ describe('playerStateToRequest', () => {
     expect(r.offset).toBe(100);
     expect(r.limit).toBe(50);
     expect(r.color).toBe('white');
+  });
+
+  it('KS-2115: timeControlCategory []/[1]/[2+] → undefined/string/string[]', () => {
+    expect(
+      playerStateToRequest({
+        filters: EMPTY_METADATA_FILTERS,
+        color: 'any',
+        page: 1,
+        pageSize: 20,
+      }).timeControlCategory,
+    ).toBeUndefined();
+    expect(
+      playerStateToRequest({
+        filters: { ...EMPTY_METADATA_FILTERS, timeControlCategory: ['classical'] },
+        color: 'any',
+        page: 1,
+        pageSize: 20,
+      }).timeControlCategory,
+    ).toBe('classical');
+    expect(
+      playerStateToRequest({
+        filters: {
+          ...EMPTY_METADATA_FILTERS,
+          timeControlCategory: ['classical', 'rapid'],
+        },
+        color: 'any',
+        page: 1,
+        pageSize: 20,
+      }).timeControlCategory,
+    ).toEqual(['classical', 'rapid']);
   });
 });
 

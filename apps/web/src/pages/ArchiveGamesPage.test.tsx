@@ -132,7 +132,24 @@ describe('urlToMetadataFilters', () => {
       minPly: 20,
       maxPly: 80,
       sort: 'topElo',
+      timeControlCategory: [],
     });
+  });
+
+  it('KS-2115: несколько ?timeControlCategory в URL → массив', () => {
+    const params = new URLSearchParams(
+      'timeControlCategory=classical&timeControlCategory=rapid',
+    );
+    const r = urlToMetadataFilters(params);
+    expect(r.timeControlCategory).toEqual(['classical', 'rapid']);
+  });
+
+  it('KS-2115: невалидное значение timeControlCategory отбрасывается', () => {
+    const params = new URLSearchParams(
+      'timeControlCategory=classical&timeControlCategory=banana',
+    );
+    const r = urlToMetadataFilters(params);
+    expect(r.timeControlCategory).toEqual(['classical']);
   });
 
   it('KS-2084: несколько ?player= в URL → массив', () => {
@@ -172,6 +189,7 @@ describe('metadataFiltersToUrl', () => {
         minPly: 20,
         maxPly: 80,
         sort: 'topElo',
+        timeControlCategory: ['classical', 'rapid'],
       },
       3,
       50,
@@ -186,8 +204,17 @@ describe('metadataFiltersToUrl', () => {
     expect(params.get('minPly')).toBe('20');
     expect(params.get('maxPly')).toBe('80');
     expect(params.get('sort')).toBe('topElo');
+    expect(params.getAll('timeControlCategory')).toEqual([
+      'classical',
+      'rapid',
+    ]);
     expect(params.get('page')).toBe('3');
     expect(params.get('pageSize')).toBe('50');
+  });
+
+  it('KS-2115: пустой timeControlCategory не добавляется в query', () => {
+    const params = metadataFiltersToUrl(EMPTY_METADATA_FILTERS, 1, 20);
+    expect(params.getAll('timeControlCategory')).toEqual([]);
   });
 });
 
@@ -215,6 +242,30 @@ describe('metadataFiltersToRequest', () => {
       20,
     );
     expect(r.result).toBeUndefined();
+  });
+
+  it('KS-2115: timeControlCategory []/[1]/[2+] → undefined/string/string[]', () => {
+    expect(
+      metadataFiltersToRequest(EMPTY_METADATA_FILTERS, 1, 20)
+        .timeControlCategory,
+    ).toBeUndefined();
+    expect(
+      metadataFiltersToRequest(
+        { ...EMPTY_METADATA_FILTERS, timeControlCategory: ['classical'] },
+        1,
+        20,
+      ).timeControlCategory,
+    ).toBe('classical');
+    expect(
+      metadataFiltersToRequest(
+        {
+          ...EMPTY_METADATA_FILTERS,
+          timeControlCategory: ['classical', 'rapid'],
+        },
+        1,
+        20,
+      ).timeControlCategory,
+    ).toEqual(['classical', 'rapid']);
   });
 });
 

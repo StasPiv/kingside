@@ -7,6 +7,7 @@ import type {
   ArchivePlayerGamesRequest,
   ArchivePlayerGamesResponse,
   ArchivePlayerProfile,
+  ArchiveTimeControlCategory,
 } from '@kingside/shared';
 
 import { archiveApi } from '../api/archive';
@@ -79,6 +80,28 @@ function parseSort(raw: string | null): 'recent' | 'topElo' | 'oldest' {
   return raw === 'topElo' || raw === 'oldest' ? raw : 'recent';
 }
 
+const VALID_TIME_CONTROL_CATEGORIES: readonly ArchiveTimeControlCategory[] = [
+  'bullet',
+  'blitz',
+  'rapid',
+  'classical',
+  'unknown',
+];
+
+function parseTimeControlCategories(
+  raw: string[],
+): ArchiveTimeControlCategory[] {
+  const seen = new Set<ArchiveTimeControlCategory>();
+  for (const r of raw) {
+    if (
+      VALID_TIME_CONTROL_CATEGORIES.includes(r as ArchiveTimeControlCategory)
+    ) {
+      seen.add(r as ArchiveTimeControlCategory);
+    }
+  }
+  return Array.from(seen);
+}
+
 interface UrlState {
   filters: ArchiveMetadataFilterValues;
   color: PlayerColorFilter;
@@ -105,6 +128,10 @@ export function urlToPlayerState(params: URLSearchParams): UrlState {
       minPly: parseNonNegativeInt(params.get('minPly')),
       maxPly: parseNonNegativeInt(params.get('maxPly')),
       sort: parseSort(params.get('sort')),
+      // KS-2115: множественный фильтр контроля времени.
+      timeControlCategory: parseTimeControlCategories(
+        params.getAll('timeControlCategory'),
+      ),
     },
     color: parseColor(params.get('color')),
     page: Math.max(1, parseNonNegativeInt(params.get('page')) ?? 1),
@@ -128,6 +155,10 @@ export function playerStateToUrl(state: UrlState): URLSearchParams {
   if (filters.minPly !== null) params.set('minPly', String(filters.minPly));
   if (filters.maxPly !== null) params.set('maxPly', String(filters.maxPly));
   if (filters.sort !== 'recent') params.set('sort', filters.sort);
+  // KS-2115: каждый элемент массива — отдельный append.
+  for (const cat of filters.timeControlCategory) {
+    params.append('timeControlCategory', cat);
+  }
   if (color !== 'any') params.set('color', color);
   if (page > 1) params.set('page', String(page));
   if (pageSize !== DEFAULT_PAGE_SIZE)
@@ -157,6 +188,13 @@ export function playerStateToRequest(
     minPly: filters.minPly ?? undefined,
     maxPly: filters.maxPly ?? undefined,
     sort: filters.sort,
+    // KS-2115.
+    timeControlCategory:
+      filters.timeControlCategory.length === 0
+        ? undefined
+        : filters.timeControlCategory.length === 1
+          ? filters.timeControlCategory[0]
+          : filters.timeControlCategory,
     limit: pageSize,
     offset: (page - 1) * pageSize,
   };
@@ -380,7 +418,8 @@ export function ArchivePlayerProfilePage() {
     state.filters.since !== '' ||
     state.filters.until !== '' ||
     state.filters.minPly !== null ||
-    state.filters.maxPly !== null;
+    state.filters.maxPly !== null ||
+    state.filters.timeControlCategory.length > 0;
 
   return (
     <div

@@ -130,6 +130,16 @@ export function getArchivePlayerGames(
     ['limit', filters.limit],
     ['offset', filters.offset],
   ]);
+  // KS-2115: массив контролей сериализуем дубликатами через `append`,
+  // одиночное значение — обычным `append` (на бэке `?timeControlCategory=...`
+  // парсится одинаково в обоих случаях).
+  if (Array.isArray(filters.timeControlCategory)) {
+    for (const cat of filters.timeControlCategory) {
+      params.append('timeControlCategory', cat);
+    }
+  } else if (filters.timeControlCategory) {
+    params.append('timeControlCategory', filters.timeControlCategory);
+  }
   return archiveGet<ArchivePlayerGamesResponse>(
     `/players/${encodeURIComponent(slug)}/games`,
     params,
@@ -178,6 +188,15 @@ export function getArchiveGamesMetadata(
     }
   } else if (typeof filters.player === 'string' && filters.player.trim().length > 0) {
     params.set('player', filters.player.trim());
+  }
+  // KS-2115: массив timeControlCategory сериализуем дубликатами через
+  // `append` (на бэке Express собирает их в массив, OR-семантика).
+  if (Array.isArray(filters.timeControlCategory)) {
+    for (const cat of filters.timeControlCategory) {
+      params.append('timeControlCategory', cat);
+    }
+  } else if (filters.timeControlCategory) {
+    params.append('timeControlCategory', filters.timeControlCategory);
   }
   appendDefined(params, [
     ['fen', filters.fen],

@@ -138,6 +138,19 @@ describe('archiveApi.getArchivePlayerGames', () => {
     const [url] = lastCallArgs();
     expect(url).toBe(`${BASE}/players/m-carlsen/games`);
   });
+
+  it('KS-2115: timeControlCategory массивом', async () => {
+    mockFetch.mockResolvedValueOnce(okJson({ total: 0, items: [] }));
+    await archiveApi.getArchivePlayerGames('m-carlsen', {
+      timeControlCategory: ['classical', 'rapid'],
+    });
+    const [url] = lastCallArgs();
+    const u = new URL(url);
+    expect(u.searchParams.getAll('timeControlCategory')).toEqual([
+      'classical',
+      'rapid',
+    ]);
+  });
 });
 
 describe('archiveApi.searchArchiveEvents', () => {
@@ -178,6 +191,29 @@ describe('archiveApi.getArchiveGamesMetadata', () => {
     expect(u.searchParams.get('sort')).toBe('oldest');
     expect(u.searchParams.get('limit')).toBe('50');
     expect(u.searchParams.get('offset')).toBe('100');
+  });
+
+  it('KS-2115: timeControlCategory массивом → дубликаты query', async () => {
+    mockFetch.mockResolvedValueOnce(okJson({ total: 0, items: [] }));
+    await archiveApi.getArchiveGamesMetadata({
+      timeControlCategory: ['classical', 'rapid'],
+    });
+    const [url] = lastCallArgs();
+    const u = new URL(url);
+    expect(u.searchParams.getAll('timeControlCategory')).toEqual([
+      'classical',
+      'rapid',
+    ]);
+  });
+
+  it('KS-2115: timeControlCategory одиночным значением', async () => {
+    mockFetch.mockResolvedValueOnce(okJson({ total: 0, items: [] }));
+    await archiveApi.getArchiveGamesMetadata({
+      timeControlCategory: 'classical',
+    });
+    const [url] = lastCallArgs();
+    const u = new URL(url);
+    expect(u.searchParams.getAll('timeControlCategory')).toEqual(['classical']);
   });
 });
 
