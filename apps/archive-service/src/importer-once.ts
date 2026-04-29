@@ -19,6 +19,7 @@ import {
 } from './archive-import/emf-metrics.service';
 import { ArchiveSourcesSeedService } from './archive-import/archive-sources-seed.service';
 import { PrismaService } from './prisma/prisma.service';
+import { resolveBackstopTimeoutMs } from './archive-import/importer-timeouts';
 
 /**
  * One-shot entrypoint для EventBridge Scheduler + ECS RunTask (KS-1681,
@@ -31,14 +32,15 @@ import { PrismaService } from './prisma/prisma.service';
  *   2. Поднимается минимальный DI через `createApplicationContext`
  *      (PrismaModule, RedisModule, MetricsModule, ArchiveImportModule,
  *      EmfMetricsPublisher). HTTP НЕ поднимается.
- *   3. Hard timeout 8 минут — внутри `tickOnce()` через `Promise.race`
- *      (ADR-020 §2.2, §4.2). На таймауте бросается `TickTimeoutError` с
- *      `partial` результатом — тут же публикуется EMF по тому, что успело
- *      отработать, и делается flush → exit 124.
- *      Дополнительно: hard backstop `setTimeout(process.exit(124))` на 10
- *      минут — на случай, если даже timeout-ветка зависнет (EMF SDK,
- *      Nest shutdown hooks). Backstop срабатывает только в аномалии,
- *      штатный путь — exit через Promise.race.
+ *   3. Hard timeout `tickOnce()` через `Promise.race` (ADR-020 §2.2,
+ *      §4.2; default 30 мин — KS-2123, env `IMPORTER_TICK_TIMEOUT_MS`).
+ *      На таймауте бросается `TickTimeoutError` с `partial` результатом —
+ *      тут же публикуется EMF по тому, что успело отработать, и делается
+ *      flush → exit 124. Дополнительно: hard backstop
+ *      `setTimeout(process.exit(124))` (default 35 мин — KS-2123, env
+ *      `IMPORTER_BACKSTOP_TIMEOUT_MS`) — на случай, если даже timeout-ветка
+ *      зависнет (EMF SDK, Nest shutdown hooks). Backstop срабатывает только
+ *      в аномалии, штатный путь — exit через Promise.race.
  *   4. `ArchiveImportService.tickOnce()` — один проход по всем enabled-
  *      источникам, детальный результат.
  *   5. `EmfMetricsPublisher.recordSourceRun(...)` +
@@ -58,7 +60,10 @@ import { PrismaService } from './prisma/prisma.service';
  *     node dist/importer-once.js
  */
 
-const BACKSTOP_TIMEOUT_MS = 10 * 60 * 1000; // 10 мин, на 2 мин больше tickOnce
+// KS-2123: backstop вынесен в env (`IMPORTER_BACKSTOP_TIMEOUT_MS`, default
+// 35 мин), чтобы держать запас выше нового tickOnce (30 мин). Прежний 10-мин
+// backstop срабатывал раньше, чем tickOnce успевал догнать новые TWIC weekly
+// размером ~7K партий.
 const EXIT_TIMEOUT_CODE = 124;
 const EXIT_RUN_FAILED_CODE = 2;
 const EXIT_BOOTSTRAP_CODE = 1;
@@ -218,13 +223,16 @@ async function bootstrap(): Promise<number> {
   // внутри tickOnce не сработал (напр., EMF SDK.flush завис, Nest
   // shutdown hooks зациклились). Штатный путь — exit через tickOnce
   // Promise.race + EMF flush → return code.
+  // KS-2123: значение берётся из env `IMPORTER_BACKSTOP_TIMEOUT_MS`,
+  // default 35 мин (на 5 мин выше tickOnce default 30 мин).
+  const backstopTimeoutMs = resolveBackstopTimeoutMs();
   const backstopHandle = setTimeout(() => {
     // eslint-disable-next-line no-console
     console.error(
-      `[importer-once] backstop timeout ${BACKSTOP_TIMEOUT_MS}ms reached — killing process`,
+      `[importer-once] backstop timeout ${backstopTimeoutMs}ms reached — killing process`,
     );
     process.exit(EXIT_TIMEOUT_CODE);
-  }, BACKSTOP_TIMEOUT_MS);
+  }, backstopTimeoutMs);
   // unref: backstop сам по себе не держит process alive — если всё
   // штатно, exit происходит через `return outcome.exitCode`.
   backstopHandle.unref();

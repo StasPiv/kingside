@@ -13,6 +13,10 @@ import {
   type ImportResult,
 } from './sources/twic.importer';
 import { intervalFromSchedule } from './interval-schedule';
+import {
+  DEFAULT_TICK_ONCE_TIMEOUT_MS,
+  resolveTickOnceTimeoutMs,
+} from './importer-timeouts';
 
 /**
  * Результат запуска одного источника в рамках tickOnce (KS-1681).
@@ -70,13 +74,28 @@ export class TickTimeoutError extends Error {
 }
 
 /**
- * Hard timeout одного tickOnce (KS-1681, ADR-020 §2.2).
+ * Hard timeout одного tickOnce.
  *
- * ADR §4.2: нормальный TWIC tick занимает 30-120с, 8 мин — 4× safety
- * margin. Меньше ECS `stopTimeout: 120`, чтобы ECS не успел вмешаться и
- * убить task до EMF flush.
+ * Исторический default 8 мин (KS-1681, ADR-020 §2.2/§4.2) больше не
+ * покрывает реальные TWIC weekly с 24-04-2026: парсинг ~7K партий стал
+ * занимать ~17 мин (см. KS-2123, лог devops 28-04 20:01–20:18, exit 124
+ * на стадии парсинга `twic1642g.zip`).
+ *
+ * Новый default — 30 мин (`DEFAULT_TICK_ONCE_TIMEOUT_MS` в
+ * `importer-timeouts.ts`). Override через env `IMPORTER_TICK_TIMEOUT_MS`,
+ * чтобы при следующем росте можно было поднять лимит правкой task
+ * definition без redeploy кода.
+ *
+ * Экспорт оставлен для совместимости с тестами и внешним кодом — это
+ * по-прежнему именно дефолтное значение (env-override не учитывается
+ * здесь, его читает {@link resolveTickOnceTimeoutMs} в момент вызова
+ * `tickOnce`). Не использовать как «текущий лимит» — для этого
+ * вызывайте `resolveTickOnceTimeoutMs()`.
+ *
+ * @see DEFAULT_TICK_ONCE_TIMEOUT_MS
+ * @see resolveTickOnceTimeoutMs
  */
-export const TICK_ONCE_TIMEOUT_MS = 8 * 60 * 1000;
+export const TICK_ONCE_TIMEOUT_MS = DEFAULT_TICK_ONCE_TIMEOUT_MS;
 
 /**
  * Оркестратор импорта.
@@ -214,7 +233,7 @@ export class ArchiveImportService implements OnModuleInit {
    * one-shot task не столкнутся.
    */
   async tickOnce(
-    timeoutMs: number = TICK_ONCE_TIMEOUT_MS,
+    timeoutMs: number = resolveTickOnceTimeoutMs(),
   ): Promise<TickResult> {
     // Накопитель — доступен и из processAll(), и из timeout-ветки, чтобы
     // частичный результат попал в TickTimeoutError.partial.
