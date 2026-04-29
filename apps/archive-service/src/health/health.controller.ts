@@ -37,9 +37,29 @@ export class HealthController {
   }
 
   private pingWithTimeout(): Promise<void> {
-    const ping = this.prisma.$queryRawUnsafe<Array<{ ok: number }>>('SELECT 1 AS ok').then(
-      () => undefined,
-    );
+    // KS-2134: если race выиграет timeout — pending Prisma-запрос
+    // продолжает удерживать соединение до тех пор, пока RDS не пришлёт
+    // ответ или Prisma не закроет socket по `socket_timeout` (10 сек,
+    // см. `PrismaService.augmentArchiveDatabaseUrl`). Без `.catch()`
+    // отброшенный promise превратился бы в `unhandled rejection` при
+    // нормальном поведении (RDS отвечает на `SELECT 1` через минуту,
+    // мы уже отдали degraded).
+    //
+    // Раньше pending промис висел в pg_stat_activity 16+ минут, потому
+    // что Prisma пула без `socket_timeout` не закрывал дохлые
+    // соединения, а Postgres `idle_session_timeout=0` их не выкидывал.
+    // Теперь: либо запрос успеет в 10 сек и `.catch` отработает, либо
+    // socket_timeout закроет соединение — leak'а нет.
+    const ping = this.prisma
+      .$queryRawUnsafe<Array<{ ok: number }>>('SELECT 1 AS ok')
+      .then(() => undefined)
+      .catch((err: unknown) => {
+        // Pending запрос завершился с ошибкой ПОСЛЕ того, как timeout
+        // уже отдал degraded. Логируем на debug, чтобы не шуметь —
+        // основной WARN уже был.
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.debug(`pending ping resolved late (post-timeout): ${msg}`);
+      });
     const timeout = new Promise<void>((_, reject) => {
       const t = setTimeout(
         () => reject(new Error(`db ping timeout (${DB_PING_TIMEOUT_MS}ms)`)),
