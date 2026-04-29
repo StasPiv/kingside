@@ -60,6 +60,30 @@ const DEFAULT_GAMES_LIMIT = 50;
 const MAX_GAMES_LIMIT = 200;
 const DEFAULT_GAMES_BY_POSITION_LIMIT = 20;
 const MAX_GAMES_BY_POSITION_LIMIT = 50;
+
+/**
+ * KS-2119. Лимит параллельных Prisma-запросов в prewarm. 2 — не сжирает
+ * пул `connection_limit=20` (см. PrismaService) и оставляет ≥18 connection
+ * для пользовательских `/tree`, `/games`, health-ping. Внутри одного
+ * `prewarmOne` тоже могут идти ≤2 параллельных запроса
+ * (`Promise.all([getGamesByPosition, countApprox])`), так что общий
+ * worst-case prewarm-нагрузки на пул — ~4 connection.
+ */
+const PREWARM_PARALLELISM = 2;
+/**
+ * KS-2119. Пауза между prewarm-шагами — даёт пулу освободить connection
+ * до следующего шага. Малое значение, но критическое: без него
+ * sequential-loop возвращал connection и тут же снова брал, держа пул
+ * занятым непрерывно.
+ */
+const PREWARM_STEP_DELAY_MS = 50;
+/**
+ * KS-2119. Отложенный старт фоновых prewarm после boot. 60s — даёт
+ * health endpoint'у пройти readiness, ALB/CF подцепить таргет и
+ * пользовательским запросам начать использовать пул раньше prewarm.
+ */
+const PREWARM_TOP_FIRST_DELAY_MS = 60_000;
+const PREWARM_RECENT_FIRST_DELAY_MS = 10_000;
 /**
  * Жёсткий потолок offset-пагинации в metadata-листе (KS-2063).
  * Глубокий offset на больших корпусах (~10⁵+ партий) приводит к full
@@ -129,18 +153,27 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
 
     // Pre-warm cron (ADR-014 §7). Runs every 15 min; first tick scheduled
     // to not block startup. Tests opt out via ARCHIVE_PREWARM_DISABLE=1.
+    //
+    // KS-2119: задержки увеличены (recent: 5→10s, top: 30→60s), чтобы
+    // health endpoint успевал ответить readiness'ом ДО того, как prewarm
+    // забирает первые connection из пула. Параллелизм prewarm ограничен
+    // PREWARM_PARALLELISM (см. константу).
     if (process.env.ARCHIVE_PREWARM_DISABLE !== '1') {
       this.prewarmTimer = setInterval(() => {
         void this.prewarmTopPositions();
       }, PREWARM_INTERVAL_MS);
-      // First run slightly after boot so DB pool is ready.
-      setTimeout(() => void this.prewarmTopPositions(), 30_000).unref();
+      setTimeout(
+        () => void this.prewarmTopPositions(),
+        PREWARM_TOP_FIRST_DELAY_MS,
+      ).unref();
       // KS-2090: «Последние партии» лобби. Прогревает page cache индекса
       // archive_games_played_at_idx и сразу кладёт ответ в Redis с
       // TTL 60s — следующий пользователь, открывший /archive в первые
-      // 60 секунд после старта, получит данные мгновенно. Запускаем
-      // через 5 секунд, чтобы DB pool успел поднять connection.
-      setTimeout(() => void this.prewarmRecentGames(), 5_000).unref();
+      // 60 секунд после старта, получит данные мгновенно.
+      setTimeout(
+        () => void this.prewarmRecentGames(),
+        PREWARM_RECENT_FIRST_DELAY_MS,
+      ).unref();
     }
   }
 
@@ -430,13 +463,31 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
    * {@link ArchiveStatsRepository.listTopPositions}) but requires a
    * reverse lookup from `position_key` → FEN, which we don't store
    * today. Tracked as a follow-up.
+   *
+   * KS-2119. Параллелизм ограничен `PREWARM_PARALLELISM` (2). Между
+   * шагами вставляем `PREWARM_STEP_DELAY_MS` — это гарантирует, что в
+   * каждый момент времени prewarm удерживает не более ~4 connection
+   * (2 × Promise.all внутри `getGamesByPosition`), оставляя пользовательским
+   * запросам ≥16 connection из пула 20.
    */
   async prewarmTopPositions(): Promise<void> {
     const positions = STATIC_PREWARM_POSITIONS.slice(0, PREWARM_TOP_N);
-    let ok = 0;
-    let failed = 0;
+    const tasks: Array<{ fen: string; sort: ArchiveGamesSort }> = [];
     for (const fen of positions) {
       for (const sort of ['recent', 'topElo'] as const) {
+        tasks.push({ fen, sort });
+      }
+    }
+
+    let ok = 0;
+    let failed = 0;
+    let cursor = 0;
+    const total = tasks.length;
+
+    const worker = async (): Promise<void> => {
+      while (cursor < total) {
+        const i = cursor++;
+        const { fen, sort } = tasks[i];
         try {
           await this.prewarmOne(fen, 'master', sort);
           ok++;
@@ -446,10 +497,25 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
             `prewarm failed for fen=${fen} sort=${sort}: ${(err as Error).message}`,
           );
         }
+        // Между шагами — пауза, чтобы пул успел отдать connection
+        // обратно. Без неё cursor++ цикл моментально берёт следующий
+        // FEN, и пул держится «непрерывно занятым».
+        if (cursor < total) {
+          await sleep(PREWARM_STEP_DELAY_MS);
+        }
       }
-    }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(PREWARM_PARALLELISM, total) },
+      () => worker(),
+    );
+    await Promise.all(workers);
+
     if (ok > 0 || failed > 0) {
-      this.logger.log(`prewarm: ok=${ok} failed=${failed}`);
+      this.logger.log(
+        `prewarm: ok=${ok} failed=${failed} parallelism=${PREWARM_PARALLELISM}`,
+      );
     }
   }
 
@@ -904,6 +970,14 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
  * Builds a cursor from the N+1 overflow row used to mark `hasMore=true`.
  * Matches the ORDER BY clauses in `KeysetSqlBuilder`.
  */
+/**
+ * KS-2119. Простой `await sleep(ms)` без зависимости от внешних
+ * утилит. `unref` не нужен — Promise завершится раньше выхода Node.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function buildCursor(
   sort: ArchiveGamesSort,
   row: RawGamePositionRow,
