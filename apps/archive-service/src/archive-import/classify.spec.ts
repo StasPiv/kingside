@@ -258,6 +258,31 @@ describe('deriveArchiveTimeControlCategory (KS-2131)', () => {
     }
   });
 
+  it('KS-2133: chess.com weekly-серии `Nst 3-0 Thu/Thursday …` → blitz', () => {
+    // 41 020 партий на проде в этом формате, все с TC=NULL.
+    const events = [
+      '1st 3-0 Thu 12th Feb 2026',
+      '2nd 3-0 Thu 11th Dec 2025',
+      '3rd 3-0 Thu 9th Apr 2026',
+      '1st 3-0 Thursday Nov 13th 2025',
+    ];
+    for (const event of events) {
+      const c = classifyGame({ timeControl: null, site: 'chess.com', event });
+      expect(c.category).toBe('online-unknown');
+      expect(deriveArchiveTimeControlCategory(c, event)).toBe('blitz');
+    }
+  });
+
+  it('KS-2133: chess.com `SpeedChess` (slitno) → blitz', () => {
+    const c = classifyGame({
+      timeControl: null,
+      site: 'chess.com',
+      event: 'chess.com SpeedChess 2025',
+    });
+    expect(c.category).toBe('online-unknown');
+    expect(deriveArchiveTimeControlCategory(c, 'chess.com SpeedChess 2025')).toBe('blitz');
+  });
+
   it('online-unknown + Bullet Brawl → bullet (bullet проверяется до blitz)', () => {
     const c = classifyGame({
       timeControl: '-',

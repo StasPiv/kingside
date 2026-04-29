@@ -133,4 +133,48 @@ describe('ARCHIVE_TIME_CONTROL_EVENT_HINTS (KS-2131)', () => {
       expect(matched).toBe(true);
     }
   });
+
+  it('KS-2133: подстрока ` 3-0 thu` матчит chess.com weekly-серии', () => {
+    // sanity: 41 020 партий на проде в формате `Nth 3-0 Thu …` или
+    // `1st 3-0 Thursday …`. Все 3+0 → блиц.
+    const samples = [
+      '1st 3-0 Thu 12th Feb 2026',
+      '2nd 3-0 Thu 11th Dec 2025',
+      '3rd 3-0 Thu 9th Apr 2026',
+      '1st 3-0 Thursday Nov 13th 2025',
+    ];
+    for (const event of samples) {
+      const lower = event.toLowerCase();
+      expect(
+        ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz.some((h) => lower.includes(h)),
+      ).toBe(true);
+    }
+  });
+
+  it('KS-2133: подстрока `speedchess` матчит chess.com SpeedChess slitno', () => {
+    // chess.com SpeedChess Championship event пишется без пробела;
+    // существующий `speed chess` с пробелом не ловит.
+    const lower = 'chess.com SpeedChess 2025'.toLowerCase();
+    expect(
+      ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz.some((h) => lower.includes(h)),
+    ).toBe(true);
+    // Полная форма с пробелом тоже всё ещё матчится.
+    const lower2 = 'Speed Chess Championship'.toLowerCase();
+    expect(
+      ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz.some((h) => lower2.includes(h)),
+    ).toBe(true);
+  });
+
+  it('KS-2133: ведущий пробел перед ` 3-0 thu` отсекает счёт партии в начале строки', () => {
+    // Если бы было просто `3-0 thu` без ведущего пробела, event типа
+    // `3-0 Thunder Cup` мог бы ложно сматчиться. С пробелом — только
+    // в позиции после другого слова (как в `1st 3-0 Thu …`).
+    const lower = '3-0 thu'.toLowerCase();
+    // Generic-keyword 'blitz' тут не сработает, точно проверяем подстроку.
+    expect(
+      ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz.some(
+        (h) => h !== 'blitz' && lower.includes(h),
+      ),
+    ).toBe(false);
+  });
 });

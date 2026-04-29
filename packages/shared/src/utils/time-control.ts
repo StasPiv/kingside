@@ -132,6 +132,16 @@ const EVENT_BULLET_HINTS = [
  * и сокращённую формы. Замена `titled tuesday → titled tue` сделана в
  * KS-2131-fix после обнаружения 113 609 партий `Titled Tue …` в проде,
  * которые после первого деплоя ушли в `unknown`.
+ *
+ * KS-2133. Добавлены:
+ *   - `' 3-0 thu'` (с ведущим пробелом) — chess.com weekly-серия
+ *     `1st/2nd/3rd 3-0 Thu …` / `1st 3-0 Thursday …` (3+0 = блиц).
+ *     Покрыло 41 020 партий из `unknown` на проде, у всех PGN-тег TC = NULL.
+ *     Ведущий пробел отсекает ложные срабатывания на счёт партии типа
+ *     `3-0` в начале event-строки.
+ *   - `'speedchess'` (slitno) — chess.com SpeedChess Championship хранит
+ *     event'ом `chess.com SpeedChess 2025`. Существующий `'speed chess'`
+ *     (с пробелом) такие не ловит. 287 партий.
  */
 const EVENT_BLITZ_HINTS = [
   'titled tue',
@@ -139,6 +149,8 @@ const EVENT_BLITZ_HINTS = [
   'blitz arena',
   'arena titled',
   'speed chess',
+  'speedchess',
+  ' 3-0 thu',
   'blitz',
 ];
 
