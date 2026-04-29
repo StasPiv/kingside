@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import iconv from 'iconv-lite';
 import { Chess } from 'chess.js';
+import { type ArchiveTimeControlCategory } from '@kingside/shared';
 import {
-  classifyPgnTimeControl,
-  type ArchiveTimeControlCategory,
-} from '@kingside/shared';
-import { classifyGame, type GameCategory, type GameClassification } from './classify';
+  classifyGame,
+  deriveArchiveTimeControlCategory,
+  type GameCategory,
+  type GameClassification,
+} from './classify';
 
 /**
  * Ply-хоп партии: UCI-ход и FEN после него.
@@ -46,11 +48,17 @@ export interface ParsedGame {
   /** Категория по ADR-015 §1 — выставляется в `parseGame` через `classifyGame`. */
   category: GameCategory;
   /**
-   * KS-2118. Упрощённая категория контроля времени для индекса/фильтра:
-   * `bullet|blitz|rapid|classical|unknown`. Вычисляется из `timeControl`
-   * через {@link classifyPgnTimeControl} (формула base + 40·increment,
-   * первая фаза для составных). Используется фронт-фильтром в Архиве
-   * партий (`?timeControlCategory=...`).
+   * KS-2118 / KS-2131. Упрощённая категория контроля времени для индекса/
+   * фильтра: `bullet|blitz|rapid|classical|unknown`. Считается через
+   * {@link deriveArchiveTimeControlCategory} от полной классификации
+   * `classifyGame` + сырое `Event` — это значит:
+   *   - явный `[TimeControl]` тег → база + 40·increment по PGN-формуле;
+   *   - TWIC-партии без TC, OTB → `classical` (через `classical-legacy`);
+   *   - онлайн-партии без TC с маркером в Event (Titled Tuesday, Bullet
+   *     Brawl и т.п.) → `blitz`/`bullet` (Event-эвристика KS-2131);
+   *   - остальное → `unknown`.
+   *
+   * Используется фронт-фильтром в Архиве партий (`?timeControlCategory=…`).
    */
   timeControlCategory: ArchiveTimeControlCategory;
   /** Быстрый bool-флаг: category ∈ {classical, classical-legacy}. */
@@ -268,7 +276,7 @@ export function parseGame(rawPgn: string): ParsedGame | null {
   const site = extractHeader(rawPgn, 'Site');
   const timeControl = extractHeader(rawPgn, 'TimeControl');
   const classification = classifyGame({ timeControl, site, event });
-  const timeControlCategory = classifyPgnTimeControl(timeControl);
+  const timeControlCategory = deriveArchiveTimeControlCategory(classification, event);
 
   return {
     white,

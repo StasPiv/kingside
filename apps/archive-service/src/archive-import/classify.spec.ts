@@ -1,6 +1,7 @@
 import {
   classifyGame,
   classifyTimeControl,
+  deriveArchiveTimeControlCategory,
   parseTimeControl,
 } from './classify';
 
@@ -190,5 +191,119 @@ describe('classifyGame — интеграция TimeControl + blacklist', () => 
     });
     expect(r.category).toBe('online-unknown');
     expect(r.reason).toBe('blacklist_site');
+  });
+});
+
+describe('deriveArchiveTimeControlCategory (KS-2131)', () => {
+  it('classical и classical-legacy → "classical" (TWIC без TimeControl-тега не теряем)', () => {
+    expect(
+      deriveArchiveTimeControlCategory(
+        classifyGame({ timeControl: '5400+30', site: 'Wijk', event: 'Tata Steel' }),
+        'Tata Steel Masters 2026',
+      ),
+    ).toBe('classical');
+    expect(
+      deriveArchiveTimeControlCategory(
+        classifyGame({ timeControl: null, site: 'Linares', event: 'Linares 1995' }),
+        'Linares 1995',
+      ),
+    ).toBe('classical');
+  });
+
+  it('явный rapid/blitz/bullet TC → одноимённая категория', () => {
+    expect(
+      deriveArchiveTimeControlCategory(
+        classifyGame({ timeControl: '900+10', site: null, event: null }),
+        null,
+      ),
+    ).toBe('rapid');
+    expect(
+      deriveArchiveTimeControlCategory(
+        classifyGame({ timeControl: '180+1', site: 'chess.com', event: 'Titled Tuesday' }),
+        'Titled Tuesday',
+      ),
+    ).toBe('blitz');
+    expect(
+      deriveArchiveTimeControlCategory(
+        classifyGame({ timeControl: '60+0', site: null, event: null }),
+        null,
+      ),
+    ).toBe('bullet');
+  });
+
+  it('online-unknown + Titled Tuesday → blitz (главный кейс KS-2131)', () => {
+    const c = classifyGame({
+      timeControl: null,
+      site: 'chess.com',
+      event: 'Titled Tuesday Blitz 21st Apr 2026',
+    });
+    expect(c.category).toBe('online-unknown');
+    expect(deriveArchiveTimeControlCategory(c, 'Titled Tuesday Blitz 21st Apr 2026')).toBe('blitz');
+  });
+
+  it('online-unknown + Bullet Brawl → bullet (bullet проверяется до blitz)', () => {
+    const c = classifyGame({
+      timeControl: '-',
+      site: 'chess.com',
+      event: 'Titled Tuesday Bullet Brawl',
+    });
+    expect(c.category).toBe('online-unknown');
+    expect(deriveArchiveTimeControlCategory(c, 'Titled Tuesday Bullet Brawl')).toBe('bullet');
+  });
+
+  it('online-unknown + Speed Chess / Arena Titled → blitz', () => {
+    const speedChess = classifyGame({
+      timeControl: '?',
+      site: 'chess.com',
+      event: 'Speed Chess Championship',
+    });
+    expect(deriveArchiveTimeControlCategory(speedChess, 'Speed Chess Championship')).toBe('blitz');
+    const arena = classifyGame({
+      timeControl: null,
+      site: 'lichess.org',
+      event: 'Arena Titled #142',
+    });
+    expect(deriveArchiveTimeControlCategory(arena, 'Arena Titled #142')).toBe('blitz');
+  });
+
+  it('online-unknown без Event-маркера → unknown', () => {
+    const c = classifyGame({
+      timeControl: null,
+      site: 'chess.com',
+      event: 'Random Casual Game',
+    });
+    expect(c.category).toBe('online-unknown');
+    expect(deriveArchiveTimeControlCategory(c, 'Random Casual Game')).toBe('unknown');
+  });
+
+  it('online-unknown с пустым Event → unknown', () => {
+    const c = classifyGame({ timeControl: null, site: 'chess.com', event: null });
+    expect(c.category).toBe('online-unknown');
+    expect(deriveArchiveTimeControlCategory(c, null)).toBe('unknown');
+    expect(deriveArchiveTimeControlCategory(c, '')).toBe('unknown');
+  });
+
+  it('correspondence → unknown (не отдельная архив-категория)', () => {
+    expect(
+      deriveArchiveTimeControlCategory(
+        classifyGame({ timeControl: '1/86400', site: null, event: null }),
+        null,
+      ),
+    ).toBe('unknown');
+  });
+
+  it('Event-эвристика регистронезависимая', () => {
+    const upper = classifyGame({
+      timeControl: null,
+      site: 'chess.com',
+      event: 'TITLED TUESDAY',
+    });
+    expect(deriveArchiveTimeControlCategory(upper, 'TITLED TUESDAY')).toBe('blitz');
+    const upperBullet = classifyGame({
+      timeControl: null,
+      site: 'chess.com',
+      event: 'BULLET ARENA',
+    });
+    expect(deriveArchiveTimeControlCategory(upperBullet, 'BULLET ARENA')).toBe('bullet');
   });
 });

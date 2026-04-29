@@ -6,6 +6,11 @@
  * is_classical` и последующей фильтрации позиционного индекса.
  */
 
+import {
+  ARCHIVE_TIME_CONTROL_EVENT_HINTS,
+  type ArchiveTimeControlCategory,
+} from '@kingside/shared';
+
 export type GameCategory =
   | 'classical'
   | 'classical-legacy'
@@ -275,4 +280,61 @@ export function classifyGame(params: {
     isClassical: true,
     reason: 'legacy_otb',
   };
+}
+
+// ─── KS-2131. ArchiveTimeControlCategory: маппинг для индекса/фильтра ──
+
+/**
+ * KS-2131. Сжимает результат {@link classifyGame} в одну из 5 категорий
+ * `bullet|blitz|rapid|classical|unknown`, которые лежат в
+ * `archive_games.time_control_category` и фильтруются с фронта.
+ *
+ * Приоритеты:
+ *   - `classical`, `classical-legacy` → `classical` (TWIC-партии без
+ *     `[TimeControl]`-тега всё равно по факту классика — иначе фильтр
+ *     «Классика» бы отвалился);
+ *   - `rapid|blitz|bullet` → как есть;
+ *   - `online-unknown` (Site/Event blacklist сработал, но TC не указан) →
+ *     **смотрим Event-эвристику**: `Titled Tuesday`, `Speed Chess` и т. п.
+ *     → `blitz`; `Bullet Brawl`, `Hourly Bullet` → `bullet`. Иначе
+ *     `unknown`. Это и есть жалоба пользователя из KS-2131: Titled Tuesday
+ *     раньше уезжал в `unknown`, теперь корректно классифицируется как
+ *     `blitz`. Bullet проверяется ДО blitz, чтобы `Titled Tuesday Bullet
+ *     Brawl` дал bullet, а не blitz по generic-keyword;
+ *   - `correspondence`, `unknown` → `unknown`.
+ *
+ * Список hint'ов вынесен в shared (`ARCHIVE_TIME_CONTROL_EVENT_HINTS`),
+ * чтобы SQL-миграция backfill и runtime-классификатор использовали один
+ * и тот же словарь. Любое изменение списков требует новой миграции.
+ */
+export function deriveArchiveTimeControlCategory(
+  classification: GameClassification,
+  event: string | null | undefined,
+): ArchiveTimeControlCategory {
+  switch (classification.category) {
+    case 'classical':
+    case 'classical-legacy':
+      return 'classical';
+    case 'rapid':
+      return 'rapid';
+    case 'blitz':
+      return 'blitz';
+    case 'bullet':
+      return 'bullet';
+    case 'online-unknown': {
+      if (!event) return 'unknown';
+      const lower = event.toLowerCase();
+      for (const hint of ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet) {
+        if (lower.includes(hint)) return 'bullet';
+      }
+      for (const hint of ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz) {
+        if (lower.includes(hint)) return 'blitz';
+      }
+      return 'unknown';
+    }
+    case 'correspondence':
+    case 'unknown':
+    default:
+      return 'unknown';
+  }
 }
