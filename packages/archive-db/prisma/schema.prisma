@@ -76,6 +76,10 @@ model ArchiveGame {
   pgn          String    @db.Text
   finalFen     String?   @map("final_fen")
   timeControl  String?   @map("time_control")
+  /// KS-2118: упрощённая категория для индекса/фильтра — `bullet|blitz|rapid|classical|unknown`.
+  /// CHECK-ограничение и B-tree индекс заводятся миграцией
+  /// `20260429000000_archive_games_time_control_category`.
+  timeControlCategory String? @map("time_control_category")
   category     String    @default("unknown")
   isClassical  Boolean   @default(false) @map("is_classical")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -86,7 +90,12 @@ model ArchiveGame {
   @@index([eco, playedAt(sort: Desc)])
   @@index([whiteName, blackName])
   @@index([playedAt(sort: Desc)])
-  @@index([sourceId, playedAt(sort: Desc)])
+  // KS-2120: индекс `archive_games_source_id_played_at_idx` удалён —
+  // pg_stat_user_indexes показал idx_scan=0. Все запросы фильтруют только
+  // по `played_at` (см. `archive_games_played_at_idx` выше) или используют
+  // metadata-фильтры, которые не сочетаются с `source_id`. Вернуть, если
+  // появится оперативная задача «партии этого источника за дату».
+  @@index([timeControlCategory], name: "archive_games_time_control_category_idx")
   @@map("archive_games")
 }
 
@@ -120,7 +129,12 @@ model ArchiveGamePosition {
   result      String?   @db.Char(1)
 
   @@id([positionKey, bucket, gameId])
-  @@index([positionKey, bucket, playedAt(sort: Desc), gameId(sort: Desc)], name: "archive_game_positions_recent")
+  // KS-2120: индекс `archive_game_positions_recent` удалён — 298 МБ,
+  // idx_scan=0 (pg_stat_user_indexes). Сортировка `recent` для by-position
+  // теперь использует PK `(position_key, bucket, game_id)` + `played_at`
+  // через heap-fetch; для популярных позиций это всё ещё быстро благодаря
+  // selective `position_key`. Если понадобится top-N по `played_at`,
+  // вернуть как partial-индекс.
   @@index([positionKey, bucket, avgElo(sort: Desc), gameId(sort: Desc)], name: "archive_game_positions_top_elo")
   @@map("archive_game_positions")
 }
@@ -152,7 +166,11 @@ model ArchivePlayer {
   lastSeenAt     DateTime? @map("last_seen_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  @@index([nameNormalized])
+  // KS-2120: B-tree индекс `archive_players_name_normalized_idx` удалён —
+  // idx_scan=0. FTS-поиск по `name_normalized` идёт через GIN trgm
+  // (см. миграцию `20260428000001_archive_players_events_mv`), а точные
+  // lookup'ы по name_canonical — через unique-индекс на `slug` (имя →
+  // slug → запись). Plain B-tree не используется ни одним запросом.
   @@index([gamesCount(sort: Desc)])
   @@map("archive_players")
 }
