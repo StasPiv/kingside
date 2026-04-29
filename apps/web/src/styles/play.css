@@ -63,17 +63,25 @@
   transition: background-color 0.15s, border-color 0.15s, transform 0.1s;
 }
 
+/* KS-2113: hover — text-primary вместо var(--c-fff), который не флипается;
+   active — solid-акцент вместо полупрозрачного, чтобы выбранный элемент
+   был однозначным в обеих темах. */
 .play-tc-btn:hover {
   background: var(--c-3a3a5e);
-  color: var(--c-fff);
+  color: var(--c-e0e0e0);
   transform: translateY(-1px);
 }
 
 .play-tc-btn.active {
-  background: var(--ov-accent-18);
+  background: var(--c-7c83ff);
   border-color: var(--c-7c83ff);
   color: var(--c-fff);
-  box-shadow: 0 0 0 1px var(--ov-accent-30);
+  box-shadow: 0 0 0 2px var(--ov-accent-35);
+}
+
+.play-tc-btn.active:hover {
+  background: var(--c-6366f1);
+  border-color: var(--c-6366f1);
 }
 
 /* Selected TC display */

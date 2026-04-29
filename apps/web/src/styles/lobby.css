@@ -339,7 +339,9 @@
 }
 
 .lobby-mode-tab.active {
-  color: var(--c-fff);
+  /* KS-2113: var(--c-fff) → var(--c-e0e0e0): белый на светлом фоне модала
+     становился невидимым в light-теме. */
+  color: var(--c-e0e0e0);
   border-bottom-color: var(--c-7c83ff);
 }
 
@@ -408,18 +410,32 @@
   flex-wrap: wrap;
 }
 
+/* KS-2113: тайм-контрол чипы — явные idle/hover/active с непрозрачным
+   акцентным фоном на active, чтобы выбор однозначно считывался в любой теме. */
 .tc-btn {
   background: var(--c-16213e);
   color: var(--c-a0a0c0);
   padding: 8px 14px;
   border: 2px solid transparent;
+  font-weight: 500;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.tc-btn:hover:not(:disabled):not(.active) {
+  border-color: var(--c-7c83ff);
+  color: var(--c-e0e0e0);
 }
 
 .tc-btn.active {
+  background: var(--c-7c83ff);
   border-color: var(--c-7c83ff);
-  /* KS-1752: было `var(--c-fff)` — не флипалось при переключении темы,
-     давало белый текст на светлом фоне tc-btn в light-теме. */
-  color: var(--c-e0e0e0);
+  color: var(--c-fff);
+  font-weight: 600;
+}
+
+.tc-btn.active:hover:not(:disabled) {
+  background: var(--c-6366f1);
+  border-color: var(--c-6366f1);
 }
 
 .play-btn {
@@ -445,19 +461,24 @@
   font-size: 14px;
 }
 
+/* KS-2113: было `color: var(--c-fff)` — на светлой теме давало белый текст
+   на светлом фоне модала, активная вкладка не считывалась. */
 .tc-tab.active {
-  color: var(--c-fff);
+  color: var(--c-e0e0e0);
   border-bottom-color: var(--c-7c83ff);
+  font-weight: 600;
 }
 
 .tc-tab:hover:not(:disabled) {
-  color: var(--c-fff);
+  color: var(--c-e0e0e0);
 }
 
+/* KS-2113: было `color: var(--c-fff)` — белый на светлом фоне → невидимо.
+   Перевели на акцентный токен — флипается, остаётся читаемым в обеих темах. */
 .selected-tc-info {
   font-size: 20px;
   font-weight: 700;
-  color: var(--c-fff);
+  color: var(--c-7c83ff);
   margin-bottom: 16px;
 }
 
@@ -473,7 +494,8 @@
 }
 
 .custom-tc-btn:hover {
-  color: var(--c-fff);
+  color: var(--c-e0e0e0);
+  border-color: var(--c-7c83ff);
 }
 
 .custom-tc-form {
@@ -700,42 +722,56 @@
   justify-content: center;
 }
 
+/* KS-2113: цвет-кнопки выбора стороны — фиксированные палитры (не флипаются темой),
+   чтобы белый/чёрный король всегда читался; active даёт явное акцентное
+   кольцо + сильнее обводку. */
 .color-btn {
   background: var(--c-16213e);
   color: var(--c-a0a0c0);
   padding: 8px 16px;
   border: 2px solid transparent;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+}
+
+.color-btn:hover:not(:disabled):not(.active) {
+  border-color: var(--c-7c83ff);
+  transform: translateY(-1px);
 }
 
 .color-btn.active {
   border-color: var(--c-7c83ff);
   color: var(--c-fff);
+  box-shadow: 0 0 0 3px var(--ov-accent-35);
 }
 
 .color-btn--icon {
   width: 52px;
   height: 52px;
   padding: 0;
-  font-size: 22px;
+  font-size: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 10px;
 }
 
+/* Жёстко фиксированные hex — не зависят от темы:
+   шахматные фигуры всегда читаются (белый король на тёмном квадрате,
+   чёрный король на светлом квадрате). */
 .color-btn--white {
-  background: var(--c-2a2a4a);
-  color: var(--c-fff);
+  background: #2a2a4a;
+  color: #ffffff;
 }
 
 .color-btn--black {
-  background: var(--c-0d0d1a);
-  color: var(--c-c0c0d0);
+  background: #f1f1f1;
+  color: #0d0d1a;
 }
 
 .color-btn--random {
-  background: linear-gradient(135deg, var(--c-2a2a4a) 50%, var(--c-0d0d1a) 50%);
-  color: var(--c-a0a0c0);
+  background: linear-gradient(135deg, #2a2a4a 50%, #f1f1f1 50%);
+  color: #ffffff;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
 }
 
 /* Bot time control modal */
