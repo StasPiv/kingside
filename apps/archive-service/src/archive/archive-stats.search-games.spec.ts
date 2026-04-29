@@ -246,5 +246,79 @@ describe('PostgresArchiveStatsRepository.searchGames — KS-2063', () => {
       const items = findItemsCall(calls);
       expect(items.sql).not.toMatch(/WHERE\s/);
     });
+
+    // ─── KS-2118 — timeControlCategory ────────────────────────────────
+
+    it('KS-2118: одна категория → time_control_category = $n (равенство, индекс)', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({
+        ...defaults(),
+        timeControlCategory: ['classical'],
+      });
+
+      const items = findItemsCall(calls);
+      expect(items.sql).toMatch(/g\.time_control_category = \$\d+/);
+      expect(items.sql).not.toMatch(/= ANY\(/);
+      expect(items.params).toContain('classical');
+
+      const total = findTotalCall(calls);
+      expect(total.sql).toMatch(/g\.time_control_category = \$\d+/);
+      expect(total.params).toContain('classical');
+    });
+
+    it('KS-2118: массив категорий → time_control_category = ANY($n)', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({
+        ...defaults(),
+        timeControlCategory: ['blitz', 'rapid'],
+      });
+
+      const items = findItemsCall(calls);
+      expect(items.sql).toMatch(/g\.time_control_category = ANY\(\$\d+\)/);
+      // Массив проброшен как один параметр, не разворачивается.
+      const arrayParam = items.params.find((p) => Array.isArray(p));
+      expect(arrayParam).toEqual(['blitz', 'rapid']);
+    });
+
+    it('KS-2118: SELECT включает time_control и time_control_category', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames(defaults());
+
+      const items = findItemsCall(calls);
+      expect(items.sql).toContain('g.time_control');
+      expect(items.sql).toContain('g.time_control_category');
+    });
+
+    it('KS-2118: пустой массив timeControlCategory → нет фильтра в WHERE', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({ ...defaults(), timeControlCategory: [] });
+
+      const items = findItemsCall(calls);
+      // SELECT-лист всегда содержит `g.time_control_category` (мы отдаём поле
+      // на фронт). Проверяем именно отсутствие фильтра — нет сравнения и нет
+      // WHERE с этой колонкой.
+      expect(items.sql).not.toMatch(/g\.time_control_category\s*=/);
+      expect(items.sql).not.toMatch(/g\.time_control_category\s+ANY/);
+    });
+
+    it('KS-2118: AND с другими фильтрами (event + timeControlCategory)', async () => {
+      const { prisma, calls } = fakePrisma();
+      const repo = new PostgresArchiveStatsRepository(prisma);
+      await repo.searchGames({
+        ...defaults(),
+        event: 'Tata Steel',
+        timeControlCategory: ['classical'],
+      });
+
+      const items = findItemsCall(calls);
+      // Оба условия в WHERE, через AND.
+      expect(items.sql).toMatch(/event ILIKE \$\d+/);
+      expect(items.sql).toMatch(/g\.time_control_category = \$\d+/);
+      expect(items.sql).toMatch(/AND/);
+    });
   });
 });
