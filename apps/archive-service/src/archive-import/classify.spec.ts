@@ -348,4 +348,63 @@ describe('deriveArchiveTimeControlCategory (KS-2131)', () => {
     });
     expect(deriveArchiveTimeControlCategory(upperBullet, 'BULLET ARENA')).toBe('bullet');
   });
+
+  // ─── KS-2150: Event override применяется ВСЕГДА, не только для online-unknown ────
+
+  it('KS-2150: PGN classical + event «4th CHN Rapid/Blitz» → blitz (override побеждает)', () => {
+    // Раньше (KS-2131/2133) PGN-тег был приоритетен → возвращалось classical.
+    // На проде 24 791 партия так оказалась в classical (devops snapshot).
+    const c = classifyGame({
+      timeControl: '5400+30',
+      site: null,
+      event: '4th CHN Rapid/Blitz 2025',
+    });
+    // classifyGame даёт `classical` по PGN-тегу (legacy-не нужен, явный TC).
+    expect(c.category).toBe('classical');
+    // Но Event override переклассифицирует — generic-keyword `blitz`
+    // раньше `rapid` → blitz.
+    expect(deriveArchiveTimeControlCategory(c, '4th CHN Rapid/Blitz 2025')).toBe('blitz');
+  });
+
+  it('KS-2150: PGN-тег NULL + event «World Rapid 2025» → rapid (TWIC pattern)', () => {
+    // TWIC не пишет PGN-тег для рапид-турниров → category=classical-legacy.
+    // Без override это уходило в classical, что и было корнем жалобы.
+    const c = classifyGame({
+      timeControl: null,
+      site: null,
+      event: 'World Rapid 2025',
+    });
+    expect(c.category).toBe('classical-legacy');
+    expect(deriveArchiveTimeControlCategory(c, 'World Rapid 2025')).toBe('rapid');
+  });
+
+  it('KS-2150: PGN-тег NULL + event «British Rapidplay 2026» → rapid', () => {
+    const c = classifyGame({
+      timeControl: null,
+      site: null,
+      event: 'British Rapidplay 2026',
+    });
+    expect(deriveArchiveTimeControlCategory(c, 'British Rapidplay 2026')).toBe('rapid');
+  });
+
+  it('KS-2150: «Tata Steel Masters» (без rapid/blitz/bullet) сохраняет classical', () => {
+    // Не false-positive: турниры без хинтов в названии остаются как были.
+    const c = classifyGame({
+      timeControl: null,
+      site: null,
+      event: 'Tata Steel Masters 2026',
+    });
+    expect(c.category).toBe('classical-legacy');
+    expect(deriveArchiveTimeControlCategory(c, 'Tata Steel Masters 2026')).toBe('classical');
+  });
+
+  it('KS-2150: PGN явный bullet + event без хинтов → bullet (PGN-классификация сохранена)', () => {
+    const c = classifyGame({
+      timeControl: '60+0',
+      site: null,
+      event: 'Random Cup',
+    });
+    expect(c.category).toBe('bullet');
+    expect(deriveArchiveTimeControlCategory(c, 'Random Cup')).toBe('bullet');
+  });
 });

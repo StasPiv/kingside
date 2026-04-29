@@ -168,13 +168,37 @@ ${tcLine}
     expect(parsed?.timeControlCategory).toBe('unknown');
   });
 
-  it('KS-2131: явный TC игнорирует Event-эвристику (Titled Tuesday + 5400+30 → classical)', () => {
+  it('KS-2150: Event override побеждает PGN-тег (Titled Tuesday + 5400+30 → blitz)', () => {
+    // KS-2131 поведение было обратное: «явный TC игнорирует Event-эвристику»
+    // → classical. KS-2150 переломил приоритет: TWIC даёт PGN-тег пустым
+    // для большинства рапид/блиц турниров → fallback в classical создавал
+    // 24 791 ложноклассик. Event override применяется ВСЕГДА.
     const parsed = parseGame(
       pgnWithTC('5400+30', {
         event: 'Titled Tuesday Blitz',
         site: 'chess.com',
       }),
     );
-    expect(parsed?.timeControlCategory).toBe('classical');
+    expect(parsed?.timeControlCategory).toBe('blitz');
+  });
+
+  it('KS-2150: PGN classical + event «4th CHN Rapid/Blitz» → blitz', () => {
+    const parsed = parseGame(
+      pgnWithTC('5400+30', {
+        event: '4th CHN Rapid/Blitz 2025',
+        site: 'OTB',
+      }),
+    );
+    expect(parsed?.timeControlCategory).toBe('blitz');
+  });
+
+  it('KS-2150: PGN NULL + event «World Rapid 2025» → rapid (TWIC pattern)', () => {
+    const parsed = parseGame(
+      pgnWithTC(null, {
+        event: 'World Rapid 2025',
+        site: 'OTB',
+      }),
+    );
+    expect(parsed?.timeControlCategory).toBe('rapid');
   });
 });

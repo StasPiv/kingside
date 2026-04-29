@@ -117,6 +117,31 @@ describe('ARCHIVE_TIME_CONTROL_EVENT_HINTS (KS-2131)', () => {
     }
   });
 
+  it('KS-2150: rapid hints включают `rapid` и `rapidplay`', () => {
+    expect(ARCHIVE_TIME_CONTROL_EVENT_HINTS.rapid).toContain('rapid');
+    expect(ARCHIVE_TIME_CONTROL_EVENT_HINTS.rapid).toContain('rapidplay');
+  });
+
+  it('KS-2150: реальные TWIC event\'ы матчатся правильным хинтом', () => {
+    const cases: Array<[string, 'bullet' | 'blitz' | 'rapid']> = [
+      ['World Blitz 2025', 'blitz'],
+      ['World Rapid 2025', 'rapid'],
+      ['British Rapidplay 2026', 'rapid'],
+      ['4th CHN Rapid/Blitz 2025', 'blitz'], // blitz раньше rapid → blitz
+      ['ch-RUS Blitz 2025', 'blitz'],
+      ['ch-POL Rapid 2025', 'rapid'],
+      ['Titled Tuesday Bullet Brawl', 'bullet'], // bullet раньше blitz
+    ];
+    for (const [event, expected] of cases) {
+      const lower = event.toLowerCase();
+      let matched: string | null = null;
+      for (const h of ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet) if (lower.includes(h)) { matched = 'bullet'; break; }
+      if (!matched) for (const h of ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz) if (lower.includes(h)) { matched = 'blitz'; break; }
+      if (!matched) for (const h of ARCHIVE_TIME_CONTROL_EVENT_HINTS.rapid) if (lower.includes(h)) { matched = 'rapid'; break; }
+      expect(matched).toBe(expected);
+    }
+  });
+
   it('подстрока `titled tue` матчит и полную, и сокращённую форму TWIC', () => {
     // sanity: реальные значения event'ов из прода (devops отчёт KS-2131).
     const samples = [

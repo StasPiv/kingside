@@ -311,6 +311,27 @@ export function deriveArchiveTimeControlCategory(
   classification: GameClassification,
   event: string | null | undefined,
 ): ArchiveTimeControlCategory {
+  // KS-2150: Event override применяется ВСЕГДА, до switch'а по category.
+  // TWIC не пишет `[TimeControl]` тег для большинства рапид/блиц
+  // турниров (devops-snapshot: 24 791 партия ошибочно в classical с
+  // event ILIKE '%rapid%' / '%blitz%'). Раньше Event override
+  // срабатывал только для category=online-unknown — это покрывало
+  // chess.com Titled Tuesday, но не TWIC «World Blitz 2025», «4th CHN
+  // Rapid/Blitz 2025» и т.п.
+  //
+  // SQL D-проверка от devops подтвердила безопасность generic-keywords:
+  // 0 строк где event содержит «blitz» И PGN-тег классический. То есть
+  // override не создаёт false positives классических турниров с «blitz»
+  // в названии. Аналогично для rapid (см. EVENT_RAPID_HINTS JSDoc).
+  //
+  // Порядок hint'ов: bullet → blitz → rapid (по убыванию селективности
+  // и по согласованию с KS-2131: «Titled Tuesday Bullet Brawl» → bullet,
+  // «4th CHN Rapid/Blitz» → blitz).
+  if (event) {
+    const override = matchEventCategory(event);
+    if (override) return override;
+  }
+
   switch (classification.category) {
     case 'classical':
     case 'classical-legacy':
@@ -321,20 +342,30 @@ export function deriveArchiveTimeControlCategory(
       return 'blitz';
     case 'bullet':
       return 'bullet';
-    case 'online-unknown': {
-      if (!event) return 'unknown';
-      const lower = event.toLowerCase();
-      for (const hint of ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet) {
-        if (lower.includes(hint)) return 'bullet';
-      }
-      for (const hint of ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz) {
-        if (lower.includes(hint)) return 'blitz';
-      }
-      return 'unknown';
-    }
+    case 'online-unknown':
     case 'correspondence':
     case 'unknown':
     default:
       return 'unknown';
   }
+}
+
+/**
+ * KS-2150. Чистый Event-override: ищет хинт в `event` и возвращает
+ * соответствующую категорию. Bullet → blitz → rapid, чтобы при
+ * комбинированных названиях («Rapid/Blitz», «Titled Tuesday Bullet
+ * Brawl») побеждала более узкая категория. `null` если хинтов нет.
+ */
+function matchEventCategory(event: string): ArchiveTimeControlCategory | null {
+  const lower = event.toLowerCase();
+  for (const hint of ARCHIVE_TIME_CONTROL_EVENT_HINTS.bullet) {
+    if (lower.includes(hint)) return 'bullet';
+  }
+  for (const hint of ARCHIVE_TIME_CONTROL_EVENT_HINTS.blitz) {
+    if (lower.includes(hint)) return 'blitz';
+  }
+  for (const hint of ARCHIVE_TIME_CONTROL_EVENT_HINTS.rapid) {
+    if (lower.includes(hint)) return 'rapid';
+  }
+  return null;
 }

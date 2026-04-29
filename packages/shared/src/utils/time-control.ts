@@ -155,14 +155,41 @@ const EVENT_BLITZ_HINTS = [
 ];
 
 /**
+ * Подстроки в `Event`, однозначно указывающие на rapid (KS-2150).
+ *
+ * Devops snapshot подтвердил безопасность generic-keyword `'rapid'`:
+ * 12 863 партии с `event ILIKE '%rapid%'` и `time_control_category=classical`
+ * имеют `time_control = NULL` (TWIC не пишет PGN-тег для рапид-турниров →
+ * fallback в classical). Topology турниров: World Rapid 2025, European
+ * Rapid, FIDE Rapid Team, ch-RUS Rapid, Biel Rapid Open, etc. Дополнительный
+ * хинт `'rapidplay'` — британский формат (British Rapidplay, 1 100 партий).
+ *
+ * False positives на `'rapid'` не найдено: SQL `event ILIKE '%rapid%'
+ * AND time_control SIMILAR TO '[5-9][0-9]+%'` (классический контроль) — 0
+ * строк. Generic safe.
+ */
+const EVENT_RAPID_HINTS = [
+  'rapidplay',
+  'rapid',
+];
+
+/**
  * KS-2131. Подстроки `Event`-эвристик — экспортированы для миграции-backfill
- * и runtime-классификатора archive-service. Bullet проверяется раньше blitz —
- * для `Titled Tuesday Bullet Brawl` ожидаем bullet, а generic-keyword `blitz`
- * сматчился бы вторым. Все сравнения case-insensitive в потребителях.
+ * и runtime-классификатора archive-service. Bullet проверяется раньше blitz,
+ * blitz раньше rapid — для `Titled Tuesday Bullet Brawl` ожидаем bullet
+ * (а generic-keyword `blitz` сматчился бы вторым), для `4th CHN Rapid/Blitz
+ * 2025` (KS-2150) ожидаем blitz (а generic-keyword `rapid` сматчился бы
+ * третьим). Все сравнения case-insensitive в потребителях.
  *
  * Любое изменение здесь требует новой миграции backfill (ADR-015).
+ *
+ * KS-2150 фаза 2: Event override применяется ВСЕГДА, не только для
+ * `online-unknown` category — TWIC даёт `time_control=NULL` для большинства
+ * рапид/блиц турниров, и старая логика «PGN-тег приоритетнее» оставляла
+ * 24 791 партию ошибочно в classical (см. devops-snapshot KS-2150).
  */
 export const ARCHIVE_TIME_CONTROL_EVENT_HINTS = {
   bullet: EVENT_BULLET_HINTS,
   blitz: EVENT_BLITZ_HINTS,
+  rapid: EVENT_RAPID_HINTS,
 } as const;
