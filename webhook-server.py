@@ -822,14 +822,16 @@ ENDPOINT_ROLE: dict[str, object] = {
     "/docker-compose": "ROLE_DOCKER_COMPOSE",
     "/npm-run": "ROLE_NPM_RUN",
     "/vite-start": "ROLE_API_START",
+    # Должно совпадать с case-блоком в scripts/deploy-aws.sh:
+    # frontend | api | game-service | broadcast-service | archive-service |
+    # workers (= broadcast + archive) | all | "" (auto-detect)
     "/deploy": {
         "frontend": "ROLE_DEPLOY_FRONTEND",
         "api": "ROLE_DEPLOY_API",
-        "workers": "ROLE_DEPLOY_WORKERS",
-        "broadcast-worker": "ROLE_DEPLOY_WORKERS",
+        "game-service": "ROLE_DEPLOY_WORKERS",
         "broadcast-service": "ROLE_DEPLOY_WORKERS",
         "archive-service": "ROLE_DEPLOY_WORKERS",
-        "archive-importer": "ROLE_DEPLOY_WORKERS",
+        "workers": "ROLE_DEPLOY_WORKERS",
         "all": "ROLE_DEPLOY_ALL",
         "": "ROLE_DEPLOY_ALL",
     },
