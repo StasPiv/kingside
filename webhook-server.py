@@ -1413,7 +1413,9 @@ def telegram_poll_loop():
         for update in data.get("result", []):
             offset = update["update_id"] + 1
             message = update.get("message", {})
-            text = message.get("text", "")
+            text = message.get("text", "") or message.get("caption", "")
+            photos = message.get("photo") or []
+            document = message.get("document") or {}
             chat = message.get("chat", {})
             chat_id = str(chat.get("id", ""))
             from_user = message.get("from", {})
@@ -1421,13 +1423,58 @@ def telegram_poll_loop():
             first_name = from_user.get("first_name", "")
             display = f"@{username}" if username else first_name
 
-            if not text:
+            # Принимаем сообщение если есть текст, фото или image-документ
+            doc_is_image = isinstance(document, dict) and (document.get("mime_type") or "").startswith("image/")
+            if not text and not photos and not doc_is_image:
                 continue
 
             if TELEGRAM_CHAT_ID and chat_id != TELEGRAM_CHAT_ID:
                 continue
 
-            log(f"Telegram сообщение от {display}: {text[:100]}")
+            # Скачиваем картинки в /tmp/telegram/<update_id>_<n>.<ext>.
+            # _SHARED_TMP смонтирован в контейнерах как /tmp, путь
+            # /tmp/telegram/... агент откроет через Read.
+            saved_paths = []
+            if photos or doc_is_image:
+                tg_dir_host = os.path.join(_SHARED_TMP, "telegram")
+                os.makedirs(tg_dir_host, exist_ok=True)
+                files_to_fetch = []
+                if photos:
+                    # Telegram присылает массив PhotoSize по возрастанию размера — берём максимальный
+                    largest = photos[-1]
+                    files_to_fetch.append((largest.get("file_id"), "jpg"))
+                if doc_is_image:
+                    mime = document.get("mime_type", "image/jpeg")
+                    ext = mime.split("/", 1)[-1].split(";")[0].strip() or "bin"
+                    files_to_fetch.append((document.get("file_id"), ext))
+                for idx, (file_id, ext) in enumerate(files_to_fetch):
+                    if not file_id:
+                        continue
+                    try:
+                        # 1) getFile -> file_path
+                        gf = urllib.request.Request(
+                            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getFile?file_id={urllib.parse.quote(file_id)}"
+                        )
+                        gf_resp = urllib.request.urlopen(gf, timeout=30)
+                        gf_data = json.loads(gf_resp.read().decode())
+                        if not gf_data.get("ok"):
+                            log(f"Telegram getFile failed: {gf_data}")
+                            continue
+                        file_path = gf_data["result"]["file_path"]
+                        # 2) скачиваем содержимое
+                        dl = urllib.request.urlopen(
+                            f"https://api.telegram.org/file/bot{TELEGRAM_BOT_TOKEN}/{file_path}",
+                            timeout=60,
+                        )
+                        host_path = os.path.join(tg_dir_host, f"{update['update_id']}_{idx}.{ext}")
+                        with open(host_path, "wb") as f:
+                            f.write(dl.read())
+                        agent_path = f"/tmp/telegram/{update['update_id']}_{idx}.{ext}"
+                        saved_paths.append(agent_path)
+                    except Exception as e:
+                        log(f"Telegram скачивание файла не удалось: {e}")
+
+            log(f"Telegram сообщение от {display}: {text[:100] or '(без текста)'}{f' [+{len(saved_paths)} файл(ов)]' if saved_paths else ''}")
 
             # Определяем целевого агента: @agent в начале или coordinator по умолчанию
             valid_agents = get_valid_agents()
@@ -1438,11 +1485,19 @@ def telegram_poll_loop():
                 target_agent = match.group(1).lower()
                 agent_msg = text[match.end():]
 
-            prompt_text = f"[Telegram {display}] {agent_msg}"
+            prompt_text = f"[Telegram {display}] {agent_msg}".rstrip()
+            if saved_paths:
+                files_block = "\n".join(f"- {p}" for p in saved_paths)
+                prompt_text = (
+                    f"{prompt_text}\n\nПрикреплённые файлы (открой через Read):\n{files_block}"
+                ).strip()
             _log_user_prompt(target_agent, prompt_text, source=f"Telegram {display}")
             send_to_agent(target_agent, prompt_text, sender="telegram", reply_channel="telegram")
-            log(f"Telegram -> {target_agent}: {agent_msg[:80]}")
-            send_telegram(f"✅ Сообщение отправлено агенту {target_agent}")
+            log(f"Telegram -> {target_agent}: {agent_msg[:80]} (files={len(saved_paths)})")
+            ack = f"✅ Сообщение отправлено агенту {target_agent}"
+            if saved_paths:
+                ack += f" (+{len(saved_paths)} файл)"
+            send_telegram(ack)
 
 
 def _log_user_prompt(agent: str, text: str, source: str = "web"):
