@@ -9,6 +9,7 @@ import type {
   ArchiveGamesSortMetadata,
   ArchivePlayerProfile,
   ArchivePlayerSummary,
+  ArchiveTimeControlCategory,
   ArchiveTreeMove,
   ArchiveTreeResponse,
 } from '@kingside/shared';
@@ -86,6 +87,12 @@ export type SearchPlayerGamesOpts = {
   until?: Date;
   minPly?: number;
   maxPly?: number;
+  /**
+   * KS-2118: фильтр по категории контроля времени. Массив — OR между
+   * элементами (`time_control_category = ANY($n)`); AND с остальными
+   * фильтрами. `undefined` или пустой массив — фильтр отключён.
+   */
+  timeControlCategory?: ArchiveTimeControlCategory[];
   sort: ArchiveGamesSortMetadata;
   limit: number;
   offset: number;
@@ -108,6 +115,10 @@ export interface RawPlayerGameRow {
   eco: string | null;
   opening: string | null;
   ply_count: number | null;
+  /** KS-2118: сырая строка [TimeControl] из PGN (`5400+30`/`-`/null). */
+  time_control: string | null;
+  /** KS-2118: категория `bullet|blitz|rapid|classical|unknown` или null. */
+  time_control_category: string | null;
   player_color: 'white' | 'black';
   /** KS-2074: slug из `archive_players` (LEFT JOIN), null если игрок ещё не в таблице. */
   white_slug: string | null;
@@ -145,6 +156,12 @@ export type SearchGamesOpts = {
   maxPly?: number;
   since?: Date;
   until?: Date;
+  /**
+   * KS-2118: фильтр по категории контроля времени. Массив — OR между
+   * элементами; AND с остальными фильтрами. `undefined` или пустой
+   * массив — фильтр отключён.
+   */
+  timeControlCategory?: ArchiveTimeControlCategory[];
   sort: ArchiveGamesSortMetadata;
   limit: number;
   offset: number;
@@ -168,6 +185,10 @@ export interface RawArchiveGameRow {
   eco: string | null;
   opening: string | null;
   ply_count: number | null;
+  /** KS-2118: сырая строка [TimeControl] из PGN (`5400+30`/`-`/null). */
+  time_control: string | null;
+  /** KS-2118: категория `bullet|blitz|rapid|classical|unknown` или null. */
+  time_control_category: string | null;
   /** KS-2074: slug из `archive_players` (LEFT JOIN), null если игрок ещё не в таблице. */
   white_slug: string | null;
   black_slug: string | null;
@@ -775,10 +796,27 @@ class KeysetSqlBuilder {
     if (cur.e === null) {
       return `p.avg_elo IS NULL AND p.game_id < ${this.register(cur.g)}::uuid`;
     }
-    const pE1 = this.register(cur.e);
-    const pE2 = this.register(cur.e);
+    // KS-2120. ROW-comparison `(avg_elo, game_id) < (X, Y)` эквивалентна
+    // выражению `avg_elo < X OR (avg_elo = X AND game_id < Y)`, но
+    // распознаётся btree-планировщиком как продолжение Index Scan на индексе
+    // `archive_game_positions_top_elo (position_key, bucket, avg_elo DESC,
+    // game_id DESC)`. Прежний OR-вариант сводился к `Filter` поверх Index
+    // Scan, отрезая ~120K строк уже после чтения с диска: на стартовой
+    // позиции это давало 2173 мс cold cache (EXPLAIN ANALYZE — KS-2121,
+    // комментарий координатора в KS-2120). С ROW-comparison Index Cond
+    // отрезает строки на уровне btree-traversal'а, latency возвращается к
+    // ~15 мс Q1 без cursor.
+    //
+    // Семантика NULLs не меняется: ROW-comparison со строкой, где
+    // `avg_elo IS NULL`, даёт UNKNOWN и строка отбрасывается. Чтобы
+    // отдать NULL-блок (NULLS LAST), клиент получает следующий cursor с
+    // `e=null`, и срабатывает ветка `cur.e === null` выше — там IS NULL
+    // прописан явно. Поведение совпадает с предыдущей реализацией
+    // OR-варианта, поэтому не нужно ни миграции данных, ни инвалидации
+    // выпущенных cursor'ов.
+    const pE = this.register(cur.e);
     const pG = this.register(cur.g);
-    return `(p.avg_elo < ${pE1} OR (p.avg_elo = ${pE2} AND p.game_id < ${pG}::uuid))`;
+    return `(p.avg_elo, p.game_id) < (${pE}, ${pG}::uuid)`;
   }
 
   private register(value: unknown): string {
@@ -849,6 +887,17 @@ class MetadataSqlBuilder {
     }
     if (opts.minPly != null) conds.push(`g.ply_count >= ${reg(opts.minPly)}`);
     if (opts.maxPly != null) conds.push(`g.ply_count <= ${reg(opts.maxPly)}`);
+    // KS-2118: фильтр по категории контроля времени.
+    // - `[X]` (1 элемент) → `g.time_control_category = $n` (точное совпадение, индекс).
+    // - `[X, Y, ...]` (2+) → `g.time_control_category = ANY($n)` (OR-блок, тоже использует индекс).
+    // Пустой массив игнорируется (по контракту DTO ArrayMinSize(1) — невозможно, но safe).
+    if (opts.timeControlCategory && opts.timeControlCategory.length > 0) {
+      if (opts.timeControlCategory.length === 1) {
+        conds.push(`g.time_control_category = ${reg(opts.timeControlCategory[0])}`);
+      } else {
+        conds.push(`g.time_control_category = ANY(${reg(opts.timeControlCategory)})`);
+      }
+    }
 
     const where = conds.length > 0 ? `WHERE ${conds.join(' AND ')}` : '';
 
@@ -877,6 +926,7 @@ class MetadataSqlBuilder {
         g.id, g.event, g.site, g.round, g.date, g.played_at,
         g.white_name, g.black_name, g.white_elo, g.black_elo,
         g.white_title, g.black_title, g.result, g.eco, g.opening, g.ply_count,
+        g.time_control, g.time_control_category,
         pw.slug AS white_slug,
         pb.slug AS black_slug
       FROM archive_games g
@@ -941,6 +991,14 @@ class PlayerGamesSqlBuilder {
     }
     if (opts.minPly != null) conds.push(`g.ply_count >= ${reg(opts.minPly)}`);
     if (opts.maxPly != null) conds.push(`g.ply_count <= ${reg(opts.maxPly)}`);
+    // KS-2118: см. комментарий в MetadataSqlBuilder.
+    if (opts.timeControlCategory && opts.timeControlCategory.length > 0) {
+      if (opts.timeControlCategory.length === 1) {
+        conds.push(`g.time_control_category = ${reg(opts.timeControlCategory[0])}`);
+      } else {
+        conds.push(`g.time_control_category = ANY(${reg(opts.timeControlCategory)})`);
+      }
+    }
 
     const where = `WHERE ${conds.join(' AND ')}`;
 
@@ -971,6 +1029,7 @@ class PlayerGamesSqlBuilder {
         g.id, g.event, g.site, g.round, g.date, g.played_at,
         g.white_name, g.black_name, g.white_elo, g.black_elo,
         g.white_title, g.black_title, g.result, g.eco, g.opening, g.ply_count,
+        g.time_control, g.time_control_category,
         CASE WHEN g.white_name = p.name_canonical THEN 'white' ELSE 'black' END AS player_color,
         pw.slug AS white_slug,
         pb.slug AS black_slug
