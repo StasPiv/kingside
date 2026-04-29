@@ -100,14 +100,8 @@ model ArchiveGame {
   // — фильтр по time_control_category + ORDER BY played_at DESC, id DESC.
   // Без них planner делал Parallel Seq Scan на 330K строк / 760 МБ
   // (Execution Time 5.6 сек на cold cache db.t3.micro).
-  @@index(
-    [timeControlCategory, playedAt(sort: Desc), id(sort: Desc)],
-    name: "archive_games_tcc_played_at_id_idx",
-  )
-  @@index(
-    [playedAt(sort: Desc), id(sort: Desc)],
-    name: "archive_games_played_at_id_idx",
-  )
+  @@index([timeControlCategory, playedAt(sort: Desc), id(sort: Desc)], name: "archive_games_tcc_played_at_id_idx")
+  @@index([playedAt(sort: Desc), id(sort: Desc)], name: "archive_games_played_at_id_idx")
   @@map("archive_games")
 }
 
