@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BroadcastSyncService } from './broadcast-sync.service';
 import { SyncMetricsService } from './sync-metrics';
+import { BroadcastWatchdogService } from './broadcast-watchdog.service';
 
 /**
  * Sync-модуль broadcast-service (ADR-022 §2.2).
@@ -11,9 +12,14 @@ import { SyncMetricsService } from './sync-metrics';
  *
  * `PrismaModule`, `RedisModule`, `MetricsModule` — `@Global()`, DI найдёт их
  * автоматически.
+ *
+ * KS-2158: добавлен `BroadcastWatchdogService` — раз в минуту проверяет
+ * раунды со status='ongoing', last_update_at старше 30 мин, и закрывает
+ * те, что подтверждены завершёнными от Lichess (или 3× подряд unreachable).
+ * Опт-ин через env `BROADCAST_WATCHDOG_ENABLED=true`.
  */
 @Module({
-  providers: [SyncMetricsService, BroadcastSyncService],
-  exports: [BroadcastSyncService],
+  providers: [SyncMetricsService, BroadcastSyncService, BroadcastWatchdogService],
+  exports: [BroadcastSyncService, BroadcastWatchdogService],
 })
 export class BroadcastSyncModule {}
