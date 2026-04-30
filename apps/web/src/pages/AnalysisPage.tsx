@@ -21,7 +21,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { HIGHLIGHT_COLORS, highlightColorByModifiers, arrowColorByModifiers } from '../hooks/useSquareHighlights';
+import { HIGHLIGHT_COLORS, annotationColorByModifiers } from '../hooks/useSquareHighlights';
 import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight } from '../review/types';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
@@ -709,14 +709,15 @@ export function AnalysisPage() {
           ctrlKey: e.ctrlKey,
           metaKey: e.metaKey,
         };
-        // Фиксируем цвет preview по модификаторам в момент mousedown.
-        // Если только Alt → подменяем default на синий (library не знает Alt).
-        // В остальных случаях оставляем зелёный — library сама обработает
-        // Shift→red и Ctrl→yellow через secondaryColor/tertiaryColor.
+        // KS-2157: фиксируем цвет preview по модификаторам в момент mousedown.
+        // Library знает Shift и Ctrl — для них устанавливаются
+        // secondaryColor/tertiaryColor в arrowOptions. Alt library не
+        // различает: при Alt-only подменяем default `color` на синий, чтобы
+        // preview совпадал с финальным.
         if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
           setPreviewDefaultColor(HIGHLIGHT_COLORS.blue);
         } else {
-          setPreviewDefaultColor(HIGHLIGHT_COLORS.green);
+          setPreviewDefaultColor(HIGHLIGHT_COLORS.red);
         }
       }
     },
@@ -746,7 +747,7 @@ export function AnalysisPage() {
 
       if (dragStart === args.square) {
         // Одиночный ПКМ-клик по той же клетке → toggle highlight.
-        const color: AnnotationColor = highlightColorByModifiers(mods);
+        const color: AnnotationColor = annotationColorByModifiers(mods);
         const list = highlightsCurrent ?? [];
         const idx = list.findIndex((h) => h.square === args.square);
         let newHighlights: SquareHighlight[];
@@ -776,7 +777,7 @@ export function AnalysisPage() {
       if (idx >= 0) {
         newArrows = list.slice(0, idx).concat(list.slice(idx + 1));
       } else {
-        const color: AnnotationColor = arrowColorByModifiers(mods);
+        const color: AnnotationColor = annotationColorByModifiers(mods);
         newArrows = list.concat({ from: dragStart, to: args.square, color });
       }
       const next: NodeAnnotations | undefined =
@@ -819,11 +820,12 @@ export function AnalysisPage() {
     metaKey: boolean;
   } | null>(null);
 
-  // KS-2152: цвет preview-стрелки во время drag. По умолчанию = зелёный.
-  // Library сама умеет Shift→secondaryColor и Ctrl→tertiaryColor, но Alt
-  // не различает. Поэтому для Alt мы вручную подменяем `color` (default)
-  // на синий в момент mousedown, чтобы preview совпадал с финальным.
-  const [previewDefaultColor, setPreviewDefaultColor] = useState<string>(HIGHLIGHT_COLORS.green);
+  // KS-2157: цвет preview-стрелки (library default `color`) во время drag.
+  // Library сама умеет Shift → secondaryColor и Ctrl → tertiaryColor.
+  // Alt library не различает — для Alt подменяем default `color` на синий
+  // в момент mousedown, чтобы preview совпадал с финальным.
+  // По спеке: без модификаторов = красный (= default), Alt = синий.
+  const [previewDefaultColor, setPreviewDefaultColor] = useState<string>(HIGHLIGHT_COLORS.red);
 
   const handleArrowsChange = useCallback(() => {
     // no-op (см. комментарий выше)
@@ -981,16 +983,16 @@ export function AnalysisPage() {
       onPieceClick: handlePieceClick,
       onSquareMouseDown: handleBoardMouseDown,
       onSquareMouseUp: handleBoardMouseUp,
-      // KS-2152: цвета preview-стрелки во время ПКМ-drag (library знает только
-      // Shift и Ctrl). Задаём так, чтобы preview совпадал с финальным цветом
-      // нашей сохранённой стрелки: default=green, Shift=red, Ctrl=yellow.
-      // Alt библиотека не различает — для Alt preview останется зелёным,
-      // на mouseUp подменится на синий.
+      // KS-2157: цвета preview-стрелки во время ПКМ-drag.
+      // Спека: без модификаторов = red, Shift = green, Alt = blue, Ctrl = yellow.
+      // Library поддерживает Shift и Ctrl — secondaryColor/tertiaryColor.
+      // Alt library не знает: для Alt-only мы динамически меняем `color` через
+      // previewDefaultColor (см. handleBoardMouseDown).
       arrowOptions: {
         color: previewDefaultColor,
-        secondaryColor: HIGHLIGHT_COLORS.red,
+        secondaryColor: HIGHLIGHT_COLORS.green,
         tertiaryColor: HIGHLIGHT_COLORS.yellow,
-        // Остальное — дефолтные значения react-chessboard.
+        // Дефолтные значения react-chessboard.
         arrowLengthReducerDenominator: 8,
         sameTargetArrowLengthReducerDenominator: 4,
         arrowWidthDenominator: 5,

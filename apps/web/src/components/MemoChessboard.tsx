@@ -77,6 +77,10 @@ function areOptionsEqual(
   if (prevOpts.onSquareMouseDown !== nextOpts.onSquareMouseDown) return false;
   if (prevOpts.onSquareMouseUp !== nextOpts.onSquareMouseUp) return false;
   if (prevOpts.onArrowsChange !== nextOpts.onArrowsChange) return false;
+  // KS-2157: arrowOptions меняется динамически при mousedown
+  // (previewDefaultColor=blue для Alt-drag). Без этого сравнения library
+  // продолжала рисовать preview старым default-цветом.
+  if (prevOpts.arrowOptions !== nextOpts.arrowOptions) return false;
 
   return true;
 }

@@ -19,10 +19,12 @@ interface MouseModifiers {
 }
 
 /**
- * KS-2152: маппинг модификаторов на цвет ВЫДЕЛЕНИЯ КЛЕТКИ (lichess).
+ * KS-2152/KS-2157: единая раскладка модификаторов для выделений и стрелок.
  * Без модификаторов = красный, Shift = зелёный, Alt = синий, Ctrl/Cmd = жёлтый.
+ *
+ * Один маппинг на оба типа аннотаций — это спека координатора в KS-2157.
  */
-export function highlightColorByModifiers(mods: {
+export function annotationColorByModifiers(mods: {
   shiftKey?: boolean;
   altKey?: boolean;
   ctrlKey?: boolean;
@@ -34,24 +36,10 @@ export function highlightColorByModifiers(mods: {
   return 'red';
 }
 
-/**
- * KS-2152: маппинг модификаторов на цвет СТРЕЛКИ (lichess).
- * У стрелки дефолт другой — зелёный, Shift = красный, остальное как у выделений.
- */
-export function arrowColorByModifiers(mods: {
-  shiftKey?: boolean;
-  altKey?: boolean;
-  ctrlKey?: boolean;
-  metaKey?: boolean;
-}): AnnotationColor {
-  if (mods.shiftKey) return 'red';
-  if (mods.altKey) return 'blue';
-  if (mods.ctrlKey || mods.metaKey) return 'yellow';
-  return 'green';
-}
-
-/** @deprecated KS-2152: используйте highlightColorByModifiers / arrowColorByModifiers. */
-export const annotationColorByModifiers = highlightColorByModifiers;
+/** @deprecated KS-2157: используйте annotationColorByModifiers. */
+export const highlightColorByModifiers = annotationColorByModifiers;
+/** @deprecated KS-2157: используйте annotationColorByModifiers. */
+export const arrowColorByModifiers = annotationColorByModifiers;
 
 function colorByModifiers(mods: MouseModifiers): AnnotationColor {
   // Shift → зелёный, Alt → синий, Ctrl/Cmd → жёлтый, без модификаторов → красный
