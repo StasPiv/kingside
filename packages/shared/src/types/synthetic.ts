@@ -146,6 +146,16 @@ export const SyntheticEnvKey = {
   ProfileBatchSize: 'SYNTHETIC_PROFILE_BATCH_SIZE',
   /** Int. Кол-во retry'ев на failed engine-tick. */
   EngineRetryAttempts: 'SYNTHETIC_ENGINE_RETRY_ATTEMPTS',
+  /** KS-2164. Int (ms). Период обновления `User.lastSeenAt` для онлайн-synthetic'ов. */
+  PresenceTickMs: 'SYNTHETIC_PRESENCE_TICK_MS',
+  /** KS-2164. Int (ms). Минимальный интервал polling-pool joinQueue. */
+  PollingIntervalMinMs: 'SYNTHETIC_POLLING_INTERVAL_MIN_MS',
+  /** KS-2164. Int (ms). Максимальный интервал polling-pool joinQueue. */
+  PollingIntervalMaxMs: 'SYNTHETIC_POLLING_INTERVAL_MAX_MS',
+  /** KS-2164. Int (ms). Период scheduler-tick'а (рекомпиляция desired). */
+  SchedulerTickMs: 'SYNTHETIC_SCHEDULER_TICK_MS',
+  /** KS-2164. JSON. Override базовой кривой (24×7×4); см. `BaseCurveSchedule`. */
+  ScheduleOverrideJson: 'SYNTHETIC_SCHEDULE_OVERRIDE_JSON',
 } as const;
 
 export type SyntheticEnvKeyName =
@@ -193,4 +203,105 @@ export function isCountryCodeISO(value: unknown): value is CountryCodeISO {
     value.length === 2 &&
     /^[A-Z]{2}$/.test(value)
   );
+}
+
+// ─── KS-2164: Scheduler base curve ─────────────────────────────────
+
+/**
+ * Категории time control'а из существующей схемы (`TimeControlType` в
+ * Prisma) — синтетики выбираются под одну из четырёх. `bullet` и `blitz`
+ * объединены в одну колонку базовой кривой ADR §4.1.
+ */
+export type SyntheticQueueCategory =
+  | 'bullet'
+  | 'blitz'
+  | 'rapid'
+  | 'classical';
+
+/**
+ * Базовая кривая «сколько synthetic'ов держать в очереди» по диапазонам
+ * UTC-часа и weekend/weekday. ADR-034 §4.1, начальный дефолт.
+ *
+ * Структура:
+ *   `{ '00-05': { weekday: { bullet, blitz, rapid, classical }, weekend: ... }, ... }`
+ *
+ * Перебивается env'ом `SYNTHETIC_SCHEDULE_OVERRIDE_JSON` (строка JSON
+ * того же shape — частичная перезапись допустима, недостающие ключи
+ * берутся из дефолта).
+ */
+export type SyntheticHourBand = '00-05' | '06-11' | '12-17' | '18-23';
+export type SyntheticDayKind = 'weekday' | 'weekend';
+export type SyntheticBaseCurve = Record<
+  SyntheticHourBand,
+  Record<SyntheticDayKind, Record<SyntheticQueueCategory, number>>
+>;
+
+/**
+ * Default `SyntheticBaseCurve`. ADR-034 §4.1. Цифры — целевое количество
+ * synthetic'ов В ОЧЕРЕДИ для категории в диапазоне часов. `bullet` и
+ * `blitz` имеют одинаковое целевое (так в ADR — первые две колонки
+ * совпадают по семантике «быстрая игра»).
+ */
+export const SYNTHETIC_BASE_CURVE_DEFAULT: SyntheticBaseCurve = {
+  '00-05': {
+    weekday: { bullet: 3, blitz: 3, rapid: 2, classical: 1 },
+    weekend: { bullet: 5, blitz: 5, rapid: 2, classical: 1 },
+  },
+  '06-11': {
+    weekday: { bullet: 5, blitz: 5, rapid: 3, classical: 1 },
+    weekend: { bullet: 8, blitz: 8, rapid: 3, classical: 1 },
+  },
+  '12-17': {
+    weekday: { bullet: 8, blitz: 8, rapid: 5, classical: 2 },
+    weekend: { bullet: 15, blitz: 15, rapid: 5, classical: 2 },
+  },
+  '18-23': {
+    weekday: { bullet: 15, blitz: 15, rapid: 8, classical: 3 },
+    weekend: { bullet: 25, blitz: 25, rapid: 8, classical: 3 },
+  },
+};
+
+export function syntheticHourBandOf(hourUtc: number): SyntheticHourBand {
+  if (hourUtc < 6) return '00-05';
+  if (hourUtc < 12) return '06-11';
+  if (hourUtc < 18) return '12-17';
+  return '18-23';
+}
+
+export function syntheticDayKindOf(dayOfWeekUtc: number): SyntheticDayKind {
+  // `Date.getUTCDay()` → 0=Sun, 6=Sat. Saturday/Sunday = weekend.
+  return dayOfWeekUtc === 0 || dayOfWeekUtc === 6 ? 'weekend' : 'weekday';
+}
+
+/**
+ * Возвращает целевое количество synthetic'ов в очереди для конкретного
+ * времени и категории. Использовать с `new Date()` или с подменяемым
+ * `Date` в тестах.
+ *
+ * @param when         UTC-момент времени.
+ * @param category     Категория очереди.
+ * @param curve        Дефолтная или override-кривая.
+ */
+export function syntheticBaseCurveAt(
+  when: Date,
+  category: SyntheticQueueCategory,
+  curve: SyntheticBaseCurve = SYNTHETIC_BASE_CURVE_DEFAULT,
+): number {
+  const band = syntheticHourBandOf(when.getUTCHours());
+  const kind = syntheticDayKindOf(when.getUTCDay());
+  return curve[band][kind][category];
+}
+
+/**
+ * Адаптация ADR §4: `actual = max(0, desired − live_avg × 2)`. live_avg
+ * — moving average кол-ва живых игроков в очереди за последние 15 мин.
+ * Не учитывает kill-switch; вызывающая сторона проверяет
+ * `live_in_queue_now ≥ DisableAtLiveQueueLen` отдельно (там
+ * `actual=0` независимо от формулы).
+ */
+export function syntheticAdaptedDesired(
+  desired: number,
+  liveInQueueAvg: number,
+): number {
+  return Math.max(0, Math.round(desired - liveInQueueAvg * 2));
 }
