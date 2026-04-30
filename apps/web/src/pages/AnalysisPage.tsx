@@ -659,6 +659,15 @@ export function AnalysisPage() {
     (_args: { square: string }, e: React.MouseEvent) => {
       if (e.button === 2) {
         arrowDragStartRef.current = _args.square;
+        // Фиксируем цвет preview по модификаторам в момент mousedown.
+        // Если только Alt → подменяем default на синий (library не знает Alt).
+        // В остальных случаях оставляем зелёный — library сама обработает
+        // Shift→red и Ctrl→yellow через secondaryColor/tertiaryColor.
+        if (e.altKey && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+          setPreviewDefaultColor(HIGHLIGHT_COLORS.blue);
+        } else {
+          setPreviewDefaultColor(HIGHLIGHT_COLORS.green);
+        }
       }
     },
     [],
@@ -737,6 +746,12 @@ export function AnalysisPage() {
   // от library, она лишь визуально дублирует наш external arrows до
   // ремоунта (см. `annotationsKey`).
   const arrowDragStartRef = useRef<string | null>(null);
+
+  // KS-2152: цвет preview-стрелки во время drag. По умолчанию = зелёный.
+  // Library сама умеет Shift→secondaryColor и Ctrl→tertiaryColor, но Alt
+  // не различает. Поэтому для Alt мы вручную подменяем `color` (default)
+  // на синий в момент mousedown, чтобы preview совпадал с финальным.
+  const [previewDefaultColor, setPreviewDefaultColor] = useState<string>(HIGHLIGHT_COLORS.green);
 
   const handleArrowsChange = useCallback(() => {
     // no-op (см. комментарий выше)
@@ -900,7 +915,7 @@ export function AnalysisPage() {
       // Alt библиотека не различает — для Alt preview останется зелёным,
       // на mouseUp подменится на синий.
       arrowOptions: {
-        color: HIGHLIGHT_COLORS.green,
+        color: previewDefaultColor,
         secondaryColor: HIGHLIGHT_COLORS.red,
         tertiaryColor: HIGHLIGHT_COLORS.yellow,
         arrowLengthReducerDenominator: 8,
@@ -922,7 +937,7 @@ export function AnalysisPage() {
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, handleBoardMouseDown, handleBoardMouseUp, handleArrowsChange],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, handleBoardMouseDown, handleBoardMouseUp, handleArrowsChange, previewDefaultColor],
   );
 
   // SAN path from the root to the currently viewed position (follows variations).
