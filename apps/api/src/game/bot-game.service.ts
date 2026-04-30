@@ -1,63 +1,56 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME, MATCHMAKING_BOTS } from '@kingside/shared';
+import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
 
-/** All bot user IDs (Stockfish + matchmaking bots) */
-const ALL_BOT_IDS = new Set([STOCKFISH_BOT_ID, ...MATCHMAKING_BOTS.map((b) => b.id)]);
-
+/**
+ * KS-2165 (B6). Сервис обслуживает ТОЛЬКО Workshop / Play-vs-Bot режим
+ * (Q7 ADR-034 — оставляем как есть). 12-ботный пул `MATCHMAKING_BOTS`
+ * удалён вместе с 30-секундным client-side fallback'ом; их роль теперь
+ * выполняют synthetic-юзеры (KS-2159 пакет).
+ */
 @Injectable()
 export class BotGameService implements OnModuleInit {
   private readonly logger = new Logger(BotGameService.name);
 
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    await this.ensureBotUsers();
+    await this.ensureStockfishBot();
   }
 
-  private async ensureBotUsers(): Promise<void> {
-    // Ensure Stockfish Bot (for direct play-vs-bot)
-    await this.upsertBot(STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME, 'stockfish-bot@kingside.local', 1500);
-
-    // Ensure matchmaking bots
-    for (const bot of MATCHMAKING_BOTS) {
-      await this.upsertBot(bot.id, bot.username, `${bot.username.toLowerCase()}@bot.kingside.local`, bot.rating);
-    }
-
-    this.logger.log(`Bot users ensured: 1 Stockfish + ${MATCHMAKING_BOTS.length} matchmaking bots`);
-  }
-
-  private async upsertBot(id: string, username: string, email: string, rating: number): Promise<void> {
+  private async ensureStockfishBot(): Promise<void> {
     try {
       await this.prisma.user.upsert({
-        where: { id },
-        update: { username, isBot: true, ratingBullet: rating, ratingBlitz: rating, ratingRapid: rating, ratingClassical: rating },
+        where: { id: STOCKFISH_BOT_ID },
+        update: {
+          username: STOCKFISH_BOT_USERNAME,
+          isBot: true,
+          ratingBullet: 1500,
+          ratingBlitz: 1500,
+          ratingRapid: 1500,
+          ratingClassical: 1500,
+        },
         create: {
-          id, username, email, passwordHash: '', isBot: true,
-          ratingBullet: rating, ratingBlitz: rating, ratingRapid: rating, ratingClassical: rating,
+          id: STOCKFISH_BOT_ID,
+          username: STOCKFISH_BOT_USERNAME,
+          email: 'stockfish-bot@kingside.local',
+          passwordHash: '',
+          isBot: true,
+          ratingBullet: 1500,
+          ratingBlitz: 1500,
+          ratingRapid: 1500,
+          ratingClassical: 1500,
         },
       });
+      this.logger.log('Stockfish bot user ensured (Workshop / Play-vs-Bot)');
     } catch (err: unknown) {
-      this.logger.warn(`Bot upsert failed for ${username}: ${(err as Error).message}`);
+      this.logger.warn(
+        `Stockfish bot upsert failed: ${(err as Error).message}`,
+      );
     }
   }
 
   isBotPlayer(userId: string): boolean {
-    return ALL_BOT_IDS.has(userId);
-  }
-
-  /**
-   * Pick a random matchmaking bot closest to the given rating.
-   * Returns { id, username, botLevel } or null if no bots available.
-   */
-  pickBotForRating(playerRating: number): { id: string; username: string; botLevel: number; rating: number } {
-    // Sort by rating distance, pick from top 3 closest
-    const sorted = [...MATCHMAKING_BOTS].sort((a, b) =>
-      Math.abs(a.rating - playerRating) - Math.abs(b.rating - playerRating),
-    );
-    const candidates = sorted.slice(0, 3);
-    return candidates[Math.floor(Math.random() * candidates.length)];
+    return userId === STOCKFISH_BOT_ID;
   }
 }

@@ -33,6 +33,25 @@ import {
   recordLiveSample,
   type LiveQueueCategory,
 } from './live-queue-stats';
+
+function ratingFieldForCategory(
+  cat: SyntheticQueueCategory,
+):
+  | 'ratingBullet'
+  | 'ratingBlitz'
+  | 'ratingRapid'
+  | 'ratingClassical' {
+  switch (cat) {
+    case 'bullet':
+      return 'ratingBullet';
+    case 'blitz':
+      return 'ratingBlitz';
+    case 'rapid':
+      return 'ratingRapid';
+    case 'classical':
+      return 'ratingClassical';
+  }
+}
 import type { SyntheticPresenceService } from './synthetic-presence.service';
 import type { SyntheticDeps } from './synthetic-deps';
 
@@ -137,6 +156,85 @@ export class SyntheticSchedulerService implements OnModuleInit, OnModuleDestroy 
   async onModuleDestroy(): Promise<void> {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+  }
+
+  // ─── KS-2165: allocateSynthetic ─────────────────────────────────────
+
+  /**
+   * KS-2165 (B6). Выдаёт синтета под matchmaking-fallback. Условия:
+   *   - kill-switch неактивен (live в очереди < threshold);
+   *   - у синтета `state=idle` (есть в idle-roster);
+   *   - рейтинг близок к запрошенному (rating-диапазон ±150 cp).
+   *
+   * Возвращает `{ userId, rating, username }` либо `null` если нечего
+   * подобрать. Не меняет state синтета — это ответственность caller'а
+   * (Matchmaking создаёт партию, переводит в `in_game`).
+   */
+  async allocateSynthetic(
+    requesterRating: number,
+    category: SyntheticQueueCategory,
+  ): Promise<{ userId: string; rating: number; username: string } | null> {
+    if (this.stopped || !this.deps || !this.presence) return null;
+
+    // Kill-switch: если live ≥ threshold, scheduler НЕ должен подсовывать
+    // синтета — пользователю важно играть с реальным.
+    const liveNow = await currentLiveCount(this.deps.redis, category);
+    if (liveNow >= this.killSwitchThreshold()) {
+      return null;
+    }
+
+    // Проверка фича-флага: если scheduler выключен, allocate не работает
+    // (matchmaking просто не подберёт synthetic'а — продолжит ждать live).
+    if (process.env[SyntheticEnvKey.SchedulerEnabled] !== 'true') {
+      return null;
+    }
+
+    // Берём 50 синтетов из idle-pool (без polling-bucket) и выбираем
+    // ближайшего по рейтингу. Поле рейтинга — категориальное.
+    const candidates = await this.presence.sampleIdleSchedulerPool(50);
+    if (candidates.length === 0) return null;
+
+    const ratingField = ratingFieldForCategory(category);
+    const rows = await (this.deps.prisma as unknown as {
+      user: {
+        findMany(args: {
+          where: { id: { in: string[] } };
+          select: Record<string, boolean>;
+        }): Promise<
+          Array<{
+            id: string;
+            username: string | null;
+            ratingBullet: number;
+            ratingBlitz: number;
+            ratingRapid: number;
+            ratingClassical: number;
+          }>
+        >;
+      };
+    }).user.findMany({
+      where: { id: { in: candidates } },
+      select: {
+        id: true,
+        username: true,
+        ratingBullet: true,
+        ratingBlitz: true,
+        ratingRapid: true,
+        ratingClassical: true,
+      },
+    });
+
+    let best: { userId: string; rating: number; username: string } | null = null;
+    let bestDiff = Number.POSITIVE_INFINITY;
+    for (const u of rows) {
+      const r = u[ratingField];
+      const diff = Math.abs(r - requesterRating);
+      if (diff > 200) continue; // выходит за «близкий» диапазон ±200
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = { userId: u.id, rating: r, username: u.username ?? '' };
+      }
+    }
+    return best;
   }
 
   // ─── env helpers ───────────────────────────────────────────────────
