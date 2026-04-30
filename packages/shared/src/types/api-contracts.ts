@@ -478,6 +478,28 @@ export type WsMatchmakingFoundPayload = {
   increment: number;
 };
 
+/**
+ * KS-2197 (ADR-034-v2 §6.6, переходное «no-bot fallback» состояние).
+ *
+ * Server → Client. Шлётся, когда живой провисел в очереди дольше
+ * `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS` (default 60000 мс) и пары так и
+ * не нашлось. После события server автоматически делает LEAVE — клиент
+ * не должен слать `matchmaking:leave` в ответ.
+ *
+ * `category` — нормализованная категория (`'bullet' | 'blitz' | 'rapid'
+ * | 'classical'`). `tc` — пара `{timeInitial, increment}` исходного JOIN
+ * (нужно фронту, чтобы предложить «попробовать снова с тем же тайм-контролем»).
+ * `waitedMs` — фактическое время ожидания (округлено до миллисекунд).
+ */
+export type WsMatchmakingNoOpponentsPayload = {
+  category: 'bullet' | 'blitz' | 'rapid' | 'classical';
+  tc: {
+    timeInitial: number;
+    increment: number;
+  };
+  waitedMs: number;
+};
+
 // ─── Event name constants ───────────────────────────────────────────
 
 // ─── WebSocket: streaming analysis ──────────────────────────────────
@@ -532,6 +554,13 @@ export const MatchmakingEvents = {
   JOIN: 'matchmaking:join',
   LEAVE: 'matchmaking:leave',
   FOUND: 'matchmaking:found',
+  /**
+   * KS-2197. Server → Client: после
+   * `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS` без пары сервер автоматически
+   * вызывает LEAVE и шлёт это событие. Payload —
+   * {@link WsMatchmakingNoOpponentsPayload}.
+   */
+  NO_OPPONENTS: 'matchmaking:no_opponents',
   ERROR: 'error',
 } as const;
 

@@ -9,8 +9,38 @@ import {
 
 const INITIAL_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const MATCHMAKER_FOUND_CHANNEL = 'matchmaker:found';
+/**
+ * KS-2197. Канал Redis pub/sub для уведомлений «истёк таймаут пустой
+ * очереди». `MatchmakingService` публикует события сюда; подписчик —
+ * `MatchmakingGateway` (см. `matchmaking.gateway.ts`), который шлёт WS
+ * `matchmaking:no_opponents` пользователю и чистит свой `PLAYER_QUEUES_KEY`-индекс.
+ *
+ * Канал отдельный (а не reuse `matchmaker:found`), чтобы gateway мог
+ * различать сценарии без if'ов по полям.
+ */
+export const MATCHMAKER_NO_OPPONENTS_CHANNEL = 'matchmaker:no_opponents';
 const POLL_INTERVAL_MS = 2000;
 const CATEGORIES: TimeControlCategory[] = ['bullet', 'blitz', 'rapid', 'classical'];
+
+/**
+ * KS-2197. Дефолтный таймаут пустой очереди — 60 секунд (ADR-034-v2 §6.6,
+ * описание задачи KS-2197). После него матчмейкер шлёт пользователю
+ * `MATCHMAKING_NO_OPPONENTS` и автоматически выкидывает из очереди.
+ *
+ * Перебивается ENV `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS` (целое число
+ * миллисекунд). Невалидное значение → fallback на дефолт.
+ */
+export const DEFAULT_NO_OPPONENTS_TIMEOUT_MS = 60_000;
+
+export function readNoOpponentsTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS;
+  if (!raw) return DEFAULT_NO_OPPONENTS_TIMEOUT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_NO_OPPONENTS_TIMEOUT_MS;
+  }
+  return Math.floor(parsed);
+}
 
 /**
  * Synthetic-flow (KS-2165 Pass 1b/Pass 2 → `SyntheticSchedulerService.
@@ -182,6 +212,74 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
         await this.createMatchedGame(a, b, category, false);
         break;
       }
+    }
+
+    // KS-2197 (ADR-034-v2 §6.6). После pairing-pass-а — sweep по
+    // оставшимся непарированным. Тот, кто провисел в очереди дольше
+    // `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS`, выкидывается + пользователю
+    // шлётся `matchmaking:no_opponents` через Redis pub/sub. Это
+    // единственный способ корректно обработать одиночку — pairing-pass
+    // его пропускает (нет напарника), таймаут — про него.
+    await this.sweepNoOpponents(category, queueKey, entries, members, paired);
+  }
+
+  /**
+   * KS-2197. Выкидывает из очереди `entries`, провисевшие дольше
+   * `MATCHMAKING_NO_OPPONENTS_TIMEOUT_MS` без пары, и публикует
+   * `MATCHMAKER_NO_OPPONENTS_CHANNEL` для каждого. Подписчик
+   * (`MatchmakingGateway`) шлёт WS-event пользователю и чистит
+   * `PLAYER_QUEUES_KEY`-hash.
+   *
+   * Параметры `entries` и `members` синхронны (одинаковая длина и
+   * порядок), это нужно, чтобы вызвать `zrem(queueKey, members[i])` —
+   * Redis ждёт ровно тот же сериализованный JSON, который мы добавили.
+   *
+   * Если вход уже спарен в текущем тике — пропускаем, он попадёт в
+   * `createMatchedGame` flow.
+   */
+  private async sweepNoOpponents(
+    category: TimeControlCategory,
+    queueKey: string,
+    entries: QueueEntry[],
+    members: string[],
+    paired: Set<string>,
+  ): Promise<void> {
+    const now = Date.now();
+    const timeoutMs = readNoOpponentsTimeoutMs();
+
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (paired.has(entry.userId)) continue;
+      const waitedMs = now - entry.joinedAt;
+      if (waitedMs < timeoutMs) continue;
+
+      // Сначала удаляем из zset — на случай, если pub/sub упадёт,
+      // мы хотя бы не оставим зомби-юзера в очереди (он не будет
+      // получать события каждые POLL_INTERVAL_MS, забивая лог).
+      await this.redis.zrem(queueKey, members[i]).catch((e: unknown) => {
+        this.logger.error(
+          `sweepNoOpponents.zrem ${entry.userId}: ${(e as Error).message}`,
+        );
+      });
+
+      const payload = {
+        userId: entry.userId,
+        category,
+        timeInitial: entry.timeInitialSec,
+        increment: entry.timeIncrementSec,
+        waitedMs,
+      };
+      await this.redis
+        .publish(MATCHMAKER_NO_OPPONENTS_CHANNEL, JSON.stringify(payload))
+        .catch((e: unknown) => {
+          this.logger.error(
+            `sweepNoOpponents.publish ${entry.userId}: ${(e as Error).message}`,
+          );
+        });
+
+      this.logger.log(
+        `no_opponents: ${entry.userId} waited ${waitedMs}ms in ${category}`,
+      );
     }
   }
 
