@@ -228,7 +228,8 @@ export class SyntheticSchedulerService implements OnModuleInit, OnModuleDestroy 
     for (const u of rows) {
       const r = u[ratingField];
       const diff = Math.abs(r - requesterRating);
-      if (diff > 200) continue; // выходит за «близкий» диапазон ±200
+      // KS-2176: ±150 cp (синхронизировано с doc-комментарием выше).
+      if (diff > 150) continue;
       if (diff < bestDiff) {
         bestDiff = diff;
         best = { userId: u.id, rating: r, username: u.username ?? '' };

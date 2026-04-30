@@ -21,6 +21,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
+import { SyntheticEnvKey } from '@kingside/shared';
 import type { OpeningBookProvider } from './synthetic-move-engine.service';
 
 const ARCHIVE_BASE_URL_DEFAULT = 'http://archive-service:3003';
@@ -114,7 +115,7 @@ export class TwicOpeningBookProvider implements OpeningBookProvider {
     rating: number;
     ecoPrefix?: string;
   }): Promise<string | null> {
-    if (process.env.SYNTHETIC_OPENING_BOOK_ENABLED !== 'true') {
+    if (process.env[SyntheticEnvKey.OpeningBookEnabled] !== 'true') {
       return null;
     }
     if (opts.plyCount > 20) return null; // только дебют

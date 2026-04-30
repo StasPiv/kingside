@@ -32,6 +32,7 @@ import {
   SPONTANEOUS_CLOSING_PHRASES,
   SPONTANEOUS_OPENING_PHRASES,
   SYNTHETIC_CHAT_DEFAULTS,
+  SyntheticEnvKey,
   type SyntheticChatLang,
 } from '@kingside/shared';
 
@@ -176,7 +177,7 @@ export class SyntheticChatService {
   // ─── Internals ──────────────────────────────────────────────────────
 
   private enabled(): boolean {
-    return process.env.SYNTHETIC_CHAT_ENABLED === 'true';
+    return process.env[SyntheticEnvKey.ChatEnabled] === 'true';
   }
 
   private random(): () => number {

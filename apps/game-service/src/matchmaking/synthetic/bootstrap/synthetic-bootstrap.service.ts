@@ -28,6 +28,7 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { SyntheticEnvKey, type TimeControlCategory } from '@kingside/shared';
+// SyntheticEnvKey импортирован для bootstrap-флагов (KS-2176).
 import {
   computeBootstrapProgress,
   parseTcDistribution,
@@ -116,9 +117,9 @@ export class SyntheticBootstrapService
   }
 
   async onModuleInit(): Promise<void> {
-    if (process.env.SYNTHETIC_BOOTSTRAP_ENABLED !== 'true') {
+    if (process.env[SyntheticEnvKey.BootstrapEnabled] !== 'true') {
       this.logger.log(
-        'SYNTHETIC_BOOTSTRAP_ENABLED != "true" — bootstrap disabled',
+        `${SyntheticEnvKey.BootstrapEnabled} != "true" — bootstrap disabled`,
       );
       return;
     }

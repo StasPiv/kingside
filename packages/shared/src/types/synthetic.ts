@@ -156,6 +156,12 @@ export const SyntheticEnvKey = {
   SchedulerTickMs: 'SYNTHETIC_SCHEDULER_TICK_MS',
   /** KS-2164. JSON. Override базовой кривой (24×7×4); см. `BaseCurveSchedule`. */
   ScheduleOverrideJson: 'SYNTHETIC_SCHEDULE_OVERRIDE_JSON',
+  /** KS-2176 (KS-2163). Boolean. Главный фича-флаг bootstrap-сервиса. */
+  BootstrapEnabled: 'SYNTHETIC_BOOTSTRAP_ENABLED',
+  /** KS-2176 (KS-2163). Boolean. TWIC opening book provider gate. */
+  OpeningBookEnabled: 'SYNTHETIC_OPENING_BOOK_ENABLED',
+  /** KS-2176 (KS-2168). Boolean. Главный фича-флаг synthetic-чата. */
+  ChatEnabled: 'SYNTHETIC_CHAT_ENABLED',
 } as const;
 
 export type SyntheticEnvKeyName =

@@ -69,6 +69,7 @@ export class PlayerService {
         select: {
           id: true,
           username: true,
+          country: true, // KS-2176
           ratingBullet: true,
           ratingBlitz: true,
           ratingRapid: true,
@@ -101,6 +102,7 @@ export class PlayerService {
         gamesPlayed: gamesField
           ? (user[gamesField as keyof typeof user] as number)
           : 0,
+        country: user.country, // KS-2176
       };
 
       if (puzzleRushMap) {
@@ -140,7 +142,7 @@ export class PlayerService {
         take: safeLimit,
         skip: offset,
         select: {
-          id: true, username: true, isBot: true,
+          id: true, username: true, isBot: true, country: true, // KS-2176
           ratingBullet: true, ratingBlitz: true, ratingRapid: true, ratingClassical: true,
         },
       }),
@@ -150,7 +152,7 @@ export class PlayerService {
             where: { isBot: true, username: { not: null } },
             orderBy: { ratingBlitz: 'desc' },
             select: {
-              id: true, username: true, isBot: true,
+              id: true, username: true, isBot: true, country: true, // KS-2176
               ratingBullet: true, ratingBlitz: true, ratingRapid: true, ratingClassical: true,
             },
           })
@@ -172,6 +174,7 @@ export class PlayerService {
       ratingRapid: user.ratingRapid,
       ratingClassical: user.ratingClassical,
       isBot: user.isBot || undefined,
+      country: user.country, // KS-2176
     });
 
     // Bots first (on page 1), then real users
@@ -188,6 +191,7 @@ export class PlayerService {
         id: true,
         username: true,
         isBot: true,
+        country: true, // KS-2176
         ratingBullet: true,
         ratingBlitz: true,
         ratingRapid: true,
@@ -285,6 +289,7 @@ export class PlayerService {
       id: user.id,
       username: user.username!,
       isBot: user.isBot || undefined,
+      country: user.country, // KS-2176
       ratings: {
         bullet: user.ratingBullet,
         blitz: user.ratingBlitz,
@@ -344,6 +349,7 @@ export class PlayerService {
       select: {
         id: true,
         username: true,
+        country: true, // KS-2176
         ratingBullet: true,
         ratingBlitz: true,
         ratingRapid: true,
@@ -358,6 +364,7 @@ export class PlayerService {
       ratingBlitz: user.ratingBlitz,
       ratingRapid: user.ratingRapid,
       ratingClassical: user.ratingClassical,
+      country: user.country, // KS-2176
     }));
 
     return { data };

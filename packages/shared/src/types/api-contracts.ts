@@ -1008,6 +1008,8 @@ export type TopPlayerItem = {
   username: string;
   rating: number;
   gamesPlayed: number;
+  /** KS-2176. ISO-3166-1 alpha-2; nullable для real-users без указания. */
+  country?: string | null;
   puzzleRush?: PuzzleRushStats;
 };
 
@@ -1031,6 +1033,8 @@ export type OnlinePlayerItem = {
   ratingRapid: number;
   ratingClassical: number;
   isBot?: boolean;
+  /** KS-2176. ISO-3166-1 alpha-2; nullable для real-users без указания. */
+  country?: string | null;
 };
 
 export type OnlinePlayersResponse = {
@@ -1051,6 +1055,8 @@ export type SearchPlayerItem = {
   ratingBlitz: number;
   ratingRapid: number;
   ratingClassical: number;
+  /** KS-2176. ISO-3166-1 alpha-2; nullable для real-users без указания. */
+  country?: string | null;
 };
 
 export type SearchPlayersResponse = {
@@ -1062,6 +1068,13 @@ export type PlayerProfileResponse = {
   id: string;
   username: string;
   isBot?: boolean;
+  /**
+   * KS-2176 (post-launch фикс KS-2162). ISO-3166-1 alpha-2 (RU, US, …).
+   * Заполняется seeder'ом для synthetic'ов; для реальных пользователей —
+   * `null` пока (поле profile-edit не реализовано). Frontend (KS-2169)
+   * использует это для отображения флага в карточке профиля.
+   */
+  country?: string | null;
   ratings: {
     bullet: number;
     blitz: number;

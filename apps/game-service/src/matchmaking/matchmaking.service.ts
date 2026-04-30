@@ -26,6 +26,16 @@ const LIVE_WAIT_MAX_MS = parseInt(
   process.env.MATCHMAKING_LIVE_WAIT_MAX_MS || '15000',
   10,
 );
+/**
+ * KS-2176. Семантика отличается от остальных synthetic-флагов
+ * (`SYNTHETIC_*_ENABLED` — opt-in `=== 'true'`): здесь default = ON
+ * (`!== 'false'`). Намеренно — это emergency kill-switch для Pass 2
+ * fallback-логики matchmaker'а. Активация фичи всё равно требует
+ * `SYNTHETIC_SCHEDULER_ENABLED=true` (без него `allocateSynthetic`
+ * возвращает null, Pass 2 — no-op), а этот флаг существует для
+ * быстрого аварийного отключения synthetic-pairing'а в проде без
+ * перезапуска scheduler'а.
+ */
 const SYNTHETIC_FALLBACK_ENABLED =
   process.env.MATCHMAKING_SYNTHETIC_FALLBACK_ENABLED !== 'false';
 const CATEGORIES: TimeControlCategory[] = ['bullet', 'blitz', 'rapid', 'classical'];
