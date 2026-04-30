@@ -49,6 +49,7 @@ import { UserLessonPage } from './pages/UserLessonPage';
 import { ArchiveLobbyPage } from './pages/ArchiveLobbyPage';
 import { ArchiveGamesPage } from './pages/ArchiveGamesPage';
 import { ArchivePlayerProfilePage } from './pages/ArchivePlayerProfilePage';
+import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { ArchiveGamePage } from './pages/ArchiveGamePage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
@@ -214,6 +215,9 @@ export function App() {
         <Route path="/features" element={<FeaturesPage />} />
         {/* KS-1895: публичная документация — без ProtectedRoute */}
         <Route path="/docs/user-courses" element={<DocsUserCoursesPage />} />
+        {/* KS-2169 (F4): публичные условия использования. */}
+        <Route path="/terms" element={<TermsOfServicePage />} />
+        <Route path="/terms-of-service" element={<TermsOfServicePage />} />
         <Route path="/login" element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/register" element={<GuestRoute><RegisterPage /></GuestRoute>} />
         <Route path="/oauth/callback" element={<OAuthCallbackPage />} />

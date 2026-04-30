@@ -7,6 +7,36 @@ import { RatingHistoryChart } from '../components/RatingHistoryChart';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
 import type { PlayerProfileResponse } from '@kingside/shared';
 
+/**
+ * KS-2169 (F3): расширение `PlayerProfileResponse` опциональными полями,
+ * которые backend KS-2160/2167 может отдавать дополнительно. Используется
+ * только для type-narrowing: если поле отсутствует — UI не рендерит его.
+ *
+ * Намеренно НЕ правим shared-тип отсюда (он RW только у backend), чтобы
+ * не блокировать релиз фронта на консенсус по типу. Когда backend
+ * официально внесёт поля в `PlayerProfileResponse`, этот local extend
+ * можно будет удалить.
+ */
+type PlayerProfileExtended = PlayerProfileResponse & {
+  country?: string | null;
+  gamesToday?: number;
+};
+
+/**
+ * KS-2169: country code (ISO-2) → emoji flag. ISO-3166 alpha-2 коды
+ * мапятся на regional indicator unicode block (U+1F1E6 + offset).
+ */
+function countryFlag(code: string | null | undefined): string | null {
+  if (!code || code.length !== 2) return null;
+  const A = 0x41;
+  const REGIONAL = 0x1f1e6;
+  const cc = code.toUpperCase();
+  const c0 = cc.charCodeAt(0);
+  const c1 = cc.charCodeAt(1);
+  if (c0 < A || c0 > A + 25 || c1 < A || c1 > A + 25) return null;
+  return String.fromCodePoint(REGIONAL + (c0 - A)) + String.fromCodePoint(REGIONAL + (c1 - A));
+}
+
 type FriendStatus = 'none' | 'pending' | 'friends' | 'loading';
 type FriendEntry = { friendshipId: string; user: { id: string } };
 
@@ -46,7 +76,7 @@ export function PlayerProfilePage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   const { username } = useParams<{ username: string }>();
-  const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
+  const [profile, setProfile] = useState<PlayerProfileExtended | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState('');
@@ -60,7 +90,7 @@ export function PlayerProfilePage() {
     setNotFound(false);
     setError('');
 
-    api.get<PlayerProfileResponse>(`/players/${encodeURIComponent(username)}`)
+    api.get<PlayerProfileExtended>(`/players/${encodeURIComponent(username)}`)
       .then((data) => setProfile(data))
       .catch((err) => {
         const msg = err instanceof Error ? err.message : '';
@@ -191,6 +221,16 @@ export function PlayerProfilePage() {
         </div>
         <div className="player-profile-info">
           <h1 className="player-profile-username">
+            {/* KS-2169 (F3): флаг страны (если backend отдал country).
+                Никаких визуальных меток «AI» / «Synthetic» / «Bot» —
+                disclosure = soft, профиль synthetic визуально неотличим
+                от живого. */}
+            {(() => {
+              const flag = countryFlag(profile.country ?? null);
+              return flag ? (
+                <span className="player-profile-flag" title={profile.country ?? undefined} style={{ marginRight: 6 }}>{flag}</span>
+              ) : null;
+            })()}
             {profile.username}
             <span className={`player-profile-status ${online ? 'online' : 'offline'}`}>
               {online ? t('playerProfile.online') : t('playerProfile.offline')}
@@ -201,6 +241,13 @@ export function PlayerProfilePage() {
             {!online && (
               <span className="player-profile-lastseen">
                 {' · '}{t('playerProfile.lastSeen', { date: formatDateTime(profile.lastSeenAt, i18n.language) })}
+              </span>
+            )}
+            {/* KS-2169 (F3): gamesToday — если backend отдаёт. */}
+            {typeof profile.gamesToday === 'number' && profile.gamesToday >= 0 && (
+              <span className="player-profile-games-today" style={{ marginLeft: 8 }}>
+                {' · '}
+                {t('playerProfile.gamesToday', { count: profile.gamesToday, defaultValue: 'played today: {{count}}' })}
               </span>
             )}
           <button

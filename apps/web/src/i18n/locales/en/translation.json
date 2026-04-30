@@ -1,4 +1,41 @@
 {
+  "tos": {
+    "title": "Terms of Service",
+    "lastUpdated": "Last updated: {{date}}",
+    "intro": {
+      "title": "1. Introduction",
+      "body": "These Terms of Service govern your use of Kingside. By creating an account or using the platform, you agree to be bound by these terms."
+    },
+    "account": {
+      "title": "2. Account",
+      "body": "You are responsible for maintaining the confidentiality of your credentials and for all activity under your account. You must be at least 13 years old to create an account."
+    },
+    "gameplay": {
+      "title": "3. Gameplay and matchmaking",
+      "body": "You may play rated and unrated games against other users. Ratings are calculated based on the Glicko-2 system."
+    },
+    "matchmakingSyntheticDisclosure": "In low-traffic time slots, the system may pair you with system-generated opponents to ensure timely matchmaking.",
+    "fairPlay": {
+      "title": "4. Fair play",
+      "body": "You must not use chess engines, external assistance, or coordinate with other players to manipulate ratings or outcomes. Violations may result in account suspension and rating reset."
+    },
+    "content": {
+      "title": "5. User content",
+      "body": "You retain ownership of content you submit (analyses, comments, messages). By submitting, you grant Kingside a non-exclusive license to display it within the platform."
+    },
+    "privacy": {
+      "title": "6. Privacy",
+      "body": "We process personal data in accordance with our Privacy Policy. Game records and ratings are public; private messages are visible only to participants."
+    },
+    "changes": {
+      "title": "7. Changes",
+      "body": "We may update these terms from time to time. Material changes will be announced via email or in-app notification."
+    },
+    "contact": {
+      "title": "8. Contact",
+      "body": "For questions about these terms, contact us via the support form on the website."
+    }
+  },
   "nav": {
     "settings": "Settings",
     "logout": "Logout",
@@ -900,6 +937,7 @@
     "offline": "Offline",
     "joined": "Joined {{date}}",
     "lastSeen": "Last seen {{date}}",
+    "gamesToday": "played today: {{count}}",
     "ratings": "Ratings",
     "statistics": "Statistics",
     "totalGames": "Games",
