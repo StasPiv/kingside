@@ -18,6 +18,23 @@ interface MouseModifiers {
   metaKey: boolean;
 }
 
+/**
+ * KS-2152: общий маппинг модификаторов на цвет (для выделений и стрелок).
+ * Совпадает с lichess-style: без модификаторов = красный, Shift = зелёный,
+ * Alt = синий, Ctrl/Cmd = жёлтый.
+ */
+export function annotationColorByModifiers(mods: {
+  shiftKey?: boolean;
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+}): AnnotationColor {
+  if (mods.shiftKey) return 'green';
+  if (mods.altKey) return 'blue';
+  if (mods.ctrlKey || mods.metaKey) return 'yellow';
+  return 'red';
+}
+
 function colorByModifiers(mods: MouseModifiers): AnnotationColor {
   // Shift → зелёный, Alt → синий, Ctrl/Cmd → жёлтый, без модификаторов → красный
   if (mods.shiftKey) return 'green';

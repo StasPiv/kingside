@@ -21,7 +21,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { useSquareHighlights, HIGHLIGHT_COLORS } from '../hooks/useSquareHighlights';
+import { useSquareHighlights, HIGHLIGHT_COLORS, annotationColorByModifiers } from '../hooks/useSquareHighlights';
 import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight } from '../review/types';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
@@ -649,80 +649,79 @@ export function AnalysisPage() {
   );
   const {
     highlightStyles,
-    handleSquareMouseDown: onSquareMouseDownRight,
+    handleSquareMouseDown: onSquareMouseDownHighlight,
     handleSquareRightClick: onSquareRightClickHighlight,
   } = useSquareHighlights({
     value: currentAnnotations?.highlights,
     onChange: handleHighlightsChange,
   });
 
-  // KS-2152: стрелки рисуются ПКМ-drag самой react-chessboard.
-  //
-  // Особенность: library хранит свой internalArrows и делает toggle на
-  // повторный drag. Но когда наш external `arrows` показывает уже
-  // сохранённые стрелки из state, library не знает про них — и toggle
-  // ломается, если её internal был очищен (например, после ЛКМ
-  // через clearArrowsOnClick).
-  //
-  // Решение: вычисляем diff между library internal предыдущего вызова
-  // и нового, и применяем его к state. Если added-стрелка УЖЕ есть в
-  // state → это пользовательский toggle off (повторный drag по той же
-  // траектории), удаляем её из state. Если removed — тоже удаляем.
-  // Только новые → добавляем.
-  const prevLibArrowsRef = useRef<ArrowAnnotation[]>([]);
-  // KS-2152: при смене ноды/позиции library сбрасывает свои internalArrows
-  // (clearArrowsOnPositionChange + наш ремоунт по `key`). Сбрасываем и
-  // нашу память — иначе при следующем onArrowsChange diff будет
-  // некорректным («removed» от предыдущей ноды затрут стрелки новой).
-  useEffect(() => {
-    prevLibArrowsRef.current = [];
-  }, [currentGlobalIndex, currentFen]);
-  const handleArrowsChange = useCallback(
-    ({ arrows: newArrows }: { arrows: { startSquare: string; endSquare: string; color: string }[] }) => {
-      const mapped: ArrowAnnotation[] = newArrows
-        .map((a) => {
-          const found = (Object.entries(HIGHLIGHT_COLORS) as Array<[AnnotationColor, string]>).find(
-            ([, rgba]) => a.color === rgba,
-          );
-          const fallbackColor: AnnotationColor = found ? found[0] : 'green';
-          return { from: a.startSquare, to: a.endSquare, color: fallbackColor };
-        })
-        .filter((a) => a.from !== a.to);
+  // KS-2152: расширенный mouseDown — пробрасывает в highlight-хук
+  // (запомнить модификаторы) И запоминает start-клетку для drag-toggle стрелок.
+  const handleBoardMouseDown = useCallback(
+    (args: { square: string }, e: React.MouseEvent) => {
+      onSquareMouseDownHighlight(args, e);
+      if (e.button === 2) {
+        arrowDragStartRef.current = args.square;
+      }
+    },
+    [onSquareMouseDownHighlight],
+  );
 
-      const key = (a: { from: string; to: string }) => `${a.from}-${a.to}`;
-      const prevSet = new Set(prevLibArrowsRef.current.map(key));
-      const newSet = new Set(mapped.map(key));
-      const added = mapped.filter((a) => !prevSet.has(key(a)));
-      const removedKeys = prevLibArrowsRef.current
-        .map(key)
-        .filter((k) => !newSet.has(k));
-      prevLibArrowsRef.current = mapped;
+  // KS-2152: drag-toggle стрелок на нашей стороне.
+  const handleBoardMouseUp = useCallback(
+    (args: { square: string }, e: React.MouseEvent) => {
+      const dragStart = arrowDragStartRef.current;
+      arrowDragStartRef.current = null;
+      if (e.button !== 2 || !dragStart || dragStart === args.square) return;
 
       const stateArrows = currentAnnotations?.arrows ?? [];
-      const stateMap = new Map(stateArrows.map((a) => [key(a), a] as const));
-
-      // Удаляем стрелки, которые library "стёрла" (toggle off через свой
-      // findIndex), и стрелки, которые она пытается добавить, но они у
-      // нас уже есть (повторный drag после сброса internal).
-      for (const k of removedKeys) stateMap.delete(k);
-      for (const a of added) {
-        if (stateMap.has(key(a))) stateMap.delete(key(a));
-        else stateMap.set(key(a), a);
+      const existingIdx = stateArrows.findIndex(
+        (a) => a.from === dragStart && a.to === args.square,
+      );
+      let newArrows: ArrowAnnotation[];
+      if (existingIdx >= 0) {
+        // toggle off — стрелка уже была
+        newArrows = stateArrows.slice(0, existingIdx).concat(stateArrows.slice(existingIdx + 1));
+      } else {
+        const color: AnnotationColor = annotationColorByModifiers(e);
+        newArrows = stateArrows.concat({ from: dragStart, to: args.square, color });
       }
 
-      const finalArrows = Array.from(stateMap.values());
       const highlightsCurrent = currentAnnotations?.highlights;
       const next: NodeAnnotations | undefined =
-        finalArrows.length === 0 && (!highlightsCurrent || highlightsCurrent.length === 0)
+        newArrows.length === 0 && (!highlightsCurrent || highlightsCurrent.length === 0)
           ? undefined
           : {
               ...(highlightsCurrent && { highlights: highlightsCurrent }),
-              ...(finalArrows.length > 0 && { arrows: finalArrows }),
+              ...(newArrows.length > 0 && { arrows: newArrows }),
             };
       setAnnotationsForCurrent(next);
     },
     [currentAnnotations, setAnnotationsForCurrent],
   );
+
+  // KS-2152: стрелки обрабатываем сами через onSquareMouseDown/MouseUp.
+  //
+  // Полагаться на library `onArrowsChange` нельзя: react-chessboard в своём
+  // drawArrow проверяет `arrows.some((a) => a.startSquare === ... && a.endSquare === ...)`
+  // (внешний `arrows`-prop) и если стрелка там есть — РАННИЙ return,
+  // internal не меняется, onArrowsChange не вызывается. Это блокирует
+  // повторный drag по сохранённой стрелке (toggle off). Поэтому всю
+  // логику drag-toggle ведём на нашей стороне:
+  //  - onSquareMouseDown с button=2 → запоминаем `from`-клетку;
+  //  - onSquareMouseUp с button=2 на ДРУГОЙ клетке → drag завершён,
+  //    делаем toggle в state.annotationsByIndex;
+  //  - mouseUp на той же клетке → одиночный ПКМ-клик, library сама
+  //    вызовет onSquareRightClick (наш highlight-toggle).
+  // А `onArrowsChange` оставляем no-op — нам ничего не надо синхронизировать
+  // от library, она лишь визуально дублирует наш external arrows до
+  // ремоунта (см. `annotationsKey`).
+  const arrowDragStartRef = useRef<string | null>(null);
+
+  const handleArrowsChange = useCallback(() => {
+    // no-op (см. комментарий выше)
+  }, []);
 
   // Стрелки текущей ноды → внешние arrows для react-chessboard.
   const annotationArrows = useMemo(() => {
@@ -750,19 +749,20 @@ export function AnalysisPage() {
     [arrows, annotationArrows],
   );
 
-  // Ремоунт MemoChessboard ТОЛЬКО при смене ноды/позиции — обнуляет
-  // internalArrows библиотеки, чтобы стрелки предыдущей ноды не
-  // накладывались на новые external arrows (см. handleArrowsChange).
+  // KS-2152: Ремоунт MemoChessboard при смене ноды/позиции И при изменении
+  // arrows. Highlights в key НЕ кладём — для них достаточно identity-сравнения
+  // squareStyles в areOptionsEqual.
   //
-  // Annotations в key НЕ кладём: после фикса 14505dbd reducer pure,
-  // re-render через identity-сравнение в areOptionsEqual работает
-  // штатно. Если включить annotations в key — каждый ремоунт
-  // Chessboard вызывает initial useEffect onArrowsChange с пустым
-  // массивом → handleArrowsChange([]) → стрелка только что нарисованная
-  // мгновенно сбрасывается.
+  // Зачем ремоунт на arrows: library кэширует свой internalArrows и при
+  // повторном drag не очищает их (она ранний return, если стрелка есть в
+  // external). Ремоунт сбрасывает internalArrows → новый external из
+  // currentAnnotations.arrows становится единственным источником.
+  //
+  // handleArrowsChange — no-op, поэтому initial useEffect onArrowsChange
+  // в Chessboard после ремоунта ничего не сбросит.
   const annotationsKey = useMemo(
-    () => `${currentGlobalIndex}|${currentFen}`,
-    [currentGlobalIndex, currentFen],
+    () => `${currentGlobalIndex}|${currentFen}|${JSON.stringify(currentAnnotations?.arrows ?? null)}`,
+    [currentGlobalIndex, currentFen, currentAnnotations?.arrows],
   );
 
   // --- Archive tree handlers ---
@@ -873,18 +873,17 @@ export function AnalysisPage() {
       arrows: mergedArrows,
       onSquareClick: handleSquareClick,
       onPieceClick: handlePieceClick,
-      onSquareMouseDown: onSquareMouseDownRight,
+      onSquareMouseDown: handleBoardMouseDown,
+      onSquareMouseUp: handleBoardMouseUp,
       onSquareRightClick: onSquareRightClickHighlight,
-      // KS-2152: перехватываем drag-стрелки react-chessboard и сохраняем
-      // в текущую ноду через setAnnotationsForCurrent. clearArrowsOnPositionChange
-      // оставляем true (default) — internal-стрелки library очищаются на смене FEN,
-      // а ремоунт через `key` гарантирует, что новые external arrows из ноды не
-      // перемешаются с остатками internal на старой позиции.
+      // KS-2152: drag-стрелки обрабатываем сами (см. handleBoardMouseUp),
+      // onArrowsChange — no-op; ремоунт через `key={annotationsKey}` сбрасывает
+      // library internalArrows, наш external из state — единственный источник.
       onArrowsChange: handleArrowsChange,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, onSquareMouseDownRight, onSquareRightClickHighlight, handleArrowsChange],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, handleBoardMouseDown, handleBoardMouseUp, onSquareRightClickHighlight, handleArrowsChange],
   );
 
   // SAN path from the root to the currently viewed position (follows variations).

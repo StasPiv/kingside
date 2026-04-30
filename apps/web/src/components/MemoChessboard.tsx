@@ -72,11 +72,10 @@ function areOptionsEqual(
   if (prevOpts.pieces !== nextOpts.pieces) return false;
   if (prevOpts.onSquareClick !== nextOpts.onSquareClick) return false;
   if (prevOpts.onPieceClick !== nextOpts.onPieceClick) return false;
-  // KS-2152: правый клик и mousedown — выделение клеток в Мастерской.
+  // KS-2152: правый клик и mousedown/mouseup — выделение клеток и drag-toggle стрелок.
   if (prevOpts.onSquareRightClick !== nextOpts.onSquareRightClick) return false;
   if (prevOpts.onSquareMouseDown !== nextOpts.onSquareMouseDown) return false;
-  // KS-2152: drag-стрелки (onArrowsChange) — handleArrowsChange меняется
-  // при обновлении currentAnnotations.
+  if (prevOpts.onSquareMouseUp !== nextOpts.onSquareMouseUp) return false;
   if (prevOpts.onArrowsChange !== nextOpts.onArrowsChange) return false;
 
   return true;
