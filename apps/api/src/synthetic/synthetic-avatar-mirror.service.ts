@@ -111,7 +111,7 @@ export class SyntheticAvatarMirrorService {
           contentType: 'image/png',
         });
       }
-      return this.urlFor(bucket, key);
+      return this.urlForUsername(bucket, username);
     } catch (err) {
       this.logger.warn(
         `S3 mirror failed for ${username}: ${(err as Error).message}`,
@@ -137,19 +137,34 @@ export class SyntheticAvatarMirrorService {
     if (!this.enabled()) return null;
     const bucket = this.bucket();
     if (!bucket) return null;
-    return this.urlFor(bucket, this.objectKey(username));
+    return this.urlForUsername(bucket, username);
   }
 
   // ─── internals ─────────────────────────────────────────────────────
 
+  /**
+   * S3 object key. Raw UTF-8 username — НЕ encoded.
+   * SDK сам положит byte-string в HTTP-заголовок при PutObject.
+   * UNIQUE индекс на `users.username` гарантирует отсутствие
+   * коллизий по объектам.
+   *
+   * KS-2179 follow-up: ранее тут был `encodeURIComponent(username)` —
+   * это давало двойное encoding (S3 хранил ключ `%D0%91…png` буквально,
+   * браузер при запросе `%25D0%2591…png` получал 200, по обычному
+   * URL — 403). Сейчас key = raw, URL = encoded — единственная
+   * корректная комбинация.
+   */
   private objectKey(username: string): string {
-    // Имя файла основано на username — UNIQUE индекс в БД гарантирует
-    // отсутствие коллизий по объектам.
-    return `${encodeURIComponent(username)}.png`;
+    return `${username}.png`;
   }
 
-  private urlFor(bucket: string, key: string): string {
-    return `https://${bucket}.s3.${this.region()}.amazonaws.com/${key}`;
+  /**
+   * HTTP-URL для фронта. Здесь encoding ОБЯЗАТЕЛЕН — кириллица в URL
+   * валидна только в percent-encoded форме. Браузер → S3 decode →
+   * raw key совпадает с тем, что записал PutObject.
+   */
+  private urlForUsername(bucket: string, username: string): string {
+    return `https://${bucket}.s3.${this.region()}.amazonaws.com/${encodeURIComponent(username)}.png`;
   }
 
   /**

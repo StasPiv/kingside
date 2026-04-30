@@ -154,7 +154,7 @@ describe('SyntheticAvatarMirrorService — KS-2178', () => {
     );
   });
 
-  it('username с unicode корректно encodeURIComponent\'ится', async () => {
+  it('KS-2179 fix: cyrillic username — RAW key в S3, encoded в HTTP-URL', async () => {
     process.env[ENV.enabled] = 'true';
     process.env[ENV.bucket] = 'kingside-synthetic-avatars';
     const s3 = makeS3();
@@ -163,9 +163,25 @@ describe('SyntheticAvatarMirrorService — KS-2178', () => {
     svc.configure({ client: s3, fetchFn });
 
     const r = await svc.mirror('Конь42');
-    expect(r).toContain(encodeURIComponent('Конь42') + '.png');
+    // S3 key — raw UTF-8 (НЕ encoded), SDK сам обработает.
     expect(s3.putObject).toHaveBeenCalledWith(
-      expect.objectContaining({ key: encodeURIComponent('Конь42') + '.png' }),
+      expect.objectContaining({ key: 'Конь42.png' }),
     );
+    // HTTP-URL — encoded (для корректного браузерного запроса).
+    expect(r).toBe(
+      `https://kingside-synthetic-avatars.s3.eu-central-1.amazonaws.com/${encodeURIComponent('Конь42')}.png`,
+    );
+  });
+
+  it('KS-2179 fix: expectedUrl для cyrillic — encoded URL без двойного encoding', () => {
+    process.env[ENV.enabled] = 'true';
+    process.env[ENV.bucket] = 'kingside-synthetic-avatars';
+    const svc = new SyntheticAvatarMirrorService();
+    const url = svc.expectedUrl('БыстрыйВолк_2001');
+    expect(url).toBe(
+      `https://kingside-synthetic-avatars.s3.eu-central-1.amazonaws.com/${encodeURIComponent('БыстрыйВолк_2001')}.png`,
+    );
+    // Двойного encoding не должно быть.
+    expect(url).not.toContain('%25');
   });
 });
