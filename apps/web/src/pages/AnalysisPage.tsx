@@ -22,7 +22,7 @@ import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
 import { useSquareHighlights, HIGHLIGHT_COLORS } from '../hooks/useSquareHighlights';
-import type { AnnotationColor, ArrowAnnotation, SquareHighlight } from '../review/types';
+import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight } from '../review/types';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -656,40 +656,70 @@ export function AnalysisPage() {
     onChange: handleHighlightsChange,
   });
 
-  // KS-2152: стрелки рисуются ПКМ-drag самой react-chessboard. Перехватываем
-  // через onArrowsChange и сохраняем в текущую ноду. Чтобы при смене ноды
-  // internal-стрелки library сбрасывались и заменялись на стрелки новой
-  // ноды, MemoChessboard принудительно ремоунтится через `key={annotationsKey}`
-  // — иначе после автоматического `clearArrowsOnPositionChange` нет способа
-  // программно «залить» сохранённые стрелки в internalArrows библиотеки.
+  // KS-2152: стрелки рисуются ПКМ-drag самой react-chessboard.
+  //
+  // Особенность: library хранит свой internalArrows и делает toggle на
+  // повторный drag. Но когда наш external `arrows` показывает уже
+  // сохранённые стрелки из state, library не знает про них — и toggle
+  // ломается, если её internal был очищен (например, после ЛКМ
+  // через clearArrowsOnClick).
+  //
+  // Решение: вычисляем diff между library internal предыдущего вызова
+  // и нового, и применяем его к state. Если added-стрелка УЖЕ есть в
+  // state → это пользовательский toggle off (повторный drag по той же
+  // траектории), удаляем её из state. Если removed — тоже удаляем.
+  // Только новые → добавляем.
+  const prevLibArrowsRef = useRef<ArrowAnnotation[]>([]);
+  // KS-2152: при смене ноды/позиции library сбрасывает свои internalArrows
+  // (clearArrowsOnPositionChange + наш ремоунт по `key`). Сбрасываем и
+  // нашу память — иначе при следующем onArrowsChange diff будет
+  // некорректным («removed» от предыдущей ноды затрут стрелки новой).
+  useEffect(() => {
+    prevLibArrowsRef.current = [];
+  }, [currentGlobalIndex, currentFen]);
   const handleArrowsChange = useCallback(
     ({ arrows: newArrows }: { arrows: { startSquare: string; endSquare: string; color: string }[] }) => {
-      const colorRgbToName: Record<string, AnnotationColor | undefined> = {};
-      // Преобразуем цвета в наш AnnotationColor через RGBA-сравнение
-      for (const arr of newArrows) {
-        const found = (Object.entries(HIGHLIGHT_COLORS) as Array<[AnnotationColor, string]>).find(
-          ([, rgba]) => arr.color === rgba,
-        );
-        if (found) colorRgbToName[arr.color] = found[0];
-      }
       const mapped: ArrowAnnotation[] = newArrows
         .map((a) => {
-          // Цвета по умолчанию: chess.com style — Lib передаёт именно их.
-          // Извлекаем «букву» цвета: Shift→green, Ctrl→red, Alt→blue, default→red.
-          // react-chessboard сам выбирает один из 3 цветов (defaultArrowOptions),
-          // нам важно лишь сохранить какой-то цвет — для простоты используем 'green'
-          // (можно расширить позже, парся через arrowOptions).
-          const fallbackColor: AnnotationColor = colorRgbToName[a.color] ?? 'green';
+          const found = (Object.entries(HIGHLIGHT_COLORS) as Array<[AnnotationColor, string]>).find(
+            ([, rgba]) => a.color === rgba,
+          );
+          const fallbackColor: AnnotationColor = found ? found[0] : 'green';
           return { from: a.startSquare, to: a.endSquare, color: fallbackColor };
         })
-        // Удаляем стрелки-заглушки (одинаковые start/end)
         .filter((a) => a.from !== a.to);
+
+      const key = (a: { from: string; to: string }) => `${a.from}-${a.to}`;
+      const prevSet = new Set(prevLibArrowsRef.current.map(key));
+      const newSet = new Set(mapped.map(key));
+      const added = mapped.filter((a) => !prevSet.has(key(a)));
+      const removedKeys = prevLibArrowsRef.current
+        .map(key)
+        .filter((k) => !newSet.has(k));
+      prevLibArrowsRef.current = mapped;
+
+      const stateArrows = currentAnnotations?.arrows ?? [];
+      const stateMap = new Map(stateArrows.map((a) => [key(a), a] as const));
+
+      // Удаляем стрелки, которые library "стёрла" (toggle off через свой
+      // findIndex), и стрелки, которые она пытается добавить, но они у
+      // нас уже есть (повторный drag после сброса internal).
+      for (const k of removedKeys) stateMap.delete(k);
+      for (const a of added) {
+        if (stateMap.has(key(a))) stateMap.delete(key(a));
+        else stateMap.set(key(a), a);
+      }
+
+      const finalArrows = Array.from(stateMap.values());
       const highlightsCurrent = currentAnnotations?.highlights;
-      setAnnotationsForCurrent(
-        mapped.length === 0 && (!highlightsCurrent || highlightsCurrent.length === 0)
+      const next: NodeAnnotations | undefined =
+        finalArrows.length === 0 && (!highlightsCurrent || highlightsCurrent.length === 0)
           ? undefined
-          : { ...(highlightsCurrent && { highlights: highlightsCurrent }), ...(mapped.length > 0 && { arrows: mapped }) },
-      );
+          : {
+              ...(highlightsCurrent && { highlights: highlightsCurrent }),
+              ...(finalArrows.length > 0 && { arrows: finalArrows }),
+            };
+      setAnnotationsForCurrent(next);
     },
     [currentAnnotations, setAnnotationsForCurrent],
   );
