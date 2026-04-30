@@ -21,7 +21,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { useSquareHighlights, HIGHLIGHT_COLORS, annotationColorByModifiers } from '../hooks/useSquareHighlights';
+import { HIGHLIGHT_COLORS, annotationColorByModifiers } from '../hooks/useSquareHighlights';
 import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight } from '../review/types';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
@@ -633,62 +633,81 @@ export function AnalysisPage() {
     onMove: onClickMove,
   });
 
-  // KS-2152: выделение клеток правым кликом (lichess-style), привязанное к
-  // текущему узлу дерева. Состояние выделений приходит из currentAnnotations,
-  // изменения через onChange сохраняются на ноду через setAnnotationsForCurrent.
-  const handleHighlightsChange = useCallback(
-    (next: SquareHighlight[]) => {
-      const arrowsCurrent = currentAnnotations?.arrows;
-      setAnnotationsForCurrent(
-        next.length === 0 && (!arrowsCurrent || arrowsCurrent.length === 0)
-          ? undefined
-          : { ...(next.length > 0 && { highlights: next }), ...(arrowsCurrent && { arrows: arrowsCurrent }) },
-      );
-    },
-    [currentAnnotations, setAnnotationsForCurrent],
-  );
-  const {
-    highlightStyles,
-    handleSquareMouseDown: onSquareMouseDownHighlight,
-    handleSquareRightClick: onSquareRightClickHighlight,
-  } = useSquareHighlights({
-    value: currentAnnotations?.highlights,
-    onChange: handleHighlightsChange,
-  });
+  // KS-2152: highlight-стили для клеток из текущей ноды/стартовой позиции.
+  // Сама логика toggle (ПКМ-click и ПКМ-drag) теперь в handleBoardMouseUp —
+  // это единая точка, чтобы Chrome contextmenu (пуляющийся на mousedown)
+  // не подсвечивал start-клетку при ПКМ-drag.
+  const highlightStyles = useMemo(() => {
+    const styles: Record<string, React.CSSProperties> = {};
+    const list = currentAnnotations?.highlights;
+    if (list) {
+      for (const h of list) {
+        styles[h.square] = { backgroundColor: HIGHLIGHT_COLORS[h.color] };
+      }
+    }
+    return styles;
+  }, [currentAnnotations]);
 
-  // KS-2152: расширенный mouseDown — пробрасывает в highlight-хук
-  // (запомнить модификаторы) И запоминает start-клетку для drag-toggle стрелок.
+  // KS-2152: запоминаем start-клетку для последующего mouseUp.
+  // onSquareRightClick library НЕ используется — Chrome шлёт contextmenu
+  // на mousedown right (до завершения drag), library тут же вызывает
+  // onSquareRightClick на START-клетке, и highlight приклеивается к
+  // начальной клетке стрелки. Поэтому весь right-click-функционал
+  // (highlight + drag-toggle стрелок) обрабатываем в одной точке —
+  // в handleBoardMouseUp.
   const handleBoardMouseDown = useCallback(
-    (args: { square: string }, e: React.MouseEvent) => {
-      onSquareMouseDownHighlight(args, e);
+    (_args: { square: string }, e: React.MouseEvent) => {
       if (e.button === 2) {
-        arrowDragStartRef.current = args.square;
+        arrowDragStartRef.current = _args.square;
       }
     },
-    [onSquareMouseDownHighlight],
+    [],
   );
 
-  // KS-2152: drag-toggle стрелок на нашей стороне.
   const handleBoardMouseUp = useCallback(
     (args: { square: string }, e: React.MouseEvent) => {
       const dragStart = arrowDragStartRef.current;
       arrowDragStartRef.current = null;
-      if (e.button !== 2 || !dragStart || dragStart === args.square) return;
-
-      const stateArrows = currentAnnotations?.arrows ?? [];
-      const existingIdx = stateArrows.findIndex(
-        (a) => a.from === dragStart && a.to === args.square,
-      );
-      let newArrows: ArrowAnnotation[];
-      if (existingIdx >= 0) {
-        // toggle off — стрелка уже была
-        newArrows = stateArrows.slice(0, existingIdx).concat(stateArrows.slice(existingIdx + 1));
-      } else {
-        const color: AnnotationColor = annotationColorByModifiers(e);
-        newArrows = stateArrows.concat({ from: dragStart, to: args.square, color });
-      }
+      if (e.button !== 2 || !dragStart) return;
 
       const highlightsCurrent = currentAnnotations?.highlights;
+      const arrowsCurrent = currentAnnotations?.arrows;
+
+      if (dragStart === args.square) {
+        // Одиночный ПКМ-клик по той же клетке → toggle highlight.
+        const color: AnnotationColor = annotationColorByModifiers(e);
+        const list = highlightsCurrent ?? [];
+        const idx = list.findIndex((h) => h.square === args.square);
+        let newHighlights: SquareHighlight[];
+        if (idx >= 0 && list[idx].color === color) {
+          newHighlights = list.slice(0, idx).concat(list.slice(idx + 1));
+        } else if (idx >= 0) {
+          newHighlights = list.slice();
+          newHighlights[idx] = { square: args.square, color };
+        } else {
+          newHighlights = list.concat({ square: args.square, color });
+        }
+        const next: NodeAnnotations | undefined =
+          newHighlights.length === 0 && (!arrowsCurrent || arrowsCurrent.length === 0)
+            ? undefined
+            : {
+                ...(newHighlights.length > 0 && { highlights: newHighlights }),
+                ...(arrowsCurrent && { arrows: arrowsCurrent }),
+              };
+        setAnnotationsForCurrent(next);
+        return;
+      }
+
+      // Drag — toggle стрелки.
+      const list = arrowsCurrent ?? [];
+      const idx = list.findIndex((a) => a.from === dragStart && a.to === args.square);
+      let newArrows: ArrowAnnotation[];
+      if (idx >= 0) {
+        newArrows = list.slice(0, idx).concat(list.slice(idx + 1));
+      } else {
+        const color: AnnotationColor = annotationColorByModifiers(e);
+        newArrows = list.concat({ from: dragStart, to: args.square, color });
+      }
       const next: NodeAnnotations | undefined =
         newArrows.length === 0 && (!highlightsCurrent || highlightsCurrent.length === 0)
           ? undefined
@@ -875,15 +894,18 @@ export function AnalysisPage() {
       onPieceClick: handlePieceClick,
       onSquareMouseDown: handleBoardMouseDown,
       onSquareMouseUp: handleBoardMouseUp,
-      onSquareRightClick: onSquareRightClickHighlight,
-      // KS-2152: drag-стрелки обрабатываем сами (см. handleBoardMouseUp),
+      // KS-2152: onSquareRightClick НЕ передаём — Chrome шлёт contextmenu
+      // ещё на mousedown (до завершения drag). Если library вызовет наш
+      // right-click-handler, highlight приклеится к старт-клетке drag'а
+      // (ПКМ-drag e2→e4 подсвечивал бы e2). Highlight + arrow toggle
+      // обрабатываем в handleBoardMouseUp по сравнению start/end.
       // onArrowsChange — no-op; ремоунт через `key={annotationsKey}` сбрасывает
       // library internalArrows, наш external из state — единственный источник.
       onArrowsChange: handleArrowsChange,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, handleBoardMouseDown, handleBoardMouseUp, onSquareRightClickHighlight, handleArrowsChange],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, handleBoardMouseDown, handleBoardMouseUp, handleArrowsChange],
   );
 
   // SAN path from the root to the currently viewed position (follows variations).
