@@ -719,11 +719,15 @@ export function AnalysisPage() {
     [arrows, annotationArrows],
   );
 
-  // Ремоунт MemoChessboard при смене ноды — обнуляет internalArrows библиотеки
-  // (см. комментарий выше про onArrowsChange).
+  // Ремоунт MemoChessboard при смене ноды И при изменении annotations.
+  // KS-2152: добавление annotations в key гарантирует, что после ПКМ /
+  // drag-стрелки react-chessboard полностью пересоздаётся и applies new
+  // squareStyles/arrows. Без этого при стабильном key (та же позиция —
+  // только обновили выделения) library под капотом могла кэшировать
+  // squareStyles и не показывать новый цвет до следующего ремоунта.
   const annotationsKey = useMemo(
-    () => `${currentGlobalIndex}|${currentFen}`,
-    [currentGlobalIndex, currentFen],
+    () => `${currentGlobalIndex}|${currentFen}|${JSON.stringify(currentAnnotations ?? null)}`,
+    [currentGlobalIndex, currentFen, currentAnnotations],
   );
 
   // --- Archive tree handlers ---
