@@ -2,15 +2,21 @@ import type { ChessMove, NodeAnnotations } from '../types';
 import { serializeCommentWithMacros } from './commentMacros';
 
 /**
- * KS-2152: аннотации читаются из мапы annotationsByIndex, а не из move.
- * Если мапа не передана, используем move.annotations как fallback (для
- * совместимости со старыми вызовами и тестами).
+ * KS-2152: аннотации читаются из мапы annotationsByIndex.
+ *
+ * Если byIndex передан — берём ТОЛЬКО оттуда (или undefined если ключа нет).
+ * Это важно: после удаления аннотации (toggle off) move.annotations может
+ * содержать устаревшее значение из последнего LOAD_FROM_PGN, и fallback
+ * на него вернул бы вычеркнутые данные обратно в PGN.
+ *
+ * Если byIndex не передан — fallback на move.annotations (для совместимости
+ * с тестами и старыми вызовами).
  */
 function getAnnotations(
   move: ChessMove,
   byIndex?: Record<number, NodeAnnotations>,
 ): NodeAnnotations | undefined {
-  if (byIndex && Object.prototype.hasOwnProperty.call(byIndex, move.globalIndex)) {
+  if (byIndex !== undefined) {
     return byIndex[move.globalIndex];
   }
   return move.annotations;

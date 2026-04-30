@@ -454,9 +454,53 @@ export function AnalysisPage() {
           ...(savedPosition != null && { currentPosition: savedPosition }),
         }).catch(() => {});
       }
-    }, 2000);
+      // KS-2152: debounce 600мс — иначе пользователь успевает перезагрузить
+      // страницу до сохранения, и при reload подгружается старый PGN с
+      // прошлыми аннотациями (выглядит как «цвет стрелки сменился сам»).
+    }, 600);
     return () => { if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current); };
   }, [gameId, history, analysisTitle, initialFen, pgnHeaders, hasPgnHeaders, hasInitialAnnotations, initialAnnotations, annotationsByIndex, createAnalysis, updateAnalysis]);
+
+  // KS-2152: при unload/visibility hidden flush'им несохранённое — чтобы
+  // ALT-tab или close window не съели только что нарисованные аннотации.
+  const flushSaveOnHide = useCallback(() => {
+    if (!user) return;
+    if (gameId) return;
+    if (!localIdRef.current) return;
+    if (history.length === 0 && !hasPgnHeaders && !hasInitialAnnotations) return;
+    if (localSaveTimerRef.current) {
+      clearTimeout(localSaveTimerRef.current);
+      localSaveTimerRef.current = null;
+    }
+    const movesOnly = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
+    const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
+    // sendBeacon — единственный надёжный способ сохранить во время unload.
+    try {
+      const url = `${import.meta.env.VITE_API_URL ?? ''}/analyses/${localIdRef.current}`;
+      const token = localStorage.getItem('token');
+      const blob = new Blob([JSON.stringify({ pgn })], { type: 'application/json' });
+      // sendBeacon does PATCH-like POST; fallback на updateAnalysis
+      if (navigator.sendBeacon && !token) {
+        navigator.sendBeacon(url, blob);
+      } else {
+        updateAnalysis(localIdRef.current, { pgn }).catch(() => {});
+      }
+    } catch {
+      updateAnalysis(localIdRef.current, { pgn }).catch(() => {});
+    }
+  }, [user, gameId, history, hasPgnHeaders, hasInitialAnnotations, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex, updateAnalysis]);
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') flushSaveOnHide();
+    };
+    window.addEventListener('pagehide', flushSaveOnHide);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('pagehide', flushSaveOnHide);
+      document.removeEventListener('visibilitychange', onHide);
+    };
+  }, [flushSaveOnHide]);
 
   useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
