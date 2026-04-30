@@ -448,6 +448,7 @@ detect_deploy_scope() {
     local has_game=false
     local has_broadcast_service=false
     local has_archive_service=false
+    local has_synthetic_bot=false
 
     while IFS= read -r file; do
         [ -z "$file" ] && continue
@@ -466,18 +467,22 @@ detect_deploy_scope() {
                 has_archive_service=true ;;
             packages/archive-db/*)
                 has_archive_service=true ;;
+            apps/synthetic-bot-service/*)
+                has_synthetic_bot=true ;;
             packages/shared/*)
                 has_frontend=true
                 has_api=true
                 has_game=true
                 has_broadcast_service=true
-                has_archive_service=true ;;
+                has_archive_service=true
+                has_synthetic_bot=true ;;
             scripts/*|infra/*|justfile)
                 has_frontend=true
                 has_api=true
                 has_game=true
                 has_broadcast_service=true
-                has_archive_service=true ;;
+                has_archive_service=true
+                has_synthetic_bot=true ;;
         esac
     done <<< "$changed_files"
 
@@ -488,6 +493,7 @@ detect_deploy_scope() {
     $has_game && count=$((count + 1))
     $has_broadcast_service && count=$((count + 1))
     $has_archive_service && count=$((count + 1))
+    $has_synthetic_bot && count=$((count + 1))
 
     if [ "$count" -gt 1 ]; then
         echo "all"
@@ -501,6 +507,8 @@ detect_deploy_scope() {
         echo "broadcast-service"
     elif $has_archive_service; then
         echo "archive-service"
+    elif $has_synthetic_bot; then
+        echo "synthetic-bot"
     else
         echo "none"
     fi
@@ -530,6 +538,7 @@ DEPLOY_API=false
 DEPLOY_GAME=false
 DEPLOY_BROADCAST_SERVICE=false
 DEPLOY_ARCHIVE_SERVICE=false
+DEPLOY_SYNTHETIC_BOT=false
 
 case "$SCOPE" in
     frontend)           DEPLOY_FRONTEND=true ;;
@@ -537,8 +546,9 @@ case "$SCOPE" in
     game-service)       DEPLOY_GAME=true ;;
     broadcast-service)  DEPLOY_BROADCAST_SERVICE=true ;;
     archive-service)    DEPLOY_ARCHIVE_SERVICE=true ;;
+    synthetic-bot)      DEPLOY_SYNTHETIC_BOT=true ;;
     workers)            DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
-    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true ;;
+    all)                DEPLOY_FRONTEND=true; DEPLOY_API=true; DEPLOY_GAME=true; DEPLOY_BROADCAST_SERVICE=true; DEPLOY_ARCHIVE_SERVICE=true; DEPLOY_SYNTHETIC_BOT=true ;;
     *)                  echo "Unknown scope: $SCOPE"; exit 1 ;;
 esac
 
@@ -939,6 +949,18 @@ if $DEPLOY_ARCHIVE_SERVICE; then
     else
         echo "[archive-service] Neither HTTP nor importer ACTIVE — :latest NOT moved (bootstrap flow)."
     fi
+fi
+
+# --- Synthetic-bot service (apps/synthetic-bot-service) ---
+# KS-2195 / ADR-034-v2. Делегируем в scripts/deploy-synthetic-bot.sh — он
+# собирает образ, регистрирует новый task-def revision с pinned SHA, делает
+# update-service и ждёт services-stable. Атомарный move :latest → :<sha>
+# выполняется внутри deploy-synthetic-bot.sh после wait services-stable
+# (тот же паттерн KS-1826/KS-2086).
+if $DEPLOY_SYNTHETIC_BOT; then
+    echo ""
+    echo "[synthetic-bot] Delegating to scripts/deploy-synthetic-bot.sh..."
+    bash "${SCRIPT_DIR}/deploy-synthetic-bot.sh"
 fi
 
 # Save deployed commit
