@@ -250,7 +250,16 @@
     "pieceAnimationFast": "Fast (100ms)",
     "pieceAnimationNormal": "Normal (200ms)",
     "sound": "Sound",
-    "soundEffects": "Sound effects"
+    "soundEffects": "Sound effects",
+    "soundTheme": {
+      "label": "Sound theme",
+      "preview": "Preview",
+      "previewHint": "Preview move sound of each theme",
+      "standard": "Standard",
+      "wood": "Wooden board",
+      "minimal": "Minimal",
+      "eightbit": "Retro 8-bit"
+    }
   },
   "lobby": {
     "title": "Lobby",

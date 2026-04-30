@@ -4,14 +4,14 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api';
 import type { Locale } from '@kingside/shared';
-import { useSounds } from '../hooks/useSounds';
+import { useSounds, SOUND_THEMES, previewSound, type SoundTheme } from '../hooks/useSounds';
 import { useBoardSettings, BOARD_THEMES, PIECE_SETS } from '../hooks/useBoardSettings';
 import { HelpButton } from '../components/HelpButton';
 
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
-  const { muted, toggleMute } = useSounds();
+  const { muted, toggleMute, theme: soundTheme, setTheme: setSoundThemeState } = useSounds();
   const { boardTheme, pieceSet, selectTheme, selectPieceSet } = useBoardSettings();
 
   const [blocked, setBlocked] = useState<{ id: string; username: string }[]>([]);
@@ -192,6 +192,50 @@ export function SettingsPage() {
             checked={!muted}
             onChange={toggleMute}
           />
+        </div>
+        {/* KS-2172: выбор звуковой темы. Список из useSounds.SOUND_THEMES,
+            сохранение в localStorage через setSoundTheme. Кнопка «Прослушать»
+            играет звук move выбранной темы (игнорирует mute). */}
+        <div className="settings-field">
+          <label htmlFor="sound-theme">{t('settings.soundTheme.label', 'Sound theme')}</label>
+          <select
+            id="sound-theme"
+            value={soundTheme}
+            onChange={(e) => setSoundThemeState(e.target.value as SoundTheme)}
+            disabled={muted}
+          >
+            {SOUND_THEMES.map((th) => (
+              <option key={th.id} value={th.id}>
+                {t(th.nameKey, i18n.language === 'ru' ? th.nameRu : th.nameEn)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="settings-field settings-sound-themes-list" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+          <span style={{ fontSize: 13, opacity: 0.75 }}>
+            {t('settings.soundTheme.previewHint', 'Preview each theme')}
+          </span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {SOUND_THEMES.map((th) => (
+              <button
+                key={th.id}
+                type="button"
+                onClick={() => previewSound(th.id, 'move')}
+                aria-label={`${t('settings.soundTheme.preview', 'Preview')}: ${i18n.language === 'ru' ? th.nameRu : th.nameEn}`}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 13,
+                  borderRadius: 4,
+                  border: th.id === soundTheme ? '2px solid var(--c-4caf50)' : '1px solid var(--c-555)',
+                  background: 'var(--c-2a2a2a, #2a2a2a)',
+                  color: 'var(--c-fff, #fff)',
+                  cursor: 'pointer',
+                }}
+              >
+                ▶ {t(th.nameKey, i18n.language === 'ru' ? th.nameRu : th.nameEn)}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 

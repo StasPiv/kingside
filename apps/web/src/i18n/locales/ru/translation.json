@@ -252,7 +252,16 @@
     "pieceAnimationFast": "Быстрая (100мс)",
     "pieceAnimationNormal": "Нормальная (200мс)",
     "sound": "Звук",
-    "soundEffects": "Звуковые эффекты"
+    "soundEffects": "Звуковые эффекты",
+    "soundTheme": {
+      "label": "Звуковая тема",
+      "preview": "Прослушать",
+      "previewHint": "Прослушать звук хода каждой темы",
+      "standard": "Стандарт",
+      "wood": "Деревянная доска",
+      "minimal": "Минимализм",
+      "eightbit": "Ретро 8-bit"
+    }
   },
   "lobby": {
     "title": "Лобби",
