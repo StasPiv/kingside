@@ -658,6 +658,11 @@ if $DEPLOY_GAME; then
     # / STOCKFISH_POOL_* / MATCHMAKING_LIVE_WAIT_* — операционные пороги.
     # SYNTHETIC_AVATARS_S3_BUCKET оставлен пустым: backend идёт по DiceBear-direct
     # (см. KS-2162). Если bucket понадобится — обновим этот блок.
+    # KS-2177: bucket kingside-synthetic-avatars (eu-central-1, public-read)
+    # как S3-mirror DiceBear-аватаров. SYNTHETIC_AVATARS_MIRRORING_ENABLED=false
+    # по умолчанию — backend подключит mirrorToS3() и переключит флаг отдельно.
+    # IAM-права s3:PutObject выданы через inline-policy `kingside-synthetic-avatars-write`
+    # на ecsTaskRole (используется этим контейнером).
     GAME_SERVICE_EXTRA_ENV='[
       {"name":"SYNTHETIC_SCHEDULER_ENABLED","value":"false"},
       {"name":"SYNTHETIC_BOOTSTRAP_ENABLED","value":"false"},
@@ -672,7 +677,9 @@ if $DEPLOY_GAME; then
       {"name":"STOCKFISH_TASK_TIMEOUT_MS","value":"8000"},
       {"name":"MATCHMAKING_LIVE_WAIT_MIN_MS","value":"5000"},
       {"name":"MATCHMAKING_LIVE_WAIT_MAX_MS","value":"15000"},
-      {"name":"SYNTHETIC_AVATARS_S3_BUCKET","value":""}
+      {"name":"SYNTHETIC_AVATARS_S3_BUCKET","value":"kingside-synthetic-avatars"},
+      {"name":"SYNTHETIC_AVATARS_S3_REGION","value":"eu-central-1"},
+      {"name":"SYNTHETIC_AVATARS_MIRRORING_ENABLED","value":"false"}
     ]'
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_GAME" "$NEW_IMAGE" "$GAME_SERVICE_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
