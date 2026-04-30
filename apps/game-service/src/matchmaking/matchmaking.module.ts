@@ -5,6 +5,8 @@ import { AuthModule } from '../auth/auth.module';
 import { GameModule } from '../game/game.module';
 import { SyntheticPresenceService } from './synthetic/synthetic-presence.service';
 import { SyntheticSchedulerService } from './synthetic/synthetic-scheduler.service';
+import { StockfishPoolService } from './synthetic/engine/stockfish-pool.service';
+import { SyntheticMoveEngineService } from './synthetic/engine/synthetic-move-engine.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import type {
@@ -33,11 +35,15 @@ import type {
     MatchmakingGateway,
     SyntheticPresenceService,
     SyntheticSchedulerService,
+    StockfishPoolService,
+    SyntheticMoveEngineService,
   ],
   exports: [
     MatchmakingService,
     SyntheticPresenceService,
     SyntheticSchedulerService,
+    StockfishPoolService,
+    SyntheticMoveEngineService,
   ],
 })
 export class MatchmakingModule implements OnModuleInit {
