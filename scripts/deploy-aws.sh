@@ -594,17 +594,10 @@ if $DEPLOY_API; then
     # KS-2108/KS-2109: admin endpoints (feature flags) требуют список логинов
     # в KS_ADMIN_USERS, default-deny если не задано. Прокидываем через
     # env-overrides, существующая env остаётся как есть.
-    # KS-2179 + раскатка synthetic'ов 30.04: те же 3 S3-переменные что и
-    # для kingside-game-service (KS-2177). SyntheticProfileSeederService и
-    # SyntheticAvatarMirrorService живут в apps/api.
-    # MIRRORING_ENABLED=true — фича активирована (после KS-2179 fix encoding
-    # в commit 0e983927 + remirror-CLI 3a06e648).
-    API_EXTRA_ENV='[
-      {"name":"KS_ADMIN_USERS","value":"StanislavTelegram"},
-      {"name":"SYNTHETIC_AVATARS_S3_BUCKET","value":"kingside-synthetic-avatars"},
-      {"name":"SYNTHETIC_AVATARS_S3_REGION","value":"eu-central-1"},
-      {"name":"SYNTHETIC_AVATARS_MIRRORING_ENABLED","value":"true"}
-    ]'
+    # 30.04 откат synthetic-stack (KS-2159..2179): SYNTHETIC_AVATARS_*
+    # удалены из API_EXTRA_ENV, чтобы deploy api не возрождал фичу.
+    # Bucket/IAM/БД-миграция оставлены до решения о новой архитектуре.
+    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"StanislavTelegram"}]'
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE" "$API_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
 
@@ -662,36 +655,11 @@ if $DEPLOY_GAME; then
     docker push "$NEW_IMAGE" 2>&1 | tail -3
 
     echo "[game-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
-    # KS-2170 (ADR-034 §10.3 D1+D2): synthetic users — feature-флаги bootstrap'а
-    # и scheduler'а выключены по умолчанию; включаются вручную через update-task-def
-    # в порядке "сначала bootstrap, после завершения — scheduler". Остальные SYNTHETIC_*
-    # / STOCKFISH_POOL_* / MATCHMAKING_LIVE_WAIT_* — операционные пороги.
-    # SYNTHETIC_AVATARS_S3_BUCKET оставлен пустым: backend идёт по DiceBear-direct
-    # (см. KS-2162). Если bucket понадобится — обновим этот блок.
-    # KS-2177: bucket kingside-synthetic-avatars (eu-central-1, public-read)
-    # как S3-mirror DiceBear-аватаров. SYNTHETIC_AVATARS_MIRRORING_ENABLED=false
-    # по умолчанию — backend подключит mirrorToS3() и переключит флаг отдельно.
-    # IAM-права s3:PutObject выданы через inline-policy `kingside-synthetic-avatars-write`
-    # на ecsTaskRole (используется этим контейнером).
-    GAME_SERVICE_EXTRA_ENV='[
-      {"name":"SYNTHETIC_SCHEDULER_ENABLED","value":"false"},
-      {"name":"SYNTHETIC_BOOTSTRAP_ENABLED","value":"false"},
-      {"name":"SYNTHETIC_BOOTSTRAP_TARGET_GAMES","value":"30"},
-      {"name":"SYNTHETIC_BOOTSTRAP_PARALLELISM","value":"30"},
-      {"name":"SYNTHETIC_POOL_SIZE","value":"200"},
-      {"name":"SYNTHETIC_DISABLE_AT_LIVE_QUEUE_LEN","value":"3"},
-      {"name":"SYNTHETIC_PRESENCE_TICK_MS","value":"60000"},
-      {"name":"SYNTHETIC_POLLING_INTERVAL_MIN_MS","value":"30000"},
-      {"name":"SYNTHETIC_POLLING_INTERVAL_MAX_MS","value":"120000"},
-      {"name":"STOCKFISH_POOL_SIZE","value":"3"},
-      {"name":"STOCKFISH_TASK_TIMEOUT_MS","value":"8000"},
-      {"name":"MATCHMAKING_LIVE_WAIT_MIN_MS","value":"5000"},
-      {"name":"MATCHMAKING_LIVE_WAIT_MAX_MS","value":"15000"},
-      {"name":"SYNTHETIC_AVATARS_S3_BUCKET","value":"kingside-synthetic-avatars"},
-      {"name":"SYNTHETIC_AVATARS_S3_REGION","value":"eu-central-1"},
-      {"name":"SYNTHETIC_AVATARS_MIRRORING_ENABLED","value":"false"}
-    ]'
-    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_GAME" "$NEW_IMAGE" "$GAME_SERVICE_EXTRA_ENV")
+    # 30.04 откат synthetic-stack (KS-2159..2179): GAME_SERVICE_EXTRA_ENV
+    # удалён, чтобы deploy game-service не возрождал фичу через ENV. Если
+    # synthetic будет возвращён по новой архитектуре (WebSocket-bot-fleet),
+    # этот блок будет переписан.
+    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_GAME" "$NEW_IMAGE")
     echo "  task-def: $NEW_TD_ARN"
 
     echo "[game-service] Updating ECS service to new revision..."
