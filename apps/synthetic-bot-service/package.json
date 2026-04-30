@@ -10,10 +10,12 @@
     "lint": "eslint src --ext .ts"
   },
   "dependencies": {
+    "@kingside/shared": "*",
     "@nestjs/common": "^11.1.16",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.1.16",
     "@nestjs/platform-express": "^11.1.16",
+    "ioredis": "^5.0.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.0.0"
   },

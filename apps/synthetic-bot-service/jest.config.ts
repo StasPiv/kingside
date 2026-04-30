@@ -10,6 +10,10 @@ const config: Config = {
   collectCoverageFrom: ['**/*.ts', '!**/*.module.ts', '!main.ts'],
   coverageDirectory: '../coverage',
   testEnvironment: 'node',
+  moduleNameMapper: {
+    '^@kingside/shared$': '<rootDir>/../../../packages/shared/src',
+    '^(\\.\\.?/.*)\\.js$': '$1',
+  },
 };
 
 export default config;

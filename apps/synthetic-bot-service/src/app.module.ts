@@ -1,19 +1,23 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import { HealthController } from './health.controller';
+import { AuthModule } from './auth/auth.module';
 
 /**
  * Synthetic Bot Service — корневой модуль.
  *
- * Скелет (B0v2). Бизнес-логика будет добавлена в задачах:
- *   - B1v2 (BotTokenService)
- *   - B2v2 (BotManager)
- *   - B3v2 (BotInstance + Game WS client)
- *   - B4v2 (StockfishPool)
- *   - B5v2 (Scheduler + Redis sharding)
- *   - B6v2 (профили ботов, рейтинговая выборка)
+ * Состав на B1v2:
+ *   - HealthController — liveness `/health` (B0v2).
+ *   - AuthModule — `BotTokenService` + `TokenCacheService` (B1v2).
+ *
+ * Бизнес-логика (BotManager / BotInstance / StockfishPool / Scheduler)
+ * добавится в B2v2..B6v2.
  */
 @Module({
-  imports: [],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    AuthModule,
+  ],
   controllers: [HealthController],
   providers: [],
 })
