@@ -9,6 +9,7 @@ import { StockfishPoolService } from './synthetic/engine/stockfish-pool.service'
 import { SyntheticMoveEngineService } from './synthetic/engine/synthetic-move-engine.service';
 import { TwicOpeningBookProvider } from './synthetic/engine/twic-opening-book-provider';
 import { SyntheticBootstrapService } from './synthetic/bootstrap/synthetic-bootstrap.service';
+import { SyntheticChatService } from './synthetic/chat/synthetic-chat.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import type {
@@ -41,6 +42,7 @@ import type {
     SyntheticMoveEngineService,
     TwicOpeningBookProvider,
     SyntheticBootstrapService,
+    SyntheticChatService,
   ],
   exports: [
     MatchmakingService,
@@ -50,6 +52,7 @@ import type {
     SyntheticMoveEngineService,
     TwicOpeningBookProvider,
     SyntheticBootstrapService,
+    SyntheticChatService,
   ],
 })
 export class MatchmakingModule implements OnModuleInit {
