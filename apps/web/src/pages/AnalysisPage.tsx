@@ -21,7 +21,7 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { HIGHLIGHT_COLORS, annotationColorByModifiers } from '../hooks/useSquareHighlights';
+import { HIGHLIGHT_COLORS, highlightColorByModifiers, arrowColorByModifiers } from '../hooks/useSquareHighlights';
 import type { AnnotationColor, ArrowAnnotation, NodeAnnotations, SquareHighlight } from '../review/types';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
@@ -675,7 +675,7 @@ export function AnalysisPage() {
 
       if (dragStart === args.square) {
         // Одиночный ПКМ-клик по той же клетке → toggle highlight.
-        const color: AnnotationColor = annotationColorByModifiers(e);
+        const color: AnnotationColor = highlightColorByModifiers(e);
         const list = highlightsCurrent ?? [];
         const idx = list.findIndex((h) => h.square === args.square);
         let newHighlights: SquareHighlight[];
@@ -705,7 +705,7 @@ export function AnalysisPage() {
       if (idx >= 0) {
         newArrows = list.slice(0, idx).concat(list.slice(idx + 1));
       } else {
-        const color: AnnotationColor = annotationColorByModifiers(e);
+        const color: AnnotationColor = arrowColorByModifiers(e);
         newArrows = list.concat({ from: dragStart, to: args.square, color });
       }
       const next: NodeAnnotations | undefined =
@@ -894,6 +894,23 @@ export function AnalysisPage() {
       onPieceClick: handlePieceClick,
       onSquareMouseDown: handleBoardMouseDown,
       onSquareMouseUp: handleBoardMouseUp,
+      // KS-2152: цвета preview-стрелки во время ПКМ-drag (library знает только
+      // Shift и Ctrl). Задаём так, чтобы preview совпадал с финальным цветом
+      // нашей сохранённой стрелки: default=green, Shift=red, Ctrl=yellow.
+      // Alt библиотека не различает — для Alt preview останется зелёным,
+      // на mouseUp подменится на синий.
+      arrowOptions: {
+        color: HIGHLIGHT_COLORS.green,
+        secondaryColor: HIGHLIGHT_COLORS.red,
+        tertiaryColor: HIGHLIGHT_COLORS.yellow,
+        arrowLengthReducerDenominator: 8,
+        sameTargetArrowLengthReducerDenominator: 4,
+        arrowWidthDenominator: 8,
+        activeArrowWidthMultiplier: 1.2,
+        opacity: 0.8,
+        activeOpacity: 0.5,
+        arrowStartOffset: 0.3,
+      },
       // KS-2152: onSquareRightClick НЕ передаём — Chrome шлёт contextmenu
       // ещё на mousedown (до завершения drag). Если library вызовет наш
       // right-click-handler, highlight приклеится к старт-клетке drag'а
