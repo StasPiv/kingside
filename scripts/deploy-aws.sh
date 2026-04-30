@@ -594,7 +594,16 @@ if $DEPLOY_API; then
     # KS-2108/KS-2109: admin endpoints (feature flags) требуют список логинов
     # в KS_ADMIN_USERS, default-deny если не задано. Прокидываем через
     # env-overrides, существующая env остаётся как есть.
-    API_EXTRA_ENV='[{"name":"KS_ADMIN_USERS","value":"StanislavTelegram"}]'
+    # KS-2179: те же 3 переменные, что и для kingside-game-service (KS-2177).
+    # SyntheticProfileSeederService живёт в apps/api и использует mirrorToS3().
+    # Фича-флаг MIRRORING_ENABLED=false — включается отдельным шагом
+    # после подтверждения что @aws-sdk/client-s3 подгружен.
+    API_EXTRA_ENV='[
+      {"name":"KS_ADMIN_USERS","value":"StanislavTelegram"},
+      {"name":"SYNTHETIC_AVATARS_S3_BUCKET","value":"kingside-synthetic-avatars"},
+      {"name":"SYNTHETIC_AVATARS_S3_REGION","value":"eu-central-1"},
+      {"name":"SYNTHETIC_AVATARS_MIRRORING_ENABLED","value":"false"}
+    ]'
     NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_API" "$NEW_IMAGE" "$API_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
 
