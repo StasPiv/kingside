@@ -21,6 +21,8 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
+import { useSquareHighlights } from '../hooks/useSquareHighlights';
+import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useReviewState } from '../review/useReviewState';
@@ -624,6 +626,25 @@ export function AnalysisPage() {
     onMove: onClickMove,
   });
 
+  // KS-2152: выделение клеток правым кликом (lichess-style).
+  // Сброс при смене FEN (включая ходы и навигацию по дереву) и при левом клике.
+  const {
+    highlightStyles,
+    handleSquareMouseDown: onSquareMouseDownRight,
+    handleSquareRightClick: onSquareRightClickHighlight,
+    clearHighlights,
+  } = useSquareHighlights({ resetKey: currentFen });
+
+  // Объединённые стили: подсветка из useBoardHighlights + правый клик.
+  // Правый клик имеет приоритет, поэтому идёт вторым.
+  const mergedSquareStyles = useMemo(() => {
+    const merged: Record<string, React.CSSProperties> = { ...squareStyles };
+    for (const [square, style] of Object.entries(highlightStyles)) {
+      merged[square] = { ...merged[square], ...style };
+    }
+    return merged;
+  }, [squareStyles, highlightStyles]);
+
   // --- Archive tree handlers ---
   const handleTreeMove = useCallback(
     (uci: string) => {
@@ -651,16 +672,52 @@ export function AnalysisPage() {
     if (currentMove) setLastMove(currentMove.from as Square, currentMove.to as Square);
   }, [currentMove, setLastMove]);
 
+  // KS-2151: звук ходов в Мастерской.
+  // Триггерим на смену currentMove — это покрывает оба источника:
+  //  - ход пользователя (makeVariantMove → новый currentMove);
+  //  - навигация по дереву (gotoNext/Previous/Last/First/gotoMove).
+  // Первый рендер (prevIndex === null) НЕ озвучиваем — иначе при открытии
+  // сохранённой партии с last-position будет лишний звук на старте.
+  // soundEventFromSan различает move/capture/check/castle по SAN.
+  const { playSound } = useSounds();
+  const prevMoveGlobalIndexRef = useRef<number | null>(null);
+  const isFirstSoundRenderRef = useRef(true);
+  useEffect(() => {
+    const currentIndex = currentMove?.globalIndex ?? null;
+    const prevIndex = prevMoveGlobalIndexRef.current;
+    if (isFirstSoundRenderRef.current) {
+      isFirstSoundRenderRef.current = false;
+      prevMoveGlobalIndexRef.current = currentIndex;
+      return;
+    }
+    if (currentIndex !== prevIndex) {
+      if (currentMove) {
+        playSound(soundEventFromSan(currentMove.san));
+      } else {
+        // Возврат к стартовой позиции (gotoFirst) — короткий «плик» хода
+        playSound('move');
+      }
+    }
+    prevMoveGlobalIndexRef.current = currentIndex;
+  }, [currentMove, playSound]);
+
   const handleSquareClick = useCallback(
-    ({ square }: { piece?: unknown; square: string }) => onSquareClick(square as Square),
-    [onSquareClick],
+    ({ square }: { piece?: unknown; square: string }) => {
+      // KS-2152: левый клик сбрасывает выделения, как и стрелки.
+      clearHighlights();
+      onSquareClick(square as Square);
+    },
+    [onSquareClick, clearHighlights],
   );
 
   const handlePieceClick = useCallback(
     ({ square }: { isSparePiece?: boolean; piece?: unknown; square: string | null }) => {
-      if (square) onSquareClick(square as Square);
+      if (square) {
+        clearHighlights();
+        onSquareClick(square as Square);
+      }
     },
-    [onSquareClick],
+    [onSquareClick, clearHighlights],
   );
 
   // KS-2034: legacy `handlePieceDrop` удалён — вместо него используется
@@ -696,14 +753,16 @@ export function AnalysisPage() {
       animationDurationInMs: suppressAnimationRef.current ? 0 : 200,
       allowDragging: false,
       showNotation: true,
-      squareStyles,
+      squareStyles: mergedSquareStyles,
       arrows,
       onSquareClick: handleSquareClick,
       onPieceClick: handlePieceClick,
+      onSquareMouseDown: onSquareMouseDownRight,
+      onSquareRightClick: onSquareRightClickHighlight,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, squareStyles, arrows, handleSquareClick, handlePieceClick],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, arrows, handleSquareClick, handlePieceClick, onSquareMouseDownRight, onSquareRightClickHighlight],
   );
 
   // SAN path from the root to the currently viewed position (follows variations).
