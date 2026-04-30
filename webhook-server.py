@@ -91,6 +91,8 @@ _BASE_VOLUMES = [
     f"{os.path.expanduser('~/.cache/ms-playwright')}:/home/agent/.cache/ms-playwright:ro",
     f"{_SHARED_TMP}:/tmp",
     f"{_P}/tools/mcp-agent.mjs:/project/tools/mcp-agent.mjs:ro",
+    # turbo.json нужен всем для `turbo run build/test/lint` в монорепо
+    f"{_P}/turbo.json:/project/turbo.json:ro",
 ]
 
 # Генерируем MCP config для агентов (один на всех, создаётся при старте webhook)
