@@ -178,7 +178,7 @@ export function AnalysisPage() {
     gotoPrevious, gotoNext, makeVariantMove, removeVariation,
     truncateRemaining, promoteVariation, setNag, setComment,
     // KS-2152
-    currentAnnotations, initialAnnotations, setAnnotationsForCurrent,
+    currentAnnotations, initialAnnotations, annotationsByIndex, setAnnotationsForCurrent,
   } = useReviewState();
 
   const game = useMemo(() => new Chess(), []);
@@ -368,7 +368,7 @@ export function AnalysisPage() {
     fetchData();
   }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
 
-  useAnalysisPersistence(gameId, history, initialAnnotations);
+  useAnalysisPersistence(gameId, history, initialAnnotations, annotationsByIndex);
 
   // --- Position save/restore ---
   const suppressPositionSaveRef = useRef(true);
@@ -431,7 +431,7 @@ export function AnalysisPage() {
 
     localSaveTimerRef.current = setTimeout(async () => {
       // KS-2152: initialAnnotations попадают в leading-комментарий PGN
-      const movesOnly = serializeToAnnotatedPgn(history, initialAnnotations);
+      const movesOnly = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
       const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
       if (!localIdRef.current) {
         try {
@@ -456,7 +456,7 @@ export function AnalysisPage() {
       }
     }, 2000);
     return () => { if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current); };
-  }, [gameId, history, analysisTitle, initialFen, pgnHeaders, hasPgnHeaders, hasInitialAnnotations, initialAnnotations, createAnalysis, updateAnalysis]);
+  }, [gameId, history, analysisTitle, initialFen, pgnHeaders, hasPgnHeaders, hasInitialAnnotations, initialAnnotations, annotationsByIndex, createAnalysis, updateAnalysis]);
 
   useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
@@ -588,8 +588,9 @@ export function AnalysisPage() {
       if (pgnHeaders['WhiteElo']) headers.push(`[WhiteElo "${pgnHeaders['WhiteElo']}"]`);
       if (pgnHeaders['BlackElo']) headers.push(`[BlackElo "${pgnHeaders['BlackElo']}"]`);
       if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
-      // KS-2152: initialAnnotations попадают в leading-комментарий
-      const moves = serializeToAnnotatedPgn(history, initialAnnotations);
+      // KS-2152: initialAnnotations попадают в leading-комментарий, а
+      // node-annotations берутся из annotationsByIndex (state useReviewState).
+      const moves = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
       const pgn = headers.join('\n') + '\n\n' + moves + '\n';
       const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
       const url = URL.createObjectURL(blob);

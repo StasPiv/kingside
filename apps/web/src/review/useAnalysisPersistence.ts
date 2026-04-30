@@ -10,16 +10,20 @@ export function useAnalysisPersistence(
   history: ChessMove[],
   /** KS-2152: аннотации стартовой позиции (см. ReviewState.initialAnnotations). */
   initialAnnotations?: NodeAnnotations,
+  /** KS-2152: аннотации по globalIndex узла дерева. */
+  annotationsByIndex?: Record<number, NodeAnnotations>,
 ): void {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef<boolean>(false);
   const historyRef = useRef<ChessMove[]>(history);
   const initialAnnRef = useRef<NodeAnnotations | undefined>(initialAnnotations);
+  const annByIdxRef = useRef<Record<number, NodeAnnotations> | undefined>(annotationsByIndex);
   const gameIdRef = useRef<string | undefined>(gameId);
 
   useEffect(() => {
     historyRef.current = history;
     initialAnnRef.current = initialAnnotations;
+    annByIdxRef.current = annotationsByIndex;
     gameIdRef.current = gameId;
   });
 
@@ -38,7 +42,7 @@ export function useAnalysisPersistence(
 
     timerRef.current = setTimeout(() => {
       pendingSaveRef.current = false;
-      const pgn = serializeToAnnotatedPgn(history, initialAnnotations);
+      const pgn = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
       api.put(`/games/${gameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
     }, DEBOUNCE_MS);
 
@@ -47,7 +51,7 @@ export function useAnalysisPersistence(
         clearTimeout(timerRef.current);
       }
     };
-  }, [gameId, history, initialAnnotations]);
+  }, [gameId, history, initialAnnotations, annotationsByIndex]);
 
   useEffect(() => {
     return () => {
@@ -58,7 +62,11 @@ export function useAnalysisPersistence(
       if (currentHistory.length === 0 && !initialAnnRef.current) return;
       const token = localStorage.getItem('token');
       if (!token) return;
-      const pgn = serializeToAnnotatedPgn(currentHistory, initialAnnRef.current);
+      const pgn = serializeToAnnotatedPgn(
+        currentHistory,
+        initialAnnRef.current,
+        annByIdxRef.current,
+      );
       api.put(`/games/${currentGameId}/analysis`, { analysisPgn: pgn }).catch(() => {});
     };
   }, []);

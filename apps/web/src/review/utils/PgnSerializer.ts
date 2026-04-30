@@ -1,7 +1,25 @@
 import type { ChessMove, NodeAnnotations } from '../types';
 import { serializeCommentWithMacros } from './commentMacros';
 
-function serializeMoves(moves: ChessMove[]): string {
+/**
+ * KS-2152: аннотации читаются из мапы annotationsByIndex, а не из move.
+ * Если мапа не передана, используем move.annotations как fallback (для
+ * совместимости со старыми вызовами и тестами).
+ */
+function getAnnotations(
+  move: ChessMove,
+  byIndex?: Record<number, NodeAnnotations>,
+): NodeAnnotations | undefined {
+  if (byIndex && Object.prototype.hasOwnProperty.call(byIndex, move.globalIndex)) {
+    return byIndex[move.globalIndex];
+  }
+  return move.annotations;
+}
+
+function serializeMoves(
+  moves: ChessMove[],
+  byIndex?: Record<number, NodeAnnotations>,
+): string {
   const parts: string[] = [];
   let needBlackNumber = false;
 
@@ -33,7 +51,7 @@ function serializeMoves(moves: ChessMove[]): string {
       move.comment,
       move.eval,
       move.clock,
-      move.annotations,
+      getAnnotations(move, byIndex),
     );
     if (fullComment) {
       parts.push(`{${fullComment}}`);
@@ -42,7 +60,7 @@ function serializeMoves(moves: ChessMove[]): string {
     if (move.variations && move.variations.length > 0) {
       for (const variation of move.variations) {
         if (variation.length > 0) {
-          parts.push(`(${serializeMoves(variation)})`);
+          parts.push(`(${serializeMoves(variation, byIndex)})`);
           needBlackNumber = true;
         }
       }
@@ -55,13 +73,19 @@ function serializeMoves(moves: ChessMove[]): string {
 export function serializeToAnnotatedPgn(
   history: ChessMove[],
   initialAnnotations?: NodeAnnotations,
+  /**
+   * KS-2152: аннотации, привязанные к узлам дерева через globalIndex.
+   * При сериализации выбираются ОНИ, а не move.annotations — состояние
+   * аннотаций живёт в reducer'е useReviewState (annotationsByIndex), а
+   * move.annotations используется лишь как промежуточное место при
+   * чтении/записи PGN.
+   */
+  annotationsByIndex?: Record<number, NodeAnnotations>,
 ): string {
   // KS-2152: leading-комментарий PGN — единственное место, куда можно
   // прицепить аннотации стартовой позиции (у неё нет узла дерева).
-  // Стандартный leading-комментарий используется по PGN-спеке для описания
-  // партии в целом; в нашем случае пишем туда только [%csl]/[%cal].
   const leading = serializeCommentWithMacros(undefined, undefined, undefined, initialAnnotations);
   const leadingPart = leading ? `{${leading}} ` : '';
   if (history.length === 0) return `${leadingPart}*`.trim();
-  return `${leadingPart}${serializeMoves(history)} *`;
+  return `${leadingPart}${serializeMoves(history, annotationsByIndex)} *`;
 }

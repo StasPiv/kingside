@@ -24,10 +24,19 @@ type ReviewState = {
   /**
    * KS-2152: аннотации для стартовой позиции (currentMove === null).
    * Хранятся отдельно, потому что у нулевой позиции нет узла дерева,
-   * к которому можно было бы прикрепить annotations. Сериализуются в
-   * leading-комментарий PGN (см. extractLeadingComment).
+   * к которому можно было бы прикрепить annotations.
    */
   initialAnnotations?: NodeAnnotations;
+  /**
+   * KS-2152: аннотации для каждого узла дерева, привязанные по globalIndex.
+   * ВАЖНО: храним в отдельной мапе, а не на самом ChessMove, чтобы reducer
+   * был полностью immutable. Мутация move.annotations внутри reducer
+   * ломалась в React.StrictMode — второй reducer-call видел уже
+   * мутированное значение, считал sameAsBefore=true и возвращал старый
+   * state, из-за чего React не вызывал re-render и выделение проявлялось
+   * только после перезагрузки страницы.
+   */
+  annotationsByIndex: Record<number, NodeAnnotations>;
 };
 
 type ReviewAction =
@@ -107,18 +116,33 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         currentMove: lastMove,
         nextGlobalIndex: history.length,
         initialFen: INITIAL_FEN,
+        annotationsByIndex: {},
       };
     }
     case 'LOAD_FROM_PGN': {
       const history = action.payload.moves;
       const lastMove = history.length > 0 ? history[history.length - 1] : null;
       const maxIdx = maxGlobalIndexInHistory(history);
+      // KS-2152: собираем annotationsByIndex из move.annotations,
+      // которые уже распарсились deserializer'ом. Сами move'ы оставляем
+      // нетронутыми — annotations живут только в state map.
+      const annotationsByIndex: Record<number, NodeAnnotations> = {};
+      const collect = (moves: ChessMove[]) => {
+        for (const m of moves) {
+          if (m.annotations) annotationsByIndex[m.globalIndex] = m.annotations;
+          if (m.variations) {
+            for (const v of m.variations) collect(v);
+          }
+        }
+      };
+      collect(history);
       return {
         history,
         currentMove: lastMove,
         nextGlobalIndex: maxIdx + 1,
         initialFen: state.initialFen,
         initialAnnotations: action.payload.initialAnnotations,
+        annotationsByIndex,
       };
     }
     case 'SET_INITIAL_FEN': {
@@ -127,6 +151,7 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         currentMove: null,
         nextGlobalIndex: 0,
         initialFen: action.payload,
+        annotationsByIndex: {},
       };
     }
     case 'GOTO_MOVE': {
@@ -231,10 +256,9 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
       };
     }
     case 'SET_ANNOTATIONS': {
-      // KS-2152: установить набор аннотаций для конкретного узла или
-      // стартовой позиции. Сравниваем deep-equality (по сериализованному
-      // виду через JSON.stringify) — иначе одинаковые объекты будут
-      // триггерить лишние state-обновления и ремоунт MemoChessboard.
+      // KS-2152: полностью immutable update — пишем только в
+      // annotationsByIndex (или initialAnnotations). Мутация move
+      // запрещена, иначе reducer ломается в React.StrictMode.
       if (action.payload.kind === 'initial') {
         const newAnn = action.payload.annotations;
         const sameAsBefore =
@@ -242,16 +266,18 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         if (sameAsBefore) return state;
         return { ...state, initialAnnotations: newAnn };
       }
-      const move = searchInHistory(state.history, action.payload.globalIndex) as ChessMove | null;
-      if (!move) return state;
-      const sameAsBefore =
-        JSON.stringify(move.annotations ?? null) === JSON.stringify(action.payload.annotations ?? null);
+      const idx = action.payload.globalIndex;
+      const prev = state.annotationsByIndex[idx];
+      const next = action.payload.annotations;
+      const sameAsBefore = JSON.stringify(prev ?? null) === JSON.stringify(next ?? null);
       if (sameAsBefore) return state;
-      move.annotations = action.payload.annotations;
-      return {
-        ...state,
-        history: [...state.history],
-      };
+      const newMap = { ...state.annotationsByIndex };
+      if (next === undefined) {
+        delete newMap[idx];
+      } else {
+        newMap[idx] = next;
+      }
+      return { ...state, annotationsByIndex: newMap };
     }
     default:
       return state;
@@ -264,6 +290,7 @@ export function useReviewState() {
     currentMove: null,
     nextGlobalIndex: 0,
     initialFen: INITIAL_FEN,
+    annotationsByIndex: {},
   });
 
   const loadMoves = useCallback((apiMoves: ApiMove[]) => {
@@ -395,8 +422,8 @@ export function useReviewState() {
    */
   const setAnnotationsForCurrent = useCallback(
     (annotations: NodeAnnotations | undefined) => {
-      // Используем колбэк-форму через ref'ом было бы чище, но reducer
-      // получает payload в момент dispatch — currentMove из замыкания.
+      // Reducer'у нужен globalIndex текущей ноды (или kind:'initial')
+      // в момент dispatch — берём из замыкания state.currentMove.
       dispatch(
         state.currentMove
           ? {
@@ -414,11 +441,11 @@ export function useReviewState() {
   /**
    * KS-2152: аннотации для отображения на доске в текущей позиции.
    * Если мы на стартовой позиции (currentMove === null) — используем
-   * initialAnnotations. Иначе — только annotations конкретного узла,
-   * без fallback'а (узел без аннотаций → пустая доска).
+   * initialAnnotations. Иначе — annotationsByIndex[globalIndex].
+   * Без fallback'а на initialAnnotations: узел без аннотаций → пустая доска.
    */
   const currentAnnotations: NodeAnnotations | undefined = state.currentMove
-    ? state.currentMove.annotations
+    ? state.annotationsByIndex[state.currentMove.globalIndex]
     : state.initialAnnotations;
 
   // Check if current move is in a variation (not in the top-level main-line history)
@@ -449,6 +476,7 @@ export function useReviewState() {
     /** KS-2152 */
     currentAnnotations,
     initialAnnotations: state.initialAnnotations,
+    annotationsByIndex: state.annotationsByIndex,
     setAnnotationsForCurrent,
   };
 }
