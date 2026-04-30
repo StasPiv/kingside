@@ -1,4 +1,4 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { MatchmakingService } from './matchmaking.service';
 import { MatchmakingGateway } from './matchmaking.gateway';
 import { AuthModule } from '../auth/auth.module';
@@ -27,7 +27,7 @@ import type {
 /**
  * KS-2164. SyntheticPresence/Scheduler регистрируются здесь же —
  * MatchmakingService им нужен через DI, отдельный sub-module повлёк
- * бы циркулярную зависимость. `wire()` в onModuleInit пробрасывает
+ * бы циркулярную зависимость. `wire()` пробрасывает
  * Prisma/Redis/MatchmakingService в presence/scheduler через
  * `configure(...)` — это выбрано вместо `@Inject` token'ов потому что
  * presence получает не полный MatchmakingService, а узкий API
@@ -36,6 +36,15 @@ import type {
  * Активация всех synthetic-функций — env `SYNTHETIC_SCHEDULER_ENABLED=true`.
  * Без флага оба сервиса конструируются, но ничего не делают (см. их
  * onModuleInit'ы).
+ *
+ * KS-2173 follow-up: configure-вызовы перенесены ИЗ `onModuleInit` В
+ * **constructor**. Причина: Nest вызывает `onModuleInit` провайдеров
+ * (включая SyntheticBootstrapService) ДО `onModuleInit` самого модуля.
+ * Из-за этого Bootstrap.onModuleInit видел `prisma === null` (configure
+ * ещё не отрабатывал) и тихо выходил с warn'ом «configure() not called»
+ * — на проде это давало 38+ мин тишины с пустыми bootstrap-логами.
+ * Constructor модуля выполняется ПЕРЕД любым `onModuleInit` provider'а,
+ * так что configure уже сделан к моменту вызова Bootstrap.onModuleInit.
  */
 @Module({
   imports: [AuthModule, GameModule],
@@ -63,7 +72,7 @@ import type {
     SyntheticChatService,
   ],
 })
-export class MatchmakingModule implements OnModuleInit {
+export class MatchmakingModule {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -75,9 +84,12 @@ export class MatchmakingModule implements OnModuleInit {
     private readonly bootstrap: SyntheticBootstrapService,
     private readonly launcher: BootstrapGameLauncherService,
     private readonly gameService: GameService,
-  ) {}
-
-  onModuleInit(): void {
+  ) {
+    // KS-2173 follow-up: configure-вызовы должны произойти ДО
+    // `onModuleInit` любого synthetic-провайдера. Nest вызывает
+    // `onModuleInit` провайдеров раньше `onModuleInit` модуля, поэтому
+    // тут — constructor (модуль конструируется до запуска lifecycle
+    // хуков provider'ов).
     const deps: SyntheticDeps = {
       prisma: this.prisma as unknown as SyntheticPrisma,
       redis: this.redis as unknown as SyntheticRedis,
