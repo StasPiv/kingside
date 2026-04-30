@@ -15,6 +15,17 @@ const READY_TIMEOUT_MS = 10_000;
 /** Polling step while waiting for engine ready. */
 const READY_POLL_MS = 50;
 
+/**
+ * Local Stockfish 18 WASM movegen для **явного** Play vs Bot (Workshop /
+ * LobbyPage / PlayPage режим «Играть с ботом»).
+ *
+ * KS-2165 (F1): этот хук активируется ТОЛЬКО для партий, где сервер
+ * выставил `state.isBot=true`. После рефактора matchmaking (KS-2165 B6)
+ * synthetic-соперники в matchmaking-flow приходят с `isBot=false` —
+ * локальный Stockfish для них НЕ запускается, рендеринг идёт как обычная
+ * live-партия. Никакого client-side fallback'а на 30-секундное ожидание
+ * больше нет.
+ */
 export function useBotEngine(gameId: string | undefined, botLevel: number | null, isActive: boolean) {
   const workerRef = useRef<Worker | null>(null);
   const readyRef = useRef(false);
