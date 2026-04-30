@@ -119,3 +119,12 @@ export const broadcastSocket = withHandlers(io(BROADCAST_URL, SOCKET_OPTS));
 
 // API Service (API_URL) — messages
 export const messagesSocket = withHandlers(io(`${API_URL}/messages`, SOCKET_OPTS));
+
+// KS-2185 / dev-only: экспонируем matchmakingSocket в window для ручной
+// QA-проверки и Playwright-скриншотов сценария «No opponents online»
+// (без живого game-service). В прод-сборке (`import.meta.env.DEV === false`)
+// этот блок tree-shake'ается Vite'ом — в публичный bundle ничего не уходит.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as unknown as { __kingsideMatchmakingSocket?: Socket }).__kingsideMatchmakingSocket =
+    matchmakingSocket;
+}

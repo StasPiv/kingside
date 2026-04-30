@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../../hooks/useTimeControl';
 import { useMatchmaking } from '../../hooks/useMatchmaking';
 import { useBotGame } from '../../hooks/useBotGame';
+import { NoOpponentsBlock } from '../NoOpponentsBlock';
 
 type NewGameMode = 'human' | 'bot';
 
@@ -28,7 +29,7 @@ export function WorkshopNewGame() {
     searching, ratingFilterMode, setRatingFilterMode,
     ratingMin, setRatingMin, ratingMax, setRatingMax,
     ratingMinus, setRatingMinus, ratingPlus, setRatingPlus,
-    handleSearch,
+    handleSearch, noOpponents, retryAfterNoOpponents, dismissNoOpponents,
   } = matchmaking;
 
   const {
@@ -282,10 +283,17 @@ export function WorkshopNewGame() {
               increment: selectedIncrement,
               activeTab,
             })}
+            disabled={!!noOpponents}
           >
             {searching ? t('lobby.cancelSearch') : t('lobby.play')}
           </button>
-          {searching && <p className="searching">{t('lobby.searching')}</p>}
+          {searching && !noOpponents && <p className="searching">{t('lobby.searching')}</p>}
+          {noOpponents && (
+            <NoOpponentsBlock
+              onRetry={retryAfterNoOpponents}
+              onChangeTc={dismissNoOpponents}
+            />
+          )}
         </div>
       )}
 
