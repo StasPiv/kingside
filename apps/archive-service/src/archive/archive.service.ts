@@ -113,6 +113,29 @@ const PREWARM_TOP_N = 30;
 export const ARCHIVE_IMPORTED_CHANNEL = 'archive:imported';
 
 /**
+ * KS-2154. Параметры staggered-инвалидации после `archive:imported`.
+ *
+ * Контекст: 29.04 после успешного TWIC-импорта одномоментно сбрасывалось
+ * ≥60 cache entries (`arch:tree:*` + `arch:games:*`). Следующие
+ * пользовательские запросы на холодных кэшах одновременно били в БД,
+ * пул `connection_limit=20` исчерпывался → 500 / «База недоступна».
+ *
+ * Решение: разбиваем удаление кэша на батчи по {@link INVALIDATION_BATCH_SIZE}
+ * c паузой {@link INVALIDATION_BATCH_INTERVAL_MS} между батчами. Пока один
+ * батч прогревается пользовательскими запросами — следующий ещё лежит в
+ * Redis. Nominal-сценарий (60 entries по одному паттерну):
+ *   6 батчей × 1.5s = 9s; в каждый момент времени пик параллельных
+ *   cold-запросов ≤ 10, что укладывается в пул из 20.
+ *
+ * Если ключей ≤ {@link INVALIDATION_BULK_THRESHOLD} — не стагерим
+ * (overhead не оправдан), удаляем одним DEL. Лог в обоих режимах
+ * различается полем `mode=bulk|staggered`.
+ */
+const INVALIDATION_BATCH_SIZE = 10;
+const INVALIDATION_BATCH_INTERVAL_MS = 1500;
+const INVALIDATION_BULK_THRESHOLD = 10;
+
+/**
  * Orchestrates archive REST queries: Redis-cached variation tree,
  * filtered game listing, and single game detail. Subscribes to the
  * `archive:imported` PUB/SUB channel and invalidates cached trees after
@@ -948,22 +971,6 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async invalidateTreeCache(): Promise<void> {
-    try {
-      const keys = await this.redis.keys('arch:tree:*');
-      if (keys.length > 0) {
-        await this.redis.del(...keys);
-        this.logger.log(
-          `Invalidated ${keys.length} archive tree cache entries after import`,
-        );
-      }
-    } catch (err) {
-      this.logger.warn(
-        `tree cache invalidation failed: ${(err as Error).message}`,
-      );
-    }
-  }
-
   /**
    * Invalidates all archive caches on import events.
    * Called in response to the `archive:imported` Redis pub/sub channel
@@ -975,26 +982,66 @@ export class ArchiveService implements OnModuleInit, OnModuleDestroy {
    *
    * A single SCAN would be faster, но `KEYS` для MVP-объёма достаточно
    * и идёт за один батч на каждый паттерн.
+   *
+   * KS-2154: каждый паттерн инвалидируется staggered-батчами (см.
+   * {@link INVALIDATION_BATCH_SIZE} / {@link INVALIDATION_BATCH_INTERVAL_MS}),
+   * чтобы не перегружать пул соединений archive-db cold-запросами.
+   * Параллельный запуск по паттернам сохранён — между паттернами нет
+   * пересечения по ключам, и каждый идёт со своим собственным
+   * расписанием батчей.
    */
   private async invalidateArchiveCache(): Promise<void> {
     await Promise.all([
-      this.invalidateTreeCache(),
+      this.invalidateByPattern('arch:tree:*', 'archive tree'),
       this.invalidateByPattern('arch:games:*', 'games-by-position'),
       this.invalidateByPattern('arch:players:*', 'players'),
       this.invalidateByPattern('arch:events:*', 'events'),
     ]);
   }
 
-  /** Generic пакетная инвалидация по KEYS-паттерну. */
+  /**
+   * Generic пакетная инвалидация по KEYS-паттерну со staggered-режимом
+   * (KS-2154). Лог: `Invalidated <N> <label> cache entries after import
+   * (mode=bulk|staggered, batch=<B>, intervalMs=<I>, durationMs=<D>)`.
+   */
   private async invalidateByPattern(pattern: string, label: string): Promise<void> {
+    const startMs = Date.now();
     try {
       const keys = await this.redis.keys(pattern);
-      if (keys.length > 0) {
+      if (keys.length === 0) return;
+
+      const useStaggered = keys.length > INVALIDATION_BULK_THRESHOLD;
+
+      if (!useStaggered) {
+        // Маленькая партия — overhead staggered не оправдан.
         await this.redis.del(...keys);
+        const durationMs = Date.now() - startMs;
         this.logger.log(
-          `Invalidated ${keys.length} ${label} cache entries after import`,
+          `Invalidated ${keys.length} ${label} cache entries after import ` +
+            `(mode=bulk, durationMs=${durationMs})`,
         );
+        return;
       }
+
+      // Staggered: разрезаем на батчи по INVALIDATION_BATCH_SIZE,
+      // удаляем последовательно с паузой INVALIDATION_BATCH_INTERVAL_MS
+      // между батчами. Цель — растянуть cold-нагрузку на DB во времени.
+      let removed = 0;
+      for (let i = 0; i < keys.length; i += INVALIDATION_BATCH_SIZE) {
+        const batch = keys.slice(i, i + INVALIDATION_BATCH_SIZE);
+        await this.redis.del(...batch);
+        removed += batch.length;
+        if (i + INVALIDATION_BATCH_SIZE < keys.length) {
+          await sleep(INVALIDATION_BATCH_INTERVAL_MS);
+        }
+      }
+
+      const durationMs = Date.now() - startMs;
+      this.logger.log(
+        `Invalidated ${removed} ${label} cache entries after import ` +
+          `(mode=staggered, batch=${INVALIDATION_BATCH_SIZE}, ` +
+          `intervalMs=${INVALIDATION_BATCH_INTERVAL_MS}, durationMs=${durationMs})`,
+      );
     } catch (err) {
       this.logger.warn(
         `${label} cache invalidation failed: ${(err as Error).message}`,
