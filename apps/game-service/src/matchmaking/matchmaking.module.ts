@@ -7,6 +7,8 @@ import { SyntheticPresenceService } from './synthetic/synthetic-presence.service
 import { SyntheticSchedulerService } from './synthetic/synthetic-scheduler.service';
 import { StockfishPoolService } from './synthetic/engine/stockfish-pool.service';
 import { SyntheticMoveEngineService } from './synthetic/engine/synthetic-move-engine.service';
+import { TwicOpeningBookProvider } from './synthetic/engine/twic-opening-book-provider';
+import { SyntheticBootstrapService } from './synthetic/bootstrap/synthetic-bootstrap.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import type {
@@ -37,6 +39,8 @@ import type {
     SyntheticSchedulerService,
     StockfishPoolService,
     SyntheticMoveEngineService,
+    TwicOpeningBookProvider,
+    SyntheticBootstrapService,
   ],
   exports: [
     MatchmakingService,
@@ -44,6 +48,8 @@ import type {
     SyntheticSchedulerService,
     StockfishPoolService,
     SyntheticMoveEngineService,
+    TwicOpeningBookProvider,
+    SyntheticBootstrapService,
   ],
 })
 export class MatchmakingModule implements OnModuleInit {
@@ -53,6 +59,8 @@ export class MatchmakingModule implements OnModuleInit {
     private readonly matchmaking: MatchmakingService,
     private readonly presence: SyntheticPresenceService,
     private readonly scheduler: SyntheticSchedulerService,
+    private readonly moveEngine: SyntheticMoveEngineService,
+    private readonly openingBook: TwicOpeningBookProvider,
   ) {}
 
   onModuleInit(): void {
@@ -65,5 +73,11 @@ export class MatchmakingModule implements OnModuleInit {
       leaveQueue: (...args) => this.matchmaking.leaveQueue(...args),
     });
     this.scheduler.configure(deps, this.presence);
+
+    // KS-2163: подцепляем TWIC opening book к MoveEngine. Provider
+    // сам smoke-test'ит флаг SYNTHETIC_OPENING_BOOK_ENABLED — без него
+    // он отдаёт null (MoveEngine идёт на Stockfish сразу).
+    this.openingBook.configure(this.redis as unknown as never);
+    this.moveEngine.setOpeningBookProvider(this.openingBook);
   }
 }
