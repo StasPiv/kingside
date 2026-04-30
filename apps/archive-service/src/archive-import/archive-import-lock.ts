@@ -84,9 +84,9 @@ export interface AcquireLockOpts {
   issue?: number;
   /** PID процесса. Default — `process.pid`. */
   pid?: number;
-  /** TTL ключа в Redis. Default 60_000 ms. */
+  /** TTL ключа в Redis. Default 600_000 ms (10 мин, KS-2157). */
   ttlMs?: number;
-  /** Период heartbeat'а. Default 30_000 ms (= ttl/2). */
+  /** Период heartbeat'а. Default ttl/2 (300_000 ms при ttl=600_000). */
   heartbeatMs?: number;
   /**
    * Если true, heartbeat не запускается. Полезно для коротких
@@ -144,9 +144,34 @@ export interface AcquiredLock {
 /**
  * Конфигурация lock'а из env (`ARCHIVE_IMPORTER_LOCK_TTL_MS`,
  * `ARCHIVE_IMPORTER_LOCK_HEARTBEAT_MS`). Не хардкодим в helper'е,
- * чтобы prod мог поднять/опустить значения без пересборки. Дефолты
- * подобраны под scheduler'ный TWIC-импорт (~12-18 мин), но
- * консервативные — чтобы heartbeat успевал в ECS-сети с jitter'ом.
+ * чтобы prod мог поднять/опустить значения без пересборки.
+ *
+ * Дефолты:
+ *   - `ttlMs`       = 600_000 (10 мин)
+ *   - `heartbeatMs` = ttl/2 (по умолчанию 5 мин, clamp ≥ 1 с)
+ *
+ * KS-2157 (post-mortem 30.04, adhoc 1592, devops):
+ *   parseBatch для TWIC-zip 7000+ партий блокирует Node event loop
+ *   ~1м53с (CPU-bound, синхронный pgn-parser). Прежний дефолт TTL=60s
+ *   успевал истечь до того, как `setInterval(...)`-heartbeat смог
+ *   физически tick'нуть → Redis отдавал ключ обратно, на следующем
+ *   tick'е heartbeat видел mismatch и аборт'ил импорт. В adhoc 1592
+ *   парсинг 7114 партий → 0 added → backfill заблокирован.
+ *
+ *   600s покрывает не только парсинг (~2 мин), но и весь нормальный
+ *   import одного issue (12–18 мин — нет, тогда нужно > 18 мин;
+ *   600s = 10 мин достаточно для 90-perc парсинг + первый chunk-async
+ *   yield, после которого heartbeat сможет tick'нуть и продлить TTL
+ *   на следующие 10 мин). Полный import при штатных insert'ах
+ *   укладывается в 1 heartbeat-period после парсинга.
+ *
+ *   Trade-off: после SIGKILL Fargate-task'а Redis ждёт TTL до
+ *   освобождения ключа (теперь до 10 мин против 1 мин). Допустимо —
+ *   adhoc-запуски это редкие операции, ловить 10-минутный wait при
+ *   следующем CLI-запуске оператор видит и понимает.
+ *
+ *   Долгосрочный фикс — yield event loop в parseBatch (KS-2158
+ *   follow-up: setImmediate каждые N партий) или worker_thread.
  *
  * Экспортируется для тестов.
  */
@@ -164,7 +189,7 @@ export function resolveLockTimings(
   const ttlMs =
     opts.ttlMs ??
     fromEnv('ARCHIVE_IMPORTER_LOCK_TTL_MS') ??
-    60_000;
+    600_000;
   const heartbeatMs =
     opts.heartbeatMs ??
     fromEnv('ARCHIVE_IMPORTER_LOCK_HEARTBEAT_MS') ??

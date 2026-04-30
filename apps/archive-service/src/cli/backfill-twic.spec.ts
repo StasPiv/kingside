@@ -211,7 +211,7 @@ describe('runBackfillTwic — happy path', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:backfill:1638:\d+$/,
       ),
       'PX',
-      60_000,
+      600_000,
       'NX',
     );
     expect(spies.runAdHoc).toHaveBeenCalledWith(1638);
@@ -366,14 +366,14 @@ describe('runBackfillTwic — Redis-lock', () => {
       'archive:import:lock:twic:backfill:1638',
       expect.anything(),
       'PX',
-      60_000,
+      600_000,
       'NX',
     );
     expect(b.spies.set).toHaveBeenCalledWith(
       'archive:import:lock:twic:backfill:1639',
       expect.anything(),
       'PX',
-      60_000,
+      600_000,
       'NX',
     );
   });
@@ -383,7 +383,8 @@ describe('runBackfillTwic — Redis-lock', () => {
     const { deps, spies } = makeDeps();
     await runBackfillTwic(deps, { issue: 1638, force: false });
     expect(spies.setInterval).toHaveBeenCalledTimes(1);
-    expect(spies.setInterval).toHaveBeenCalledWith(expect.any(Function), 30_000);
+    // KS-2157: heartbeat = ttl/2 = 300s по умолчанию.
+    expect(spies.setInterval).toHaveBeenCalledWith(expect.any(Function), 300_000);
     expect(spies.clearInterval).toHaveBeenCalledTimes(1);
   });
 

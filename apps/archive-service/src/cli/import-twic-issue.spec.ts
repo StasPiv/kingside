@@ -183,16 +183,18 @@ describe('runImportTwicIssue — happy path', () => {
     expect(res.status).toBe('ok');
     expect(res.gamesAdded).toBe(42);
 
-    // Redis-lock: SET archive:import:lock:twic <token>:adhoc:<issue>:<pid> EX 60 NX.
+    // Redis-lock: SET archive:import:lock:twic <token>:adhoc:<issue>:<pid> EX 600 NX.
     // KS-1896: issue в value для duplicate-self detection.
-    // KS-1898: token (UUID) в начале для token-safe release; TTL 60с (короткий).
+    // KS-1898: token (UUID) в начале для token-safe release.
+    // KS-2157: TTL поднят до 600с (10 мин) — parseBatch блокирует
+    // event loop и прежний 60с-TTL истекал до первого heartbeat.
     expect(spies.set).toHaveBeenCalledWith(
       'archive:import:lock:twic',
       expect.stringMatching(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:adhoc:1639:\d+$/,
       ),
       'EX',
-      60,
+      600,
       'NX',
     );
     // KS-2156: вторым аргументом передаётся `{ signal: lock.signal }`.
@@ -308,14 +310,14 @@ describe('runImportTwicIssue — KS-1896 lock wait', () => {
       1639,
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
-    // Lock value: <uuid>:adhoc:1639:<pid>, TTL 60s (короткий, KS-1898).
+    // Lock value: <uuid>:adhoc:1639:<pid>, TTL 600s (KS-2157).
     expect(spies.set).toHaveBeenCalledWith(
       'archive:import:lock:twic',
       expect.stringMatching(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:adhoc:1639:\d+$/,
       ),
       'EX',
-      60,
+      600,
       'NX',
     );
     // KS-1898: release через EVAL, не DEL.
@@ -423,8 +425,9 @@ describe('runImportTwicIssue — KS-1896 lock wait', () => {
     await runImportTwicIssue(deps, { issue: 1639 });
 
     // setInterval вызван ровно 1 раз — heartbeat взят.
+    // KS-2157: heartbeat-period = ttl/2 = 300s по умолчанию.
     expect(spies.setInterval).toHaveBeenCalledTimes(1);
-    expect(spies.setInterval).toHaveBeenCalledWith(expect.any(Function), 30_000);
+    expect(spies.setInterval).toHaveBeenCalledWith(expect.any(Function), 300_000);
     // clearInterval вызван — release остановил heartbeat.
     expect(spies.clearInterval).toHaveBeenCalledTimes(1);
   });

@@ -85,10 +85,10 @@ const KEY = 'archive:import:lock:twic';
 // ─── Конфиг таймингов ──────────────────────────────────────────────
 
 describe('resolveLockTimings', () => {
-  it('дефолты — 60s TTL и 30s heartbeat', () => {
+  it('дефолты — 600s TTL и 300s heartbeat (KS-2157: parseBatch блокирует event loop)', () => {
     expect(resolveLockTimings({}, {})).toEqual({
-      ttlMs: 60_000,
-      heartbeatMs: 30_000,
+      ttlMs: 600_000,
+      heartbeatMs: 300_000,
     });
   });
 
@@ -128,13 +128,13 @@ describe('resolveLockTimings', () => {
     });
   });
 
-  it('мусорные env-значения игнорируются', () => {
+  it('мусорные env-значения игнорируются — fallback на дефолт 600s/300s', () => {
     expect(
       resolveLockTimings(
         {},
         { ARCHIVE_IMPORTER_LOCK_TTL_MS: 'oops', ARCHIVE_IMPORTER_LOCK_HEARTBEAT_MS: '-5' },
       ),
-    ).toEqual({ ttlMs: 60_000, heartbeatMs: 30_000 });
+    ).toEqual({ ttlMs: 600_000, heartbeatMs: 300_000 });
   });
 });
 
@@ -173,19 +173,21 @@ describe('acquireLock — happy', () => {
     expect(lock).not.toBeNull();
     expect(lock!.token).toBe('fixed-uuid');
     expect(lock!.value).toBe('fixed-uuid:adhoc:1639:7777');
-    expect(lock!.ttlMs).toBe(60_000);
-    expect(lock!.heartbeatMs).toBe(30_000);
+    // KS-2157: дефолты 600s TTL / 300s heartbeat — гарантированный
+    // запас над event-loop-blocking parseBatch (~2 мин на 7K партий).
+    expect(lock!.ttlMs).toBe(600_000);
+    expect(lock!.heartbeatMs).toBe(300_000);
 
     expect(r.set).toHaveBeenCalledTimes(1);
     expect(r.set).toHaveBeenCalledWith(
       KEY,
       'fixed-uuid:adhoc:1639:7777',
       'PX',
-      60_000,
+      600_000,
       'NX',
     );
-    // setInterval запущен на 30 сек.
-    expect(t.setInterval).toHaveBeenCalledWith(expect.any(Function), 30_000);
+    // setInterval запущен на 300 сек (heartbeat = ttl/2).
+    expect(t.setInterval).toHaveBeenCalledWith(expect.any(Function), 300_000);
     expect(t.active()).toBe(1);
   });
 
@@ -271,7 +273,8 @@ describe('acquireLock — heartbeat', () => {
       1,
       KEY,
       'tok:adhoc:1639:7',
-      '60000',
+      // KS-2157: TTL 600s по умолчанию (heartbeat extends на ttl).
+      '600000',
     );
 
     await t.flushTicks();

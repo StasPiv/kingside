@@ -391,9 +391,10 @@ export class TwicImporter {
         // прерывать инсерты нельзя — иначе наполовину обработанный
         // chunk оставит position_stats inconsistent. Worst case задержки
         // прерывания = chunk_size × per-game-time (≈chunkSize×30 ms ≈ 6 s
-        // для chunk=200) + heartbeat-period 30 s. Acceptance требует
-        // прерывание «в течение TTL+heartbeat-period» — укладываемся
-        // (TTL=60s, heartbeat=30s, потолок 90s).
+        // для chunk=200) + heartbeat-period.
+        // KS-2157: TTL поднят 60s → 600s (10 мин), heartbeat 30s → 300s,
+        // потому что parseBatch блокирует event loop на ~2 мин и
+        // прежний 60s-TTL истекал до первого heartbeat tick'а.
         if (signal?.aborted) {
           const reason =
             signal.reason instanceof Error
