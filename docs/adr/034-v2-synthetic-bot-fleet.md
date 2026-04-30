@@ -181,33 +181,164 @@ Bot-service запускает 2 `BotInstance`'а с близким рейтин
 
 ## 4. Resource budget
 
-### 4.1 Per-task
+> **TL;DR §4 (после пересчёта под bullet/blitz, 2026-04-30):**
+> - Реальная нагрузка — bullet/blitz, не среднее по категориям. Бюджет на ход 50–150 мс (а не 1.5 сек), 30 партий bullet могут давать пик 15–25 запросов/сек.
+> - 3 движка пика не держат — пересчёт даёт минимум **5 stockfish-процессов** на task, лимит ботов снижается с 30 до **20**.
+> - Размер task **остаётся 2 vCPU / 2 GB** — увеличивать не выгодно (4 vCPU/4 GB даёт ту же ёмкость в пересчёте на $).
+> - Целевые 75 одновременно активных синтетов = **4 task'а** вместо 3, cost увеличивается с $80 до ~$130/мес average.
+> - Изменяются default'ы `STOCKFISH_POOL_SIZE` (3→5) и `BOT_INSTANCE_LIMIT_PER_TASK` (30→20). Затрагивает KS-2190 (default в коде), KS-2195 (task-def + AutoScaling target), KS-2196 (нагрузочный тест на 20 bullet-партий).
+
+### 4.1 Профиль нагрузки (bullet/blitz приоритет)
+
+Базовое допущение пересмотрено: **аудитория Kingside преимущественно bullet (1+0, 2+1) и blitz (3+0, 3+2, 5+0)**. Rapid/classical — редкие. Ниже все расчёты для худшего случая (fleet = 100% bullet).
+
+#### Время на ход и сила движка
+
+Stockfish 18 на одном ядре современного x86_64 (Fargate Graviton/Intel сопоставимы). Замеры — порядковые ориентиры из публичных бенчмарков и testtable; в QA замерим уточнённые значения на ECS-инстансах (см. KS-2196).
+
+| Режим (UCI) | Реальное время/ход | Глубина (mid-game) | Сила (Elo, грубо) | Throughput на 1 процесс |
+| ----------- | ------------------ | ------------------ | ----------------- | ----------------------- |
+| `UCI_LimitStrength=true UCI_Elo=1320` + `movetime=20` | 5–20 мс | 5–8 | ~1320 | 50–100 ходов/сек |
+| `UCI_LimitStrength=true UCI_Elo=1600` + `movetime=40` | 10–40 мс | 6–9 | ~1600 | 30–60 ходов/сек |
+| `UCI_LimitStrength=true UCI_Elo=1900` + `movetime=80` | 30–80 мс | 8–11 | ~1900 | 15–30 ходов/сек |
+| `UCI_LimitStrength=true UCI_Elo=2200` + `movetime=120` | 60–120 мс | 10–13 | ~2200 | 8–15 ходов/сек |
+| `movetime=200` (без UCI_Elo limit) | 150–200 мс | 13–16 | ~2700 | 5–7 ходов/сек |
+| `movetime=500` | 400–500 мс | 16–19 | ~2900+ | 2–2.5 ходов/сек |
+
+> Ключевое наблюдение: **для слабого синтета (Elo 1200–2000) Stockfish ОЧЕНЬ дёшев** — `UCI_LimitStrength` режет depth и `movetime` по достижении заданной силы. Один процесс на ядре переваривает 30–100 ходов/сек. Дорогой режим — только синтеты выше 2200 без UCI_Elo limit.
+
+Synthetic-fleet Kingside по дизайну (см. ADR-034 v1 §3) — рейтинги в основном 1200–2200, с малой долей > 2200. Профиль: 80% дешёвых запросов, 20% средних.
+
+#### Move-rate на 30 одновременных bullet-партий
+
+Bullet 1+0 = ~60 ходов/партия, ≤ 60 секунд clock-time на сторону, в среднем 0.5–1 сек реального времени между ходами одной стороны.
+
+- 30 партий × 1 ход/0.5–1 сек = **30–60 ходов/сек суммарно** (теоретический максимум, обе стороны в bullet).
+- **Но** synthetic ведёт ровно одну сторону партии, вторая — живой/другой synthetic. Доля ходов synthetic'а — 50%.
+- Также: think-budget из §6 v1 (jitter 200–700 мс) намеренно растягивает реакцию бота сверх Stockfish-time. Реальная частота вызовов move-engine — **15–25 ходов/сек устойчиво**, peak до **30 ходов/сек** на 30 ботов в bullet (когда несколько партий синхронно).
+
+В blitz/rapid число запросов в 3–10× ниже.
+
+### 4.2 Pool sizing
+
+Целевая ёмкость одного task'а: **20 одновременно активных bullet-ботов**, peak до **25 ходов/сек**.
+
+#### Расчёт `STOCKFISH_POOL_SIZE`
+
+Profile mix внутри одного task: 80% запросов «дешёвые» (avg 40 мс), 20% «средние» (avg 100 мс) → средний ход = ~52 мс.
+
+- Throughput одного процесса при 100% busy: ~19 ходов/сек.
+- Для 25 ходов/сек peak с запасом ×1.5 (jitter, GC-паузы Node, IO в child_process pipe) → нужно **≥ 2.0 эффективных ядра** под Stockfish.
+- Запас на одновременные «дорогие» запросы (выше 2200 Elo, без LimitStrength): один такой ход = 200 мс блокирует процесс полностью.
+- Параллелизм через `STOCKFISH_POOL_SIZE = 5`: при peak один процесс может «застрять» в 200 мс ответе, остаётся 4 быстрых, очередь не растёт.
+
+**Default: `STOCKFISH_POOL_SIZE = 5`.** Жёстким лимитом — 8 (выше CPU-голодание Node loop'а на 2 vCPU).
+
+#### Расчёт `BOT_INSTANCE_LIMIT_PER_TASK`
+
+Прежняя оценка 30 ботов опиралась на 1.5 сек/ход; в bullet с peak 30 ходов/сек 5 движков (с throughput ~95 ходов/сек агрегированно при 100% busy на 5 ядер, но фактически у нас всего 2 vCPU) — узким горлышком становится **CPU**, а не пул.
+
+- 5 stockfish × ~50% CPU при peak (быстрые `movetime=40-80`) ≈ 2.5 vCPU агрегированно.
+- 2 vCPU физически на task — значит movetime size выдерживается ≈ 80% от номинального; throughput пула эффективно режется до ~12–15 ходов/сек.
+- На 30 bullet-ботов (peak до 30 ходов/сек) — недостаточно; на 20 ботов (peak до 20 ходов/сек) — запас остаётся.
+
+**Default: `BOT_INSTANCE_LIMIT_PER_TASK = 20`.** Soft-limit; жёсткий потолок — 25 (после которого `BotManager` отказывается принимать новые spawn'ы).
+
+#### CPU/RAM итог
 
 | Параметр | Значение | Обоснование |
 | -------- | -------- | ----------- |
-| Stockfish процессов в `StockfishPool` | 3 | Один процесс держит позицию через `position fen ... go`, не нужно запускать каждый раз. 3 даёт concurrency для miттельшпиля (depth 14–16, 1.5–4 сек/ход). |
-| Активных `BotInstance` | 30 | Не партий, а WS-сессий. В bullet 30 партий = ~30 ходов/сек суммарно, 3 движка справляются (1 ход = 1.5 сек среднее). В rapid 30 партий = 5 ходов/сек, легко. |
-| Активных партий одновременно | до 30 | Совпадает с `BotInstance` лимитом — synthetic не ведёт более одной партии. |
-| RAM | ~1.5 GB | Stockfish: 200 MB × 3 + Node + buffers. ECS task definition: 2 GB. |
-| CPU | 1.5 vCPU peak | Stockfish при depth 16 ~50% CPU one-shot, 3 параллельно = 1.5 vCPU. ECS: 2 vCPU. |
+| Stockfish процессов в `StockfishPool` | **5** (был 3) | Покрывает peak 25 ходов/сек на bullet-fleet с запасом, оставляет 2–3 процесса свободными при «дорогих» >200мс ходах. |
+| Активных `BotInstance` | **20** (был 30) | Жёсткий потолок по CPU 2 vCPU. Подъём до 25 — мягкий, при равной нагрузке. |
+| Активных партий одновременно | до 20 | Один `BotInstance` = одна партия. |
+| RAM | ~1.6 GB | Stockfish 18 (NNUE): ~250 MB × 5 = 1.25 GB + Node + buffers + opening-book cache. ECS: **2 GB**. |
+| CPU | 1.7–1.9 vCPU peak | 5 процессов × ~35% при peak + Node loop ~10%. ECS: **2 vCPU**. |
 
-### 4.2 Безопасные пороги
+#### Почему не 4 vCPU / 4 GB task
 
-- **30 ботов на task** — мягкий лимит; перешагивание разрешается до 40 при equal-load (мониторим p99 stockfish-time). После 40 — task signal'ит `BotManager`'у новые spawn'ы перенаправлять на следующий task fleet'а (через Redis-counter `synth:task:<taskId>:active`).
-- **3 stockfish-процесса** жёстко: задачи стоят в очереди, 4-й процесс не нужен — лучше повысить depth-budget.
+Альтернатива — больший task: 4 vCPU / 4 GB, 8 stockfish, 40 ботов.
 
-### 4.3 Скейлинг fleet'а
+- Стоимость: ~$140/мес 24/7 (2× больше).
+- Ёмкость: ровно 2× больше (40 ботов).
+- **Stockfish — embarrassingly parallel**, scaling линейный до ~16 процессов.
+- Преимуществ нет, но **выше blast-radius** (краш task'а — 40 ботов одновременно дисконнектятся, у game-service grace-period 30 сек на каждого).
+- **Решение: остаёмся 2 vCPU / 2 GB.** Меньше единиц, чаще, выше resilience.
+
+### 4.3 Безопасные пороги и поведение при peak
+
+- **20 ботов на task** — soft limit, до 25 при equal-load (контроль через p99 stockfish-time < 250 мс sustained).
+- **5 stockfish-процессов** — default; up to 8 через ENV для bullet-heavy task'ов (если QA покажет нехватку).
+- **Длина очереди в `StockfishPool`**: при p99 queue-wait > 100 мс sustained 60 сек → CloudWatch alert «pool overload», `BotManager` начинает отказывать новым spawn'ам, AutoScaling добавляет task.
+- **Защита от runaway dispatch**: один `BotInstance` не отдаёт следующий ход, пока не получил предыдущий — нет фан-аут амплификации внутри одной партии.
+
+#### Что произойдёт, если все 20 ботов синхронно потребуют ход
+
+- Очередь в `StockfishPool` = 20 запросов, 5 worker'ов.
+- Средний ход 52 мс → пик-задержка для последнего в очереди = 20/5 × 52 = ~210 мс ожидания + 52 мс computation = **~260 мс**.
+- В bullet 1+0 это терпимо (cap budget на ход через think-budget 200–700 мс — задержка попадает в jitter-okno).
+- Если задержка вырастает > 500 мс — это уже видно по `synth_move_compute_time_ms` p99, alert триггерит, fleet расширяется.
+
+### 4.4 Скейлинг fleet'а
 
 - Метрика: `synth:tasks:total_active = SUM(synth:task:*:active)`.
-- ECS Auto Scaling правило: `target = ceil(total_desired_synthetic / 25)`. 25 — целевая нагрузка на task с запасом 5.
-- Auto Scaling cooldown: 5 минут (быстрее не нужно — synthetic-нагрузка не пиковая).
-- Минимум — 1 task. Максимум для MVP — 3 task'а (75 одновременно активных синтетов; обоснование: при 30 одновременно и 200 в БД пула, реальная нагрузка не превысит). Cap пересмотреть при росте `daily_unique_live_users`.
+- ECS Auto Scaling правило: `target_tasks = ceil(total_desired_synthetic / 18)`. 18 — целевая нагрузка на task с запасом 2 (от soft-limit 20).
+- Auto Scaling cooldown: **3 минуты** (укорочено с 5: bullet-нагрузка пиковая, реакция должна быть быстрее).
+- Минимум — 1 task. Максимум для MVP — **4 task'а** (≈75 одновременно активных синтетов при cap 20 на task; обоснование как в v2 §4: 200 в пуле в БД, активных ≤75 при peak-аудитории).
+- Cap пересмотреть при росте `daily_unique_live_users` или появлении rapid/classical-доли в нагрузке.
 
-### 4.4 Cost-модель
+#### Сигналы эскалации (в каком порядке добавлять ресурсы)
 
-- 1 ECS Fargate task 2 vCPU / 2 GB = ~$0.07/час = ~$50/мес 24/7. С учётом scale-out по часам аудитории (3 task'а вечером, 1 ночью, average 1.5) = ~$80/мес.
-- Внутренний `/auth/synthetic-token` request = 1 запрос на 13 мин на бота × 30 ботов × 24 часа = ~3300 запросов/сутки. Бесплатно.
-- archive-service `/api/archive/games/by-position` (для opening book) — десятки в час, кэш — Redis.
+| Сигнал (CloudWatch) | Действие |
+| ------------------- | -------- |
+| `synth_move_compute_time_ms p99 > 250 ms` sustained 5 min | Поднять `STOCKFISH_POOL_SIZE` на task (5→6→7→8) через ECS task-def update. Эффективнее нового task'а, если CPU не насыщен. |
+| `cpu_utilization > 75%` sustained 5 min И pool_size уже 8 | Снизить `BOT_INSTANCE_LIMIT_PER_TASK` до 15 на этом task'е, добавить task в fleet (ScaleOut). |
+| `synth_pool_queue_wait_ms p99 > 100 ms` sustained 60 sec | Pool overload — добавить task (быстрее, чем через CPU-метрику). |
+| `synth_tasks:total_active / sum(BOT_INSTANCE_LIMIT_PER_TASK) > 0.85` | Превентивный ScaleOut. |
+| `synth_active_bots в task < 5` И task не последний | ScaleIn (3-минутный cooldown). |
+
+### 4.5 Cost-модель (пересчёт)
+
+Прежний расчёт: 3 task'а × $50 = $150/мес peak, average $80 на 75 синтетов.
+Новый расчёт под пониженный лимит:
+
+| Сценарий | Tasks | $/мес 24/7 (Fargate Spot off, on-demand) | Effective ceiling |
+| -------- | ----- | ---------------------------------------- | ----------------- |
+| MVP стартовый (5 ботов) | 1 | $50 | 5 синтетов |
+| MVP операционный 24/7 | 1 | $50 | 20 синтетов |
+| Peak вечер аудитории (75 синтетов) | 4 | $200 | 75 синтетов |
+| Average по сутки (scale-out по графику) | 2.6 | **$130/мес** | weighted |
+| Phase 2 (multi-AZ, 100+ синтетов) | 6 | $300 | 120 синтетов |
+
+Возможные оптимизации (не для MVP):
+- **Fargate Spot** для bot-task: до −70% стоимости (interrupt-tolerant — bot-instance умеет реконнектится, partial loss партий приемлем). Снижение до ~$40/мес для average. Открытый вопрос Phase 2.
+- **EC2-on-ECS вместо Fargate** при стабильно ≥3 task'ах круглосуточно — экономия на vCPU billing ~30%, но overhead на patching/AMI. ROI положителен только при cap > 5 task'ов 24/7 — для MVP оверкилл.
+
+Internal endpoint cost (не меняется):
+- `/auth/synthetic-token`: 1 запрос/13 мин/бота × 75 ботов × 24 ч = ~8300 запросов/сутки. Бесплатно (на api task'е trivial CPU).
+- archive-service `/api/archive/games/by-position`: kept Redis-cache, десятки в час — копейки.
+
+### 4.6 Default ENV-конфиг (рекомендация для KS-2190 / KS-2195)
+
+| Переменная | Старый default | Новый default | Где задаётся |
+| ---------- | -------------- | ------------- | ------------ |
+| `STOCKFISH_POOL_SIZE` | 3 | **5** | code default + ECS task-def env |
+| `BOT_INSTANCE_LIMIT_PER_TASK` | 30 | **20** | ECS task-def env |
+| `STOCKFISH_HARD_MAX_POOL_SIZE` | — | **8** | новый ENV, защита от misconfig |
+| `BOT_INSTANCE_HARD_MAX` | — | **25** | новый ENV, soft→hard диапазон |
+| AutoScaling target ratio | `total / 25` | `total / 18` | terraform/cdk |
+| AutoScaling cooldown | 5 мин | **3 мин** | terraform/cdk |
+| ECS task CPU/RAM | 2 vCPU / 2 GB | **2 vCPU / 2 GB** (без изменений) | task-def |
+| ECS Service desired (start) | 1 | **1** (без изменений) | task-def |
+| ECS Service desired (cap MVP) | 3 | **4** | task-def |
+
+#### Per-move Stockfish-config рекомендации (для move-engine, KS-2190)
+
+Текущий v1 `synthetic-move-engine.service.ts` уже умеет читать `UCI_Elo` из профиля бота. Что добавить/проверить при переносе:
+
+- Жёсткий cap `movetime` = 250 мс на ход, даже если think-budget разрешает больше (защита от случайной депривации pool'а).
+- При `bot.rating ≤ 2000`: `UCI_LimitStrength=true`, `UCI_Elo=bot.rating`, `movetime=max(20, bot.rating/40)` (1200→30 мс, 2000→50 мс).
+- При `bot.rating > 2000`: `UCI_LimitStrength=false`, `movetime=80–150 мс` для bullet, `150–300 мс` для blitz/rapid.
+- TC-aware budget: bullet `movetime ≤ 150`, blitz `movetime ≤ 250`, rapid `movetime ≤ 400`. Мoveтime передавать в move-engine из `BotInstance` через TC-context.
 
 ---
 
