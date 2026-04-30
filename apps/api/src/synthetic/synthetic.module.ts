@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { SyntheticProfileSeederService } from './synthetic-profile-seeder.service';
+import { SyntheticAvatarMirrorService } from './synthetic-avatar-mirror.service';
 
 /**
  * KS-2162. Регистрирует `SyntheticProfileSeederService`. Этот модуль
@@ -9,9 +10,13 @@ import { SyntheticProfileSeederService } from './synthetic-profile-seeder.servic
  *
  * `PrismaModule` подцепляется через `@Global()` декоратор уже
  * существующего `PrismaModule`.
+ *
+ * KS-2178: добавлен `SyntheticAvatarMirrorService` — копирует
+ * DiceBear аватары в S3 (`SYNTHETIC_AVATARS_S3_BUCKET`) при флаге
+ * `SYNTHETIC_AVATARS_MIRRORING_ENABLED=true`, иначе no-op.
  */
 @Module({
-  providers: [SyntheticProfileSeederService],
-  exports: [SyntheticProfileSeederService],
+  providers: [SyntheticProfileSeederService, SyntheticAvatarMirrorService],
+  exports: [SyntheticProfileSeederService, SyntheticAvatarMirrorService],
 })
 export class SyntheticModule {}

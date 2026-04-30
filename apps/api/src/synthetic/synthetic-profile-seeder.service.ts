@@ -31,6 +31,7 @@ import {
   sampleCountry,
   dicebearAvatarUrl,
 } from './synthetic-profile.helpers';
+import { SyntheticAvatarMirrorService } from './synthetic-avatar-mirror.service';
 
 const DEFAULT_TARGET_COUNT = 200;
 
@@ -51,7 +52,16 @@ export interface SeedReport {
 export class SyntheticProfileSeederService {
   private readonly logger = new Logger(SyntheticProfileSeederService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    /**
+     * KS-2178. Опциональный (DI создаст в любом случае) — сервис сам
+     * умеет fallback'ать на DiceBear если флаг выключен или AWS SDK
+     * не доступен. Тесты без NestJS могут не передавать (см.
+     * test-сценарий «без mirror» — pass-through на DiceBear).
+     */
+    private readonly avatarMirror?: SyntheticAvatarMirrorService,
+  ) {}
 
   async seed(targetCount = DEFAULT_TARGET_COUNT): Promise<SeedReport> {
     const totalBefore = await this.prisma.user.count({
@@ -93,6 +103,7 @@ export class SyntheticProfileSeederService {
     );
 
     let created = 0;
+    let mirrored = 0;
     for (const p of built) {
       if (existingUsernames.has(p.username)) {
         // Коллизия — пропускаем, при следующем запуске генератор
@@ -112,7 +123,28 @@ export class SyntheticProfileSeederService {
         this.logger.warn(
           `seed: create failed for ${p.username}: ${(err as Error).message}`,
         );
+        continue;
       }
+      // KS-2178: после успешного create — пытаемся загнать аватар
+      // в S3. Mirror сам smoke-test'ит флаги и при выключенной
+      // фиче возвращает null без сетевых вызовов. Падение mirror'а
+      // НЕ блокирует seed (свойство контракта) — отдельный try/catch
+      // здесь чтобы ошибка mirror не отменила счётчик created.
+      if (this.avatarMirror) {
+        try {
+          const url = await this.avatarMirror.mirror(p.username);
+          if (url) mirrored++;
+        } catch (err) {
+          this.logger.warn(
+            `seed: mirror failed for ${p.username}: ${(err as Error).message}`,
+          );
+        }
+      }
+    }
+    if (mirrored > 0 || (this.avatarMirror?.enabled() ?? false)) {
+      this.logger.log(
+        `seed: mirrored ${mirrored} avatars to S3 (of ${created} created)`,
+      );
     }
 
     const totalAfter = totalBefore + created;
@@ -198,16 +230,23 @@ export class SyntheticProfileSeederService {
   }
 
   /**
-   * Возвращает avatar URL для synthetic'а. Используется
-   * клиентским рендером профиля (через REST endpoint, который
-   * вернёт его рядом с username'ом). Поле `User.avatarUrl` в schema
-   * нет — URL детерминирован по username (см.
-   * `dicebearAvatarUrl` в helpers).
+   * Возвращает avatar URL для synthetic'а. Используется клиентским
+   * рендером профиля (через REST endpoint, который вернёт его рядом с
+   * username'ом).
    *
-   * Если позже потребуется S3-кэш (CDN), замените реализацию на
-   * lookup-табличку `username → s3-url`. Контракт API не изменится.
+   * KS-2178: если `SYNTHETIC_AVATARS_MIRRORING_ENABLED=true` И bucket
+   * сконфигурирован — отдаём S3-URL по детерминированному ключу
+   * `<bucket>.s3.<region>.amazonaws.com/<username>.png`. Никаких HEAD-
+   * запросов в S3 на чтение — это бы добавляло network round-trip на
+   * каждый профиль; если объект не существует, фронт получит 404 от
+   * S3 и покажет дефолтный плейсхолдер. Случай «mirror включён, но
+   * объект не успел загрузиться» — редкий corner: при следующем seed
+   * mirror() закроет пробел.
+   *
+   * Если mirror выключен — возвращаем DiceBear-URL (исходное поведение).
    */
   resolveAvatarUrl(username: string): string {
-    return dicebearAvatarUrl(username);
+    const expected = this.avatarMirror?.expectedUrl(username);
+    return expected ?? dicebearAvatarUrl(username);
   }
 }

@@ -198,10 +198,65 @@ describe('SyntheticProfileSeederService.seed — KS-2162', () => {
     expect(r.created).toBeGreaterThanOrEqual(8);
   });
 
-  it('resolveAvatarUrl возвращает DiceBear URL', () => {
+  it('resolveAvatarUrl без mirror → DiceBear URL', () => {
     const svc = new SyntheticProfileSeederService({} as never);
     expect(svc.resolveAvatarUrl('Foo')).toBe(
       'https://api.dicebear.com/8.x/avataaars/png?seed=Foo',
     );
+  });
+
+  it('KS-2178: resolveAvatarUrl с mirror.expectedUrl → S3-URL', () => {
+    const mirror = {
+      expectedUrl: jest.fn(
+        () =>
+          'https://kingside-synthetic-avatars.s3.eu-central-1.amazonaws.com/Foo.png',
+      ),
+      enabled: jest.fn(() => true),
+      mirror: jest.fn(),
+    };
+    const svc = new SyntheticProfileSeederService(
+      {} as never,
+      mirror as never,
+    );
+    expect(svc.resolveAvatarUrl('Foo')).toBe(
+      'https://kingside-synthetic-avatars.s3.eu-central-1.amazonaws.com/Foo.png',
+    );
+  });
+
+  it('KS-2178: при создании synthetic вызывается mirror.mirror(username)', async () => {
+    const prisma = makePrisma([]);
+    const mirror = {
+      expectedUrl: jest.fn(() => null),
+      enabled: jest.fn(() => true),
+      mirror: jest.fn(async () => 'https://stub-s3-url'),
+    };
+    const svc = new SyntheticProfileSeederService(
+      prisma as never,
+      mirror as never,
+    );
+    const r = await svc.seed(3);
+    expect(r.created).toBe(3);
+    // mirror() вызван по одному разу на каждого созданного.
+    expect(mirror.mirror).toHaveBeenCalledTimes(3);
+  });
+
+  it('KS-2178: mirror.mirror() throws → seed не падает, profile создаётся', async () => {
+    const prisma = makePrisma([]);
+    const mirror = {
+      expectedUrl: jest.fn(() => null),
+      enabled: jest.fn(() => true),
+      mirror: jest.fn(async () => {
+        throw new Error('AWS unavailable');
+      }),
+    };
+    const svc = new SyntheticProfileSeederService(
+      prisma as never,
+      mirror as never,
+    );
+    const r = await svc.seed(2);
+    // Профиль создан несмотря на падение mirror — try/catch в seeder
+    // вокруг mirror отдельный, чтобы не отменять created++.
+    expect(r.created).toBe(2);
+    expect(mirror.mirror).toHaveBeenCalledTimes(2);
   });
 });
