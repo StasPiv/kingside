@@ -21,7 +21,8 @@ import { useFastDrag } from '../hooks/useFastDrag';
 import { useBoardTheme } from '../hooks/useBoardTheme';
 import { useBoardSettings, BOARD_SIZES } from '../hooks/useBoardSettings';
 import { useBoardHighlights } from '../hooks/useBoardHighlights';
-import { useSquareHighlights } from '../hooks/useSquareHighlights';
+import { useSquareHighlights, HIGHLIGHT_COLORS } from '../hooks/useSquareHighlights';
+import type { AnnotationColor, ArrowAnnotation, SquareHighlight } from '../review/types';
 import { useSounds, soundEventFromSan } from '../hooks/useSounds';
 import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -30,7 +31,7 @@ import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import { VariationChooser } from '../components/VariationChooser';
 import type { ChessMove } from '../review/types';
-import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
+import { parseAnnotatedPgn, extractInitialAnnotations } from '../review/utils/PgnDeserializer';
 import { classifyOpening } from '../utils/ecoClassify';
 import { EvalGraph } from '../components/EvalGraph';
 import { GameReportPanel } from '../components/GameReportPanel';
@@ -176,6 +177,8 @@ export function AnalysisPage() {
     loadMoves, loadFromPgn, setInitialFen, gotoMove, gotoFirst, gotoLast,
     gotoPrevious, gotoNext, makeVariantMove, removeVariation,
     truncateRemaining, promoteVariation, setNag, setComment,
+    // KS-2152
+    currentAnnotations, initialAnnotations, setAnnotationsForCurrent,
   } = useReviewState();
 
   const game = useMemo(() => new Chess(), []);
@@ -318,7 +321,7 @@ export function AnalysisPage() {
         try {
           const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
           if (fenMatch) setInitialFen(fenMatch[1]);
-          loadFromPgn(parseAnnotatedPgn(pgn));
+          loadFromPgn(parseAnnotatedPgn(pgn), extractInitialAnnotations(pgn));
         } catch { /* ignore */ }
         setPgnHeaders(parsePgnHeaders(pgn));
       } else if (localIdRef.current) {
@@ -329,7 +332,7 @@ export function AnalysisPage() {
               // Restore custom starting position if FEN header present
               const fenMatch = saved.pgn.match(/\[FEN\s+"([^"]+)"\]/);
               if (fenMatch) setInitialFen(fenMatch[1]);
-              loadFromPgn(parseAnnotatedPgn(saved.pgn));
+              loadFromPgn(parseAnnotatedPgn(saved.pgn), extractInitialAnnotations(saved.pgn));
               if (saved.currentPosition != null && saved.currentPosition > 0) {
                 pendingPositionRef.current = saved.currentPosition;
               }
@@ -356,7 +359,7 @@ export function AnalysisPage() {
         const [gData, mData, analysisData] = await Promise.all(requests);
         setGameData(gData);
         if (analysisData?.analysisPgn) {
-          try { loadFromPgn(parseAnnotatedPgn(analysisData.analysisPgn)); } catch { loadMoves(mData); }
+          try { loadFromPgn(parseAnnotatedPgn(analysisData.analysisPgn), extractInitialAnnotations(analysisData.analysisPgn)); } catch { loadMoves(mData); }
         } else { loadMoves(mData); }
       } catch (err) {
         setError(err instanceof Error ? err.message : t('review.loadError'));
@@ -365,7 +368,7 @@ export function AnalysisPage() {
     fetchData();
   }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
 
-  useAnalysisPersistence(gameId, history);
+  useAnalysisPersistence(gameId, history, initialAnnotations);
 
   // --- Position save/restore ---
   const suppressPositionSaveRef = useRef(true);
@@ -418,15 +421,17 @@ export function AnalysisPage() {
   // Auto-save standalone analysis to API
   const localSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasPgnHeaders = Object.keys(pgnHeaders).length > 0;
+  const hasInitialAnnotations = !!initialAnnotations;
   useEffect(() => {
     if (!user) return;
     if (gameId) return;
-    if (history.length === 0 && !hasPgnHeaders) return;
+    if (history.length === 0 && !hasPgnHeaders && !hasInitialAnnotations) return;
     if (positionSaveRef.current) { clearTimeout(positionSaveRef.current); positionSaveRef.current = null; }
     if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current);
 
     localSaveTimerRef.current = setTimeout(async () => {
-      const movesOnly = serializeToAnnotatedPgn(history);
+      // KS-2152: initialAnnotations попадают в leading-комментарий PGN
+      const movesOnly = serializeToAnnotatedPgn(history, initialAnnotations);
       const pgn = buildPgnWithFen(movesOnly, initialFen, pgnHeaders);
       if (!localIdRef.current) {
         try {
@@ -451,7 +456,7 @@ export function AnalysisPage() {
       }
     }, 2000);
     return () => { if (localSaveTimerRef.current) clearTimeout(localSaveTimerRef.current); };
-  }, [gameId, history, analysisTitle, initialFen, pgnHeaders, hasPgnHeaders, createAnalysis, updateAnalysis]);
+  }, [gameId, history, analysisTitle, initialFen, pgnHeaders, hasPgnHeaders, hasInitialAnnotations, initialAnnotations, createAnalysis, updateAnalysis]);
 
   useEffect(() => { game.load(currentFen); }, [currentFen, game]);
 
@@ -583,7 +588,8 @@ export function AnalysisPage() {
       if (pgnHeaders['WhiteElo']) headers.push(`[WhiteElo "${pgnHeaders['WhiteElo']}"]`);
       if (pgnHeaders['BlackElo']) headers.push(`[BlackElo "${pgnHeaders['BlackElo']}"]`);
       if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
-      const moves = serializeToAnnotatedPgn(history);
+      // KS-2152: initialAnnotations попадают в leading-комментарий
+      const moves = serializeToAnnotatedPgn(history, initialAnnotations);
       const pgn = headers.join('\n') + '\n\n' + moves + '\n';
       const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
       const url = URL.createObjectURL(blob);
@@ -626,17 +632,79 @@ export function AnalysisPage() {
     onMove: onClickMove,
   });
 
-  // KS-2152: выделение клеток правым кликом (lichess-style).
-  // Сброс при смене FEN (включая ходы и навигацию по дереву) и при левом клике.
+  // KS-2152: выделение клеток правым кликом (lichess-style), привязанное к
+  // текущему узлу дерева. Состояние выделений приходит из currentAnnotations,
+  // изменения через onChange сохраняются на ноду через setAnnotationsForCurrent.
+  const handleHighlightsChange = useCallback(
+    (next: SquareHighlight[]) => {
+      const arrowsCurrent = currentAnnotations?.arrows;
+      setAnnotationsForCurrent(
+        next.length === 0 && (!arrowsCurrent || arrowsCurrent.length === 0)
+          ? undefined
+          : { ...(next.length > 0 && { highlights: next }), ...(arrowsCurrent && { arrows: arrowsCurrent }) },
+      );
+    },
+    [currentAnnotations, setAnnotationsForCurrent],
+  );
   const {
     highlightStyles,
     handleSquareMouseDown: onSquareMouseDownRight,
     handleSquareRightClick: onSquareRightClickHighlight,
-    clearHighlights,
-  } = useSquareHighlights({ resetKey: currentFen });
+  } = useSquareHighlights({
+    value: currentAnnotations?.highlights,
+    onChange: handleHighlightsChange,
+  });
 
-  // Объединённые стили: подсветка из useBoardHighlights + правый клик.
-  // Правый клик имеет приоритет, поэтому идёт вторым.
+  // KS-2152: стрелки рисуются ПКМ-drag самой react-chessboard. Перехватываем
+  // через onArrowsChange и сохраняем в текущую ноду. Чтобы при смене ноды
+  // internal-стрелки library сбрасывались и заменялись на стрелки новой
+  // ноды, MemoChessboard принудительно ремоунтится через `key={annotationsKey}`
+  // — иначе после автоматического `clearArrowsOnPositionChange` нет способа
+  // программно «залить» сохранённые стрелки в internalArrows библиотеки.
+  const handleArrowsChange = useCallback(
+    ({ arrows: newArrows }: { arrows: { startSquare: string; endSquare: string; color: string }[] }) => {
+      const colorRgbToName: Record<string, AnnotationColor | undefined> = {};
+      // Преобразуем цвета в наш AnnotationColor через RGBA-сравнение
+      for (const arr of newArrows) {
+        const found = (Object.entries(HIGHLIGHT_COLORS) as Array<[AnnotationColor, string]>).find(
+          ([, rgba]) => arr.color === rgba,
+        );
+        if (found) colorRgbToName[arr.color] = found[0];
+      }
+      const mapped: ArrowAnnotation[] = newArrows
+        .map((a) => {
+          // Цвета по умолчанию: chess.com style — Lib передаёт именно их.
+          // Извлекаем «букву» цвета: Shift→green, Ctrl→red, Alt→blue, default→red.
+          // react-chessboard сам выбирает один из 3 цветов (defaultArrowOptions),
+          // нам важно лишь сохранить какой-то цвет — для простоты используем 'green'
+          // (можно расширить позже, парся через arrowOptions).
+          const fallbackColor: AnnotationColor = colorRgbToName[a.color] ?? 'green';
+          return { from: a.startSquare, to: a.endSquare, color: fallbackColor };
+        })
+        // Удаляем стрелки-заглушки (одинаковые start/end)
+        .filter((a) => a.from !== a.to);
+      const highlightsCurrent = currentAnnotations?.highlights;
+      setAnnotationsForCurrent(
+        mapped.length === 0 && (!highlightsCurrent || highlightsCurrent.length === 0)
+          ? undefined
+          : { ...(highlightsCurrent && { highlights: highlightsCurrent }), ...(mapped.length > 0 && { arrows: mapped }) },
+      );
+    },
+    [currentAnnotations, setAnnotationsForCurrent],
+  );
+
+  // Стрелки текущей ноды → внешние arrows для react-chessboard.
+  const annotationArrows = useMemo(() => {
+    const list = currentAnnotations?.arrows ?? [];
+    return list.map((a) => ({
+      startSquare: a.from,
+      endSquare: a.to,
+      color: HIGHLIGHT_COLORS[a.color],
+    }));
+  }, [currentAnnotations]);
+
+  // Объединённые стили: подсветка из useBoardHighlights + правый клик (annotations).
+  // Annotations имеют приоритет (показываются поверх).
   const mergedSquareStyles = useMemo(() => {
     const merged: Record<string, React.CSSProperties> = { ...squareStyles };
     for (const [square, style] of Object.entries(highlightStyles)) {
@@ -644,6 +712,19 @@ export function AnalysisPage() {
     }
     return merged;
   }, [squareStyles, highlightStyles]);
+
+  // Объединённые стрелки: hover-suggestion (useBoardHighlights) + аннотации.
+  const mergedArrows = useMemo(
+    () => [...arrows, ...annotationArrows],
+    [arrows, annotationArrows],
+  );
+
+  // Ремоунт MemoChessboard при смене ноды — обнуляет internalArrows библиотеки
+  // (см. комментарий выше про onArrowsChange).
+  const annotationsKey = useMemo(
+    () => `${currentGlobalIndex}|${currentFen}`,
+    [currentGlobalIndex, currentFen],
+  );
 
   // --- Archive tree handlers ---
   const handleTreeMove = useCallback(
@@ -701,23 +782,19 @@ export function AnalysisPage() {
     prevMoveGlobalIndexRef.current = currentIndex;
   }, [currentMove, playSound]);
 
+  // KS-2152: левый клик НЕ сбрасывает аннотации — они привязаны к ноде и
+  // должны жить вместе с ней. Сброс происходит автоматически при смене ноды
+  // (currentMove → новый currentAnnotations).
   const handleSquareClick = useCallback(
-    ({ square }: { piece?: unknown; square: string }) => {
-      // KS-2152: левый клик сбрасывает выделения, как и стрелки.
-      clearHighlights();
-      onSquareClick(square as Square);
-    },
-    [onSquareClick, clearHighlights],
+    ({ square }: { piece?: unknown; square: string }) => onSquareClick(square as Square),
+    [onSquareClick],
   );
 
   const handlePieceClick = useCallback(
     ({ square }: { isSparePiece?: boolean; piece?: unknown; square: string | null }) => {
-      if (square) {
-        clearHighlights();
-        onSquareClick(square as Square);
-      }
+      if (square) onSquareClick(square as Square);
     },
-    [onSquareClick, clearHighlights],
+    [onSquareClick],
   );
 
   // KS-2034: legacy `handlePieceDrop` удалён — вместо него используется
@@ -754,15 +831,21 @@ export function AnalysisPage() {
       allowDragging: false,
       showNotation: true,
       squareStyles: mergedSquareStyles,
-      arrows,
+      arrows: mergedArrows,
       onSquareClick: handleSquareClick,
       onPieceClick: handlePieceClick,
       onSquareMouseDown: onSquareMouseDownRight,
       onSquareRightClick: onSquareRightClickHighlight,
+      // KS-2152: перехватываем drag-стрелки react-chessboard и сохраняем
+      // в текущую ноду через setAnnotationsForCurrent. clearArrowsOnPositionChange
+      // оставляем true (default) — internal-стрелки library очищаются на смене FEN,
+      // а ремоунт через `key` гарантирует, что новые external arrows из ноды не
+      // перемешаются с остатками internal на старой позиции.
+      onArrowsChange: handleArrowsChange,
       ...(boardStyle && { boardStyle }),
       ...boardThemeOptions,
     }),
-    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, arrows, handleSquareClick, handlePieceClick, onSquareMouseDownRight, onSquareRightClickHighlight],
+    [stablePosition, boardOrientation, boardStyle, boardThemeOptions, mergedSquareStyles, mergedArrows, handleSquareClick, handlePieceClick, onSquareMouseDownRight, onSquareRightClickHighlight, handleArrowsChange],
   );
 
   // SAN path from the root to the currently viewed position (follows variations).
@@ -890,7 +973,7 @@ export function AnalysisPage() {
           <div className="analysis-eval-board-row">
             <EvalBar lines={displayedLines} isBlackTurn={evalIsBlackTurn} />
             <div className="board-container" ref={boardContainerRef}>
-              <MemoChessboard options={boardOptions} />
+              <MemoChessboard key={annotationsKey} options={boardOptions} />
               {pendingPromotion && (
                 <div className="promotion-overlay" onClick={handlePromotionCancel}>
                   <div className="promotion-dialog" onClick={(e) => e.stopPropagation()}>

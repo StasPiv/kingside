@@ -1,11 +1,71 @@
+import type { AnnotationColor, NodeAnnotations } from '../types';
+
 /**
- * Parse PGN comment macros [%eval ...] and [%clk ...] from comment text.
- * Returns extracted values and the remaining human-readable comment.
+ * KS-2152: соответствие однобуквенного кода в PGN-макросах [%csl/%cal] и
+ * нашего AnnotationColor. Совпадает с de-facto стандартом lichess/chess.com.
+ */
+const COLOR_LETTER_TO_NAME: Record<string, AnnotationColor> = {
+  R: 'red',
+  G: 'green',
+  B: 'blue',
+  Y: 'yellow',
+};
+const COLOR_NAME_TO_LETTER: Record<AnnotationColor, string> = {
+  red: 'R',
+  green: 'G',
+  blue: 'B',
+  yellow: 'Y',
+};
+
+const SQUARE_RE = /^[a-h][1-8]$/;
+
+/** Распарсить CSL-список вида `Gd4,Re5,Yc1` в массив выделений. */
+function parseCsl(raw: string): NodeAnnotations['highlights'] {
+  const items = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const highlights: NonNullable<NodeAnnotations['highlights']> = [];
+  for (const item of items) {
+    const letter = item[0]?.toUpperCase();
+    const square = item.slice(1).toLowerCase();
+    const color = COLOR_LETTER_TO_NAME[letter];
+    if (color && SQUARE_RE.test(square)) {
+      highlights.push({ square, color });
+    }
+  }
+  return highlights.length > 0 ? highlights : undefined;
+}
+
+/** Распарсить CAL-список вида `Re2e4,Gc4f7` в массив стрелок. */
+function parseCal(raw: string): NodeAnnotations['arrows'] {
+  const items = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const arrows: NonNullable<NodeAnnotations['arrows']> = [];
+  for (const item of items) {
+    const letter = item[0]?.toUpperCase();
+    const from = item.slice(1, 3).toLowerCase();
+    const to = item.slice(3, 5).toLowerCase();
+    const color = COLOR_LETTER_TO_NAME[letter];
+    if (color && SQUARE_RE.test(from) && SQUARE_RE.test(to)) {
+      arrows.push({ from, to, color });
+    }
+  }
+  return arrows.length > 0 ? arrows : undefined;
+}
+
+/**
+ * Parse PGN comment macros [%eval ...], [%clk ...], [%csl ...], [%cal ...]
+ * from comment text. Returns extracted values and the remaining
+ * human-readable comment.
  */
 export function parseCommentMacros(raw: string): {
   eval?: number;
   clock?: string;
   comment?: string;
+  annotations?: NodeAnnotations;
 } {
   let text = raw;
   let evalValue: number | undefined;
@@ -34,20 +94,56 @@ export function parseCommentMacros(raw: string): {
     text = text.replace(/\[%clk\s+[^\]]+\]/g, '');
   }
 
+  // KS-2152: [%csl Gd4,Re5] — выделения клеток.
+  let highlights: NodeAnnotations['highlights'];
+  const cslMatch = text.match(/\[%csl\s+([^\]]+)\]/);
+  if (cslMatch) {
+    highlights = parseCsl(cslMatch[1]);
+    text = text.replace(/\[%csl\s+[^\]]+\]/g, '');
+  }
+
+  // KS-2152: [%cal Re2e4,Yc4f7] — стрелки.
+  let arrows: NodeAnnotations['arrows'];
+  const calMatch = text.match(/\[%cal\s+([^\]]+)\]/);
+  if (calMatch) {
+    arrows = parseCal(calMatch[1]);
+    text = text.replace(/\[%cal\s+[^\]]+\]/g, '');
+  }
+
   // Clean up remaining text
   const comment = text.trim() || undefined;
 
-  return { eval: evalValue, clock: clockValue, comment };
+  const annotations: NodeAnnotations | undefined =
+    highlights || arrows ? { ...(highlights && { highlights }), ...(arrows && { arrows }) } : undefined;
+
+  return { eval: evalValue, clock: clockValue, comment, annotations };
+}
+
+/** Сериализовать NodeAnnotations.highlights → "Gd4,Re5" (или undefined). */
+function serializeCsl(highlights?: NodeAnnotations['highlights']): string | undefined {
+  if (!highlights || highlights.length === 0) return undefined;
+  return highlights
+    .map((h) => `${COLOR_NAME_TO_LETTER[h.color]}${h.square}`)
+    .join(',');
+}
+
+/** Сериализовать NodeAnnotations.arrows → "Re2e4,Yc4f7" (или undefined). */
+function serializeCal(arrows?: NodeAnnotations['arrows']): string | undefined {
+  if (!arrows || arrows.length === 0) return undefined;
+  return arrows
+    .map((a) => `${COLOR_NAME_TO_LETTER[a.color]}${a.from}${a.to}`)
+    .join(',');
 }
 
 /**
- * Serialize eval/clock values back into PGN comment macro format.
+ * Serialize eval/clock/annotations values back into PGN comment macro format.
  * Combines with human comment text if present.
  */
 export function serializeCommentWithMacros(
   comment?: string,
   evalValue?: number,
   clock?: string,
+  annotations?: NodeAnnotations,
 ): string | undefined {
   const parts: string[] = [];
 
@@ -69,6 +165,13 @@ export function serializeCommentWithMacros(
   if (clock) {
     parts.push(`[%clk ${clock}]`);
   }
+
+  // KS-2152: аннотации идут в конец комментария — порядок [%csl] перед [%cal]
+  // соответствует lichess-формату.
+  const csl = serializeCsl(annotations?.highlights);
+  if (csl) parts.push(`[%csl ${csl}]`);
+  const cal = serializeCal(annotations?.arrows);
+  if (cal) parts.push(`[%cal ${cal}]`);
 
   if (parts.length === 0) return undefined;
   return parts.join(' ');

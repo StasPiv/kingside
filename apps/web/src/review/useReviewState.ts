@@ -1,6 +1,6 @@
 import { useReducer, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { ChessMove } from './types';
+import { ChessMove, NodeAnnotations } from './types';
 import { addMoveToHistory } from './utils/AddMoveToHistory';
 import { addVariationToHistory } from './utils/AddVariationToHistory';
 import { linkAllMovesRecursively, searchInHistory } from './utils/ChessHistoryUtils';
@@ -21,11 +21,18 @@ type ReviewState = {
   currentMove: ChessMove | null;
   nextGlobalIndex: number;
   initialFen: string;
+  /**
+   * KS-2152: аннотации для стартовой позиции (currentMove === null).
+   * Хранятся отдельно, потому что у нулевой позиции нет узла дерева,
+   * к которому можно было бы прикрепить annotations. Сериализуются в
+   * leading-комментарий PGN (см. extractLeadingComment).
+   */
+  initialAnnotations?: NodeAnnotations;
 };
 
 type ReviewAction =
   | { type: 'LOAD_MOVES'; payload: ApiMove[] }
-  | { type: 'LOAD_FROM_PGN'; payload: ChessMove[] }
+  | { type: 'LOAD_FROM_PGN'; payload: { moves: ChessMove[]; initialAnnotations?: NodeAnnotations } }
   | { type: 'SET_INITIAL_FEN'; payload: string }
   | { type: 'GOTO_MOVE'; payload: ChessMove }
   | { type: 'GOTO_FIRST' }
@@ -38,7 +45,13 @@ type ReviewAction =
   | { type: 'DELETE_VARIATION'; payload: ChessMove }
   | { type: 'DELETE_REMAINING'; payload: ChessMove }
   | { type: 'SET_NAG'; payload: { globalIndex: number; nags: number[] } }
-  | { type: 'SET_COMMENT'; payload: { globalIndex: number; comment: string } };
+  | { type: 'SET_COMMENT'; payload: { globalIndex: number; comment: string } }
+  | {
+      type: 'SET_ANNOTATIONS';
+      payload:
+        | { kind: 'move'; globalIndex: number; annotations: NodeAnnotations | undefined }
+        | { kind: 'initial'; annotations: NodeAnnotations | undefined };
+    };
 
 function apiMovesToHistory(apiMoves: ApiMove[]): ChessMove[] {
   const history: ChessMove[] = apiMoves.map((m, i) => {
@@ -97,7 +110,7 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
       };
     }
     case 'LOAD_FROM_PGN': {
-      const history = action.payload;
+      const history = action.payload.moves;
       const lastMove = history.length > 0 ? history[history.length - 1] : null;
       const maxIdx = maxGlobalIndexInHistory(history);
       return {
@@ -105,6 +118,7 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         currentMove: lastMove,
         nextGlobalIndex: maxIdx + 1,
         initialFen: state.initialFen,
+        initialAnnotations: action.payload.initialAnnotations,
       };
     }
     case 'SET_INITIAL_FEN': {
@@ -216,6 +230,29 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         history: [...state.history],
       };
     }
+    case 'SET_ANNOTATIONS': {
+      // KS-2152: установить набор аннотаций для конкретного узла или
+      // стартовой позиции. Сравниваем deep-equality (по сериализованному
+      // виду через JSON.stringify) — иначе одинаковые объекты будут
+      // триггерить лишние state-обновления и ремоунт MemoChessboard.
+      if (action.payload.kind === 'initial') {
+        const newAnn = action.payload.annotations;
+        const sameAsBefore =
+          JSON.stringify(state.initialAnnotations ?? null) === JSON.stringify(newAnn ?? null);
+        if (sameAsBefore) return state;
+        return { ...state, initialAnnotations: newAnn };
+      }
+      const move = searchInHistory(state.history, action.payload.globalIndex) as ChessMove | null;
+      if (!move) return state;
+      const sameAsBefore =
+        JSON.stringify(move.annotations ?? null) === JSON.stringify(action.payload.annotations ?? null);
+      if (sameAsBefore) return state;
+      move.annotations = action.payload.annotations;
+      return {
+        ...state,
+        history: [...state.history],
+      };
+    }
     default:
       return state;
   }
@@ -233,9 +270,12 @@ export function useReviewState() {
     dispatch({ type: 'LOAD_MOVES', payload: apiMoves });
   }, []);
 
-  const loadFromPgn = useCallback((moves: ChessMove[]) => {
-    dispatch({ type: 'LOAD_FROM_PGN', payload: moves });
-  }, []);
+  const loadFromPgn = useCallback(
+    (moves: ChessMove[], initialAnnotations?: NodeAnnotations) => {
+      dispatch({ type: 'LOAD_FROM_PGN', payload: { moves, initialAnnotations } });
+    },
+    [],
+  );
 
   const setInitialFen = useCallback((fen: string) => {
     dispatch({ type: 'SET_INITIAL_FEN', payload: fen });
@@ -348,8 +388,38 @@ export function useReviewState() {
     dispatch({ type: 'SET_COMMENT', payload: { globalIndex, comment } });
   }, []);
 
+  /**
+   * KS-2152: установить аннотации (стрелки/выделения) для текущего
+   * положения. Если currentMove === null — сохраняем в initialAnnotations,
+   * иначе — на сам узел дерева.
+   */
+  const setAnnotationsForCurrent = useCallback(
+    (annotations: NodeAnnotations | undefined) => {
+      // Используем колбэк-форму через ref'ом было бы чище, но reducer
+      // получает payload в момент dispatch — currentMove из замыкания.
+      dispatch(
+        state.currentMove
+          ? {
+              type: 'SET_ANNOTATIONS',
+              payload: { kind: 'move', globalIndex: state.currentMove.globalIndex, annotations },
+            }
+          : { type: 'SET_ANNOTATIONS', payload: { kind: 'initial', annotations } },
+      );
+    },
+    [state.currentMove],
+  );
+
   const currentFen = state.currentMove?.fen ?? state.initialFen;
   const currentGlobalIndex = state.currentMove?.globalIndex ?? -1;
+  /**
+   * KS-2152: аннотации для отображения на доске в текущей позиции.
+   * Если мы на стартовой позиции (currentMove === null) — используем
+   * initialAnnotations. Иначе — только annotations конкретного узла,
+   * без fallback'а (узел без аннотаций → пустая доска).
+   */
+  const currentAnnotations: NodeAnnotations | undefined = state.currentMove
+    ? state.currentMove.annotations
+    : state.initialAnnotations;
 
   // Check if current move is in a variation (not in the top-level main-line history)
   const isInVariation = state.currentMove !== null
@@ -376,5 +446,9 @@ export function useReviewState() {
     truncateRemaining,
     setNag,
     setComment,
+    /** KS-2152 */
+    currentAnnotations,
+    initialAnnotations: state.initialAnnotations,
+    setAnnotationsForCurrent,
   };
 }

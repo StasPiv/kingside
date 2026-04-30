@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import type { ChessMove } from '../types';
+import type { ChessMove, NodeAnnotations } from '../types';
 import { linkAllMovesRecursively } from './ChessHistoryUtils';
 import { parseCommentMacros } from './commentMacros';
 
@@ -178,6 +178,18 @@ export function extractLeadingComment(pgn: string): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 
+/**
+ * KS-2152: распарсить leading-комментарий PGN (см. extractLeadingComment)
+ * на предмет наших аннотаций для стартовой позиции [%csl]/[%cal].
+ * Возвращает annotations или undefined если их там нет.
+ */
+export function extractInitialAnnotations(pgn: string): NodeAnnotations | undefined {
+  const lead = extractLeadingComment(pgn);
+  if (!lead) return undefined;
+  const parsed = parseCommentMacros(lead);
+  return parsed.annotations;
+}
+
 export function parseAnnotatedPgn(pgn: string): ChessMove[] {
   // Extract FEN header if present
   const fenMatch = pgn.match(/\[FEN\s+"([^"]+)"\]/);
@@ -227,6 +239,15 @@ export function parseAnnotatedPgn(pgn: string): ChessMove[] {
             lastMove.comment = lastMove.comment
               ? lastMove.comment + ' ' + parsed.comment
               : parsed.comment;
+          }
+          // KS-2152: восстанавливаем annotations из [%csl]/[%cal].
+          if (parsed.annotations) {
+            const existing = lastMove.annotations ?? {};
+            lastMove.annotations = {
+              ...existing,
+              ...(parsed.annotations.highlights && { highlights: parsed.annotations.highlights }),
+              ...(parsed.annotations.arrows && { arrows: parsed.annotations.arrows }),
+            };
           }
         }
         pos++;
