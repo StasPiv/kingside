@@ -76,7 +76,13 @@ export function ArchiveTreePanel({
 
           {!isLoading && error && (
             <div className="archive-tree-panel__error" data-testid="archive-tree-error">
-              <span>{t('archive.dbUnavailable', 'Database unavailable')}</span>
+              {/* KS-2153: показываем причину ошибки прямо в UI, чтобы при
+                  жалобе пользователь сразу прислал понятный текст
+                  («archive: 502» / «archive: таймаут 8000мс» / «archive: сеть»). */}
+              <span>
+                {t('archive.dbUnavailable', 'Database unavailable')}
+                {error ? ` (${error})` : ''}
+              </span>
               <button type="button" className="archive-tree-panel__retry" onClick={refetch}>
                 {t('common.retry', 'Retry')}
               </button>

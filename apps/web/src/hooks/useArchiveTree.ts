@@ -16,6 +16,19 @@ const CACHE_TTL_MS = 60_000;
  * throttle пользователь, бегающий по alt-tab, получит лишние запросы.
  */
 const INVALIDATE_THROTTLE_MS = 10_000;
+/**
+ * KS-2153: hard-timeout одного fetch к archive-service. Без таймаута зависший
+ * сокет (CDN/edge dropped connection) висит до общего fetch-таймаута браузера
+ * (~5 минут на Chrome) — UI всё это время в loading. 8 секунд достаточно
+ * с большим запасом: TargetResponseTime у archive ALB 10–35мс, p99 ≪ 500мс.
+ */
+const REQUEST_TIMEOUT_MS = 8_000;
+/**
+ * KS-2153: задержка перед автоматической второй попыткой при сетевой
+ * ошибке/таймауте/5xx. Одного retry хватает для случайных edge-падений и
+ * не превращает ошибку в спам.
+ */
+const RETRY_DELAY_MS = 1_000;
 
 export interface UseArchiveTreeFilters {
   bucket?: ArchiveBucket;
@@ -103,8 +116,11 @@ export function useArchiveTree(
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
+      // outerController живёт на весь жизненный цикл запроса (включая retry).
+      // abort() выполняется только при смене позиции/фильтра/refetch
+      // (через abortRef.current?.abort() в начале нового цикла) или unmount.
+      const outerController = new AbortController();
+      abortRef.current = outerController;
 
       const params = new URLSearchParams({ fen });
       if (filters.bucket) params.set('bucket', filters.bucket);
@@ -119,26 +135,158 @@ export function useArchiveTree(
         /* ignore */
       }
 
-      fetch(`${ARCHIVE_URL}/tree?${params.toString()}`, {
-        method: 'GET',
-        signal: controller.signal,
-        headers,
-      })
-        .then(async (res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const url = `${ARCHIVE_URL}/tree?${params.toString()}`;
+
+      // KS-2153: один запрос с hard-timeout.
+      //
+      // У каждой попытки свой `attemptController` для timeout — иначе abort()
+      // по таймауту первой попытки навсегда закрывает outerController и
+      // блокирует retry. Сигнал outerController пробрасывается во внутренний
+      // через слушатель: при abort outerController инициируем abort на
+      // attemptController.
+      //
+      // AbortError из-за смены позиции (outerController) отдаётся
+      // отдельным `aborted: true`, чтобы вызывающий код не считал его
+      // настоящей ошибкой и не показывал «База недоступна».
+      const doFetch = async (
+        attempt: number,
+      ): Promise<
+        | { ok: true; data: ArchiveTreeResponse }
+        | { ok: false; aborted: true }
+        | { ok: false; aborted: false; status: number | null; reason: 'http' | 'timeout' | 'network'; message: string }
+      > => {
+        const attemptController = new AbortController();
+        const onOuterAbort = () => attemptController.abort();
+        outerController.signal.addEventListener('abort', onOuterAbort);
+
+        let timedOut = false;
+        const timeoutTimer = setTimeout(() => {
+          timedOut = true;
+          attemptController.abort();
+        }, REQUEST_TIMEOUT_MS);
+
+        const cleanup = () => {
+          clearTimeout(timeoutTimer);
+          outerController.signal.removeEventListener('abort', onOuterAbort);
+        };
+
+        try {
+          const res = await fetch(url, {
+            method: 'GET',
+            signal: attemptController.signal,
+            headers,
+          });
+          cleanup();
+
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            console.error('[archive-tree] HTTP error', {
+              attempt,
+              method: 'GET',
+              url,
+              status: res.status,
+              statusText: res.statusText,
+              body: text.slice(0, 500),
+            });
+            return {
+              ok: false,
+              aborted: false,
+              status: res.status,
+              reason: 'http',
+              message: `archive: ${res.status}`,
+            };
+          }
+
           const json = (await res.json()) as ArchiveTreeResponse;
-          if (controller.signal.aborted) return;
-          cacheRef.current.set(cacheKey, { data: json, timestamp: Date.now() });
-          setData(json);
+          return { ok: true, data: json };
+        } catch (err: unknown) {
+          cleanup();
+
+          // AbortError может быть от: 1) пользователь сменил позицию (outer abort),
+          // 2) истёк наш per-attempt timeout, 3) unmount.
+          const isAbort = (err as Error | undefined)?.name === 'AbortError';
+          if (isAbort && outerController.signal.aborted) {
+            // Пользователь сменил позицию/фильтр — это не ошибка
+            return { ok: false, aborted: true };
+          }
+          if (timedOut) {
+            console.error('[archive-tree] timeout', {
+              attempt,
+              method: 'GET',
+              url,
+              timeoutMs: REQUEST_TIMEOUT_MS,
+            });
+            return {
+              ok: false,
+              aborted: false,
+              status: null,
+              reason: 'timeout',
+              message: `archive: таймаут ${REQUEST_TIMEOUT_MS}мс`,
+            };
+          }
+          // Сетевые ошибки (DNS/CORS/connection refused/offline)
+          const message = (err as Error | undefined)?.message ?? 'network error';
+          console.error('[archive-tree] network error', {
+            attempt,
+            method: 'GET',
+            url,
+            error: err,
+          });
+          return {
+            ok: false,
+            aborted: false,
+            status: null,
+            reason: 'network',
+            message: `archive: сеть (${message})`,
+          };
+        }
+      };
+
+      // KS-2153: основной вызов + одна повторная попытка при transient ошибках
+      // (5xx/timeout/network). 4xx (включая 401/403/404) — НЕ retry,
+      // повторный запрос даст тот же результат.
+      const run = async () => {
+        const first = await doFetch(1);
+
+        const isTransient = (
+          r: Awaited<ReturnType<typeof doFetch>>,
+        ): boolean => {
+          if (r.ok) return false;
+          if (r.aborted) return false;
+          if (r.reason === 'network' || r.reason === 'timeout') return true;
+          if (r.reason === 'http' && typeof r.status === 'number' && r.status >= 500) {
+            return true;
+          }
+          return false;
+        };
+
+        let final = first;
+        if (isTransient(first)) {
+          await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+          // Если за это время позицию сменили — outerController уже abort'нут
+          // и второй doFetch сразу вернёт aborted:true.
+          if (!outerController.signal.aborted) {
+            final = await doFetch(2);
+          } else {
+            final = { ok: false, aborted: true };
+          }
+        }
+
+        if (final.ok === false && final.aborted) return;
+
+        if (final.ok) {
+          cacheRef.current.set(cacheKey, { data: final.data, timestamp: Date.now() });
+          setData(final.data);
           setError(null);
           setIsLoading(false);
-        })
-        .catch((err: unknown) => {
-          if ((err as Error | undefined)?.name === 'AbortError') return;
-          if (controller.signal.aborted) return;
-          setError((err as Error | undefined)?.message ?? 'Request failed');
-          setIsLoading(false);
-        });
+          return;
+        }
+
+        setError(final.message);
+        setIsLoading(false);
+      };
+
+      void run();
     }, DEBOUNCE_MS);
 
     return () => {
