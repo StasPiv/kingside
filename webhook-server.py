@@ -118,6 +118,7 @@ ROLE_VOLUMES: dict[str, list[str]] = {
     "ROLE_WRITE_APPS_BROADCAST_SERVICE":[f"{_P}/apps/broadcast-service:/project/apps/broadcast-service"],
     "ROLE_WRITE_APPS_ARCHIVE_IMPORTER":[f"{_P}/apps/archive-importer:/project/apps/archive-importer"],
     "ROLE_WRITE_APPS_ARCHIVE_SERVICE": [f"{_P}/apps/archive-service:/project/apps/archive-service"],
+    "ROLE_WRITE_APPS_SYNTHETIC_BOT_SERVICE": [f"{_P}/apps/synthetic-bot-service:/project/apps/synthetic-bot-service"],
     # Frontend-код
     "ROLE_WRITE_APPS_WEB":             [f"{_P}/apps/web:/project/apps/web"],
     "ROLE_WRITE_APPS_WEB_SRC":         [f"{_P}/apps/web/src:/project/apps/web/src"],
@@ -799,6 +800,7 @@ AGENT_ROLES: dict[str, list[str]] = {
         "ROLE_WRITE_APPS_API", "ROLE_WRITE_APPS_GAME_SERVICE",
         "ROLE_WRITE_APPS_BROADCAST_WORKER", "ROLE_WRITE_APPS_BROADCAST_SERVICE",
         "ROLE_WRITE_APPS_ARCHIVE_IMPORTER", "ROLE_WRITE_APPS_ARCHIVE_SERVICE",
+        "ROLE_WRITE_APPS_SYNTHETIC_BOT_SERVICE",
         "ROLE_WRITE_PACKAGES", "ROLE_WRITE_PACKAGE_JSON", "ROLE_WRITE_PACKAGE_LOCK",
         "ROLE_READ_TSCONFIG_BASE", "ROLE_READ_NODE_MODULES",
         "ROLE_READ_APPS_API_NODE_MODULES",
