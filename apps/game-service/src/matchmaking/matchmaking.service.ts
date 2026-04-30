@@ -245,7 +245,9 @@ export class MatchmakingService implements OnModuleInit, OnModuleDestroy {
   }
 
   // KS-2165: createBotGame удалён вместе с client-side bot fallback (`botClientSide`).
-  // Теперь Pass 2 в processQueue запрашивает synthetic-юзера через
-  // SyntheticSchedulerService.allocateSynthetic; партия создаётся через
-  // тот же createMatchedGame с `isSyntheticOpponent=true`. См. ADR-034 §1.
+  // Pass 2 (synthetic-fallback через SyntheticSchedulerService) откатан
+  // 30.04 — embedded-вариант признан неверным. Замена — WS-bot-fleet,
+  // спроектированный в ADR-034 v2 (синтетики подключаются как обычные
+  // WS-клиенты, попадают в общую очередь и пересекаются с live↔live
+  // pairing'ом естественным образом).
 }

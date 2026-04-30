@@ -8,8 +8,8 @@ import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
 /**
  * KS-2165 (B6). Тесты обновлены: 12-ботный пул `MATCHMAKING_BOTS` удалён,
  * `BotGameService` теперь обслуживает только Workshop / Play-vs-Bot
- * (один Stockfish-bot). `pickBotForRating` тоже удалён — synthetic'ов
- * подбирает `SyntheticSchedulerService`.
+ * (один Stockfish-bot). `pickBotForRating` тоже удалён. Embedded
+ * synthetic-архитектура откатана 30.04 (см. ADR-034 v2).
  */
 describe('BotGameService — KS-2165', () => {
   let service: BotGameService;

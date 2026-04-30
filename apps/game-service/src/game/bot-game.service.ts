@@ -6,8 +6,9 @@ import { STOCKFISH_BOT_ID, STOCKFISH_BOT_USERNAME } from '@kingside/shared';
  * KS-2165 (B6). Сервис обслуживает ТОЛЬКО Workshop / Play-vs-Bot режим
  * (Q7 ADR-034 — оставляем как есть). Раньше также готовил пул из 12
  * MATCHMAKING_BOTS для 30-секундного fallback'а в matchmaking; этот
- * fallback удалён (synthetic users — отдельный пул, ведётся через
- * `SyntheticProfileSeederService` и `SyntheticSchedulerService`).
+ * fallback удалён насовсем. Embedded synthetic-архитектура
+ * (KS-2159..KS-2180) откатана 30.04 — замена в виде WS-bot-fleet
+ * проектируется в ADR-034 v2.
  */
 @Injectable()
 export class BotGameService implements OnModuleInit {
