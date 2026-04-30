@@ -918,13 +918,14 @@ export function AnalysisPage() {
         color: previewDefaultColor,
         secondaryColor: HIGHLIGHT_COLORS.red,
         tertiaryColor: HIGHLIGHT_COLORS.yellow,
+        // Остальное — дефолтные значения react-chessboard.
         arrowLengthReducerDenominator: 8,
         sameTargetArrowLengthReducerDenominator: 4,
-        arrowWidthDenominator: 8,
-        activeArrowWidthMultiplier: 1.2,
-        opacity: 0.8,
+        arrowWidthDenominator: 5,
+        activeArrowWidthMultiplier: 0.9,
+        opacity: 0.65,
         activeOpacity: 0.5,
-        arrowStartOffset: 0.3,
+        arrowStartOffset: 0,
       },
       // KS-2152: onSquareRightClick НЕ передаём — Chrome шлёт contextmenu
       // ещё на mousedown (до завершения drag). Если library вызовет наш
