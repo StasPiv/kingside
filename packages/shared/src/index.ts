@@ -6,6 +6,7 @@ export * from './types/user-courses.js';
 export * from './types/video-url.js';
 export * from './types/api-contracts.js';
 export * from './types/feature-flags.js';
+export * from './types/synthetic.js';
 export * from './constants.js';
 export * from './constants/archive.js';
 export * from './utils/time-control.js';

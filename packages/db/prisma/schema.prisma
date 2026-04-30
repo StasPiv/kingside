@@ -36,6 +36,20 @@ model User {
   pieceSet              String   @default("standard") @map("piece_set")
   soundEnabled          Boolean  @default(true) @map("sound_enabled")
   isBot                 Boolean  @default(false) @map("is_bot")
+  /// KS-2160 (ADR-034 §2.1). Synthetic-user — отдельная категория от `isBot`:
+  /// - `isBot=true`  — старая legacy-роль 30s matchmaking fallback (12 fixed UUID-ов
+  ///   из `MATCHMAKING_BOTS`); готовится к выводу в KS-2161+.
+  /// - `isSynthetic=true` — новая категория эмулированных пользователей с
+  ///   полноценной игрой через Stockfish-pool, профили, presence (KS-2161+).
+  /// На время миграции возможны записи c обоими флагами; data-migration
+  /// `20260430120000_add_synthetic_fields` переводит 12 legacy-ботов в
+  /// `isBot=false, isSynthetic=true` (см. KS-2160 §3).
+  isSynthetic           Boolean  @default(false) @map("is_synthetic")
+  /// KS-2160. Двухбуквенный ISO-3166-1 alpha-2 (RU, US, IN, BR…). Используется
+  /// в профиле пользователя для отображения флага. Nullable — реальные
+  /// пользователи могут не указывать страну. Для synthetic-ов обязателен,
+  /// проставляется генератором профиля (KS-2162).
+  country               String?  @db.Char(2)
   chesscomUsername      String?  @map("chesscom_username")
   lichessUsername       String?  @map("lichess_username")
 
@@ -71,6 +85,12 @@ model User {
   userLessonPlayProgress UserLessonPlayProgress[]
 
   @@unique([oauthProvider, oauthProviderId])
+  /// KS-2160. Partial-индекс по synthetic-флагу. На реальных пользователях
+  /// (~99% выборки) `is_synthetic=false`, поэтому полный индекс — почти
+  /// весь sequential scan. Postgres `@@index` без `where` всё равно
+  /// быстрее scan'а (особенно для scheduler'а из KS-2164, который делает
+  /// `findMany WHERE is_synthetic=true LIMIT N`).
+  @@index([isSynthetic])
   @@map("users")
 }
 
@@ -129,6 +149,17 @@ model Game {
   isBot             Boolean         @default(false) @map("is_bot")
   botLevel          Int?            @map("bot_level")
   botClientSide     Boolean         @default(false) @map("bot_client_side")
+  /// KS-2160 (ADR-034 §2.1). Маркер «одна из сторон — synthetic-user».
+  /// Используется для аудита, фильтров в админке и будущих use-cases.
+  /// **Не используется для исключения из публичных чартов** — KS-2167
+  /// отменена, synthetic = полноценный пользователь и виден в публичных
+  /// листингах как обычный.
+  isSyntheticOpponent Boolean       @default(false) @map("is_synthetic_opponent")
+  /// KS-2160. Имя «фонового» соперника для отображения в истории партий
+  /// — на случай если в будущем мы захотим показать имя без создания
+  /// `User`-записи (Q4 ADR-034). Пока nullable и не используется
+  /// (текущее решение — реальный User-record для каждого synthetic).
+  opponentNameSynthetic String?     @map("opponent_name_synthetic")
   createdAt         DateTime        @default(now()) @map("created_at")
   startedAt         DateTime?       @map("started_at")
   finishedAt        DateTime?       @map("finished_at")
@@ -148,6 +179,10 @@ model Game {
   @@index([status])
   @@index([createdAt])
   @@index([isBot, status])
+  /// KS-2160. Индекс по `is_synthetic_opponent` НЕ создан — KS-2167
+  /// (исключение synthetic из публичных чартов) отменена, и без её
+  /// SELECT'ов селективного use-case у индекса не остаётся. Поле
+  /// сохранено как маркер для аудита/админки.
   @@index([tournamentId])
   @@map("games")
 }
