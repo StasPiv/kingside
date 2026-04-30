@@ -255,34 +255,108 @@ describe('computeThinkMs', () => {
     expect(t).toBeGreaterThanOrEqual(200);
   });
 
-  it('hard cap для bullet ≤ 4000 + reaction (≤ ~4700 максимум)', () => {
+  // KS-2175: hardCap по категориям приведены к ADR-034 §6.1.
+  // bullet 4s, blitz 12s, rapid 60s, classical 180s.
+  it.each([
+    ['bullet', 4_000],
+    ['blitz', 12_000],
+    ['rapid', 60_000],
+    ['classical', 180_000],
+  ] as const)('hard cap для %s ≤ %i ms + reaction (≤ +700)', (category, cap) => {
     let max = 0;
     for (let i = 0; i < 100; i++) {
       const t = computeThinkMs({
-        category: 'bullet',
+        category,
         phase: 'middlegame',
-        evalDiffCp: 1000, // critical complexity → ×1.6
+        // diff ≥ 250 → complexity 0.6 (быстрый ход), но 3% «долгая
+        // дума» × 3 даёт пик. Без этого пик не достигает hardCap.
+        evalDiffCp: 0, // → complexity 1.5 (равноценные → думают долго)
       });
       if (t > max) max = t;
     }
-    expect(max).toBeLessThanOrEqual(4000 + 700);
+    expect(max).toBeLessThanOrEqual(cap + 700);
   });
 
-  it('сложная позиция (eval diff 200 cp) даёт больше времени на 100 экспериментах', () => {
-    let easySum = 0;
-    let hardSum = 0;
-    for (let i = 0; i < 200; i++) {
-      easySum += computeThinkMs({
-        category: 'rapid',
-        phase: 'middlegame',
-        evalDiffCp: 5,
-      });
-      hardSum += computeThinkMs({
-        category: 'rapid',
-        phase: 'middlegame',
-        evalDiffCp: 250,
-      });
-    }
-    expect(hardSum / easySum).toBeGreaterThan(1.2); // хотя бы +20%
+  // KS-2175: complexity multiplier по ADR §6.3 (НЕ инвертирован).
+  // Равноценные варианты (diff < 30) → ×1.5 (думаем дольше).
+  // Очевидно лучший (diff > 250) → ×0.6 (играем быстрее).
+  describe('complexity multiplier — KS-2175 (ADR §6.3)', () => {
+    it('равноценные варианты (diff=10) дольше очевидного (diff=300) на 200 sample', () => {
+      let equalSum = 0; // diff < 30 → ×1.5
+      let obviousSum = 0; // diff ≥ 250 → ×0.6
+      for (let i = 0; i < 500; i++) {
+        equalSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 10,
+        });
+        obviousSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 300,
+        });
+      }
+      // 1.5 / 0.6 = 2.5×. Допускаем ≥ 1.8× с учётом jitter и reaction.
+      expect(equalSum / obviousSum).toBeGreaterThan(1.8);
+    });
+
+    it('boundary <30 cp → equal (×1.5)', () => {
+      // detached pure-сравнение: при random=0.5 jitter=0,
+      // longThink=false. Total = mean*1.5 + reaction.
+      // Random=0.5 даёт jitterNormal ≈ 0 (cos π = -1, hmm
+      // математика чуть сложнее) — проверим качественно: при diff=29
+      // среднее > при diff=30..149 (×1.2).
+      let lowSum = 0;
+      let midSum = 0;
+      for (let i = 0; i < 200; i++) {
+        lowSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 25, // ×1.5
+        });
+        midSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 100, // ×1.2
+        });
+      }
+      expect(lowSum).toBeGreaterThan(midSum);
+    });
+
+    it('diff в диапазоне 30..150 cp → mid (×1.2)', () => {
+      let midSum = 0; // ×1.2
+      let obvSum = 0; // ×0.9 (diff 150..250)
+      for (let i = 0; i < 200; i++) {
+        midSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 100,
+        });
+        obvSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 200,
+        });
+      }
+      expect(midSum).toBeGreaterThan(obvSum);
+    });
+
+    it('diff 150..250 cp → quasi-obvious (×0.9), быстрее равноценных', () => {
+      let equalSum = 0;
+      let obviousSum = 0;
+      for (let i = 0; i < 300; i++) {
+        equalSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 10,
+        });
+        obviousSum += computeThinkMs({
+          category: 'rapid',
+          phase: 'middlegame',
+          evalDiffCp: 200,
+        });
+      }
+      expect(equalSum).toBeGreaterThan(obviousSum);
+    });
   });
 });

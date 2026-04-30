@@ -242,13 +242,19 @@ export const SYNTHETIC_THINK_MEAN_MS: Record<
 
 /**
  * Hard cap по категории — выше клиент будет «думать слишком долго»
- * для своего time control'а. ADR §6.
+ * для своего time control'а. ADR-034 §6.1.
+ *
+ * KS-2175: rapid/classical приведены к ADR (60s/180s соответственно).
+ * Прежние 30s/90s занижали реалистичный диапазон — реальные люди в
+ * rapid могут думать до минуты на критическом ходе, в classical — до
+ * 3 минут. Это заметная anti-detection метрика: «бот никогда не думает
+ * больше 30 сек в rapid» сразу сигнализирует автомат.
  */
 export const SYNTHETIC_THINK_HARD_CAP_MS: Record<TimeControlCategory, number> = {
   bullet: 4_000,
   blitz: 12_000,
-  rapid: 30_000,
-  classical: 90_000,
+  rapid: 60_000,
+  classical: 180_000,
 };
 
 const MIN_THINK_MS = 200;
@@ -272,10 +278,19 @@ export function jitterNormal(
  *
  * + 3% долгая дума (×3 множитель), + correction по сложности позиции
  *   (eval-разница):
- *     diff <  20 cp  → ×0.8 (тривиальная)
- *     diff < 100 cp  → ×1.0 (стандартная)
- *     diff < 300 cp  → ×1.3 (сложная)
- *     иначе         → ×1.6 (критическая)
+ *
+ *   KS-2175 (ADR-034 §6.3): семантика — равноценные варианты заставляют
+ *   ДУМАТЬ ДОЛЬШЕ (трудно выбрать), очевидно лучший ход — БЫСТРЕЕ.
+ *   Прежняя реализация была инвертирована (мелкий diff → ×0.8,
+ *   большой → ×1.6) — палево anti-detection: бот думает быстро в
+ *   стандартных позициях и долго только в очевидно решающих, что
+ *   противоположно человеку.
+ *
+ *     diff <  30 cp   → ×1.5  (равноценные, «выбираем-выбираем»)
+ *     diff < 150 cp   → ×1.2  (есть нюанс)
+ *     diff < 250 cp   → ×0.9  (один заметно лучше)
+ *     diff ≥ 250 cp   → ×0.6  (очевидный ход, «вижу — играю»)
+ *
  * + реакция: 200 ms база + jitter [0..500] ms.
  *
  * Все случайные источники подменяемы для тестов.
@@ -297,13 +312,14 @@ export function computeThinkMs(input: ComputeThinkMsInput): number {
   // 3% — долгая дума.
   const longThink = random() < 0.03;
 
-  // Сложность позиции.
+  // KS-2175: complexity multiplier по ADR-034 §6.3.
+  // Равноценные варианты → дольше; очевидно лучший → быстрее.
   const diff = Math.abs(input.evalDiffCp);
   let complexityMul: number;
-  if (diff < 20) complexityMul = 0.8;
-  else if (diff < 100) complexityMul = 1.0;
-  else if (diff < 300) complexityMul = 1.3;
-  else complexityMul = 1.6;
+  if (diff < 30) complexityMul = 1.5;
+  else if (diff < 150) complexityMul = 1.2;
+  else if (diff < 250) complexityMul = 0.9;
+  else complexityMul = 0.6;
 
   const noise = jitterNormal(random);
   let base = mean + noise * sigma;
