@@ -6,6 +6,19 @@ const PROVISIONAL_THRESHOLD = 20;
 const K_ESTABLISHED = 32;
 const K_PROVISIONAL = 40;
 
+/**
+ * KS-2166 (ADR-034 §8.2, Q2 = R1). Synthetic-партии (флаг
+ * `Game.isSyntheticOpponent=true`) пересчитываются как обычные:
+ * рейтинг живого изменяется по тем же формулам Elo, рейтинг
+ * synthetic'а — тоже (он полноценный пользователь по Q4).
+ *
+ * Specific:
+ *   - НЕ добавляем ветку `if isSyntheticOpponent skipRating()`.
+ *   - Существующая ветка `if (game.isBot) skip` — это Workshop /
+ *     Play-vs-Bot режим (Q7 = «оставить как есть»), не путать с
+ *     synthetic. Synthetic в матчмейкинге проходит как live, поэтому
+ *     `game.isBot=false` и сюда попадает в нормальный пересчёт.
+ */
 @Injectable()
 export class RatingService {
   private readonly logger = new Logger(RatingService.name);
@@ -30,6 +43,10 @@ export class RatingService {
     });
 
     if (game.isBot) {
+      // Workshop / Play-vs-Bot режим (см. ADR-034 §10.2 Q7). НЕ
+      // переносить эту ветку на `isSyntheticOpponent` — synthetic-
+      // партия из matchmaking-flow обрабатывается ниже как обычная
+      // (KS-2166 Q2 = R1).
       this.logger.log(`Rating update skipped for game ${gameId}: bot game`);
       return null;
     }

@@ -268,6 +268,54 @@ describe('RatingService', () => {
     });
   });
 
+  describe('synthetic-opponent games (KS-2166, ADR-034 Q2 = R1)', () => {
+    it('пересчитывает рейтинг как обычно при isSyntheticOpponent=true', async () => {
+      setupGame({ isBot: false, isSyntheticOpponent: true });
+      setupRatings(1500, 1500);
+
+      const r = await service.updateRatingsAfterGame(gameId, 'white');
+
+      // Тот же диапазон ELO-изменения как при live-vs-live (≈ 8..16 cp).
+      expect(r).not.toBeNull();
+      expect(r!.whiteRatingAfter).toBeGreaterThan(1500);
+      expect(r!.blackRatingAfter).toBeLessThan(1500);
+      // Результат идентичен «обычной» партии (для сравнения см. spec ELO calc).
+      expect(prisma.user.update).toHaveBeenCalledTimes(2);
+      // RatingHistory пишется для обоих участников.
+      expect(prisma.ratingHistory.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('никаких специальных веток на isSyntheticOpponent — рейтинг synthetic\'а тоже меняется', async () => {
+      setupGame({ isBot: false, isSyntheticOpponent: true });
+      setupRatings(1500, 1500);
+
+      await service.updateRatingsAfterGame(gameId, 'black'); // synthetic выиграл
+
+      const whiteUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === whiteId,
+      );
+      const blackUpdate = prisma.user.update.mock.calls.find(
+        (c: any) => c[0].where.id === blackId,
+      );
+      // Оба участника получили апдейт (вне зависимости от того, кто synthetic).
+      expect(whiteUpdate[0].data.ratingBlitz).toBeLessThan(1500);
+      expect(blackUpdate[0].data.ratingBlitz).toBeGreaterThan(1500);
+    });
+
+    it('isBot=true имеет приоритет (Workshop / Play-vs-Bot — пересчёт пропускается)', async () => {
+      // Если по какой-то причине Game одновременно isBot=true И
+      // isSyntheticOpponent=true — поведение определяется именно
+      // веткой isBot (это точечный режим Workshop). Synthetic из
+      // matchmaking-flow всегда idёт с isBot=false.
+      setupGame({ isBot: true, isSyntheticOpponent: true });
+
+      const r = await service.updateRatingsAfterGame(gameId, 'white');
+
+      expect(r).toBeNull();
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+  });
+
   describe('rating protection', () => {
     it('should skip rating update when protection rejects', async () => {
       setupGame();
