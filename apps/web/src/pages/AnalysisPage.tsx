@@ -659,6 +659,12 @@ export function AnalysisPage() {
     (_args: { square: string }, e: React.MouseEvent) => {
       if (e.button === 2) {
         arrowDragStartRef.current = _args.square;
+        arrowDragModsRef.current = {
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
+        };
         // Фиксируем цвет preview по модификаторам в момент mousedown.
         // Если только Alt → подменяем default на синий (library не знает Alt).
         // В остальных случаях оставляем зелёный — library сама обработает
@@ -676,15 +682,27 @@ export function AnalysisPage() {
   const handleBoardMouseUp = useCallback(
     (args: { square: string }, e: React.MouseEvent) => {
       const dragStart = arrowDragStartRef.current;
+      const dragMods = arrowDragModsRef.current;
       arrowDragStartRef.current = null;
+      arrowDragModsRef.current = null;
       if (e.button !== 2 || !dragStart) return;
+
+      // Используем модификаторы из mouseDown (пользователь мог отпустить
+      // клавишу до отпускания мыши); если по какой-то причине ref пуст —
+      // fallback на текущее состояние event'а.
+      const mods = dragMods ?? {
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        ctrlKey: e.ctrlKey,
+        metaKey: e.metaKey,
+      };
 
       const highlightsCurrent = currentAnnotations?.highlights;
       const arrowsCurrent = currentAnnotations?.arrows;
 
       if (dragStart === args.square) {
         // Одиночный ПКМ-клик по той же клетке → toggle highlight.
-        const color: AnnotationColor = highlightColorByModifiers(e);
+        const color: AnnotationColor = highlightColorByModifiers(mods);
         const list = highlightsCurrent ?? [];
         const idx = list.findIndex((h) => h.square === args.square);
         let newHighlights: SquareHighlight[];
@@ -714,7 +732,7 @@ export function AnalysisPage() {
       if (idx >= 0) {
         newArrows = list.slice(0, idx).concat(list.slice(idx + 1));
       } else {
-        const color: AnnotationColor = arrowColorByModifiers(e);
+        const color: AnnotationColor = arrowColorByModifiers(mods);
         newArrows = list.concat({ from: dragStart, to: args.square, color });
       }
       const next: NodeAnnotations | undefined =
@@ -746,6 +764,16 @@ export function AnalysisPage() {
   // от library, она лишь визуально дублирует наш external arrows до
   // ремоунта (см. `annotationsKey`).
   const arrowDragStartRef = useRef<string | null>(null);
+  // KS-2152: модификаторы клавиатуры запоминаются в mouseDown — пользователь
+  // мог отпустить Shift/Alt/Ctrl до того, как отпустил мышь, и mouseUp event
+  // уже не содержит флага. Финальный цвет аннотации должен быть тем, что
+  // был зафиксирован в начале действия.
+  const arrowDragModsRef = useRef<{
+    shiftKey: boolean;
+    altKey: boolean;
+    ctrlKey: boolean;
+    metaKey: boolean;
+  } | null>(null);
 
   // KS-2152: цвет preview-стрелки во время drag. По умолчанию = зелёный.
   // Library сама умеет Shift→secondaryColor и Ctrl→tertiaryColor, но Alt
