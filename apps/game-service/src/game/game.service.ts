@@ -69,6 +69,44 @@ export class GameService {
     return `game:${gameId}:state`;
   }
 
+  /**
+   * KS-2173. Создаёт `Game` запись для synthetic-vs-synthetic партии
+   * (bootstrap-фаза, ADR-034 §3) и инициализирует её state как при
+   * обычной partition — Redis hash + clocks + status='active'.
+   *
+   * Используется `BootstrapGameLauncherService`. Real-life matchmaking
+   * (`MatchmakingService.createMatchedGame`) делает аналогичные write'ы
+   * через свой публичный `prisma.game.create` + `redis.hset`; здесь
+   * собираем тот же flow в одном месте, чтобы launcher не дублировал
+   * boilerplate. `category` маппится в стандартные TC (см.
+   * `DEFAULT_CATEGORY_TC`).
+   */
+  async createSyntheticGame(opts: {
+    whiteId: string;
+    blackId: string;
+    category: 'bullet' | 'blitz' | 'rapid' | 'classical';
+  }): Promise<{ gameId: string }> {
+    const tc = DEFAULT_CATEGORY_TC[opts.category];
+    const game = await this.prisma.game.create({
+      data: {
+        whiteId: opts.whiteId,
+        blackId: opts.blackId,
+        timeControlType: opts.category,
+        timeInitialSec: tc.initialTime,
+        timeIncrementSec: tc.increment,
+        status: 'active',
+        isSyntheticOpponent: true,
+        startedAt: new Date(),
+      },
+    });
+    await this.initGame(game.id);
+    this.logger.log(
+      `bootstrap launcher: created synthetic game ${game.id} ` +
+        `(white=${opts.whiteId.slice(0, 8)}, black=${opts.blackId.slice(0, 8)}, tc=${opts.category})`,
+    );
+    return { gameId: game.id };
+  }
+
   async initGame(gameId: string): Promise<GameState> {
     const game = await this.prisma.game.findUniqueOrThrow({
       where: { id: gameId },

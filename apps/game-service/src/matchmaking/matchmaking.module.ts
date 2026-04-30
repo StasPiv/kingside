@@ -9,7 +9,13 @@ import { StockfishPoolService } from './synthetic/engine/stockfish-pool.service'
 import { SyntheticMoveEngineService } from './synthetic/engine/synthetic-move-engine.service';
 import { TwicOpeningBookProvider } from './synthetic/engine/twic-opening-book-provider';
 import { SyntheticBootstrapService } from './synthetic/bootstrap/synthetic-bootstrap.service';
+import {
+  BootstrapGameLauncherService,
+  adaptGameServiceForLauncher,
+  adaptPrismaForLauncher,
+} from './synthetic/bootstrap/bootstrap-game-launcher.service';
 import { SyntheticChatService } from './synthetic/chat/synthetic-chat.service';
+import { GameService } from '../game/game.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import type {
@@ -42,6 +48,7 @@ import type {
     SyntheticMoveEngineService,
     TwicOpeningBookProvider,
     SyntheticBootstrapService,
+    BootstrapGameLauncherService,
     SyntheticChatService,
   ],
   exports: [
@@ -52,6 +59,7 @@ import type {
     SyntheticMoveEngineService,
     TwicOpeningBookProvider,
     SyntheticBootstrapService,
+    BootstrapGameLauncherService,
     SyntheticChatService,
   ],
 })
@@ -64,6 +72,9 @@ export class MatchmakingModule implements OnModuleInit {
     private readonly scheduler: SyntheticSchedulerService,
     private readonly moveEngine: SyntheticMoveEngineService,
     private readonly openingBook: TwicOpeningBookProvider,
+    private readonly bootstrap: SyntheticBootstrapService,
+    private readonly launcher: BootstrapGameLauncherService,
+    private readonly gameService: GameService,
   ) {}
 
   onModuleInit(): void {
@@ -82,5 +93,17 @@ export class MatchmakingModule implements OnModuleInit {
     // он отдаёт null (MoveEngine идёт на Stockfish сразу).
     this.openingBook.configure(this.redis as unknown as never);
     this.moveEngine.setOpeningBookProvider(this.openingBook);
+
+    // KS-2173: real BootstrapGameLauncher + wiring в bootstrap-сервис.
+    this.launcher.configure({
+      gameApi: adaptGameServiceForLauncher(this.gameService),
+      prismaUser: adaptPrismaForLauncher(this.prisma),
+      moveEngine: this.moveEngine,
+      redis: this.redis as unknown as never,
+    });
+    this.bootstrap.configure(
+      this.prisma as never,
+      this.launcher,
+    );
   }
 }
