@@ -307,10 +307,21 @@ export function attachHeartbeat(opts: AttachHeartbeatOpts): AcquiredLock {
   // Heartbeat — отдельный setInterval. Не используем setTimeout-цепочку
   // (без catch'ей это утечёт promise rejection). Внутри tick'а ловим
   // ошибки, чтобы один редкий сбой Redis не убивал весь импорт.
+  let tickCount = 0;
   if (!opts.disableHeartbeat) {
     heartbeatHandle = setIntervalFn(() => {
       void heartbeatTickValue(opts, value, ttlMs).then((outcome) => {
-        if (outcome === 'ok') return;
+        if (outcome === 'ok') {
+          // KS-2180: явный info-сигнал «процесс жив» каждые heartbeatMs
+          // (default 5 мин). Раньше успешный tick тихий — devops не
+          // мог отличить медленный импорт от полного freeze.
+          tickCount++;
+          opts.logger?.log?.(
+            `lock "${opts.key}" alive: token=${token.slice(0, 8)}… ` +
+              `tick=${tickCount} ttl=${Math.floor(ttlMs / 1000)}s`,
+          );
+          return;
+        }
         // Lock потерян (mismatch или Redis-ошибка). Останавливаем
         // heartbeat и сигнализируем caller'у через AbortSignal —
         // тот должен прервать активный импорт, иначе мы уже не

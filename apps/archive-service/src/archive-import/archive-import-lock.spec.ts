@@ -444,6 +444,31 @@ describe('AcquiredLock.release', () => {
 // ─── KS-2156: AbortSignal при потере lock'а ────────────────────────
 
 describe('AcquiredLock.signal — KS-2156 abort на потере lock\'а', () => {
+  it('KS-2180: успешный heartbeat пишет info "lock alive" с tick-номером', async () => {
+    const r = makeFakeRedis({ evalReturns: [1, 1] });
+    const t = makeFakeIntervals();
+    const logger = { log: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+
+    const lock = await acquireLock({
+      redis: r.redis,
+      key: KEY,
+      role: 'scheduler',
+      logger,
+      setInterval: t.setInterval as never,
+      clearInterval: t.clearInterval as never,
+    });
+    expect(lock).not.toBeNull();
+
+    await t.flushTicks();
+    expect(logger.log).toHaveBeenCalledWith(expect.stringMatching(/lock ".*" alive/));
+    expect(logger.log).toHaveBeenCalledWith(expect.stringMatching(/tick=1/));
+
+    await t.flushTicks();
+    expect(logger.log).toHaveBeenCalledWith(expect.stringMatching(/tick=2/));
+    // signal остаётся НЕ aborted при ok-tick'ах.
+    expect(lock!.signal.aborted).toBe(false);
+  });
+
   it('успешный heartbeat → signal не aborted', async () => {
     const r = makeFakeRedis({ evalReturns: [1, 1, 1] });
     const t = makeFakeIntervals();

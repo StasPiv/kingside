@@ -370,6 +370,67 @@ export class TwicImporter {
     let skipped = failed + preSkipped; // битые + уже в БД
     let classicalAdded = 0;
 
+    // KS-2180: трекинг прогресса и per-error first-occurrence.
+    const insertStartMs = Date.now();
+    let lastProgressLogMs = insertStartMs;
+    let lastProgressLogRow = 0;
+    let errorCounter = 0;
+    /**
+     * Каждый encoutered error-code: count + флаг «первый WARN был».
+     * Первая ошибка нового кода → лог WARN с FEN/headers; последующие
+     * того же кода — тихо инкрементируют count (агрегат уйдёт в
+     * финальный лог + метрики).
+     */
+    const errorByCode = new Map<string, { count: number; firstWarned: boolean }>();
+    const PROGRESS_ROW_INTERVAL = 500;
+    const PROGRESS_TIME_INTERVAL_MS = 30_000;
+
+    const maybeLogProgress = (force = false): void => {
+      const now = Date.now();
+      const processed = added + (skipped - failed - preSkipped);
+      const sinceLastRow = processed - lastProgressLogRow;
+      const sinceLastMs = now - lastProgressLogMs;
+      if (
+        !force &&
+        sinceLastRow < PROGRESS_ROW_INTERVAL &&
+        sinceLastMs < PROGRESS_TIME_INTERVAL_MS
+      ) {
+        return;
+      }
+      const totalSoFar = processed;
+      const elapsed = now - insertStartMs;
+      const avgMs = totalSoFar > 0 ? Math.round(elapsed / totalSoFar) : 0;
+      this.logger.log(
+        `[twic] insert progress: ${totalSoFar} of ${freshGames.length} done, ` +
+          `avg=${avgMs}ms/row, errors=${errorCounter}`,
+      );
+      lastProgressLogMs = now;
+      lastProgressLogRow = processed;
+    };
+
+    const recordError = (err: unknown, game: ParsedGame): void => {
+      errorCounter++;
+      const code =
+        (err && typeof err === 'object' && (err as { code?: unknown }).code
+          ? String((err as { code?: unknown }).code)
+          : 'unknown');
+      const slot = errorByCode.get(code) ?? { count: 0, firstWarned: false };
+      slot.count++;
+      if (!slot.firstWarned) {
+        slot.firstWarned = true;
+        const msg = err instanceof Error ? err.message : String(err);
+        // FEN обычно живёт в headers PGN; берём то, что у нас есть в
+        // ParsedGame: white/black, finalFen, eco, event/round.
+        this.logger.warn(
+          `[twic] FIRST error code=${code} message="${msg.slice(0, 200)}" ` +
+            `game={white="${game.white}" black="${game.black}" ` +
+            `event="${game.event ?? ''}" round="${game.round ?? ''}" ` +
+            `finalFen="${(game.finalFen ?? '').slice(0, 64)}"}`,
+        );
+      }
+      errorByCode.set(code, slot);
+    };
+
     // KS-2156: try-блок вокруг chunk-loop'а и финализации. Любой
     // unhandled throw (signal abort, исчерпанный retry на P1001/P1002/P2024,
     // деградация Prisma и т.д.) попадает в catch и помечает archive_imports
@@ -500,10 +561,14 @@ export class TwicImporter {
               throw err;
             } else {
               skipped++;
-              const msg = err instanceof Error ? err.message : String(err);
-              this.logger.warn(`[twic] game insert failed: ${msg}`);
+              // KS-2180: per-error WARN с code+headers только на первый
+              // encounter каждого кода — без спама на 600 одинаковых.
+              recordError(err, game);
             }
           }
+          // KS-2180: после каждой партии — попытка лог-progress
+          // (внутренний тротлинг по 500 партий / 30 сек).
+          maybeLogProgress();
         }
 
         // Позиционный индекс обновляем только по новым КЛАССИЧЕСКИМ партиям
@@ -542,6 +607,19 @@ export class TwicImporter {
           // @ts-expect-error intentional reference drop for GC
           freshGames[i] = null;
         }
+      }
+
+      // KS-2180: финальный progress + breakdown ошибок по кодам.
+      // Это вылетает строкой даже если errors=0 — devops видит итог
+      // insert-фазы.
+      maybeLogProgress(true);
+      if (errorByCode.size > 0) {
+        const breakdown = [...errorByCode.entries()]
+          .map(([code, slot]) => `${code}=${slot.count}`)
+          .join(' ');
+        this.logger.warn(
+          `[twic] insert errors breakdown: total=${errorCounter} ${breakdown}`,
+        );
       }
 
       // Gauge: доля классических в последнем импорте источника.

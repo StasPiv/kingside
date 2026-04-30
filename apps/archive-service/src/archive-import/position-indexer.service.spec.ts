@@ -105,6 +105,43 @@ describe('PositionIndexerService — KS-1624 SetUp handling', () => {
     expect(executeRaw).toHaveBeenCalledTimes(3);
   });
 
+  it('KS-2180: каждый chunk applyDeltas порождает progress-лог "[indexer] chunk i/N"', async () => {
+    // 1100 уникальных позиций → 3 chunk'а (500/500/100).
+    const moves: Array<{ uci: string; fenAfter: string }> = [];
+    // Достаточно несколько партий с разными ходами; для unit-теста
+    // используем простой пресет — но 1 партия на 3 хода не даст
+    // 1100 уникальных. Проще — генерируем синтетические дельты через
+    // приватный applyDeltas? Нельзя. Проверим иначе: 2 партии с
+    // разными первыми ходами → 2 уникальные позиции → 1 chunk → 1 log.
+    const game1 = mkGame({
+      moves: stepsFromUci(['e2e4']),
+      plyCount: 1,
+    });
+    const game2 = mkGame({
+      moves: stepsFromUci(['d2d4']),
+      plyCount: 1,
+    });
+    const { prisma } = mockPrisma();
+    const indexer = new PositionIndexerService(null as never, fakeMetrics());
+    const logSpy = jest
+      .spyOn(
+        (indexer as unknown as { logger: { log: (m: string) => void } }).logger,
+        'log',
+      )
+      .mockImplementation(() => undefined);
+
+    await indexer.indexWithPrisma(prisma as never, [game1, game2], 'test');
+
+    // Стартовый «applyDeltas start: deltas=2 chunks=1 ...».
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/applyDeltas start: deltas=2 chunks=1/),
+    );
+    // Per-chunk log: «[indexer] chunk 1/1 durationMs=...».
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/\[indexer\] chunk 1\/1 durationMs=\d+ rows=2/),
+    );
+  });
+
   it('смешанный батч: SetUp-партия пропущена, обычная посчитана', async () => {
     const normalMoves = stepsFromUci(['e2e4']);
     const normal = mkGame({ moves: normalMoves, plyCount: normalMoves.length });

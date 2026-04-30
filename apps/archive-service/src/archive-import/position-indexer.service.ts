@@ -194,8 +194,19 @@ export class PositionIndexerService {
   ): Promise<void> {
     const batchSize = 500;
     const list = [...deltas.values()];
+    const totalChunks = Math.ceil(list.length / batchSize);
+    let chunkIdx = 0;
+    // KS-2180: лог старта applyDeltas — даёт devops верхнюю границу
+    // сколько чанков ждать в этой фазе (раньше шло вслепую).
+    if (totalChunks > 0) {
+      this.logger.log(
+        `[indexer] applyDeltas start: deltas=${list.length} chunks=${totalChunks} batchSize=${batchSize}`,
+      );
+    }
     for (let i = 0; i < list.length; i += batchSize) {
       const chunk = list.slice(i, i + batchSize);
+      chunkIdx++;
+      const chunkStartMs = Date.now();
       // KS-2156: $transaction иногда возвращает 40P01 (deadlock_detected)
       // под параллельной нагрузкой. До фикса 45 событий за 24-часовое
       // окно теряли весь chunk без retry. Postgres гарантирует
@@ -241,6 +252,13 @@ export class PositionIndexerService {
             );
           },
         },
+      );
+      // KS-2180: per-chunk progress. Без этого position-indexer мог
+      // молча работать 5–10 мин на крупном TWIC-issue, неотличимо
+      // от freeze.
+      const durationMs = Date.now() - chunkStartMs;
+      this.logger.log(
+        `[indexer] chunk ${chunkIdx}/${totalChunks} durationMs=${durationMs} rows=${chunk.length}`,
       );
     }
   }
