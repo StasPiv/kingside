@@ -4,12 +4,14 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { OAuthCallbackController } from './oauth-callback.controller';
+import { InternalAuthController } from './internal-auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
 import { FacebookStrategy } from './facebook.strategy';
 import { AdminEmailGuard } from './admin-email.guard';
 import { AdminUserGuard, AdminUserService } from './admin-user.guard';
+import { InternalKeyGuard } from './internal-key.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
@@ -25,7 +27,7 @@ import { PrismaModule } from '../prisma/prisma.module';
       }),
     }),
   ],
-  controllers: [AuthController, OAuthCallbackController],
+  controllers: [AuthController, OAuthCallbackController, InternalAuthController],
   providers: [
     AuthService,
     JwtStrategy,
@@ -39,6 +41,9 @@ import { PrismaModule } from '../prisma/prisma.module';
     // и `/profile/me/admin-status`.
     AdminUserGuard,
     AdminUserService,
+    // KS-2182: InternalKeyGuard — shared-secret защита для
+    // `/api/internal/*` endpoint'ов synthetic-bot-service.
+    InternalKeyGuard,
   ],
   exports: [
     AuthService,
@@ -46,6 +51,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     AdminEmailGuard,
     AdminUserGuard,
     AdminUserService,
+    InternalKeyGuard,
   ],
 })
 export class AuthModule {}
