@@ -1555,6 +1555,38 @@ def telegram_poll_loop():
             send_telegram(ack)
 
 
+def coordinator_cron_loop():
+    """Каждые 7 минут пинает координатора проверить доску.
+    - Шлёт промпт только если daemon координатора жив и не занят (busy lock).
+    - Если координатор offline — НЕ поднимаем сами (иначе каждые 7 мин будет
+      новая сессия). Жив, но busy — пропускаем тик до следующего раза.
+    Живёт как фоновый thread webhook-сервера — переживает рестарты webhook.
+    """
+    interval = 7 * 60
+    prompt = (
+        "[CRON] Проверь задачи в статусе `To Do` и `In Progress`: "
+        "не зависли ли (нет активности от исполнителя, нет комментариев, "
+        "есть блокеры). Зависшие — подпинай ответственного через "
+        "`agent_message` или поставь блокирующий тикет. Если всё в порядке "
+        "— короткий ACK, без действий."
+    )
+    log("Coordinator cron запущен (интервал 7 мин)")
+    while True:
+        time.sleep(interval)
+        try:
+            with agent_daemons_lock:
+                d = agent_daemons.get("coordinator")
+            if not d or not d.proc or d.proc.poll() is not None:
+                continue
+            if _is_busy("coordinator"):
+                continue
+            _log_user_prompt("coordinator", prompt, source="cron")
+            send_to_agent("coordinator", prompt, sender="system", reply_channel=None)
+            log("Coordinator cron: промпт отправлен")
+        except Exception as e:
+            log(f"Coordinator cron error: {e}")
+
+
 def _log_user_prompt(agent: str, text: str, source: str = "web"):
     """Записывает пользовательский промпт в agents.log для отображения в /logs."""
     log_file = os.path.join(LOG_DIR, "agents.log")
@@ -3325,6 +3357,10 @@ if __name__ == "__main__":
     # Фоновая очистка idle chat daemons
     chat_cleanup_thread = threading.Thread(target=_chat_daemon_cleanup_loop, daemon=True)
     chat_cleanup_thread.start()
+
+    # Cron-пинг координатора каждые 7 мин (проверка зависших задач)
+    coord_cron_thread = threading.Thread(target=coordinator_cron_loop, daemon=True)
+    coord_cron_thread.start()
 
     class ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
         daemon_threads = True
