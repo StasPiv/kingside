@@ -652,7 +652,29 @@ if $DEPLOY_GAME; then
     docker push "$NEW_IMAGE" 2>&1 | tail -3
 
     echo "[game-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
-    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_GAME" "$NEW_IMAGE")
+    # KS-2170 (ADR-034 §10.3 D1+D2): synthetic users — feature-флаги bootstrap'а
+    # и scheduler'а выключены по умолчанию; включаются вручную через update-task-def
+    # в порядке "сначала bootstrap, после завершения — scheduler". Остальные SYNTHETIC_*
+    # / STOCKFISH_POOL_* / MATCHMAKING_LIVE_WAIT_* — операционные пороги.
+    # SYNTHETIC_AVATARS_S3_BUCKET оставлен пустым: backend идёт по DiceBear-direct
+    # (см. KS-2162). Если bucket понадобится — обновим этот блок.
+    GAME_SERVICE_EXTRA_ENV='[
+      {"name":"SYNTHETIC_SCHEDULER_ENABLED","value":"false"},
+      {"name":"SYNTHETIC_BOOTSTRAP_ENABLED","value":"false"},
+      {"name":"SYNTHETIC_BOOTSTRAP_TARGET_GAMES","value":"30"},
+      {"name":"SYNTHETIC_BOOTSTRAP_PARALLELISM","value":"30"},
+      {"name":"SYNTHETIC_POOL_SIZE","value":"200"},
+      {"name":"SYNTHETIC_DISABLE_AT_LIVE_QUEUE_LEN","value":"3"},
+      {"name":"SYNTHETIC_PRESENCE_TICK_MS","value":"60000"},
+      {"name":"SYNTHETIC_POLLING_INTERVAL_MIN_MS","value":"30000"},
+      {"name":"SYNTHETIC_POLLING_INTERVAL_MAX_MS","value":"120000"},
+      {"name":"STOCKFISH_POOL_SIZE","value":"3"},
+      {"name":"STOCKFISH_TASK_TIMEOUT_MS","value":"8000"},
+      {"name":"MATCHMAKING_LIVE_WAIT_MIN_MS","value":"5000"},
+      {"name":"MATCHMAKING_LIVE_WAIT_MAX_MS","value":"15000"},
+      {"name":"SYNTHETIC_AVATARS_S3_BUCKET","value":""}
+    ]'
+    NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_GAME" "$NEW_IMAGE" "$GAME_SERVICE_EXTRA_ENV")
     echo "  task-def: $NEW_TD_ARN"
 
     echo "[game-service] Updating ECS service to new revision..."
@@ -700,7 +722,11 @@ if $DEPLOY_BROADCAST_SERVICE; then
 
     if [ "$SVC_STATUS" = "ACTIVE" ]; then
         echo "[broadcast-service] Registering new task-def revision with image=:${DEPLOY_SHA}..."
-        NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_BROADCAST_SERVICE" "$NEW_IMAGE")
+        # KS-2158: BROADCAST_WATCHDOG_ENABLED включает фоновый watchdog для
+        # автозакрытия broadcast_rounds, отвалившихся от Lichess. Без 'true'
+        # сервис idle. Прокидываем через env-overrides; остальная env остаётся.
+        BROADCAST_SERVICE_EXTRA_ENV='[{"name":"BROADCAST_WATCHDOG_ENABLED","value":"true"}]'
+        NEW_TD_ARN=$(register_new_task_def_with_image "$TD_FAMILY_BROADCAST_SERVICE" "$NEW_IMAGE" "$BROADCAST_SERVICE_EXTRA_ENV")
         echo "  task-def: $NEW_TD_ARN"
 
         # KS-1817: Prisma migrations для broadcasts-db (отдельная БД broadcasts_kingside).
