@@ -116,6 +116,13 @@ export const TICK_ONCE_TIMEOUT_MS = DEFAULT_TICK_ONCE_TIMEOUT_MS;
 const TICK_INTERVAL_MS = 60_000;
 const LOCK_KEY_PREFIX = 'archive:import:lock';
 
+/**
+ * KS-2156. Порог «висячести» для `archive_imports.status='running'`.
+ * 60 минут даёт двукратный запас над реальным TWIC-импортом (12–18 мин,
+ * см. KS-2123) — нормальный live-running случайно не зацепим.
+ */
+const STALE_RUNNING_THRESHOLD_MS = 60 * 60 * 1_000;
+
 type SourceKind = 'twic';
 
 interface SourceRow {
@@ -159,6 +166,20 @@ export class ArchiveImportService implements OnModuleInit {
       // Не бросаем — importer-main умеет подняться c degraded health.
       return;
     }
+
+    // KS-2156: чистка висячих `archive_imports.status='running'` ДО
+    // первого tick'а. Если предыдущий процесс упал на середине импорта
+    // (SIGKILL / unhandled exception до фикса try/finally), запись
+    // оставалась `running` навсегда (видели 4 таких висяка после
+    // инцидента 29.04). На старте пройтись по записям старше
+    // STALE_RUNNING_THRESHOLD_MS и пометить failed.
+    await this.cleanupStaleRunningImports().catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Не фатально: новый импорт всё равно пойдёт, просто
+      // в БД будет шум висячих record'ов. Но факт ошибки нужен.
+      this.logger.warn(`cleanupStaleRunningImports failed: ${msg}`);
+    });
+
     // KS-1681: в one-shot режиме (EventBridge) initial tick не нужен —
     // tickOnce() вызовет importer-once.ts сам, явно. Иначе произошёл бы
     // двойной запуск (onModuleInit.tick() + tickOnce()), при котором
@@ -173,6 +194,47 @@ export class ArchiveImportService implements OnModuleInit {
       this.logger.error(`initial tick error: ${msg}`);
     });
     this.logger.log(`ArchiveImportService running — tick interval ${TICK_INTERVAL_MS}ms`);
+  }
+
+  /**
+   * KS-2156. Помечает все `archive_imports` со `status='running'` старше
+   * {@link STALE_RUNNING_THRESHOLD_MS} как `failed` с причиной
+   * `stale: process restart`.
+   *
+   * Threshold выбран 60 минут: реальный TWIC-импорт занимает 12–18 минут
+   * (см. KS-2123, расширили tickOnce timeout до 30 мин). 60-минутный
+   * порог даёт двукратный запас — нормальный импорт под этот фильтр
+   * не попадёт. Если процесс упал — на старте следующего сервиса
+   * (или onModuleInit при рестарте same instance) запись будет
+   * корректно помечена.
+   *
+   * Вызывается на старте до первого tick'а — иначе мог бы пометить
+   * собственный свежесозданный running (хотя 60-минутный порог почти
+   * исключает такой race, отделение во времени — defence in depth).
+   */
+  private async cleanupStaleRunningImports(): Promise<void> {
+    const staleAfter = new Date(Date.now() - STALE_RUNNING_THRESHOLD_MS);
+    const result = await this.prisma.archiveImport.updateMany({
+      where: {
+        status: 'running',
+        startedAt: { lt: staleAfter },
+      },
+      data: {
+        status: 'failed',
+        error: 'stale: process restart',
+        finishedAt: new Date(),
+      },
+    });
+    if (result.count > 0) {
+      this.logger.log(
+        `cleanupStaleRunningImports: marked ${result.count} stale archive_imports as failed ` +
+          `(thresholdMin=${Math.floor(STALE_RUNNING_THRESHOLD_MS / 60_000)})`,
+      );
+    } else {
+      this.logger.log(
+        `cleanupStaleRunningImports: no stale running rows (thresholdMin=${Math.floor(STALE_RUNNING_THRESHOLD_MS / 60_000)})`,
+      );
+    }
   }
 
   /**
@@ -370,7 +432,10 @@ export class ArchiveImportService implements OnModuleInit {
             this.indexer,
             this.metrics,
           );
-          const result = await importer.run();
+          // KS-2156: lock.signal срабатывает при потере lock'а
+          // (heartbeat mismatch / Redis-flap). Importer проверяет
+          // signal между chunk'ами и пишет archive_imports.failed.
+          const result = await importer.run({ signal: lock.signal });
           capturedResult = result;
           this.logger.log(
             `${source.code}: status=${result.status} parsed=${result.gamesParsed} added=${result.gamesAdded} skipped=${result.gamesSkipped} cursor=${result.cursorBefore}→${result.cursorAfter}`,

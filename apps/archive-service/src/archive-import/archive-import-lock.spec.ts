@@ -438,6 +438,110 @@ describe('AcquiredLock.release', () => {
   });
 });
 
+// ─── KS-2156: AbortSignal при потере lock'а ────────────────────────
+
+describe('AcquiredLock.signal — KS-2156 abort на потере lock\'а', () => {
+  it('успешный heartbeat → signal не aborted', async () => {
+    const r = makeFakeRedis({ evalReturns: [1, 1, 1] });
+    const t = makeFakeIntervals();
+
+    const lock = await acquireLock({
+      redis: r.redis,
+      key: KEY,
+      role: 'scheduler',
+      setInterval: t.setInterval as never,
+      clearInterval: t.clearInterval as never,
+    });
+    expect(lock).not.toBeNull();
+    expect(lock!.signal.aborted).toBe(false);
+
+    await t.flushTicks();
+    expect(lock!.signal.aborted).toBe(false);
+  });
+
+  it('mismatch (EXTEND вернул 0) → signal aborted с reason "lock lost: token mismatch..."', async () => {
+    const r = makeFakeRedis({ evalReturns: [0] }); // первый же tick = mismatch
+    const t = makeFakeIntervals();
+
+    const lock = await acquireLock({
+      redis: r.redis,
+      key: KEY,
+      role: 'scheduler',
+      setInterval: t.setInterval as never,
+      clearInterval: t.clearInterval as never,
+    });
+    expect(lock!.signal.aborted).toBe(false);
+
+    await t.flushTicks();
+    expect(lock!.signal.aborted).toBe(true);
+    expect((lock!.signal.reason as Error).message).toMatch(
+      /lock lost: token mismatch/,
+    );
+  });
+
+  it('Redis EVAL throw → signal aborted с reason "lock lost: heartbeat error..."', async () => {
+    const r = makeFakeRedis({ evalThrows: true });
+    const t = makeFakeIntervals();
+    const logger = { log: jest.fn(), warn: jest.fn(), debug: jest.fn() };
+
+    const lock = await acquireLock({
+      redis: r.redis,
+      key: KEY,
+      role: 'scheduler',
+      logger,
+      setInterval: t.setInterval as never,
+      clearInterval: t.clearInterval as never,
+    });
+    expect(lock!.signal.aborted).toBe(false);
+
+    await t.flushTicks();
+    expect(lock!.signal.aborted).toBe(true);
+    expect((lock!.signal.reason as Error).message).toMatch(
+      /lock lost: heartbeat error/,
+    );
+  });
+
+  it('обычный release НЕ дёргает signal (нормальное завершение)', async () => {
+    const r = makeFakeRedis({ evalReturns: [1] });
+    const t = makeFakeIntervals();
+
+    const lock = await acquireLock({
+      redis: r.redis,
+      key: KEY,
+      role: 'scheduler',
+      disableHeartbeat: true,
+      setInterval: t.setInterval as never,
+      clearInterval: t.clearInterval as never,
+    });
+
+    await lock!.release();
+    expect(lock!.signal.aborted).toBe(false);
+  });
+
+  it('повторные mismatch не abort\'ят повторно (idempotent)', async () => {
+    const r = makeFakeRedis({ evalReturns: [0, 0, 0] });
+    const t = makeFakeIntervals();
+
+    const lock = await acquireLock({
+      redis: r.redis,
+      key: KEY,
+      role: 'scheduler',
+      setInterval: t.setInterval as never,
+      clearInterval: t.clearInterval as never,
+    });
+
+    await t.flushTicks();
+    expect(lock!.signal.aborted).toBe(true);
+    const firstReason = lock!.signal.reason;
+
+    // Принудительно вызываем ещё раз (interval уже остановлен, но если бы
+    // он был — abort оставался идемпотентным).
+    await t.flushTicks();
+    expect(lock!.signal.aborted).toBe(true);
+    expect(lock!.signal.reason).toBe(firstReason);
+  });
+});
+
 // ─── Race-сценарий (KS-1898 DoD) ───────────────────────────────────
 //
 // Два процесса. A берёт lock с token-A, его TTL «истёк» (симулируем —

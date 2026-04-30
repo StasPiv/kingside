@@ -10,6 +10,7 @@ import {
 } from '../position-row-builder';
 import { filterAlreadyImported } from '../dedup';
 import { ArchiveImportMetricsService } from '../archive-import-metrics.service';
+import { isPrismaTransientNetworkError, retryWithBackoff } from '../retry';
 
 const DEFAULT_BUCKET = 'master';
 
@@ -167,8 +168,12 @@ export class TwicImporter {
   /**
    * Scheduler-путь: считает следующий выпуск как `cursor + 1` и выполняет
    * импорт с обновлением `archive_sources.cursor` при успехе.
+   *
+   * KS-2156: `signal` — AbortSignal от Redis-lock'а. Если lock потерян
+   * (heartbeat вернул mismatch / Redis отвалился), импорт прерывается
+   * между chunk'ами и пишет `archive_imports.status='failed'`.
    */
-  async run(): Promise<ImportResult> {
+  async run(opts: { signal?: AbortSignal } = {}): Promise<ImportResult> {
     const cursorBefore = this.source.cursor;
     const nextIssue = (cursorBefore != null ? parseInt(cursorBefore, 10) : 0) + 1;
     if (!Number.isFinite(nextIssue) || nextIssue <= 0) {
@@ -183,7 +188,10 @@ export class TwicImporter {
         error: `invalid cursor: ${cursorBefore}`,
       };
     }
-    return this.runForIssue(nextIssue, { updateSourceCursor: true });
+    return this.runForIssue(nextIssue, {
+      updateSourceCursor: true,
+      signal: opts.signal,
+    });
   }
 
   /**
@@ -203,7 +211,10 @@ export class TwicImporter {
    * отбросит все игры и `gamesAdded=0`, `gamesSkipped=<всё>`, status='ok'
    * (failed=0).
    */
-  async runAdHoc(issue: number): Promise<ImportResult> {
+  async runAdHoc(
+    issue: number,
+    opts: { signal?: AbortSignal } = {},
+  ): Promise<ImportResult> {
     if (!Number.isFinite(issue) || issue <= 0) {
       return {
         status: 'failed',
@@ -216,7 +227,10 @@ export class TwicImporter {
         error: `invalid issue: ${issue}`,
       };
     }
-    return this.runForIssue(issue, { updateSourceCursor: false });
+    return this.runForIssue(issue, {
+      updateSourceCursor: false,
+      signal: opts.signal,
+    });
   }
 
   /**
@@ -236,9 +250,32 @@ export class TwicImporter {
    */
   private async runForIssue(
     issue: number,
-    opts: { updateSourceCursor: boolean },
+    opts: { updateSourceCursor: boolean; signal?: AbortSignal },
   ): Promise<ImportResult> {
     const cursorBefore = this.source.cursor;
+    const signal = opts.signal;
+
+    // KS-2156: bail-out helper. Любая попытка работы после потери lock'а
+    // — потенциально 4+ параллельных писателей (инцидент 29.04). Если
+    // signal сработал ДО создания archive_imports — просто возвращаем
+    // failed без аудит-строки.
+    if (signal?.aborted) {
+      const reason =
+        signal.reason instanceof Error
+          ? signal.reason.message
+          : String(signal.reason ?? 'aborted before start');
+      this.logger.warn(`[twic] import aborted: lock lost (${reason})`);
+      return {
+        status: 'failed',
+        cursorBefore,
+        cursorAfter: cursorBefore,
+        fileName: null,
+        gamesParsed: 0,
+        gamesAdded: 0,
+        gamesSkipped: 0,
+        error: `import aborted: lock lost (${reason})`,
+      };
+    }
 
     let zipBuffer: Buffer | null;
     try {
@@ -333,196 +370,291 @@ export class TwicImporter {
     let skipped = failed + preSkipped; // битые + уже в БД
     let classicalAdded = 0;
 
-    // KS-1687: chunk-loop. Per-chunk:
-    //   1) insert (fresh games only, catching P2002 for in-batch duplicates),
-    //   2) build position rows (classical-only),
-    //   3) indexer.index(...) + positionWriter.write(...),
-    //   4) chunk-local буферы выходят из scope — V8 может GC'нуть.
-    //
-    // ParsedGame-ссылки в freshGames обнуляются по мере продвижения по
-    // chunk'ам — это освобождает самую тяжёлую часть (moves[] c FEN на
-    // каждый полуход) без ожидания конца run'а.
-    const chunkSize = readChunkSizeFromEnv();
-    for (let base = 0; base < freshGames.length; base += chunkSize) {
-      const end = Math.min(base + chunkSize, freshGames.length);
+    // KS-2156: try-блок вокруг chunk-loop'а и финализации. Любой
+    // unhandled throw (signal abort, исчерпанный retry на P1001/P1002/P2024,
+    // деградация Prisma и т.д.) попадает в catch и помечает archive_imports
+    // как `failed` с описанием. Раньше запись оставалась `status='running'`
+    // навсегда (видели 4 таких висяка после инцидента 29.04).
+    try {
+      // KS-1687: chunk-loop. Per-chunk:
+      //   1) insert (fresh games only, catching P2002 for in-batch duplicates),
+      //   2) build position rows (classical-only),
+      //   3) indexer.index(...) + positionWriter.write(...),
+      //   4) chunk-local буферы выходят из scope — V8 может GC'нуть.
+      //
+      // ParsedGame-ссылки в freshGames обнуляются по мере продвижения по
+      // chunk'ам — это освобождает самую тяжёлую часть (moves[] c FEN на
+      // каждый полуход) без ожидания конца run'а.
+      const chunkSize = readChunkSizeFromEnv();
+      for (let base = 0; base < freshGames.length; base += chunkSize) {
+        // KS-2156: проверяем abort МЕЖДУ chunk'ами. Внутри chunk'а
+        // прерывать инсерты нельзя — иначе наполовину обработанный
+        // chunk оставит position_stats inconsistent. Worst case задержки
+        // прерывания = chunk_size × per-game-time (≈chunkSize×30 ms ≈ 6 s
+        // для chunk=200) + heartbeat-period 30 s. Acceptance требует
+        // прерывание «в течение TTL+heartbeat-period» — укладываемся
+        // (TTL=60s, heartbeat=30s, потолок 90s).
+        if (signal?.aborted) {
+          const reason =
+            signal.reason instanceof Error
+              ? signal.reason.message
+              : String(signal.reason ?? 'aborted between chunks');
+          throw new Error(`import aborted: lock lost (${reason})`);
+        }
+        const end = Math.min(base + chunkSize, freshGames.length);
 
-      const chunkAddedGames: ParsedGame[] = [];
-      const chunkPositionRows: PositionRow[] = [];
+        const chunkAddedGames: ParsedGame[] = [];
+        const chunkPositionRows: PositionRow[] = [];
 
-      for (let i = base; i < end; i++) {
-        const game = freshGames[i];
-        // Копируем хэш в Uint8Array с собственным ArrayBuffer — Prisma не принимает
-        // Buffer/SharedArrayBuffer-backed views в качестве входа `Bytes`.
-        const hashBytes = new Uint8Array(game.contentHash.length);
-        hashBytes.set(game.contentHash);
-        try {
-          const created = await this.prisma.archiveGame.create({
-            data: {
-              sourceId: this.source.id,
-              importId: importRow.id,
-              contentHash: hashBytes,
-              event: game.event,
-              site: game.site,
-              round: game.round,
-              date: game.date,
-              playedAt: game.playedAt,
-              whiteName: game.white,
-              blackName: game.black,
-              whiteElo: game.whiteElo,
-              blackElo: game.blackElo,
-              whiteTitle: game.whiteTitle,
-              blackTitle: game.blackTitle,
-              result: game.result,
-              eco: game.eco,
-              opening: game.opening,
-              plyCount: game.plyCount,
-              pgn: game.raw,
-              finalFen: game.finalFen,
-              timeControl: game.timeControl,
+        for (let i = base; i < end; i++) {
+          const game = freshGames[i];
+          // Копируем хэш в Uint8Array с собственным ArrayBuffer — Prisma не принимает
+          // Buffer/SharedArrayBuffer-backed views в качестве входа `Bytes`.
+          const hashBytes = new Uint8Array(game.contentHash.length);
+          hashBytes.set(game.contentHash);
+          try {
+            // KS-2156: retry на P1001/P1002/P2024 (network errors / pool
+            // timeout). До фикса 257 потерь партий за 24-часовое окно
+            // на одной перегрузке RDS. UNIQUE violation P2002 — НЕ
+            // ретраим (это не транзиентная ошибка, а дубликат).
+            const created = await retryWithBackoff(
+              () =>
+                this.prisma.archiveGame.create({
+                  data: {
+                    sourceId: this.source.id,
+                    importId: importRow.id,
+                    contentHash: hashBytes,
+                    event: game.event,
+                    site: game.site,
+                    round: game.round,
+                    date: game.date,
+                    playedAt: game.playedAt,
+                    whiteName: game.white,
+                    blackName: game.black,
+                    whiteElo: game.whiteElo,
+                    blackElo: game.blackElo,
+                    whiteTitle: game.whiteTitle,
+                    blackTitle: game.blackTitle,
+                    result: game.result,
+                    eco: game.eco,
+                    opening: game.opening,
+                    plyCount: game.plyCount,
+                    pgn: game.raw,
+                    finalFen: game.finalFen,
+                    timeControl: game.timeControl,
+                    timeControlCategory: game.timeControlCategory,
+                    category: game.category,
+                    isClassical: game.isClassical,
+                  },
+                  select: { id: true },
+                }),
+              {
+                isRetryable: isPrismaTransientNetworkError,
+                signal,
+                onRetry: (attempt, delayMs, err) => {
+                  const msg =
+                    err instanceof Error ? err.message : String(err);
+                  this.logger.warn(
+                    `[twic] archiveGame.create transient error — retry attempt=${attempt} ` +
+                      `delayMs=${delayMs}: ${msg}`,
+                  );
+                },
+              },
+            );
+            added++;
+            chunkAddedGames.push(game);
+            // KS-1626: метрики классификации.
+            this.metrics.archiveGamesByCategoryTotal.inc({
+              source: this.source.code,
               category: game.category,
-              isClassical: game.isClassical,
-            },
-            select: { id: true },
-          });
-          added++;
-          chunkAddedGames.push(game);
-          // KS-1626: метрики классификации.
-          this.metrics.archiveGamesByCategoryTotal.inc({
-            source: this.source.code,
-            category: game.category,
-          });
-          this.metrics.archiveRejectedUnknownReasonTotal.inc({
-            source: this.source.code,
-            rule: game.classificationReason,
-          });
-          if (!game.isClassical) {
-            this.metrics.archiveImportedNonClassicalTotal.inc({ source: this.source.code });
-          } else {
-            // В агрегаты/индекс позиций только классика.
-            for (const row of buildPositionRowsForGame(created.id, game, DEFAULT_BUCKET)) {
-              chunkPositionRows.push(row);
+            });
+            this.metrics.archiveRejectedUnknownReasonTotal.inc({
+              source: this.source.code,
+              rule: game.classificationReason,
+            });
+            if (!game.isClassical) {
+              this.metrics.archiveImportedNonClassicalTotal.inc({ source: this.source.code });
+            } else {
+              // В агрегаты/индекс позиций только классика.
+              for (const row of buildPositionRowsForGame(created.id, game, DEFAULT_BUCKET)) {
+                chunkPositionRows.push(row);
+              }
+            }
+          } catch (err: unknown) {
+            // P2002 — UNIQUE violation по content_hash → дубликат, это ОК.
+            // Сюда попадают in-batch дубли (два PGN с одинаковым хэшем
+            // в одном выпуске — первое insert проходит, второе отбивается).
+            // KS-2156: транзиентные ошибки сюда уже НЕ попадают — их
+            // ловит retryWithBackoff. Если попали — значит retry исчерпан
+            // или ошибка нетранзиентная (нерасчётная), пробрасываем
+            // наверх в outer try, чтобы archive_imports получил `failed`.
+            if (isUniqueViolation(err)) {
+              skipped++;
+            } else if (isPrismaTransientNetworkError(err)) {
+              // Retry исчерпан — БД действительно недоступна, не теряем
+              // импорт молча. Outer catch пометит archive_imports failed.
+              this.logger.error(
+                `[twic] archiveGame.create exhausted retries (transient): ${(err as Error).message}`,
+              );
+              throw err;
+            } else {
+              skipped++;
+              const msg = err instanceof Error ? err.message : String(err);
+              this.logger.warn(`[twic] game insert failed: ${msg}`);
             }
           }
-        } catch (err: unknown) {
-          // P2002 — UNIQUE violation по content_hash → дубликат, это ОК.
-          // Сюда попадают in-batch дубли (два PGN с одинаковым хэшем
-          // в одном выпуске — первое insert проходит, второе отбивается).
-          if (isUniqueViolation(err)) {
-            skipped++;
-          } else {
-            skipped++;
+        }
+
+        // Позиционный индекс обновляем только по новым КЛАССИЧЕСКИМ партиям
+        // (ADR-015 §2.4: non-classical не попадают в position_stats / дерево).
+        // KS-1687: index+write per chunk, не единой коллекцией на весь run —
+        // это ключевое изменение для peak RSS (положение rows не копится
+        // на всю длину freshGames, а освобождается после каждого окна).
+        const classicalInChunk = chunkAddedGames.filter((g) => g.isClassical);
+        if (classicalInChunk.length > 0) {
+          classicalAdded += classicalInChunk.length;
+          try {
+            await this.indexer.index(classicalInChunk, this.source.code);
+          } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
-            this.logger.warn(`[twic] game insert failed: ${msg}`);
+            this.logger.error(`[twic] position-indexer failed: ${msg}`);
+            // Партии вставлены — оставляем как есть, индексацию можно догнать backfill-процедурой.
           }
         }
-      }
 
-      // Позиционный индекс обновляем только по новым КЛАССИЧЕСКИМ партиям
-      // (ADR-015 §2.4: non-classical не попадают в position_stats / дерево).
-      // KS-1687: index+write per chunk, не единой коллекцией на весь run —
-      // это ключевое изменение для peak RSS (положение rows не копится
-      // на всю длину freshGames, а освобождается после каждого окна).
-      const classicalInChunk = chunkAddedGames.filter((g) => g.isClassical);
-      if (classicalInChunk.length > 0) {
-        classicalAdded += classicalInChunk.length;
-        try {
-          await this.indexer.index(classicalInChunk, this.source.code);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error(`[twic] position-indexer failed: ${msg}`);
-          // Партии вставлены — оставляем как есть, индексацию можно догнать backfill-процедурой.
+        // COPY в archive_game_positions — отдельный путь (staging + ON CONFLICT DO NOTHING).
+        // Падение не откатывает archive_games — индекс по позициям догоним backfill'ом.
+        if (this.positionWriter && chunkPositionRows.length > 0) {
+          try {
+            await this.positionWriter.write(chunkPositionRows, this.source.code);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.error(`[twic] position-writer failed: ${msg}`);
+          }
+        }
+
+        // Обнуляем ссылки на ParsedGame-объекты в обработанной части
+        // freshGames, чтобы V8 мог GC'нуть их (moves + finalFen + raw —
+        // самая жирная часть). chunkAddedGames / chunkPositionRows
+        // выходят из scope следующей итерации и также GC'нутся.
+        for (let i = base; i < end; i++) {
+          // @ts-expect-error intentional reference drop for GC
+          freshGames[i] = null;
         }
       }
 
-      // COPY в archive_game_positions — отдельный путь (staging + ON CONFLICT DO NOTHING).
-      // Падение не откатывает archive_games — индекс по позициям догоним backfill'ом.
-      if (this.positionWriter && chunkPositionRows.length > 0) {
-        try {
-          await this.positionWriter.write(chunkPositionRows, this.source.code);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.error(`[twic] position-writer failed: ${msg}`);
-        }
+      // Gauge: доля классических в последнем импорте источника.
+      const classicalRatio =
+        added > 0 ? classicalAdded / added : undefined;
+      if (classicalRatio !== undefined) {
+        this.metrics.archiveClassicalRatio.set(
+          { source: this.source.code },
+          classicalRatio,
+        );
       }
 
-      // Обнуляем ссылки на ParsedGame-объекты в обработанной части
-      // freshGames, чтобы V8 мог GC'нуть их (moves + finalFen + raw —
-      // самая жирная часть). chunkAddedGames / chunkPositionRows
-      // выходят из scope следующей итерации и также GC'нутся.
-      for (let i = base; i < end; i++) {
-        // @ts-expect-error intentional reference drop for GC
-        freshGames[i] = null;
-      }
-    }
+      const status: ImportResult['status'] =
+        failed > 0 ? 'partial' : 'ok';
 
-    // Gauge: доля классических в последнем импорте источника.
-    const classicalRatio =
-      added > 0 ? classicalAdded / added : undefined;
-    if (classicalRatio !== undefined) {
-      this.metrics.archiveClassicalRatio.set(
-        { source: this.source.code },
-        classicalRatio,
+      // В scheduler-режиме cursor двигается на processed issue; в ad-hoc
+      // он остаётся равным cursorBefore — маркер «ad-hoc-импорт не сдвинул
+      // source.cursor».
+      const cursorAfter = opts.updateSourceCursor
+        ? String(issue)
+        : cursorBefore;
+      await this.prisma.archiveImport.update({
+        where: { id: importRow.id },
+        data: {
+          status,
+          cursorAfter,
+          gamesParsed: gamesParsedTotal,
+          gamesAdded: added,
+          gamesSkipped: skipped,
+          finishedAt: new Date(),
+        },
+      });
+
+      if (opts.updateSourceCursor) {
+        await this.prisma.archiveSource.update({
+          where: { id: this.source.id },
+          data: {
+            cursor: cursorAfter,
+            lastRunAt: new Date(),
+            lastSuccessAt: new Date(),
+            lastError: null,
+            totalGames: { increment: added },
+          },
+        });
+      }
+
+      this.metrics.archiveImportGamesTotal.inc(
+        { source: this.source.code, status: 'added' },
+        added,
       );
-    }
+      this.metrics.archiveImportGamesTotal.inc(
+        { source: this.source.code, status: 'skipped' },
+        skipped,
+      );
+      this.metrics.archiveImportGamesTotal.inc(
+        { source: this.source.code, status: 'failed' },
+        failed,
+      );
 
-    const status: ImportResult['status'] =
-      failed > 0 ? 'partial' : 'ok';
-
-    // В scheduler-режиме cursor двигается на processed issue; в ad-hoc
-    // он остаётся равным cursorBefore — маркер «ad-hoc-импорт не сдвинул
-    // source.cursor».
-    const cursorAfter = opts.updateSourceCursor
-      ? String(issue)
-      : cursorBefore;
-    await this.prisma.archiveImport.update({
-      where: { id: importRow.id },
-      data: {
+      return {
         status,
+        cursorBefore,
         cursorAfter,
+        fileName,
         gamesParsed: gamesParsedTotal,
         gamesAdded: added,
         gamesSkipped: skipped,
-        finishedAt: new Date(),
-      },
-    });
-
-    if (opts.updateSourceCursor) {
-      await this.prisma.archiveSource.update({
-        where: { id: this.source.id },
-        data: {
-          cursor: cursorAfter,
-          lastRunAt: new Date(),
-          lastSuccessAt: new Date(),
-          lastError: null,
-          totalGames: { increment: added },
-        },
-      });
+        classicalRatio,
+        importId: importRow.id,
+      };
+    } catch (err: unknown) {
+      // KS-2156: финальный safety net. Любая ошибка, дошедшая сюда —
+      // лучше пометить archive_imports как failed, чем оставить running
+      // навсегда (см. инцидент с 4 висящими running после 29.04).
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isLockLost =
+        errMsg.includes('import aborted: lock lost') ||
+        signal?.aborted === true;
+      this.logger.error(
+        isLockLost
+          ? `[twic] import aborted: lock lost (issue=${issue}): ${errMsg}`
+          : `[twic] import failed (issue=${issue}): ${errMsg}`,
+      );
+      await this.prisma.archiveImport
+        .update({
+          where: { id: importRow.id },
+          data: {
+            status: 'failed',
+            error: errMsg.slice(0, 1000),
+            gamesParsed: gamesParsedTotal,
+            gamesAdded: added,
+            gamesSkipped: skipped,
+            finishedAt: new Date(),
+          },
+        })
+        .catch((updateErr: unknown) => {
+          const m =
+            updateErr instanceof Error ? updateErr.message : String(updateErr);
+          this.logger.error(
+            `[twic] failed to write archive_imports.failed for ${importRow.id}: ${m}`,
+          );
+        });
+      return {
+        status: 'failed',
+        cursorBefore,
+        cursorAfter: cursorBefore,
+        fileName,
+        gamesParsed: gamesParsedTotal,
+        gamesAdded: added,
+        gamesSkipped: skipped,
+        error: errMsg,
+        importId: importRow.id,
+      };
     }
-
-    this.metrics.archiveImportGamesTotal.inc(
-      { source: this.source.code, status: 'added' },
-      added,
-    );
-    this.metrics.archiveImportGamesTotal.inc(
-      { source: this.source.code, status: 'skipped' },
-      skipped,
-    );
-    this.metrics.archiveImportGamesTotal.inc(
-      { source: this.source.code, status: 'failed' },
-      failed,
-    );
-
-    return {
-      status,
-      cursorBefore,
-      cursorAfter,
-      fileName,
-      gamesParsed: gamesParsedTotal,
-      gamesAdded: added,
-      gamesSkipped: skipped,
-      classicalRatio,
-      importId: importRow.id,
-    };
   }
 }
 

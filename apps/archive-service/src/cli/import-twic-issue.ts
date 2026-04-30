@@ -231,7 +231,10 @@ export async function runImportTwicIssue(
     logger.log(
       `${PROGRESS_TAG} issue=${args.issue} source.cursor=${source.cursor ?? 'null'} — starting ad-hoc import (cursor will NOT change)`,
     );
-    const result = await importer.runAdHoc(args.issue);
+    // KS-2156: передаём lock.signal в importer. Если heartbeat потеряет
+    // lock (Redis-flap / TTL истёк под нагрузкой), импорт прервётся
+    // между chunk'ами и пометит archive_imports как failed.
+    const result = await importer.runAdHoc(args.issue, { signal: lock.signal });
     logger.log(
       `${PROGRESS_TAG} issue=${args.issue} status=${result.status} ` +
         `parsed=${result.gamesParsed} added=${result.gamesAdded} skipped=${result.gamesSkipped}` +

@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@kingside/archive-db';
 import { ARCHIVE_PLY_LIMIT } from '@kingside/shared';
 import { positionKey } from '@kingside/shared/dist/utils/position-key';
 import type { ParsedGame } from './pgn-utils';
 import { PrismaService } from '../prisma/prisma.service';
 import { ArchiveImportMetricsService } from './archive-import-metrics.service';
+import { isPostgresDeadlock, retryWithBackoff } from './retry';
 
 /**
  * Индексация позиций из недавно добавленных партий.
@@ -75,6 +76,8 @@ export interface PositionIndexerPrisma {
 
 @Injectable()
 export class PositionIndexerService {
+  private readonly logger = new Logger(PositionIndexerService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly metrics: ArchiveImportMetricsService,
@@ -193,34 +196,51 @@ export class PositionIndexerService {
     const list = [...deltas.values()];
     for (let i = 0; i < list.length; i += batchSize) {
       const chunk = list.slice(i, i + batchSize);
-      await prisma.$transaction(
-        chunk.map((d) => {
-          const incomingAvg =
-            d.eloCount > 0 ? Math.round(d.eloSum / d.eloCount) : null;
-          return prisma.$executeRaw(Prisma.sql`
-            INSERT INTO position_stats (
-              position_key, next_move_uci, bucket,
-              white_wins, draws, black_wins, total,
-              avg_elo, last_seen_at, ply
-            ) VALUES (
-              ${d.positionKey}, ${d.nextMoveUci}, ${d.bucket},
-              ${d.whiteWins}, ${d.draws}, ${d.blackWins}, ${d.total},
-              ${incomingAvg}, ${d.lastSeenAt}, ${d.maxPly}
-            )
-            ON CONFLICT (position_key, next_move_uci, bucket) DO UPDATE SET
-              white_wins = position_stats.white_wins + EXCLUDED.white_wins,
-              draws = position_stats.draws + EXCLUDED.draws,
-              black_wins = position_stats.black_wins + EXCLUDED.black_wins,
-              total = position_stats.total + EXCLUDED.total,
-              avg_elo = CASE
-                WHEN EXCLUDED.avg_elo IS NULL THEN position_stats.avg_elo
-                WHEN position_stats.avg_elo IS NULL THEN EXCLUDED.avg_elo
-                ELSE ROUND((position_stats.avg_elo::numeric * position_stats.total + EXCLUDED.avg_elo::numeric * EXCLUDED.total) / NULLIF(position_stats.total + EXCLUDED.total, 0))::int
-              END,
-              last_seen_at = GREATEST(COALESCE(position_stats.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
-              ply = LEAST(COALESCE(position_stats.ply, EXCLUDED.ply), EXCLUDED.ply)
-          `);
-        }),
+      // KS-2156: $transaction иногда возвращает 40P01 (deadlock_detected)
+      // под параллельной нагрузкой. До фикса 45 событий за 24-часовое
+      // окно теряли весь chunk без retry. Postgres гарантирует
+      // транзиентность 40P01 — повторяем с экспоненциальной задержкой.
+      await retryWithBackoff(
+        () =>
+          prisma.$transaction(
+            chunk.map((d) => {
+              const incomingAvg =
+                d.eloCount > 0 ? Math.round(d.eloSum / d.eloCount) : null;
+              return prisma.$executeRaw(Prisma.sql`
+                INSERT INTO position_stats (
+                  position_key, next_move_uci, bucket,
+                  white_wins, draws, black_wins, total,
+                  avg_elo, last_seen_at, ply
+                ) VALUES (
+                  ${d.positionKey}, ${d.nextMoveUci}, ${d.bucket},
+                  ${d.whiteWins}, ${d.draws}, ${d.blackWins}, ${d.total},
+                  ${incomingAvg}, ${d.lastSeenAt}, ${d.maxPly}
+                )
+                ON CONFLICT (position_key, next_move_uci, bucket) DO UPDATE SET
+                  white_wins = position_stats.white_wins + EXCLUDED.white_wins,
+                  draws = position_stats.draws + EXCLUDED.draws,
+                  black_wins = position_stats.black_wins + EXCLUDED.black_wins,
+                  total = position_stats.total + EXCLUDED.total,
+                  avg_elo = CASE
+                    WHEN EXCLUDED.avg_elo IS NULL THEN position_stats.avg_elo
+                    WHEN position_stats.avg_elo IS NULL THEN EXCLUDED.avg_elo
+                    ELSE ROUND((position_stats.avg_elo::numeric * position_stats.total + EXCLUDED.avg_elo::numeric * EXCLUDED.total) / NULLIF(position_stats.total + EXCLUDED.total, 0))::int
+                  END,
+                  last_seen_at = GREATEST(COALESCE(position_stats.last_seen_at, EXCLUDED.last_seen_at), EXCLUDED.last_seen_at),
+                  ply = LEAST(COALESCE(position_stats.ply, EXCLUDED.ply), EXCLUDED.ply)
+              `);
+            }),
+          ),
+        {
+          isRetryable: isPostgresDeadlock,
+          onRetry: (attempt, delayMs, err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.warn(
+              `position_stats $transaction deadlock 40P01 — retry attempt=${attempt} ` +
+                `delayMs=${delayMs} batchSize=${chunk.length}: ${msg}`,
+            );
+          },
+        },
       );
     }
   }

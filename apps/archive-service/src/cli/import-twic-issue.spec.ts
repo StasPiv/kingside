@@ -195,7 +195,11 @@ describe('runImportTwicIssue — happy path', () => {
       60,
       'NX',
     );
-    expect(spies.runAdHoc).toHaveBeenCalledWith(1639);
+    // KS-2156: вторым аргументом передаётся `{ signal: lock.signal }`.
+    expect(spies.runAdHoc).toHaveBeenCalledWith(
+      1639,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(spies.publish).toHaveBeenCalledWith('archive:imported', 'twic:1639');
     // KS-1898: release теперь через EVAL Lua, не DEL.
     expect(spies.del).not.toHaveBeenCalled();
@@ -299,7 +303,11 @@ describe('runImportTwicIssue — KS-1896 lock wait', () => {
     expect(spies.set).toHaveBeenCalledTimes(3);
     // 2 sleep между неудачными попытками.
     expect(spies.sleep).toHaveBeenCalledTimes(2);
-    expect(spies.runAdHoc).toHaveBeenCalledWith(1639);
+    // KS-2156: вторым аргументом — `{ signal: lock.signal }`.
+    expect(spies.runAdHoc).toHaveBeenCalledWith(
+      1639,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     // Lock value: <uuid>:adhoc:1639:<pid>, TTL 60s (короткий, KS-1898).
     expect(spies.set).toHaveBeenCalledWith(
       'archive:import:lock:twic',

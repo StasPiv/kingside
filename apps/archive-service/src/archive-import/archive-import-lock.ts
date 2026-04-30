@@ -114,6 +114,23 @@ export interface AcquiredLock {
   /** TTL, реально применённый. */
   readonly ttlMs: number;
   /**
+   * KS-2156. AbortSignal, который срабатывает при потере lock'а:
+   *   - heartbeat вернул mismatch (`if GET==token then PEXPIRE` → 0);
+   *   - heartbeat бросил исключение (Redis отвалился);
+   *   - истёк TTL без успешного heartbeat'а.
+   *
+   * Caller'ы (TwicImporter, position-indexer) подписываются на signal
+   * и **останавливают активный импорт** — раньше `WARN heartbeat stopped`
+   * писался, но импорт продолжал держать БД и параллельно его уже
+   * шёл другой процесс (4+ параллельных токена в инциденте 29.04).
+   *
+   * Сам `release()` НЕ вызывает abort — это нормальное завершение,
+   * caller уже выходит из импорта по своей логике.
+   *
+   * `signal.reason` — `Error('lock lost: <причина>')`.
+   */
+  readonly signal: AbortSignal;
+  /**
    * Освобождает lock через Lua (`if GET==value then DEL`).
    * Идемпотентен (повторный вызов — no-op). Останавливает heartbeat
    * перед DEL. Возвращает `true`, если ключ был нашим и удалён;
@@ -246,6 +263,9 @@ export function attachHeartbeat(opts: AttachHeartbeatOpts): AcquiredLock {
 
   let heartbeatHandle: unknown = undefined;
   let released = false;
+  // KS-2156: AbortController для сигнала «lock потерян». release() его не
+  // дёргает — это нормальное завершение, а только heartbeat-fail / lock-loss.
+  const abortController = new AbortController();
 
   const stopHeartbeat = () => {
     if (heartbeatHandle !== undefined) {
@@ -254,23 +274,33 @@ export function attachHeartbeat(opts: AttachHeartbeatOpts): AcquiredLock {
     }
   };
 
+  const abortDueToLockLoss = (reason: string): void => {
+    if (abortController.signal.aborted) return;
+    abortController.abort(new Error(`lock lost: ${reason}`));
+  };
+
   // Heartbeat — отдельный setInterval. Не используем setTimeout-цепочку
   // (без catch'ей это утечёт promise rejection). Внутри tick'а ловим
   // ошибки, чтобы один редкий сбой Redis не убивал весь импорт.
   if (!opts.disableHeartbeat) {
     heartbeatHandle = setIntervalFn(() => {
-      void heartbeatTickValue(opts, value, ttlMs).then((stillOurs) => {
-        if (!stillOurs) {
-          // Кто-то перехватил lock или ключ исчез. Останавливаем
-          // heartbeat — продолжать тикать бессмысленно (мы больше
-          // не владельцы). Текущий импорт продолжается, но при
-          // release вернём false. Это видимая ошибка только в логе.
-          opts.logger?.warn?.(
-            `lock "${opts.key}" no longer held by us (token=${token.slice(0, 8)}…); ` +
-              `heartbeat stopped`,
-          );
-          stopHeartbeat();
-        }
+      void heartbeatTickValue(opts, value, ttlMs).then((outcome) => {
+        if (outcome === 'ok') return;
+        // Lock потерян (mismatch или Redis-ошибка). Останавливаем
+        // heartbeat и сигнализируем caller'у через AbortSignal —
+        // тот должен прервать активный импорт, иначе мы уже не
+        // владельцы lock'а, а наш импорт продолжается параллельно
+        // с тем, кто его перехватил (инцидент 29.04, KS-2156).
+        const reason =
+          outcome === 'mismatch'
+            ? 'token mismatch (key stolen or expired)'
+            : 'heartbeat error (Redis unreachable)';
+        opts.logger?.warn?.(
+          `lock "${opts.key}" no longer held by us (token=${token.slice(0, 8)}…, reason=${reason}); ` +
+            `heartbeat stopped, signalling abort to caller`,
+        );
+        stopHeartbeat();
+        abortDueToLockLoss(reason);
       });
     }, heartbeatMs);
   }
@@ -291,19 +321,30 @@ export function attachHeartbeat(opts: AttachHeartbeatOpts): AcquiredLock {
     }
   };
 
-  return { token, value, heartbeatMs, ttlMs, release };
+  return {
+    token,
+    value,
+    heartbeatMs,
+    ttlMs,
+    signal: abortController.signal,
+    release,
+  };
 }
 
 /**
- * Один tick heartbeat'а. Возвращает `true` если PEXPIRE прошёл
- * (lock всё ещё наш), `false` — если токен уже не совпадает или
- * Redis вернул ошибку (gracefully degrade — не падаем).
+ * Один tick heartbeat'а. KS-2156: возвращает разные исходы, чтобы caller
+ * мог различить «нас перехватили» (mismatch) и «Redis отвалился» (error)
+ * — оба означают потерю lock'а, но в логе пишем разную причину.
+ *
+ *   - `ok`       — PEXPIRE прошёл, lock всё ещё наш.
+ *   - `mismatch` — Redis вернул 0 (GET != token, ключ перехвачен/истёк).
+ *   - `error`    — EVAL бросил исключение (gracefully degrade — не падаем).
  */
 async function heartbeatTickValue(
   opts: Pick<AttachHeartbeatOpts, 'redis' | 'key' | 'logger'>,
   value: string,
   ttlMs: number,
-): Promise<boolean> {
+): Promise<'ok' | 'mismatch' | 'error'> {
   try {
     const r = await opts.redis.eval(
       EXTEND_LUA,
@@ -312,12 +353,12 @@ async function heartbeatTickValue(
       value,
       String(ttlMs),
     );
-    return Number(r) === 1;
+    return Number(r) === 1 ? 'ok' : 'mismatch';
   } catch (err) {
     opts.logger?.warn?.(
       `lock "${opts.key}" heartbeat failed: ${(err as Error).message}`,
     );
-    return false;
+    return 'error';
   }
 }
 
