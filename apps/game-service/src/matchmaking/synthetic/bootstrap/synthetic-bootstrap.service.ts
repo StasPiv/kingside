@@ -24,8 +24,8 @@
 import {
   Injectable,
   Logger,
+  OnApplicationBootstrap,
   OnModuleDestroy,
-  OnModuleInit,
 } from '@nestjs/common';
 import { SyntheticEnvKey, type TimeControlCategory } from '@kingside/shared';
 // SyntheticEnvKey импортирован для bootstrap-флагов (KS-2176).
@@ -98,7 +98,7 @@ interface InFlightSlot {
 
 @Injectable()
 export class SyntheticBootstrapService
-  implements OnModuleInit, OnModuleDestroy
+  implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(SyntheticBootstrapService.name);
   private prisma: BootstrapPrisma | null = null;
@@ -116,7 +116,16 @@ export class SyntheticBootstrapService
     this.launcher = launcher;
   }
 
-  async onModuleInit(): Promise<void> {
+  /**
+   * KS-2173 hotfix: используем `onApplicationBootstrap` вместо
+   * `onModuleInit`. Nest вызывает `onApplicationBootstrap` ПОСЛЕ всех
+   * `onModuleInit` (включая `MatchmakingModule.onModuleInit`), так что
+   * `configure(prisma, launcher)` гарантированно успеет до старта
+   * таймера. До этого фикса bootstrap'у не везло: его собственный
+   * `onModuleInit` выполнялся раньше, чем родительский модуль успевал
+   * сделать configure → `prisma === null` → silent exit с warn'ом.
+   */
+  async onApplicationBootstrap(): Promise<void> {
     if (process.env[SyntheticEnvKey.BootstrapEnabled] !== 'true') {
       this.logger.log(
         `${SyntheticEnvKey.BootstrapEnabled} != "true" — bootstrap disabled`,
