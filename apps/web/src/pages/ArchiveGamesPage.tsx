@@ -236,8 +236,49 @@ export function ArchiveGamesPage() {
 
 const SKELETON_ROWS = 10;
 
-// KS-2208: ключ для сохранения фильтров в localStorage.
+// KS-2208: ключ для сохранения фильтров в localStorage (кросс-сессионно).
+// KS-2209: добавлен sessionStorage (более надёжен на iOS Safari — не
+// подвержен ITP и работает там, где localStorage может быть ограничен).
 const FILTERS_LS_KEY = 'archive_metadata_filters_v1';
+const FILTERS_SS_KEY = 'archive_metadata_filters_session_v1';
+
+/**
+ * Записывает фильтры в оба хранилища. localStorage — кросс-сессионно,
+ * sessionStorage — надёжный fallback для iOS Safari (ITP, Private Mode).
+ */
+function saveFiltersToStorage(filters: ArchiveMetadataFilterValues): void {
+  const json = JSON.stringify(filters);
+  try {
+    localStorage.setItem(FILTERS_LS_KEY, json);
+  } catch {
+    /* iOS Safari Private Mode / QuotaExceededError */
+  }
+  try {
+    sessionStorage.setItem(FILTERS_SS_KEY, json);
+  } catch {
+    /* sessionStorage недоступен — игнорируем */
+  }
+}
+
+/**
+ * Читает сохранённые фильтры. Сначала sessionStorage (надёжнее в iOS
+ * Safari в рамках сессии), затем localStorage (кросс-сессионный).
+ */
+function readFiltersFromStorage(): Partial<ArchiveMetadataFilterValues> | null {
+  try {
+    const ss = sessionStorage.getItem(FILTERS_SS_KEY);
+    if (ss) return JSON.parse(ss) as Partial<ArchiveMetadataFilterValues>;
+  } catch {
+    /* ignore */
+  }
+  try {
+    const ls = localStorage.getItem(FILTERS_LS_KEY);
+    if (ls) return JSON.parse(ls) as Partial<ArchiveMetadataFilterValues>;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
 
 function ArchiveMetadataMode() {
   const { t } = useTranslation('archive');
@@ -304,45 +345,42 @@ function ArchiveMetadataMode() {
       // и без page (page=1, pageSize пишется только если ≠ дефолта).
       const params = metadataFiltersToUrl(next, 1, nextPageSize);
       setSearchParams(params, { replace: true });
-      // KS-2208: сохраняем фильтры в localStorage — восстанавливаем при
-      // следующем визите (если URL не содержит явных фильтров).
-      try {
-        localStorage.setItem(FILTERS_LS_KEY, JSON.stringify(next));
-      } catch {
-        // Safari private mode и аналоги бросают исключение при записи.
-      }
+      // KS-2208/KS-2209: сохраняем в localStorage + sessionStorage.
+      saveFiltersToStorage(next);
     },
     [setSearchParams],
   );
 
-  // KS-2208/KS-2209: при монтировании восстанавливаем фильтры из
-  // localStorage, только если URL не содержит значимых (не-дефолтных)
-  // фильтров. URL имеет приоритет над localStorage.
+  // KS-2208/KS-2209: восстановление фильтров из хранилища при монтировании.
+  // URL — источник истины: если в нём уже есть не-дефолтные фильтры,
+  // ничего не делаем. Иначе читаем из sessionStorage (надёжнее на iOS
+  // Safari) или localStorage (кросс-сессионно).
   //
-  // KS-2209: исправлена семантика проверки. Предыдущая версия
-  // filterKeys.some((k) => searchParams.has(k)) давала false-positive
-  // при любом ключе в URL с дефолтным значением (например ?sort=recent
-  // или ?result=any из ручной ссылки) — и блокировала восстановление.
-  // Теперь проверяем смысловое наличие не-дефолтных фильтров.
+  // KS-2209 v2: добавлен обработчик pageshow — iOS Safari восстанавливает
+  // страницы из bfcache без перемонтирования компонента (React effects не
+  // перезапускаются). При pageshow(persisted=true) повторно проверяем URL
+  // и при необходимости восстанавливаем фильтры.
+  // URL читается через window.location.search — не из замыкания, чтобы
+  // pageshow-handler видел актуальное значение, а не снимок момента монтажа.
   useEffect(() => {
-    const currentFilters = urlToMetadataFilters(searchParams);
-    const hasNonDefaultFilters =
-      currentFilters.players.length > 0 ||
-      !!currentFilters.event ||
-      !!currentFilters.eco ||
-      currentFilters.result !== 'any' ||
-      currentFilters.minElo !== null ||
-      !!currentFilters.since ||
-      !!currentFilters.until ||
-      currentFilters.minPly !== null ||
-      currentFilters.maxPly !== null ||
-      currentFilters.sort !== 'recent' ||
-      currentFilters.timeControlCategory.length > 0;
-    if (hasNonDefaultFilters) return;
-    try {
-      const saved = localStorage.getItem(FILTERS_LS_KEY);
-      if (!saved) return;
-      const parsed = JSON.parse(saved) as Partial<ArchiveMetadataFilterValues>;
+    const tryRestoreFilters = () => {
+      const currentParams = new URLSearchParams(window.location.search);
+      const currentFilters = urlToMetadataFilters(currentParams);
+      const hasNonDefaultFilters =
+        currentFilters.players.length > 0 ||
+        !!currentFilters.event ||
+        !!currentFilters.eco ||
+        currentFilters.result !== 'any' ||
+        currentFilters.minElo !== null ||
+        !!currentFilters.since ||
+        !!currentFilters.until ||
+        currentFilters.minPly !== null ||
+        currentFilters.maxPly !== null ||
+        currentFilters.sort !== 'recent' ||
+        currentFilters.timeControlCategory.length > 0;
+      if (hasNonDefaultFilters) return;
+      const parsed = readFiltersFromStorage();
+      if (!parsed) return;
       const restored: ArchiveMetadataFilterValues = {
         ...EMPTY_METADATA_FILTERS,
         ...parsed,
@@ -351,9 +389,17 @@ function ArchiveMetadataMode() {
       if (params.toString().length > 0) {
         setSearchParams(params, { replace: true });
       }
-    } catch {
-      // Невалидный JSON или отсутствие localStorage — игнорируем.
-    }
+    };
+
+    tryRestoreFilters();
+
+    // iOS Safari bfcache: страница восстанавливается без перемонтирования,
+    // useEffect не перезапускается. Слушаем pageshow(persisted=true).
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) tryRestoreFilters();
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -384,11 +430,10 @@ function ArchiveMetadataMode() {
   // — без этого шага localStorage мог остаться с устаревшим значением).
   const handleRowClick = useCallback(
     (item: { id: string }) => {
-      try {
-        localStorage.setItem(FILTERS_LS_KEY, JSON.stringify(filterValues));
-      } catch {
-        // Safari private mode
-      }
+      // KS-2209: гарантируем актуальное сохранение в оба хранилища
+      // до ухода (защита от debounce-race: если текстовый фильтр ещё
+      // не закоммичен — сохраняем последнее коммиченное значение).
+      saveFiltersToStorage(filterValues);
       archiveApi
         .getArchiveGameById(item.id)
         .then((game) => {
