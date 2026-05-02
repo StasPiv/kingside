@@ -495,3 +495,122 @@ describe('BroadcastStandingsSyncService — broadcast not found', () => {
     await expect(svc.refresh('bc-missing')).rejects.toThrow(/not found/);
   });
 });
+
+// ── KS-2214: placeholder не затирает реальный результат в матрице ────────────
+
+describe('KS-2214: round-robin matrix — placeholder не затирает реальный результат', () => {
+  /**
+   * Воспроизводит ситуацию Sigeman 2026 Round 2:
+   *   - В БД 2 записи для одной пары (Grandelius vs Carlsen):
+   *     1. Placeholder: result="*" (создан за день до тура)
+   *     2. Real game: result="1-0"
+   *   - Физический порядок heap в PostgreSQL непредсказуем → Prisma может
+   *     вернуть их в любом порядке. Проверяем оба: реальная первая и
+   *     реальная вторая — оба должны дать правильный matrix.
+   */
+  function makeBroadcastWithPlaceholderAndReal(realFirst: boolean) {
+    const placeholder = {
+      id: 'ph-1',
+      roundId: 'round-2',
+      whitePlayer: 'Grandelius, Nils',
+      blackPlayer: 'Carlsen, Magnus',
+      whiteElo: 2620,
+      blackElo: 2830,
+      result: '*',
+      pgn: null,
+    };
+    const real = {
+      id: 'real-1',
+      roundId: 'round-2',
+      whitePlayer: 'Grandelius, Nils',
+      blackPlayer: 'Carlsen, Magnus',
+      whiteElo: 2620,
+      blackElo: 2830,
+      result: '0-1',
+      pgn: '[White "Grandelius, Nils"][Black "Carlsen, Magnus"][Result "0-1"]\n\n1. e4 e5 0-1',
+    };
+    const round1Game = {
+      id: 'r1-g1',
+      roundId: 'round-1',
+      whitePlayer: 'Carlsen, Magnus',
+      blackPlayer: 'Abdusattorov, Nodirbek',
+      whiteElo: 2830,
+      blackElo: 2720,
+      result: '1-0',
+      pgn: null,
+    };
+    return {
+      id: 'bc-sigeman',
+      format: '8-player round-robin',
+      teamTable: false,
+      chessResultsTournamentId: null,
+      rounds: [
+        {
+          id: 'round-1',
+          name: 'Round 1',
+          startsAt: new Date('2026-05-01T15:00:00Z'),
+          games: [round1Game],
+        },
+        {
+          id: 'round-2',
+          name: 'Round 2',
+          startsAt: new Date('2026-05-02T15:00:00Z'),
+          games: realFirst ? [real, placeholder] : [placeholder, real],
+        },
+      ],
+    };
+  }
+
+  it('placeholder ПОСЛЕ реальной → результат "0-1" сохраняется (матрица не затирается)', async () => {
+    const broadcast = makeBroadcastWithPlaceholderAndReal(true /* real first → placeholder overwrites */);
+    const prisma = makePrisma({ broadcast, lifecycle: 'live' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-sigeman');
+    expect(r.tournamentType).toBe('round-robin');
+    expect(r.sourceType).toBe('internal-fallback');
+    if (r.tournamentType !== 'round-robin') return;
+
+    const carlsen = r.players.find((p) => p.name === 'Carlsen, Magnus');
+    const grandelius = r.players.find((p) => p.name === 'Grandelius, Nils');
+    expect(carlsen).toBeDefined();
+    expect(grandelius).toBeDefined();
+
+    const ci = r.players.indexOf(carlsen!);
+    const gi = r.players.indexOf(grandelius!);
+    // Carlsen (black) wins → matrix[Carlsen][Grandelius] = 'win'
+    expect(r.matrix[ci][gi].result).toBe('win');
+    expect(r.matrix[gi][ci].result).toBe('loss');
+  });
+
+  it('реальная ПОСЛЕ placeholder → результат "0-1" тоже сохраняется', async () => {
+    const broadcast = makeBroadcastWithPlaceholderAndReal(false /* placeholder first → real overwrites */);
+    const prisma = makePrisma({ broadcast, lifecycle: 'live' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-sigeman');
+    expect(r.tournamentType).toBe('round-robin');
+    if (r.tournamentType !== 'round-robin') return;
+
+    const carlsen = r.players.find((p) => p.name === 'Carlsen, Magnus');
+    const grandelius = r.players.find((p) => p.name === 'Grandelius, Nils');
+    const ci = r.players.indexOf(carlsen!);
+    const gi = r.players.indexOf(grandelius!);
+    expect(r.matrix[ci][gi].result).toBe('win');
+    expect(r.matrix[gi][ci].result).toBe('loss');
+  });
+
+  it('gamesPlayed и очки не задваиваются при placeholder + реальная', async () => {
+    const broadcast = makeBroadcastWithPlaceholderAndReal(false);
+    const prisma = makePrisma({ broadcast, lifecycle: 'live' });
+    const svc = makeService({ prisma, redis: makeRedis(), fetcher: makeFetcher() });
+
+    const r = await svc.refresh('bc-sigeman');
+    if (r.tournamentType !== 'round-robin') return;
+
+    const carlsen = r.players.find((p) => p.name === 'Carlsen, Magnus');
+    // Round 1 win + Round 2 win = 2 games, 2 points
+    expect(carlsen?.gamesPlayed).toBe(2);
+    expect(carlsen?.points).toBe(2);
+  });
+});

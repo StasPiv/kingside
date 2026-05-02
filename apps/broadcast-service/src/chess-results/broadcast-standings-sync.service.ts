@@ -601,18 +601,27 @@ export class BroadcastStandingsSyncService {
             roundId: g.roundId,
             roundName: round?.name ?? '',
           };
-          matrix[wi][bi] = {
-            opponentRank: players[bi].rank,
-            result: wRes,
-            color: 'white',
-            gameRef: wRes !== null ? gameRef : null,
-          };
-          matrix[bi][wi] = {
-            opponentRank: players[wi].rank,
-            result: bRes,
-            color: 'black',
-            gameRef: bRes !== null ? gameRef : null,
-          };
+          // KS-2214: не затираем реальный результат placeholder-ом.
+          // Lichess хранит placeholder-записи (result="*") вместе с реальными
+          // партиями — их физический порядок в heap непредсказуем после UPDATE.
+          // Перезаписываем ячейку только если новый результат «лучше»:
+          // реальный (≠null) > отсутствующий (null).
+          if (wRes !== null || matrix[wi][bi].result === null) {
+            matrix[wi][bi] = {
+              opponentRank: players[bi].rank,
+              result: wRes,
+              color: 'white',
+              gameRef: wRes !== null ? gameRef : null,
+            };
+          }
+          if (bRes !== null || matrix[bi][wi].result === null) {
+            matrix[bi][wi] = {
+              opponentRank: players[wi].rank,
+              result: bRes,
+              color: 'black',
+              gameRef: bRes !== null ? gameRef : null,
+            };
+          }
         }
         return {
           tournamentType: 'round-robin',
