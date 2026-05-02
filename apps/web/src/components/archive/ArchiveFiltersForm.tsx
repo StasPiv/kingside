@@ -82,6 +82,13 @@ interface ArchiveFiltersFormProps {
   onReset?: () => void;
   /** Префикс для всех `data-testid` внутри формы. */
   testIdPrefix?: string;
+  /**
+   * KS-2209: вызывается НЕМЕДЛЕННО при любом изменении текстового поля
+   * (до 400ms-дебаунса URL). Используется для синхронного сохранения в
+   * хранилище — чтобы не потерять фильтры при уходе со страницы до
+   * истечения дебаунса.
+   */
+  onImmediateChange?: (next: ArchiveFiltersValues) => void;
 }
 
 const MIN_ELO_PRESETS: number[] = [2000, 2200, 2400, 2600];
@@ -99,6 +106,7 @@ export function ArchiveFiltersForm({
   onChange,
   onReset,
   testIdPrefix = 'archive-filters-form',
+  onImmediateChange,
 }: ArchiveFiltersFormProps) {
   const { t } = useTranslation();
 
@@ -361,6 +369,8 @@ export function ArchiveFiltersForm({
           value={eventDraft}
           onChange={(v) => {
             setEventDraft(v);
+            // KS-2209: немедленное сохранение в хранилище до дебаунса
+            onImmediateChange?.({ ...values, event: v.trim() });
             debounceText(
               eventTimerRef,
               v,
@@ -388,6 +398,8 @@ export function ArchiveFiltersForm({
           value={ecoDraft}
           onChange={(e) => {
             setEcoDraft(e.target.value);
+            // KS-2209: немедленное сохранение в хранилище до дебаунса
+            onImmediateChange?.({ ...values, eco: e.target.value.trim().toUpperCase() });
             debounceText(
               ecoTimerRef,
               e.target.value,
@@ -414,6 +426,8 @@ export function ArchiveFiltersForm({
           value={minPlyDraft}
           onChange={(e) => {
             setMinPlyDraft(e.target.value);
+            // KS-2209: немедленное сохранение в хранилище до дебаунса
+            onImmediateChange?.({ ...values, minPly: nullableNumberInput(e.target.value) });
             if (minPlyTimerRef.current) clearTimeout(minPlyTimerRef.current);
             minPlyTimerRef.current = setTimeout(() => {
               apply({ minPly: nullableNumberInput(e.target.value) });
@@ -434,6 +448,8 @@ export function ArchiveFiltersForm({
           value={maxPlyDraft}
           onChange={(e) => {
             setMaxPlyDraft(e.target.value);
+            // KS-2209: немедленное сохранение в хранилище до дебаунса
+            onImmediateChange?.({ ...values, maxPly: nullableNumberInput(e.target.value) });
             if (maxPlyTimerRef.current) clearTimeout(maxPlyTimerRef.current);
             maxPlyTimerRef.current = setTimeout(() => {
               apply({ maxPly: nullableNumberInput(e.target.value) });

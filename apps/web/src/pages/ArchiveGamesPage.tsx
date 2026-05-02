@@ -659,6 +659,7 @@ function ArchiveMetadataMode() {
         values={filterValues}
         onChange={handleFiltersChange}
         onReset={handleResetFilters}
+        onImmediateChange={saveFiltersToStorage}
       />
 
       {/* Список.
