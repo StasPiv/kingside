@@ -52,6 +52,9 @@ model User {
   country               String?  @db.Char(2)
   chesscomUsername      String?  @map("chesscom_username")
   lichessUsername       String?  @map("lichess_username")
+  /// KS-2210: JSON-объект с сохранёнными фильтрами архивного поиска.
+  /// Nullable — для пользователей, не выставлявших фильтры.
+  archiveFilters        Json?    @map("archive_filters")
 
   whiteGames             Game[]                   @relation("WhitePlayer")
   blackGames             Game[]                   @relation("BlackPlayer")

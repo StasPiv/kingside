@@ -463,3 +463,33 @@ export type ArchiveSourceDto = {
   lastError: string | null;
   totalGames: number;
 };
+
+// ─── User archive-filter preferences (KS-2210) ───────────────────────
+
+/**
+ * Фильтры архивного поиска, сохраняемые на бэкенде.
+ *
+ * `PUT /api/user/preferences/archive-filters` — сохранить.
+ * `GET /api/user/preferences/archive-filters` — получить.
+ *
+ * Все поля опциональны: клиент передаёт только те, что пользователь
+ * выставил. `null` означает «сброшено» (поле убрать из сохранённых).
+ */
+export type ArchiveFilters = {
+  player?: string | null;
+  event?: string | null;
+  eco?: string | null;
+  result?: string | null;
+  timeControl?: string | null;
+  minElo?: number | null;
+  since?: string | null;
+  until?: string | null;
+  minPly?: number | null;
+  maxPly?: number | null;
+  sort?: string | null;
+};
+
+/** Ответ GET /api/user/preferences/archive-filters */
+export type ArchiveFiltersResponse = {
+  filters: ArchiveFilters;
+};
