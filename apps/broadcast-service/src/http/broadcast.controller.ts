@@ -69,6 +69,72 @@ function normalizeRoundTournamentType(
 }
 
 /**
+ * Исходная FEN стартовой позиции (KS-2213).
+ * Партия без ходов имеет `currentFen = STARTING_FEN` — это сигнал placeholder-а.
+ */
+const STARTING_FEN =
+  'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+type GameRow = {
+  id: string;
+  whitePlayer: string | null;
+  blackPlayer: string | null;
+  result: string | null;
+  currentFen: string | null;
+  updatedAt: Date;
+  [key: string]: unknown;
+};
+
+/**
+ * Дедупликация партий тура (KS-2213).
+ *
+ * Lichess создаёт placeholder-записи за день до раунда (result="*", FEN
+ * стартовая), а затем новые записи с реальными lichessGameId. В итоге одна
+ * пара (white+black) встречается ≥ 2 раз. Оставляем по одной — «лучшей» —
+ * записи на пару.
+ *
+ * Приоритет выбора:
+ *   1. result ≠ "*" > result = "*"   (есть результат → реальная партия)
+ *   2. FEN ≠ STARTING_FEN > STARTING_FEN  (есть ходы)
+ *   3. более позднее updatedAt         (более свежая запись)
+ *
+ * Партии без whitePlayer/blackPlayer (не-стандартные записи) не трогаем —
+ * пропускаем через without deduplication.
+ */
+export function deduplicateGamesByPair<T extends GameRow>(games: T[]): T[] {
+  const byPair = new Map<string, T>();
+  const noPair: T[] = [];
+
+  for (const g of games) {
+    const w = (g.whitePlayer ?? '').trim().toLowerCase();
+    const b = (g.blackPlayer ?? '').trim().toLowerCase();
+    if (!w || !b) {
+      noPair.push(g);
+      continue;
+    }
+    const key = w <= b ? `${w}|${b}` : `${b}|${w}`;
+    const existing = byPair.get(key);
+    if (!existing || isBetterGame(g, existing)) {
+      byPair.set(key, g);
+    }
+  }
+
+  return [...byPair.values(), ...noPair];
+}
+
+function isBetterGame<T extends GameRow>(candidate: T, current: T): boolean {
+  const candHasResult = candidate.result !== '*' && candidate.result !== null;
+  const currHasResult = current.result !== '*' && current.result !== null;
+  if (candHasResult !== currHasResult) return candHasResult;
+
+  const candHasMoves = candidate.currentFen !== STARTING_FEN;
+  const currHasMoves = current.currentFen !== STARTING_FEN;
+  if (candHasMoves !== currHasMoves) return candHasMoves;
+
+  return candidate.updatedAt > current.updatedAt;
+}
+
+/**
  * Broadcast HTTP controller (ADR-021 §2.1).
  *
  * Paths (KS-1702 — без префикса `/broadcasts`, хост `broadcasts.kingside.site`
@@ -619,10 +685,14 @@ export class BroadcastController {
       );
     }
 
-    const games = await this.prisma.broadcastGame.findMany({
+    const rawGames = await this.prisma.broadcastGame.findMany({
       where: { roundId: round.id },
       orderBy: { updatedAt: 'asc' },
     });
+
+    // KS-2213: убираем Lichess placeholder-дубликаты — оставляем по одной
+    // «лучшей» записи на пару (white+black).
+    const games = deduplicateGamesByPair(rawGames);
 
     const data: BroadcastGameSummary[] = games.map((g) => ({
       id: g.id,

@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
-import { BroadcastController } from './broadcast.controller';
+import { BroadcastController, deduplicateGamesByPair } from './broadcast.controller';
 
 /**
  * Минимальный unit-test для BroadcastController:
@@ -784,5 +784,141 @@ describe('BroadcastController', () => {
       expect(res.games).toEqual([]);
       expect(res.links).toEqual([]);
     });
+  });
+});
+
+// ── KS-2213: deduplicateGamesByPair ─────────────────────────────────────────
+
+const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+function makeGame(
+  id: string,
+  white: string | null,
+  black: string | null,
+  opts: {
+    result?: string | null;
+    fen?: string | null;
+    updatedAt?: Date;
+  } = {},
+) {
+  return {
+    id,
+    whitePlayer: white,
+    blackPlayer: black,
+    result: opts.result ?? '*',
+    currentFen: opts.fen ?? STARTING_FEN,
+    updatedAt: opts.updatedAt ?? new Date('2026-05-01T12:00:00Z'),
+  };
+}
+
+describe('deduplicateGamesByPair (KS-2213)', () => {
+  it('уникальные пары не трогаем', () => {
+    const games = [
+      makeGame('g1', 'Carlsen', 'Nakamura'),
+      makeGame('g2', 'Fabi', 'Ding'),
+    ];
+    const out = deduplicateGamesByPair(games);
+    expect(out).toHaveLength(2);
+  });
+
+  it('два placeholder — оставляем более позднее updatedAt', () => {
+    const older = makeGame('old', 'Carlsen', 'Nakamura', {
+      updatedAt: new Date('2026-05-01T10:00:00Z'),
+    });
+    const newer = makeGame('new', 'Carlsen', 'Nakamura', {
+      updatedAt: new Date('2026-05-01T14:00:00Z'),
+    });
+    const out = deduplicateGamesByPair([older, newer]);
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe('new');
+  });
+
+  it('placeholder + реальная (result≠*) → оставляем реальную', () => {
+    const placeholder = makeGame('ph', 'Carlsen', 'Nakamura', {
+      result: '*',
+      fen: STARTING_FEN,
+    });
+    const real = makeGame('real', 'Carlsen', 'Nakamura', {
+      result: '1-0',
+      fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+      updatedAt: new Date('2026-05-02T10:00:00Z'),
+    });
+    const out = deduplicateGamesByPair([placeholder, real]);
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe('real');
+  });
+
+  it('реальная партия имеет ходы (FEN≠STARTING) — приоритет над placeholder без ходов', () => {
+    const placeholder = makeGame('ph', 'A', 'B', {
+      result: '*',
+      fen: STARTING_FEN,
+    });
+    const withMoves = makeGame('mv', 'A', 'B', {
+      result: '*',
+      fen: 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1',
+      updatedAt: new Date('2026-05-01T11:00:00Z'),
+    });
+    const out = deduplicateGamesByPair([placeholder, withMoves]);
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe('mv');
+  });
+
+  it('порядок (white/black) не важен — пары нормализуются', () => {
+    const g1 = makeGame('g1', 'Carlsen', 'Nakamura', {
+      result: '*',
+      updatedAt: new Date('2026-05-01T10:00:00Z'),
+    });
+    // Nakamura белыми — та же пара, обратный порядок
+    const g2 = makeGame('g2', 'Nakamura', 'Carlsen', {
+      result: '1/2-1/2',
+      fen: 'rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2',
+      updatedAt: new Date('2026-05-01T14:00:00Z'),
+    });
+    const out = deduplicateGamesByPair([g1, g2]);
+    expect(out).toHaveLength(1);
+    expect(out[0].id).toBe('g2');
+  });
+
+  it('игра без имён игроков проходит без дедупликации', () => {
+    const anon1 = makeGame('a1', null, null);
+    const anon2 = makeGame('a2', null, null);
+    const out = deduplicateGamesByPair([anon1, anon2]);
+    expect(out).toHaveLength(2);
+  });
+
+  it('Sigeman-like: 4 пары × 2 записи → 4 результата (реальные)', () => {
+    const d = (iso: string) => new Date(iso);
+    const games = [
+      // Placeholder-ы (вчера)
+      makeGame('ph1', 'Grandelius', 'Carlsen', { updatedAt: d('2026-05-01T00:00:00Z') }),
+      makeGame('ph2', 'Erdogmus', 'Erigaisi', { updatedAt: d('2026-05-01T00:00:00Z') }),
+      makeGame('ph3', 'Van Foreest', 'Zhu', { updatedAt: d('2026-05-01T00:00:00Z') }),
+      makeGame('ph4', 'Abdusattorov', 'Woodward', { updatedAt: d('2026-05-01T00:00:00Z') }),
+      // Реальные (сегодня)
+      makeGame('r1', 'Grandelius', 'Carlsen', {
+        result: '0-1',
+        fen: 'some-fen',
+        updatedAt: d('2026-05-02T10:00:00Z'),
+      }),
+      makeGame('r2', 'Erdogmus', 'Erigaisi', {
+        result: '0-1',
+        fen: 'some-fen',
+        updatedAt: d('2026-05-02T10:00:00Z'),
+      }),
+      makeGame('r3', 'Van Foreest', 'Zhu', {
+        result: '1/2-1/2',
+        fen: 'some-fen',
+        updatedAt: d('2026-05-02T10:00:00Z'),
+      }),
+      makeGame('r4', 'Abdusattorov', 'Woodward', {
+        result: '1-0',
+        fen: 'some-fen',
+        updatedAt: d('2026-05-02T10:00:00Z'),
+      }),
+    ];
+    const out = deduplicateGamesByPair(games);
+    expect(out).toHaveLength(4);
+    const ids = out.map((g) => g.id).sort();
+    expect(ids).toEqual(['r1', 'r2', 'r3', 'r4']);
   });
 });
