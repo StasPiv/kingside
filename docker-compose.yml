@@ -88,6 +88,9 @@ services:
       # CSV, регистронезависимо. `*` = разрешить всем (только для тестов).
       # Пусто = запрет всем. См. docs/devops/lesson-admin-emails.md.
       LESSON_ADMIN_EMAILS: ${LESSON_ADMIN_EMAILS:-staspivovartsev@gmail.com}
+      # KS-2199: dev-bypass аутентификация. Значение по умолчанию совпадает с тем,
+      # что фронтенд передаёт в ?dev_bypass=secret. В prod переопределить или убрать.
+      DEV_BYPASS_SECRET: ${DEV_BYPASS_SECRET:-secret}
     depends_on:
       - postgres
       - redis
@@ -131,6 +134,8 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       # KS-1973: см. секцию api выше.
       LESSON_ADMIN_EMAILS: ${LESSON_ADMIN_EMAILS:-staspivovartsev@gmail.com}
+      # KS-2199: см. секцию api выше.
+      DEV_BYPASS_SECRET: ${DEV_BYPASS_SECRET:-secret}
     depends_on:
       - postgres
       - redis
