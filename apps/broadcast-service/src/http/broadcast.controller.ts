@@ -242,9 +242,10 @@ export class BroadcastController {
    *
    * lifecycleStatus:
    *  - `live` — есть раунд со `status='ongoing'` ИЛИ `status='pending'` со
-   *    `starts_at` в окне [NOW - 1h; NOW + PINNED_UPCOMING_WINDOW_HOURS].
+   *    `starts_at` в окне [NOW - 1h; NOW] (время уже наступило, но Lichess
+   *    ещё не успел обновить статус).
    *  - `upcoming` — не live И есть раунд со `status='pending'`,
-   *    `starts_at > NOW + PINNED_UPCOMING_WINDOW_HOURS`.
+   *    `starts_at > NOW` (время ещё не наступило).
    *  - `finished` — ни live, ни upcoming (все раунды finished или 0 раундов).
    *
    * isPinned (для клиента проверяется также что lifecycleStatus='live'):
@@ -282,10 +283,6 @@ export class BroadcastController {
       process.env.BROADCAST_PINNED_MIN_GAMES ?? '4',
       10,
     );
-    const upcomingWindowHours = parseInt(
-      process.env.BROADCAST_PINNED_UPCOMING_HOURS ?? '48',
-      10,
-    );
 
     type Row = {
       id: string;
@@ -307,7 +304,7 @@ export class BroadcastController {
                 r.status = 'pending'
                 AND r.starts_at IS NOT NULL
                 AND r.starts_at >= NOW() - INTERVAL '1 hour'
-                AND r.starts_at <= NOW() + make_interval(hours => ${upcomingWindowHours}::int)
+                AND r.starts_at <= NOW()
               )
             )
         ) AS has_live,
@@ -316,7 +313,7 @@ export class BroadcastController {
           WHERE r.broadcast_id = b.id
             AND r.status = 'pending'
             AND r.starts_at IS NOT NULL
-            AND r.starts_at > NOW() + make_interval(hours => ${upcomingWindowHours}::int)
+            AND r.starts_at > NOW()
         ) AS has_upcoming,
         (
           SELECT MIN(r.starts_at)
