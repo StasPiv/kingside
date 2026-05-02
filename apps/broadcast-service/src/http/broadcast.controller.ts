@@ -240,19 +240,21 @@ export class BroadcastController {
   /**
    * Вычисляет lifecycleStatus, isPinned, avgElo и nearestPendingAt.
    *
-   * lifecycleStatus:
-   *  - `live`     — хотя бы один раунд уже начался:
-   *                 `status='ongoing'` ИЛИ `starts_at <= NOW()`.
-   *  - `upcoming` — не live И хотя бы один раунд ещё в будущем (`starts_at > NOW()`).
-   *  - `finished` — ни live, ни upcoming (все раунды finished или нет раундов).
+   * lifecycleStatus определяется по первому и последнему туру:
+   *  - `upcoming` — первый тур ещё не начался
+   *                 (starts_at > NOW() И status != 'ongoing').
+   *  - `finished` — последний тур завершён (status = 'finished').
+   *  - `live`     — иначе: первый тур начался, последний ещё не завершён.
+   *
+   * Порядок туров: по starts_at ASC NULLS LAST.
+   * Нет раундов → finished.
    *
    * isPinned (для клиента проверяется также что lifecycleStatus='live'):
    *  avg_elo >= BROADCAST_PINNED_MIN_ELO (default 2600) AND
-   *  elo_games_count >= BROADCAST_PINNED_MIN_GAMES (default 4) AND
-   *  есть активный раунд (has_live=true).
+   *  elo_games_count >= BROADCAST_PINNED_MIN_GAMES (default 4).
    *
-   * nearestPendingAt — MIN(starts_at) по pending-раундам с starts_at >= NOW-1h,
-   * нужен для сортировки upcoming-секции по ближайшему старту.
+   * nearestPendingAt — MIN(starts_at) по будущим раундам (starts_at > NOW()),
+   * используется только для сортировки upcoming-секции.
    */
   private async computeBroadcastDetails(broadcastIds: string[]): Promise<
     Map<
@@ -284,8 +286,8 @@ export class BroadcastController {
 
     type Row = {
       id: string;
-      has_live: boolean;
-      has_upcoming: boolean;
+      first_round_started: boolean;
+      last_round_finished: boolean;
       nearest_pending_at: Date | null;
       avg_elo: number | null;
       elo_games_count: number | string;
@@ -293,25 +295,28 @@ export class BroadcastController {
 
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT b.id::text as id,
-        EXISTS (
-          SELECT 1 FROM broadcast_rounds r
-          WHERE r.broadcast_id = b.id
-            AND (
-              r.status = 'ongoing'
-              OR (r.starts_at IS NOT NULL AND r.starts_at <= NOW())
-            )
-        ) AS has_live,
-        EXISTS (
-          SELECT 1 FROM broadcast_rounds r
-          WHERE r.broadcast_id = b.id
-            AND r.starts_at IS NOT NULL
-            AND r.starts_at > NOW()
-        ) AS has_upcoming,
+        -- Первый тур начался: starts_at <= NOW() ИЛИ status='ongoing'
+        COALESCE((
+          SELECT (r.starts_at IS NOT NULL AND r.starts_at <= NOW())
+                 OR r.status = 'ongoing'
+            FROM broadcast_rounds r
+           WHERE r.broadcast_id = b.id
+           ORDER BY r.starts_at ASC NULLS LAST
+           LIMIT 1
+        ), FALSE) AS first_round_started,
+        -- Последний тур завершён: status='finished'
+        COALESCE((
+          SELECT r.status = 'finished'
+            FROM broadcast_rounds r
+           WHERE r.broadcast_id = b.id
+           ORDER BY r.starts_at DESC NULLS FIRST
+           LIMIT 1
+        ), TRUE) AS last_round_finished,
+        -- MIN starts_at будущих раундов — только для сортировки upcoming
         (
           SELECT MIN(r.starts_at)
             FROM broadcast_rounds r
            WHERE r.broadcast_id = b.id
-             AND r.status = 'pending'
              AND r.starts_at IS NOT NULL
              AND r.starts_at > NOW()
         ) AS nearest_pending_at,
@@ -351,11 +356,11 @@ export class BroadcastController {
         avgElo !== null && avgElo >= minElo && eloGamesCount >= minGames;
 
       let lifecycleStatus: LifecycleStatus;
-      if (row.has_live) lifecycleStatus = 'live';
-      else if (row.has_upcoming) lifecycleStatus = 'upcoming';
-      else lifecycleStatus = 'finished';
+      if (!row.first_round_started) lifecycleStatus = 'upcoming';
+      else if (row.last_round_finished) lifecycleStatus = 'finished';
+      else lifecycleStatus = 'live';
 
-      const isPinned = row.has_live && strongField;
+      const isPinned = lifecycleStatus === 'live' && strongField;
 
       result.set(row.id, {
         lifecycleStatus,
