@@ -433,3 +433,65 @@ describe('pairKey / countPairs / hasMatchStructure', () => {
     expect(hasMatchStructure([game('A', 'B'), game('C', 'D')])).toBe(false);
   });
 });
+
+describe('KS-2212: round-robin format отключает structureSaysMatch', () => {
+  // Lichess создаёт placeholder-игры за день до тура, затем новые lichessGameId
+  // для реальных партий. Одна пара встречается ≥ 2 раз в broadcast_games —
+  // без фикса это ложно триггерило 'playoff' для round-robin туров.
+
+  const sigeman2Pairs = [
+    // Placeholder (вчера, result=*)
+    game('Grandelius, Nils', 'Carlsen, Magnus'),
+    game('Erdogmus, Yagiz Kaan', 'Erigaisi Arjun'),
+    game('Van Foreest, Jorden', 'Zhu, Jiner'),
+    game('Abdusattorov, Nodirbek', 'Woodward, Andy'),
+    // Реальные (сегодня)
+    game('Grandelius, Nils', 'Carlsen, Magnus'),
+    game('Erdogmus, Yagiz Kaan', 'Erigaisi Arjun'),
+    game('Van Foreest, Jorden', 'Zhu, Jiner'),
+    game('Abdusattorov, Nodirbek', 'Woodward, Andy'),
+  ];
+
+  it('Round 2 Sigeman-like → round_robin, не playoff', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round 2',
+        broadcastFormat: '8-player round-robin',
+        games: sigeman2Pairs,
+      }),
+    ).toBe('round_robin');
+  });
+
+  it('тот же набор без явного формата → playoff (старое поведение)', () => {
+    // Без formаt структурный сигнал по-прежнему работает.
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round 2',
+        broadcastFormat: null,
+        games: sigeman2Pairs,
+      }),
+    ).toBe('playoff');
+  });
+
+  it('«round robin» (с пробелом) тоже отключает structureSaysMatch', () => {
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Round 3',
+        broadcastFormat: '10-player round robin',
+        games: sigeman2Pairs,
+      }),
+    ).toBe('round_robin');
+  });
+
+  it('явный playoff-name перекрывает даже round-robin формат', () => {
+    // «Playoffs» в названии раунда → однозначный knockout-маркер,
+    // даже если broadcast format = round-robin.
+    expect(
+      detectRoundTournamentType({
+        roundName: 'Playoffs | Final',
+        broadcastFormat: '8-player round-robin',
+        games: [],
+      }),
+    ).toBe('playoff');
+  });
+});

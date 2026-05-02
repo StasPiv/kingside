@@ -207,7 +207,17 @@ export function detectRoundTournamentType(
     : roundNameLooksLikePlayoff(name);
   // Для команд-турниров структурный сигнал отключён — см. доку к
   // `isTeamTournament` в `DetectRoundInput`.
-  const structureSaysMatch = !isTeam && hasMatchStructure(games);
+  //
+  // KS-2212: для явного round-robin формата структурный сигнал тоже
+  // ненадёжен. Lichess создаёт placeholder-игры за день до тура, затем
+  // новые lichessGameId для реальных партий — в итоге одна и та же пара
+  // встречается ≥ 2 раз в `broadcast_games`, что вызывало ложное
+  // `hasMatchStructure = true` → 'playoff' для обычных round-robin
+  // туров (пример: Sigeman 2026, Round 2).
+  // Если format явно указывает round-robin, доверяем ему, а не структуре.
+  const formatIsRoundRobin = ROUND_ROBIN_PATTERN.test(format);
+  const structureSaysMatch =
+    !isTeam && !formatIsRoundRobin && hasMatchStructure(games);
 
   if (nameSaysPlayoff || structureSaysMatch) return 'playoff';
 
