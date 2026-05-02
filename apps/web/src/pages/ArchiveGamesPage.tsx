@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '../context/AuthContext';
 import type {
   ArchiveGameResult,
   ArchiveGameSummary,
@@ -359,12 +358,6 @@ function ArchiveMetadataMode() {
   const { t } = useTranslation('archive');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  // KS-2210: авторизация через контекст, а не через localStorage напрямую.
-  // AuthContext может вытереть токен из localStorage после 401 на /auth/me,
-  // поэтому проверяем user из контекста — он точно отражает текущее состояние.
-  const { user, loading: authLoading } = useAuth();
-  // Ref для scheduleSaveFilters — не добавляем user в deps всех useCallback.
-  const isAuthedRef = useRef(user !== null);
 
   const filterValues = useMemo(
     () => urlToMetadataFilters(searchParams),
@@ -430,13 +423,6 @@ function ArchiveMetadataMode() {
     [setSearchParams],
   );
 
-  // KS-2210: синхронизируем ref при смене auth-состояния (user из контекста).
-  // Ref нужен чтобы scheduleSaveFilters не получал user в зависимости и не
-  // пересоздавал handleFiltersChange при каждом обновлении профиля.
-  useEffect(() => {
-    isAuthedRef.current = user !== null;
-  }, [user]);
-
   // KS-2210: таймер дебаунса для PUT /user/preferences/archive-filters.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -447,40 +433,30 @@ function ArchiveMetadataMode() {
     };
   }, []);
 
-  // KS-2210: сохранение фильтров — гибрид: сервер для авторизованных,
-  // localStorage как фоллбек для гостей / просроченного токена.
-  // Для сервера — дебаунс 1 сек (чтобы не PUT на каждую клавишу).
-  // Для localStorage — немедленно (нет смысла откладывать).
+  // KS-2210: дебаунс 1 сек → PUT на сервер.
+  // Не проверяем auth-состояние: polling-запросы (/games/active,
+  // /messages/unread-count) могут давать 401 и временно сбрасывать user → null,
+  // хотя пользователь реально залогинен (WebSocket JWT активен).
+  // При любой ошибке PUT (401/403/сеть) — сохраняем в localStorage как fallback.
   const scheduleSaveFilters = useCallback(
     (values: ArchiveMetadataFilterValues) => {
-      if (isAuthedRef.current) {
-        // Авторизован → PUT на сервер (дебаунс 1 с)
-        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(() => {
-          archivePreferencesApi
-            .putFilters(filtersToApiPayload(values))
-            .catch(() => {
-              /* игнорируем сетевые ошибки — восстановление некритично */
-            });
-        }, 1000);
-      } else {
-        // Не авторизован / протухший токен → localStorage фоллбек
-        saveFiltersToStorage(values);
-      }
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        archivePreferencesApi
+          .putFilters(filtersToApiPayload(values))
+          .catch(() => {
+            // 401/403 / нет сети → localStorage fallback
+            saveFiltersToStorage(values);
+          });
+      }, 1000);
     },
     [],
   );
 
-  // KS-2210: восстановление фильтров после разрешения auth.
-  // Ждём authLoading=false — user отражает актуальное состояние.
-  // Если авторизован → GET с сервера; иначе → localStorage фоллбек.
-  // URL — источник истины: если уже есть не-дефолтные фильтры — не трогаем.
-  const hasTriedRestoreRef = useRef(false);
+  // KS-2210: восстановление фильтров при монтировании.
+  // Всегда пробуем GET (не ждём auth) — при любой ошибке → localStorage.
+  // URL — источник истины: если уже не-дефолтные фильтры — не трогаем.
   useEffect(() => {
-    if (authLoading) return;
-    if (hasTriedRestoreRef.current) return; // только один раз после auth resolve
-    hasTriedRestoreRef.current = true;
-
     const currentParams = new URLSearchParams(window.location.search);
     const currentFilters = urlToMetadataFilters(currentParams);
     const hasNonDefaultFilters =
@@ -497,7 +473,6 @@ function ArchiveMetadataMode() {
       currentFilters.timeControlCategory.length > 0;
     if (hasNonDefaultFilters) return;
 
-    /** Применяет частичные фильтры в URL */
     const applyPartial = (partial: Partial<ArchiveMetadataFilterValues>) => {
       const restored: ArchiveMetadataFilterValues = {
         ...EMPTY_METADATA_FILTERS,
@@ -509,29 +484,31 @@ function ArchiveMetadataMode() {
       }
     };
 
-    if (user) {
-      // Авторизован → GET с сервера
-      let cancelled = false;
-      archivePreferencesApi
-        .getFilters()
-        .then((res) => {
-          if (cancelled) return;
-          if (Object.keys(res.filters).length === 0) return;
-          applyPartial(apiFiltersToValues(res.filters));
-        })
-        .catch(() => {
-          /* сессия не активна или сеть недоступна — молча пропускаем */
-        });
-      return () => {
-        cancelled = true;
-      };
-    } else {
-      // Не авторизован / протухший токен → localStorage фоллбек
-      const stored = readFiltersFromStorage();
-      if (stored) applyPartial(stored);
-    }
+    let cancelled = false;
+    archivePreferencesApi
+      .getFilters()
+      .then((res) => {
+        if (cancelled) return;
+        if (Object.keys(res.filters).length === 0) {
+          // Сервер не знает фильтров → localStorage fallback
+          const stored = readFiltersFromStorage();
+          if (stored) applyPartial(stored);
+          return;
+        }
+        applyPartial(apiFiltersToValues(res.filters));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // 401/403 / нет сети → localStorage fallback
+        const stored = readFiltersFromStorage();
+        if (stored) applyPartial(stored);
+      });
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authLoading, user]);
+  }, []);
 
   const handleFiltersChange = useCallback(
     (next: ArchiveMetadataFilterValues) => {
@@ -556,11 +533,11 @@ function ArchiveMetadataMode() {
   // KS-2208: прямой переход в анализ без промежуточного экрана.
   // Загружаем PGN через API и сразу навигируем в /analysis.
   // При ошибке — fallback на ArchiveGamePage (старое поведение).
-  // KS-2210: для неавторизованных сохраняем фильтры в localStorage перед
-  // уходом — form-дебаунс может не успеть сработать.
+  // KS-2210: сохраняем в localStorage перед уходом — дебаунс PUT (1 сек)
+  // не успеет сработать до unmount при быстром переходе.
   const handleRowClick = useCallback(
     (item: { id: string }) => {
-      if (!isAuthedRef.current) saveFiltersToStorage(filterValues);
+      saveFiltersToStorage(filterValues);
       archiveApi
         .getArchiveGameById(item.id)
         .then((game) => {
