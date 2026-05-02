@@ -900,6 +900,16 @@ export function AnalysisPage() {
     if (currentMove) setLastMove(currentMove.from as Square, currentMove.to as Square);
   }, [currentMove, setLastMove]);
 
+  // KS-2215: стрелка-подсказка от hover на ход из дерева/книги обязана
+  // исчезать при любой смене позиции на доске. На touch-устройствах
+  // mouseLeave у строки дерева после tap не приходит, поэтому стрелка
+  // «прилипала» к доске после выбора хода. Любая смена currentFen
+  // (стрелки управления, клик в линию движка, ход на доске, выбор строки
+  // в дереве) безусловно сбрасывает suggestedArrow.
+  useEffect(() => {
+    setSuggestedArrow(null, null);
+  }, [currentFen, setSuggestedArrow]);
+
   // KS-2151: звук ходов в Мастерской.
   // Триггерим на смену currentMove — это покрывает оба источника:
   //  - ход пользователя (makeVariantMove → новый currentMove);
