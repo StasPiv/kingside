@@ -118,27 +118,55 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       .expect(400);
   });
 
-  it('GET /config возвращает featureFlags', async () => {
+  it('GET /config возвращает featureFlags (KS-2217: все 4 ключа)', async () => {
     app = await makeApp({
       admin: true,
       auth: true,
       svc: {
-        getFlags: jest.fn(async () => ({ lessonsEnabled: true })),
+        getFlags: jest.fn(async () => ({
+          lessonsEnabled: true,
+          puzzlesEnabled: false,
+          broadcastsEnabled: true,
+          tournamentsEnabled: true,
+        })),
       } as never,
     });
     const res = await request(app.getHttpServer()).get('/config').expect(200);
-    expect(res.body).toEqual({ featureFlags: { lessonsEnabled: true } });
+    expect(res.body).toEqual({
+      featureFlags: {
+        lessonsEnabled: true,
+        puzzlesEnabled: false,
+        broadcastsEnabled: true,
+        tournamentsEnabled: true,
+      },
+    });
   });
 
-  it('GET /admin/feature-flags под админом → список с метаданными (KS-2108)', async () => {
+  it('GET /admin/feature-flags под админом → список с метаданными (KS-2108, KS-2217)', async () => {
     const updatedAt = new Date('2026-04-28T12:00:00Z');
+    type Key =
+      | 'lessonsEnabled'
+      | 'puzzlesEnabled'
+      | 'broadcastsEnabled'
+      | 'tournamentsEnabled';
     app = await makeApp({
       admin: true,
       auth: true,
       svc: {
-        getFlags: jest.fn(async () => ({ lessonsEnabled: false })),
-        listWithMetadata: jest.fn(async () =>
-          new Map<'lessonsEnabled', Date>([['lessonsEnabled', updatedAt]]),
+        getFlags: jest.fn(async () => ({
+          lessonsEnabled: false,
+          puzzlesEnabled: false,
+          broadcastsEnabled: true,
+          tournamentsEnabled: true,
+        })),
+        listWithMetadata: jest.fn(
+          async () =>
+            new Map<Key, Date>([
+              ['lessonsEnabled', updatedAt],
+              ['puzzlesEnabled', updatedAt],
+              ['broadcastsEnabled', updatedAt],
+              ['tournamentsEnabled', updatedAt],
+            ]),
         ),
       } as never,
     });
@@ -146,15 +174,39 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       .get('/admin/feature-flags')
       .expect(200);
 
-    expect(res.body).toEqual([
-      {
-        key: 'lessonsEnabled',
-        value: false,
-        defaultValue: true,
-        description: expect.stringContaining('Уроки'),
-        updatedAt: '2026-04-28T12:00:00.000Z',
-      },
-    ]);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).toHaveLength(4);
+    const byKey = Object.fromEntries(
+      (res.body as Array<{ key: string }>).map((it) => [it.key, it]),
+    );
+    expect(byKey.lessonsEnabled).toEqual({
+      key: 'lessonsEnabled',
+      value: false,
+      defaultValue: true,
+      description: expect.stringContaining('Уроки'),
+      updatedAt: '2026-04-28T12:00:00.000Z',
+    });
+    expect(byKey.puzzlesEnabled).toEqual({
+      key: 'puzzlesEnabled',
+      value: false,
+      defaultValue: false,
+      description: expect.stringContaining('Задачи'),
+      updatedAt: '2026-04-28T12:00:00.000Z',
+    });
+    expect(byKey.broadcastsEnabled).toEqual({
+      key: 'broadcastsEnabled',
+      value: true,
+      defaultValue: true,
+      description: expect.stringContaining('Трансляции'),
+      updatedAt: '2026-04-28T12:00:00.000Z',
+    });
+    expect(byKey.tournamentsEnabled).toEqual({
+      key: 'tournamentsEnabled',
+      value: true,
+      defaultValue: true,
+      description: expect.stringContaining('Турниры'),
+      updatedAt: '2026-04-28T12:00:00.000Z',
+    });
   });
 
   it('GET /admin/feature-flags под не-админом → 403', async () => {

@@ -1,9 +1,13 @@
 /**
  * KS-2104 — `FeatureFlagsService`: bootstrap, кэш TTL, инвалидация,
  * fallback на дефолты при ошибке БД.
+ *
+ * KS-2217 — добавлены ключи `puzzlesEnabled` (default false),
+ * `broadcastsEnabled` (default true), `tournamentsEnabled` (default true).
  */
 import { BadRequestException } from '@nestjs/common';
 import {
+  FEATURE_FLAG_KEYS,
   FeatureFlagsService,
   KNOWN_FEATURE_FLAGS,
 } from './feature-flags.service';
@@ -55,13 +59,20 @@ describe('FeatureFlagsService — KS-2104', () => {
     const svc = new FeatureFlagsService(prisma);
     await svc.onApplicationBootstrap();
     // Все ключи из whitelist оказались в БД с дефолтами.
-    expect(rows.find((r) => r.key === 'lessonsEnabled')?.value).toBe(
-      KNOWN_FEATURE_FLAGS.lessonsEnabled,
-    );
+    for (const key of FEATURE_FLAG_KEYS) {
+      expect(rows.find((r) => r.key === key)?.value).toBe(
+        KNOWN_FEATURE_FLAGS[key],
+      );
+    }
+    // KS-2217: явная проверка дефолтов нового набора.
+    expect(rows.find((r) => r.key === 'lessonsEnabled')?.value).toBe(true);
+    expect(rows.find((r) => r.key === 'puzzlesEnabled')?.value).toBe(false);
+    expect(rows.find((r) => r.key === 'broadcastsEnabled')?.value).toBe(true);
+    expect(rows.find((r) => r.key === 'tournamentsEnabled')?.value).toBe(true);
     // Кэш горячий: следующий getFlags не делает SELECT.
     (prisma.featureFlag.findMany as jest.Mock).mockClear();
     const flags = await svc.getFlags();
-    expect(flags.lessonsEnabled).toBe(true);
+    expect(flags).toEqual(KNOWN_FEATURE_FLAGS);
     expect(prisma.featureFlag.findMany).not.toHaveBeenCalled();
   });
 

@@ -26,6 +26,10 @@ import { PrismaService } from '../prisma/prisma.service';
 /** Whitelist известных ключей и дефолтные значения. */
 export const KNOWN_FEATURE_FLAGS: FeatureFlags = {
   lessonsEnabled: true,
+  // KS-2217: «Задачи» по умолчанию скрыты, включаются через админку.
+  puzzlesEnabled: false,
+  broadcastsEnabled: true,
+  tournamentsEnabled: true,
 };
 
 /**
@@ -40,6 +44,18 @@ export const FEATURE_FLAG_METADATA: Record<
   lessonsEnabled: {
     description:
       'Показывать раздел «Уроки» в UI и пускать на /lessons*. Аварийный rollback — выключить.',
+  },
+  puzzlesEnabled: {
+    description:
+      'Показывать раздел «Задачи» в UI и пускать на /puzzles*. По умолчанию выключен — включить через PATCH.',
+  },
+  broadcastsEnabled: {
+    description:
+      'Показывать раздел «Трансляции» в UI и пускать на /broadcasts*. Аварийный rollback — выключить.',
+  },
+  tournamentsEnabled: {
+    description:
+      'Показывать раздел «Турниры» в UI и пускать на /tournaments*. Аварийный rollback — выключить.',
   },
 };
 
