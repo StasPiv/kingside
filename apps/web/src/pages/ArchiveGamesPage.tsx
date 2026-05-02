@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../context/AuthContext';
 import type {
   ArchiveGameResult,
   ArchiveGameSummary,
@@ -302,6 +303,12 @@ function ArchiveMetadataMode() {
   const { t } = useTranslation('archive');
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  // KS-2210: авторизация через контекст, а не через localStorage напрямую.
+  // AuthContext может вытереть токен из localStorage после 401 на /auth/me,
+  // поэтому проверяем user из контекста — он точно отражает текущее состояние.
+  const { user, loading: authLoading } = useAuth();
+  // Ref для scheduleSaveFilters — не добавляем user в deps всех useCallback.
+  const isAuthedRef = useRef(user !== null);
 
   const filterValues = useMemo(
     () => urlToMetadataFilters(searchParams),
@@ -367,6 +374,13 @@ function ArchiveMetadataMode() {
     [setSearchParams],
   );
 
+  // KS-2210: синхронизируем ref при смене auth-состояния (user из контекста).
+  // Ref нужен чтобы scheduleSaveFilters не получал user в зависимости и не
+  // пересоздавал handleFiltersChange при каждом обновлении профиля.
+  useEffect(() => {
+    isAuthedRef.current = user !== null;
+  }, [user]);
+
   // KS-2210: таймер дебаунса для PUT /user/preferences/archive-filters.
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -378,14 +392,12 @@ function ArchiveMetadataMode() {
   }, []);
 
   // KS-2210: дебаунс ~1 сек перед сохранением фильтров на сервер.
-  // Вызывается из handleFiltersChange и handleResetFilters.
+  // Проверяем isAuthedRef (не localStorage) — AuthContext может вытереть
+  // токен из localStorage после /auth/me 401, и localStorage.getItem('token')
+  // вернул бы null даже для залогиненного пользователя.
   const scheduleSaveFilters = useCallback(
     (values: ArchiveMetadataFilterValues) => {
-      try {
-        if (!localStorage.getItem('token')) return; // не авторизован
-      } catch {
-        return;
-      }
+      if (!isAuthedRef.current) return;
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         archivePreferencesApi
@@ -398,18 +410,16 @@ function ArchiveMetadataMode() {
     [],
   );
 
-  // KS-2210: восстановление фильтров с сервера при монтировании.
+  // KS-2210: восстановление фильтров с сервера после разрешения auth.
+  // Ждём authLoading=false чтобы гарантировать, что user отражает актуальное
+  // состояние (не undefined/null в момент инициализации AuthContext).
   // URL — источник истины: если уже содержит не-дефолтные фильтры — не трогаем.
-  // URL читается через window.location.search (не из замыкания).
+  const hasTriedRestoreRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
-    let hasToken = false;
-    try {
-      hasToken = !!localStorage.getItem('token');
-    } catch {
-      /* ignore */
-    }
-    if (!hasToken) return;
+    if (authLoading) return;
+    if (!user) return;
+    if (hasTriedRestoreRef.current) return; // вызываем только один раз
+    hasTriedRestoreRef.current = true;
 
     const currentParams = new URLSearchParams(window.location.search);
     const currentFilters = urlToMetadataFilters(currentParams);
@@ -427,6 +437,7 @@ function ArchiveMetadataMode() {
       currentFilters.timeControlCategory.length > 0;
     if (hasNonDefaultFilters) return;
 
+    let cancelled = false;
     archivePreferencesApi
       .getFilters()
       .then((res) => {
@@ -450,7 +461,7 @@ function ArchiveMetadataMode() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authLoading, user]);
 
   const handleFiltersChange = useCallback(
     (next: ArchiveMetadataFilterValues) => {
