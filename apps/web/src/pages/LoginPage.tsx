@@ -20,6 +20,11 @@ interface TelegramUser {
   hash: string;
 }
 
+// KS-2200: на проде фронтенд — SPA на S3/CloudFront, путь `/auth/google`
+// не проксируется к API. Нужен абсолютный URL к API-серверу,
+// аналогично тому, как это сделано в MainLayout.tsx.
+const API_URL = import.meta.env.VITE_API_URL ?? '';
+
 export function LoginPage() {
   const { t } = useTranslation();
   const location = useLocation();
@@ -45,7 +50,9 @@ export function LoginPage() {
 
   useEffect(() => {
     if (loadingProvider) {
-      window.location.href = `/auth/${loadingProvider}`;
+      // KS-2200: используем абсолютный URL к API (VITE_API_URL), чтобы
+      // переход работал на проде, где фронтенд и API — разные домены.
+      window.location.href = `${API_URL}/auth/${loadingProvider}`;
     }
   }, [loadingProvider]);
 
