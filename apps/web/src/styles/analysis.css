@@ -2029,8 +2029,16 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   }
 
   .analysis-mobile-tab.active {
+    /* KS-2205: явно сбрасываем фон глобального button-стиля (#7c83ff),
+       иначе текст (тоже #7c83ff) сливается с фоном и не виден. */
+    background: transparent;
     color: var(--c-7c83ff);
     border-bottom-color: var(--c-7c83ff);
+  }
+
+  /* KS-2205: на мобильном размер доски фиксирован — скрываем S/M/L. */
+  .analysis-board-size {
+    display: none;
   }
 
   .analysis-mobile-panel__content {
