@@ -240,11 +240,13 @@ export class BroadcastController {
   /**
    * Вычисляет lifecycleStatus, isPinned, avgElo и nearestPendingAt.
    *
-   * lifecycleStatus определяется по первому и последнему туру:
-   *  - `upcoming` — первый тур ещё не начался
-   *                 (starts_at > NOW() И status != 'ongoing').
-   *  - `finished` — последний тур завершён (status = 'finished').
-   *  - `live`     — иначе: первый тур начался, последний ещё не завершён.
+   * lifecycleStatus:
+   *  1. `finished` (приоритет) — `end_date IS NOT NULL AND end_date < NOW()`.
+   *     Это надёжный сигнал от Lichess API; не зависит от актуальности
+   *     round-статусов (sync может отставать при сбоях).
+   *  2. `upcoming` — `end_date` ещё не прошёл (или нет) И первый тур
+   *     ещё не начался (starts_at > NOW() И status != 'ongoing').
+   *  3. `live` — иначе: первый тур начался, end_date не прошёл.
    *
    * Порядок туров: по starts_at ASC NULLS LAST.
    * Нет раундов → finished.
@@ -286,8 +288,8 @@ export class BroadcastController {
 
     type Row = {
       id: string;
+      end_date_passed: boolean;
       first_round_started: boolean;
-      last_round_finished: boolean;
       nearest_pending_at: Date | null;
       avg_elo: number | null;
       elo_games_count: number | string;
@@ -295,7 +297,9 @@ export class BroadcastController {
 
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT b.id::text as id,
-        -- Первый тур начался: starts_at <= NOW() ИЛИ status='ongoing'
+        -- end_date прошёл → турнир завершён (надёжный сигнал от Lichess)
+        (b.end_date IS NOT NULL AND b.end_date < NOW()) AS end_date_passed,
+        -- Первый тур (по starts_at ASC) начался: starts_at <= NOW() или ongoing
         COALESCE((
           SELECT (r.starts_at IS NOT NULL AND r.starts_at <= NOW())
                  OR r.status = 'ongoing'
@@ -304,14 +308,6 @@ export class BroadcastController {
            ORDER BY r.starts_at ASC NULLS LAST
            LIMIT 1
         ), FALSE) AS first_round_started,
-        -- Последний тур завершён: status='finished'
-        COALESCE((
-          SELECT r.status = 'finished'
-            FROM broadcast_rounds r
-           WHERE r.broadcast_id = b.id
-           ORDER BY r.starts_at DESC NULLS FIRST
-           LIMIT 1
-        ), TRUE) AS last_round_finished,
         -- MIN starts_at будущих раундов — только для сортировки upcoming
         (
           SELECT MIN(r.starts_at)
@@ -356,8 +352,8 @@ export class BroadcastController {
         avgElo !== null && avgElo >= minElo && eloGamesCount >= minGames;
 
       let lifecycleStatus: LifecycleStatus;
-      if (!row.first_round_started) lifecycleStatus = 'upcoming';
-      else if (row.last_round_finished) lifecycleStatus = 'finished';
+      if (row.end_date_passed) lifecycleStatus = 'finished';
+      else if (!row.first_round_started) lifecycleStatus = 'upcoming';
       else lifecycleStatus = 'live';
 
       const isPinned = lifecycleStatus === 'live' && strongField;
