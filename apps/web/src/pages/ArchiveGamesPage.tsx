@@ -239,6 +239,29 @@ export function ArchiveGamesPage() {
 
 const SKELETON_ROWS = 10;
 
+// KS-2210: ключ localStorage для фоллбека (гости / протухший токен).
+const FILTERS_LS_KEY = 'archive_metadata_filters_v1';
+
+/** Сохраняет фильтры в localStorage (фоллбек для неавторизованных). */
+function saveFiltersToStorage(filters: ArchiveMetadataFilterValues): void {
+  try {
+    localStorage.setItem(FILTERS_LS_KEY, JSON.stringify(filters));
+  } catch {
+    /* QuotaExceededError / Private Mode */
+  }
+}
+
+/** Читает фильтры из localStorage. */
+function readFiltersFromStorage(): Partial<ArchiveMetadataFilterValues> | null {
+  try {
+    const raw = localStorage.getItem(FILTERS_LS_KEY);
+    if (raw) return JSON.parse(raw) as Partial<ArchiveMetadataFilterValues>;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 /**
  * KS-2210: маппинг frontend-фильтров → тело PUT /user/preferences/archive-filters.
  *
@@ -391,34 +414,38 @@ function ArchiveMetadataMode() {
     };
   }, []);
 
-  // KS-2210: дебаунс ~1 сек перед сохранением фильтров на сервер.
-  // Проверяем isAuthedRef (не localStorage) — AuthContext может вытереть
-  // токен из localStorage после /auth/me 401, и localStorage.getItem('token')
-  // вернул бы null даже для залогиненного пользователя.
+  // KS-2210: сохранение фильтров — гибрид: сервер для авторизованных,
+  // localStorage как фоллбек для гостей / просроченного токена.
+  // Для сервера — дебаунс 1 сек (чтобы не PUT на каждую клавишу).
+  // Для localStorage — немедленно (нет смысла откладывать).
   const scheduleSaveFilters = useCallback(
     (values: ArchiveMetadataFilterValues) => {
-      if (!isAuthedRef.current) return;
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        archivePreferencesApi
-          .putFilters(filtersToApiPayload(values))
-          .catch(() => {
-            /* игнорируем сетевые ошибки — восстановление некритично */
-          });
-      }, 1000);
+      if (isAuthedRef.current) {
+        // Авторизован → PUT на сервер (дебаунс 1 с)
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+          archivePreferencesApi
+            .putFilters(filtersToApiPayload(values))
+            .catch(() => {
+              /* игнорируем сетевые ошибки — восстановление некритично */
+            });
+        }, 1000);
+      } else {
+        // Не авторизован / протухший токен → localStorage фоллбек
+        saveFiltersToStorage(values);
+      }
     },
     [],
   );
 
-  // KS-2210: восстановление фильтров с сервера после разрешения auth.
-  // Ждём authLoading=false чтобы гарантировать, что user отражает актуальное
-  // состояние (не undefined/null в момент инициализации AuthContext).
-  // URL — источник истины: если уже содержит не-дефолтные фильтры — не трогаем.
+  // KS-2210: восстановление фильтров после разрешения auth.
+  // Ждём authLoading=false — user отражает актуальное состояние.
+  // Если авторизован → GET с сервера; иначе → localStorage фоллбек.
+  // URL — источник истины: если уже есть не-дефолтные фильтры — не трогаем.
   const hasTriedRestoreRef = useRef(false);
   useEffect(() => {
     if (authLoading) return;
-    if (!user) return;
-    if (hasTriedRestoreRef.current) return; // вызываем только один раз
+    if (hasTriedRestoreRef.current) return; // только один раз после auth resolve
     hasTriedRestoreRef.current = true;
 
     const currentParams = new URLSearchParams(window.location.search);
@@ -437,29 +464,39 @@ function ArchiveMetadataMode() {
       currentFilters.timeControlCategory.length > 0;
     if (hasNonDefaultFilters) return;
 
-    let cancelled = false;
-    archivePreferencesApi
-      .getFilters()
-      .then((res) => {
-        if (cancelled) return;
-        if (Object.keys(res.filters).length === 0) return;
-        const partial = apiFiltersToValues(res.filters);
-        const restored: ArchiveMetadataFilterValues = {
-          ...EMPTY_METADATA_FILTERS,
-          ...partial,
-        };
-        const params = metadataFiltersToUrl(restored, 1, DEFAULT_PAGE_SIZE);
-        if (params.toString().length > 0) {
-          setSearchParams(params, { replace: true });
-        }
-      })
-      .catch(() => {
-        /* сессия не активна или сеть недоступна — молча пропускаем */
-      });
-
-    return () => {
-      cancelled = true;
+    /** Применяет частичные фильтры в URL */
+    const applyPartial = (partial: Partial<ArchiveMetadataFilterValues>) => {
+      const restored: ArchiveMetadataFilterValues = {
+        ...EMPTY_METADATA_FILTERS,
+        ...partial,
+      };
+      const params = metadataFiltersToUrl(restored, 1, DEFAULT_PAGE_SIZE);
+      if (params.toString().length > 0) {
+        setSearchParams(params, { replace: true });
+      }
     };
+
+    if (user) {
+      // Авторизован → GET с сервера
+      let cancelled = false;
+      archivePreferencesApi
+        .getFilters()
+        .then((res) => {
+          if (cancelled) return;
+          if (Object.keys(res.filters).length === 0) return;
+          applyPartial(apiFiltersToValues(res.filters));
+        })
+        .catch(() => {
+          /* сессия не активна или сеть недоступна — молча пропускаем */
+        });
+      return () => {
+        cancelled = true;
+      };
+    } else {
+      // Не авторизован / протухший токен → localStorage фоллбек
+      const stored = readFiltersFromStorage();
+      if (stored) applyPartial(stored);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user]);
 
@@ -486,8 +523,11 @@ function ArchiveMetadataMode() {
   // KS-2208: прямой переход в анализ без промежуточного экрана.
   // Загружаем PGN через API и сразу навигируем в /analysis.
   // При ошибке — fallback на ArchiveGamePage (старое поведение).
+  // KS-2210: для неавторизованных сохраняем фильтры в localStorage перед
+  // уходом — form-дебаунс может не успеть сработать.
   const handleRowClick = useCallback(
     (item: { id: string }) => {
+      if (!isAuthedRef.current) saveFiltersToStorage(filterValues);
       archiveApi
         .getArchiveGameById(item.id)
         .then((game) => {
@@ -512,7 +552,7 @@ function ArchiveMetadataMode() {
           navigate(`/archive/games/${item.id}`);
         });
     },
-    [navigate, searchParams, t],
+    [navigate, searchParams, t, filterValues],
   );
 
   // ─── Initial / reset загрузка ────────────────────────────────────
