@@ -242,8 +242,9 @@ export class BroadcastController {
    *
    * lifecycleStatus:
    *  - `live` — есть раунд со `status='ongoing'` ИЛИ `status='pending'` со
-   *    `starts_at` в окне [NOW - 1h; NOW] (время уже наступило, но Lichess
-   *    ещё не успел обновить статус).
+   *    `starts_at <= NOW` (время уже наступило, но Lichess ещё не успел
+   *    обновить статус — без нижней временной границы, т.к. sync может
+   *    запаздывать на часы при сбоях).
    *  - `upcoming` — не live И есть раунд со `status='pending'`,
    *    `starts_at > NOW` (время ещё не наступило).
    *  - `finished` — ни live, ни upcoming (все раунды finished или 0 раундов).
@@ -303,7 +304,6 @@ export class BroadcastController {
               OR (
                 r.status = 'pending'
                 AND r.starts_at IS NOT NULL
-                AND r.starts_at >= NOW() - INTERVAL '1 hour'
                 AND r.starts_at <= NOW()
               )
             )
@@ -321,7 +321,7 @@ export class BroadcastController {
            WHERE r.broadcast_id = b.id
              AND r.status = 'pending'
              AND r.starts_at IS NOT NULL
-             AND r.starts_at >= NOW() - INTERVAL '1 hour'
+             AND r.starts_at > NOW()
         ) AS nearest_pending_at,
         (
           SELECT AVG(elo_val)::float
