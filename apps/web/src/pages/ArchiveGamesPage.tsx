@@ -10,7 +10,9 @@ import type {
 } from '@kingside/shared';
 
 import { archiveApi } from '../api/archive';
+import { archivePreferencesApi } from '../api/archivePreferencesApi';
 import { ArchiveGameRow } from '../components/archive/ArchiveGameRow';
+import type { ArchiveFilters } from '@kingside/shared';
 import {
   ArchiveMetadataFilters,
   EMPTY_METADATA_FILTERS,
@@ -236,48 +238,64 @@ export function ArchiveGamesPage() {
 
 const SKELETON_ROWS = 10;
 
-// KS-2208: ключ для сохранения фильтров в localStorage (кросс-сессионно).
-// KS-2209: добавлен sessionStorage (более надёжен на iOS Safari — не
-// подвержен ITP и работает там, где localStorage может быть ограничен).
-const FILTERS_LS_KEY = 'archive_metadata_filters_v1';
-const FILTERS_SS_KEY = 'archive_metadata_filters_session_v1';
-
 /**
- * Записывает фильтры в оба хранилища. localStorage — кросс-сессионно,
- * sessionStorage — надёжный fallback для iOS Safari (ITP, Private Mode).
+ * KS-2210: маппинг frontend-фильтров → тело PUT /user/preferences/archive-filters.
+ *
+ * Дефолтные значения (result='any', sort='recent', пустые массивы) сохраняем
+ * как null — чтобы не засорять JSONB и упростить проверку «пустых» фильтров.
+ *
+ * players[] → player: первый элемент (ограничение API: одно поле).
+ * timeControlCategory[] → timeControl: join(',') для компактного хранения.
  */
-function saveFiltersToStorage(filters: ArchiveMetadataFilterValues): void {
-  const json = JSON.stringify(filters);
-  try {
-    localStorage.setItem(FILTERS_LS_KEY, json);
-  } catch {
-    /* iOS Safari Private Mode / QuotaExceededError */
-  }
-  try {
-    sessionStorage.setItem(FILTERS_SS_KEY, json);
-  } catch {
-    /* sessionStorage недоступен — игнорируем */
-  }
+function filtersToApiPayload(values: ArchiveMetadataFilterValues): ArchiveFilters {
+  return {
+    player: values.players.length > 0 ? values.players[0] : null,
+    event: values.event || null,
+    eco: values.eco || null,
+    result: values.result !== 'any' ? values.result : null,
+    timeControl:
+      values.timeControlCategory.length > 0
+        ? values.timeControlCategory.join(',')
+        : null,
+    minElo: values.minElo ?? null,
+    since: values.since || null,
+    until: values.until || null,
+    minPly: values.minPly ?? null,
+    maxPly: values.maxPly ?? null,
+    sort: values.sort !== 'recent' ? values.sort : null,
+  };
 }
 
 /**
- * Читает сохранённые фильтры. Сначала sessionStorage (надёжнее в iOS
- * Safari в рамках сессии), затем localStorage (кросс-сессионный).
+ * KS-2210: маппинг ответа GET /user/preferences/archive-filters → фронтовые значения.
  */
-function readFiltersFromStorage(): Partial<ArchiveMetadataFilterValues> | null {
-  try {
-    const ss = sessionStorage.getItem(FILTERS_SS_KEY);
-    if (ss) return JSON.parse(ss) as Partial<ArchiveMetadataFilterValues>;
-  } catch {
-    /* ignore */
+function apiFiltersToValues(
+  saved: ArchiveFilters,
+): Partial<ArchiveMetadataFilterValues> {
+  const result: Partial<ArchiveMetadataFilterValues> = {};
+  if (saved.player) result.players = [saved.player];
+  if (saved.event) result.event = saved.event;
+  if (saved.eco) result.eco = saved.eco;
+  if (saved.result && saved.result !== 'any') {
+    result.result = saved.result as MetadataResultFilter;
   }
-  try {
-    const ls = localStorage.getItem(FILTERS_LS_KEY);
-    if (ls) return JSON.parse(ls) as Partial<ArchiveMetadataFilterValues>;
-  } catch {
-    /* ignore */
+  if (saved.timeControl) {
+    const cats = saved.timeControl
+      .split(',')
+      .filter((c): c is (typeof VALID_TIME_CONTROL_CATEGORIES)[number] =>
+        VALID_TIME_CONTROL_CATEGORIES.includes(
+          c as (typeof VALID_TIME_CONTROL_CATEGORIES)[number],
+        ),
+      );
+    if (cats.length > 0) result.timeControlCategory = cats;
   }
-  return null;
+  if (saved.minElo != null) result.minElo = saved.minElo;
+  if (saved.since) result.since = saved.since;
+  if (saved.until) result.until = saved.until;
+  if (saved.minPly != null) result.minPly = saved.minPly;
+  if (saved.maxPly != null) result.maxPly = saved.maxPly;
+  if (saved.sort) result.sort = saved.sort as ArchiveGamesSortMetadata;
+  return result;
 }
 
 function ArchiveMetadataMode() {
@@ -345,69 +363,101 @@ function ArchiveMetadataMode() {
       // и без page (page=1, pageSize пишется только если ≠ дефолта).
       const params = metadataFiltersToUrl(next, 1, nextPageSize);
       setSearchParams(params, { replace: true });
-      // KS-2208/KS-2209: сохраняем в localStorage + sessionStorage.
-      saveFiltersToStorage(next);
     },
     [setSearchParams],
   );
 
-  // KS-2208/KS-2209: восстановление фильтров из хранилища при монтировании.
-  // URL — источник истины: если в нём уже есть не-дефолтные фильтры,
-  // ничего не делаем. Иначе читаем из sessionStorage (надёжнее на iOS
-  // Safari) или localStorage (кросс-сессионно).
-  //
-  // KS-2209 v2: добавлен обработчик pageshow — iOS Safari восстанавливает
-  // страницы из bfcache без перемонтирования компонента (React effects не
-  // перезапускаются). При pageshow(persisted=true) повторно проверяем URL
-  // и при необходимости восстанавливаем фильтры.
-  // URL читается через window.location.search — не из замыкания, чтобы
-  // pageshow-handler видел актуальное значение, а не снимок момента монтажа.
+  // KS-2210: таймер дебаунса для PUT /user/preferences/archive-filters.
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Сброс таймера при размонтировании.
   useEffect(() => {
-    const tryRestoreFilters = () => {
-      const currentParams = new URLSearchParams(window.location.search);
-      const currentFilters = urlToMetadataFilters(currentParams);
-      const hasNonDefaultFilters =
-        currentFilters.players.length > 0 ||
-        !!currentFilters.event ||
-        !!currentFilters.eco ||
-        currentFilters.result !== 'any' ||
-        currentFilters.minElo !== null ||
-        !!currentFilters.since ||
-        !!currentFilters.until ||
-        currentFilters.minPly !== null ||
-        currentFilters.maxPly !== null ||
-        currentFilters.sort !== 'recent' ||
-        currentFilters.timeControlCategory.length > 0;
-      if (hasNonDefaultFilters) return;
-      const parsed = readFiltersFromStorage();
-      if (!parsed) return;
-      const restored: ArchiveMetadataFilterValues = {
-        ...EMPTY_METADATA_FILTERS,
-        ...parsed,
-      };
-      const params = metadataFiltersToUrl(restored, 1, DEFAULT_PAGE_SIZE);
-      if (params.toString().length > 0) {
-        setSearchParams(params, { replace: true });
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
+
+  // KS-2210: дебаунс ~1 сек перед сохранением фильтров на сервер.
+  // Вызывается из handleFiltersChange и handleResetFilters.
+  const scheduleSaveFilters = useCallback(
+    (values: ArchiveMetadataFilterValues) => {
+      try {
+        if (!localStorage.getItem('token')) return; // не авторизован
+      } catch {
+        return;
       }
-    };
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        archivePreferencesApi
+          .putFilters(filtersToApiPayload(values))
+          .catch(() => {
+            /* игнорируем сетевые ошибки — восстановление некритично */
+          });
+      }, 1000);
+    },
+    [],
+  );
 
-    tryRestoreFilters();
+  // KS-2210: восстановление фильтров с сервера при монтировании.
+  // URL — источник истины: если уже содержит не-дефолтные фильтры — не трогаем.
+  // URL читается через window.location.search (не из замыкания).
+  useEffect(() => {
+    let cancelled = false;
+    let hasToken = false;
+    try {
+      hasToken = !!localStorage.getItem('token');
+    } catch {
+      /* ignore */
+    }
+    if (!hasToken) return;
 
-    // iOS Safari bfcache: страница восстанавливается без перемонтирования,
-    // useEffect не перезапускается. Слушаем pageshow(persisted=true).
-    const handlePageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) tryRestoreFilters();
+    const currentParams = new URLSearchParams(window.location.search);
+    const currentFilters = urlToMetadataFilters(currentParams);
+    const hasNonDefaultFilters =
+      currentFilters.players.length > 0 ||
+      !!currentFilters.event ||
+      !!currentFilters.eco ||
+      currentFilters.result !== 'any' ||
+      currentFilters.minElo !== null ||
+      !!currentFilters.since ||
+      !!currentFilters.until ||
+      currentFilters.minPly !== null ||
+      currentFilters.maxPly !== null ||
+      currentFilters.sort !== 'recent' ||
+      currentFilters.timeControlCategory.length > 0;
+    if (hasNonDefaultFilters) return;
+
+    archivePreferencesApi
+      .getFilters()
+      .then((res) => {
+        if (cancelled) return;
+        if (Object.keys(res.filters).length === 0) return;
+        const partial = apiFiltersToValues(res.filters);
+        const restored: ArchiveMetadataFilterValues = {
+          ...EMPTY_METADATA_FILTERS,
+          ...partial,
+        };
+        const params = metadataFiltersToUrl(restored, 1, DEFAULT_PAGE_SIZE);
+        if (params.toString().length > 0) {
+          setSearchParams(params, { replace: true });
+        }
+      })
+      .catch(() => {
+        /* сессия не активна или сеть недоступна — молча пропускаем */
+      });
+
+    return () => {
+      cancelled = true;
     };
-    window.addEventListener('pageshow', handlePageShow);
-    return () => window.removeEventListener('pageshow', handlePageShow);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleFiltersChange = useCallback(
     (next: ArchiveMetadataFilterValues) => {
       writeFilters(next, pageSize);
+      scheduleSaveFilters(next);
     },
-    [pageSize, writeFilters],
+    [pageSize, writeFilters, scheduleSaveFilters],
   );
 
   const handlePageSizeChange = useCallback(
@@ -419,21 +469,14 @@ function ArchiveMetadataMode() {
 
   const handleResetFilters = useCallback(() => {
     writeFilters(EMPTY_METADATA_FILTERS, pageSize);
-  }, [pageSize, writeFilters]);
+    scheduleSaveFilters(EMPTY_METADATA_FILTERS);
+  }, [pageSize, writeFilters, scheduleSaveFilters]);
 
   // KS-2208: прямой переход в анализ без промежуточного экрана.
-  // Загружаем PGN через API и сразу navigat'им в /analysis.
+  // Загружаем PGN через API и сразу навигируем в /analysis.
   // При ошибке — fallback на ArchiveGamePage (старое поведение).
-  //
-  // KS-2209: гарантируем актуальное сохранение filterValues перед уходом
-  // (защита от сценария «debounce текстового фильтра не успел сработать»
-  // — без этого шага localStorage мог остаться с устаревшим значением).
   const handleRowClick = useCallback(
     (item: { id: string }) => {
-      // KS-2209: гарантируем актуальное сохранение в оба хранилища
-      // до ухода (защита от debounce-race: если текстовый фильтр ещё
-      // не закоммичен — сохраняем последнее коммиченное значение).
-      saveFiltersToStorage(filterValues);
       archiveApi
         .getArchiveGameById(item.id)
         .then((game) => {
@@ -458,7 +501,7 @@ function ArchiveMetadataMode() {
           navigate(`/archive/games/${item.id}`);
         });
     },
-    [navigate, searchParams, t, filterValues],
+    [navigate, searchParams, t],
   );
 
   // ─── Initial / reset загрузка ────────────────────────────────────
@@ -659,7 +702,6 @@ function ArchiveMetadataMode() {
         values={filterValues}
         onChange={handleFiltersChange}
         onReset={handleResetFilters}
-        onImmediateChange={saveFiltersToStorage}
       />
 
       {/* Список.

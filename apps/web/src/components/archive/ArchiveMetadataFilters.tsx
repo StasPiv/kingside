@@ -26,8 +26,6 @@ interface ArchiveMetadataFiltersProps {
   values: ArchiveFiltersValues;
   onChange: (next: ArchiveFiltersValues) => void;
   onReset?: () => void;
-  /** KS-2209: немедленное сохранение при изменении текстового поля до дебаунса. */
-  onImmediateChange?: (next: ArchiveFiltersValues) => void;
 }
 
 /** @deprecated используйте `ArchiveFiltersForm`. */
@@ -35,14 +33,12 @@ export function ArchiveMetadataFilters({
   values,
   onChange,
   onReset,
-  onImmediateChange,
 }: ArchiveMetadataFiltersProps) {
   return (
     <ArchiveFiltersForm
       values={values}
       onChange={onChange}
       onReset={onReset}
-      onImmediateChange={onImmediateChange}
       testIdPrefix="archive-metadata-filter"
     />
   );
