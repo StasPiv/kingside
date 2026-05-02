@@ -27,8 +27,24 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { path: '/lobby', icon: '🏠', i18nKey: 'nav.home', match: ['/lobby'] },
   { path: '/play', icon: '♟', i18nKey: 'nav.play', match: ['/play'] },
-  { path: '/tournaments', icon: '🏆', i18nKey: 'nav.tournaments', match: ['/tournaments'] },
-  { path: '/puzzles', icon: '🧩', i18nKey: 'nav.puzzles', match: ['/puzzles', '/puzzle', '/daily'] },
+  // KS-2218: «Турниры» — runtime feature-flag `tournamentsEnabled`.
+  {
+    path: '/tournaments',
+    icon: '🏆',
+    i18nKey: 'nav.tournaments',
+    match: ['/tournaments'],
+    featureFlag: 'tournamentsEnabled',
+  },
+  // KS-2218: «Задачи» — runtime feature-flag `puzzlesEnabled`.
+  // Default `false` — раздел временно скрыт у всех; включается админом
+  // через PATCH /admin/feature-flags/puzzlesEnabled.
+  {
+    path: '/puzzles',
+    icon: '🧩',
+    i18nKey: 'nav.puzzles',
+    match: ['/puzzles', '/puzzle', '/daily'],
+    featureFlag: 'puzzlesEnabled',
+  },
   { path: '/puzzle-rush', icon: '⚡', i18nKey: 'nav.puzzleRush', match: ['/puzzle-rush'] },
   {
     path: '/lessons',
@@ -44,7 +60,14 @@ const NAV_ITEMS: NavItem[] = [
   // i18n-ключ — отдельный namespace `archive` (`archive.menuTitle`),
   // см. `apps/web/src/i18n/locales/{ru,en}/archive.json`.
   { path: '/archive', icon: '🗂', i18nKey: 'archive:menuTitle', match: ['/archive'] },
-  { path: '/broadcasts', icon: '📺', i18nKey: 'nav.tv', match: ['/broadcasts'] },
+  // KS-2218: «Трансляции» — runtime feature-flag `broadcastsEnabled`.
+  {
+    path: '/broadcasts',
+    icon: '📺',
+    i18nKey: 'nav.tv',
+    match: ['/broadcasts'],
+    featureFlag: 'broadcastsEnabled',
+  },
   { path: '', icon: '', i18nKey: '', match: [] }, // divider
   { path: '/feedback', icon: '📋', i18nKey: 'nav.feedback', match: ['/feedback'] },
   { path: '/features', icon: '✨', i18nKey: 'nav.features', match: ['/features'] },

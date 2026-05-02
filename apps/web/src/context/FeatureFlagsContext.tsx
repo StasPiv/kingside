@@ -48,9 +48,18 @@ const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 мин
  * Дефолты повторяют серверный whitelist (KS-2104). При расширении
  * `FeatureFlags` добавлять и сюда — иначе компилятор не пропустит
  * (`Record<keyof FeatureFlags, boolean>`).
+ *
+ * KS-2218: дефолты по новым флагам (KS-2217) совпадают с серверным
+ * whitelist:
+ *  - `puzzlesEnabled` = false (раздел «Задачи» временно скрыт);
+ *  - `broadcastsEnabled` = true;
+ *  - `tournamentsEnabled` = true.
  */
 export const DEFAULT_FLAGS: FeatureFlags = {
   lessonsEnabled: true,
+  puzzlesEnabled: false,
+  broadcastsEnabled: true,
+  tournamentsEnabled: true,
 };
 
 interface FeatureFlagsContextValue {

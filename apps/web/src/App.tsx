@@ -198,6 +198,13 @@ export function App() {
   // дёргался build-time `isLessonsEnabledLive()`, который требовал
   // rebuild + redeploy при смене.
   const lessonsEnabled = useFeatureFlag('lessonsEnabled');
+  // KS-2218: runtime-флаги для разделов «Задачи» / «Трансляции» / «Турниры».
+  // При выключенном флаге соответствующие маршруты редиректят на
+  // `/lobby`, чтобы из старых ссылок пользователь не застревал на 404.
+  // `/puzzle-rush*` намеренно НЕ под `puzzlesEnabled` — отдельный раздел.
+  const puzzlesEnabled = useFeatureFlag('puzzlesEnabled');
+  const broadcastsEnabled = useFeatureFlag('broadcastsEnabled');
+  const tournamentsEnabled = useFeatureFlag('tournamentsEnabled');
 
   if (devSecret && searchParams.has('dev_bypass')) {
     const returnParams = new URLSearchParams(searchParams);
@@ -234,16 +241,35 @@ export function App() {
           path="/admin/feature-flags"
           element={<AdminRoute><AdminFeatureFlagsPage /></AdminRoute>}
         />
-        <Route path="/daily" element={<DailyPuzzlePage />} />
+        {/* KS-2218: `/puzzle-rush*` — отдельный раздел, ВНЕ `puzzlesEnabled`. */}
         <Route path="/puzzle-rush" element={<ProtectedRoute><Suspense fallback={<LazyFallback />}><PuzzleRushPage /></Suspense></ProtectedRoute>} />
         <Route path="/puzzle-rush/leaderboard" element={<PuzzleRushLeaderboardPage />} />
         <Route path="/puzzle-rush/review/:scoreId" element={<ProtectedRoute><PuzzleRushReviewPage /></ProtectedRoute>} />
+        {/* KS-2218: `/puzzles/rush` — алиас на `/puzzle-rush`. Оставляем
+            всегда, чтобы внешние ссылки на старый URL не ломались даже
+            при `puzzlesEnabled=false`. Точный путь матчится раньше
+            wildcard-guard'а ниже. */}
         <Route path="/puzzles/rush" element={<Navigate to="/puzzle-rush" replace />} />
-        <Route path="/puzzles" element={<PuzzleBrowserPage />} />
-        <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
-        {/* KS-1928 / ADR-032: дневник ошибок в puzzle namespace. */}
-        <Route path="/puzzles/mistakes" element={<ProtectedRoute><PuzzleMistakesPage /></ProtectedRoute>} />
-        <Route path="/puzzles/mistakes-practice" element={<ProtectedRoute><PuzzleMistakesPracticePage /></ProtectedRoute>} />
+        {puzzlesEnabled ? (
+          <>
+            <Route path="/daily" element={<DailyPuzzlePage />} />
+            <Route path="/puzzles" element={<PuzzleBrowserPage />} />
+            <Route path="/puzzles/stats" element={<PuzzleStatsPage />} />
+            {/* KS-1928 / ADR-032: дневник ошибок в puzzle namespace. */}
+            <Route path="/puzzles/mistakes" element={<ProtectedRoute><PuzzleMistakesPage /></ProtectedRoute>} />
+            <Route path="/puzzles/mistakes-practice" element={<ProtectedRoute><PuzzleMistakesPracticePage /></ProtectedRoute>} />
+            <Route path="/puzzle" element={<PuzzlePage />} />
+            <Route path="/puzzle/:id" element={<PuzzlePage />} />
+          </>
+        ) : (
+          // KS-2218: при выключенном флаге раздел «Задачи» полностью
+          // недоступен — старые ссылки уводят пользователя в лобби.
+          <>
+            <Route path="/daily/*" element={<Navigate to="/lobby" replace />} />
+            <Route path="/puzzles/*" element={<Navigate to="/lobby" replace />} />
+            <Route path="/puzzle/*" element={<Navigate to="/lobby" replace />} />
+          </>
+        )}
         {lessonsEnabled ? (
           <>
             <Route path="/lessons" element={<ProtectedRoute><LessonsPage /></ProtectedRoute>} />
@@ -296,8 +322,8 @@ export function App() {
         )}
         <Route path="/feedback" element={<FeedbackBoardPage />} />
         <Route path="/feedback/:id" element={<FeedbackDetailPage />} />
-        <Route path="/puzzle" element={<PuzzlePage />} />
-        <Route path="/puzzle/:id" element={<PuzzlePage />} />
+        {/* KS-2218: `/puzzle` и `/puzzle/:id` перенесены в puzzle-блок выше,
+            чтобы при `puzzlesEnabled=false` редирект на /lobby сработал. */}
         <Route path="/analysis" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
         <Route path="/help/external-engine" element={<ExternalEngineHelpPage />} />
         <Route path="/analysis/:id" element={<Suspense fallback={<LazyFallback />}><AnalysisPage /></Suspense>} />
@@ -310,10 +336,22 @@ export function App() {
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/messages/:userId" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><ProfileRedirect /></ProtectedRoute>} />
-        <Route path="/tournaments" element={<TournamentsPage />} />
-        <Route path="/tournaments/:id" element={<TournamentLobbyPage />} />
-        <Route path="/arena/:id" element={<TournamentLobbyPage />} />
-        <Route path="/t/:code" element={<ProtectedRoute><InviteRedirect /></ProtectedRoute>} />
+        {tournamentsEnabled ? (
+          <>
+            <Route path="/tournaments" element={<TournamentsPage />} />
+            <Route path="/tournaments/:id" element={<TournamentLobbyPage />} />
+            <Route path="/arena/:id" element={<TournamentLobbyPage />} />
+            <Route path="/t/:code" element={<ProtectedRoute><InviteRedirect /></ProtectedRoute>} />
+          </>
+        ) : (
+          // KS-2218: при выключенном `tournamentsEnabled` пользователь
+          // не должен попадать ни на список, ни на lobby/arena/инвайт.
+          <>
+            <Route path="/tournaments/*" element={<Navigate to="/lobby" replace />} />
+            <Route path="/arena/*" element={<Navigate to="/lobby" replace />} />
+            <Route path="/t/*" element={<Navigate to="/lobby" replace />} />
+          </>
+        )}
         {/* KS-2066 (F0/ADR-033 §2): namespace архива партий.
             • `/archive` — список партий с фильтрами (metadata + by-position).
             • `/archive/games` — редирект на `/archive` (backward compat).
@@ -328,10 +366,18 @@ export function App() {
           path="/archive/by-position"
           element={<RedirectWithQuery to="/archive" />}
         />
-        <Route path="/broadcasts" element={<BroadcastsPage />} />
-        <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
-        <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
-        <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<Suspense fallback={<LazyFallback />}><BroadcastGamePage /></Suspense>} />
+        {broadcastsEnabled ? (
+          <>
+            <Route path="/broadcasts" element={<BroadcastsPage />} />
+            <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />
+            <Route path="/broadcasts/:tournamentId/:roundId" element={<BroadcastRoundPage />} />
+            <Route path="/broadcasts/:tournamentId/:roundId/:gameId" element={<Suspense fallback={<LazyFallback />}><BroadcastGamePage /></Suspense>} />
+          </>
+        ) : (
+          // KS-2218: при выключенном `broadcastsEnabled` любой
+          // /broadcasts/* уводит в лобби.
+          <Route path="/broadcasts/*" element={<Navigate to="/lobby" replace />} />
+        )}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

@@ -12,6 +12,11 @@ export function MobileBottomBar() {
   // на мобильном /lessons было недоступно из меню. Возвращаем пункт
   // в more-menu (с тем же runtime feature-flag, что и desktop sidebar).
   const lessonsEnabled = useFeatureFlag('lessonsEnabled');
+  // KS-2218: runtime feature-flags для основных разделов.
+  // Скрытые пункты пропадают и из основной нижней панели, и из more-menu.
+  const tournamentsEnabled = useFeatureFlag('tournamentsEnabled');
+  const puzzlesEnabled = useFeatureFlag('puzzlesEnabled');
+  const broadcastsEnabled = useFeatureFlag('broadcastsEnabled');
   // Admin-пункт по аналогии с Sidebar (KS-2109).
   const { isAdmin } = useAdminStatus();
 
@@ -23,14 +28,26 @@ export function MobileBottomBar() {
         <span className="mobile-bar-icon">♟</span>
         <span className="mobile-bar-label">{t('nav.play', 'Play')}</span>
       </Link>
-      <Link to="/tournaments" className={`mobile-bar-item${isActive(['/tournaments']) ? ' mobile-bar-item--active' : ''}`}>
-        <span className="mobile-bar-icon">🏆</span>
-        <span className="mobile-bar-label">{t('nav.tournaments', 'Tournaments')}</span>
-      </Link>
-      <Link to="/daily" className={`mobile-bar-item${isActive(['/daily', '/puzzles', '/puzzle-rush', '/puzzle']) ? ' mobile-bar-item--active' : ''}`}>
-        <span className="mobile-bar-icon">🧩</span>
-        <span className="mobile-bar-label">{t('nav.puzzles', 'Puzzles')}</span>
-      </Link>
+      {tournamentsEnabled && (
+        <Link
+          to="/tournaments"
+          data-testid="mobile-bar-tournaments"
+          className={`mobile-bar-item${isActive(['/tournaments']) ? ' mobile-bar-item--active' : ''}`}
+        >
+          <span className="mobile-bar-icon">🏆</span>
+          <span className="mobile-bar-label">{t('nav.tournaments', 'Tournaments')}</span>
+        </Link>
+      )}
+      {puzzlesEnabled && (
+        <Link
+          to="/daily"
+          data-testid="mobile-bar-puzzles"
+          className={`mobile-bar-item${isActive(['/daily', '/puzzles', '/puzzle-rush', '/puzzle']) ? ' mobile-bar-item--active' : ''}`}
+        >
+          <span className="mobile-bar-icon">🧩</span>
+          <span className="mobile-bar-label">{t('nav.puzzles', 'Puzzles')}</span>
+        </Link>
+      )}
       <Link to="/workshop" className={`mobile-bar-item${isActive(['/workshop', '/analysis']) ? ' mobile-bar-item--active' : ''}`}>
         <span className="mobile-bar-icon">🔬</span>
         <span className="mobile-bar-label">{t('nav.workshop', 'Workshop')}</span>
@@ -48,7 +65,12 @@ export function MobileBottomBar() {
           )}
           {/* KS-2110: «Архив» тоже был скрыт на mobile. */}
           <Link to="/archive">{t('archive:menuTitle', 'Archive')}</Link>
-          <Link to="/broadcasts">{t('nav.tv', 'TV')}</Link>
+          {/* KS-2218: «Трансляции» — runtime feature-flag `broadcastsEnabled`. */}
+          {broadcastsEnabled && (
+            <Link to="/broadcasts" data-testid="mobile-more-broadcasts">
+              {t('nav.tv', 'TV')}
+            </Link>
+          )}
           <Link to="/features">{t('nav.features', 'Features')}</Link>
           <Link to="/friends">{t('nav.friends', 'Friends')}</Link>
           <Link to="/feedback">{t('nav.feedback', 'Feedback')}</Link>

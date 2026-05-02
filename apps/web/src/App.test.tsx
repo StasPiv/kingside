@@ -10,6 +10,35 @@ vi.mock('./context/AuthContext', () => ({
   useAuth: (...args: unknown[]) => mockUseAuth(...args),
 }));
 
+// KS-2218: тесты роутинга ниже завязаны на доступность /puzzles* и
+// прочих разделов. По дефолту (KS-2217) `puzzlesEnabled=false`, что
+// сломало бы /puzzles/mistakes, /puzzle/* и т.п. Мокаем хук так, чтобы
+// все runtime-флаги были включены — поведение guard'ов проверяется
+// отдельно в App.featureFlag.test.tsx.
+vi.mock('./context/FeatureFlagsContext', () => ({
+  useFeatureFlag: () => true,
+  useFeatureFlags: () => ({
+    flags: {
+      lessonsEnabled: true,
+      puzzlesEnabled: true,
+      broadcastsEnabled: true,
+      tournamentsEnabled: true,
+    },
+    loading: false,
+    error: null,
+    refresh: async () => {},
+  }),
+  FeatureFlagsProvider: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
+  ),
+  DEFAULT_FLAGS: {
+    lessonsEnabled: true,
+    puzzlesEnabled: true,
+    broadcastsEnabled: true,
+    tournamentsEnabled: true,
+  },
+}));
+
 vi.mock('./layouts/MainLayout', async () => {
   const { Outlet, Link } = await vi.importActual<
     typeof import('react-router-dom')

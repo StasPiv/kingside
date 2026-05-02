@@ -2,14 +2,30 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderWithProviders, screen } from '../test/test-utils';
 import userEvent from '@testing-library/user-event';
 
-const flagControls = { lessons: true };
+const flagControls = {
+  lessons: true,
+  // KS-2218: дефолты повторяют backend whitelist (KS-2217).
+  puzzles: false,
+  broadcasts: true,
+  tournaments: true,
+};
 const adminControls = { isAdmin: false };
 
 vi.mock('../context/FeatureFlagsContext', () => ({
-  useFeatureFlag: (key: string) =>
-    key === 'lessonsEnabled' ? flagControls.lessons : false,
+  useFeatureFlag: (key: string) => {
+    if (key === 'lessonsEnabled') return flagControls.lessons;
+    if (key === 'puzzlesEnabled') return flagControls.puzzles;
+    if (key === 'broadcastsEnabled') return flagControls.broadcasts;
+    if (key === 'tournamentsEnabled') return flagControls.tournaments;
+    return false;
+  },
   useFeatureFlags: () => ({
-    flags: { lessonsEnabled: flagControls.lessons },
+    flags: {
+      lessonsEnabled: flagControls.lessons,
+      puzzlesEnabled: flagControls.puzzles,
+      broadcastsEnabled: flagControls.broadcasts,
+      tournamentsEnabled: flagControls.tournaments,
+    },
     loading: false,
     error: null,
     refresh: async () => {},
@@ -17,7 +33,12 @@ vi.mock('../context/FeatureFlagsContext', () => ({
   FeatureFlagsProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
-  DEFAULT_FLAGS: { lessonsEnabled: true },
+  DEFAULT_FLAGS: {
+    lessonsEnabled: true,
+    puzzlesEnabled: false,
+    broadcastsEnabled: true,
+    tournamentsEnabled: true,
+  },
 }));
 
 vi.mock('../hooks/useAdminStatus', () => ({
@@ -28,6 +49,11 @@ import { MobileBottomBar } from './MobileBottomBar';
 
 beforeEach(() => {
   flagControls.lessons = true;
+  // KS-2218: тесты, где «Задачи» должны быть видимы, явно ставят
+  // puzzles=true. Default=false соответствует серверному whitelist.
+  flagControls.puzzles = true;
+  flagControls.broadcasts = true;
+  flagControls.tournaments = true;
   adminControls.isAdmin = false;
 });
 
@@ -64,6 +90,48 @@ describe('<MobileBottomBar> (KS-2110)', () => {
     renderWithProviders(<MobileBottomBar />);
     await user.click(screen.getByText(/more/i));
     expect(screen.queryByTestId('mobile-more-lessons')).not.toBeInTheDocument();
+  });
+
+  it('KS-2218: tournamentsEnabled=false → таб «Турниры» скрыт', () => {
+    flagControls.tournaments = false;
+    renderWithProviders(<MobileBottomBar />);
+    expect(screen.queryByTestId('mobile-bar-tournaments')).not.toBeInTheDocument();
+  });
+
+  it('KS-2218: tournamentsEnabled=true → таб «Турниры» виден', () => {
+    flagControls.tournaments = true;
+    renderWithProviders(<MobileBottomBar />);
+    expect(screen.getByTestId('mobile-bar-tournaments')).toBeInTheDocument();
+  });
+
+  it('KS-2218: puzzlesEnabled=false → таб «Задачи» скрыт', () => {
+    flagControls.puzzles = false;
+    renderWithProviders(<MobileBottomBar />);
+    expect(screen.queryByTestId('mobile-bar-puzzles')).not.toBeInTheDocument();
+  });
+
+  it('KS-2218: puzzlesEnabled=true → таб «Задачи» виден и ведёт на /daily', () => {
+    flagControls.puzzles = true;
+    renderWithProviders(<MobileBottomBar />);
+    const link = screen.getByTestId('mobile-bar-puzzles');
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute('href')).toBe('/daily');
+  });
+
+  it('KS-2218: broadcastsEnabled=false → пункт «Трансляции» в more-menu скрыт', async () => {
+    flagControls.broadcasts = false;
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await user.click(screen.getByText(/more/i));
+    expect(screen.queryByTestId('mobile-more-broadcasts')).not.toBeInTheDocument();
+  });
+
+  it('KS-2218: broadcastsEnabled=true → пункт «Трансляции» в more-menu виден', async () => {
+    flagControls.broadcasts = true;
+    const user = userEvent.setup();
+    renderWithProviders(<MobileBottomBar />);
+    await user.click(screen.getByText(/more/i));
+    expect(screen.getByTestId('mobile-more-broadcasts')).toBeInTheDocument();
   });
 
   it('isAdmin=false → пункт «Админка» скрыт; isAdmin=true → виден', async () => {

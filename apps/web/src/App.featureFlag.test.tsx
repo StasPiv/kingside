@@ -7,17 +7,33 @@ import { renderWithProviders, screen, waitFor } from './test/test-utils';
 // достаточно, чтобы App.tsx (и Sidebar.tsx, если рендерится) увидели
 // нужное значение. `flags.lessons` остаётся как переменная-источник:
 // тесты переключают её перед render'ом.
-const flags = { lessons: true };
+const flags = {
+  lessons: true,
+  // KS-2218: дефолты повторяют серверный whitelist (KS-2217).
+  puzzles: false,
+  broadcasts: true,
+  tournaments: true,
+};
 vi.mock('./context/FeatureFlagsContext', async () => {
   const actual = await vi.importActual<
     typeof import('./context/FeatureFlagsContext')
   >('./context/FeatureFlagsContext');
   return {
     ...actual,
-    useFeatureFlag: (key: string) =>
-      key === 'lessonsEnabled' ? flags.lessons : false,
+    useFeatureFlag: (key: string) => {
+      if (key === 'lessonsEnabled') return flags.lessons;
+      if (key === 'puzzlesEnabled') return flags.puzzles;
+      if (key === 'broadcastsEnabled') return flags.broadcasts;
+      if (key === 'tournamentsEnabled') return flags.tournaments;
+      return false;
+    },
     useFeatureFlags: () => ({
-      flags: { lessonsEnabled: flags.lessons },
+      flags: {
+        lessonsEnabled: flags.lessons,
+        puzzlesEnabled: flags.puzzles,
+        broadcastsEnabled: flags.broadcasts,
+        tournamentsEnabled: flags.tournaments,
+      },
       loading: false,
       error: null,
       refresh: async () => {},
@@ -92,6 +108,31 @@ vi.mock('./pages/DevPlayoffBracketPage', () => ({
 vi.mock('./pages/FeaturesPage', () => ({
   FeaturesPage: () => <div data-testid="page-features">Features home</div>,
 }));
+// KS-2218: заглушки для страниц, поведение guard'ов которых проверяем.
+vi.mock('./pages/LobbyPage', () => ({
+  LobbyPage: () => <div data-testid="page-lobby" />,
+}));
+vi.mock('./pages/PuzzleBrowserPage', () => ({
+  PuzzleBrowserPage: () => <div data-testid="page-puzzles" />,
+}));
+vi.mock('./pages/DailyPuzzlePage', () => ({
+  DailyPuzzlePage: () => <div data-testid="page-daily" />,
+}));
+vi.mock('./pages/PuzzlePage', () => ({
+  PuzzlePage: () => <div data-testid="page-puzzle" />,
+}));
+vi.mock('./pages/TournamentsPage', () => ({
+  TournamentsPage: () => <div data-testid="page-tournaments" />,
+}));
+vi.mock('./pages/TournamentLobbyPage', () => ({
+  TournamentLobbyPage: () => <div data-testid="page-tournament-lobby" />,
+}));
+vi.mock('./pages/BroadcastsPage', () => ({
+  BroadcastsPage: () => <div data-testid="page-broadcasts" />,
+}));
+vi.mock('./pages/BroadcastTournamentPage', () => ({
+  BroadcastTournamentPage: () => <div data-testid="page-broadcast-tournament" />,
+}));
 // useAuth вычитывает /auth/me — вернём unauth-пользователя, чтобы
 // ProtectedRoute редиректил на /login. Для теста достаточно.
 vi.mock('./context/AuthContext', () => ({
@@ -103,6 +144,9 @@ import { App } from './App';
 
 beforeEach(() => {
   flags.lessons = true;
+  flags.puzzles = false;
+  flags.broadcasts = true;
+  flags.tournaments = true;
 });
 
 afterEach(() => {
@@ -152,6 +196,110 @@ describe('App routing: lessons feature flag', () => {
     renderWithProviders(<App />, { route: '/lessons/mistakes-practice?theme=fork' });
     await waitFor(() =>
       expect(screen.getAllByTestId('page-features').length).toBeGreaterThan(0),
+    );
+  });
+});
+
+describe('App routing: KS-2218 puzzles/broadcasts/tournaments feature flags', () => {
+  it('puzzlesEnabled=false → /puzzles редиректит на /lobby', async () => {
+    flags.puzzles = false;
+    renderWithProviders(<App />, { route: '/puzzles' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-puzzles')).not.toBeInTheDocument();
+  });
+
+  it('puzzlesEnabled=false → /daily редиректит на /lobby', async () => {
+    flags.puzzles = false;
+    renderWithProviders(<App />, { route: '/daily' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-daily')).not.toBeInTheDocument();
+  });
+
+  it('puzzlesEnabled=false → /puzzle/:id тоже редирект', async () => {
+    flags.puzzles = false;
+    renderWithProviders(<App />, { route: '/puzzle/abc' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-puzzle')).not.toBeInTheDocument();
+  });
+
+  it('puzzlesEnabled=true → /puzzles рендерит каталог задач', async () => {
+    flags.puzzles = true;
+    renderWithProviders(<App />, { route: '/puzzles' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-puzzles')).toBeInTheDocument(),
+    );
+  });
+
+  it('puzzles выкл, /puzzle-rush остаётся доступен (отдельный раздел)', async () => {
+    flags.puzzles = false;
+    renderWithProviders(<App />, { route: '/puzzles/rush' });
+    // /puzzles/rush — алиас, перенаправляет на /puzzle-rush.
+    // /puzzle-rush сам по себе под ProtectedRoute, unauth → /login.
+    // Главное — НЕ /lobby (т.е. guard puzzles нас не перехватил).
+    await waitFor(() =>
+      expect(screen.queryByTestId('page-lobby')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('broadcastsEnabled=false → /broadcasts редиректит на /lobby', async () => {
+    flags.broadcasts = false;
+    renderWithProviders(<App />, { route: '/broadcasts' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-broadcasts')).not.toBeInTheDocument();
+  });
+
+  it('broadcastsEnabled=false → /broadcasts/abc тоже редирект', async () => {
+    flags.broadcasts = false;
+    renderWithProviders(<App />, { route: '/broadcasts/some-tournament' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('page-broadcast-tournament'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('broadcastsEnabled=true → /broadcasts рендерит список', async () => {
+    flags.broadcasts = true;
+    renderWithProviders(<App />, { route: '/broadcasts' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-broadcasts')).toBeInTheDocument(),
+    );
+  });
+
+  it('tournamentsEnabled=false → /tournaments редиректит на /lobby', async () => {
+    flags.tournaments = false;
+    renderWithProviders(<App />, { route: '/tournaments' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-tournaments')).not.toBeInTheDocument();
+  });
+
+  it('tournamentsEnabled=false → /tournaments/some-id тоже редирект', async () => {
+    flags.tournaments = false;
+    renderWithProviders(<App />, { route: '/tournaments/abc' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId('page-tournament-lobby'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('tournamentsEnabled=true → /tournaments рендерит список', async () => {
+    flags.tournaments = true;
+    renderWithProviders(<App />, { route: '/tournaments' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-tournaments')).toBeInTheDocument(),
     );
   });
 });
