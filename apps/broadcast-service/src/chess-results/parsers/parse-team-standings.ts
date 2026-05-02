@@ -37,7 +37,12 @@ export interface ParseTeamStandingsData {
   tiebreakLabels: string[];
 }
 
-const SWISS_H2_RE = /^Rank after Round (\d+)$/i;
+// Два возможных формата заголовка chess-results:
+//   - В процессе:  "Rank after Round 5"         (rounds remaining)
+//   - Завершено:   "Final Ranking after 9 Rounds" (chess-results меняет h2)
+// Паттерн захватывает число раундов в группу 1.
+const SWISS_H2_RE =
+  /^(?:Final\s+)?Rank(?:ing)?\s+after\s+(?:Round\s+)?(\d+)\s*(?:Rounds?)?$/i;
 const RR_H2_RE = /^Ranking crosstable\s*\((Pts\.|MP)\)/i;
 
 export function parseTeamStandings(

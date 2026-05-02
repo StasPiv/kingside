@@ -35,6 +35,7 @@ import type {
   CrosstableTeam,
   CrosstablePlayer,
   CrosstableCell,
+  CrosstableGameRef,
   TournamentType,
 } from '@kingside/shared';
 
@@ -520,15 +521,72 @@ export class BroadcastStandingsSyncService {
     const players = this.buildLegacyPlayersFromGames(broadcast);
     void reason; // персистится в `fetchError` отдельно через persist().
     switch (tournamentType) {
-      case 'round-robin':
+      case 'round-robin': {
+        // Строим N×N матрицу из broadcast_games (KS-2203: для турниров без
+        // chess_results_tournament_id — например Sigeman — данные есть в
+        // broadcast_games через Lichess, только matrix была пустой).
+        const N = players.length;
+        const nameToIdx = new Map<string, number>();
+        for (let i = 0; i < players.length; i++) {
+          nameToIdx.set(players[i].normalizedName, i);
+        }
+        // Все ячейки инициализируем как «не сыграно» (result: null).
+        // Диагональ тоже null — «игрок vs он сам».
+        const matrix: CrosstableCell[][] = Array.from({ length: N }, () =>
+          Array.from({ length: N }, (): CrosstableCell => ({ result: null })),
+        );
+        const roundById = new Map(broadcast.rounds.map((r) => [r.id, r]));
+        for (const g of broadcast.rounds.flatMap((r) => r.games)) {
+          const wNorm = normalizePlayerName(g.whitePlayer?.trim() ?? '');
+          const bNorm = normalizePlayerName(g.blackPlayer?.trim() ?? '');
+          const wi = wNorm ? (nameToIdx.get(wNorm) ?? null) : null;
+          const bi = bNorm ? (nameToIdx.get(bNorm) ?? null) : null;
+          if (wi === null || bi === null || wi === bi) continue;
+          const res = g.result ?? '';
+          const wRes: CrosstableCell['result'] =
+            res === '1-0'
+              ? 'win'
+              : res === '0-1'
+                ? 'loss'
+                : res === '1/2-1/2'
+                  ? 'draw'
+                  : null;
+          const bRes: CrosstableCell['result'] =
+            res === '1-0'
+              ? 'loss'
+              : res === '0-1'
+                ? 'win'
+                : res === '1/2-1/2'
+                  ? 'draw'
+                  : null;
+          const round = roundById.get(g.roundId);
+          const gameRef: CrosstableGameRef = {
+            gameId: g.id,
+            roundId: g.roundId,
+            roundName: round?.name ?? '',
+          };
+          matrix[wi][bi] = {
+            opponentRank: players[bi].rank,
+            result: wRes,
+            color: 'white',
+            gameRef: wRes !== null ? gameRef : null,
+          };
+          matrix[bi][wi] = {
+            opponentRank: players[wi].rank,
+            result: bRes,
+            color: 'black',
+            gameRef: bRes !== null ? gameRef : null,
+          };
+        }
         return {
           tournamentType: 'round-robin',
           sourceType: 'internal-fallback',
           sourceUrl: null,
           fetchedAt: null,
           players,
-          matrix: [],
+          matrix,
         };
+      }
       case 'swiss':
         return {
           tournamentType: 'swiss',
