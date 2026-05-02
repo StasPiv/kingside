@@ -183,7 +183,7 @@ export function ArchiveOtherGamesBlock({
               </ul>
               <div className="archive-other-games__footer">
                 <Link
-                  to={`/archive/games?fen=${encodeURIComponent(positionFen)}`}
+                  to={`/archive?fen=${encodeURIComponent(positionFen)}`}
                   className="archive-other-games__see-all"
                   data-testid="archive-other-games-see-all"
                 >

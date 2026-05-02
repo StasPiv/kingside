@@ -153,7 +153,7 @@ export function ArchiveTreePanel({
                     // универсального списка `/archive/games` сам
                     // переключается между metadata- и by-position-режимами
                     // по наличию `?fen=`. Возвращаем единый URL.
-                    return `/archive/games?${params.toString()}`;
+                    return `/archive?${params.toString()}`;
                   })()}
                   data-testid="archive-tree-view-games"
                 >

@@ -259,7 +259,7 @@ export function ArchiveGamePage() {
   };
 
   const handleFindSimilar = () => {
-    navigate(`/archive/games?fen=${encodeURIComponent(currentFen)}`);
+    navigate(`/archive?fen=${encodeURIComponent(currentFen)}`);
   };
 
   const handleCopyPgn = async () => {

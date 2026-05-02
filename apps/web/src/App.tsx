@@ -46,7 +46,7 @@ import { UserCourseEditor } from './components/lessons/editor/user/UserCourseEdi
 import { UserCoursePage } from './pages/UserCoursePage';
 import { UserLessonPage } from './pages/UserLessonPage';
 // KS-2066 (F0/ADR-033 §2): namespace архива — заглушки.
-import { ArchiveLobbyPage } from './pages/ArchiveLobbyPage';
+// ArchiveLobbyPage удалён — /archive теперь напрямую показывает ArchiveGamesPage (KS-2210)
 import { ArchiveGamesPage } from './pages/ArchiveGamesPage';
 import { ArchivePlayerProfilePage } from './pages/ArchivePlayerProfilePage';
 import { TermsOfServicePage } from './pages/TermsOfServicePage';
@@ -315,21 +315,18 @@ export function App() {
         <Route path="/arena/:id" element={<TournamentLobbyPage />} />
         <Route path="/t/:code" element={<ProtectedRoute><InviteRedirect /></ProtectedRoute>} />
         {/* KS-2066 (F0/ADR-033 §2): namespace архива партий.
-            • `/archive` — лобби (F1)
-            • `/archive/games` — универсальный список партий: metadata-режим
-              без `?fen=` и by-position-режим с `?fen=` (F2, KS-2068).
+            • `/archive` — список партий с фильтрами (metadata + by-position).
+            • `/archive/games` — редирект на `/archive` (backward compat).
             • `/archive/players/:slug` — профиль игрока (F3)
             • `/archive/games/:id` — одна партия (F4)
-            • `/archive/by-position` — legacy-URL F0, сохраняем 301 на
-              `/archive/games` с тем же query (старые bookmarks/CTA из
-              `ArchiveTreePanel` могут жить дальше). */}
-        <Route path="/archive" element={<ArchiveLobbyPage />} />
-        <Route path="/archive/games" element={<ArchiveGamesPage />} />
+            • `/archive/by-position` — legacy-URL, редирект на `/archive`. */}
+        <Route path="/archive" element={<ArchiveGamesPage />} />
+        <Route path="/archive/games" element={<Navigate to="/archive" replace />} />
         <Route path="/archive/games/:id" element={<ArchiveGamePage />} />
         <Route path="/archive/players/:slug" element={<ArchivePlayerProfilePage />} />
         <Route
           path="/archive/by-position"
-          element={<RedirectWithQuery to="/archive/games" />}
+          element={<RedirectWithQuery to="/archive" />}
         />
         <Route path="/broadcasts" element={<BroadcastsPage />} />
         <Route path="/broadcasts/:tournamentId" element={<BroadcastTournamentPage />} />

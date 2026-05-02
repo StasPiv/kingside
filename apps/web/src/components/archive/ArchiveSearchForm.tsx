@@ -45,7 +45,7 @@ function buildSearchUrl(values: ArchiveFiltersValues): string {
     params.append('timeControlCategory', cat);
   }
   const qs = params.toString();
-  return qs ? `/archive/games?${qs}` : '/archive/games';
+  return qs ? `/archive?${qs}` : '/archive';
 }
 
 /**

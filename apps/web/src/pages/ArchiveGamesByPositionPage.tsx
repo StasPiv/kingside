@@ -186,7 +186,7 @@ export function ArchiveGamesByPositionPage() {
             breadcrumbSection: t('archive.games.breadcrumb', 'Archive games'),
             // KS-2068 (F2): возврат на унифицированный
             // `/archive/games?fen=...` — он сам включит by-position-режим.
-            breadcrumbBackUrl: `/archive/games?${searchParams.toString()}`,
+            breadcrumbBackUrl: `/archive?${searchParams.toString()}`,
           },
         });
       } catch {

@@ -545,14 +545,14 @@ function ArchiveMetadataMode() {
           const blackLabel = game.black.name ?? '—';
           const currentSearch = searchParams.toString();
           const backUrl = currentSearch
-            ? `/archive/games?${currentSearch}`
-            : '/archive/games';
+            ? `/archive?${currentSearch}`
+            : '/archive';
           navigate('/analysis', {
             state: {
               pgn: game.pgn,
               title: `${whiteLabel} vs ${blackLabel}`,
               breadcrumbRootTitle: t('games.title', 'Archive games'),
-              breadcrumbRootUrl: '/archive/games',
+              breadcrumbRootUrl: '/archive',
               breadcrumbSection: game.event ?? undefined,
               breadcrumbBackUrl: backUrl,
             },
