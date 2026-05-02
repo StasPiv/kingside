@@ -315,15 +315,30 @@ function ArchiveMetadataMode() {
     [setSearchParams],
   );
 
-  // KS-2208: при монтировании восстанавливаем фильтры из localStorage,
-  // только если URL не содержит ни одного фильтра (URL имеет приоритет).
+  // KS-2208/KS-2209: при монтировании восстанавливаем фильтры из
+  // localStorage, только если URL не содержит значимых (не-дефолтных)
+  // фильтров. URL имеет приоритет над localStorage.
+  //
+  // KS-2209: исправлена семантика проверки. Предыдущая версия
+  // filterKeys.some((k) => searchParams.has(k)) давала false-positive
+  // при любом ключе в URL с дефолтным значением (например ?sort=recent
+  // или ?result=any из ручной ссылки) — и блокировала восстановление.
+  // Теперь проверяем смысловое наличие не-дефолтных фильтров.
   useEffect(() => {
-    const filterKeys = [
-      'player', 'event', 'eco', 'result', 'minElo', 'since', 'until',
-      'minPly', 'maxPly', 'sort', 'timeControlCategory',
-    ];
-    const hasUrlFilters = filterKeys.some((k) => searchParams.has(k));
-    if (hasUrlFilters) return;
+    const currentFilters = urlToMetadataFilters(searchParams);
+    const hasNonDefaultFilters =
+      currentFilters.players.length > 0 ||
+      !!currentFilters.event ||
+      !!currentFilters.eco ||
+      currentFilters.result !== 'any' ||
+      currentFilters.minElo !== null ||
+      !!currentFilters.since ||
+      !!currentFilters.until ||
+      currentFilters.minPly !== null ||
+      currentFilters.maxPly !== null ||
+      currentFilters.sort !== 'recent' ||
+      currentFilters.timeControlCategory.length > 0;
+    if (hasNonDefaultFilters) return;
     try {
       const saved = localStorage.getItem(FILTERS_LS_KEY);
       if (!saved) return;
@@ -363,8 +378,17 @@ function ArchiveMetadataMode() {
   // KS-2208: прямой переход в анализ без промежуточного экрана.
   // Загружаем PGN через API и сразу navigat'им в /analysis.
   // При ошибке — fallback на ArchiveGamePage (старое поведение).
+  //
+  // KS-2209: гарантируем актуальное сохранение filterValues перед уходом
+  // (защита от сценария «debounce текстового фильтра не успел сработать»
+  // — без этого шага localStorage мог остаться с устаревшим значением).
   const handleRowClick = useCallback(
     (item: { id: string }) => {
+      try {
+        localStorage.setItem(FILTERS_LS_KEY, JSON.stringify(filterValues));
+      } catch {
+        // Safari private mode
+      }
       archiveApi
         .getArchiveGameById(item.id)
         .then((game) => {
@@ -389,7 +413,7 @@ function ArchiveMetadataMode() {
           navigate(`/archive/games/${item.id}`);
         });
     },
-    [navigate, searchParams, t],
+    [navigate, searchParams, t, filterValues],
   );
 
   // ─── Initial / reset загрузка ────────────────────────────────────
