@@ -17,6 +17,10 @@ COPY apps/e2e/package.json apps/e2e/
 COPY packages/shared/package.json packages/shared/
 COPY packages/db/package.json packages/db/
 RUN npm ci --ignore-scripts
+# KS-2216: отдельно запускаем postinstall @prisma/engines (он же скачивает schema-engine
+# для текущей платформы). Без этого `npx prisma migrate deploy` в production-стадии
+# не находит бинарь schema-engine для debian-openssl-3.0.x.
+RUN node node_modules/@prisma/engines/scripts/postinstall.js
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
 COPY apps/api ./apps/api
