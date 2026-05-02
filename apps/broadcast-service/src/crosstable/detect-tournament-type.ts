@@ -41,6 +41,14 @@ export interface DetectInput {
 const TEAM_PATTERN = /team/i;
 const SWISS_PATTERN = /swiss/i;
 const ROUND_ROBIN_PATTERN = /round[- ]?robin/i;
+/**
+ * «N Round Team Tournament» — формат Lichess для командных швейцарок
+ * (например «11 Round Team Tournament», «7 Round Team Tournament»).
+ * Содержит «team» (TEAM_PATTERN ловит), но не содержит «swiss» / «round-robin»,
+ * поэтому без явного паттерна падал в unknown (KS-2207).
+ */
+const ROUND_N_TEAM_TOURNAMENT_PATTERN =
+  /^\d+\s+round\s+team\s+tournament$/i;
 
 /**
  * Маппит `format` (+ optional `hasTeamTable`) в `TournamentType`.
@@ -71,6 +79,8 @@ export function detectTournamentType(input: DetectInput): TournamentType {
   if (isTeam) {
     if (isRoundRobin) return 'team-round-robin';
     if (isSwiss) return 'team-swiss';
+    // «N Round Team Tournament» — командная швейцарка без слова «swiss» (KS-2207).
+    if (ROUND_N_TEAM_TOURNAMENT_PATTERN.test(raw)) return 'team-swiss';
     return 'unknown';
   }
 

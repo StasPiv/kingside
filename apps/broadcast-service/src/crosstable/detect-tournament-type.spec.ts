@@ -133,6 +133,26 @@ describe('detectTournamentType', () => {
     });
   });
 
+  describe('N Round Team Tournament (KS-2207)', () => {
+    it('"11 Round Team Tournament" → team-swiss', () => {
+      expect(detectTournamentType({ format: '11 Round Team Tournament' })).toBe(
+        'team-swiss',
+      );
+    });
+
+    it('"7 Round Team Tournament" → team-swiss', () => {
+      expect(detectTournamentType({ format: '7 Round Team Tournament' })).toBe(
+        'team-swiss',
+      );
+    });
+
+    it('"11 round team tournament" (lowercase) → team-swiss', () => {
+      expect(
+        detectTournamentType({ format: '11 round team tournament' }),
+      ).toBe('team-swiss');
+    });
+  });
+
   describe('whitespace-only / unknown formats', () => {
     it('"   " (только whitespace) → unknown', () => {
       expect(detectTournamentType({ format: '   ' })).toBe('unknown');

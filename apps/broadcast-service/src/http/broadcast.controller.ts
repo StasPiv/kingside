@@ -173,10 +173,14 @@ export class BroadcastController {
 
     const lifecycle = parseLifecycleFilter(lifecycleParam);
 
-    // KS-1746: фильтр `where: { isActive: true }` снят. Stale-broadcasts
-    // (isActive=false) теперь видны в категории finished — иначе архив
-    // прошлых турниров пропадает после 72 циклов sync-loop'а (~6 ч).
+    // KS-1746: фильтр `where: { isActive: true }` снят — стейл-трансляции
+    // видны в категории finished.
+    // KS-2207: скрываем трансляции с суммарно 0 партий — они засоряют раздел
+    // (пустые страницы без игр).
     const broadcasts = await this.prisma.broadcast.findMany({
+      where: {
+        rounds: { some: { games: { some: {} } } },
+      },
       select: {
         id: true,
         lichessId: true,

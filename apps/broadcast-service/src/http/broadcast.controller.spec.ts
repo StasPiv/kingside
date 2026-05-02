@@ -347,9 +347,10 @@ describe('BroadcastController', () => {
       // 4. isPinned=false для archived.
       expect(res.data[0].isPinned).toBe(false);
 
-      // 5. КЛЮЧЕВОЕ — `where: { isActive: true }` НЕ передан в findMany.
+      // 5. КЛЮЧЕВОЕ — `where.isActive` НЕ выставлен в findMany (KS-1746).
+      // KS-2207 добавил where.rounds для фильтра по партиям — это ок.
       const findManyCall = findManyMock.mock.calls[0][0];
-      expect(findManyCall.where).toBeUndefined();
+      expect(findManyCall.where?.isActive).toBeUndefined();
       void prisma;
     });
 
