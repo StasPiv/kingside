@@ -47,7 +47,11 @@ export interface ParseSwissRankingData {
   tiebreakLabels: string[];
 }
 
-const H2_RE = /^Rank after Round (\d+)$/i;
+// Два формата chess-results:
+//   - В процессе:  "Rank after Round 5"
+//   - Завершено:   "Final Ranking after 9 Rounds" (KS-2203)
+const H2_RE =
+  /^(?:Final\s+)?Rank(?:ing)?\s+after\s+(?:Round\s+)?(\d+)\s*(?:Rounds?)?$/i;
 
 export function parseSwissRanking(
   html: string,

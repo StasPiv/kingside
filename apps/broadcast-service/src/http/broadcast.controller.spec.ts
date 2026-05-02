@@ -164,35 +164,36 @@ describe('BroadcastController', () => {
     ];
 
     // Возвращаем $queryRaw строки с соответствующим lifecycle-сигналом.
+    // Поля совпадают с контроллерным SQL: end_date_passed / first_round_started.
     const queryRawRows = [
       {
         id: 'uuid-finished',
-        has_live: false,
-        has_upcoming: false,
+        end_date_passed: true,
+        first_round_started: true,
         nearest_pending_at: null,
         avg_elo: 2400,
         elo_games_count: 10,
       },
       {
         id: 'uuid-live',
-        has_live: true,
-        has_upcoming: false,
+        end_date_passed: false,
+        first_round_started: true,
         nearest_pending_at: null,
         avg_elo: 2750,
         elo_games_count: 10,
       },
       {
         id: 'uuid-upcoming-late',
-        has_live: false,
-        has_upcoming: true,
+        end_date_passed: false,
+        first_round_started: false,
         nearest_pending_at: upcomingLate,
         avg_elo: null,
         elo_games_count: 0,
       },
       {
         id: 'uuid-upcoming-soon',
-        has_live: false,
-        has_upcoming: true,
+        end_date_passed: false,
+        first_round_started: false,
         nearest_pending_at: upcomingSoon,
         avg_elo: null,
         elo_games_count: 0,
@@ -325,8 +326,8 @@ describe('BroadcastController', () => {
         $queryRaw: jest.fn().mockResolvedValue([
           {
             id: 'uuid-archived',
-            has_live: false,
-            has_upcoming: false,
+            end_date_passed: true,
+            first_round_started: true,
             nearest_pending_at: null,
             avg_elo: 2700,
             elo_games_count: 50,
@@ -372,16 +373,16 @@ describe('BroadcastController', () => {
         $queryRaw: jest.fn().mockResolvedValue([
           {
             id: 'uuid-archived-2',
-            has_live: false,
-            has_upcoming: false,
+            end_date_passed: true,
+            first_round_started: true,
             nearest_pending_at: null,
             avg_elo: 2400,
             elo_games_count: 10,
           },
           {
             id: 'uuid-live',
-            has_live: true,
-            has_upcoming: false,
+            end_date_passed: false,
+            first_round_started: true,
             nearest_pending_at: null,
             avg_elo: 2750,
             elo_games_count: 10,

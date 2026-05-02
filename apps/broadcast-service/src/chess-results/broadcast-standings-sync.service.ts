@@ -17,13 +17,17 @@ import {
 import {
   composeGameRefs,
   normalizePlayerName,
+  parseRoundNumber,
   type BroadcastGameInput,
   type BroadcastRoundInput,
   type MatcherMetrics,
 } from '../crosstable/player-matcher';
 import { parseRrCrosstable } from './parsers/parse-rr-crosstable';
 import { parseSwissRanking } from './parsers/parse-swiss-ranking';
-import { parseSwissPairings } from './parsers/parse-swiss-pairings';
+import {
+  parseSwissPairings,
+  type RawSwissRound,
+} from './parsers/parse-swiss-pairings';
 import { parseTeamStandings } from './parsers/parse-team-standings';
 import { parseTeamComposition } from './parsers/parse-team-composition';
 import { parseTeamPairings } from './parsers/parse-team-pairings';
@@ -356,84 +360,116 @@ export class BroadcastStandingsSyncService {
       throw new Error(`parseSwissRanking failed: ${ranking.reason}`);
     }
 
-    // 2. Pairings (art=2) — best-effort. Если упадёт — отдадим standings
-    // без матрицы pairings (ну, пустую).
-    let pairingsRounds: ReturnType<typeof parseSwissPairings> | null = null;
-    try {
-      const pairingsHtml = await this.fetcher.fetchPage(tid, 2, lifecycle);
-      pairingsRounds = parseSwissPairings(pairingsHtml);
-    } catch (err) {
-      // Любая ошибка при fetch art=2 — продолжаем без pairings.
-      this.logger.warn(
-        `swiss pairings fetch failed for ${tid}: ${(err as Error).message}`,
-      );
+    const N = ranking.data.players.length;
+    const R = ranking.data.roundCount;
+
+    // 2. Pairings per-round (KS-2206): fetching art=2 without `rd` returns
+    //    only the current + next round. To get all played rounds we request
+    //    art=2&rd=K for each K=1..R separately (ADR-023 §2.5).
+    //    Each (tid, art=2, rd=K) has its own Redis rate-limit key so rounds
+    //    are cached independently with the same lifecycle TTL.
+    const fetchedRounds = new Map<number, RawSwissRound>();
+    for (let rd = 1; rd <= R; rd++) {
+      try {
+        const html = await this.fetcher.fetchPage(tid, 2, lifecycle, rd);
+        const parsed = parseSwissPairings(html);
+        if (parsed.ok) {
+          // Take the target round only (art=2&rd=K may still include a
+          // "next round" row where all players are "not paired").
+          const target = parsed.data.rounds.find((r) => r.roundNumber === rd);
+          if (target) fetchedRounds.set(rd, target);
+        }
+      } catch (err) {
+        // Rate-limit or network error — continue without this round.
+        this.logger.warn(
+          `swiss pairings rd=${rd} fetch failed for ${tid}: ${(err as Error).message}`,
+        );
+      }
     }
 
     const refs = this.composeRefs(broadcast, ranking.data.players);
-    const N = ranking.data.players.length;
-    const R = ranking.data.roundCount;
+    // Fallback: name-based gameRef lookup (KS-2206) — when rank-based
+    // composeGameRefs fails to match a player by name, try direct match
+    // on normalised names in broadcast_games.
+    const gamesByNorm = this.buildGamesByNormMap(broadcast);
+
     const pairings: CrosstableCell[][] = Array.from({ length: N }, () =>
       Array.from({ length: R }, () => ({ result: null }) as CrosstableCell),
     );
 
-    if (pairingsRounds && pairingsRounds.ok) {
-      // По каждому туру строим mapping snr → playerRank.
-      const snrToRank = new Map<number, number>();
-      // chess-results SNR колонки нет в parseSwissRanking — берём по
-      // нормализованному имени.
-      const nameToRank = new Map<string, number>();
-      for (const p of ranking.data.players) {
-        nameToRank.set(p.normalizedName, p.rank);
-      }
-      for (const round of pairingsRounds.data.rounds) {
-        const ri = round.roundNumber - 1;
-        if (ri < 0 || ri >= R) continue;
-        for (const pair of round.pairs) {
-          if (!pair.white) continue;
-          const wRank =
-            nameToRank.get(pair.white.normalizedName) ?? null;
-          const bRank = pair.black
-            ? (nameToRank.get(pair.black.normalizedName) ?? null)
-            : null;
-          if (wRank === null) continue;
-          // Заполняем cell для белого.
-          const wCell: CrosstableCell = {
-            opponentRank: bRank ?? undefined,
-            color: 'white',
-            result: pair.isBye
-              ? 'bye'
-              : pair.result ?? null,
-            gameRef: this.findGameRef(refs, round.roundNumber, wRank, bRank),
+    const nameToRank = new Map<string, number>();
+    for (const p of ranking.data.players) {
+      nameToRank.set(p.normalizedName, p.rank);
+    }
+
+    for (const [, round] of fetchedRounds) {
+      const ri = round.roundNumber - 1;
+      if (ri < 0 || ri >= R) continue;
+      for (const pair of round.pairs) {
+        if (!pair.white) continue;
+        const wRank = nameToRank.get(pair.white.normalizedName) ?? null;
+        const bRank = pair.black
+          ? (nameToRank.get(pair.black.normalizedName) ?? null)
+          : null;
+        if (wRank === null) continue;
+
+        const gameRef = this.findGameRefWithFallback(
+          refs,
+          gamesByNorm,
+          round.roundNumber,
+          wRank,
+          bRank,
+          pair.white.normalizedName,
+          pair.black?.normalizedName ?? null,
+        );
+
+        const wCell: CrosstableCell = {
+          opponentRank: bRank ?? undefined,
+          color: 'white',
+          result: pair.isBye ? 'bye' : (pair.result ?? null),
+          gameRef,
+        };
+        pairings[wRank - 1][ri] = wCell;
+
+        if (bRank !== null) {
+          const bResult: CrosstableCell['result'] =
+            pair.result === 'win'
+              ? 'loss'
+              : pair.result === 'loss'
+                ? 'win'
+                : pair.result === 'draw'
+                  ? 'draw'
+                  : pair.result;
+          pairings[bRank - 1][ri] = {
+            opponentRank: wRank,
+            color: 'black',
+            result: bResult,
+            gameRef,
           };
-          pairings[wRank - 1][ri] = wCell;
-          // Зеркало для чёрного.
-          if (bRank !== null) {
-            const bResult: CrosstableCell['result'] =
-              pair.result === 'win'
-                ? 'loss'
-                : pair.result === 'loss'
-                  ? 'win'
-                  : pair.result === 'draw'
-                    ? 'draw'
-                    : pair.result;
-            pairings[bRank - 1][ri] = {
-              opponentRank: wRank,
-              color: 'black',
-              result: bResult,
-              gameRef: this.findGameRef(refs, round.roundNumber, wRank, bRank),
-            };
-          }
         }
       }
-      void snrToRank;
     }
+
+    // Fix gamesPlayed=0 (KS-2206): chess-results art=1 ranking table doesn't
+    // have a «Games» column. Compute from pairings: count non-null results.
+    const players = ranking.data.players.map((p, idx) => {
+      const played = pairings[idx]
+        ? pairings[idx].filter(
+            (c) =>
+              c.result !== null &&
+              c.result !== 'bye' &&
+              c.result !== 'forfeit',
+          ).length
+        : 0;
+      return { ...p, gamesPlayed: played };
+    });
 
     return {
       tournamentType: 'swiss',
       sourceType: 'chess-results',
       sourceUrl: SOURCE_URL_TPL(tid),
       fetchedAt: new Date(this.now()).toISOString(),
-      players: ranking.data.players,
+      players,
       roundCount: R,
       pairings,
     } satisfies CrosstableSwiss;
@@ -760,6 +796,62 @@ export class BroadcastStandingsSyncService {
     const key = `${roundNumber}:${whiteRank}:${blackRank}`;
     const v = refs.get(key);
     return (v as CrosstableCell['gameRef']) ?? null;
+  }
+
+  /**
+   * Fallback gameRef lookup по номеру тура + нормализованным именам (KS-2206).
+   * Используется когда rank-based composeGameRefs не находит партию (имена
+   * в chess-results и broadcast_games слегка расходятся).
+   */
+  private findGameRefWithFallback(
+    refs: Map<string, ReturnType<typeof Object>>,
+    gamesByNorm: Map<string, CrosstableGameRef>,
+    roundNumber: number,
+    whiteRank: number,
+    blackRank: number | null,
+    whiteNorm: string,
+    blackNorm: string | null,
+  ): CrosstableCell['gameRef'] {
+    // Primary: rank-based lookup.
+    const primary = this.findGameRef(refs, roundNumber, whiteRank, blackRank);
+    if (primary !== null) return primary;
+    // Fallback: name-based lookup.
+    if (whiteNorm && blackNorm) {
+      return (
+        gamesByNorm.get(`${roundNumber}:${whiteNorm}|${blackNorm}`) ?? null
+      );
+    }
+    return null;
+  }
+
+  /**
+   * Строит Map keyed by `"roundNumber:normWhite|normBlack"` (и обратный порядок)
+   * для name-based gameRef fallback (KS-2206). Партия найдена по roundId →
+   * номеру тура + нормализованным именам белого и чёрного.
+   */
+  private buildGamesByNormMap(
+    broadcast: BroadcastWithRounds,
+  ): Map<string, CrosstableGameRef> {
+    const map = new Map<string, CrosstableGameRef>();
+    const roundById = new Map(broadcast.rounds.map((r) => [r.id, r]));
+    for (const g of broadcast.rounds.flatMap((r) => r.games)) {
+      const round = roundById.get(g.roundId);
+      if (!round) continue;
+      const rn = parseRoundNumber(round.name);
+      if (rn === null) continue;
+      const wNorm = normalizePlayerName(g.whitePlayer);
+      const bNorm = normalizePlayerName(g.blackPlayer);
+      if (!wNorm || !bNorm) continue;
+      const ref: CrosstableGameRef = {
+        gameId: g.id,
+        roundId: round.id,
+        roundName: round.name,
+      };
+      // Both orderings so lookup works regardless of white/black assignment.
+      map.set(`${rn}:${wNorm}|${bNorm}`, ref);
+      map.set(`${rn}:${bNorm}|${wNorm}`, ref);
+    }
+    return map;
   }
 
   /**

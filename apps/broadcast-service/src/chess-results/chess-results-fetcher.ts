@@ -184,7 +184,7 @@ export class ChessResultsFetcher {
   }
 
   /**
-   * Скачивает HTML страницы `/tnr<id>.aspx?lan=1&art=<art>`.
+   * Скачивает HTML страницы `/tnr<id>.aspx?lan=1&art=<art>[&rd=<rd>]`.
    *
    * Throws:
    *   - `RateLimitedLocalError` — наш TTL ещё не истёк (не дёргали даже сеть).
@@ -194,17 +194,25 @@ export class ChessResultsFetcher {
    *
    * `lifecycle` определяет TTL between-fetch'ей:
    *   live=5 мин, upcoming=1 ч, finished=24 ч.
+   *
+   * `rd` — опциональный номер тура для `art=2&rd=N` (KS-2206). При передаче
+   * rate-limit key содержит `rd` суффикс, что позволяет кэшировать каждый
+   * тур независимо.
    */
   async fetchPage(
     tournamentId: string | number,
     art: Art,
     lifecycle: Lifecycle,
+    rd?: number,
   ): Promise<string> {
     const tid = String(tournamentId);
     const artLabel = String(art) as '1' | '4' | '5';
 
-    // 1. Local rate-limit (per tournament + art).
-    const lastFetchKey = `chess-results:last-fetch:${tid}:${art}`;
+    // 1. Local rate-limit (per tournament + art [+ optional rd]).
+    const lastFetchKey =
+      rd !== undefined
+        ? `chess-results:last-fetch:${tid}:${art}:rd${rd}`
+        : `chess-results:last-fetch:${tid}:${art}`;
     const lastTsRaw = await this.redis.get(lastFetchKey).catch(() => null);
     if (lastTsRaw) {
       const lastTs = Number(lastTsRaw);
@@ -224,7 +232,10 @@ export class ChessResultsFetcher {
     }
 
     // 3. Fetch with single retry on transient failure.
-    const url = `${BASE_URL}/tnr${tid}.aspx?lan=1&art=${art}`;
+    const url =
+      rd !== undefined
+        ? `${BASE_URL}/tnr${tid}.aspx?lan=1&art=${art}&rd=${rd}`
+        : `${BASE_URL}/tnr${tid}.aspx?lan=1&art=${art}`;
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
