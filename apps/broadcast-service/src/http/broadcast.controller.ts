@@ -241,13 +241,10 @@ export class BroadcastController {
    * Вычисляет lifecycleStatus, isPinned, avgElo и nearestPendingAt.
    *
    * lifecycleStatus:
-   *  - `live` — есть раунд со `status='ongoing'` ИЛИ `status='pending'` со
-   *    `starts_at <= NOW` (время уже наступило, но Lichess ещё не успел
-   *    обновить статус — без нижней временной границы, т.к. sync может
-   *    запаздывать на часы при сбоях).
-   *  - `upcoming` — не live И есть раунд со `status='pending'`,
-   *    `starts_at > NOW` (время ещё не наступило).
-   *  - `finished` — ни live, ни upcoming (все раунды finished или 0 раундов).
+   *  - `live`     — хотя бы один раунд уже начался:
+   *                 `status='ongoing'` ИЛИ `starts_at <= NOW()`.
+   *  - `upcoming` — не live И хотя бы один раунд ещё в будущем (`starts_at > NOW()`).
+   *  - `finished` — ни live, ни upcoming (все раунды finished или нет раундов).
    *
    * isPinned (для клиента проверяется также что lifecycleStatus='live'):
    *  avg_elo >= BROADCAST_PINNED_MIN_ELO (default 2600) AND
@@ -301,17 +298,12 @@ export class BroadcastController {
           WHERE r.broadcast_id = b.id
             AND (
               r.status = 'ongoing'
-              OR (
-                r.status = 'pending'
-                AND r.starts_at IS NOT NULL
-                AND r.starts_at <= NOW()
-              )
+              OR (r.starts_at IS NOT NULL AND r.starts_at <= NOW())
             )
         ) AS has_live,
         EXISTS (
           SELECT 1 FROM broadcast_rounds r
           WHERE r.broadcast_id = b.id
-            AND r.status = 'pending'
             AND r.starts_at IS NOT NULL
             AND r.starts_at > NOW()
         ) AS has_upcoming,
