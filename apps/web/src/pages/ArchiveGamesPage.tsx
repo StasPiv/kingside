@@ -263,6 +263,38 @@ function readFiltersFromStorage(): Partial<ArchiveMetadataFilterValues> | null {
 }
 
 /**
+ * KS-2210: нормализует строку результата из любого источника (localStorage,
+ * API, старые форматы) в формат, который принимает бэкенд: `"1-0"`, `"0-1"`,
+ * `"1/2-1/2"`, `"*"` или `null` (для `"any"`/пусто).
+ *
+ * Защита от легаси-значений `"win"/"loss"/"draw"` — они могли быть сохранены
+ * старыми версиями клиента и вызывают 400 на бэкенде.
+ */
+function normalizeResultForApi(r: string | null | undefined): string | null {
+  if (!r || r === 'any') return null;
+  if (r === 'win') return '1-0';
+  if (r === 'loss') return '0-1';
+  if (r === 'draw') return '1/2-1/2';
+  return r; // уже '1-0' / '0-1' / '1/2-1/2' / '*'
+}
+
+/**
+ * KS-2210: нормализует строку результата из API/localStorage в тип
+ * `MetadataResultFilter`, который ожидает UI-форма.
+ *
+ * API хранит PGN-строки (`"1-0"` и т.д.), UI использует те же значения,
+ * но у пользователя в DB/localStorage могут лежать легаси `"win"/"loss"/"draw"`.
+ */
+function normalizeResultFromApi(r: string | null | undefined): MetadataResultFilter {
+  if (!r || r === 'any') return 'any';
+  if (r === 'win') return '1-0';
+  if (r === 'loss') return '0-1';
+  if (r === 'draw') return '1/2-1/2';
+  const valid: MetadataResultFilter[] = ['1-0', '0-1', '1/2-1/2', '*'];
+  return valid.includes(r as MetadataResultFilter) ? (r as MetadataResultFilter) : 'any';
+}
+
+/**
  * KS-2210: маппинг frontend-фильтров → тело PUT /user/preferences/archive-filters.
  *
  * Дефолтные значения (result='any', sort='recent', пустые массивы) сохраняем
@@ -276,7 +308,7 @@ function filtersToApiPayload(values: ArchiveMetadataFilterValues): ArchiveFilter
     player: values.players.length > 0 ? values.players[0] : null,
     event: values.event || null,
     eco: values.eco || null,
-    result: values.result !== 'any' ? values.result : null,
+    result: normalizeResultForApi(values.result),
     timeControl:
       values.timeControlCategory.length > 0
         ? values.timeControlCategory.join(',')
@@ -300,8 +332,9 @@ function apiFiltersToValues(
   if (saved.player) result.players = [saved.player];
   if (saved.event) result.event = saved.event;
   if (saved.eco) result.eco = saved.eco;
-  if (saved.result && saved.result !== 'any') {
-    result.result = saved.result as MetadataResultFilter;
+  const mappedResult = normalizeResultFromApi(saved.result);
+  if (mappedResult !== 'any') {
+    result.result = mappedResult;
   }
   if (saved.timeControl) {
     const cats = saved.timeControl
