@@ -236,6 +236,9 @@ export function ArchiveGamesPage() {
 
 const SKELETON_ROWS = 10;
 
+// KS-2208: ключ для сохранения фильтров в localStorage.
+const FILTERS_LS_KEY = 'archive_metadata_filters_v1';
+
 function ArchiveMetadataMode() {
   const { t } = useTranslation('archive');
   const navigate = useNavigate();
@@ -301,9 +304,43 @@ function ArchiveMetadataMode() {
       // и без page (page=1, pageSize пишется только если ≠ дефолта).
       const params = metadataFiltersToUrl(next, 1, nextPageSize);
       setSearchParams(params, { replace: true });
+      // KS-2208: сохраняем фильтры в localStorage — восстанавливаем при
+      // следующем визите (если URL не содержит явных фильтров).
+      try {
+        localStorage.setItem(FILTERS_LS_KEY, JSON.stringify(next));
+      } catch {
+        // Safari private mode и аналоги бросают исключение при записи.
+      }
     },
     [setSearchParams],
   );
+
+  // KS-2208: при монтировании восстанавливаем фильтры из localStorage,
+  // только если URL не содержит ни одного фильтра (URL имеет приоритет).
+  useEffect(() => {
+    const filterKeys = [
+      'player', 'event', 'eco', 'result', 'minElo', 'since', 'until',
+      'minPly', 'maxPly', 'sort', 'timeControlCategory',
+    ];
+    const hasUrlFilters = filterKeys.some((k) => searchParams.has(k));
+    if (hasUrlFilters) return;
+    try {
+      const saved = localStorage.getItem(FILTERS_LS_KEY);
+      if (!saved) return;
+      const parsed = JSON.parse(saved) as Partial<ArchiveMetadataFilterValues>;
+      const restored: ArchiveMetadataFilterValues = {
+        ...EMPTY_METADATA_FILTERS,
+        ...parsed,
+      };
+      const params = metadataFiltersToUrl(restored, 1, DEFAULT_PAGE_SIZE);
+      if (params.toString().length > 0) {
+        setSearchParams(params, { replace: true });
+      }
+    } catch {
+      // Невалидный JSON или отсутствие localStorage — игнорируем.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFiltersChange = useCallback(
     (next: ArchiveMetadataFilterValues) => {
@@ -323,9 +360,36 @@ function ArchiveMetadataMode() {
     writeFilters(EMPTY_METADATA_FILTERS, pageSize);
   }, [pageSize, writeFilters]);
 
+  // KS-2208: прямой переход в анализ без промежуточного экрана.
+  // Загружаем PGN через API и сразу navigat'им в /analysis.
+  // При ошибке — fallback на ArchiveGamePage (старое поведение).
   const handleRowClick = useCallback(
-    (item: { id: string }) => navigate(`/archive/games/${item.id}`),
-    [navigate],
+    (item: { id: string }) => {
+      archiveApi
+        .getArchiveGameById(item.id)
+        .then((game) => {
+          const whiteLabel = game.white.name ?? '—';
+          const blackLabel = game.black.name ?? '—';
+          const currentSearch = searchParams.toString();
+          const backUrl = currentSearch
+            ? `/archive/games?${currentSearch}`
+            : '/archive/games';
+          navigate('/analysis', {
+            state: {
+              pgn: game.pgn,
+              title: `${whiteLabel} vs ${blackLabel}`,
+              breadcrumbRootTitle: t('games.title', 'Archive games'),
+              breadcrumbRootUrl: '/archive/games',
+              breadcrumbSection: game.event ?? undefined,
+              breadcrumbBackUrl: backUrl,
+            },
+          });
+        })
+        .catch(() => {
+          navigate(`/archive/games/${item.id}`);
+        });
+    },
+    [navigate, searchParams, t],
   );
 
   // ─── Initial / reset загрузка ────────────────────────────────────
