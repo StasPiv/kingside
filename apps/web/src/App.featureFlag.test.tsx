@@ -141,6 +141,10 @@ vi.mock('./pages/BroadcastTournamentPage', () => ({
 vi.mock('./pages/DrillsLobbyPage', () => ({
   DrillsLobbyPage: () => <div data-testid="page-drills-lobby" />,
 }));
+// KS-2233: заглушка страницы drill /drills/:type.
+vi.mock('./pages/DrillPage', () => ({
+  DrillPage: () => <div data-testid="page-drill" />,
+}));
 // useAuth вычитывает /auth/me — вернём unauth-пользователя, чтобы
 // ProtectedRoute редиректил на /login. Для теста достаточно.
 vi.mock('./context/AuthContext', () => ({
@@ -338,6 +342,23 @@ describe('App routing: KS-2232 drills feature flag', () => {
     await waitFor(() =>
       expect(screen.getByTestId('page-drills-lobby')).toBeInTheDocument(),
     );
+  });
+
+  it('KS-2233: drillsEnabled=true → /drills/find-pin рендерит DrillPage', async () => {
+    flags.drills = true;
+    renderWithProviders(<App />, { route: '/drills/find-pin' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-drill')).toBeInTheDocument(),
+    );
+  });
+
+  it('KS-2233: drillsEnabled=false → /drills/find-pin тоже редирект на /lobby', async () => {
+    flags.drills = false;
+    renderWithProviders(<App />, { route: '/drills/find-pin' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-drill')).not.toBeInTheDocument();
   });
 });
 

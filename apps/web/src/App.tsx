@@ -53,6 +53,8 @@ import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { ArchiveGamePage } from './pages/ArchiveGamePage';
 // KS-2232 (Drills E3): лобби тренажёров /drills под `drillsEnabled`.
 import { DrillsLobbyPage } from './pages/DrillsLobbyPage';
+// KS-2233 (Drills E3): страница drill /drills/:type под тем же флагом.
+import { DrillPage } from './pages/DrillPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag } from './context/FeatureFlagsContext';
@@ -311,12 +313,16 @@ export function App() {
           // из старых ссылок не застревал).
           <Route path="/lessons/*" element={<Navigate to="/" replace />} />
         )}
-        {/* KS-2232 (ADR-035 §7): лобби `/drills` под drillsEnabled. */}
+        {/* KS-2232 / KS-2233 (ADR-035 §5, §7): лобби `/drills` и
+            страница drill `/drills/:type` под drillsEnabled. */}
         {drillsEnabled ? (
-          <Route path="/drills" element={<DrillsLobbyPage />} />
+          <>
+            <Route path="/drills" element={<DrillsLobbyPage />} />
+            <Route path="/drills/:type" element={<DrillPage />} />
+          </>
         ) : (
           // По образцу KS-2218: всё `/drills*` уводит в /lobby при
-          // выключенном флаге (включая будущий /drills/:type из KS-2233).
+          // выключенном флаге.
           <Route path="/drills/*" element={<Navigate to="/lobby" replace />} />
         )}
         {/* KS-1821: compile-time guard. `DevRoutesLazy` = null в prod-сборке,
