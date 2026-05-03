@@ -72,15 +72,18 @@ export type AnswerShape = 'square' | 'squares' | 'number' | 'move';
  * Связь drill-type → ожидаемый answer-shape (methodology §2,
  * ADR-035 §2.1 финальный после KS-2223 §8.3 правок).
  *
- * Для `find-mate-in-one-square` — строго `'square'` (fallback на `'move'`
- * отменён в KS-2223).
+ * KS-2320 / KS-2321: `find-mate-in-one-square` переведён с `'square'`
+ * на `'move'`. Strict-uniqueness теперь по полной паре `(from, to)`,
+ * а не по `to`-клетке — это убирает amb'игуазии типа «два разных хода
+ * на одну клетку» / «одна фигура с разных стартовых клеток на one
+ * square». В UI ответ — пара from→to.
  */
 export const DRILL_TYPE_ANSWER_SHAPE: Record<TacticDrillType, AnswerShape> = {
   'find-hanging-piece':      'square',
   'find-loose-piece':        'square',
   'find-pin':                'square',
   'find-fork':               'square',
-  'find-mate-in-one-square': 'square',
+  'find-mate-in-one-square': 'move',
   'count-attackers':         'number',
   'find-all-checks':         'squares',
   'find-undefended-attack':  'move',
@@ -285,7 +288,7 @@ export const DRILL_TYPE_LABEL: Record<TacticDrillType, DrillLocalizedString> = {
   'find-loose-piece':        { ru: 'Слабо защищённая',     en: 'Loose piece' },
   'find-pin':                { ru: 'Связка',                en: 'Pin' },
   'find-fork':               { ru: 'Вилка',                 en: 'Fork' },
-  'find-mate-in-one-square': { ru: 'Мат в один (клетка)',  en: 'Mate-in-1 square' },
+  'find-mate-in-one-square': { ru: 'Мат в один',            en: 'Mate-in-1' },
   'count-attackers':         { ru: 'Сосчитать атакующих',  en: 'Count attackers' },
   'find-all-checks':         { ru: 'Все шахи',              en: 'All checks' },
   'find-undefended-attack':  { ru: 'Безответная атака',    en: 'Undefended attack' },
@@ -315,8 +318,8 @@ export const DRILL_INSTRUCTION: Record<TacticDrillType, DrillLocalizedString> = 
     en: 'Find the piece attacking two or more valuable opposing pieces simultaneously.',
   },
   'find-mate-in-one-square': {
-    ru: 'Найди клетку «to», на которую ход даёт мат в один.',
-    en: 'Find the destination square where one move gives mate.',
+    ru: 'Найди ход, который ставит мат в один.',
+    en: 'Find the move that delivers mate in one.',
   },
   'count-attackers':         {
     ru: 'Сколько фигур заданного цвета атакуют выделенную клетку?',
@@ -354,8 +357,8 @@ export const DRILL_HINT: Record<TacticDrillType, DrillLocalizedString> = {
     en: 'One piece — two or more targets.',
   },
   'find-mate-in-one-square': {
-    ru: 'Думай о клетке-цели, не о ходе.',
-    en: 'Think of the target square, not the move.',
+    ru: 'Какая фигура и куда ставит мат?',
+    en: 'Which piece and where delivers mate?',
   },
   'count-attackers':         {
     ru: 'Учти все «батареи» по линии.',
