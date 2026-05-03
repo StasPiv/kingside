@@ -145,6 +145,16 @@ vi.mock('./pages/DrillsLobbyPage', () => ({
 vi.mock('./pages/DrillPage', () => ({
   DrillPage: () => <div data-testid="page-drill" />,
 }));
+// KS-2241: заглушки sprint-страниц.
+vi.mock('./pages/DrillSprintSetupPage', () => ({
+  DrillSprintSetupPage: () => <div data-testid="page-drill-sprint-setup" />,
+}));
+vi.mock('./pages/DrillSprintPlayPage', () => ({
+  DrillSprintPlayPage: () => <div data-testid="page-drill-sprint-play" />,
+}));
+vi.mock('./pages/DrillSprintResultsPage', () => ({
+  DrillSprintResultsPage: () => <div data-testid="page-drill-sprint-results" />,
+}));
 // useAuth вычитывает /auth/me — вернём unauth-пользователя, чтобы
 // ProtectedRoute редиректил на /login. Для теста достаточно.
 vi.mock('./context/AuthContext', () => ({
@@ -359,6 +369,39 @@ describe('App routing: KS-2232 drills feature flag', () => {
       expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('page-drill')).not.toBeInTheDocument();
+  });
+
+  it('KS-2241: drillsEnabled=true → /drills/sprint рендерит SetupPage', async () => {
+    flags.drills = true;
+    renderWithProviders(<App />, { route: '/drills/sprint' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-drill-sprint-setup')).toBeInTheDocument(),
+    );
+  });
+
+  it('KS-2241: drillsEnabled=true → /drills/sprint/play рендерит PlayPage', async () => {
+    flags.drills = true;
+    renderWithProviders(<App />, { route: '/drills/sprint/play' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-drill-sprint-play')).toBeInTheDocument(),
+    );
+  });
+
+  it('KS-2241: drillsEnabled=true → /drills/sprint/results рендерит ResultsPage', async () => {
+    flags.drills = true;
+    renderWithProviders(<App />, { route: '/drills/sprint/results' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-drill-sprint-results')).toBeInTheDocument(),
+    );
+  });
+
+  it('KS-2241: drillsEnabled=false → /drills/sprint редирект на /lobby', async () => {
+    flags.drills = false;
+    renderWithProviders(<App />, { route: '/drills/sprint' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-drill-sprint-setup')).not.toBeInTheDocument();
   });
 });
 

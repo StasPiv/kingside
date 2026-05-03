@@ -722,6 +722,37 @@
       "calculation": "Calculation"
     },
     "loading": "Loading drills…",
+    "sprint": {
+      "setup": {
+        "heading": "Sprint setup",
+        "subheading": "Pick drill types and a duration. Solve as many as you can.",
+        "duration": "Duration",
+        "duration3min": "3 minutes",
+        "duration5min": "5 minutes",
+        "types": "Drill types",
+        "selectAll": "All types",
+        "clearTypes": "Clear",
+        "start": "Start sprint",
+        "atLeastOne": "Pick at least one drill type or use «All types».",
+        "loadFailed": "Could not start sprint."
+      },
+      "play": {
+        "score": "Score",
+        "timeLeft": "Time left",
+        "loading": "Loading first drill…",
+        "ended": "Sprint finished, calculating results…"
+      },
+      "results": {
+        "heading": "Sprint results",
+        "score": "Score",
+        "accuracy": "Accuracy",
+        "avgPrecision": "Avg IoU",
+        "playAgain": "Play again",
+        "openLobby": "Back to drills",
+        "openLeaderboard": "Open leaderboard",
+        "missingResult": "No sprint result to show. Start a new sprint."
+      }
+    },
     "stats": {
       "heading": "Drill stats",
       "totalAttempts": "Attempts",

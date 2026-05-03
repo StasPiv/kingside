@@ -55,6 +55,10 @@ import { ArchiveGamePage } from './pages/ArchiveGamePage';
 import { DrillsLobbyPage } from './pages/DrillsLobbyPage';
 // KS-2233 (Drills E3): страница drill /drills/:type под тем же флагом.
 import { DrillPage } from './pages/DrillPage';
+// KS-2241 (Drills E4): sprint setup/play/results.
+import { DrillSprintSetupPage } from './pages/DrillSprintSetupPage';
+import { DrillSprintPlayPage } from './pages/DrillSprintPlayPage';
+import { DrillSprintResultsPage } from './pages/DrillSprintResultsPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag } from './context/FeatureFlagsContext';
@@ -313,11 +317,16 @@ export function App() {
           // из старых ссылок не застревал).
           <Route path="/lessons/*" element={<Navigate to="/" replace />} />
         )}
-        {/* KS-2232 / KS-2233 (ADR-035 §5, §7): лобби `/drills` и
-            страница drill `/drills/:type` под drillsEnabled. */}
+        {/* KS-2232 / KS-2233 / KS-2241 (ADR-035 §5, §5.5, §7): drill-маршруты под drillsEnabled. */}
         {drillsEnabled ? (
           <>
             <Route path="/drills" element={<DrillsLobbyPage />} />
+            {/* KS-2241: sprint setup/play/results размещаем ВЫШЕ
+                `/drills/:type`, иначе React Router сматчит «sprint»
+                как drill-type. */}
+            <Route path="/drills/sprint" element={<DrillSprintSetupPage />} />
+            <Route path="/drills/sprint/play" element={<DrillSprintPlayPage />} />
+            <Route path="/drills/sprint/results" element={<DrillSprintResultsPage />} />
             <Route path="/drills/:type" element={<DrillPage />} />
           </>
         ) : (

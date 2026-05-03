@@ -1,0 +1,168 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { waitFor } from '@testing-library/react';
+import { renderWithProviders, screen } from '../test/test-utils';
+
+const apiPost = vi.fn();
+const navigateMock = vi.fn();
+
+vi.mock('../api', () => ({
+  api: {
+    get: vi.fn(async () => ({})),
+    post: (path: string, body: unknown) => apiPost(path, body),
+    put: vi.fn(async () => ({})),
+    patch: vi.fn(async () => ({})),
+    delete: vi.fn(async () => ({})),
+  },
+}));
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>(
+    'react-router-dom',
+  );
+  return { ...actual, useNavigate: () => navigateMock };
+});
+
+import { DrillSprintSetupPage } from './DrillSprintSetupPage';
+
+const SESSION = {
+  sessionId: 'sess-1',
+  drill: {
+    id: 'd1',
+    drillType: 'count-attackers',
+    fen: '8/8/8/8/8/8/8/8 w - - 0 1',
+    sideToMove: null,
+    answerShape: 'number',
+    difficulty: 1,
+  },
+  startedAt: new Date().toISOString(),
+  durationMs: 180000,
+};
+
+beforeEach(() => {
+  apiPost.mockReset();
+  navigateMock.mockReset();
+});
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('<DrillSprintSetupPage> KS-2241', () => {
+  it('рендерит контейнер + duration radio + 8 type checkboxes', () => {
+    renderWithProviders(<DrillSprintSetupPage />);
+    expect(screen.getByTestId('drill-sprint-setup')).toBeInTheDocument();
+    expect(screen.getByTestId('drill-sprint-setup-duration-180000')).toBeInTheDocument();
+    expect(screen.getByTestId('drill-sprint-setup-duration-300000')).toBeInTheDocument();
+    for (const id of [
+      'count-attackers',
+      'find-loose-piece',
+      'find-hanging-piece',
+      'find-all-checks',
+      'find-pin',
+      'find-fork',
+      'find-mate-in-one-square',
+      'find-undefended-attack',
+    ]) {
+      expect(
+        screen.getByTestId(`drill-sprint-setup-type-${id}`),
+      ).toBeInTheDocument();
+    }
+  });
+
+  it('default duration = 180000 (3 минуты)', () => {
+    renderWithProviders(<DrillSprintSetupPage />);
+    const r3 = screen.getByTestId('drill-sprint-setup-duration-180000') as HTMLInputElement;
+    const r5 = screen.getByTestId('drill-sprint-setup-duration-300000') as HTMLInputElement;
+    expect(r3.checked).toBe(true);
+    expect(r5.checked).toBe(false);
+  });
+
+  it('кнопка «Все типы» отмечает все 8 чекбоксов', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DrillSprintSetupPage />);
+    await user.click(screen.getByTestId('drill-sprint-setup-select-all'));
+    for (const id of [
+      'count-attackers',
+      'find-pin',
+      'find-undefended-attack',
+    ]) {
+      const cb = screen.getByTestId(`drill-sprint-setup-type-${id}`) as HTMLInputElement;
+      expect(cb.checked).toBe(true);
+    }
+    // data-selected-count=8.
+    expect(
+      screen.getByTestId('drill-sprint-setup-types').getAttribute('data-selected-count'),
+    ).toBe('8');
+  });
+
+  it('кнопка «Очистить» снимает все галочки', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DrillSprintSetupPage />);
+    await user.click(screen.getByTestId('drill-sprint-setup-select-all'));
+    expect(
+      screen.getByTestId('drill-sprint-setup-types').getAttribute('data-selected-count'),
+    ).toBe('8');
+    await user.click(screen.getByTestId('drill-sprint-setup-clear'));
+    expect(
+      screen.getByTestId('drill-sprint-setup-types').getAttribute('data-selected-count'),
+    ).toBe('0');
+  });
+
+  it('переключение duration на 5 мин', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DrillSprintSetupPage />);
+    await user.click(screen.getByTestId('drill-sprint-setup-duration-300000'));
+    const r5 = screen.getByTestId('drill-sprint-setup-duration-300000') as HTMLInputElement;
+    expect(r5.checked).toBe(true);
+  });
+
+  it('Start (без выбора типов) → POST /sprint/start с types=[] (= все 8) и duration', async () => {
+    apiPost.mockResolvedValue(SESSION);
+    const user = userEvent.setup();
+    renderWithProviders(<DrillSprintSetupPage />);
+    await user.click(screen.getByTestId('drill-sprint-setup-start'));
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        '/tactic-drill/sprint/start',
+        expect.objectContaining({ durationMs: 180000, types: [] }),
+      ),
+    );
+    expect(navigateMock).toHaveBeenCalledWith(
+      '/drills/sprint/play',
+      expect.objectContaining({ state: { session: SESSION } }),
+    );
+  });
+
+  it('Start с выбранными типами и 5 мин → правильный body', async () => {
+    apiPost.mockResolvedValue(SESSION);
+    const user = userEvent.setup();
+    renderWithProviders(<DrillSprintSetupPage />);
+    await user.click(screen.getByTestId('drill-sprint-setup-duration-300000'));
+    await user.click(screen.getByTestId('drill-sprint-setup-type-count-attackers'));
+    await user.click(screen.getByTestId('drill-sprint-setup-type-find-pin'));
+    await user.click(screen.getByTestId('drill-sprint-setup-start'));
+    await waitFor(() =>
+      expect(apiPost).toHaveBeenCalledWith(
+        '/tactic-drill/sprint/start',
+        expect.objectContaining({
+          durationMs: 300000,
+          types: expect.arrayContaining(['count-attackers', 'find-pin']),
+        }),
+      ),
+    );
+  });
+
+  it('Сетевая ошибка /sprint/start → error-баннер и кнопка снова enabled', async () => {
+    apiPost.mockImplementation(() =>
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('500')), 0),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<DrillSprintSetupPage />);
+    await user.click(screen.getByTestId('drill-sprint-setup-start'));
+    await waitFor(() =>
+      expect(screen.getByTestId('drill-sprint-setup-error')).toBeInTheDocument(),
+    );
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+});
