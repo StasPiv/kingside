@@ -389,16 +389,821 @@
 }
 
 /* ===========================================================
+ * KS-2243 (ADR-035 §5.5, Drills E4) — sprint-страницы
+ *
+ * DrillSprintSetupPage / PlayPage / ResultsPage / LeaderboardPage
+ * (последняя — KS-2242 frontend в работе; общие стили лежат впрок).
+ * =========================================================== */
+
+/* --- Setup ---------------------------------------------------- */
+
+.drill-sprint-setup {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.drill-sprint-setup__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drill-sprint-setup__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.drill-sprint-setup__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.drill-sprint-setup__duration,
+.drill-sprint-setup__types {
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+}
+
+.drill-sprint-setup__duration legend,
+.drill-sprint-setup__types legend {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.drill-sprint-setup__duration {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.drill-sprint-setup__duration-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  min-height: 44px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.drill-sprint-setup__duration-option:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+}
+
+.drill-sprint-setup__duration-option:has(input:checked) {
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.drill-sprint-setup__types-actions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.drill-sprint-setup__types-actions button {
+  padding: 6px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.drill-sprint-setup__types-actions button:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.drill-sprint-setup__types-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.drill-sprint-setup__types-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.drill-sprint-setup__type-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  min-height: 44px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.drill-sprint-setup__type-option:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+}
+
+.drill-sprint-setup__type-option--checked {
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+.drill-sprint-setup__error {
+  padding: 10px 12px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-strong);
+  border-radius: 8px;
+  color: var(--danger-strong);
+  font-size: 13px;
+}
+
+.drill-sprint-setup__start {
+  align-self: stretch;
+  padding: 14px 20px;
+  min-height: 48px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.1s ease;
+}
+
+.drill-sprint-setup__start:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.drill-sprint-setup__start:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.drill-sprint-setup__start:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.drill-sprint-setup__start:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* --- Play ----------------------------------------------------- */
+
+.drill-sprint-play {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px 16px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-primary);
+}
+
+.drill-sprint-play--loading {
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.drill-sprint-play__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.drill-sprint-play__score {
+  font-size: 16px;
+  font-weight: 600;
+  /* Анимация score-bump при инкременте: frontend меняет `key` элемента
+   * (или добавляет modifier `--bumping`) — animation-name запустится
+   * заново. Базово анимация безопасна (запускается один раз при mount). */
+  animation: drill-sprint-score-bump 240ms ease-out;
+}
+
+.drill-sprint-play__timer {
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  transition: color 0.15s ease;
+}
+
+/* Warning state: frontend выставляет `data-warning="true"` при <10s.
+ * Без атрибута стили не применяются — fallback не ломается. */
+.drill-sprint-play__timer[data-warning="true"] {
+  color: var(--danger-strong);
+  animation: drill-sprint-timer-warning 1s ease-in-out infinite;
+}
+
+.drill-sprint-play__side {
+  align-self: center;
+  padding: 4px 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
+  border-radius: 999px;
+}
+
+.drill-sprint-play__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.drill-sprint-play__squares-counter {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.drill-sprint-play__submit {
+  padding: 10px 20px;
+  min-height: 44px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, transform 0.1s ease;
+}
+
+.drill-sprint-play__submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.drill-sprint-play__submit:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.drill-sprint-play__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.drill-sprint-play__submit:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.drill-sprint-play__move-hint {
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--accent-primary);
+  background: var(--accent-soft);
+  border-radius: 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+/* --- Results -------------------------------------------------- */
+
+.drill-sprint-results {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  color: var(--text-primary);
+}
+
+.drill-sprint-results--missing {
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.drill-sprint-results__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.drill-sprint-results__missing-msg {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.drill-sprint-results__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.drill-sprint-results__card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+
+.drill-sprint-results__label {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.drill-sprint-results__value {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  /* score-карточка появляется с лёгким bump'ом */
+  animation: drill-sprint-score-bump 320ms ease-out;
+}
+
+.drill-sprint-results__value--score   { color: var(--accent-primary); }
+.drill-sprint-results__value--accuracy { color: var(--success-strong); }
+.drill-sprint-results__value--iou     { color: var(--info); }
+
+.drill-sprint-results__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.drill-sprint-results__play-again,
+.drill-sprint-results__share,
+.drill-sprint-results__leaderboard,
+.drill-sprint-results__lobby {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  min-height: 44px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 0.12s ease, transform 0.1s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.drill-sprint-results__play-again {
+  background: var(--accent-primary);
+  color: var(--text-on-accent);
+  border: 0;
+}
+
+.drill-sprint-results__play-again:hover {
+  background: var(--accent-hover);
+}
+
+.drill-sprint-results__share {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-mid);
+  color: var(--text-primary);
+}
+
+.drill-sprint-results__share:hover:not(:disabled) {
+  background: var(--bg-surface);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.drill-sprint-results__share:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Визуальный фидбек share-статусов через data-share-status. */
+.drill-sprint-results__share[data-share-status="shared"],
+.drill-sprint-results__share[data-share-status="copied"] {
+  background: var(--ov-success-15-alt);
+  border-color: var(--success-strong);
+  color: var(--success-strong);
+}
+
+.drill-sprint-results__share[data-share-status="failed"] {
+  background: var(--danger-soft);
+  border-color: var(--danger-strong);
+  color: var(--danger-strong);
+}
+
+.drill-sprint-results__leaderboard,
+.drill-sprint-results__lobby {
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text-primary);
+}
+
+.drill-sprint-results__leaderboard:hover,
+.drill-sprint-results__lobby:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+}
+
+.drill-sprint-results__play-again:focus-visible,
+.drill-sprint-results__share:focus-visible,
+.drill-sprint-results__leaderboard:focus-visible,
+.drill-sprint-results__lobby:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.drill-sprint-results__play-again:active,
+.drill-sprint-results__share:active:not(:disabled),
+.drill-sprint-results__leaderboard:active,
+.drill-sprint-results__lobby:active {
+  transform: scale(0.985);
+}
+
+/* --- Leaderboard (KS-2242, frontend pending) ------------------
+ * Общие классы по типичному паттерну (фильтры + табличная вёрстка).
+ * Frontend сможет использовать как есть; неиспользуемые селекторы
+ * не вредят. */
+
+.drill-leaderboard {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px 20px 48px;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.drill-leaderboard__header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.drill-leaderboard__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.drill-leaderboard__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.drill-leaderboard__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.drill-leaderboard__filter {
+  flex: 1 1 220px;
+  min-width: 200px;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.drill-leaderboard__filter legend {
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.drill-leaderboard__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  min-height: 36px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.drill-leaderboard__option:hover {
+  background: var(--bg-elevated);
+}
+
+.drill-leaderboard__option:has(input:checked) {
+  background: var(--accent-soft);
+  color: var(--accent-primary);
+  font-weight: 500;
+}
+
+/* Backward-compat: старые кнопки фильтров (если где-то остались). */
+.drill-leaderboard__filter-btn {
+  padding: 8px 14px;
+  min-height: 36px;
+  font-family: inherit;
+  font-size: 13px;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.drill-leaderboard__filter-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.drill-leaderboard__filter-btn[aria-pressed="true"],
+.drill-leaderboard__filter-btn--active {
+  background: var(--accent-soft);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.drill-leaderboard__loading,
+.drill-leaderboard__error {
+  padding: 16px 18px;
+  text-align: center;
+  font-size: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+}
+
+.drill-leaderboard__loading {
+  color: var(--text-secondary);
+}
+
+.drill-leaderboard__error {
+  color: var(--danger-strong);
+  background: var(--danger-soft);
+  border-color: var(--danger-strong);
+}
+
+.drill-leaderboard__back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  min-height: 40px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: 8px;
+  transition: color 0.12s ease, background-color 0.12s ease;
+}
+
+.drill-leaderboard__back:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.drill-leaderboard__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.drill-leaderboard__table th,
+.drill-leaderboard__table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.drill-leaderboard__table th {
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--bg-deep);
+}
+
+.drill-leaderboard__row {
+  transition: background-color 0.12s ease;
+}
+
+.drill-leaderboard__row:hover {
+  background: var(--bg-elevated);
+}
+
+.drill-leaderboard__row--me,
+.drill-leaderboard__row--current {
+  background: var(--accent-soft);
+}
+
+.drill-leaderboard__row--me:hover,
+.drill-leaderboard__row--current:hover {
+  background: var(--accent-soft-strong);
+}
+
+.drill-leaderboard__rank {
+  width: 56px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.drill-leaderboard__rank--top {
+  color: var(--warning);
+}
+
+.drill-leaderboard__player {
+  font-weight: 500;
+}
+
+.drill-leaderboard__score {
+  width: 80px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.drill-leaderboard__accuracy {
+  width: 80px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.drill-leaderboard__empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+/* --- Animations ---------------------------------------------- */
+
+@keyframes drill-sprint-score-bump {
+  0%   { transform: scale(0.86); opacity: 0; }
+  60%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1.0);  opacity: 1; }
+}
+
+@keyframes drill-sprint-timer-warning {
+  0%, 100% { opacity: 1;   }
+  50%      { opacity: 0.55; }
+}
+
+/* --- Mobile-portrait для sprint-страниц ---------------------- */
+
+@media (max-width: 768px) {
+  .drill-sprint-setup,
+  .drill-sprint-results,
+  .drill-leaderboard {
+    padding: 16px 12px 32px;
+  }
+
+  .drill-sprint-setup__title,
+  .drill-sprint-results__title,
+  .drill-leaderboard__title {
+    font-size: 22px;
+  }
+
+  .drill-sprint-setup__types-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .drill-sprint-play {
+    padding: 8px 8px 24px;
+    gap: 10px;
+  }
+
+  .drill-sprint-play__header {
+    padding: 8px 12px;
+  }
+
+  .drill-sprint-play__score,
+  .drill-sprint-play__timer {
+    font-size: 15px;
+  }
+
+  .drill-sprint-results__summary {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .drill-sprint-results__value {
+    font-size: 28px;
+  }
+
+  .drill-sprint-results__actions > * {
+    flex: 1 1 calc(50% - 5px);
+  }
+
+  /* Leaderboard: фиксируем таблицу горизонтальным скроллом — длинные
+   * username не должны разламывать layout. */
+  .drill-leaderboard__table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+
+  .drill-leaderboard__filters {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .drill-leaderboard__filter {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
+
+/* ===========================================================
  * Reduced motion
  * =========================================================== */
 
 @media (prefers-reduced-motion: reduce) {
   .drill-type-card,
-  .drill-count-attackers__btn {
+  .drill-count-attackers__btn,
+  .drill-sprint-setup__duration-option,
+  .drill-sprint-setup__type-option,
+  .drill-sprint-setup__start,
+  .drill-sprint-play__submit,
+  .drill-sprint-results__play-again,
+  .drill-sprint-results__share,
+  .drill-sprint-results__leaderboard,
+  .drill-sprint-results__lobby,
+  .drill-leaderboard__option,
+  .drill-leaderboard__back,
+  .drill-leaderboard__filter-btn {
     transition: none;
   }
 
-  .drill-feedback {
+  .drill-feedback,
+  .drill-sprint-play__score,
+  .drill-sprint-play__timer[data-warning="true"],
+  .drill-sprint-results__value {
     animation: none;
   }
 }
