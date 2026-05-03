@@ -86,18 +86,9 @@ export function NagPaletteSheet({
   // на resize во время dragging нет смысла.
   const [halfHeight, setHalfHeight] = useState(false);
 
-  // Esc → onClose. Эффект только когда открыта.
-  useEffect(() => {
-    if (!open) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onClose]);
+  // KS-2282: Esc-handler перенесён внутрь NagPalette (теперь там
+  // же `1..9` hotkeys). Дублировать listener в Sheet — двойной
+  // вызов onClose. Sheet полагается на `onClose` от NagPalette.
 
   // KS-2277: при открытии — детект viewport и сброс drag-state.
   useEffect(() => {

@@ -390,6 +390,70 @@ describe('<NagPaletteSheet> KS-2277 — swipe-to-dismiss + half-height', () => {
   });
 });
 
+describe('<NagPalette> KS-2282 — hotkeys 1..9 / Esc', () => {
+  it.each([
+    ['1', 1],
+    ['2', 2],
+    ['3', 3],
+    ['4', 4],
+    ['5', 5],
+    ['6', 6],
+    ['7', 10],
+    ['8', 13],
+    ['9', 14],
+  ])('hotkey "%s" → onChange со setNagInCategory(nags, %s)', async (key, expectedNag) => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<NagPalette nags={[]} onChange={onChange} />);
+    await user.keyboard(key);
+    expect(onChange).toHaveBeenCalledWith([expectedNag]);
+  });
+
+  it('Esc → onClose', async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette nags={[]} onChange={() => {}} onClose={onClose} />,
+    );
+    await user.keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('hotkey игнорируется, если фокус в <input>', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <>
+        <input data-testid="other-input" defaultValue="" />
+        <NagPalette nags={[]} onChange={onChange} />
+      </>,
+    );
+    const input = screen.getByTestId('other-input') as HTMLInputElement;
+    input.focus();
+    await user.keyboard('1');
+    // Цифра должна попасть в input, NAG не вызвался.
+    expect(input.value).toBe('1');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('replace within group через hotkey: nags=[1] + "3" → onChange([3])', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(<NagPalette nags={[1]} onChange={onChange} />);
+    await user.keyboard('3');
+    expect(onChange).toHaveBeenCalledWith([3]);
+  });
+
+  it('видимый hint содержит "1..9" и "Esc"', () => {
+    renderWithProviders(<NagPalette nags={[]} onChange={() => {}} />);
+    const hint = screen.getByTestId('nag-palette-hint');
+    expect(hint).toBeInTheDocument();
+    expect(hint.textContent).toContain('1..9');
+    expect(hint.textContent?.toLowerCase()).toMatch(/esc/);
+  });
+});
+
+
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });

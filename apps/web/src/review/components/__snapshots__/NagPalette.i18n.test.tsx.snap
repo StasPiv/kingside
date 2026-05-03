@@ -212,6 +212,12 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot en �
   >
     Clear annotations
   </button>
+  <div
+    class="nag-palette__hint"
+    data-testid="nag-palette-hint"
+  >
+    1..9 — NAG · Esc — close
+  </div>
 </div>
 `;
 
@@ -427,5 +433,11 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot ru �
   >
     Снять аннотации
   </button>
+  <div
+    class="nag-palette__hint"
+    data-testid="nag-palette-hint"
+  >
+    1..9 — NAG · Esc — закрыть
+  </div>
 </div>
 `;

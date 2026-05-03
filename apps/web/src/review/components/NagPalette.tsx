@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -9,6 +9,31 @@ import {
 import { nagToSymbol } from '../utils/nagUtils';
 
 import './NagPalette.css';
+
+/**
+ * KS-2282 (ADR-037 §3 R2/R8, E6) — клавиатурный маппинг `1..9`
+ * на NAG-кнопки палитры в визуальном порядке (как в палитре):
+ *
+ *   1..6 → quality 1..6 (`!`, `?`, `!!`, `??`, `!?`, `?!`).
+ *   7..9 → positionEval 10, 13, 14 (`=`, `∞`, `⩲`) — три самых
+ *          частых маркера оценки. Остальные positionEval (`⩱`, `±`,
+ *          `∓`, `+−`, `−+`) пока без хоткея — слот 0 не задействован
+ *          (Numpad0 рискует пересечься с глобальными hotkey'ами).
+ *
+ * Если в будущем нужно расширить — добавить ключи `0`, `Q`, `W`, `E`,
+ * `R`, `T` (как continued row на keyboard).
+ */
+const NAG_HOTKEY_MAP: Record<string, number> = {
+  '1': 1,
+  '2': 2,
+  '3': 3,
+  '4': 4,
+  '5': 5,
+  '6': 6,
+  '7': 10,
+  '8': 13,
+  '9': 14,
+};
 
 /**
  * KS-2271: human-readable названия NAG-категорий и хинты для каждого
@@ -144,6 +169,37 @@ export function NagPalette({ nags, onChange, onClose }: NagPaletteProps) {
     onClose?.();
   }, [onChange, onClose]);
 
+  // KS-2282: hotkeys внутри палитры (`1..9` → NAG, Esc → close).
+  // Listener — на window, потому что палитра не focus-trap'ится
+  // (popup рядом с курсором без явного focus). Игнорируем нажатия
+  // если пользователь печатает в input/textarea/contenteditable.
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose?.();
+        return;
+      }
+      const nag = NAG_HOTKEY_MAP[e.key];
+      if (nag !== undefined) {
+        e.preventDefault();
+        onChange(setNagInCategory(nags, nag));
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [nags, onChange, onClose]);
+
   return (
     <div className="nag-palette" role="menu" data-testid="nag-palette">
       <div
@@ -203,6 +259,23 @@ export function NagPalette({ nags, onChange, onClose }: NagPaletteProps) {
       >
         {t('nag.palette.clear', 'Clear annotations')}
       </button>
+
+      {/*
+        KS-2282: visible hint про hotkeys. Layout стилизует
+        `.nag-palette__hint` (KS-2270 / стиль footer'а). i18n-ключ
+        `nag.palette.hint` — единая строка с разделителями для
+        компактности. На mobile bottom-sheet visual может быть скрыт
+        (touch — без клавиатуры), CSS-решение.
+      */}
+      <div
+        className="nag-palette__hint"
+        data-testid="nag-palette-hint"
+      >
+        {t(
+          'nag.palette.hint',
+          '1..9 — NAG · Esc — close',
+        )}
+      </div>
     </div>
   );
 }

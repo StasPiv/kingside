@@ -381,3 +381,76 @@ describe('<ReviewMoveList> KS-2278 — device-detection mode', () => {
     expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
   });
 });
+
+describe('<ReviewMoveList> KS-2282 — hotkey A для открытия палитры', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('hotkey "A" → открывает палитру для текущего хода (currentGlobalIndex)', async () => {
+    const move1 = makeMove({ globalIndex: 1, nags: [] });
+    const move2 = makeMove({ globalIndex: 2, nags: [3], san: 'e5' });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move1, move2]}
+        currentGlobalIndex={2}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    await user.keyboard('a');
+    expect(screen.getByTestId('nag-palette')).toBeInTheDocument();
+    // Внутри палитры активен NAG=3 (из move2.nags).
+    expect(
+      screen.getByTestId('nag-palette-btn-3').className,
+    ).toMatch(/--active/);
+  });
+
+  it('hotkey "A" игнорируется в read-only', async () => {
+    const move = makeMove({ globalIndex: 1 });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        readOnly
+      />,
+    );
+    await user.keyboard('a');
+    expect(screen.queryByTestId('nag-palette')).not.toBeInTheDocument();
+  });
+
+  it('hotkey "Ctrl+A" не открывает палитру (browser select-all не ломаем)', async () => {
+    const move = makeMove({ globalIndex: 1 });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    await user.keyboard('{Control>}a{/Control}');
+    expect(screen.queryByTestId('nag-palette')).not.toBeInTheDocument();
+  });
+
+  it('hotkey "A" не открывает палитру дважды (если уже открыта)', async () => {
+    const move = makeMove({ globalIndex: 1 });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    await user.keyboard('a');
+    expect(screen.getByTestId('nag-palette')).toBeInTheDocument();
+    await user.keyboard('a');
+    expect(screen.getAllByTestId('nag-palette').length).toBe(1);
+  });
+});

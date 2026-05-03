@@ -245,6 +245,59 @@ export function ReviewMoveList({
     [contextMenu.move, onSetNag],
   );
 
+  // KS-2282: hotkey `A` открывает палитру для текущего хода
+  // (currentGlobalIndex). Координаты — центр текущего ход'а в DOM,
+  // если он виден; иначе центр контейнера моток (fallback).
+  // Игнорируется при focus в input/textarea/contenteditable, при
+  // открытом variation-chooser (не наш state, но соблюдается через
+  // editable=false в read-only режиме).
+  useEffect(() => {
+    if (!editable || !onSetNag) return;
+    const handleHotkey = (e: KeyboardEvent) => {
+      // Game-hotkey: только голая `a` без модификаторов
+      // (Cmd/Ctrl/Alt — оставляем браузеру / системе).
+      if (e.key !== 'a' && e.key !== 'A') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      // Уже открыт popup/sheet — Esc там работает; игнорируем повторное A.
+      if (contextMenu.visible) return;
+      const currentMove = history.find(
+        (m) => m.globalIndex === currentGlobalIndex,
+      );
+      if (!currentMove) return;
+      e.preventDefault();
+      // Координаты — центр activeMove span, если он есть в DOM;
+      // иначе центр moves-container (fallback).
+      const container = movesContainerRef.current;
+      const activeEl = container?.querySelector(
+        '.move-item.current',
+      ) as HTMLElement | null;
+      const rect = (activeEl ?? container)?.getBoundingClientRect();
+      const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+      const cy = rect
+        ? rect.top + rect.height / 2
+        : window.innerHeight / 2;
+      showContextMenu({ clientX: cx, clientY: cy }, currentMove);
+    };
+    window.addEventListener('keydown', handleHotkey);
+    return () => window.removeEventListener('keydown', handleHotkey);
+  }, [
+    editable,
+    onSetNag,
+    history,
+    currentGlobalIndex,
+    contextMenu.visible,
+    showContextMenu,
+  ]);
+
   // Esc → close. Listener на window только когда меню открыто.
   useEffect(() => {
     if (!contextMenu.visible) return;

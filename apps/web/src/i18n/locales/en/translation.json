@@ -583,7 +583,9 @@
       "title": "Annotate move",
       "quality": "Move quality",
       "positionEval": "Position evaluation",
-      "clear": "Clear annotations"
+      "clear": "Clear annotations",
+      "hint": "1..9 — NAG · Esc — close",
+      "openHotkeyHint": "A — annotate current move"
     },
     "group": {
       "quality": "Move quality",
