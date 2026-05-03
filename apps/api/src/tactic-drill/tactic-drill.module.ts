@@ -12,6 +12,7 @@ import { TacticDrillController } from './tactic-drill.controller';
 import { TacticDrillService } from './tactic-drill.service';
 import { TacticDrillSprintService } from './tactic-drill-sprint.service';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
+import { TacticDrillIncrementalScheduler } from './tactic-drill-incremental.scheduler';
 
 @Module({
   imports: [PrismaModule, AuthModule],
@@ -20,6 +21,9 @@ import { TacticDrillValidatorService } from './tactic-drill-validator.service';
     TacticDrillService,
     TacticDrillSprintService,
     TacticDrillValidatorService,
+    // KS-2245: cron-индексер новых партий из archive-БД. Включается
+    // через ENV `TACTIC_DRILL_INCREMENTAL_ENABLED=1` (default off).
+    TacticDrillIncrementalScheduler,
   ],
   exports: [TacticDrillValidatorService],
 })
