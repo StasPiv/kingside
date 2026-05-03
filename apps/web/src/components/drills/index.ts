@@ -39,3 +39,12 @@ export type { DrillTypeCardProps } from './DrillTypeCard';
 // KS-2236
 export { DrillStatsPanel } from './DrillStatsPanel';
 export type { DrillStatsPanelProps } from './DrillStatsPanel';
+
+// KS-2249 — переиспользуемый runner state-machine drill'а.
+export { DrillRunner } from './DrillRunner';
+export type {
+  DrillRunnerProps,
+  DrillRunnerState,
+  DrillRunnerCompletion,
+  DrillRunnerSubmitInput,
+} from './DrillRunner';

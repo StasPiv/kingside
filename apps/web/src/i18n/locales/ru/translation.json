@@ -724,6 +724,10 @@
       "calculation": "Расчёт"
     },
     "loading": "Загружаем упражнения…",
+    "lesson": {
+      "contextLabel": "Упражнение",
+      "stepProgress": "Упражнение {{current}} из {{total}}"
+    },
     "sprint": {
       "setup": {
         "heading": "Спринт",

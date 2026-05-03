@@ -722,6 +722,10 @@
       "calculation": "Calculation"
     },
     "loading": "Loading drills…",
+    "lesson": {
+      "contextLabel": "Drill",
+      "stepProgress": "Drill {{current}} of {{total}}"
+    },
     "sprint": {
       "setup": {
         "heading": "Sprint setup",

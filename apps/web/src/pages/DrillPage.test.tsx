@@ -113,12 +113,12 @@ describe('<DrillPage> KS-2233', () => {
     apiGet.mockResolvedValue(makeDrill({ drillType: 'find-pin' }));
     renderDrillAt('find-pin');
     // initial loading.
-    expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+    expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
       'loading',
     );
     await waitFor(() =>
       expect(
-        screen.getByTestId('drill-page').getAttribute('data-state'),
+        screen.getByTestId('drill-runner').getAttribute('data-state'),
       ).toBe('idle'),
     );
     expect(apiGet).toHaveBeenCalledWith('/tactic-drill/next?type=find-pin');
@@ -137,7 +137,7 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('find-pin');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
@@ -166,22 +166,22 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('find-pin');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
     await user.click(screen.getByTestId('fire-square-e4'));
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'feedback',
       ),
     );
     expect(screen.getByTestId('drill-feedback').getAttribute('data-result')).toBe(
       'correct',
     );
-    expect(screen.getByTestId('drill-page-next')).toBeInTheDocument();
+    expect(screen.getByTestId('drill-runner-next')).toBeInTheDocument();
     // progress: 1/1.
-    const progress = screen.getByTestId('drill-page-progress');
+    const progress = screen.getByTestId('drill-runner-progress');
     expect(progress.getAttribute('data-attempted')).toBe('1');
     expect(progress.getAttribute('data-solved')).toBe('1');
   });
@@ -209,22 +209,22 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('find-all-checks');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
     // Submit изначально disabled (пусто).
-    const submit = screen.getByTestId('drill-page-submit') as HTMLButtonElement;
+    const submit = screen.getByTestId('drill-runner-submit') as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     // Клик по e4 → e5 → counter 2/2.
     await user.click(screen.getByTestId('fire-square-e4'));
     await user.click(screen.getByTestId('fire-square-e5'));
-    expect(screen.getByTestId('drill-page-squares-counter').textContent).toContain(
+    expect(screen.getByTestId('drill-runner-squares-counter').textContent).toContain(
       '2 / 2',
     );
     // toggle: re-click e5 → counter 1/2.
     await user.click(screen.getByTestId('fire-square-e5'));
-    expect(screen.getByTestId('drill-page-squares-counter').textContent).toContain(
+    expect(screen.getByTestId('drill-runner-squares-counter').textContent).toContain(
       '1 / 2',
     );
     // Финальный submit с [e4].
@@ -256,7 +256,7 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('count-attackers');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
@@ -279,10 +279,10 @@ describe('<DrillPage> KS-2233', () => {
         'incorrect',
       ),
     );
-    expect(screen.getByTestId('drill-page-progress').getAttribute('data-solved')).toBe(
+    expect(screen.getByTestId('drill-runner-progress').getAttribute('data-solved')).toBe(
       '0',
     );
-    expect(screen.getByTestId('drill-page-progress').getAttribute('data-attempted')).toBe(
+    expect(screen.getByTestId('drill-runner-progress').getAttribute('data-attempted')).toBe(
       '1',
     );
   });
@@ -303,13 +303,13 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('find-undefended-attack');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
     // 1-й клик — from.
     await user.click(screen.getByTestId('fire-square-e4'));
-    expect(screen.getByTestId('drill-page-move-hint').textContent).toContain(
+    expect(screen.getByTestId('drill-runner-move-hint').textContent).toContain(
       'e4',
     );
     // Подсветка from.
@@ -338,14 +338,14 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('find-undefended-attack');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
     await user.click(screen.getByTestId('fire-square-e4'));
-    expect(screen.queryByTestId('drill-page-move-hint')).toBeInTheDocument();
+    expect(screen.queryByTestId('drill-runner-move-hint')).toBeInTheDocument();
     await user.click(screen.getByTestId('fire-square-e4'));
-    expect(screen.queryByTestId('drill-page-move-hint')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('drill-runner-move-hint')).not.toBeInTheDocument();
     expect(apiPost).not.toHaveBeenCalled();
   });
 
@@ -362,15 +362,15 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('find-pin');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
     await user.click(screen.getByTestId('fire-square-e4'));
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page-next')).toBeInTheDocument(),
+      expect(screen.getByTestId('drill-runner-next')).toBeInTheDocument(),
     );
-    await user.click(screen.getByTestId('drill-page-next'));
+    await user.click(screen.getByTestId('drill-runner-next'));
     await waitFor(() => {
       expect(apiGet).toHaveBeenCalledTimes(2);
     });
@@ -381,11 +381,11 @@ describe('<DrillPage> KS-2233', () => {
     apiGet.mockRejectedValueOnce(new Error('500'));
     renderDrillAt('find-pin');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'error',
       ),
     );
-    expect(screen.getByTestId('drill-page-retry')).toBeInTheDocument();
+    expect(screen.getByTestId('drill-runner-retry')).toBeInTheDocument();
   });
 
   it('сетевая ошибка /attempt → error-state с retry-кнопкой', async () => {
@@ -396,16 +396,16 @@ describe('<DrillPage> KS-2233', () => {
     const user = userEvent.setup();
     renderDrillAt('find-pin');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
     await user.click(screen.getByTestId('fire-square-e4'));
     await waitFor(() =>
-      expect(screen.getByTestId('drill-page').getAttribute('data-state')).toBe(
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'error',
       ),
     );
-    expect(screen.getByTestId('drill-page-retry')).toBeInTheDocument();
+    expect(screen.getByTestId('drill-runner-retry')).toBeInTheDocument();
   });
 });

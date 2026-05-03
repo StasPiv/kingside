@@ -9,6 +9,8 @@ import { VideoStep } from './steps/VideoStep';
 import { GameReviewStep } from './steps/GameReviewStep';
 import { EndgameDrillStep } from './steps/EndgameDrillStep';
 import { OpeningDrillStep } from './steps/OpeningDrillStep';
+// KS-2249: drill-step (tactic drill встраивается в lesson).
+import { DrillStep } from './steps/DrillStep';
 
 /**
  * Диспетчер рендера шагов урока (L-08).
@@ -95,6 +97,17 @@ export function StepRenderer({ step, onStepDone, hideNext, stepState }: StepRend
         <OpeningDrillStep
           payload={payload}
           onStepDone={onStepDone}
+          hideNext={hideNext}
+        />
+      );
+
+    case 'drill':
+      // KS-2249: tactic drill (count-attackers / find-pin / ...).
+      return (
+        <DrillStep
+          payload={payload}
+          onStepDone={onStepDone}
+          stepId={step.id}
           hideNext={hideNext}
         />
       );
