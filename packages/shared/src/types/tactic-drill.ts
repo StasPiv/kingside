@@ -266,6 +266,176 @@ export interface TacticDrillSprintSubmitResponse {
   };
 }
 
+// ─── KS-2250: Daily drill (Telegram-рассылка) ────────────────────────
+
+/** Локализованная строка `{ru, en}`. */
+export interface DrillLocalizedString {
+  ru: string;
+  en: string;
+}
+
+/**
+ * KS-2250 (ADR-035 §11 / E6). Локализованное короткое название
+ * drill-типа — для overlay картинки и `drillTypeLabel` в response
+ * `/api/tactic-drill/daily`. Если нужно добавить новый тип — добавлять
+ * сюда + в `DRILL_INSTRUCTION` + `DRILL_HINT`.
+ */
+export const DRILL_TYPE_LABEL: Record<TacticDrillType, DrillLocalizedString> = {
+  'find-hanging-piece':      { ru: 'Зависшая фигура',     en: 'Hanging piece' },
+  'find-loose-piece':        { ru: 'Слабо защищённая',     en: 'Loose piece' },
+  'find-pin':                { ru: 'Связка',                en: 'Pin' },
+  'find-fork':               { ru: 'Вилка',                 en: 'Fork' },
+  'find-mate-in-one-square': { ru: 'Мат в один (клетка)',  en: 'Mate-in-1 square' },
+  'count-attackers':         { ru: 'Сосчитать атакующих',  en: 'Count attackers' },
+  'find-all-checks':         { ru: 'Все шахи',              en: 'All checks' },
+  'find-undefended-attack':  { ru: 'Безответная атака',    en: 'Undefended attack' },
+};
+
+/**
+ * Развёрнутая инструкция per-type (≤ 100 символов на язык).
+ * Используется как `drill.instruction` в response, и в подписи Telegram.
+ * Per-drill индивидуальные инструкции — отдельная задача (требует
+ * миграции БД и контента). MVP — общее по типу.
+ */
+export const DRILL_INSTRUCTION: Record<TacticDrillType, DrillLocalizedString> = {
+  'find-hanging-piece':      {
+    ru: 'Найди фигуру под боем без защиты — клетка с зависшей фигурой.',
+    en: 'Find a piece under attack with no defenders — click the hanging piece square.',
+  },
+  'find-loose-piece':        {
+    ru: 'Найди фигуру противника, у которой нет ни одного защитника.',
+    en: "Find an opponent's piece without any defenders.",
+  },
+  'find-pin':                {
+    ru: 'Найди связанную фигуру — ту, которая не может уйти из-за более ценной за ней.',
+    en: "Find the pinned piece — it can't move because of a more valuable piece behind it.",
+  },
+  'find-fork':               {
+    ru: 'Найди фигуру, которая одновременно атакует две и более ценных фигур противника.',
+    en: 'Find the piece attacking two or more valuable opposing pieces simultaneously.',
+  },
+  'find-mate-in-one-square': {
+    ru: 'Найди клетку «to», на которую ход даёт мат в один.',
+    en: 'Find the destination square where one move gives mate.',
+  },
+  'count-attackers':         {
+    ru: 'Сколько фигур заданного цвета атакуют выделенную клетку?',
+    en: 'How many pieces of the specified color attack the highlighted square?',
+  },
+  'find-all-checks':         {
+    ru: 'Отметь ВСЕ клетки «to», ход на которые даёт шах.',
+    en: 'Mark ALL destination squares where a move gives check.',
+  },
+  'find-undefended-attack':  {
+    ru: 'Найди ход, после которого ты атакуешь беззащитную фигуру противника.',
+    en: 'Find the move that creates an attack on an undefended enemy piece.',
+  },
+};
+
+/**
+ * Короткая подсказка `hint{ru,en}` ≤ 90 символов (требование marketing
+ * для Telegram caption). Per-type, не per-drill (как и instruction).
+ */
+export const DRILL_HINT: Record<TacticDrillType, DrillLocalizedString> = {
+  'find-hanging-piece':      {
+    ru: 'Зависшая = под боем И без защитников.',
+    en: 'Hanging = attacked AND undefended.',
+  },
+  'find-loose-piece':        {
+    ru: 'Слабая = без защитников. Под боем не обязательно.',
+    en: 'Loose = no defenders. Attack not required.',
+  },
+  'find-pin':                {
+    ru: 'За связанной фигурой стоит более ценная по той же линии.',
+    en: 'Behind the pinned piece sits a more valuable one on the same line.',
+  },
+  'find-fork':               {
+    ru: 'Одна фигура — две и более жертвы.',
+    en: 'One piece — two or more targets.',
+  },
+  'find-mate-in-one-square': {
+    ru: 'Думай о клетке-цели, не о ходе.',
+    en: 'Think of the target square, not the move.',
+  },
+  'count-attackers':         {
+    ru: 'Учти все «батареи» по линии.',
+    en: 'Count all batteries along the line.',
+  },
+  'find-all-checks':         {
+    ru: 'Не пропусти открытый шах.',
+    en: "Don't miss discovered checks.",
+  },
+  'find-undefended-attack':  {
+    ru: 'Цель — фигура без защитников.',
+    en: 'Target — a piece with no defenders.',
+  },
+};
+
+/** Локализованные label'ы для difficulty (KS-2315 buckets). */
+export const DRILL_DIFFICULTY_LABEL: Record<
+  'easy' | 'medium' | 'hard',
+  DrillLocalizedString
+> = {
+  easy:   { ru: 'Лёгкая',  en: 'Easy' },
+  medium: { ru: 'Средняя', en: 'Medium' },
+  hard:   { ru: 'Сложная', en: 'Hard' },
+};
+
+/**
+ * Расписание сложности по дню недели (см. /tmp/KS-2250/schedule.md и
+ * api-contract.md). 0 = Воскресенье в JS-нотации `Date.getUTCDay()`.
+ *  - Пн (1), Вт (2), Чт (4) → easy
+ *  - Ср (3), Пт (5)         → medium
+ *  - Сб (6), Вс (0)         → hard
+ */
+export const DAILY_DRILL_DIFFICULTY_BY_WEEKDAY: Record<
+  number,
+  'easy' | 'medium' | 'hard'
+> = {
+  0: 'hard',   // Воскресенье
+  1: 'easy',   // Понедельник
+  2: 'easy',   // Вторник
+  3: 'medium', // Среда
+  4: 'easy',   // Четверг
+  5: 'medium', // Пятница
+  6: 'hard',   // Суббота
+};
+
+/**
+ * KS-2250 (ADR-035 §11 / E6). Response `GET /api/tactic-drill/daily`
+ * для Telegram-бота и daily-страницы сайта.
+ */
+export interface DailyTacticDrillResponse {
+  /** Дата drill'а (UTC, ISO `YYYY-MM-DD`). */
+  date: string;
+  /** Сам drill — без `answer` (api-contract §7), как в `/next`/`/by-step`. */
+  drill: TacticDrillDto & {
+    /**
+     * Контекст рендера: подсветка клеток в overlay. Derive: для
+     * `count-attackers` — `[meta.highlightedSquare]`, для остальных
+     * 7 типов — `[]`. Если позже понадобится подсвечивать другие
+     * клетки — добавим JSON-колонку в `tactic_drills`.
+     */
+    context: {
+      highlight: string[];
+    };
+    /** Локализованная инструкция per-type (см. `DRILL_INSTRUCTION`). */
+    instruction: string;
+  };
+  drillTypeLabel: DrillLocalizedString;
+  difficulty: 'easy' | 'medium' | 'hard';
+  difficultyLabel: DrillLocalizedString;
+  hint: DrillLocalizedString;
+  /** URL без UTM-меток (бот добавляет сам). */
+  siteUrl: string;
+  /** URL картинки (Plan A: CDN; Plan B: статический backend-endpoint). */
+  imageUrl: string;
+  /** `true` если drill повторно использован из-за исчерпания банка. */
+  isRepeat: boolean;
+  /** Если `isRepeat=true` — дата предыдущего показа (ISO `YYYY-MM-DD`). */
+  originalDate: string | null;
+}
+
 /**
  * KS-2315 (ADR-035 §11 / E6). Ответ резолвера
  * `GET /tactic-drill/by-step/:stepId` для рендера drill-step внутри

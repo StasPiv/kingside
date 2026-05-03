@@ -409,6 +409,8 @@ export class TacticDrillSprintService {
         type: true,
         fen: true,
         difficulty: true,
+        // KS-2250-fix: meta для count-attackers (highlightedSquare).
+        meta: true,
       },
     });
     if (!drill) return null;
@@ -417,6 +419,7 @@ export class TacticDrillSprintService {
       drill.type as TacticDrillType,
       drill.fen,
       drill.difficulty,
+      drill.meta,
     );
     return { id: drill.id, dto };
   }

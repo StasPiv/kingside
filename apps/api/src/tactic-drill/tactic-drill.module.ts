@@ -18,10 +18,13 @@ import { TacticDrillSfValidatorScheduler } from './tactic-drill-sf-validator.sch
 import { StockfishService } from '../engine/stockfish.service';
 import { TacticDrillRatingService } from './tactic-drill-rating.service';
 import { GlickoRatingService } from '../puzzle/glicko-rating.service';
+import { DailyTacticDrillController } from './daily-tactic-drill.controller';
+import { DailyTacticDrillService } from './daily-tactic-drill.service';
+import { DailyTacticDrillImageService } from './daily-tactic-drill-image.service';
 
 @Module({
   imports: [PrismaModule, AuthModule],
-  controllers: [TacticDrillController],
+  controllers: [TacticDrillController, DailyTacticDrillController],
   providers: [
     TacticDrillService,
     TacticDrillSprintService,
@@ -38,6 +41,9 @@ import { GlickoRatingService } from '../puzzle/glicko-rating.service';
     // KS-2311: drill rating (Glicko-1) + leaderboard.
     GlickoRatingService,
     TacticDrillRatingService,
+    // KS-2250: daily drill для Telegram-рассылки.
+    DailyTacticDrillService,
+    DailyTacticDrillImageService,
   ],
   exports: [TacticDrillValidatorService],
 })

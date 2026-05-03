@@ -151,6 +151,7 @@ export class TacticDrillService {
         type: true,
         fen: true,
         difficulty: true,
+        meta: true, // KS-2250-fix: highlightedSquare для count-attackers.
         // `answer` — НЕ включаем (api-contract §7).
       },
     });
@@ -161,6 +162,7 @@ export class TacticDrillService {
       drill.type as TacticDrillType,
       drill.fen,
       drill.difficulty,
+      drill.meta,
     );
   }
 
@@ -361,6 +363,8 @@ export class TacticDrillService {
         drill.type as TacticDrillType,
         drill.fen,
         drill.difficulty,
+        // KS-2250-fix: проброс meta для count-attackers и т.п.
+        (drill as { meta?: unknown }).meta,
       ),
       stepMeta: {
         stepId,
@@ -379,10 +383,10 @@ export class TacticDrillService {
   private async fetchFixedDrillForLesson(
     drillId: string,
     expectedType: TacticDrillType,
-  ): Promise<{ id: string; type: string; fen: string; difficulty: number } | null> {
+  ): Promise<{ id: string; type: string; fen: string; difficulty: number; meta?: unknown } | null> {
     const drill = await this.prisma.tacticDrill.findUnique({
       where: { id: drillId },
-      select: { id: true, type: true, fen: true, difficulty: true, sfRejected: true },
+      select: { id: true, type: true, fen: true, difficulty: true, sfRejected: true, meta: true },
     });
     if (!drill) return null;
     if (drill.sfRejected) return null;
@@ -399,7 +403,7 @@ export class TacticDrillService {
   private async pickRandomDrillForLesson(
     drillType: TacticDrillType,
     bucket: DrillDifficultyBucket | undefined,
-  ): Promise<{ id: string; type: string; fen: string; difficulty: number } | null> {
+  ): Promise<{ id: string; type: string; fen: string; difficulty: number; meta?: unknown } | null> {
     const baseWhere: Record<string, unknown> = { type: drillType, sfRejected: false };
 
     // 1. Сначала пробуем с фильтром по bucket (если задан).
@@ -420,7 +424,7 @@ export class TacticDrillService {
   /** Random pick из пула: count + offset random. */
   private async pickRandomFromPool(
     where: Record<string, unknown>,
-  ): Promise<{ id: string; type: string; fen: string; difficulty: number } | null> {
+  ): Promise<{ id: string; type: string; fen: string; difficulty: number; meta?: unknown } | null> {
     const total = await this.prisma.tacticDrill.count({ where });
     if (total === 0) return null;
     const offset = Math.floor(Math.random() * total);
@@ -428,23 +432,30 @@ export class TacticDrillService {
       where,
       skip: offset,
       orderBy: { id: 'asc' },
-      select: { id: true, type: true, fen: true, difficulty: true },
+      select: { id: true, type: true, fen: true, difficulty: true, meta: true },
     });
     return drill;
   }
 
   /**
-   * Public — используется sprint-сервисом (KS-2240) для обёртки
-   * выбранного `tactic_drill`-row в DTO без поля `answer`.
+   * Public — используется sprint-сервисом (KS-2240) и daily-сервисом
+   * (KS-2250) для обёртки выбранного `tactic_drill`-row в DTO без
+   * поля `answer`.
+   *
+   * KS-2250-fix: проброс `meta` (highlightedSquare / attackerColor /
+   * expectedCount) из БД в DTO. Если `meta=null` в БД — поле в DTO не
+   * включается. count-attackers требует highlightedSquare для
+   * корректного UI рендера.
    */
   buildDto(
     id: string,
     type: TacticDrillType,
     fen: string,
     difficulty: number,
+    meta?: unknown,
   ): TacticDrillDto {
     const sideToMove = inferSideToMove(type, fen);
-    return {
+    const dto: TacticDrillDto = {
       id,
       drillType: type,
       fen,
@@ -452,6 +463,9 @@ export class TacticDrillService {
       answerShape: DRILL_TYPE_ANSWER_SHAPE[type],
       difficulty,
     };
+    const m = sanitizeMeta(meta);
+    if (m) dto.meta = m;
+    return dto;
   }
 
   // ─── private ────────────────────────────────────────────────
@@ -461,9 +475,30 @@ export class TacticDrillService {
     type: TacticDrillType,
     fen: string,
     difficulty: number,
+    meta?: unknown,
   ): TacticDrillDto {
-    return this.buildDto(id, type, fen, difficulty);
+    return this.buildDto(id, type, fen, difficulty, meta);
   }
+}
+
+/**
+ * Нормализует `tactic_drills.meta` (JSONB) в shape `TacticDrillDto.meta`.
+ * Принимает только whitelist'нутые поля; остальное игнорируется. Если
+ * meta пустой/null/невалиден — возвращает null (DTO выходит без `meta`).
+ */
+function sanitizeMeta(
+  raw: unknown,
+): { highlightedSquare?: string; expectedCount?: number } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const out: { highlightedSquare?: string; expectedCount?: number } = {};
+  if (typeof r.highlightedSquare === 'string' && /^[a-h][1-8]$/.test(r.highlightedSquare)) {
+    out.highlightedSquare = r.highlightedSquare;
+  }
+  if (typeof r.expectedCount === 'number' && Number.isFinite(r.expectedCount)) {
+    out.expectedCount = r.expectedCount;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /**

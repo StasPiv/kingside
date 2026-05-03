@@ -1168,6 +1168,13 @@ model TacticDrill {
   sfValidatedAt   DateTime? @map("sf_validated_at")
   sfRejected      Boolean   @default(false) @map("sf_rejected")
   sfRejectionReason String? @map("sf_rejection_reason")
+  /// KS-2250-fix: метаданные UI рендера. На MVP содержит:
+  ///  - `highlightedSquare?: Square` — для count-attackers (целевая клетка).
+  ///  - `attackerColor?: 'w'|'b'` — для count-attackers (чьи атакующие).
+  ///  - `expectedCount?: number` — для find-all-checks (UI прогресс).
+  /// Прокидывается в `TacticDrillDto.meta` в /next, /by-step, /sprint,
+  /// /daily. `null` для drill'ов где UI-meta не требуется.
+  meta            Json?
 
   attempts TacticDrillAttempt[]
 
@@ -1176,7 +1183,45 @@ model TacticDrill {
   /// одна запись). UNIQUE constraint позволяет использовать
   /// `createMany({ skipDuplicates: true })` без race condition.
   @@unique([type, fen])
+  /// KS-2250: обратная связь для daily-drill-history.
+  dailyAssignments DailyTacticDrill[]
   @@map("tactic_drills")
+}
+
+/**
+ * KS-2250 (ADR-035 §11 / E6): бронирование drill'а на дату для daily Telegram-рассылки.
+ *
+ * Один drill на дату — единый для всей аудитории. Бронирование lazy: создаётся
+ * при первом GET /api/tactic-drill/daily?date=ISO. Повторный GET возвращает тот
+ * же drill (детерминизм).
+ *
+ * Поля:
+ *  - `drillType` / `difficulty` — денормализация для быстрого 14-day no-repeat
+ *    запроса без JOIN на tactic_drills.
+ *  - `isRepeat` / `originalDate` — fallback ветка контракта: если банк
+ *    исчерпан, drill повторно используется (≥14 дней назад). Маркетинг это
+ *    видит для аналитики, в caption Telegram не показывается.
+ *
+ * FK `drillId → tactic_drills.id` без CASCADE — запрещаем удаление drill'а,
+ * который использовался в daily (иначе теряем историю показов).
+ */
+model DailyTacticDrill {
+  id           String   @id @default(uuid()) @db.Uuid
+  date         DateTime @unique @map("date") @db.Date
+  drillId      String   @map("drill_id") @db.Uuid
+  drillType    String   @map("drill_type")
+  difficulty   String // 'easy' | 'medium' | 'hard'
+  isRepeat     Boolean  @default(false) @map("is_repeat")
+  /// Если `isRepeat=true` — дата предыдущего показа того же drill'а
+  /// (для аналитики, чтобы понять «через сколько дней повторился»).
+  originalDate DateTime? @map("original_date") @db.Date
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  drill TacticDrill @relation(fields: [drillId], references: [id], onDelete: Restrict)
+
+  @@index([drillId])
+  @@index([drillType, date])
+  @@map("daily_tactic_drills")
 }
 
 model TacticDrillAttempt {
