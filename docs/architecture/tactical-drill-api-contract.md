@@ -99,17 +99,17 @@ export type AnswerShape = 'square' | 'squares' | 'number' | 'move';
 
 /**
  * Связь drill-type → ожидаемый answer-shape (methodology §2,
- * ADR-035 §2.1 финальный после KS-2223 §8.3 правок).
+ * ADR-035 §2.1).
  *
- * Для `find-mate-in-one-square` — строго `'square'` (fallback на `'move'`
- * отменён в KS-2223).
+ * Для `find-mate-in-one-square` — `'move'` (KS-2320, отмена KS-2223 §8.3).
+ * Strict-uniqueness drop работает по полной паре `(from, to)`.
  */
 export const DRILL_TYPE_ANSWER_SHAPE: Record<TacticDrillType, AnswerShape> = {
   'find-hanging-piece':      'square',
   'find-loose-piece':        'square',
   'find-pin':                'square',
   'find-fork':               'square',
-  'find-mate-in-one-square': 'square',
+  'find-mate-in-one-square': 'move',  // KS-2320 (раньше было 'square')
   'count-attackers':         'number',
   'find-all-checks':         'squares',
   'find-undefended-attack':  'move',
@@ -345,12 +345,13 @@ export interface TacticDrillStatsResponse {
 { "shape": "square", "square": "e4" }
 ```
 
-**Применимо к:** `find-hanging-piece`, `find-loose-piece`, `find-pin`, `find-fork`, `find-mate-in-one-square`.
+**Применимо к:** `find-hanging-piece`, `find-loose-piece`, `find-pin`, `find-fork`.
+
+(`find-mate-in-one-square` переведён на `shape: 'move'` в KS-2320 — см. §3.4.)
 
 **Инвариант для эталона** (генератор обязан соблюдать):
 - `find-hanging-piece` / `find-loose-piece` / `find-fork`: ровно одна правильная клетка.
 - `find-pin`: одна связанная фигура.
-- `find-mate-in-one-square`: ровно одна `to`-клетка для мата (см. KS-2223 §8.3 — позиции с двумя разными `to`-клетками отбраковываются).
 
 Если в позиции технически возможно несколько клеток-ответов — генератор её **отбрасывает**, не сохраняя в `tactic_drills`. Это сохраняет однозначность сравнения.
 
@@ -387,12 +388,13 @@ export interface TacticDrillStatsResponse {
 { "shape": "move", "from": "d1", "to": "h5" }
 ```
 
-**Применимо к:** `find-undefended-attack`.
+**Применимо к:** `find-undefended-attack`, `find-mate-in-one-square` (KS-2320, ранее был `'square'`).
 
 **Инварианты эталона:**
 - `from` и `to` — валидные клетки `[a-h][1-8]`.
 - В позиции ход `from→to` законный (chess.js validate).
 - Ровно один такой ход в позиции (генератор отбрасывает позиции с несколькими).
+  - Для `find-mate-in-one-square` strict-uniqueness считается по полной паре `(from, to)`: позиции с двумя разными фигурами на одну `to`-клетку — drop (см. ADR-035 §2.2.1(e)).
 - В v1 поле `promotion` отсутствует у эталона (генератор отбрасывает позиции с промоушеном).
 
 ### 3.5 Сводная таблица drill-type → answer-shape → пример
@@ -403,7 +405,7 @@ export interface TacticDrillStatsResponse {
 | `find-loose-piece` | `square` | `{ shape: 'square', square: 'b7' }` |
 | `find-pin` | `square` | `{ shape: 'square', square: 'd4' }` |
 | `find-fork` | `square` | `{ shape: 'square', square: 'f5' }` |
-| `find-mate-in-one-square` | `square` | `{ shape: 'square', square: 'h7' }` |
+| `find-mate-in-one-square` | `move` | `{ shape: 'move', from: 'd1', to: 'h5' }` *(KS-2320)* |
 | `count-attackers` | `number` | `{ shape: 'number', value: 3 }` |
 | `find-all-checks` | `squares` | `{ shape: 'squares', squares: ['e4', 'g7'] }` |
 | `find-undefended-attack` | `move` | `{ shape: 'move', from: 'd1', to: 'a4' }` |
