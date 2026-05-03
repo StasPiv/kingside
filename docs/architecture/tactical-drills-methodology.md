@@ -532,18 +532,353 @@ function computeDifficulty(
 
 ---
 
-## 10. Связанные документы и тикеты
+## 10. Drill rating: формула пользовательского рейтинга
+
+**Источник:** ADR-035 §3.4, R7 в §10. Этот раздел — финальный design в рамках KS-2248 (E6). Реализация — отдельный тикет на backend (KS-DRILL-RATING).
+
+### 10.1 Назначение и решение по архитектуре
+
+После накопления данных за E4 (sprint mode на проде, KS-2240) у нас есть распределение accuracy / time per drill-type. Можно ввести **drill rating** — единое число, показывающее силу юзера в drill'ах. Цели:
+
+- **Мотивация** — игрок видит прогресс, не только raw-метрики (`accuracy=72%`).
+- **Selection** — backend подбирает drill уровня sweet-spot (`drillRating ± 100`).
+- **Leaderboard** — конкуренция по rating'у параллельно sprint-leaderboard'у (KS-2240).
+
+Решение: **Glicko-1, по образцу puzzle**, с расширением outcome из binary в continuous для shape='squares'.
+
+### 10.2 Анализ вариантов
+
+| Вариант | Плюсы | Минусы | Решение |
+|---|---|---|---|
+| **A. Glicko-1 (как у Puzzle)** | Готовый сервис `GlickoRatingService`. Знаком backend. Корректно учитывает RD (новый юзер = большой RD = быстрый approach к реальной силе) | Binary outcome ≠ IoU для shape='squares' | **Принято с расширением** continuous-outcome (см. §10.5) |
+| B. Glicko-2 | Точнее (volatility, system constant τ) | Лишний движок в проекте, gain маргинальный для drill | Отвергнуто |
+| C. Elo на пары «юзер vs avg drill rating» | Простой; одна формула | Без RD не учитывает нестабильность нового юзера; сильное колебание у новичков | Отвергнуто — у Glicko есть RD «бесплатно» |
+| D. Свой scheme (фиксированные награды по bucket'ам, +1..+12) | Совсем простой | Не зависит от текущего рейтинга юзера → стабильно фармится через лёгкие drill'ы. Анти-педагогично | Отвергнуто |
+
+**Принято: Glicko-1 (вариант A) с continuous-outcome для shape='squares'.**
+
+### 10.3 Drill rating — фиксированный по bucket
+
+Каждой задаче `tactic_drills.rating` присваивается **фиксированный** рейтинг при INSERT, в зависимости от `difficulty` (KS-2225 §9):
+
+| Bucket (difficulty) | Drill rating | Целевая аудитория (методика §9.6) |
+|---|---|---|
+| 1 | 1000 | Новичок (≤1000 ELO) |
+| 2 | 1300 | Базовый (1000–1300) |
+| 3 | 1500 | Средний (1300–1600) |
+| 4 | 1700 | Продвинутый (1600–1900) |
+| 5 | 2000 | Мастер-кандидат (1900+) |
+
+Drill RD (rating deviation) фиксирован = **50** (стабильный «оппонент»). Это означает: рейтинг задачи **не обновляется** на основе попыток. Иначе:
+- Лёгкие drill'и со временем «разносятся» (rating растёт с каждой сданной попыткой) → юзер не получает roughly-fixed challenge.
+- В Puzzle drift'а нет благодаря двухсторонним updates (если задача fails → её rating растёт), но drill — массовая короткая практика; drift искажает шкалу за недели.
+
+Преимущества фиксированного drill rating:
+- предсказуемая шкала «новичок 1000 → мастер 2000»,
+- легко калибровать пересмотром bucket→rating mapping (§10.10),
+- backend не делает write на `tactic_drills.rating` после indexing.
+
+### 10.4 User rating — Glicko-1 (по образцу puzzle)
+
+Новые поля в `User`:
+```
+ratingDrill          Int @default(1500) @map("rating_drill")
+ratingDrillDev       Int @default(350)  @map("rating_drill_dev")
+```
+
+Дефолты соответствуют Glicko-2 cold-start у Puzzle (1500 / 350). После 5–10 решений RD упадёт до ~80–120, рейтинг стабилизируется.
+
+**Per-drill-type breakdown** — храним отдельно как `accuracy/avgTime` per type (уже есть в `tactic_drill_attempts` aggregations, см. KS-2224 §2 `TacticDrillStatsItem`). **Один общий drill-rating** (не 8 отдельных) — для:
+- простоты UI («Drill rating: 1620», без 8 чисел),
+- мотивационной consistency (один growth curve, не 8 параллельных),
+- корректной шкалы Glicko (не нужно 8 наборов RD).
+
+Юзер с уклоном (силён в `find-pin`, слаб в `find-fork`) видит это в **per-type accuracy breakdown**, не в rating.
+
+### 10.5 Outcome для Glicko-1: binary + continuous (IoU)
+
+Существующий `GlickoRatingService.updateUserRating(userR, userRD, drillR, drillRD, solved: boolean)` принимает binary. Для drill расширяем:
+
+```ts
+// Расширение существующего сервиса (backend, KS-DRILL-RATING):
+updateUserRatingContinuous(
+  userRating: number,
+  userRD: number,
+  opponentRating: number,
+  opponentRD: number,
+  score: number,           // [0..1] вместо boolean
+): { newRating: number; newRD: number };
+```
+
+Реализация — копия `updateUserRating`, но `userScore = score` вместо `userScore = solved ? 1 : 0`. Glicko-1 формула одинаковая, score просто [0..1] вместо {0,1} — math работает (см. Glickman 1995, Appendix B).
+
+**Mapping outcome по answer-shape** (см. KS-2224 §3 для shape definitions):
+
+| shape | outcome | Источник |
+|---|---|---|
+| `square` | `1.0` если solved, `0.0` иначе | `attempt.solved` |
+| `number` | `1.0` если solved, `0.0` иначе | `attempt.solved` |
+| `move` | `1.0` если solved, `0.0` иначе | `attempt.solved` |
+| `squares` | **IoU как continuous** (`metrics.iou` из §6) | `attempt.metrics.iou` |
+
+Для `squares` IoU 0.7 = «решено» (порог из §6.2), но в Glicko-update идёт само значение IoU, а не binary. Это даёт частичную награду за «почти решил» (например IoU=0.65 → score=0.65 → small positive update против expected ≈0.5 — сегмент growth).
+
+### 10.6 Drill mode vs Sprint mode
+
+**Sprint mode НЕ влияет на `User.ratingDrill`.** Только drill mode.
+
+Обоснование:
+- Sprint = тренировка скорости + смешанные типы. 30+ задач за 3 минуты.
+- Если каждая задача обновляет `ratingDrill` → за один sprint можно нагнать +50..+200 рейтинга → накачка через лёгкие задачи в sprint pool.
+- Cooldown 30 дней не работает в sprint pool'е (там pool other than user's drill-mode pool).
+- Sprint имеет **собственный** leaderboard через `tactic_drill_sprint_scores.score` (KS-2240) — отдельная метрика «лучший спринт-результат».
+
+Итог:
+- `ratingDrill` обновляется только при `attempt.mode === 'drill'`.
+- `attempt.mode === 'sprint'` → попытка пишется в `tactic_drill_attempts` для статистики, но без rating-update.
+- `attempt.mode === 'lessons-embed'` (v2.x) → пока без rating-update; пересмотрим когда подключим.
+
+### 10.7 Anti-farming
+
+Многоуровневая защита.
+
+**1. Cooldown на повторение** (existing, methodology §3.2):
+- per-user 30 дней — задача не выдаётся тому же юзеру повторно.
+- Жёстко обеспечивается на этапе `GET /tactic-drill/next` (фильтр через `tactic_drill_attempts.created_at`).
+
+**2. Daily cap на rating-change**:
+- Максимум **+50** rating points в drill mode за 24 часа (UTC). После cap — clamp (`newRating - oldRating ≤ remainingCap`). Фактический update в Glicko-формуле проводится **полностью**, но запись в БД ограничивается cap'ом (отрицательные изменения не cap'аются — потеря рейтинга нормально, накачка ограничивается).
+
+**3. Burst-detection**:
+- Если юзер сделал >30 attempts одного drill-type за 1 час → K-factor (RD-effect) ослабляется в 3 раза на оставшийся час.
+- Реализация: Redis counter `drill_burst:<userId>:<drillType>:<hourBucket>`. Backend перед вызовом `updateUserRatingContinuous` читает counter, при превышении — умножает результат на 0.33 (фактически ослабляет gain).
+
+**4. Test-account / hidden юзеры**:
+- `User.isHidden=true` или `User.isTestAccount=true` → **rating не обновляется**, юзер не виден в leaderboard.
+- Это уже сделано в KS-2256 (фильтрация во всех публичных endpoints) — расширяется на drill-rating leaderboard в §10.9.
+
+**5. Glicko RD-самозащита**:
+- Когда юзер только начал, RD высокий (350). Изменения большие.
+- После 5–10 попыток RD падает до ~100. Дальнейшие изменения медленнее.
+- Нет нужды в дополнительном «delta-cap on per-attempt» — Glicko сам это делает.
+
+### 10.8 Bootstrap (новый юзер)
+
+Стандартные Glicko-1 параметры:
+- `ratingDrill = 1500` (центр шкалы)
+- `ratingDrillDev = 350` (high uncertainty)
+
+После первых 5–10 попыток:
+- `ratingDrillDev` падает до 100–150,
+- `ratingDrill` сходится к зоне реальной силы.
+
+Если юзер уже играет в puzzles и имеет `ratingPuzzle=1700`, можно ли «угадать» его drill-rating? **Нет, не делаем.** Drill — отдельный навык; начинаем с дефолтов. Это безопаснее: если puzzle-rating искусственно завышен через специфические паттерны, drill-rating не унаследует ошибку.
+
+### 10.9 Leaderboard
+
+Два **независимых** leaderboard'а:
+
+| Leaderboard | Источник | Сортировка |
+|---|---|---|
+| **Drill rating leaderboard** *(новый, KS-DRILL-RATING)* | `User.ratingDrill` | DESC, фильтр `isHidden=false` |
+| **Sprint score leaderboard** *(existing, KS-2240)* | `tactic_drill_sprint_scores.score` | DESC, по `mode` |
+
+Endpoint:
+```
+GET /api/tactic-drill/rating/leaderboard?limit=100
+Response 200: { entries: [{ userId, username, ratingDrill, ratingDrillDev }], myRank?, myEntry? }
+```
+
+Минимум попыток для попадания в leaderboard — **20** (provisional). До 20 попыток `ratingDrillDev > 150` → юзер не попадает в топ. Это снимает шумы первых попыток у новичков.
+
+### 10.10 Калибровка
+
+После **первых 5000 attempts per bucket** (один раз на каждом из 5 bucket'ов):
+
+1. Для каждого bucket замерить **актуальный win-rate** юзеров с `ratingDrill ≈ bucketRating ± 50`. Если bucket-rating честный, win-rate должен быть ≈ 50%.
+2. Если win-rate систематически > 60% или < 40% → пересмотреть `BUCKET_TO_RATING` mapping (§10.3) на ±100..200.
+
+Калибровка **двигает bucket→rating mapping**, не Glicko-параметры. Glicko (Q, MIN_RD) — стандартные (Glickman 1995), не трогаем.
+
+Сигналы для пересмотра:
+- **bucket 1 win-rate < 70%** → 1000 завышено, понизить до 800.
+- **bucket 5 win-rate > 30%** → 2000 занижено, поднять до 2200.
+
+Калибровка — отдельный мониторинг-тикет (не блокирующий, после 5000 attempts/bucket).
+
+### 10.11 Pseudocode
+
+```ts
+const BUCKET_TO_RATING: Record<1|2|3|4|5, number> = {
+  1: 1000, 2: 1300, 3: 1500, 4: 1700, 5: 2000,
+};
+const DRILL_RD = 50;
+const DAILY_CAP_DRILL = 50;
+const BURST_LIMIT = 30; // per drill-type per hour
+const BURST_PENALTY = 0.33;
+const LEADERBOARD_MIN_ATTEMPTS = 20;
+
+async function applyDrillRatingChange(
+  userId: string,
+  drillId: string,
+  attempt: TacticDrillAttempt,
+): Promise<{ before: number; after: number; capped: boolean } | null> {
+  // §10.6: только drill mode влияет на rating.
+  if (attempt.mode !== 'drill') return null;
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { ratingDrill: true, ratingDrillDev: true, isHidden: true, isTestAccount: true },
+  });
+
+  // §10.7: hidden/test юзеры не накачивают rating.
+  if (user.isHidden || user.isTestAccount) return null;
+
+  const drill = await prisma.tacticDrill.findUniqueOrThrow({
+    where: { id: drillId },
+    select: { difficulty: true, drillType: true },
+  });
+
+  const drillRating = BUCKET_TO_RATING[drill.difficulty as 1|2|3|4|5];
+
+  // §10.5: outcome — IoU для squares, binary для остальных.
+  const score: number =
+    attempt.userAnswer.shape === 'squares'
+      ? attempt.metrics?.iou ?? 0
+      : (attempt.solved ? 1.0 : 0.0);
+
+  // §10.7 burst-detection.
+  const burstKey = `drill_burst:${userId}:${drill.drillType}:${currentHourBucket()}`;
+  const burstCount = await redis.incr(burstKey);
+  if (burstCount === 1) await redis.expire(burstKey, 3600);
+  const burstPenaltyMul = burstCount > BURST_LIMIT ? BURST_PENALTY : 1.0;
+
+  // Glicko-1 update (continuous outcome).
+  const update = glicko.updateUserRatingContinuous(
+    user.ratingDrill, user.ratingDrillDev,
+    drillRating, DRILL_RD,
+    score,
+  );
+  let proposedDelta = update.newRating - user.ratingDrill;
+  proposedDelta = Math.round(proposedDelta * burstPenaltyMul);
+
+  // §10.7 daily cap (positive only — потеря рейтинга не cap'ается).
+  let capped = false;
+  if (proposedDelta > 0) {
+    const dailyChange = await getUserDailyRatingChange(userId, 'drill');
+    const remainingCap = DAILY_CAP_DRILL - dailyChange;
+    if (remainingCap <= 0) {
+      proposedDelta = 0;
+      capped = true;
+    } else if (proposedDelta > remainingCap) {
+      proposedDelta = remainingCap;
+      capped = true;
+    }
+  }
+
+  const finalRating = user.ratingDrill + proposedDelta;
+  const finalRD = update.newRD; // RD-update не cap'ается.
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: { ratingDrill: finalRating, ratingDrillDev: finalRD },
+  });
+
+  return { before: user.ratingDrill, after: finalRating, capped };
+}
+```
+
+`getUserDailyRatingChange(userId, scope)` — sum of `ratingAfter - ratingBefore` за последние 24 часа из `tactic_drill_attempts` (если хранить delta) или вычислять через `tactic_drill_rating_snapshot` (отдельная таблица per-day, по аналогии с `puzzle_rating_snapshots`).
+
+### 10.12 Schema-изменения для backend (KS-DRILL-RATING)
+
+```prisma
+model User {
+  // ...existing...
+  ratingDrill    Int @default(1500) @map("rating_drill")
+  ratingDrillDev Int @default(350)  @map("rating_drill_dev")
+}
+
+model TacticDrill {
+  // ...existing...
+  rating Int @default(1500) // computed from difficulty at INSERT
+  // ratingDev не нужно — фиксированный 50 в коде
+}
+
+model TacticDrillAttempt {
+  // ...existing fields из KS-2224...
+  ratingBefore Int? @map("rating_before")  // user rating до попытки
+  ratingAfter  Int? @map("rating_after")   // после
+  capped       Boolean @default(false)     // достигнут ли daily cap
+}
+
+// Опционально (по аналогии с puzzle_rating_snapshots):
+model TacticDrillRatingSnapshot {
+  userId  String   @map("user_id") @db.Uuid
+  date    DateTime @db.Date
+  rating  Int
+  attempts Int @default(0)
+  solved   Int @default(0)
+
+  @@id([userId, date])
+  @@map("tactic_drill_rating_snapshots")
+}
+```
+
+Migration:
+- `User.ratingDrill / ratingDrillDev` — добавить с дефолтами.
+- `TacticDrill.rating` — добавить, BACKFILL: `UPDATE tactic_drills SET rating = bucket_to_rating(difficulty)` (single SQL).
+- `TacticDrillAttempt.ratingBefore/ratingAfter/capped` — добавить (nullable; старые попытки без rating).
+- `TacticDrillRatingSnapshot` — создать.
+
+### 10.13 Acceptance для backend (KS-DRILL-RATING)
+
+Acceptance — будущий тикет KS-DRILL-RATING. Чек-лист:
+
+- [ ] Schema migration по §10.12.
+- [ ] `BUCKET_TO_RATING` константа в `apps/api/src/tactic-drill/`.
+- [ ] Расширить `GlickoRatingService` методом `updateUserRatingContinuous(userRating, userRD, opponentRating, opponentRD, score: number)`.
+- [ ] `TacticDrillRatingService.applyRatingChange(userId, drillId, attempt)` по §10.11.
+- [ ] Anti-farming: cooldown (existing), daily cap (§10.7-2), burst-detection через Redis (§10.7-3).
+- [ ] Endpoint `GET /api/tactic-drill/rating/leaderboard?limit=100` (§10.9). Фильтр `isHidden=false`. Min-attempts 20.
+- [ ] Sprint-флоу не вызывает `applyRatingChange` (§10.6).
+- [ ] Snapshot per-day для history (опционально v2 — поле `TacticDrillRatingSnapshot`).
+- [ ] Юнит-тесты:
+  - Glicko continuous outcome (score=0.7 на новичке RD=350) даёт +X rating.
+  - Daily cap: после +50 за день — следующая успешная попытка даёт 0.
+  - Burst-detection: после 30 attempts/час одного типа — gain × 0.33.
+  - Hidden юзер: rating не обновляется.
+  - Sprint mode: rating не обновляется.
+
+### 10.14 Связь с другими разделами
+
+- §6 (IoU 0.7 threshold) — служит **бинарной метрикой «решено»** для UI feedback. Для Glicko используется **сырое IoU** (continuous), без threshold (см. §10.5).
+- §9 (difficulty 1..5) — input для `BUCKET_TO_RATING`. Калибровка difficulty (§9.8) и калибровка drill-rating (§10.10) — **независимы**: §9.8 двигает bucket-cuts (что считать bucket=3), §10.10 двигает bucket→rating mapping (какому ELO соответствует bucket=3).
+
+### 10.15 Что **не** входит в этот дизайн
+
+- **Сезонность** (drill-rating reset раз в N месяцев) — выходит за scope. Если в v3 захотим — добавим `User.ratingDrillSeason` рядом с `ratingDrill`.
+- **Анти-чит на уровне поведенческих сигналов** (мышь не двигается, paste-detection) — это generic anti-bot, не специфика drill rating'а.
+- **Rating decay** (RD растёт со временем без активности) — Glicko-1 не делает этого автоматически. В v2 рассмотрим, если будет жалоба «inactive юзер с rating 2000 первый в leaderboard».
+- **Pairwise duels** «решить ту же позицию что соперник» — это другой режим, не drill v1.
+- **Per-type rating** (8 отдельных рейтингов) — отвергнуто в §10.4. Если backend по итогам v2 решит, что один rating плохо отражает skill — пересмотрим, но это другая story.
+
+---
+
+## 11. Связанные документы и тикеты
 
 ### Документация
 - [ADR-035](../adr/035-tactical-pattern-drills.md) — основной ADR (каталог, схема данных, UX, архитектура).
-- (этот документ) — методика E0 (KS-2223) + формула сложности E1 (KS-2225, §9 выше).
+- (этот документ) — методика E0 (KS-2223) + формула сложности E1 (KS-2225, §9) + рейтинговая формула E6 (KS-2248, §10).
 - [tactical-drill-api-contract.md](./tactical-drill-api-contract.md) — детальный API-контракт + спецификация валидатора (KS-2224, E1).
 
 ### Тикеты, разблокированные этим документом
 - **KS-2224** ✅ (KS-DRILL-DESIGN, architect) — детальный API-контракт. Закрыто, см. [tactical-drill-api-contract.md](./tactical-drill-api-contract.md).
 - **KS-2225** ✅ (KS-DRILL-DIFFICULTY, architect + chess-expert) — формула сложности. Закрыто, §9 этого документа.
+- **KS-2248** ✅ (этот раздел §10) — design рейтинговой формулы. После approval — backend KS-DRILL-RATING на реализацию.
 - **KS-DRILL-PREDICATES** (backend, E2) — реализация 8 предикатов на chess.js.
 - **KS-DRILL-INDEXER** (backend, E2) — pipeline индексации архива + computeDifficulty (§9.10).
+- **KS-DRILL-RATING** (backend, E6) — реализация Glicko-update + daily cap + burst-detection + rating leaderboard. По §10.11–§10.13.
 - **KS-DRILL-LOBBY** (frontend, E3) — порядок прохождения из §4 в UI.
 - **KS-DRILL-I18N** (frontend, E3) — финальные RU/EN строки из §3 + локализация фигур из §7.
 
@@ -551,6 +886,7 @@ function computeDifficulty(
 - pass-rate per drill-type (для §6.4 threshold review),
 - drop-off rate per drill-type (для §6.4 N-distribution review),
 - N-распределение в реальных позициях (для §6.3 уточнения уровней сложности),
-- solve-rate by bucket (для §9.8 difficulty-калибровки после 5000 решений per drill-type).
+- solve-rate by bucket (для §9.8 difficulty-калибровки после 5000 решений per drill-type),
+- win-rate by bucket vs user-rating (для §10.10 rating-калибровки после 5000 attempts per bucket).
 
-Метрики собираются с первого релиза, первый review — после 1000 сессий на каждом drill-type для §6.4, после 5000 для §9.8 (отдельные тикеты, не блокирующие).
+Метрики собираются с первого релиза, первый review — после 1000 сессий на каждом drill-type для §6.4, после 5000 для §9.8 и §10.10 (отдельные тикеты, не блокирующие).

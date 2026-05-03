@@ -119,8 +119,11 @@ Cold-start: минимальная версия v1 (`pieceCount + attackerDensit
 
 Кандидат «ply из исходной партии» — отброшен (см. methodology §9.9: ply ничего не говорит о сложности drill).
 
-### 3.4 Рейтинг — **в v1 не считаем**
-Glicko у `Puzzle` работает потому что задача = ход, понятен «выигрыш/проигрыш» партии задачи. Drill — клик за 5 секунд, FP/FN множества → формула выигрыша не очевидна. В v1 храним только raw-метрики (`solved`, `time_ms`, `precision`, `recall`), без рейтинга. Рейтинг — отдельный design в v2.x (KS-DRILL-RATING).
+### 3.4 Рейтинг
+
+**v1:** не считаем. Храним raw-метрики (`solved`, `time_ms`, `precision`, `recall`).
+
+**v2 (E6, design в KS-2248):** Glicko-1 (как у Puzzle) с расширением outcome из binary в continuous (IoU как score для shape='squares'). Drill rating фиксирован по bucket'у: 1→1000, 2→1300, 3→1500, 4→1700, 5→2000. Sprint mode НЕ влияет на user-rating (отдельный leaderboard через `tactic_drill_sprint_scores`). Anti-farming: cooldown 30 дней + daily cap +50 + burst-detection >30 attempts/час. Финальный design — [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §10. Реализация — отдельный backend-тикет KS-DRILL-RATING.
 
 ---
 
@@ -500,7 +503,7 @@ flowchart TD
 | R4 | `find-fork` / `find-pin` могут давать неоднозначные ответы (несколько вилок в позиции) | backend (E2) | Предикат отбрасывает позиции с >1 валидным ответом для shape=`square` |
 | R5 | Stockfish в воркере как узкое место (если в E5 решим валидировать SF'ом) | backend (E5) | Один воркер один SF-instance, лимит 1 позиция/сек, фоновая очередь |
 | R6 | Локализация инструкций — chess-expert + chess.js notation. Решено: **Unicode-символы primary** + SVG-spritеfallback + a11y aria-label (см. [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §7) | chess-expert (закрыто KS-2223) | В promptах основных 8 типов фигуры почти не упоминаются — Unicode нужен в onboarding/разборах; локализованные буквы только в SAN/PGN |
-| R7 | Нужен ли рейтинг вообще или summary «accuracy + avg time» достаточно мотивирует | architect + UX (E6) | Не добавлять до первого user-feedback, чтобы не наследовать сложность Glicko в drill'ах |
+| R7 | Нужен ли рейтинг вообще или summary «accuracy + avg time» достаточно мотивирует | architect + UX (E6) | **Закрыто KS-2248**: рейтинг есть в v2 (Glicko-1 с continuous outcome), design в [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §10. Drill-rating + sprint-score — два независимых leaderboard'а |
 | R8 | Что считать «решено» для shape=`squares[]`? **Threshold 0.7 IoU** (зафиксировано в [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §6, KS-2223) | chess-expert (закрыто KS-2223) | Метрить на первых 1000 сессиях; правила пересмотра — methodology-doc §6.4 |
 | R9 | Cooldown 30 дней — что делать power-user'у который пройдёт пул за неделю | backend (E5) | Variant A (генерация на лету) включается как фолбэк когда пул для юзера исчерпан |
 | R10 | Конфликт навигации: Sidebar уже плотный (Lobby/Play/Puzzles/Lessons/Tournaments...). Куда «Drills»? | координатор + frontend (E3) | Под «Puzzles» как подпункт `/puzzles/drills`, либо отдельный пункт под feature-flag — решение в KS-DRILL-NAV |
