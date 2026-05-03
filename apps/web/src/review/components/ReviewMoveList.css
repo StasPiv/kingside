@@ -243,6 +243,20 @@
   margin-right: 4px;
 }
 
+/*
+ * KS-2275 (ADR-037 §4) — bracket'ы окрашиваются в цвет своего варианта.
+ * `getBracketClasses` (см. ChessMoveProcessing.ts) добавляет к bracket'у
+ * `variation-level-{level+1}` — тот же level-класс, что у ходов внутри
+ * `(...)` — открывающая и закрывающая скобки одного варианта получают
+ * одинаковый класс. Специфичность `.variation-bracket.variation-level-N`
+ * (0,2,0) выше, чем у `.variation-bracket` (0,1,0), и переопределяет
+ * базовый серый цвет.
+ */
+.variation-bracket.variation-level-1 { color: var(--c-subline-1); }
+.variation-bracket.variation-level-2 { color: var(--c-subline-2); }
+.variation-bracket.variation-level-3 { color: var(--c-subline-3); }
+.variation-bracket.variation-level-4 { color: var(--c-subline-4); }
+
 /* Context menu */
 .review-context-menu {
   position: fixed;
