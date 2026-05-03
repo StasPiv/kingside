@@ -28,6 +28,9 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useReviewState } from '../review/useReviewState';
 import { useAnalysisPersistence } from '../review/useAnalysisPersistence';
+// KS-2281 (E5 deferred): localStorage autosave для ad-hoc /analysis,
+// чтобы NAG-аннотации не терялись при reload страницы.
+import { useAdHocAnalysisAutosave } from '../hooks/useAdHocAnalysisAutosave';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import { VariationChooser } from '../components/VariationChooser';
 import type { ChessMove } from '../review/types';
@@ -374,6 +377,29 @@ export function AnalysisPage() {
   }, [gameId, location.state, t, loadMoves, loadFromPgn, getById]);
 
   useAnalysisPersistence(gameId, history, initialAnnotations, annotationsByIndex);
+
+  // KS-2281: ad-hoc autosave (localStorage). Активен только когда нет
+  // gameId и нет сохранённого analysisId — для review (gameId) работает
+  // useAnalysisPersistence через PUT /games/:id/analysis, для saved
+  // (analysisId) — useSavedAnalyses.update; для puzzleFen / "/analysis"
+  // / custom-position'а раньше autosave не было совсем.
+  useAdHocAnalysisAutosave({
+    enabled: !gameId && !analysisId,
+    initialFen,
+    history,
+    initialAnnotations,
+    annotationsByIndex,
+    onRestore: useCallback(
+      (pgn: string) => {
+        try {
+          loadFromPgn(parseAnnotatedPgn(pgn), extractInitialAnnotations(pgn));
+        } catch {
+          /* пропуск битого snapshot'а — autosave best-effort */
+        }
+      },
+      [loadFromPgn],
+    ),
+  });
 
   // --- Position save/restore ---
   const suppressPositionSaveRef = useRef(true);
