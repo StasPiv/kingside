@@ -4,6 +4,7 @@ import type {
   DrillStepPayload,
   TacticDrillAttemptRequest,
   TacticDrillAttemptResponse,
+  TacticDrillByStepResponse,
   TacticDrillDto,
 } from '@kingside/shared';
 
@@ -21,18 +22,19 @@ import {
  * Использует переиспользуемый `<DrillRunner>` (KS-2249 extract из
  * KS-2233 DrillPage). Привязка к API:
  *
- *   loadDrill   → GET /tactic-drill/next?type={drillType}      (fallback)
- *                 → GET /tactic-drill/by-step/{stepId}          (KS-2315, в работе)
+ *   loadDrill   → GET /tactic-drill/by-step/{stepId} (KS-2315)
+ *                 → fallback /tactic-drill/next?type=… если stepId
+ *                   не задан (например, embedded preview без сохранения)
  *   submitAnswer → POST /tactic-drill/attempt с mode='lessons-embed'
  *
- * **TODO (KS-2315)**: после готовности backend-резолвера переключить
- * `loadDrill` на `/tactic-drill/by-step/${stepId}` — это даст:
- *   • поддержку `payload.drillId` (fixed позиция),
- *   • поддержку `difficultyBucket` (random pool),
- *   • серверный bucket→difficulty mapping.
- *
- * Текущий fallback отдаёт случайный drill заданного `drillType` —
- * семантически близко к random-режиму без bucket-фильтра.
+ * Резолвер `/by-step/:stepId` (KS-2315) поддерживает:
+ *   • fixed позиция через `payload.drillId`,
+ *   • random pool по `payload.drillType` + опц. `difficultyBucket`
+ *     (server-side bucket→difficulty mapping через
+ *     `DRILL_BUCKET_TO_DIFFICULTY` в shared).
+ * Edge-cases резолвера (404 на пустом пуле / удалённый drillId, 400
+ * на malformed payload) пробрасываются как loadFailed-state в
+ * DrillRunner — пользователь видит retry-кнопку.
  *
  * # Логика count/minSolved
  *
@@ -69,13 +71,19 @@ export function DrillStep({ payload, onStepDone, stepId, hideNext }: DrillStepPr
   const minSolved = payload.minSolved ?? count;
 
   const loadDrill = useCallback(async (): Promise<TacticDrillDto> => {
-    // KS-2315 (backend, в работе): после релиза резолвера переключить
-    // на `/tactic-drill/by-step/${stepId}`. До этого — random pick по
-    // `drillType` через тот же endpoint, что использует DrillPage.
+    // KS-2315 (готов, ea921bc9): резолвер by-step знает payload и сам
+    // выбирает fixed/random. Без stepId — fallback на тот же endpoint
+    // что у DrillPage (preview-сценарий вне сохранённого шага).
+    if (stepId) {
+      const resp = await api.get<TacticDrillByStepResponse>(
+        `/tactic-drill/by-step/${encodeURIComponent(stepId)}`,
+      );
+      return resp.drill;
+    }
     return api.get<TacticDrillDto>(
       `/tactic-drill/next?type=${encodeURIComponent(payload.drillType)}`,
     );
-  }, [payload.drillType]);
+  }, [stepId, payload.drillType]);
 
   const submitAnswer = useCallback(
     async (input: DrillRunnerSubmitInput): Promise<TacticDrillAttemptResponse> => {

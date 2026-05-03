@@ -62,9 +62,16 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
+function byStepResp(drill = SQUARE_DRILL, count = 1, minSolved = 1) {
+  return {
+    drill,
+    stepMeta: { stepId: 'step-1', count, minSolved },
+  };
+}
+
 describe('<DrillStep> KS-2249', () => {
-  it('mount → GET /tactic-drill/next?type=find-pin (fallback до KS-2315)', async () => {
-    apiGet.mockResolvedValue(SQUARE_DRILL);
+  it('mount со stepId → GET /tactic-drill/by-step/step-1 (KS-2315 резолвер)', async () => {
+    apiGet.mockResolvedValue(byStepResp());
     renderWithProviders(
       <DrillStep
         payload={{ type: 'drill', drillType: 'find-pin' }}
@@ -72,11 +79,20 @@ describe('<DrillStep> KS-2249', () => {
       />,
     );
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
+    expect(apiGet).toHaveBeenCalledWith('/tactic-drill/by-step/step-1');
+  });
+
+  it('mount БЕЗ stepId → fallback на /tactic-drill/next?type=… (preview-сценарий)', async () => {
+    apiGet.mockResolvedValue(SQUARE_DRILL);
+    renderWithProviders(
+      <DrillStep payload={{ type: 'drill', drillType: 'find-pin' }} />,
+    );
+    await waitFor(() => expect(apiGet).toHaveBeenCalled());
     expect(apiGet).toHaveBeenCalledWith('/tactic-drill/next?type=find-pin');
   });
 
   it('default count=1, minSolved=1: правильный ответ → onStepDone вызван', async () => {
-    apiGet.mockResolvedValue(SQUARE_DRILL);
+    apiGet.mockResolvedValue(byStepResp());
     apiPost.mockResolvedValue({
       attemptId: 'a1',
       solved: true,
@@ -117,7 +133,7 @@ describe('<DrillStep> KS-2249', () => {
   });
 
   it('count=1: неправильный ответ → done success=false, onStepDone НЕ вызван', async () => {
-    apiGet.mockResolvedValue(SQUARE_DRILL);
+    apiGet.mockResolvedValue(byStepResp());
     apiPost.mockResolvedValue({
       attemptId: 'a1',
       solved: false,
@@ -158,7 +174,7 @@ describe('<DrillStep> KS-2249', () => {
   });
 
   it('payload.count=3 + minSolved=2: data-count/data-min-solved прокинуты в drill-step', async () => {
-    apiGet.mockResolvedValue(SQUARE_DRILL);
+    apiGet.mockResolvedValue(byStepResp(SQUARE_DRILL, 3, 2));
     renderWithProviders(
       <DrillStep
         payload={{
@@ -177,7 +193,7 @@ describe('<DrillStep> KS-2249', () => {
   });
 
   it('drill-step имеет data-drill-type из payload', async () => {
-    apiGet.mockResolvedValue(SQUARE_DRILL);
+    apiGet.mockResolvedValue(byStepResp());
     renderWithProviders(
       <DrillStep
         payload={{ type: 'drill', drillType: 'find-fork' }}
