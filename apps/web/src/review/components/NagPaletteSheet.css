@@ -1,15 +1,29 @@
 /*
  * KS-2270 (ADR-037 §3, этап E2 / docs/architecture/nag-palette-design.md §3.2)
- * Стили mobile bottom-sheet'а для NagPaletteSheet.tsx (KS-2269).
+ * + KS-2277 (E3 swipe-to-dismiss): расширенный DOM/CSS-контракт.
  *
  * DOM-контракт:
  *   .nag-palette-sheet-backdrop
  *     > .nag-palette-sheet[role=dialog]
- *         > .nag-palette-sheet__handle    (decorative drag-bar)
+ *         [data-dragging="true|false"]   ← KS-2277: палец на handle
+ *         [data-half-height="true|false"] ← KS-2277: viewport <700px
+ *         style="--nag-sheet-drag: <px>;
+ *                --nag-sheet-max-height: 50vh"  (опц.)
+ *         > .nag-palette-sheet__handle           (button[type=button],
+ *                                                 drag-zone)
+ *             > .nag-palette-sheet__handle-bar   (визуальная полоска)
  *         > .nag-palette-sheet__header
  *             > .nag-palette-sheet__title
  *         > .nag-palette-sheet__content
- *             > .nag-palette ...          (NagPalette внутри)
+ *             > .nag-palette ...                 (NagPalette внутри)
+ *         > .nag-palette-sheet__actions          (опц., KS-2283 — extraActions)
+ *
+ * Swipe (KS-2277): JSX обновляет `--nag-sheet-drag` (offset в px,
+ * clamp'нут к ≥0 в коде) и `data-dragging`. CSS:
+ *   - `transform: translateY(var(--nag-sheet-drag, 0px))` — следует за пальцем;
+ *   - `transition: transform 200ms ease-out` — плавный возврат после release;
+ *   - `[data-dragging="true"] { transition: none }` — пока drag активен,
+ *     transform реагирует мгновенно.
  *
  * Sheet оборачивает компонент `NagPalette`, поэтому базовые стили
  * `.nag-palette` (фон / border / shadow / fixed-position / fade-in)
@@ -46,9 +60,11 @@
   position: relative;
   box-sizing: border-box;
   width: 100vw;
-  max-height: 60vh;
+  /* KS-2277: max-height управляется JSX через --nag-sheet-max-height
+   * (на коротких viewport'ах ставится 50vh при data-half-height="true"). */
+  max-height: var(--nag-sheet-max-height, 80vh);
   min-height: 280px;
-  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+  padding: 0 16px calc(24px + env(safe-area-inset-bottom));
   background: var(--c-1a1a2e);
   border-top-left-radius: 16px;
   border-top-right-radius: 16px;
@@ -58,7 +74,17 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  /* KS-2277: входная анимация (slide-up) + drag-следование за пальцем.
+   * Animation играет один раз при mount; после её завершения transform
+   * управляется правилом ниже через CSS-переменную. transition включается
+   * для плавного возврата после release; при активном drag отключается. */
+  transform: translateY(var(--nag-sheet-drag, 0px));
+  transition: transform 200ms ease-out;
   animation: nag-sheet-slide-up 200ms cubic-bezier(0.0, 0.0, 0.2, 1);
+}
+
+.nag-palette-sheet[data-dragging="true"] {
+  transition: none;
 }
 
 /* design-doc §3.2: на высоких viewport'ах sheet чуть выше */
@@ -70,21 +96,45 @@
 
 @keyframes nag-sheet-slide-up {
   from { transform: translateY(100%); }
-  to   { transform: translateY(0); }
+  to   { transform: translateY(var(--nag-sheet-drag, 0px)); }
 }
 
-/* === Drag-handle (decorative) ========================================= */
+/* === Drag-handle (button + visual bar) ================================
+ * KS-2277: handle стал интерактивным <button> для swipe-to-dismiss;
+ * визуальная полоска выехала во вложенный <span class="..._handle-bar">.
+ * `touch-action: none` запрещает браузерный скролл при удерживании
+ * пальца на handle — иначе drag-handler в JSX не получит touchmove. */
 
 .nag-palette-sheet__handle {
-  position: absolute;
-  top: 8px;
-  left: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 8px 0;
+  background: transparent;
+  border: 0;
+  cursor: grab;
+  touch-action: none;
+  font: inherit;
+  color: inherit;
+}
+
+.nag-palette-sheet__handle:active {
+  cursor: grabbing;
+}
+
+.nag-palette-sheet__handle:focus-visible {
+  outline: 2px solid var(--c-90caf9);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.nag-palette-sheet__handle-bar {
+  display: block;
   width: 36px;
   height: 4px;
-  background: var(--c-666);
   border-radius: 2px;
-  transform: translateX(-50%);
-  pointer-events: none;
+  background: var(--c-666);
 }
 
 /* === Header / title =================================================== */
@@ -164,11 +214,38 @@
   border-radius: 6px;
 }
 
+/* === Extra actions (KS-2283) =========================================
+ * Опциональный блок под NagPalette внутри sheet'а: comment / promote /
+ * truncate / delete (то же, что в desktop right-click context-menu).
+ * Кнопки приходят как extraActions JSX — стилизованы под
+ * `.review-context-menu__item`; задаём контейнеру вертикальный stack
+ * с разделителем сверху и комфортным touch-spacing'ом. */
+
+.nag-palette-sheet__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-333);
+}
+
+.nag-palette-sheet__actions .review-context-menu__item {
+  min-height: 44px;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+.nag-palette-sheet__actions .review-context-menu__divider {
+  margin: 4px 0;
+}
+
 /* === reduced-motion =================================================== */
 
 @media (prefers-reduced-motion: reduce) {
   .nag-palette-sheet,
   .nag-palette-sheet-backdrop {
     animation: none;
+    transition: none;
   }
 }
