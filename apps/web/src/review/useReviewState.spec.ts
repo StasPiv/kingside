@@ -210,14 +210,17 @@ describe('useReviewState — KS-2287 SET_VARIATION_COLOR', () => {
     expect(result.current.history).toBe(before);
   });
 
-  it('clear на уже undefined → no-op state ref не меняется', () => {
+  it('clear на уже undefined → variationColor остаётся undefined (KS-2294: state ref может смениться, без guard)', () => {
+    // KS-2294: убран no-op-guard в reducer'е, чтобы StrictMode не
+    // съедал второй reducer-call как «sameAsBefore». Теперь state
+    // ref может пересоздаться даже при no-op clear, главное —
+    // value корректный.
     const result = setupWithPgn('1. e4 e5 (1... c5 2. Nf3) 2. Nf3');
     const c5Index = result.current.history[1].variations![0][0].globalIndex;
-    const before = result.current.history;
     act(() => {
       result.current.setVariationColor(c5Index, null);
     });
-    expect(result.current.history).toBe(before);
+    expect(result.current.history[1].variations![0][0].variationColor).toBeUndefined();
   });
 
   it('delete-variation удаляет variationColor вместе с ходами (R8)', () => {

@@ -277,6 +277,15 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
     case 'SET_VARIATION_COLOR': {
       // KS-2287: ставим/снимаем variationColor на ROOT'е вариации.
       // Если moveIndex указывает на main-line — no-op.
+      //
+      // KS-2294: убраны no-op-guard'ы (`if (already same) return state`).
+      // В React StrictMode reducer вызывается дважды; второй вызов
+      // видит УЖЕ мутированный объект (мы пишем in-place в `root`),
+      // возвращает старый state ref → React не делает re-render → PGN
+      // не пересчитывается → e2e видит old PGN. Та же ловушка, что в
+      // KS-2152 (см. комментарий в SET_ANNOTATIONS). Безопаснее всегда
+      // возвращать новый state ref — лишний equal re-render дешевле,
+      // чем потерянный ход обновления.
       const move = searchInHistory(
         state.history,
         action.payload.moveIndex,
@@ -287,11 +296,8 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         | null;
       if (!root) return state; // main-line — variationColor неприменим
       if (action.payload.color === null) {
-        // Защита от no-op re-render: если уже undefined — return state.
-        if (root.variationColor === undefined) return state;
         delete root.variationColor;
       } else {
-        if (root.variationColor === action.payload.color) return state;
         root.variationColor = action.payload.color;
       }
       return {

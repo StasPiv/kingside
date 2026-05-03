@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { NagPalette } from '../review/components/NagPalette';
 import { NagPaletteSheet } from '../review/components/NagPaletteSheet';
 import { ReviewMoveList } from '../review/components/ReviewMoveList';
 import type { ChessMove } from '../review/types';
+import { useReviewState } from '../review/useReviewState';
+import { parseAnnotatedPgn } from '../review/utils/PgnDeserializer';
+import { serializeToAnnotatedPgn } from '../review/utils/PgnSerializer';
+import { useAdHocAnalysisAutosave } from '../hooks/useAdHocAnalysisAutosave';
 
 /**
  * KS-2269 — dev-демо для `NagPalette` / `NagPaletteSheet`. Доступно
@@ -60,6 +64,11 @@ export function DevNagPalettePage() {
 
       <h2 style={{ marginTop: 32 }}>ReviewMoveList integration (KS-2283 / e2e)</h2>
       <ReviewMoveListDemo />
+
+      <h2 style={{ marginTop: 32 }}>
+        Variation color demo (KS-2294 / VC E3 e2e)
+      </h2>
+      <VariationColorDemo />
     </div>
   );
 }
@@ -220,6 +229,102 @@ function SheetDemo() {
         onChange={setNags}
         onClose={() => setOpen(false)}
       />
+    </div>
+  );
+}
+
+/**
+ * KS-2294 (VC E3 e2e) — demo с реальной вариацией для проверки секции
+ * «Variation color» в палитре.
+ *
+ * Использует `useReviewState` (а не локальный useState с фиктивными
+ * `ChessMove`-объектами как в `ReviewMoveListDemo`) — чтобы:
+ *   1. `setVariationColor` (KS-2287) реально работал и обновлял
+ *      `move.variationColor` через reducer.
+ *   2. `useAdHocAnalysisAutosave` (KS-2281) сохранял PGN в localStorage
+ *      после throttle. e2e может через `page.evaluate(localStorage)`
+ *      проверить, что в storage появился `[%cvc G]` после клика green.
+ *
+ * PGN: `1. e4 e5 (1... c5 2. Nf3) 2. Nf3` — стандартный пример с
+ * одной вариацией. e5 — main, c5 — head вариации, Nf3 (вариант) —
+ * не-head вариации.
+ *
+ * Без `onRestore` autosave — иначе при reload restore затрёт initial
+ * loadFromPgn непредсказуемо. e2e проверяет storage напрямую через
+ * page.evaluate.
+ */
+const VARIATION_DEMO_PGN = '1. e4 e5 (1... c5 2. Nf3) 2. Nf3 *';
+
+function VariationColorDemo() {
+  const review = useReviewState();
+  const loadedRef = useRef(false);
+
+  // Один раз грузим initial PGN. После клика variation-color reducer
+  // мутирует state, autosave throttle пишет в localStorage.
+  useEffect(() => {
+    if (loadedRef.current) return;
+    loadedRef.current = true;
+    review.loadFromPgn(parseAnnotatedPgn(VARIATION_DEMO_PGN));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave (KS-2281) — для e2e-проверки `[%cvc G]` в localStorage.
+  useAdHocAnalysisAutosave({
+    enabled: true,
+    initialFen: review.initialFen,
+    history: review.history,
+    initialAnnotations: review.initialAnnotations,
+    annotationsByIndex: review.annotationsByIndex,
+  });
+
+  // Текущий PGN — для удобной визуальной проверки в demo-странице.
+  const currentPgn = serializeToAnnotatedPgn(
+    review.history,
+    review.initialAnnotations,
+    review.annotationsByIndex,
+  );
+
+  return (
+    <div
+      data-testid="variation-color-demo"
+      style={{
+        border: '1px solid var(--c-border, #444)',
+        borderRadius: 8,
+        padding: 12,
+        marginTop: 16,
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+        e4 — main, e5 — main (имеет вариацию), c5 — head вариации, Nf3 — её 2-й ход.
+        Right-click на главных ходах → секция Variation color скрыта; на ходах
+        вариации → видна (4 swatch + Clear). Изменения автосохраняются в
+        localStorage (KS-2281), e2e проверяет PGN на наличие [%cvc].
+      </div>
+      <ReviewMoveList
+        history={review.history}
+        currentGlobalIndex={review.currentGlobalIndex}
+        onMoveClick={review.gotoMove}
+        onSetNag={review.setNag}
+        onSetComment={review.setComment}
+        onPromoteVariation={review.promoteVariation}
+        onDeleteVariation={review.removeVariation}
+        onTruncateRemaining={review.truncateRemaining}
+        onSetVariationColor={review.setVariationColor}
+      />
+      <pre
+        data-testid="variation-color-demo-pgn"
+        style={{
+          marginTop: 12,
+          padding: 8,
+          background: 'rgba(0,0,0,0.05)',
+          borderRadius: 4,
+          fontSize: 11,
+          overflowX: 'auto',
+          whiteSpace: 'pre-wrap',
+        }}
+      >
+        {currentPgn}
+      </pre>
     </div>
   );
 }
