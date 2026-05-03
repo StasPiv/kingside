@@ -390,6 +390,55 @@ describe('<NagPaletteSheet> KS-2277 — swipe-to-dismiss + half-height', () => {
   });
 });
 
+describe('<NagPaletteSheet> KS-2297 — touchstart НЕ всплывает до document', () => {
+  // Regression: на mobile тач по NAG-кнопке внутри sheet всплывал до
+  // `document.addEventListener('touchstart')` в ReviewMoveList →
+  // handleClose закрывал sheet ДО того как React click event достигал
+  // NAG-кнопки → onSetNag не вызывался → символ NAG не появлялся в
+  // нотации. Fix: stopPropagation на onTouchStart в .nag-palette-sheet.
+  it('touchstart на NAG-кнопке внутри sheet НЕ доходит до document-listener', () => {
+    const docTouchHandler = vi.fn();
+    document.addEventListener('touchstart', docTouchHandler);
+    try {
+      renderWithProviders(
+        <NagPaletteSheet
+          open
+          nags={[]}
+          onChange={() => {}}
+          onClose={() => {}}
+        />,
+      );
+      fireEvent.touchStart(screen.getByTestId('nag-palette-btn-3'), {
+        touches: [{ clientX: 50, clientY: 100 }],
+      });
+      expect(docTouchHandler).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('touchstart', docTouchHandler);
+    }
+  });
+
+  it('touchstart на handle тоже НЕ доходит до document', () => {
+    const docTouchHandler = vi.fn();
+    document.addEventListener('touchstart', docTouchHandler);
+    try {
+      renderWithProviders(
+        <NagPaletteSheet
+          open
+          nags={[]}
+          onChange={() => {}}
+          onClose={() => {}}
+        />,
+      );
+      fireEvent.touchStart(screen.getByTestId('nag-palette-sheet-handle'), {
+        touches: [{ clientX: 50, clientY: 100 }],
+      });
+      expect(docTouchHandler).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('touchstart', docTouchHandler);
+    }
+  });
+});
+
 describe('<NagPalette> KS-2282 — hotkeys 1..9 / Esc', () => {
   it.each([
     ['1', 1],

@@ -163,6 +163,15 @@ export function NagPaletteSheet({
         data-half-height={halfHeight ? 'true' : 'false'}
         style={sheetStyle}
         onClick={(e) => e.stopPropagation()}
+        // KS-2297 (#2 fix): touchstart внутри sheet не должен всплывать
+        // до document. ReviewMoveList слушает `document.touchstart`
+        // (close-on-outside-click), и без stopPropagation tap на NAG
+        // сначала закрывает sheet через document-handler, а потом
+        // click на уже размонтированной кнопке не доходит до
+        // handler'а — символ NAG не появляется в нотации. Точка с
+        // mobile-only поведением, на desktop click обрабатывается
+        // synthetic React events ДО bubble в document.
+        onTouchStart={(e) => e.stopPropagation()}
       >
         {/*
           KS-2277: handle — отдельная кнопка-зона для swipe. button-tag

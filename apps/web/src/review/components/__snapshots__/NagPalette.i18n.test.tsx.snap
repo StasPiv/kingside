@@ -3,6 +3,7 @@
 exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot en — фиксирует структуру и переводы 1`] = `
 <div
   class="nag-palette"
+  data-focus="nag"
   data-testid="nag-palette"
   role="menu"
 >
@@ -224,6 +225,7 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot en �
 exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot ru — фиксирует структуру и переводы 1`] = `
 <div
   class="nag-palette"
+  data-focus="nag"
   data-testid="nag-palette"
   role="menu"
 >
@@ -445,6 +447,7 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot ru �
 exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snapshot en — секция Variation color в палитре 1`] = `
 <div
   class="nag-palette"
+  data-focus="nag"
   data-testid="nag-palette"
   role="menu"
 >
@@ -720,7 +723,7 @@ exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snap
     class="nag-palette__hint"
     data-testid="nag-palette-hint"
   >
-    1..9 — NAG · Esc — close
+    1..9 — NAG · Tab — variation color · Esc — close
   </div>
 </div>
 `;
@@ -728,6 +731,7 @@ exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snap
 exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snapshot ru — секция Variation color в палитре 1`] = `
 <div
   class="nag-palette"
+  data-focus="nag"
   data-testid="nag-palette"
   role="menu"
 >
@@ -1003,7 +1007,7 @@ exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snap
     class="nag-palette__hint"
     data-testid="nag-palette-hint"
   >
-    1..9 — NAG · Esc — закрыть
+    1..9 — NAG · Tab — цвет варианта · Esc — закрыть
   </div>
 </div>
 `;
