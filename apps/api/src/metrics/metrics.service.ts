@@ -34,6 +34,17 @@ export class MetricsService implements OnModuleInit {
   readonly archiveTreeQueryDurationSeconds: Histogram<'cache_hit'>;
   readonly archiveTreeCacheHitRatio: Gauge<string>;
 
+  /**
+   * KS-2305 (ADR-039 §4). Счётчик успешно выданных JWT-токенов
+   * `__screenshot_agent` (внутренний endpoint screenshot-tool'а).
+   *
+   * Label `ip` — для отслеживания подозрительных всплесков с одного
+   * адреса. Cardinality ок: endpoint вызывает один tool из одного-двух
+   * фиксированных IP (CI runner / dev-box), поэтому `ip` не порождает
+   * взрыв timeseries (как было бы у user-facing endpoint).
+   */
+  readonly screenshotTokenIssuedTotal: Counter<'ip'>;
+
   constructor() {
     this.registry = new Registry();
 
@@ -75,6 +86,17 @@ export class MetricsService implements OnModuleInit {
       help: 'Текущая доля cache-hit для archive-tree запросов [0..1].',
       registers: [this.registry],
     });
+
+    // KS-2305 (ADR-039 §4): screenshot-token-issued counter.
+    this.screenshotTokenIssuedTotal = new Counter({
+      name: 'screenshot_token_issued_total',
+      help:
+        'Количество успешно выданных JWT-токенов screenshot-агенту через ' +
+        'POST /internal/screenshot-token (ADR-039 §4). Label ip — для ' +
+        'отслеживания всплесков; ожидаем одно-два значений в проде.',
+      labelNames: ['ip'] as const,
+      registers: [this.registry],
+    });
   }
 
   async onModuleInit(): Promise<void> {
@@ -103,6 +125,11 @@ export class MetricsService implements OnModuleInit {
   /** Устанавливает текущий ratio (0..1). */
   setTreeCacheHitRatio(ratio: number): void {
     this.archiveTreeCacheHitRatio.set(ratio);
+  }
+
+  /** KS-2305: инкремент `screenshot_token_issued_total{ip}`. */
+  incScreenshotTokenIssued(ip: string): void {
+    this.screenshotTokenIssuedTotal.inc({ ip });
   }
 
   /**

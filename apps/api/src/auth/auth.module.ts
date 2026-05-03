@@ -5,7 +5,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { OAuthCallbackController } from './oauth-callback.controller';
 import { InternalAuthController } from './internal-auth.controller';
-import { ScreenshotTokenController } from './screenshot-token.controller';
+import {
+  ScreenshotTokenController,
+  ScreenshotTokenRateLimitGuard,
+} from './screenshot-token.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
@@ -53,6 +56,8 @@ import { PrismaModule } from '../prisma/prisma.module';
     // KS-2182: InternalKeyGuard — shared-secret защита для
     // `/api/internal/*` endpoint'ов synthetic-bot-service.
     InternalKeyGuard,
+    // KS-2305: rate-limit guard для screenshot-token с structured-log.
+    ScreenshotTokenRateLimitGuard,
   ],
   exports: [
     AuthService,

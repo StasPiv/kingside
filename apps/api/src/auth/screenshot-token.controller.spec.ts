@@ -1,16 +1,19 @@
 /**
- * KS-2303. Тесты `ScreenshotTokenController`.
+ * KS-2303 / KS-2305. Тесты `ScreenshotTokenController`.
  *
  * Покрытие:
  *  1. контроллер-юнит (без guard'а): 200 + JWT с `sub`/`username`,
  *     503 если аккаунта нет, expiresIn = парсенный JWT_EXPIRES_IN;
- *  2. интеграция rate-limit (`RedisRateLimitGuard` + `@RateLimit(10, 60)`):
- *     11-й запрос с того же IP в окне → 429.
+ *  2. KS-2305 — structured-log JSON-формат + Prometheus metric inc;
+ *  3. интеграция rate-limit (`ScreenshotTokenRateLimitGuard` + `@RateLimit(10, 60)`):
+ *     11-й запрос с того же IP в окне → 429 + structured-log
+ *     `outcome=rate_limited`.
  */
 
 import {
   CanActivate,
   INestApplication,
+  Logger,
   ServiceUnavailableException,
   ValidationPipe,
 } from '@nestjs/common';
@@ -19,12 +22,14 @@ import type { ConfigService } from '@nestjs/config';
 import type { JwtService } from '@nestjs/jwt';
 import type { Request } from 'express';
 import request from 'supertest';
-import { ScreenshotTokenController } from './screenshot-token.controller';
-import { PrismaService } from '../prisma/prisma.service';
 import {
-  RedisRateLimitGuard,
-} from '../common/redis-rate-limit.guard';
+  ScreenshotTokenController,
+  ScreenshotTokenRateLimitGuard,
+} from './screenshot-token.controller';
+import { PrismaService } from '../prisma/prisma.service';
+import { RedisRateLimitGuard } from '../common/redis-rate-limit.guard';
 import { RedisService } from '../redis/redis.service';
+import { MetricsService } from '../metrics/metrics.service';
 import { Reflector } from '@nestjs/core';
 import { JwtService as RealJwtService } from '@nestjs/jwt';
 import { ConfigService as RealConfigService } from '@nestjs/config';
@@ -112,6 +117,107 @@ describe('ScreenshotTokenController — KS-2303 (unit)', () => {
     // никаких полей `id`/`userId` в where не должно быть
     expect(call.where).not.toHaveProperty('id');
   });
+
+  // ── KS-2305: structured-log + Prometheus metric ─────────────────
+
+  it('KS-2305: на issued — structured JSON-log + Prometheus inc', async () => {
+    const prisma = makePrisma(SCREENSHOT_USER);
+    const jwt = makeJwt('signed.jwt.value');
+    const metrics = {
+      incScreenshotTokenIssued: jest.fn(),
+    } as unknown as MetricsService;
+    const ctrl = new ScreenshotTokenController(
+      prisma,
+      jwt,
+      makeConfig('15m'),
+      metrics,
+    );
+    const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+
+    const req = {
+      headers: {
+        'user-agent': 'screenshot-tool/2.0',
+        'x-forwarded-for': '203.0.113.42, 10.0.0.1',
+      },
+      ip: '10.0.0.99',
+    } as unknown as Request;
+
+    await ctrl.issueScreenshotToken(req);
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    const message = logSpy.mock.calls[0][0] as string;
+    const parsed = JSON.parse(message);
+    expect(parsed).toMatchObject({
+      event: 'screenshot_token',
+      outcome: 'issued',
+      ip: '203.0.113.42',
+      userAgent: 'screenshot-tool/2.0',
+      userId: SCREENSHOT_USER.id,
+      expiresIn: 900,
+    });
+    // tokenHash — sha256-hex (64 hex chars)
+    expect(typeof parsed.tokenHash).toBe('string');
+    expect(parsed.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+    // raw token never appears in log
+    expect(message).not.toContain('signed.jwt.value');
+
+    // Prometheus inc — с тем же ip
+    expect(metrics.incScreenshotTokenIssued).toHaveBeenCalledTimes(1);
+    expect(metrics.incScreenshotTokenIssued).toHaveBeenCalledWith(
+      '203.0.113.42',
+    );
+
+    logSpy.mockRestore();
+  });
+
+  it('KS-2305: на no_account — structured JSON-warn-log, метрика НЕ инкрементируется', async () => {
+    const prisma = makePrisma(null);
+    const jwt = makeJwt('jwt');
+    const metrics = {
+      incScreenshotTokenIssued: jest.fn(),
+    } as unknown as MetricsService;
+    const ctrl = new ScreenshotTokenController(
+      prisma,
+      jwt,
+      makeConfig('15m'),
+      metrics,
+    );
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+
+    const req = {
+      headers: { 'user-agent': 'screenshot-tool/2.0' },
+      ip: '10.0.0.42',
+    } as unknown as Request;
+
+    await expect(ctrl.issueScreenshotToken(req)).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const parsed = JSON.parse(warnSpy.mock.calls[0][0] as string);
+    expect(parsed).toMatchObject({
+      event: 'screenshot_token',
+      outcome: 'no_account',
+      ip: '10.0.0.42',
+      userAgent: 'screenshot-tool/2.0',
+      username: '__screenshot_agent',
+    });
+
+    expect(metrics.incScreenshotTokenIssued).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it('KS-2305: MetricsService через @Optional — отсутствие сервиса не ломает endpoint', async () => {
+    const prisma = makePrisma(SCREENSHOT_USER);
+    const jwt = makeJwt('jwt');
+    // metrics не передан (Prometheus не подключён в этом миниприложении)
+    const ctrl = new ScreenshotTokenController(prisma, jwt, makeConfig('15m'));
+
+    const result = await ctrl.issueScreenshotToken(makeReq());
+    expect(result.accessToken).toBe('jwt');
+    // Никакого throw'а на отсутствие metrics; контракт выдачи сохраняется.
+  });
 });
 
 // ─── Интеграция: rate-limit guard ────────────────────────────────
@@ -145,17 +251,24 @@ async function buildApp(opts: {
   jwt: JwtService;
   config: ConfigService;
   redis: ReturnType<typeof makeFakeRedis>;
+  metrics?: MetricsService;
 }): Promise<INestApplication> {
+  const providers: Array<unknown> = [
+    { provide: PrismaService, useValue: opts.prisma },
+    { provide: RealJwtService, useValue: opts.jwt },
+    { provide: RealConfigService, useValue: opts.config },
+    { provide: RedisService, useValue: opts.redis },
+    Reflector,
+    RedisRateLimitGuard,
+    ScreenshotTokenRateLimitGuard,
+  ];
+  if (opts.metrics) {
+    providers.push({ provide: MetricsService, useValue: opts.metrics });
+  }
   const moduleRef = await Test.createTestingModule({
     controllers: [ScreenshotTokenController],
-    providers: [
-      { provide: PrismaService, useValue: opts.prisma },
-      { provide: RealJwtService, useValue: opts.jwt },
-      { provide: RealConfigService, useValue: opts.config },
-      { provide: RedisService, useValue: opts.redis },
-      Reflector,
-      RedisRateLimitGuard,
-    ],
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    providers: providers as any,
   }).compile();
 
   const app = moduleRef.createNestApplication();
@@ -171,7 +284,7 @@ describe('ScreenshotTokenController — KS-2303 (rate-limit integration)', () =>
     if (app) await app.close();
   });
 
-  it('11-й запрос с того же IP в окне → 429 (RateLimit 10/60)', async () => {
+  it('11-й запрос с того же IP в окне → 429 + structured-log outcome=rate_limited', async () => {
     const prisma = makePrisma(SCREENSHOT_USER);
     const jwt = makeJwt('signed.jwt.value');
     const config = makeConfig('15m');
@@ -179,10 +292,13 @@ describe('ScreenshotTokenController — KS-2303 (rate-limit integration)', () =>
 
     app = await buildApp({ prisma, jwt, config, redis });
 
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+
     // 10 запросов подряд — должны проходить (200/201).
     for (let i = 1; i <= 10; i++) {
       await request(app.getHttpServer())
         .post('/internal/screenshot-token')
+        .set('X-Forwarded-For', '203.0.113.99')
         .expect((res) => {
           if (res.status >= 400) {
             throw new Error(`request #${i} failed: ${res.status}`);
@@ -192,10 +308,25 @@ describe('ScreenshotTokenController — KS-2303 (rate-limit integration)', () =>
     // 11-й — превысил лимит, 429.
     await request(app.getHttpServer())
       .post('/internal/screenshot-token')
+      .set('X-Forwarded-For', '203.0.113.99')
       .expect(429);
 
     // EXPIRE поставлен ровно один раз (на 1-м запросе в окне).
     expect(redis.expire).toHaveBeenCalledTimes(1);
+
+    // KS-2305: rate-limit guard оставил structured-log с outcome=rate_limited.
+    const rateLimitedCalls = warnSpy.mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => typeof m === 'string' && m.includes('"rate_limited"'));
+    expect(rateLimitedCalls.length).toBeGreaterThanOrEqual(1);
+    const rl = JSON.parse(rateLimitedCalls[0]);
+    expect(rl).toMatchObject({
+      event: 'screenshot_token',
+      outcome: 'rate_limited',
+      ip: '203.0.113.99',
+    });
+
+    warnSpy.mockRestore();
   });
 
   it('503 если аккаунт не provisioned (rate-limit guard пропускает запрос дальше)', async () => {
