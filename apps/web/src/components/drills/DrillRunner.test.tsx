@@ -191,7 +191,8 @@ describe('<DrillRunner> KS-2249', () => {
       <DrillRunner
         loadDrill={loadDrill}
         submitAnswer={submitAnswer}
-        autoNextDelayMs={60_000}
+        autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
       />,
     );
     await waitFor(() =>
@@ -540,7 +541,8 @@ describe('<DrillRunner> KS-2249', () => {
         <DrillRunner
           loadDrill={loadDrill}
           submitAnswer={submitAnswer}
-          autoNextDelayMs={60_000}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
         />,
       );
       await waitFor(() =>
@@ -608,7 +610,8 @@ describe('<DrillRunner> KS-2249', () => {
           loadDrill={loadDrill}
           submitAnswer={submitAnswer}
           // Заморозим feedback на 60s — гарантировано не успеет уйти.
-          autoNextDelayMs={60_000}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
         />,
       );
       await waitFor(() =>
@@ -640,7 +643,8 @@ describe('<DrillRunner> KS-2249', () => {
         <DrillRunner
           loadDrill={loadDrill}
           submitAnswer={submitAnswer}
-          autoNextDelayMs={0}
+          autoNextDelayCorrectMs={0}
+          autoNextDelayIncorrectMs={0}
         />,
       );
       await waitFor(() =>
@@ -667,7 +671,8 @@ describe('<DrillRunner> KS-2249', () => {
         <DrillRunner
           loadDrill={loadDrill}
           submitAnswer={submitAnswer}
-          autoNextDelayMs={0}
+          autoNextDelayCorrectMs={0}
+          autoNextDelayIncorrectMs={0}
         />,
       );
       await waitFor(() =>
@@ -697,7 +702,8 @@ describe('<DrillRunner> KS-2249', () => {
         <DrillRunner
           loadDrill={loadDrill}
           submitAnswer={submitAnswer}
-          autoNextDelayMs={60_000}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
         />,
       );
       await waitFor(() =>
@@ -707,6 +713,135 @@ describe('<DrillRunner> KS-2249', () => {
       );
       await user.click(screen.getByTestId('fire-square-e4'));
       // Должен дойти до loadDrill #2 МГНОВЕННО (не ждём 60с).
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+    });
+
+    // KS-2323: разные delay для правильного / неверного ответа.
+    it('KS-2323: правильный ответ + correct=0 / incorrect=60s → авто-переход МГНОВЕННЫЙ (НЕ ждёт 60с)', async () => {
+      disableReducedMotion();
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true, // правильный
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={0}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      // Правильный → correct delay = 0 → loadDrill #2 сразу.
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+    });
+
+    it('KS-2323: НЕВЕРНЫЙ ответ + correct=60s / incorrect=0 → авто-переход МГНОВЕННЫЙ (по incorrect-delay)', async () => {
+      disableReducedMotion();
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false, // неверный
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={0}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-d4'));
+      // Неверный → incorrect delay = 0 → loadDrill #2 сразу
+      // (correct=60s НЕ влияет, потому что ответ неверный).
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+    });
+
+    it('KS-2323: НЕВЕРНЫЙ ответ + correct=0 / incorrect=60s → застрял в feedback (ждёт incorrect-delay)', async () => {
+      disableReducedMotion();
+      const loadDrill = vi.fn(async () => SQUARE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={0}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-d4'));
+      // Зайдём в feedback и убедимся что НЕ перешли к next за 100мс
+      // (incorrect=60s ещё не истёк, correct=0 не применяется).
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      await new Promise((r) => setTimeout(r, 100));
+      expect(loadDrill).toHaveBeenCalledTimes(1); // только initial
+      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+        'feedback',
+      );
+    });
+
+    it('KS-2323 + reduced-motion: оба delay → 0, неверный тоже мгновенно', async () => {
+      // beforeEach уже вернул reduced=true.
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayCorrectMs={60_000}
+          autoNextDelayIncorrectMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-d4'));
+      // reduced=true → override на 0, переход моментальный, несмотря на 60s.
       await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
     });
 
@@ -726,7 +861,8 @@ describe('<DrillRunner> KS-2249', () => {
           count={1}
           minSolved={1}
           onComplete={onComplete}
-          autoNextDelayMs={0}
+          autoNextDelayCorrectMs={0}
+          autoNextDelayIncorrectMs={0}
         />,
       );
       await waitFor(() =>

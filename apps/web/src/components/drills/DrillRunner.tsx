@@ -59,13 +59,17 @@ import { DrillInstructions } from './DrillInstructions';
  *     <button data-testid="drill-runner-retry">…</button>    // в done + !success или error
  *   </div>
  *
- * # KS-2319 — авто-переход после feedback
+ * # KS-2319 / KS-2323 — авто-переход после feedback
  *
  * Кнопка «Следующее» удалена. Когда `state='feedback'` — `useEffect`
- * запускает `setTimeout(handleNext, autoNextDelayMs)`. Default 1500мс.
- * При `prefers-reduced-motion: reduce` runtime-override на 0
- * (мгновенно). Cleanup на unmount/новом feedback — нет двойного
- * перехода и leak'а таймера.
+ * запускает `setTimeout(handleNext, delay)`:
+ *  - правильный ответ → `autoNextDelayCorrectMs` (default 0, drill
+ *    на скорость);
+ *  - неверный → `autoNextDelayIncorrectMs` (default 1500, время
+ *    рассмотреть подсветку правильного ответа).
+ * При `prefers-reduced-motion: reduce` runtime-override на 0 в обоих
+ * случаях. Cleanup на unmount/новом feedback — нет двойного перехода
+ * и leak'а таймера.
  */
 
 export type DrillRunnerState =
@@ -127,14 +131,18 @@ export interface DrillRunnerProps {
   /** Тестовый testid override (для нескольких runner'ов на странице). */
   testId?: string;
   /**
-   * KS-2319: задержка (мс) между показом feedback и авто-переходом к
-   * следующему drill. По умолчанию `1500` — достаточно чтобы
-   * рассмотреть подсветку правильного ответа. При
-   * `prefers-reduced-motion: reduce` — runtime override на `0`.
-   * Тестам можно явно передать `0` для мгновенного перехода без
-   * fake-timers.
+   * KS-2323: задержка (мс) после ПРАВИЛЬНОГО ответа. Default `0` —
+   * drill на скорость, мгновенный переход. При
+   * `prefers-reduced-motion: reduce` всё равно `0`.
    */
-  autoNextDelayMs?: number;
+  autoNextDelayCorrectMs?: number;
+  /**
+   * KS-2323: задержка (мс) после НЕВЕРНОГО ответа. Default `1500` —
+   * нужно успеть рассмотреть подсветку правильного ответа. При
+   * `prefers-reduced-motion: reduce` runtime override на `0` (юзер
+   * сам контролирует темп через системную настройку).
+   */
+  autoNextDelayIncorrectMs?: number;
 }
 
 /** KS-2319: matchMedia для prefers-reduced-motion. SSR-safe. */
@@ -167,7 +175,8 @@ export function DrillRunner({
   hideProgress = false,
   hideTimer = false,
   testId = 'drill-runner',
-  autoNextDelayMs = 1500,
+  autoNextDelayCorrectMs = 0,
+  autoNextDelayIncorrectMs = 1500,
 }: DrillRunnerProps) {
   const { t } = useTranslation();
 
@@ -295,19 +304,32 @@ export function DrillRunner({
     void fetchNext();
   }, [finishIfDone, fetchNext, attempted, solved]);
 
-  // KS-2319: авто-переход через delay после feedback. Кнопка «Следующее»
-  // удалена. Юзер видит подсветку правильного ответа N мс, потом drill
-  // сам переключается. При prefers-reduced-motion: reduce — delay=0.
-  // При unmount/новом feedback — clearTimeout.
+  // KS-2319 / KS-2323: авто-переход через delay после feedback.
+  // Кнопка «Следующее» удалена.
+  //  - Правильный ответ → delay=autoNextDelayCorrectMs (default 0,
+  //    drill на скорость, мгновенный переход).
+  //  - Неверный ответ → delay=autoNextDelayIncorrectMs (default 1500,
+  //    нужно успеть рассмотреть подсветку правильного ответа).
+  //  - prefers-reduced-motion: reduce → оба override на 0.
+  // При unmount/новом feedback — clearTimeout, без leak'а / двойного перехода.
   useEffect(() => {
-    if (state !== 'feedback') return;
+    if (state !== 'feedback' || !feedback) return;
     const reduced = prefersReducedMotion();
-    const delay = reduced ? 0 : autoNextDelayMs;
+    const baseDelay = feedback.solved
+      ? autoNextDelayCorrectMs
+      : autoNextDelayIncorrectMs;
+    const delay = reduced ? 0 : baseDelay;
     const id = setTimeout(() => {
       handleNext();
     }, Math.max(0, delay));
     return () => clearTimeout(id);
-  }, [state, autoNextDelayMs, handleNext]);
+  }, [
+    state,
+    feedback,
+    autoNextDelayCorrectMs,
+    autoNextDelayIncorrectMs,
+    handleNext,
+  ]);
 
   // ── Click handlers ────────────────────────────────────────────────
   const handleSquareClick = useCallback(
@@ -613,7 +635,7 @@ export function DrillRunner({
       </div>
 
       {/* KS-2319: кнопка «Следующее» удалена — авто-переход через
-          setTimeout(autoNextDelayMs). См. useEffect выше. */}
+          setTimeout с delay по результату. См. useEffect выше. */}
     </div>
   );
 }
