@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import userEvent from '@testing-library/user-event';
 import { fireEvent } from '@testing-library/react';
 
-import { renderWithProviders, screen } from '../../test/test-utils';
+import { renderWithProviders, screen, waitFor } from '../../test/test-utils';
 import { ReviewMoveList } from './ReviewMoveList';
 import type { ChessMove } from '../types';
 
@@ -144,5 +144,127 @@ describe('<ReviewMoveList> KS-2266 — NAG категорийная дедупл
     // Оба NAG (по одному из каждой категории) видны.
     expect(moveEl.textContent).toContain('!');
     expect(moveEl.textContent).toContain('⩲');
+  });
+});
+
+describe('<ReviewMoveList> KS-2283 — интеграция NagPalette / NagPaletteSheet', () => {
+  it('правый клик → монтирует NagPalette (desktop popup) с 14 кнопками + delete', () => {
+    const move = makeMove({ nags: [1] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('review-move-1'));
+    expect(screen.getByTestId('nag-palette')).toBeInTheDocument();
+    // 14 кнопок NAG.
+    [1, 2, 3, 4, 5, 6, 10, 13, 14, 15, 16, 17, 18, 19].forEach((nag) => {
+      expect(screen.getByTestId(`nag-palette-btn-${nag}`)).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('nag-palette-delete')).toBeInTheDocument();
+  });
+
+  it('Esc → закрывает desktop popup', async () => {
+    const move = makeMove({ nags: [] });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('review-move-1'));
+    expect(screen.getByTestId('nag-palette')).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('nag-palette')).not.toBeInTheDocument();
+  });
+
+  it('long-press 500ms → монтирует NagPaletteSheet (mobile bottom-sheet)', async () => {
+    const move = makeMove({ nags: [3] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    const moveEl = screen.getByTestId('review-move-1');
+    fireEvent.touchStart(moveEl, {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    // long-press timer 500ms; ждём чуть дольше реальным setTimeout
+    // (vi.useFakeTimers + React 19 не дружат с handleTouchStart timer).
+    await new Promise((r) => setTimeout(r, 550));
+    await waitFor(() =>
+      expect(screen.getByTestId('nag-palette-sheet')).toBeInTheDocument(),
+    );
+    // Внутри sheet — NagPalette с активным `!!` (nag=3).
+    expect(screen.getByTestId('nag-palette')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('nag-palette-btn-3').className,
+    ).toMatch(/--active/);
+  });
+
+  it('mobile sheet: extraActions — comment / promote / truncate / delete рендерятся под палитрой', async () => {
+    const move = makeMove({ nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+        onSetComment={() => {}}
+        onPromoteVariation={() => {}}
+        onTruncateRemaining={() => {}}
+        onDeleteVariation={() => {}}
+      />,
+    );
+    fireEvent.touchStart(screen.getByTestId('review-move-1'), {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    await new Promise((r) => setTimeout(r, 550));
+    const actions = await screen.findByTestId('nag-palette-sheet-actions');
+    expect(actions.textContent).toMatch(/Add comment/i);
+    expect(actions.textContent).toMatch(/Promote/i);
+    expect(actions.textContent).toMatch(/Truncate/i);
+    expect(actions.textContent).toMatch(/Delete/i);
+  });
+
+  it('read-only (editable=false): правый клик НЕ открывает палитру', () => {
+    const move = makeMove({ nags: [1] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        readOnly
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('review-move-1'));
+    expect(screen.queryByTestId('nag-palette')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
+  });
+
+  it('read-only: long-press НЕ открывает sheet', async () => {
+    const move = makeMove({ nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        readOnly
+      />,
+    );
+    fireEvent.touchStart(screen.getByTestId('review-move-1'), {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    await new Promise((r) => setTimeout(r, 600));
+    expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
   });
 });

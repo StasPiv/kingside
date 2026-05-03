@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { NagPalette, type NagPaletteProps } from './NagPalette';
@@ -37,6 +37,13 @@ export interface NagPaletteSheetProps extends NagPaletteProps {
   open: boolean;
   /** Закрытие (backdrop click / Esc / выбор NAG). */
   onClose: () => void;
+  /**
+   * KS-2283: дополнительные действия (comment / promote / truncate / delete)
+   * под NagPalette в bottom-sheet. Без этого пропа на mobile теряется
+   * остальной context-menu, который раньше был доступен через long-press.
+   * Render как есть, отдельным блоком `.nag-palette-sheet__actions`.
+   */
+  extraActions?: ReactNode;
 }
 
 export function NagPaletteSheet({
@@ -44,6 +51,7 @@ export function NagPaletteSheet({
   onClose,
   nags,
   onChange,
+  extraActions,
 }: NagPaletteSheetProps) {
   const { t } = useTranslation();
 
@@ -85,6 +93,14 @@ export function NagPaletteSheet({
         <div className="nag-palette-sheet__content">
           <NagPalette nags={nags} onChange={onChange} onClose={onClose} />
         </div>
+        {extraActions && (
+          <div
+            className="nag-palette-sheet__actions"
+            data-testid="nag-palette-sheet-actions"
+          >
+            {extraActions}
+          </div>
+        )}
       </div>
     </div>
   );

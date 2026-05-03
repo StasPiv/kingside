@@ -4,7 +4,11 @@ import { ChessMove } from '../types';
 import { nagToSymbol } from '../utils/nagUtils';
 // KS-2266 (ADR-037 §1, §6): категории NAG и `setNagInCategory` —
 // заменяет наивный toggle (push в массив) на replace-within-group.
-import { groupNagsByCategory, setNagInCategory } from '../../utils/nagCategories';
+import { groupNagsByCategory } from '../../utils/nagCategories';
+// KS-2283 (ADR-037 §3, E2-integration): NAG-палитра вместо старой
+// 6-кнопочной NAG-row в context-menu. Десктоп — popup, мобайл — sheet.
+import { NagPalette } from './NagPalette';
+import { NagPaletteSheet } from './NagPaletteSheet';
 import {
   processMoveHierarchy,
   getMoveClasses,
@@ -29,17 +33,16 @@ interface ContextMenuState {
   x: number;
   y: number;
   move: ChessMove | null;
+  /**
+   * KS-2283: режим открытия. `desktop` — popup рядом с курсором (правый
+   * клик), `mobile` — bottom-sheet (`<NagPaletteSheet>`, long-press).
+   */
+  mode: 'desktop' | 'mobile';
 }
 
-/** NAG buttons shown in the context menu annotate section */
-const NAG_BUTTONS: { nag: number; label: string }[] = [
-  { nag: 1, label: '!' },
-  { nag: 3, label: '!!' },
-  { nag: 2, label: '?' },
-  { nag: 4, label: '??' },
-  { nag: 5, label: '!?' },
-  { nag: 6, label: '?!' },
-];
+// KS-2283: NAG_BUTTONS удалены — старая 6-кнопочная NAG-row в context-menu
+// заменена на полноценную палитру `<NagPalette>` (14 NAG + delete) с
+// категорийной дедупликацией (KS-2266 / setNagInCategory).
 
 interface ReviewMoveListProps {
   history: ChessMove[];
@@ -96,6 +99,7 @@ export function ReviewMoveList({
     x: 0,
     y: 0,
     move: null,
+    mode: 'desktop',
   });
   const [commentEditIndex, setCommentEditIndex] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
@@ -144,8 +148,26 @@ export function ReviewMoveList({
   }, [contextMenu.visible, closeContextMenu]);
 
   const showContextMenu = useCallback(
-    (coords: { clientX: number; clientY: number }, move: ChessMove) => {
-      setContextMenu({ visible: true, x: coords.clientX, y: coords.clientY, move });
+    (
+      coords: { clientX: number; clientY: number },
+      move: ChessMove,
+      mode: 'desktop' | 'mobile' = 'desktop',
+    ) => {
+      // KS-2283: clamp X в viewport, чтобы desktop popup (NagPalette)
+      // не уехал за правый край при клике у границы. Высота уходит вверх
+      // через CSS `transform: translateY(-100%)` (как было).
+      const POPUP_WIDTH_HINT = 320;
+      const safeX = Math.min(
+        coords.clientX,
+        Math.max(0, window.innerWidth - POPUP_WIDTH_HINT),
+      );
+      setContextMenu({
+        visible: true,
+        x: safeX,
+        y: coords.clientY,
+        move,
+        mode,
+      });
     },
     [],
   );
@@ -176,7 +198,12 @@ export function ReviewMoveList({
       longPressTimerRef.current = null;
       // Ignore any synthetic click/touchstart events for 700ms after showing the menu
       ignoreCloseUntilRef.current = Date.now() + 700;
-      showContextMenu({ clientX: touch.clientX, clientY: touch.clientY }, move);
+      // KS-2283: long-press на mobile открывает bottom-sheet с NagPalette.
+      showContextMenu(
+        { clientX: touch.clientX, clientY: touch.clientY },
+        move,
+        'mobile',
+      );
     }, 500);
   };
 
@@ -196,16 +223,28 @@ export function ReviewMoveList({
     longPressFiredRef.current = false;
   };
 
-  // KS-2266: внутри одной категории NAG (`quality`: !,?,!!,??,!?,?! /
-  // `positionEval`: =, ∞, ⩲, ⩱, ±, ∓, +−, −+) у хода может быть только
-  // один NAG. setNagInCategory делает replace-within-group и toggle-off
-  // при повторном клике (см. utils/nagCategories.ts).
-  const handleNagToggle = (nag: number) => {
-    if (!contextMenu.move || !onSetNag) return;
-    const move = contextMenu.move;
-    const newNags = setNagInCategory(move.nags ?? [], nag);
-    onSetNag(move.globalIndex, newNags);
-  };
+  // KS-2266 / KS-2283: NagPalette внутри сама вызывает setNagInCategory.
+  // Здесь только мостик `onChange` → `onSetNag(idx, nextNags)`.
+  const handlePaletteChange = useCallback(
+    (nextNags: number[]) => {
+      if (!contextMenu.move || !onSetNag) return;
+      onSetNag(contextMenu.move.globalIndex, nextNags);
+    },
+    [contextMenu.move, onSetNag],
+  );
+
+  // Esc → close. Listener на window только когда меню открыто.
+  useEffect(() => {
+    if (!contextMenu.visible) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeContextMenu();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [contextMenu.visible, closeContextMenu]);
 
   const openCommentEditor = (move: ChessMove) => {
     setCommentEditIndex(move.globalIndex);
@@ -419,88 +458,101 @@ export function ReviewMoveList({
         )}
       </div>
 
-      {contextMenu.visible && contextMenu.move && (
-        <div
-          className="review-context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x, transform: 'translateY(-100%)' }}
-          onClick={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
-        >
-          {/* NAG annotation buttons */}
-          {onSetNag && (
-            <>
-              <div className="review-context-menu__label">
-                {t('review.annotate', 'Annotate')}
-              </div>
-              <div className="review-context-menu__nag-row">
-                {NAG_BUTTONS.map(({ nag, label }) => {
-                  const isActive = contextMenu.move?.nags?.includes(nag) ?? false;
-                  return (
-                    <button
-                      key={nag}
-                      className={`review-nag-btn${isActive ? ' review-nag-btn--active' : ''}`}
-                      data-nag={nag}
-                      onClick={() => handleNagToggle(nag)}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="review-context-menu__divider" />
-            </>
-          )}
-
-          {/* Comment button */}
-          {onSetComment && (
-            <>
+      {contextMenu.visible && contextMenu.move && (() => {
+        // KS-2283: общий блок actions (comment / promote / truncate / delete)
+        // используется и в desktop popup, и в mobile sheet (через extraActions).
+        const moveForActions = contextMenu.move;
+        const actions = (
+          <>
+            {onSetComment && (
+              <>
+                <button
+                  type="button"
+                  className="review-context-menu__item"
+                  onClick={() => openCommentEditor(moveForActions)}
+                >
+                  {moveForActions.comment
+                    ? t('review.editComment', '✎ Edit comment')
+                    : t('review.addComment', '+ Add comment')}
+                </button>
+                <div className="review-context-menu__divider" />
+              </>
+            )}
+            {onPromoteVariation && (
               <button
+                type="button"
                 className="review-context-menu__item"
-                onClick={() => openCommentEditor(contextMenu.move!)}
+                onClick={() => {
+                  onPromoteVariation(moveForActions);
+                  closeContextMenu();
+                }}
               >
-                {contextMenu.move.comment
-                  ? t('review.editComment', '✎ Edit comment')
-                  : t('review.addComment', '+ Add comment')}
+                ↑ {t('review.promote', 'Promote')}
               </button>
-              <div className="review-context-menu__divider" />
-            </>
-          )}
+            )}
+            {onTruncateRemaining && (
+              <button
+                type="button"
+                className="review-context-menu__item"
+                onClick={() => {
+                  onTruncateRemaining(moveForActions);
+                  closeContextMenu();
+                }}
+              >
+                ] {t('review.truncate', 'Truncate')}
+              </button>
+            )}
+            {onDeleteVariation && (
+              <button
+                type="button"
+                className="review-context-menu__item review-context-menu__item--danger"
+                onClick={() => {
+                  onDeleteVariation(moveForActions);
+                  closeContextMenu();
+                }}
+              >
+                ✕ {t('review.delete', 'Delete')}
+              </button>
+            )}
+          </>
+        );
 
-          {onPromoteVariation && (
-            <button
-              className="review-context-menu__item"
-              onClick={() => {
-                onPromoteVariation(contextMenu.move!);
-                closeContextMenu();
-              }}
-            >
-              ↑ {t('review.promote', 'Promote')}
-            </button>
-          )}
-          {onTruncateRemaining && (
-            <button
-              className="review-context-menu__item"
-              onClick={() => {
-                onTruncateRemaining(contextMenu.move!);
-                closeContextMenu();
-              }}
-            >
-              ] {t('review.truncate', 'Truncate')}
-            </button>
-          )}
-          {onDeleteVariation && (
-            <button
-              className="review-context-menu__item review-context-menu__item--danger"
-              onClick={() => {
-                onDeleteVariation(contextMenu.move!);
-                closeContextMenu();
-              }}
-            >
-              ✕ {t('review.delete', 'Delete')}
-            </button>
-          )}
-        </div>
-      )}
+        // KS-2283: mobile (long-press) → bottom-sheet с NagPalette + actions.
+        if (contextMenu.mode === 'mobile') {
+          return (
+            <NagPaletteSheet
+              open
+              nags={moveForActions.nags ?? []}
+              onChange={handlePaletteChange}
+              onClose={closeContextMenu}
+              extraActions={actions}
+            />
+          );
+        }
+
+        // Desktop (right-click) → popup рядом с курсором. NagPalette сверху,
+        // actions снизу (если они есть).
+        return (
+          <div
+            className="review-context-menu"
+            style={{ top: contextMenu.y, left: contextMenu.x, transform: 'translateY(-100%)' }}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            {onSetNag && (
+              <>
+                <NagPalette
+                  nags={moveForActions.nags ?? []}
+                  onChange={handlePaletteChange}
+                  onClose={closeContextMenu}
+                />
+                <div className="review-context-menu__divider" />
+              </>
+            )}
+            {actions}
+          </div>
+        );
+      })()}
     </div>
   );
 }
