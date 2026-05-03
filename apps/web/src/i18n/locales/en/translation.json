@@ -581,8 +581,8 @@
       "variationColor": {
         "title": "Variation color",
         "green": "Good line",
-        "blue": "Interesting line",
-        "yellow": "Questionable line",
+        "blue": "Main alternative",
+        "yellow": "Critical line",
         "red": "Bad line",
         "clear": "Clear color"
       }

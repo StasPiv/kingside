@@ -163,18 +163,20 @@ describe('<NagPalette> KS-2271 — i18n tooltips и group-labels', () => {
  * а не дословные цвета. Если design-doc §13.7 предписывает другую
  * формулировку — координатор пришлёт diff (как было в KS-2271).
  */
+// KS-2293: формулировки приведены к design-doc §13.7
+// (утверждено архитектором).
 const VARIATION_COLOR_EN: Record<string, string> = {
   green: 'Good line',
-  blue: 'Interesting line',
-  yellow: 'Questionable line',
+  blue: 'Main alternative',
+  yellow: 'Critical line',
   red: 'Bad line',
 };
 
 const VARIATION_COLOR_RU: Record<string, string> = {
-  green: 'Хорошая линия',
-  blue: 'Интересная линия',
-  yellow: 'Сомнительная линия',
-  red: 'Плохая линия',
+  green: 'Хороший вариант',
+  blue: 'Главная альтернатива',
+  yellow: 'Критический вариант',
+  red: 'Плохой вариант',
 };
 
 describe('<NagPalette> KS-2293 — i18n Variation color (review.palette.*)', () => {
@@ -219,7 +221,7 @@ describe('<NagPalette> KS-2293 — i18n Variation color (review.palette.*)', () 
     }
     expect(
       getByTestId('nag-palette-variation-color-clear').textContent,
-    ).toBe('Снять цвет');
+    ).toBe('Сбросить цвет');
   });
 
   it('snapshot en — секция Variation color в палитре', () => {

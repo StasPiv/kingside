@@ -681,21 +681,21 @@ exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snap
         type="button"
       />
       <button
-        aria-label="Interesting line"
+        aria-label="Main alternative"
         aria-pressed="false"
         class="nag-palette__variation-swatch nag-palette__variation-swatch--blue"
         data-color="blue"
         data-testid="nag-palette-variation-color-blue"
-        title="Interesting line"
+        title="Main alternative"
         type="button"
       />
       <button
-        aria-label="Questionable line"
+        aria-label="Critical line"
         aria-pressed="false"
         class="nag-palette__variation-swatch nag-palette__variation-swatch--yellow"
         data-color="yellow"
         data-testid="nag-palette-variation-color-yellow"
-        title="Questionable line"
+        title="Critical line"
         type="button"
       />
       <button
@@ -955,39 +955,39 @@ exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snap
       class="nag-palette__variation-swatches"
     >
       <button
-        aria-label="Хорошая линия"
+        aria-label="Хороший вариант"
         aria-pressed="true"
         class="nag-palette__variation-swatch nag-palette__variation-swatch--green nag-palette__variation-swatch--active"
         data-color="green"
         data-testid="nag-palette-variation-color-green"
-        title="Хорошая линия"
+        title="Хороший вариант"
         type="button"
       />
       <button
-        aria-label="Интересная линия"
+        aria-label="Главная альтернатива"
         aria-pressed="false"
         class="nag-palette__variation-swatch nag-palette__variation-swatch--blue"
         data-color="blue"
         data-testid="nag-palette-variation-color-blue"
-        title="Интересная линия"
+        title="Главная альтернатива"
         type="button"
       />
       <button
-        aria-label="Сомнительная линия"
+        aria-label="Критический вариант"
         aria-pressed="false"
         class="nag-palette__variation-swatch nag-palette__variation-swatch--yellow"
         data-color="yellow"
         data-testid="nag-palette-variation-color-yellow"
-        title="Сомнительная линия"
+        title="Критический вариант"
         type="button"
       />
       <button
-        aria-label="Плохая линия"
+        aria-label="Плохой вариант"
         aria-pressed="false"
         class="nag-palette__variation-swatch nag-palette__variation-swatch--red"
         data-color="red"
         data-testid="nag-palette-variation-color-red"
-        title="Плохая линия"
+        title="Плохой вариант"
         type="button"
       />
       <button
@@ -995,7 +995,7 @@ exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snap
         data-testid="nag-palette-variation-color-clear"
         type="button"
       >
-        Снять цвет
+        Сбросить цвет
       </button>
     </div>
   </div>
