@@ -524,11 +524,335 @@ CSS-задача получает:
 ## 12. Ссылки и зависимости
 
 - ADR-037, разделы §3 (UX), §4 (variants), §6 (architecture).
+- ADR-038, разделы §2 (UX), §3 (палитра), §6 (архитектура) — для секции «Variation color» (§13 ниже).
 - `apps/web/src/review/components/ReviewMoveList.tsx` — текущий context-menu, основа для миграции.
 - `apps/web/src/review/components/ReviewMoveList.css:270-355` — стили текущей NAG-секции, переиспользуются.
 - `apps/web/src/review/utils/nagUtils.ts` — `nagToSymbol()`, source of truth для unicode.
 - `apps/web/src/review/utils/nagCategories.ts` — будет создан в KS-2267 (KS-NAG-DEDUP). Frontend зависит от готовности.
+- `apps/web/src/review/utils/commentMacros.ts` — будет расширен `[%cvc X]` парсером в KS-VC-PGN.
 
 ---
 
-**Готовность:** документ готов к раздаче в KS-2269 / KS-2270 / KS-2271 как спецификация.
+## 13. Секция «Variation color» (KS-2290 / KS-VC-PALETTE-DESIGN)
+
+Дополнение к палитре, спроектированное в ADR-038. Не перепутайте с автоматической раскраской по уровню (KS-2273/74/75) — это **ручной override** поверх неё.
+
+### 13.1 Условие отображения
+
+Секция «Variation color» рендерится в палитре **только если** ход является вариантом:
+
+```ts
+const isVariation = processedMove.isVariation === true;
+// в render:
+{isVariation && <VariationColorSection ... />}
+```
+
+Для main-line ходов (`isVariation === false`) — секция не рендерится. Это даёт чистый UI без бессмысленных контролов.
+
+В read-only режиме (`<NagPalette readOnly>` или `editable === false`) секция не рендерится в любом случае — как и весь интерактив палитры (см. §5.3).
+
+### 13.2 Wireframe desktop popup (обновлённый — добавляется секция VC)
+
+```
+                                               ▲ click anchor
+┌──────────────────────────────────────────────────┐
+│  ANNOTATE                                  [×]   │
+│                                                  │
+│  Quality                                         │
+│  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐    ⟲ Clear     │
+│  │ !│ │!!│ │!?│ │?!│ │ ?│ │??│                  │
+│  └──┘ └──┘ └──┘ └──┘ └──┘ └──┘                  │
+│                                                  │
+│  Position                                        │
+│  ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐ ┌──┐  ⟲     │
+│  │+−│ │ ±│ │ ⩲│ │ =│ │ ∞│ │ ⩱│ │ ∓│ │−+│       │
+│  └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘ └──┘        │
+│                                                  │
+│  ── появляется только если ход внутри варианта ──│
+│  Variation color                                 │
+│  ●G  ●B  ●Y  ●R          ⟲ Clear                │  ← swatches 28×28
+│                                                  │
+│  ────────────────────────────────────────────    │
+│                                                  │
+│  + Add comment                                   │
+│  ↑ Promote   ] Truncate   ✕ Delete variation    │
+└──────────────────────────────────────────────────┘
+   Width: те же ~340 px (без увеличения).
+```
+
+Высота popup'а растёт на ~52 px (label 16 px + row 28 px + spacing 8 px) когда секция видна. Это укладывается в max-height vh, не требует scroll.
+
+### 13.3 Wireframe mobile bottom-sheet (обновлённый)
+
+```
+   ┌─────────────────────────────────────┐
+   │ ┌─────────────────────────────────┐ │
+   │ │           ▬▬▬▬▬▬                │ │
+   │ │  Annotate move                  │ │
+   │ │                                 │ │
+   │ │  Quality                        │ │
+   │ │  [! ] [!!] [!?] [?!]            │ │
+   │ │  [? ] [??]      [⟲ Clear]       │ │
+   │ │                                 │ │
+   │ │  Position                       │ │
+   │ │  [+−][ ±][ ⩲][ =]               │ │
+   │ │  [ ∞][ ⩱][ ∓][−+]    [⟲]        │ │
+   │ │                                 │ │
+   │ │  ── только в варианте ──────    │ │
+   │ │  Variation color                │ │
+   │ │  ┌────┐┌────┐┌────┐┌────┐       │ │
+   │ │  │ ● G││ ● B││ ● Y││ ● R│       │ │  ← swatches 48×48
+   │ │  └────┘└────┘└────┘└────┘       │ │
+   │ │                  [⟲ Clear]      │ │
+   │ │                                 │ │
+   │ │  ─────────────────────────────  │ │
+   │ │                                 │ │
+   │ │  + Add comment                  │ │
+   │ │  ↑ Promote   ] Truncate         │ │
+   │ │  ✕ Delete variation             │ │
+   │ │                                 │ │
+   │ │            [    Done    ]       │ │
+   │ └─────────────────────────────────┘ │
+   └─────────────────────────────────────┘
+```
+
+Высота sheet растёт на ~80 px (label 20 px + row 56 px + spacing). Если viewport < 700 px и sheet касается max-height 60vh — включается scroll внутри sheet (overflow-y: auto на корневом контейнере, ниже drag-handle).
+
+### 13.4 Swatch-кнопки
+
+| Аспект | Desktop | Mobile |
+|---|---|---|
+| Размер | 28×28 px | 48×48 px (touch ≥ 44 px) |
+| Форма | `border-radius: 50%` (круг) | то же |
+| Inner color | заливка цветом из §13.5 | то же |
+| Idle border | `1px solid var(--c-444)` | `1.5px solid var(--c-444)` |
+| Hover border | `1px solid var(--c-666)` | nope (нет hover на touch) |
+| Active border | `2px solid var(--c-vc-{color})` (тот же цвет, что заливка, но 2px толщины) | `2.5px solid` |
+| Active inner | заливка не меняется, но снаружи — тонкий glow `0 0 0 2px var(--c-vc-{color})` через box-shadow с opacity 0.3 | то же |
+| Tap-feedback | blink-фон 80 ms (см. §11 пункт 2 — общий для всей палитры) | то же |
+
+Внутри swatch — **никакого текста**. Узнаваемость через цвет + tooltip. Подпись `G`/`B`/`Y`/`R` в wireframe выше — **только для документации**, в UI её нет.
+
+### 13.5 Цветовые токены (для KS-VC-CSS)
+
+```css
+:root {
+  --c-vc-green:  #16a34a;
+  --c-vc-blue:   #2563eb;
+  --c-vc-yellow: #eab308;
+  --c-vc-red:    #dc2626;
+}
+
+html[data-theme="light"] {
+  --c-vc-green:  #15803d;
+  --c-vc-blue:   #1d4ed8;
+  --c-vc-yellow: #ca8a04;
+  --c-vc-red:    #b91c1c;
+}
+```
+
+Source of truth — ADR-038 §3.2. Layout не должен трогать эти hex'ы без согласования (они выровнены с контрастностью WCAG AA, см. ADR-038 §3.4).
+
+### 13.6 Layout кнопок в строке
+
+**Desktop** (5 элементов в строке):
+```
+[swatch G] [swatch B] [swatch Y] [swatch R]   [⟲ Clear]
+   28×28      28×28      28×28      28×28        28×28 (no fill)
+```
+- Зазор между swatches: 8 px (больше, чем у NAG, потому что круги визуально слипаются если 4 px).
+- `⟲ Clear` отделяется flex-spacing'ом (`margin-left: auto` или `gap` с явным spacer'ом).
+- padding группы: `4 px 10 px 6 px` (как остальные секции).
+
+**Mobile** (4 swatches в строке + Clear под/справа):
+```
+┌────┐┌────┐┌────┐┌────┐
+│ G  ││ B  ││ Y  ││ R  │      [⟲ Clear]
+└────┘└────┘└────┘└────┘
+```
+- Зазор между swatches: 12 px.
+- `⟲ Clear` — отдельной строкой справа (как у Position, см. §3.2). На mobile clear-кнопка имеет touch-target ≥ 44 px (можно круглая 48×48 без fill, либо «pill» 80×44).
+
+### 13.7 Tooltip-строки RU/EN (финальные)
+
+Source: ADR-038 §3.1. Все ≤ 24 символа, единый стиль (существительное «вариант» в RU; ноун-фраза в EN).
+
+| Letter | Color CSS-токен | EN tooltip | RU tooltip |
+|---|---|---|---|
+| G | `--c-vc-green`  | Good line             | Хороший вариант    |
+| B | `--c-vc-blue`   | Main alternative      | Главная альтернатива |
+| Y | `--c-vc-yellow` | Critical line         | Критический вариант |
+| R | `--c-vc-red`    | Bad line              | Плохой вариант     |
+| — | (clear)         | Clear color           | Сбросить цвет      |
+
+Дополнительные строки:
+- Section title: `Variation color` / `Цвет варианта` (≤14 символов)
+
+### 13.8 i18n-ключи (для KS-VC-I18N)
+
+Структура в `apps/web/src/locales/{en,ru}/translation.json`, расширяет `review.palette.*`:
+
+```json
+{
+  "review": {
+    "palette": {
+      "...existing NAG keys...": "...",
+      "variationColor": {
+        "title": "Variation color" / "Цвет варианта",
+        "clear": "Clear color" / "Сбросить цвет",
+        "color": {
+          "green":  { "en": "Good line",        "ru": "Хороший вариант" },
+          "blue":   { "en": "Main alternative", "ru": "Главная альтернатива" },
+          "yellow": { "en": "Critical line",    "ru": "Критический вариант" },
+          "red":    { "en": "Bad line",         "ru": "Плохой вариант" }
+        }
+      }
+    }
+  }
+}
+```
+
+В реальной flat-структуре i18next: `review.palette.variationColor.color.green` → «Good line» в `en/translation.json`, «Хороший вариант» в `ru/translation.json`. Ключ `review.palette.variationColor.clear` — для кнопки Clear.
+
+### 13.9 Состояния (active / idle / disabled)
+
+| Состояние | Когда | Стиль |
+|---|---|---|
+| Idle | вариант не имеет color, либо у него другой color | заливка = цвет; border `1px var(--c-444)`; opacity 1 |
+| Hover (desktop) | курсор над swatch'ем | border → `var(--c-666)`; курсор `pointer` |
+| Active (нажат) | `move.variationColor === <thisColor>` (lookup идёт через variation-root, см. §13.13) | border 2px цвета swatch'а + box-shadow glow; **никакого изменения заливки** — она и так этого цвета |
+| Pressing (между mousedown и mouseup) | tap-feedback | brightness(1.2) на 80 ms |
+| Disabled | n/a — секция вообще не отображается, если ход не вариант | — |
+
+Кнопка `⟲ Clear`:
+- видна **только** если у текущего варианта есть `variationColor` (иначе пустое место, как у NAG-clear);
+- никакой active-состояния — это action-button.
+
+### 13.10 Поведение клика
+
+**Принцип:** «replace, не append» — как и у NAG quality/position.
+
+- variation без цвета → клик `G` → ставит `green`.
+- variation с `green` → клик `B` → **заменяет** на `blue` (внутренний reducer вызов: `setVariationColor(variationRoot, 'blue')`).
+- variation с `green` → повторный клик `G` → **удаляет** (toggle off, эквивалент Clear).
+- клик `⟲ Clear` → удаляет цвет, fallback к auto-coloring по уровню.
+
+Между сессиями (после reload страницы) состояние восстанавливается из PGN comment macro `[%cvc <letter>]` (см. ADR-038 §4.1, §6.2).
+
+### 13.11 Hotkey раскладка (для KS-VC-HOTKEYS / E4)
+
+**Эта секция — задел на E4, не обязательна для KS-VC-COMPONENT.** Frontend в KS-VC-COMPONENT может реализовать как stub или пропустить.
+
+#### Открытие палитры (если фокус на notation panel)
+
+| Key | Action |
+|-----|--------|
+| `V` | открыть палитру для текущего хода и автоматически сфокусировать секцию Variation color (если ход — variation) |
+| `Esc` | закрыть открытую палитру |
+
+Если текущий ход — main-line (не variation), `V` всё равно открывает палитру, но секция Variation color не отображается → focus уходит на первую видимую кнопку (Quality).
+
+#### Внутри палитры (если открыта на ход варианта)
+
+| Key | VariationColor |
+|-----|----------------|
+| `1` | green  |
+| `2` | blue   |
+| `3` | yellow |
+| `4` | red    |
+| `0` или `Backspace` | clear |
+
+Раскладка **изолированная** — конфликтует с NAG-hotkey'ями (`1..9`) только если они активны одновременно. Решение:
+- Если палитра в режиме «фокус на Variation color» (после `V`) — `1..4` маппятся на цвета.
+- Если палитра в режиме «фокус на Quality/Position» (после `A`, см. §6) — `1..9` маппятся на NAG.
+- Переключение фокуса: `Tab` циклически по секциям (Quality → Position → Variation color → Comment → Promote → Truncate → Delete → loop).
+
+Это **не финальная** раскладка — frontend на E4 может предложить альтернативу. Главное условие: hotkey не конфликтует с move-navigation (`←`/`→`, `Home`/`End`).
+
+### 13.12 Сигнатура компонента (для KS-VC-COMPONENT)
+
+Дополнение к `NagPaletteProps` из §7:
+
+```tsx
+interface NagPaletteProps {
+  // ...existing fields from §7...
+
+  /** KS-2284: текущий цвет варианта (если ход — variation и цвет задан). Lookup через variation-root, см. §13.13. */
+  currentVariationColor?: VariationColor;
+
+  /**
+   * KS-2284: колбэк на установку цвета варианта.
+   * `color: null` — clear (toggle off, fallback к auto-coloring).
+   * Если ход — main-line, родитель не должен передавать этот колбэк
+   * (или внутри palette условный рендер всё равно скроет секцию).
+   */
+  onSetVariationColor?: (color: VariationColor | null) => void;
+
+  /** KS-2284: ход — внутри варианта (для условного рендера секции). */
+  isVariation?: boolean;
+}
+```
+
+Родитель (контейнер `ReviewMoveList`) до открытия палитры:
+1. Вычисляет `variationRoot` для `move` (helper `findVariationRoot(move)`, см. §13.13).
+2. Если `variationRoot !== null` — `isVariation = true`, `currentVariationColor = variationRoot.variationColor`.
+3. `onSetVariationColor = (color) => dispatch SET_VARIATION_COLOR(variationRoot.globalIndex, color)`.
+
+### 13.13 Variation root lookup (helper)
+
+Frontend (KS-VC-COMPONENT) должен реализовать helper:
+
+```ts
+/**
+ * Найти первый ход variation, к которой принадлежит данный ход.
+ * Возвращает null, если ход — main-line.
+ *
+ * Алгоритм: подняться по `previous` до момента, когда parent.variation
+ * включает текущий ход как FIRST element. Это и есть variation root.
+ */
+function findVariationRoot(move: ChessMove): ChessMove | null {
+  // ...
+}
+```
+
+Точная реализация — на стороне frontend (зависит от того, как именно `processMoveHierarchy` строит variation-tree). Юнит-тестами покрыть 3 уровня вложенности.
+
+`useReviewState` action `SET_VARIATION_COLOR` принимает `globalIndex` именно variation-root'а — frontend ответственен передать правильный.
+
+### 13.14 Чек-лист для Layout (KS-VC-CSS / расширяет §8)
+
+- [ ] CSS-токены `--c-vc-{green,blue,yellow,red}` в `index.css` (dark + light) — см. §13.5
+- [ ] Стили swatch-кнопок (28×28 desktop, 48×48 mobile) — см. §13.4
+- [ ] Active-state с border 2px и box-shadow glow
+- [ ] Layout строки swatches (8 px gap desktop, 12 px gap mobile)
+- [ ] Кнопка `⟲ Clear` — переиспользует существующий стиль из NAG-секций (`.review-palette__clear-btn` или аналог)
+- [ ] Section title `.review-palette__group-label` — переиспользуется (см. §3.4)
+- [ ] Адаптивность: на mobile при viewport <700 px — sheet включает scroll внутри
+- [ ] Контрастность WCAG AA для всех 4 цветов в обеих темах
+
+### 13.15 Чек-лист для Frontend (KS-VC-COMPONENT / расширяет §9)
+
+- [ ] Helper `findVariationRoot(move)` (§13.13) — `apps/web/src/review/utils/variationRoot.ts` (или подобное)
+- [ ] Расширение `<NagPalette>` props согласно §13.12
+- [ ] Условный рендер секции (§13.1)
+- [ ] Active-state lookup: `currentVariationColor === thisSwatchColor`
+- [ ] Toggle / replace / clear логика (§13.10) — в обработчике onClick swatch'а
+- [ ] Юнит-тесты на `findVariationRoot` (3 уровня nesting)
+- [ ] Юнит-тест: палитра не показывает секцию для main-line move
+
+### 13.16 Чек-лист для i18n (KS-VC-I18N / расширяет §10)
+
+- [ ] Добавить ключи из §13.8 в `apps/web/src/locales/en/translation.json`
+- [ ] Добавить ключи из §13.8 в `apps/web/src/locales/ru/translation.json`
+- [ ] Section title и Clear-tooltip переведены
+- [ ] Все 4 цвета имеют tooltip в обоих языках
+
+### 13.17 Открытые вопросы (для frontend / layout, не блокируют)
+
+1. **Анимация active-state** — должно ли появление glow быть плавным (200 ms transition) или мгновенным. Решение на layout (KS-VC-CSS).
+2. **Color-blind mode** — symbol-prefix вместо цвета. Отложено в v2 (см. ADR-038 §3.4).
+3. **Lookup variation-root оптимизация** — для глубоких variation trees может стать slow. Кэш на уровне `processMoveHierarchy`. Решение на frontend (KS-VC-COMPONENT) если профайлер покажет hotpath.
+
+---
+
+**Готовность:** документ готов к раздаче в KS-2269 / KS-2270 / KS-2271 (NAG-палитра) и KS-VC-COMPONENT / KS-VC-CSS-PALETTE / KS-VC-I18N (Variation color) как единая спецификация.
