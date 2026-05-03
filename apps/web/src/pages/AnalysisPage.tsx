@@ -185,6 +185,8 @@ export function AnalysisPage() {
     loadMoves, loadFromPgn, setInitialFen, gotoMove, gotoFirst, gotoLast,
     gotoPrevious, gotoNext, makeVariantMove, removeVariation,
     truncateRemaining, promoteVariation, setNag, setComment,
+    // KS-2287 (ADR-038): variation-color через reducer.
+    setVariationColor,
     // KS-2152
     currentAnnotations, initialAnnotations, annotationsByIndex, setAnnotationsForCurrent,
   } = useReviewState();
@@ -1531,6 +1533,8 @@ export function AnalysisPage() {
                 onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
                 onSetNag={setNag}
                 onSetComment={setComment}
+                // KS-2300 (ADR-038): variation-color через reducer.
+                onSetVariationColor={setVariationColor}
               />
             </div>
           )}
@@ -1610,6 +1614,8 @@ export function AnalysisPage() {
                   // mobile молча терял ввод.
                   onSetNag={setNag}
                   onSetComment={setComment}
+                  // KS-2300 (ADR-038): variation-color через reducer.
+                  onSetVariationColor={setVariationColor}
                 />
               </div>
             </div>
