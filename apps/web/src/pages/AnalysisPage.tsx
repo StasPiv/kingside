@@ -1601,6 +1601,15 @@ export function AnalysisPage() {
                   onPromoteVariation={(move) => promoteVariation(move as ChessMove)}
                   onDeleteVariation={(move) => removeVariation(move as ChessMove)}
                   onTruncateRemaining={(move) => truncateRemaining(move as ChessMove)}
+                  // KS-2297: на mobile эти колбэки тоже нужны, иначе
+                  // long-press открывает NagPaletteSheet, но клик по
+                  // NAG не доходит до reducer (handlePaletteChange
+                  // падает на `!onSetNag` guard) — символ NAG не
+                  // появляется в нотации. В desktop ReviewMoveList
+                  // (выше) колбэки уже были — отсюда desktop работал,
+                  // mobile молча терял ввод.
+                  onSetNag={setNag}
+                  onSetComment={setComment}
                 />
               </div>
             </div>

@@ -123,6 +123,17 @@ function ReviewMoveListDemo() {
     { ...makeDemoMove(2, 'e5'), nags: [14] },
   ];
 
+  // KS-2297 (regression-target): этот инстанс ИМЕЕТ редактирующие
+  // колбэки (promote/delete/truncate) — `editable=true`, long-press
+  // открывает context-menu, — но не имеет `onSetNag`. До фикса
+  // KS-2297 sheet рендерился с NagPalette, клик по NAG молча
+  // терялся. Теперь NagPaletteSheet НЕ рендерится без onSetNag,
+  // вместо него появляется простой actions-popup.
+  const noNagMoves: ChessMove[] = [
+    makeDemoMove(1, 'e4'),
+    makeDemoMove(2, 'e5'),
+  ];
+
   return (
     <div
       style={{
@@ -148,6 +159,26 @@ function ReviewMoveListDemo() {
           currentGlobalIndex={1}
           onMoveClick={() => {}}
           onSetNag={handleSetNag}
+        />
+      </div>
+      <div
+        data-testid="review-move-list-demo-no-nag"
+        style={{
+          border: '1px solid var(--c-border, #444)',
+          borderRadius: 8,
+          padding: 12,
+        }}
+      >
+        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+          KS-2297: editable БЕЗ onSetNag → sheet НЕ открывается, fallback на actions-popup
+        </div>
+        <ReviewMoveList
+          history={noNagMoves}
+          currentGlobalIndex={1}
+          onMoveClick={() => {}}
+          onPromoteVariation={() => {}}
+          onDeleteVariation={() => {}}
+          onTruncateRemaining={() => {}}
         />
       </div>
       <div

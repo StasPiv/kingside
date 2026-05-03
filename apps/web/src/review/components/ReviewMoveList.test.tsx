@@ -454,3 +454,61 @@ describe('<ReviewMoveList> KS-2282 — hotkey A для открытия пали
     expect(screen.getAllByTestId('nag-palette').length).toBe(1);
   });
 });
+
+describe('<ReviewMoveList> KS-2297 — mobile sheet без onSetNag (regression)', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+  });
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 0 });
+  });
+
+  it('mobile + editable=true (promote/delete/truncate) БЕЗ onSetNag → sheet НЕ открывается, fallback на actions-popup', async () => {
+    const move = makeMove({ globalIndex: 1, nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onPromoteVariation={() => {}}
+        onDeleteVariation={() => {}}
+        onTruncateRemaining={() => {}}
+      />,
+    );
+    fireEvent.touchStart(screen.getByTestId('review-move-1'), {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    await new Promise((r) => setTimeout(r, 550));
+    // KS-2297: NagPaletteSheet НЕ должен появиться (нет onSetNag — клики
+    // по NAG-кнопкам всё равно были бы no-op).
+    expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('nag-palette')).not.toBeInTheDocument();
+    // Но fallback popup с actions появляется (промоут/удалить — рабочие).
+    expect(document.querySelector('.review-context-menu')).not.toBeNull();
+  });
+
+  it('mobile + onSetNag=fn → sheet открывается, click по NAG доходит до onSetNag (regression-fix)', async () => {
+    const onSetNag = vi.fn();
+    const move = makeMove({ globalIndex: 1, nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onPromoteVariation={() => {}}
+        onSetNag={onSetNag}
+      />,
+    );
+    fireEvent.touchStart(screen.getByTestId('review-move-1'), {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    await new Promise((r) => setTimeout(r, 550));
+    expect(screen.getByTestId('nag-palette-sheet')).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId('nag-palette-btn-3'));
+    expect(onSetNag).toHaveBeenCalledWith(1, [3]);
+  });
+});

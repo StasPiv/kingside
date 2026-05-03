@@ -616,21 +616,43 @@ export function ReviewMoveList({
         );
 
         // KS-2283: mobile (long-press) → bottom-sheet с NagPalette + actions.
+        // KS-2297: рендерим Sheet с NagPalette ТОЛЬКО если хост передал
+        // onSetNag — иначе клики по NAG-кнопкам потеряются (handler
+        // молча no-op'нет, см. handlePaletteChange guard). Регрессия из
+        // KS-2278 (mobile-mode переключение): AnalysisPage (mobile)
+        // не передавал onSetNag, sheet открывался, но NAG в нотации
+        // не появлялся. Если onSetNag нет, но есть actions — рендерим
+        // простой context-menu (как desktop без NagPalette).
         if (contextMenu.mode === 'mobile') {
+          if (onSetNag) {
+            return (
+              <NagPaletteSheet
+                open
+                nags={moveForActions.nags ?? []}
+                onChange={handlePaletteChange}
+                onClose={closeContextMenu}
+                extraActions={actions}
+                // KS-2291: variation-color секция (видна только в варианте).
+                isVariation={isVariationContext}
+                currentVariationColor={currentVariationColor}
+                onSetVariationColor={
+                  onSetVariationColor ? handlePaletteVariationColor : undefined
+                }
+              />
+            );
+          }
+          // Mobile без onSetNag — fallback на тот же popup, что desktop,
+          // но позиционируется по тем же координатам long-press (CSS
+          // layout сам решит «выглядеть как sheet или нет»).
           return (
-            <NagPaletteSheet
-              open
-              nags={moveForActions.nags ?? []}
-              onChange={handlePaletteChange}
-              onClose={closeContextMenu}
-              extraActions={actions}
-              // KS-2291: variation-color секция (видна только в варианте).
-              isVariation={isVariationContext}
-              currentVariationColor={currentVariationColor}
-              onSetVariationColor={
-                onSetVariationColor ? handlePaletteVariationColor : undefined
-              }
-            />
+            <div
+              className="review-context-menu"
+              style={{ top: contextMenu.y, left: contextMenu.x, transform: 'translateY(-100%)' }}
+              onClick={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              {actions}
+            </div>
           );
         }
 
