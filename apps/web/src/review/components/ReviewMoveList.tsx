@@ -2,6 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChessMove } from '../types';
 import { nagToSymbol } from '../utils/nagUtils';
+// KS-2266 (ADR-037 §1, §6): категории NAG и `setNagInCategory` —
+// заменяет наивный toggle (push в массив) на replace-within-group.
+import { groupNagsByCategory, setNagInCategory } from '../../utils/nagCategories';
 import {
   processMoveHierarchy,
   getMoveClasses,
@@ -193,14 +196,14 @@ export function ReviewMoveList({
     longPressFiredRef.current = false;
   };
 
+  // KS-2266: внутри одной категории NAG (`quality`: !,?,!!,??,!?,?! /
+  // `positionEval`: =, ∞, ⩲, ⩱, ±, ∓, +−, −+) у хода может быть только
+  // один NAG. setNagInCategory делает replace-within-group и toggle-off
+  // при повторном клике (см. utils/nagCategories.ts).
   const handleNagToggle = (nag: number) => {
     if (!contextMenu.move || !onSetNag) return;
     const move = contextMenu.move;
-    const currentNags = move.nags ?? [];
-    const hasNag = currentNags.includes(nag);
-    const newNags = hasNag
-      ? currentNags.filter((n) => n !== nag)
-      : [...currentNags, nag];
+    const newNags = setNagInCategory(move.nags ?? [], nag);
     onSetNag(move.globalIndex, newNags);
   };
 
@@ -247,23 +250,38 @@ export function ReviewMoveList({
     });
   };
 
-  /** Render NAG symbols for a move */
+  /**
+   * KS-2266 (ADR-037 §6): рендер NAG-символов inline с ходом —
+   * **по одному NAG из каждой категории**. Раньше рендерились все
+   * подряд (`!! !?` и т.п.), при наличии legacy-данных с дублями.
+   * Теперь groupNagsByCategory отдаёт по одному (последнему)
+   * представителю категории, и пользователь видит только актуальный.
+   */
   const renderNagSymbols = (move: ChessMove) => {
     if (!move.nags || move.nags.length === 0) return null;
-    // Only render move-quality NAGs (1-6) inline with the move text
-    const moveNags = move.nags.filter((n) => n >= 1 && n <= 6);
-    if (moveNags.length === 0) return null;
-    return moveNags.map((nag) => {
+    const grouped = groupNagsByCategory(move.nags);
+    const items: React.ReactNode[] = [];
+    const qualityNag = grouped.quality;
+    if (qualityNag !== undefined) {
       let className = 'review-nag';
-      if (nag === 1 || nag === 3) className += ' review-nag--good';
-      else if (nag === 2 || nag === 4) className += ' review-nag--bad';
-      else if (nag === 5 || nag === 6) className += ' review-nag--interesting';
-      return (
-        <span key={`nag-${nag}`} className={className}>
-          {nagToSymbol(nag)}
-        </span>
+      if (qualityNag === 1 || qualityNag === 3) className += ' review-nag--good';
+      else if (qualityNag === 2 || qualityNag === 4) className += ' review-nag--bad';
+      else if (qualityNag === 5 || qualityNag === 6) className += ' review-nag--interesting';
+      items.push(
+        <span key={`nag-quality-${qualityNag}`} className={className}>
+          {nagToSymbol(qualityNag)}
+        </span>,
       );
-    });
+    }
+    const evalNag = grouped.positionEval;
+    if (evalNag !== undefined) {
+      items.push(
+        <span key={`nag-eval-${evalNag}`} className="review-nag review-nag--eval">
+          {nagToSymbol(evalNag)}
+        </span>,
+      );
+    }
+    return items.length > 0 ? items : null;
   };
 
   /** Render eval and clock inline after a move */
