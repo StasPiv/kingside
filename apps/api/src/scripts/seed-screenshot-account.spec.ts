@@ -20,7 +20,7 @@ import {
   runSeedScreenshotAccount,
   SCREENSHOT_AGENT_USERNAME,
   SCREENSHOT_AGENT_EMAIL,
-} from '../../scripts/seed-screenshot-account';
+} from './seed-screenshot-account';
 
 function makePrisma(initial: { exists: boolean }) {
   const upsert = jest.fn().mockResolvedValue({

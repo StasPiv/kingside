@@ -1,14 +1,20 @@
 # apps/api/scripts
 
-One-off служебные скрипты, которые **не** запускаются регулярно
-runtime'ом сервиса. Для тех, что нужны в каждом запуске API,
+Документация one-off служебных скриптов, которые **не** запускаются
+регулярно runtime'ом сервиса. Для тех, что нужны в каждом запуске API,
 используется bootstrap-логика модулей (например, `FeatureFlagsService`).
+
+> Сами `.ts`-исходники one-off скриптов лежат в `apps/api/src/scripts/`
+> (внутри tsc-rootDir). После `nest build` они эмитятся в
+> `apps/api/dist/scripts/` и копируются в production-image вместе с
+> остальным `dist/`. Запуск через `npm run seed:* --workspace=@kingside/api`
+> — `npm` алиасит на `node dist/scripts/...`.
 
 ## Список скриптов
 
-| Скрипт | Назначение | Запуск локально | Запуск на проде |
+| Скрипт (исходник / dist) | Назначение | Запуск локально | Запуск на проде |
 |---|---|---|---|
-| `seed-screenshot-account.ts` | KS-2257 — seed аккаунта `__screenshot_agent` для screenshot-tooling | `SCRN_AGENT_PASSWORD=... npm run seed:screenshot --workspace=@kingside/api` | ECS RunTask, см. ниже |
+| `src/scripts/seed-screenshot-account.ts` → `dist/scripts/seed-screenshot-account.js` | KS-2257 — seed аккаунта `__screenshot_agent` для screenshot-tooling | `SCRN_AGENT_PASSWORD=... npm run seed:screenshot --workspace=@kingside/api` | ECS RunTask, см. ниже |
 
 ---
 
@@ -27,6 +33,10 @@ screenshot-tooling'ом для авторизации в UI без dev-bypass.
 ### Локально
 
 ```bash
+# Сначала собрать api, иначе dist/scripts/... не существует.
+npm run build --workspace=@kingside/api
+
+# Запуск (npm-script ходит в dist/scripts/seed-screenshot-account.js).
 SCRN_AGENT_PASSWORD='<min-12-chars-random>' \
   npm run seed:screenshot --workspace=@kingside/api
 ```
