@@ -392,4 +392,116 @@ describe('TacticDrill e2e (KS-2230)', () => {
       .deleteMany({ where: { id: { in: [s1.id, s2.id] } } })
       .catch(() => {});
   });
+
+  // ─── KS-2311: drill rating + leaderboard ────────────────────
+
+  it('POST /attempt (drill) → ratingDrill юзера обновляется, attempt получает rating-snapshot', async () => {
+    const user = await registerUser('drillrate');
+    const drillId = await seedDrill({
+      type: 'find-fork',
+      fen: 'r3k3/2N5/8/8/8/8/8/4K3 w - - 0 7',
+      answer: { shape: 'square', square: 'c7' },
+    });
+
+    const before = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { ratingDrill: true, ratingDrillDev: true },
+    });
+    expect(before?.ratingDrill).toBe(1500);
+    expect(before?.ratingDrillDev).toBe(350);
+
+    const res = await request(app.getHttpServer())
+      .post('/tactic-drill/attempt')
+      .set('Authorization', `Bearer ${user.token}`)
+      .send({
+        drillId,
+        userAnswer: { shape: 'square', square: 'c7' },
+        timeMs: 1000,
+        mode: 'drill',
+      })
+      .expect(201);
+    expect(res.body.solved).toBe(true);
+    testAttemptIds.push(res.body.attemptId);
+
+    const after = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: { ratingDrill: true, ratingDrillDev: true },
+    });
+    // Новичок против 1500-rating drill'а: rating вырастет (cap +50).
+    expect(after?.ratingDrill).toBeGreaterThan(1500);
+    expect(after?.ratingDrillDev).toBeLessThan(350);
+
+    // Attempt-snapshot записан.
+    const att = await prisma.tacticDrillAttempt.findUnique({
+      where: { id: res.body.attemptId },
+      select: { ratingBefore: true, ratingAfter: true, ratingCapped: true },
+    });
+    expect(att?.ratingBefore).toBe(1500);
+    expect(att?.ratingAfter).toBeGreaterThan(1500);
+    expect(typeof att?.ratingCapped).toBe('boolean');
+  });
+
+  it('GET /tactic-drill/rating/leaderboard — фильтр attempts ≥ 20, сорт по ratingDrill DESC', async () => {
+    // Создаём 2 юзеров с разным ratingDrill, у одного 25 attempts,
+    // у другого 5 — второй не должен попасть в leaderboard.
+    const top = await registerUser('lbtop');
+    const noob = await registerUser('lbnoob');
+
+    await prisma.user.update({
+      where: { id: top.id },
+      data: { ratingDrill: 1800, ratingDrillDev: 100 },
+    });
+    await prisma.user.update({
+      where: { id: noob.id },
+      data: { ratingDrill: 1900, ratingDrillDev: 100 },
+    });
+
+    // 25 attempts для top
+    const drillId = await seedDrill({
+      type: 'find-fork',
+      fen: 'r3k3/2N5/8/8/8/8/8/4K3 w - - 0 12',
+      answer: { shape: 'square', square: 'c7' },
+    });
+    const topAttemptIds: string[] = [];
+    for (let i = 0; i < 25; i++) {
+      const a = await prisma.tacticDrillAttempt.create({
+        data: {
+          userId: top.id,
+          drillId,
+          correct: true,
+          timeMs: 1000,
+          answerGiven: { shape: 'square', square: 'c7' },
+        },
+        select: { id: true },
+      });
+      topAttemptIds.push(a.id);
+    }
+    testAttemptIds.push(...topAttemptIds);
+    // 5 для noob
+    const noobAttemptIds: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const a = await prisma.tacticDrillAttempt.create({
+        data: {
+          userId: noob.id,
+          drillId,
+          correct: true,
+          timeMs: 1000,
+          answerGiven: { shape: 'square', square: 'c7' },
+        },
+        select: { id: true },
+      });
+      noobAttemptIds.push(a.id);
+    }
+    testAttemptIds.push(...noobAttemptIds);
+
+    const res = await request(app.getHttpServer())
+      .get('/tactic-drill/rating/leaderboard?limit=100')
+      .expect(200);
+    const usernames = res.body.entries.map(
+      (e: { username: string }) => e.username,
+    );
+    expect(usernames).toContain(top.username);
+    // noob с 5 attempts не должен попасть (фильтр attempts ≥ 20).
+    expect(usernames).not.toContain(noob.username);
+  });
 });

@@ -72,4 +72,79 @@ describe('GlickoRatingService', () => {
       expect(1500 - lose).toBe(16);
     });
   });
+
+  // KS-2311 (methodology §10.5).
+  describe('updateUserRatingContinuous', () => {
+    it('score=1.0 эквивалентно updateUserRating(solved=true)', () => {
+      const binary = service.updateUserRating(1500, 200, 1500, 50, true);
+      const cont = service.updateUserRatingContinuous(
+        1500,
+        200,
+        1500,
+        50,
+        1.0,
+      );
+      expect(cont).toEqual(binary);
+    });
+
+    it('score=0.0 эквивалентно updateUserRating(solved=false)', () => {
+      const binary = service.updateUserRating(1500, 200, 1500, 50, false);
+      const cont = service.updateUserRatingContinuous(
+        1500,
+        200,
+        1500,
+        50,
+        0.0,
+      );
+      expect(cont).toEqual(binary);
+    });
+
+    it('score=0.5 при равных рейтингах → ~ no change (ничья)', () => {
+      const r = service.updateUserRatingContinuous(
+        1500,
+        100,
+        1500,
+        50,
+        0.5,
+      );
+      expect(Math.abs(r.newRating - 1500)).toBeLessThanOrEqual(1);
+    });
+
+    it('score=0.7 (continuous IoU) против equal-rating → положительный', () => {
+      const r = service.updateUserRatingContinuous(
+        1500,
+        200,
+        1500,
+        50,
+        0.7,
+      );
+      expect(r.newRating).toBeGreaterThan(1500);
+    });
+
+    it('score < 0.5 против equal-rating → отрицательный', () => {
+      const r = service.updateUserRatingContinuous(
+        1500,
+        200,
+        1500,
+        50,
+        0.3,
+      );
+      expect(r.newRating).toBeLessThan(1500);
+    });
+
+    it('score вне [0,1] клампится', () => {
+      const high = service.updateUserRatingContinuous(1500, 200, 1500, 50, 5);
+      const equiv = service.updateUserRatingContinuous(1500, 200, 1500, 50, 1);
+      expect(high).toEqual(equiv);
+      const low = service.updateUserRatingContinuous(1500, 200, 1500, 50, -5);
+      const equivLow = service.updateUserRatingContinuous(
+        1500,
+        200,
+        1500,
+        50,
+        0,
+      );
+      expect(low).toEqual(equivLow);
+    });
+  });
 });

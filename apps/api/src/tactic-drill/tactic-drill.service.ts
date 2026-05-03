@@ -31,6 +31,7 @@ import {
 } from '@kingside/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
+import type { TacticDrillRatingService } from './tactic-drill-rating.service';
 
 const COOLDOWN_DAYS = 30;
 const ALL_DRILL_TYPES: TacticDrillType[] = DRILL_TYPE_ORDER;
@@ -45,10 +46,23 @@ export interface TacticDrillTypeListItem {
 
 @Injectable()
 export class TacticDrillService {
+  /**
+   * KS-2311: optional rating-сервис. Подключается через `setRatingService`
+   * после module-wiring (избегаем circular DI: rating-сервис ничего
+   * не требует из drill-сервиса, но drill-сервис может вызывать его
+   * после `recordAttempt`). В тестах, где rating не нужен, оставляем
+   * undefined — recordAttempt просто пропускает rating-update.
+   */
+  private ratingService?: TacticDrillRatingService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly validator: TacticDrillValidatorService,
   ) {}
+
+  setRatingService(svc: TacticDrillRatingService): void {
+    this.ratingService = svc;
+  }
 
   /**
    * Список drill-типов с локализованными ключами и unlocked-статусом
@@ -150,12 +164,18 @@ export class TacticDrillService {
    * POST /attempt. Сравнивает userAnswer с эталоном. Авторизованные —
    * пишут запись в `tactic_drill_attempts`; гости получают результат
    * без записи (api-contract §6).
+   *
+   * KS-2311: после записи попытки в drill mode вызываем
+   * `TacticDrillRatingService.applyRatingChange` (если он внедрён в
+   * сервис; sprint-flow вызывает submit отдельно и сам уведомляет
+   * rating-сервис, см. KS-2311 §10.6 — sprint mode пропускается).
    */
   async recordAttempt(
     userId: string | null,
     drillId: string,
     userAnswer: AnswerData,
     timeMs: number,
+    mode: 'drill' | 'sprint' | 'lessons-embed' = 'drill',
   ): Promise<TacticDrillAttemptResponse> {
     const drill = await this.prisma.tacticDrill.findUnique({
       where: { id: drillId },
@@ -179,6 +199,28 @@ export class TacticDrillService {
         select: { id: true },
       });
       attemptId = created.id;
+
+      // KS-2311 (methodology §10.11): drill rating update — только
+      // в drill mode, для авторизованных. Запись `ratingBefore/After/
+      // Capped` сделается внутри сервиса. `rating` отсутствует — DI
+      // не обязательно подключён в каждой сборке (например, в
+      // мини-spec'ах без RedisService); мы вызываем через optional
+      // setter ниже (`setRatingService` доступен в module wiring).
+      if (this.ratingService) {
+        await this.ratingService
+          .applyRatingChange(userId, {
+            drillId,
+            attemptId,
+            mode,
+            solved: result.solved,
+            metrics: result.metrics,
+            userAnswer,
+          })
+          .catch(() => {
+            // Rating-update не должен ломать attempt-flow: если упал
+            // (Redis down, конкурентный update), attempt уже сохранён.
+          });
+      }
     }
 
     return {

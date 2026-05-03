@@ -23,6 +23,10 @@ model User {
   ratingRapid           Int      @default(1500) @map("rating_rapid")
   ratingClassical       Int      @default(1500) @map("rating_classical")
   ratingPuzzle          Int      @default(1500) @map("rating_puzzle")
+  /// KS-2311 (methodology §10.4): drill rating (Glicko-1) и его RD.
+  /// Cold-start 1500 / 350. Только drill mode обновляет; sprint — нет.
+  ratingDrill           Int      @default(1500) @map("rating_drill")
+  ratingDrillDev        Int      @default(350)  @map("rating_drill_dev")
   ratingPuzzleDev       Int      @default(350) @map("rating_puzzle_dev")
   puzzleStreak          Int      @default(0) @map("puzzle_streak")
   gamesPlayedBullet     Int      @default(0) @map("games_played_bullet")
@@ -1152,6 +1156,10 @@ model TacticDrill {
   /// `'curated'` (KS-DRILL-CURATED, E5). Хранится строкой.
   source     String
   createdAt  DateTime @default(now()) @map("created_at")
+  /// KS-2311 (methodology §10.3, §10.12): фиксированный drill rating
+  /// (по difficulty bucket: 1→1000, 2→1300, 3→1500, 4→1700, 5→2000).
+  /// Не обновляется на основе попыток; задаётся при INSERT (BACKFILL).
+  rating          Int      @default(1500)
   /// KS-2247 (ADR-035 §6.3 R5): отметка о Stockfish-валидации.
   /// `sfValidatedAt` ставится после прогонки drill через SF.
   /// `sfRejected=true` означает «SF видит альтернативный лучший
@@ -1184,6 +1192,13 @@ model TacticDrillAttempt {
   /// Хранится для разбора истории попыток и аналитики.
   answerGiven Json     @map("answer_given")
   createdAt   DateTime @default(now()) @map("created_at")
+  /// KS-2311 (methodology §10.11): rating до/после применения попытки.
+  /// nullable для legacy-записей и для гостевых попыток (rating не
+  /// обновляется). `capped=true` — daily cap (+50 в drill mode) обрезал
+  /// прирост.
+  ratingBefore Int?    @map("rating_before")
+  ratingAfter  Int?    @map("rating_after")
+  ratingCapped Boolean @default(false) @map("rating_capped")
 
   user  User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
   drill TacticDrill @relation(fields: [drillId], references: [id], onDelete: Cascade)

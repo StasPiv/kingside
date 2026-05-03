@@ -5,7 +5,7 @@
  * (для guards `JwtAuthGuard` / `OptionalJwtGuard` через @nestjs/passport
  * AuthGuard('jwt') strategy registered AuthModule'ом).
  */
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AuthModule } from '../auth/auth.module';
 import { TacticDrillController } from './tactic-drill.controller';
@@ -16,6 +16,8 @@ import { TacticDrillIncrementalScheduler } from './tactic-drill-incremental.sche
 import { TacticDrillSfValidatorService } from './tactic-drill-sf-validator.service';
 import { TacticDrillSfValidatorScheduler } from './tactic-drill-sf-validator.scheduler';
 import { StockfishService } from '../engine/stockfish.service';
+import { TacticDrillRatingService } from './tactic-drill-rating.service';
+import { GlickoRatingService } from '../puzzle/glicko-rating.service';
 
 @Module({
   imports: [PrismaModule, AuthModule],
@@ -33,7 +35,27 @@ import { StockfishService } from '../engine/stockfish.service';
     StockfishService,
     TacticDrillSfValidatorService,
     TacticDrillSfValidatorScheduler,
+    // KS-2311: drill rating (Glicko-1) + leaderboard.
+    GlickoRatingService,
+    TacticDrillRatingService,
   ],
   exports: [TacticDrillValidatorService],
 })
-export class TacticDrillModule {}
+export class TacticDrillModule implements OnModuleInit {
+  constructor(
+    private readonly drillService: TacticDrillService,
+    private readonly ratingService: TacticDrillRatingService,
+    private readonly sprintService: TacticDrillSprintService,
+  ) {}
+
+  /**
+   * KS-2311: подключаем rating-сервис в drill-сервис через setter,
+   * чтобы избежать circular DI (rating не зависит от drill, но drill
+   * вызывает rating после `recordAttempt`). sprintService —
+   * избежание unused-error для DI-хука.
+   */
+  onModuleInit(): void {
+    this.drillService.setRatingService(this.ratingService);
+    void this.sprintService;
+  }
+}

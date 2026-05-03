@@ -79,22 +79,45 @@ export class GlickoRatingService {
     puzzleRD: number,
     solved: boolean,
   ): { newRating: number; newRD: number } {
-    const userScore = solved ? 1 : 0;
+    return this.updateUserRatingContinuous(
+      userRating,
+      userRD,
+      puzzleRating,
+      puzzleRD,
+      solved ? 1 : 0,
+    );
+  }
 
-    const gPuzzleRD = this.g(puzzleRD);
-    const E = this.expectedScore(userRating, puzzleRating, puzzleRD);
-
-    const dSquared = 1 / (Q * Q * gPuzzleRD * gPuzzleRD * E * (1 - E));
+  /**
+   * KS-2311 (methodology §10.5): Glicko-1 update с continuous-outcome
+   * `score ∈ [0, 1]` — для drill'ов shape='squares' (IoU как сырое
+   * значение). Формула Glicko-1 одинакова: подставляем score вместо
+   * binary {0,1} (Glickman 1995, Appendix B).
+   *
+   * `updateUserRating` (binary) — тонкая обёртка над этим методом.
+   */
+  updateUserRatingContinuous(
+    userRating: number,
+    userRD: number,
+    opponentRating: number,
+    opponentRD: number,
+    score: number,
+  ): { newRating: number; newRD: number } {
+    const clamped = Math.max(0, Math.min(1, score));
+    const gOpponentRD = this.g(opponentRD);
+    const E = this.expectedScore(userRating, opponentRating, opponentRD);
+    const dSquared = 1 / (Q * Q * gOpponentRD * gOpponentRD * E * (1 - E));
 
     const newRating = Math.round(
-      userRating + (Q / (1 / (userRD * userRD) + 1 / dSquared)) * gPuzzleRD * (userScore - E),
+      userRating +
+        (Q / (1 / (userRD * userRD) + 1 / dSquared)) *
+          gOpponentRD *
+          (clamped - E),
     );
-
     const newRD = Math.max(
       MIN_RD,
       Math.round(Math.sqrt(1 / (1 / (userRD * userRD) + 1 / dSquared))),
     );
-
     return { newRating, newRD };
   }
 }

@@ -36,6 +36,7 @@ import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AuthenticatedRequest } from '../common/authenticated-request';
 import { TacticDrillService } from './tactic-drill.service';
 import { TacticDrillSprintService } from './tactic-drill-sprint.service';
+import { TacticDrillRatingService } from './tactic-drill-rating.service';
 import { GetNextQueryDto } from './dto/get-next-query.dto';
 import { AttemptRequestDto } from './dto/attempt.dto';
 import {
@@ -56,7 +57,17 @@ export class TacticDrillController {
   constructor(
     private readonly service: TacticDrillService,
     private readonly sprintService: TacticDrillSprintService,
+    private readonly ratingService: TacticDrillRatingService,
   ) {}
+
+  // ─── KS-2311: drill rating leaderboard ─────────────────────
+
+  @Get('rating/leaderboard')
+  async ratingLeaderboard(@Query('limit') limit?: string) {
+    const parsed = limit ? Number.parseInt(limit, 10) : 100;
+    const safe = Number.isFinite(parsed) && parsed > 0 ? parsed : 100;
+    return this.ratingService.leaderboard(safe);
+  }
 
   @Get('types')
   @UseGuards(OptionalJwtGuard)
@@ -97,6 +108,7 @@ export class TacticDrillController {
       body.drillId,
       norm.value,
       body.timeMs,
+      body.mode,
     );
   }
 
