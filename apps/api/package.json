@@ -11,6 +11,7 @@
     "seed:lessons:lint": "npx ts-node src/lessons/seed/lint-lessons.ts",
     "seed:sample-puzzles": "npx ts-node src/lessons/seed/seed-sample-puzzles.ts",
     "seed:screenshot": "node dist/scripts/seed-screenshot-account.js",
+    "index:tactic-drills": "node dist/scripts/index-tactic-drills.js",
     "test": "jest",
     "test:e2e": "jest --config test/jest-e2e.config.ts --runInBand",
     "prisma:generate": "prisma generate --schema=../../packages/db/prisma/schema.prisma",
@@ -23,6 +24,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@aws-sdk/client-ecs": "^3.700.0",
+    "@kingside/archive-db": "*",
     "@kingside/db": "*",
     "@kingside/shared": "*",
     "@nestjs/common": "^11.1.16",

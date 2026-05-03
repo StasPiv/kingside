@@ -1156,6 +1156,10 @@ model TacticDrill {
   attempts TacticDrillAttempt[]
 
   @@index([type, difficulty])
+  /// KS-2229: дедуп для индексера (одна (type, FEN)-комбинация —
+  /// одна запись). UNIQUE constraint позволяет использовать
+  /// `createMany({ skipDuplicates: true })` без race condition.
+  @@unique([type, fen])
   @@map("tactic_drills")
 }
 
