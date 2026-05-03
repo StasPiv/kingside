@@ -152,3 +152,115 @@ describe('<NagPalette> KS-2271 — i18n tooltips и group-labels', () => {
     expect(ruGroup.evaluation).toBeTruthy();
   });
 });
+
+/**
+ * KS-2293 (ADR-038 §3.1, VC E3) — i18n-секция Variation color.
+ * Ключи живут в `review.palette.variationColor.{title, green, blue,
+ * yellow, red, clear}` (по решению координатора — `review.*`, не
+ * `nag.*`, потому что variation-color — отдельная семантика).
+ *
+ * Тексты — семантические подписи цветов (Good line / Хорошая линия),
+ * а не дословные цвета. Если design-doc §13.7 предписывает другую
+ * формулировку — координатор пришлёт diff (как было в KS-2271).
+ */
+const VARIATION_COLOR_EN: Record<string, string> = {
+  green: 'Good line',
+  blue: 'Interesting line',
+  yellow: 'Questionable line',
+  red: 'Bad line',
+};
+
+const VARIATION_COLOR_RU: Record<string, string> = {
+  green: 'Хорошая линия',
+  blue: 'Интересная линия',
+  yellow: 'Сомнительная линия',
+  red: 'Плохая линия',
+};
+
+describe('<NagPalette> KS-2293 — i18n Variation color (review.palette.*)', () => {
+  it('en: title + 4 swatch tooltip + clear из review.palette.variationColor.*', () => {
+    const { getByTestId } = renderWithLocale(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        onSetVariationColor={() => {}}
+      />,
+      'en',
+    );
+    const section = getByTestId('nag-palette-variation-color');
+    expect(section.textContent).toContain('Variation color');
+    for (const [color, expected] of Object.entries(VARIATION_COLOR_EN)) {
+      const btn = getByTestId(`nag-palette-variation-color-${color}`);
+      expect(btn.getAttribute('title')).toBe(expected);
+      expect(btn.getAttribute('aria-label')).toBe(expected);
+    }
+    expect(
+      getByTestId('nag-palette-variation-color-clear').textContent,
+    ).toBe('Clear color');
+  });
+
+  it('ru: title + 4 swatch tooltip + clear из review.palette.variationColor.*', () => {
+    const { getByTestId } = renderWithLocale(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        onSetVariationColor={() => {}}
+      />,
+      'ru',
+    );
+    const section = getByTestId('nag-palette-variation-color');
+    expect(section.textContent).toContain('Цвет варианта');
+    for (const [color, expected] of Object.entries(VARIATION_COLOR_RU)) {
+      const btn = getByTestId(`nag-palette-variation-color-${color}`);
+      expect(btn.getAttribute('title')).toBe(expected);
+      expect(btn.getAttribute('aria-label')).toBe(expected);
+    }
+    expect(
+      getByTestId('nag-palette-variation-color-clear').textContent,
+    ).toBe('Снять цвет');
+  });
+
+  it('snapshot en — секция Variation color в палитре', () => {
+    const { container } = renderWithLocale(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="green"
+        onSetVariationColor={() => {}}
+      />,
+      'en',
+    );
+    expect(container.firstChild).toMatchSnapshot();
+  });
+
+  it('snapshot ru — секция Variation color в палитре', () => {
+    const { container } = renderWithLocale(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="green"
+        onSetVariationColor={() => {}}
+      />,
+      'ru',
+    );
+    expect(container.firstChild).toMatchSnapshot();
+  });
+
+  it('JSON-проверка: все 6 ключей review.palette.variationColor.* в en и ru', () => {
+    const expectedKeys = ['title', 'green', 'blue', 'yellow', 'red', 'clear'];
+    const enVc = (en as {
+      review: { palette: { variationColor: Record<string, string> } };
+    }).review.palette.variationColor;
+    const ruVc = (ru as {
+      review: { palette: { variationColor: Record<string, string> } };
+    }).review.palette.variationColor;
+    for (const key of expectedKeys) {
+      expect(enVc[key], `en missing ${key}`).toBeTruthy();
+      expect(ruVc[key], `ru missing ${key}`).toBeTruthy();
+    }
+  });
+});

@@ -333,7 +333,10 @@ export function NagPalette({
             data-testid="nag-palette-variation-color"
           >
             <div className="nag-palette__group-label">
-              {t('nag.palette.variationColor.label', 'Variation color')}
+              {/* KS-2293: ключи переехали в `review.palette.variationColor.*`
+                  по решению координатора (семантические подписи цветов
+                  «Good line / Хорошая линия» вместо дословных «Green»). */}
+              {t('review.palette.variationColor.title', 'Variation color')}
             </div>
             <div className="nag-palette__variation-swatches">
               {VARIATION_COLORS.map((color) => {
@@ -349,11 +352,11 @@ export function NagPalette({
                     data-testid={`nag-palette-variation-color-${color}`}
                     aria-pressed={active}
                     title={t(
-                      `nag.palette.variationColor.${color}`,
+                      `review.palette.variationColor.${color}`,
                       color,
                     )}
                     aria-label={t(
-                      `nag.palette.variationColor.${color}`,
+                      `review.palette.variationColor.${color}`,
                       color,
                     )}
                     onClick={(e) => {
@@ -375,7 +378,7 @@ export function NagPalette({
                   handleClearVariationColor();
                 }}
               >
-                {t('nag.palette.variationColor.clear', 'Clear color')}
+                {t('review.palette.variationColor.clear', 'Clear color')}
               </button>
             </div>
           </div>

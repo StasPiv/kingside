@@ -441,3 +441,569 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot ru �
   </div>
 </div>
 `;
+
+exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snapshot en — секция Variation color в палитре 1`] = `
+<div
+  class="nag-palette"
+  data-testid="nag-palette"
+  role="menu"
+>
+  <div
+    class="nag-palette__group"
+    data-category="quality"
+  >
+    <div
+      class="nag-palette__group-label"
+    >
+      Move quality
+    </div>
+    <div
+      class="nag-palette__buttons"
+    >
+      <button
+        aria-label="Good move"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="1"
+        data-testid="nag-palette-btn-1"
+        title="Good move"
+        type="button"
+      >
+        !
+      </button>
+      <button
+        aria-label="Mistake"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="2"
+        data-testid="nag-palette-btn-2"
+        title="Mistake"
+        type="button"
+      >
+        ?
+      </button>
+      <button
+        aria-label="Brilliant move"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="3"
+        data-testid="nag-palette-btn-3"
+        title="Brilliant move"
+        type="button"
+      >
+        !!
+      </button>
+      <button
+        aria-label="Blunder"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="4"
+        data-testid="nag-palette-btn-4"
+        title="Blunder"
+        type="button"
+      >
+        ??
+      </button>
+      <button
+        aria-label="Interesting move"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="5"
+        data-testid="nag-palette-btn-5"
+        title="Interesting move"
+        type="button"
+      >
+        !?
+      </button>
+      <button
+        aria-label="Dubious move"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="6"
+        data-testid="nag-palette-btn-6"
+        title="Dubious move"
+        type="button"
+      >
+        ?!
+      </button>
+    </div>
+  </div>
+  <div
+    class="nag-palette__group"
+    data-category="positionEval"
+  >
+    <div
+      class="nag-palette__group-label"
+    >
+      Position evaluation
+    </div>
+    <div
+      class="nag-palette__buttons"
+    >
+      <button
+        aria-label="Equal position"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="10"
+        data-testid="nag-palette-btn-10"
+        title="Equal position"
+        type="button"
+      >
+        =
+      </button>
+      <button
+        aria-label="Unclear position"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="13"
+        data-testid="nag-palette-btn-13"
+        title="Unclear position"
+        type="button"
+      >
+        ∞
+      </button>
+      <button
+        aria-label="White is slightly better"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="14"
+        data-testid="nag-palette-btn-14"
+        title="White is slightly better"
+        type="button"
+      >
+        ⩲
+      </button>
+      <button
+        aria-label="Black is slightly better"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="15"
+        data-testid="nag-palette-btn-15"
+        title="Black is slightly better"
+        type="button"
+      >
+        ⩱
+      </button>
+      <button
+        aria-label="White is clearly better"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="16"
+        data-testid="nag-palette-btn-16"
+        title="White is clearly better"
+        type="button"
+      >
+        ±
+      </button>
+      <button
+        aria-label="Black is clearly better"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="17"
+        data-testid="nag-palette-btn-17"
+        title="Black is clearly better"
+        type="button"
+      >
+        ∓
+      </button>
+      <button
+        aria-label="White is winning"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="18"
+        data-testid="nag-palette-btn-18"
+        title="White is winning"
+        type="button"
+      >
+        +−
+      </button>
+      <button
+        aria-label="Black is winning"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="19"
+        data-testid="nag-palette-btn-19"
+        title="Black is winning"
+        type="button"
+      >
+        −+
+      </button>
+    </div>
+  </div>
+  <div
+    class="nag-palette__divider"
+  />
+  <button
+    class="nag-palette__delete"
+    data-testid="nag-palette-delete"
+    disabled=""
+    type="button"
+  >
+    Clear annotations
+  </button>
+  <div
+    class="nag-palette__divider"
+  />
+  <div
+    class="nag-palette__group"
+    data-category="variationColor"
+    data-testid="nag-palette-variation-color"
+  >
+    <div
+      class="nag-palette__group-label"
+    >
+      Variation color
+    </div>
+    <div
+      class="nag-palette__variation-swatches"
+    >
+      <button
+        aria-label="Good line"
+        aria-pressed="true"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--green nag-palette__variation-swatch--active"
+        data-color="green"
+        data-testid="nag-palette-variation-color-green"
+        title="Good line"
+        type="button"
+      />
+      <button
+        aria-label="Interesting line"
+        aria-pressed="false"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--blue"
+        data-color="blue"
+        data-testid="nag-palette-variation-color-blue"
+        title="Interesting line"
+        type="button"
+      />
+      <button
+        aria-label="Questionable line"
+        aria-pressed="false"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--yellow"
+        data-color="yellow"
+        data-testid="nag-palette-variation-color-yellow"
+        title="Questionable line"
+        type="button"
+      />
+      <button
+        aria-label="Bad line"
+        aria-pressed="false"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--red"
+        data-color="red"
+        data-testid="nag-palette-variation-color-red"
+        title="Bad line"
+        type="button"
+      />
+      <button
+        class="nag-palette__variation-clear"
+        data-testid="nag-palette-variation-color-clear"
+        type="button"
+      >
+        Clear color
+      </button>
+    </div>
+  </div>
+  <div
+    class="nag-palette__hint"
+    data-testid="nag-palette-hint"
+  >
+    1..9 — NAG · Esc — close
+  </div>
+</div>
+`;
+
+exports[`<NagPalette> KS-2293 — i18n Variation color (review.palette.*) > snapshot ru — секция Variation color в палитре 1`] = `
+<div
+  class="nag-palette"
+  data-testid="nag-palette"
+  role="menu"
+>
+  <div
+    class="nag-palette__group"
+    data-category="quality"
+  >
+    <div
+      class="nag-palette__group-label"
+    >
+      Качество хода
+    </div>
+    <div
+      class="nag-palette__buttons"
+    >
+      <button
+        aria-label="Хороший ход"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="1"
+        data-testid="nag-palette-btn-1"
+        title="Хороший ход"
+        type="button"
+      >
+        !
+      </button>
+      <button
+        aria-label="Ошибка"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="2"
+        data-testid="nag-palette-btn-2"
+        title="Ошибка"
+        type="button"
+      >
+        ?
+      </button>
+      <button
+        aria-label="Блестящий ход"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="3"
+        data-testid="nag-palette-btn-3"
+        title="Блестящий ход"
+        type="button"
+      >
+        !!
+      </button>
+      <button
+        aria-label="Зевок"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="4"
+        data-testid="nag-palette-btn-4"
+        title="Зевок"
+        type="button"
+      >
+        ??
+      </button>
+      <button
+        aria-label="Интересный ход"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="5"
+        data-testid="nag-palette-btn-5"
+        title="Интересный ход"
+        type="button"
+      >
+        !?
+      </button>
+      <button
+        aria-label="Сомнительный ход"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="quality"
+        data-nag="6"
+        data-testid="nag-palette-btn-6"
+        title="Сомнительный ход"
+        type="button"
+      >
+        ?!
+      </button>
+    </div>
+  </div>
+  <div
+    class="nag-palette__group"
+    data-category="positionEval"
+  >
+    <div
+      class="nag-palette__group-label"
+    >
+      Оценка позиции
+    </div>
+    <div
+      class="nag-palette__buttons"
+    >
+      <button
+        aria-label="Равная позиция"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="10"
+        data-testid="nag-palette-btn-10"
+        title="Равная позиция"
+        type="button"
+      >
+        =
+      </button>
+      <button
+        aria-label="Неясная позиция"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="13"
+        data-testid="nag-palette-btn-13"
+        title="Неясная позиция"
+        type="button"
+      >
+        ∞
+      </button>
+      <button
+        aria-label="У белых чуть лучше"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="14"
+        data-testid="nag-palette-btn-14"
+        title="У белых чуть лучше"
+        type="button"
+      >
+        ⩲
+      </button>
+      <button
+        aria-label="У чёрных чуть лучше"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="15"
+        data-testid="nag-palette-btn-15"
+        title="У чёрных чуть лучше"
+        type="button"
+      >
+        ⩱
+      </button>
+      <button
+        aria-label="У белых перевес"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="16"
+        data-testid="nag-palette-btn-16"
+        title="У белых перевес"
+        type="button"
+      >
+        ±
+      </button>
+      <button
+        aria-label="У чёрных перевес"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="17"
+        data-testid="nag-palette-btn-17"
+        title="У чёрных перевес"
+        type="button"
+      >
+        ∓
+      </button>
+      <button
+        aria-label="У белых выиграно"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="18"
+        data-testid="nag-palette-btn-18"
+        title="У белых выиграно"
+        type="button"
+      >
+        +−
+      </button>
+      <button
+        aria-label="У чёрных выиграно"
+        aria-pressed="false"
+        class="nag-palette__btn"
+        data-category="positionEval"
+        data-nag="19"
+        data-testid="nag-palette-btn-19"
+        title="У чёрных выиграно"
+        type="button"
+      >
+        −+
+      </button>
+    </div>
+  </div>
+  <div
+    class="nag-palette__divider"
+  />
+  <button
+    class="nag-palette__delete"
+    data-testid="nag-palette-delete"
+    disabled=""
+    type="button"
+  >
+    Снять аннотации
+  </button>
+  <div
+    class="nag-palette__divider"
+  />
+  <div
+    class="nag-palette__group"
+    data-category="variationColor"
+    data-testid="nag-palette-variation-color"
+  >
+    <div
+      class="nag-palette__group-label"
+    >
+      Цвет варианта
+    </div>
+    <div
+      class="nag-palette__variation-swatches"
+    >
+      <button
+        aria-label="Хорошая линия"
+        aria-pressed="true"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--green nag-palette__variation-swatch--active"
+        data-color="green"
+        data-testid="nag-palette-variation-color-green"
+        title="Хорошая линия"
+        type="button"
+      />
+      <button
+        aria-label="Интересная линия"
+        aria-pressed="false"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--blue"
+        data-color="blue"
+        data-testid="nag-palette-variation-color-blue"
+        title="Интересная линия"
+        type="button"
+      />
+      <button
+        aria-label="Сомнительная линия"
+        aria-pressed="false"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--yellow"
+        data-color="yellow"
+        data-testid="nag-palette-variation-color-yellow"
+        title="Сомнительная линия"
+        type="button"
+      />
+      <button
+        aria-label="Плохая линия"
+        aria-pressed="false"
+        class="nag-palette__variation-swatch nag-palette__variation-swatch--red"
+        data-color="red"
+        data-testid="nag-palette-variation-color-red"
+        title="Плохая линия"
+        type="button"
+      />
+      <button
+        class="nag-palette__variation-clear"
+        data-testid="nag-palette-variation-color-clear"
+        type="button"
+      >
+        Снять цвет
+      </button>
+    </div>
+  </div>
+  <div
+    class="nag-palette__hint"
+    data-testid="nag-palette-hint"
+  >
+    1..9 — NAG · Esc — закрыть
+  </div>
+</div>
+`;

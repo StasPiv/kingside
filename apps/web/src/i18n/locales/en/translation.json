@@ -576,6 +576,16 @@
       "mainLine": "Main line",
       "variation": "Variation",
       "hint": "↑/↓ or 1–9 · Enter to choose · Esc to cancel"
+    },
+    "palette": {
+      "variationColor": {
+        "title": "Variation color",
+        "green": "Good line",
+        "blue": "Interesting line",
+        "yellow": "Questionable line",
+        "red": "Bad line",
+        "clear": "Clear color"
+      }
     }
   },
   "nag": {
@@ -585,15 +595,7 @@
       "positionEval": "Position evaluation",
       "clear": "Clear annotations",
       "hint": "1..9 — NAG · Esc — close",
-      "openHotkeyHint": "A — annotate current move",
-      "variationColor": {
-        "label": "Variation color",
-        "green": "Green",
-        "blue": "Blue",
-        "yellow": "Yellow",
-        "red": "Red",
-        "clear": "Clear color"
-      }
+      "openHotkeyHint": "A — annotate current move"
     },
     "group": {
       "quality": "Move quality",
