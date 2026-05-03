@@ -29,8 +29,8 @@ const NAG_TOOLTIP_DEFAULTS: Record<string, string> = {
   '⩱': 'Black is slightly better',
   '±': 'White is clearly better',
   '∓': 'Black is clearly better',
-  '+−': 'White has a winning advantage',
-  '−+': 'Black has a winning advantage',
+  '+−': 'White is winning',
+  '−+': 'Black is winning',
 };
 
 /**

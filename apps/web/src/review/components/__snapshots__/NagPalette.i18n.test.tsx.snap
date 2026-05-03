@@ -177,25 +177,25 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot en �
         ∓
       </button>
       <button
-        aria-label="White has a winning advantage"
+        aria-label="White is winning"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="positionEval"
         data-nag="18"
         data-testid="nag-palette-btn-18"
-        title="White has a winning advantage"
+        title="White is winning"
         type="button"
       >
         +−
       </button>
       <button
-        aria-label="Black has a winning advantage"
+        aria-label="Black is winning"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="positionEval"
         data-nag="19"
         data-testid="nag-palette-btn-19"
-        title="Black has a winning advantage"
+        title="Black is winning"
         type="button"
       >
         −+
@@ -270,13 +270,13 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot ru �
         !!
       </button>
       <button
-        aria-label="Грубая ошибка"
+        aria-label="Зевок"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="quality"
         data-nag="4"
         data-testid="nag-palette-btn-4"
-        title="Грубая ошибка"
+        title="Зевок"
         type="button"
       >
         ??
@@ -344,73 +344,73 @@ exports[`<NagPalette> KS-2271 — i18n tooltips и group-labels > snapshot ru �
         ∞
       </button>
       <button
-        aria-label="У белых небольшое преимущество"
+        aria-label="У белых чуть лучше"
         aria-pressed="true"
         class="nag-palette__btn nag-palette__btn--active"
         data-category="positionEval"
         data-nag="14"
         data-testid="nag-palette-btn-14"
-        title="У белых небольшое преимущество"
+        title="У белых чуть лучше"
         type="button"
       >
         ⩲
       </button>
       <button
-        aria-label="У чёрных небольшое преимущество"
+        aria-label="У чёрных чуть лучше"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="positionEval"
         data-nag="15"
         data-testid="nag-palette-btn-15"
-        title="У чёрных небольшое преимущество"
+        title="У чёрных чуть лучше"
         type="button"
       >
         ⩱
       </button>
       <button
-        aria-label="У белых явное преимущество"
+        aria-label="У белых перевес"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="positionEval"
         data-nag="16"
         data-testid="nag-palette-btn-16"
-        title="У белых явное преимущество"
+        title="У белых перевес"
         type="button"
       >
         ±
       </button>
       <button
-        aria-label="У чёрных явное преимущество"
+        aria-label="У чёрных перевес"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="positionEval"
         data-nag="17"
         data-testid="nag-palette-btn-17"
-        title="У чёрных явное преимущество"
+        title="У чёрных перевес"
         type="button"
       >
         ∓
       </button>
       <button
-        aria-label="У белых решающее преимущество"
+        aria-label="У белых выиграно"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="positionEval"
         data-nag="18"
         data-testid="nag-palette-btn-18"
-        title="У белых решающее преимущество"
+        title="У белых выиграно"
         type="button"
       >
         +−
       </button>
       <button
-        aria-label="У чёрных решающее преимущество"
+        aria-label="У чёрных выиграно"
         aria-pressed="false"
         class="nag-palette__btn"
         data-category="positionEval"
         data-nag="19"
         data-testid="nag-palette-btn-19"
-        title="У чёрных решающее преимущество"
+        title="У чёрных выиграно"
         type="button"
       >
         −+

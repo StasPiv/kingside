@@ -46,6 +46,8 @@ function renderWithLocale(ui: ReactElement, lng: 'en' | 'ru') {
   );
 }
 
+// KS-2271: формулировки из design-doc §4.2 (chess-expert утвердил
+// классическую терминологию Информатора, более короткую).
 const TOOLTIPS_EN: Record<number, string> = {
   1: 'Good move',
   2: 'Mistake',
@@ -59,25 +61,25 @@ const TOOLTIPS_EN: Record<number, string> = {
   15: 'Black is slightly better',
   16: 'White is clearly better',
   17: 'Black is clearly better',
-  18: 'White has a winning advantage',
-  19: 'Black has a winning advantage',
+  18: 'White is winning',
+  19: 'Black is winning',
 };
 
 const TOOLTIPS_RU: Record<number, string> = {
   1: 'Хороший ход',
   2: 'Ошибка',
   3: 'Блестящий ход',
-  4: 'Грубая ошибка',
+  4: 'Зевок',
   5: 'Интересный ход',
   6: 'Сомнительный ход',
   10: 'Равная позиция',
   13: 'Неясная позиция',
-  14: 'У белых небольшое преимущество',
-  15: 'У чёрных небольшое преимущество',
-  16: 'У белых явное преимущество',
-  17: 'У чёрных явное преимущество',
-  18: 'У белых решающее преимущество',
-  19: 'У чёрных решающее преимущество',
+  14: 'У белых чуть лучше',
+  15: 'У чёрных чуть лучше',
+  16: 'У белых перевес',
+  17: 'У чёрных перевес',
+  18: 'У белых выиграно',
+  19: 'У чёрных выиграно',
 };
 
 describe('<NagPalette> KS-2271 — i18n tooltips и group-labels', () => {
