@@ -20,7 +20,8 @@
     "import:lesson": "npx ts-node src/lessons/admin/import-yaml-cli.ts",
     "import:puzzles": "npx ts-node src/puzzle/import-puzzles.ts",
     "scan:chess-results": "node dist/broadcast/chess-results/scan-chess-results.js",
-    "drill:validate": "npx ts-node src/scripts/validate-drill-positions.ts"
+    "drill:validate": "npx ts-node src/scripts/validate-drill-positions.ts",
+    "drill:validate:bundle": "esbuild src/scripts/validate-drill-positions.ts --bundle --platform=node --target=node20 --format=cjs --outfile=/tmp/kingside-tools/validate-drill.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
