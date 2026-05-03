@@ -359,6 +359,22 @@
   --scrollbar-track: var(--c-1a1a2e);
   --scrollbar-thumb: var(--c-4a4a7e);
   --scrollbar-thumb-hover: var(--c-7c83ff);
+
+  /* ---------- Mainline / variation lines (KS-2273, ADR-037 §4) ----------
+   * Семантические алиасы для цвета mainline-ходов и подвариантов по
+   * глубине вложенности. Указывают на raw colour tokens, которые сами
+   * инвертируются в light-теме — отдельно дублировать в light-блоке
+   * не требуется. Базируются на исторических `.variation-level-*`
+   * из ReviewMoveList.css:200-203. */
+  --c-mainline: var(--c-e0e0e0);
+  --c-subline-1: var(--c-90caf9); /* depth 1 — голубой */
+  --c-subline-2: var(--c-a5d6a7); /* depth 2 — зелёный */
+  --c-subline-3: var(--c-ffe082); /* depth 3 — янтарный */
+  --c-subline-4: var(--c-ef9a9a); /* depth 4 — розово-красный */
+  /* Лёгкая подложка для опционального `.variation-block` обёртки.
+   * --ov-white-05 в dark = rgba(255,255,255,0.05); в light
+   * автоматически даёт slate-tinted darken — читается на обоих фонах. */
+  --c-subline-bg: var(--ov-white-05);
 }
 
 /* ============================================================
