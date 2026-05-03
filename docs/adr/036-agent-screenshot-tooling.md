@@ -1,13 +1,16 @@
 # ADR-036: Tooling для авторизованных скриншотов прода для агентов
 
 **Дата:** 2026-05-03
-**Статус:** Предложено
+**Статус:** Superseded by [ADR-039](./039-agent-screenshot-tooling-rev.md) §1, §3.2, §3.3, §10 R4
 **Задача:** KS-2253
 **Связанные:**
+- [ADR-039](./039-agent-screenshot-tooling-rev.md) — ревизия (zero-touch для пользователя, выдача JWT через open internal endpoint вместо env-credentials)
 - [ADR-006 Agent coordination](./006-agent-coordination.md) — общая модель агентов и их инструментов
 - [ADR-007 Anti-duplication enforcement](./007-anti-duplication-enforcement.md) — ограничения agent-окружения
 - KS-2228 / KS-2252 — багфиксы, заблокированные отсутствием tooling'а
 - `apps/e2e/fixtures/auth.fixture.ts` — готовый паттерн API-логина и `addInitScript` для inject'а localStorage
+
+> **Примечание (KS-2309).** Статус документа изменён на Superseded по ADR-039. Содержимое ADR-036 ниже сохранено без правок как исторический контекст. Что именно отменено: §3.2 (env-credentials в контейнере агента), §3.3 (доступ к credentials через `process.env`), §10 R4 (90-дневная ротация пароля под screenshot-flow). Test-аккаунт, фильтрация публичных endpoints (§3.1, §3.4), CLI-API скрипта (§5), список ролей (§7) — остаются в силе. См. ADR-039 §5 «Diff с ADR-036» для построчного сравнения.
 
 ---
 
