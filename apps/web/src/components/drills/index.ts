@@ -48,3 +48,7 @@ export type {
   DrillRunnerCompletion,
   DrillRunnerSubmitInput,
 } from './DrillRunner';
+
+// KS-2326 — multi-step runner для find-all-checks.
+export { FindAllChecksRunner } from './FindAllChecksRunner';
+export type { FindAllChecksRunnerProps } from './FindAllChecksRunner';

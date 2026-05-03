@@ -662,9 +662,9 @@
       "findLoosePiece": "Which piece is undefended?",
       "findPin": "Find the pinned piece",
       "findFork": "Which piece forks?",
-      "findMateInOneSquare": "Where is mate-in-one delivered?",
+      "findMateInOneSquare": "Deliver mate-in-one",
       "countAttackers": "How many pieces attack the highlighted square?",
-      "findAllChecks": "Find all checking squares",
+      "findAllChecks": "Make every check",
       "findUndefendedAttack": "Which move attacks an undefended piece?"
     },
     "types": {
@@ -722,6 +722,13 @@
       "calculation": "Calculation"
     },
     "loading": "Loading drills…",
+    "findAllChecks": {
+      "correct": "Check! +1",
+      "already": "This check is already found",
+      "wrong": "Not a check",
+      "finish": "Done",
+      "missingData": "No data to validate against. Please try again later."
+    },
     "lesson": {
       "contextLabel": "Drill",
       "stepProgress": "Drill {{current}} of {{total}}"

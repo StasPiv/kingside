@@ -18,6 +18,8 @@ import { DrillBoard } from './DrillBoard';
 import { DrillCountAttackersButtons, type DrillCountValue } from './DrillCountAttackersButtons';
 import { DrillFeedbackOverlay } from './DrillFeedbackOverlay';
 import { DrillInstructions } from './DrillInstructions';
+// KS-2326: специальный multi-step runner для find-all-checks.
+import { FindAllChecksRunner } from './FindAllChecksRunner';
 
 /**
  * KS-2249 (ADR-035 §11, Drills E6) — переиспользуемый runner drill'а.
@@ -463,6 +465,55 @@ export function DrillRunner({
       >
         {headerSlot}
         <p>{t('drills.loading', 'Loading drills…')}</p>
+      </div>
+    );
+  }
+
+  // ── Render: find-all-checks (KS-2326) — multi-step runner ─────────
+  // Этот drill-type имеет свою state-machine (подсчёт found через
+  // последовательные ходы с auto-undo), не вписывается в стандартный
+  // submit-once-per-drill flow. После onComplete от FACR — инкремент
+  // attempted/solved + finishIfDone || fetchNext (без feedback-state
+  // в DrillRunner, FACR показал свой feedback внутри).
+  if (drill.drillType === 'find-all-checks' && state === 'idle') {
+    return (
+      <div
+        className="drill-runner drill-runner--find-all-checks"
+        data-testid={testId}
+        data-state="idle"
+        data-shape="moves"
+        data-attempted={attempted}
+        data-solved={solved}
+        data-count={Number.isFinite(count) ? String(count) : 'infinity'}
+      >
+        {headerSlot}
+        {!hideProgress && (
+          <div
+            className="drill-runner__progress"
+            data-testid="drill-runner-progress"
+            data-attempted={attempted}
+            data-solved={solved}
+          >
+            {contextLabel && (
+              <span className="drill-runner__context">{contextLabel} · </span>
+            )}
+            {solved} / {Number.isFinite(count) ? count : attempted}
+          </div>
+        )}
+        <FindAllChecksRunner
+          drill={drill}
+          submitAnswer={(input) => submitAnswerRef.current(input)}
+          onComplete={({ solved: ok }) => {
+            const nextAttempted = attempted + 1;
+            const nextSolved = solved + (ok ? 1 : 0);
+            setAttempted(nextAttempted);
+            setSolved(nextSolved);
+            // Сразу решаем: финиш по count или следующий drill.
+            if (!finishIfDone(nextAttempted, nextSolved)) {
+              void fetchNext();
+            }
+          }}
+        />
       </div>
     );
   }

@@ -142,7 +142,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Where is mate-in-one delivered?
+      Deliver mate-in-one
     </div>
     <button
       aria-label="Mate in one. Identify the square where mate is given in one move."
@@ -202,7 +202,7 @@ exports[`drills i18n — render snapshots > en: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Find all checking squares
+      Make every check
     </div>
     <button
       aria-label="All checks. Mark every square where you can deliver a check."
@@ -432,7 +432,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Куда ставится мат в один ход?
+      Поставьте мат в один ход
     </div>
     <button
       aria-label="Мат в один ход. Укажите клетку, на которой ставится мат в один ход."
@@ -492,7 +492,7 @@ exports[`drills i18n — render snapshots > ru: render-snapshot DrillInstruction
       data-tone="info"
       role="status"
     >
-      Найдите все клетки, куда можно дать шах
+      Сделайте все ходы с шахом
     </div>
     <button
       aria-label="Все шахи. Отметьте все клетки, с которых можно дать шах."

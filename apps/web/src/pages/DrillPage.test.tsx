@@ -207,57 +207,29 @@ describe('<DrillPage> KS-2233', () => {
     resolveSecond?.(makeDrill({ drillType: 'find-pin', answerShape: 'square' }));
   });
 
-  // ── shape='squares' ──────────────────────────────────────────────
-  it('shape=squares: клики накапливаются (toggle), submit-кнопка отправляет массив', async () => {
+  // KS-2326: для drill-type='find-all-checks' UI с squares-counter +
+  // submit-button удалён — теперь рендерится FindAllChecksRunner
+  // (multi-step с реальными ходами, отдельный test файл
+  // FindAllChecksRunner.test.tsx). Сохранён только тест что DrillPage
+  // переключается в FACR-ветку для этого drill-type'а.
+  it('KS-2326: drillType=find-all-checks → DrillRunner switches to FindAllChecksRunner', async () => {
     apiGet.mockResolvedValue(
       makeDrill({
         drillType: 'find-all-checks',
         answerShape: 'squares',
-        meta: { expectedCount: 2 },
+        meta: { expectedCount: 2, expectedMoves: ['d1d8', 'h5h8'] },
+        // Простая FEN с белым королём — chess.js валидация в FACR.
+        fen: '4k3/8/8/7Q/8/8/4K3/3R4 w - - 0 1',
       }),
     );
-    apiPost.mockResolvedValue({
-      attemptId: 'a1',
-      solved: true,
-      correctAnswer: { shape: 'squares', squares: ['e4', 'e5'] },
-      metrics: {
-        truePositive: 2,
-        falsePositive: 0,
-        falseNegative: 0,
-        iou: 1,
-      },
-    });
-    const user = userEvent.setup();
     renderDrillAt('find-all-checks');
     await waitFor(() =>
-      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
-        'idle',
-      ),
+      expect(
+        screen.getByTestId('find-all-checks-runner'),
+      ).toBeInTheDocument(),
     );
-    // Submit изначально disabled (пусто).
-    const submit = screen.getByTestId('drill-runner-submit') as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
-    // Клик по e4 → e5 → counter 2/2.
-    await user.click(screen.getByTestId('fire-square-e4'));
-    await user.click(screen.getByTestId('fire-square-e5'));
-    expect(screen.getByTestId('drill-runner-squares-counter').textContent).toContain(
-      '2 / 2',
-    );
-    // toggle: re-click e5 → counter 1/2.
-    await user.click(screen.getByTestId('fire-square-e5'));
-    expect(screen.getByTestId('drill-runner-squares-counter').textContent).toContain(
-      '1 / 2',
-    );
-    // Финальный submit с [e4].
-    await user.click(submit);
-    await waitFor(() =>
-      expect(apiPost).toHaveBeenCalledWith(
-        '/tactic-drill/attempt',
-        expect.objectContaining({
-          userAnswer: { shape: 'squares', squares: ['e4'] },
-        }),
-      ),
-    );
+    // Старого drill-runner-submit (squares-counter UI) больше нет.
+    expect(screen.queryByTestId('drill-runner-submit')).not.toBeInTheDocument();
   });
 
   // ── shape='number' ───────────────────────────────────────────────

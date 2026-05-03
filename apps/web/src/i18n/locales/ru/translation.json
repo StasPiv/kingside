@@ -664,9 +664,9 @@
       "findLoosePiece": "Какая фигура без защиты?",
       "findPin": "Найдите связанную фигуру",
       "findFork": "Какая фигура делает вилку?",
-      "findMateInOneSquare": "Куда ставится мат в один ход?",
+      "findMateInOneSquare": "Поставьте мат в один ход",
       "countAttackers": "Сколько фигур атакуют выделенную клетку?",
-      "findAllChecks": "Найдите все клетки, куда можно дать шах",
+      "findAllChecks": "Сделайте все ходы с шахом",
       "findUndefendedAttack": "Какой ход нападает на незащищённую фигуру?"
     },
     "types": {
@@ -724,6 +724,13 @@
       "calculation": "Расчёт"
     },
     "loading": "Загружаем упражнения…",
+    "findAllChecks": {
+      "correct": "Шах! +1",
+      "already": "Этот шах уже найден",
+      "wrong": "Это не шах",
+      "finish": "Готово",
+      "missingData": "Нет данных для проверки. Попробуйте позже."
+    },
     "lesson": {
       "contextLabel": "Упражнение",
       "stepProgress": "Упражнение {{current}} из {{total}}"
