@@ -6,7 +6,7 @@
  * — каноническую (square/squares/from-to) и liberal (value).
  */
 
-import { normalizeAnswerData, type AnswerDataDto } from './answer.dto';
+import { normalizeAnswerData, normalizeStoredAnswer, type AnswerDataDto } from './answer.dto';
 
 function asDto(obj: Record<string, unknown>): AnswerDataDto {
   return obj as unknown as AnswerDataDto;
@@ -162,5 +162,115 @@ describe('normalizeAnswerData (KS-2250-fix-attempt)', () => {
   it('shape=unknown → error', () => {
     const r = normalizeAnswerData(asDto({ shape: 'invalid', value: 'x' }));
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('normalizeStoredAnswer (KS-2246-fix, liberal → канон в БД)', () => {
+  // ─── square ─────────────────────────────────────────────────────
+
+  it('liberal {shape:"square", value:"c6"} → канон {square:"c6"}', () => {
+    expect(normalizeStoredAnswer({ shape: 'square', value: 'c6' })).toEqual({
+      shape: 'square',
+      square: 'c6',
+    });
+  });
+
+  it('канон {shape:"square", square:"c6"} → как есть', () => {
+    expect(normalizeStoredAnswer({ shape: 'square', square: 'c6' })).toEqual({
+      shape: 'square',
+      square: 'c6',
+    });
+  });
+
+  // ─── squares (с []) ─────────────────────────────────────────────
+
+  it('liberal {shape:"squares[]", value:[...]} → канон {shape:"squares", squares:[...]}', () => {
+    const r = normalizeStoredAnswer({
+      shape: 'squares[]',
+      value: ['c7', 'f6'],
+    });
+    expect(r?.shape).toBe('squares');
+    expect((r as { squares: string[] }).squares.sort()).toEqual(['c7', 'f6']);
+  });
+
+  it('канон {shape:"squares", squares:[...]}', () => {
+    const r = normalizeStoredAnswer({
+      shape: 'squares',
+      squares: ['c7', 'f6'],
+    });
+    expect(r?.shape).toBe('squares');
+  });
+
+  // ─── number ─────────────────────────────────────────────────────
+
+  it('канон {shape:"number", value:2} → как есть (без 1..4 ограничения)', () => {
+    expect(normalizeStoredAnswer({ shape: 'number', value: 2 })).toEqual({
+      shape: 'number',
+      value: 2,
+    });
+  });
+
+  it('number value=5 → ok (на чтении не ограничиваем — может быть legacy)', () => {
+    expect(normalizeStoredAnswer({ shape: 'number', value: 5 })).toEqual({
+      shape: 'number',
+      value: 5,
+    });
+  });
+
+  // ─── move ──────────────────────────────────────────────────────
+
+  it('liberal {shape:"move", value:"c2b3"} → канон {from:"c2", to:"b3"}', () => {
+    expect(normalizeStoredAnswer({ shape: 'move', value: 'c2b3' })).toEqual({
+      shape: 'move',
+      from: 'c2',
+      to: 'b3',
+    });
+  });
+
+  it('liberal UCI 5-char "e7e8q" → канон с promotion', () => {
+    expect(normalizeStoredAnswer({ shape: 'move', value: 'e7e8q' })).toEqual({
+      shape: 'move',
+      from: 'e7',
+      to: 'e8',
+      promotion: 'q',
+    });
+  });
+
+  it('канон {shape:"move", from, to}', () => {
+    expect(
+      normalizeStoredAnswer({ shape: 'move', from: 'e2', to: 'e4' }),
+    ).toEqual({ shape: 'move', from: 'e2', to: 'e4' });
+  });
+
+  // ─── malformed ─────────────────────────────────────────────────
+
+  it('null → null', () => {
+    expect(normalizeStoredAnswer(null)).toBeNull();
+  });
+
+  it('пустой объект → null', () => {
+    expect(normalizeStoredAnswer({})).toBeNull();
+  });
+
+  it('square с невалидной клеткой → null', () => {
+    expect(
+      normalizeStoredAnswer({ shape: 'square', value: 'z9' }),
+    ).toBeNull();
+  });
+
+  it('squares с одной невалидной клеткой → null', () => {
+    expect(
+      normalizeStoredAnswer({ shape: 'squares[]', value: ['c7', 'zz'] }),
+    ).toBeNull();
+  });
+
+  it('move без from/to и без value → null', () => {
+    expect(normalizeStoredAnswer({ shape: 'move' })).toBeNull();
+  });
+
+  it('unknown shape → null', () => {
+    expect(
+      normalizeStoredAnswer({ shape: 'invalid', value: 'x' }),
+    ).toBeNull();
   });
 });

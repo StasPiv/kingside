@@ -13,7 +13,13 @@
  * `TacticDrillDto` БЕЗ поля `answer`. Эталон отдаётся только в ответе
  * `recordAttempt` (через `correctAnswer`).
  */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { normalizeStoredAnswer } from './dto/answer.dto';
 import type {
   AnswerData,
   AnswerShape,
@@ -189,7 +195,17 @@ export class TacticDrillService {
     });
     if (!drill) throw new NotFoundException('drill not found');
 
-    const expected = drill.answer as unknown as AnswerData;
+    // KS-2246-fix: эталон из БД может быть в liberal-формате (от
+    // author-seed chess-expert'а: `{shape:'square', value:'c6'}` или
+    // `{shape:'squares[]', value:[...]}`). Нормализуем в канон перед
+    // валидатором — иначе validator делает `expected.square.toLowerCase()`
+    // на undefined → 500.
+    const expected = normalizeStoredAnswer(drill.answer);
+    if (!expected) {
+      throw new InternalServerErrorException(
+        `drill ${drillId} has malformed answer in DB (cannot normalize)`,
+      );
+    }
     const result = this.validator.validate(expected, userAnswer);
 
     let attemptId = `guest-${Date.now()}`;
@@ -232,6 +248,8 @@ export class TacticDrillService {
     return {
       attemptId,
       solved: result.solved,
+      // expected уже в каноне (после normalizeStoredAnswer выше) — frontend
+      // получает консистентный shape (api-contract §3).
       correctAnswer: expected,
       ...(result.metrics ? { metrics: result.metrics } : {}),
     };

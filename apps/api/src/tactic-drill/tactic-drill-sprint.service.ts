@@ -25,6 +25,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -32,6 +33,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { TacticDrillService } from './tactic-drill.service';
 import { TacticDrillValidatorService } from './tactic-drill-validator.service';
+import { normalizeStoredAnswer } from './dto/answer.dto';
 import type {
   AnswerData,
   TacticDrillAttemptResponse,
@@ -184,7 +186,14 @@ export class TacticDrillSprintService {
       select: { id: true, answer: true },
     });
     if (!drillRow) throw new NotFoundException('drill not found');
-    const expected = drillRow.answer as unknown as AnswerData;
+    // KS-2246-fix: эталон в БД может быть в liberal-формате (author-seed) —
+    // нормализуем перед validator'ом, иначе runtime undefined.toLowerCase().
+    const expected = normalizeStoredAnswer(drillRow.answer);
+    if (!expected) {
+      throw new InternalServerErrorException(
+        `drill ${body.drillId} has malformed answer in DB (cannot normalize)`,
+      );
+    }
     const result = this.validator.validate(expected, body.userAnswer);
 
     state.attempts.push({

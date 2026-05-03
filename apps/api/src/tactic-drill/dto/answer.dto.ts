@@ -144,3 +144,79 @@ export function normalizeAnswerData(
       return { ok: false, error: `unknown shape: ${(raw as { shape: string }).shape}` };
   }
 }
+
+/**
+ * KS-2246-fix: нормализация эталона из `tactic_drills.answer` JSONB в
+ * канонический `AnswerData`. Чтения этой колонки в БД могут содержать
+ * liberal-формат (от chess-expert author-files KS-2246):
+ *  - `{shape:'square', value:'<sq>'}` (вместо `square:'<sq>'`)
+ *  - `{shape:'squares[]', value:[...]}` (с `[]` в shape)
+ *  - `{shape:'move', value:'<UCI>'}` (UCI-string в `value`)
+ *  - `{shape:'number', value:N}` (правильно)
+ *
+ * Возвращает канон или null, если данные сломаны (controller тогда
+ * отдаст 500 с понятным сообщением). Whitespace в shape игнорируется,
+ * `squares[]` → `squares`.
+ *
+ * Используется в `recordAttempt` (validator требует канон) и в seed
+ * `/tmp/import-curated.mjs` (бэкфилл при upsert).
+ */
+export function normalizeStoredAnswer(raw: unknown): AnswerData | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  // Strip `[]` от author-format `squares[]` → `squares`.
+  const shape = typeof r.shape === 'string' ? r.shape.replace(/\[\]$/, '') : '';
+
+  switch (shape) {
+    case 'square': {
+      const sq = typeof r.square === 'string'
+        ? r.square
+        : (typeof r.value === 'string' ? r.value : null);
+      if (!sq || !SQUARE_RE.test(sq)) return null;
+      return { shape: 'square', square: sq };
+    }
+    case 'squares': {
+      const arr = Array.isArray(r.squares)
+        ? r.squares
+        : (Array.isArray(r.value) ? (r.value as unknown[]) : null);
+      if (!arr || arr.length === 0) return null;
+      const set = new Set<string>();
+      for (const item of arr) {
+        if (typeof item !== 'string' || !SQUARE_RE.test(item)) return null;
+        set.add(item.toLowerCase());
+      }
+      return { shape: 'squares', squares: Array.from(set) };
+    }
+    case 'number': {
+      const n = typeof r.value === 'number' ? r.value : null;
+      if (n === null || !Number.isFinite(n) || !Number.isInteger(n)) return null;
+      return { shape: 'number', value: n };
+    }
+    case 'move': {
+      let from: string | null = null;
+      let to: string | null = null;
+      let promotion: 'q' | 'r' | 'b' | 'n' | null = null;
+      if (typeof r.from === 'string' && typeof r.to === 'string') {
+        from = r.from;
+        to = r.to;
+        if (r.promotion === 'q' || r.promotion === 'r' || r.promotion === 'b' || r.promotion === 'n') {
+          promotion = r.promotion;
+        }
+      } else if (typeof r.value === 'string' && r.value.length >= 4) {
+        from = r.value.slice(0, 2);
+        to = r.value.slice(2, 4);
+        const p = r.value.slice(4, 5);
+        if (p === 'q' || p === 'r' || p === 'b' || p === 'n') promotion = p;
+      }
+      if (!from || !to || !SQUARE_RE.test(from) || !SQUARE_RE.test(to)) return null;
+      return {
+        shape: 'move',
+        from,
+        to,
+        ...(promotion ? { promotion } : {}),
+      };
+    }
+    default:
+      return null;
+  }
+}
