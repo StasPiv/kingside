@@ -35,3 +35,7 @@ export type {
 
 export { DrillTypeCard } from './DrillTypeCard';
 export type { DrillTypeCardProps } from './DrillTypeCard';
+
+// KS-2236
+export { DrillStatsPanel } from './DrillStatsPanel';
+export type { DrillStatsPanelProps } from './DrillStatsPanel';

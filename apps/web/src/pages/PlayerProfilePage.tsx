@@ -5,6 +5,9 @@ import { api } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { RatingHistoryChart } from '../components/RatingHistoryChart';
 import { AuthorCoursesBlock } from '../components/lessons/AuthorCoursesBlock';
+// KS-2236 (ADR-035 §7, E3): drill-статистика на собственном профиле.
+import { DrillStatsPanel } from '../components/drills';
+import { useFeatureFlag } from '../context/FeatureFlagsContext';
 import type { PlayerProfileResponse } from '@kingside/shared';
 
 /**
@@ -83,6 +86,9 @@ export function PlayerProfilePage() {
   const [friendStatus, setFriendStatus] = useState<FriendStatus>('loading');
   const [friendshipId, setFriendshipId] = useState<string | null>(null);
   const [isBlocked, setIsBlocked] = useState(false);
+  // KS-2236: drill-статистика только на собственном профиле и
+  // только при включённом drillsEnabled (KS-2231).
+  const drillsEnabled = useFeatureFlag('drillsEnabled');
 
   useEffect(() => {
     if (!username) return;
@@ -332,6 +338,16 @@ export function PlayerProfilePage() {
               <div className="player-profile-rating-value">{profile.puzzleRush.totalSessions}</div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* KS-2236: drill-статистика — только владельцу профиля и
+          только при включённом флаге `drillsEnabled`. На чужом профиле
+          panel НЕ рендерится — endpoint `/stats/me` доступен только
+          авторизованному пользователю и вернул бы 401. */}
+      {drillsEnabled && currentUser && currentUser.id === profile.id && (
+        <div className="player-profile-section">
+          <DrillStatsPanel />
         </div>
       )}
 

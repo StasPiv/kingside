@@ -721,7 +721,26 @@
       "pattern": "Pattern recognition",
       "calculation": "Calculation"
     },
-    "loading": "Loading drills…"
+    "loading": "Loading drills…",
+    "stats": {
+      "heading": "Drill stats",
+      "totalAttempts": "Attempts",
+      "totalSolved": "Solved",
+      "totalAccuracy": "Accuracy",
+      "empty": "No drill attempts yet. Open the trainer to start.",
+      "loadFailed": "Could not load drill stats.",
+      "col": {
+        "type": "Type",
+        "attempts": "Attempts",
+        "solved": "Solved",
+        "accuracy": "Accuracy",
+        "avgTime": "Avg time",
+        "iou": "Avg IoU"
+      },
+      "lockedLabel": "Locked",
+      "unlockedLabel": "Unlocked",
+      "openLobby": "Open trainer"
+    }
   },
   "puzzle": {
     "title": "Puzzles",
