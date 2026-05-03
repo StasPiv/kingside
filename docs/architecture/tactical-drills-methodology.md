@@ -58,6 +58,7 @@ Single-source-of-truth для дизайна и реализации перво�
 - **`find-all-checks` инварианты**: `2 ≤ |unique to| ≤ 7` + drop позиций с мат-в-1 (уходят в `find-mate-in-one-square`).
 - **Canonical answer rule** для всех 8 предикатов: strict-uniqueness — позиция с > 1 валидным ответом **отбрасывается**, никакого выбора среди многих. Уровень сравнения зависит от answer-shape: для `move` — по полной паре `(from, to)` (см. ADR §2.2.1(d)).
 - **`find-mate-in-one-square` — `move`, не `square`** (KS-2320, отмена KS-2223 §8.3). UX-аргумент: пользователь ожидает «сделать ход», не клик по клетке. Strict-uniqueness переносится с `to`-клетки на полную пару `(from, to)`. См. §8.3 (revised).
+- **`find-all-checks` — `moves`, не `squares`** (KS-2324). UX-аргумент: пользователь ожидает «делать ходы», не отмечать клетки. Multi-step flow с live feedback и auto-undo (см. §11). IoU 0.7 переходит на set-of-(from,to)-pairs. Battery-ходы засчитываются как **разные** пары. См. §8.5.
 
 **Source of truth** для определений — код в `apps/api/src/tactic-drill/predicates/` (KS-2227). Любое изменение предиката требует синхронной правки ADR-035 §2.1 / §2.2.1 и этого раздела.
 
@@ -73,15 +74,15 @@ Single-source-of-truth для дизайна и реализации перво�
 | `find-loose-piece` | Какая фигура без защиты? | Which piece is undefended? |
 | `find-pin` | Найдите связанную фигуру | Find the pinned piece |
 | `find-fork` | Какая фигура делает вилку? | Which piece forks? |
-| `find-mate-in-one-square` ✱ | Куда ставится мат в один ход? | Where is mate-in-one delivered? |
+| `find-mate-in-one-square` ✱✱ | Поставьте мат в один ход | Deliver mate-in-one |
 | `count-attackers` | Сколько фигур атакуют выделенную клетку? | How many pieces attack the highlighted square? |
-| `find-all-checks` ✱ | Найдите все клетки, куда можно дать шах | Find all checking squares |
+| `find-all-checks` ✱✱ | Сделайте все ходы с шахом | Make every check |
 | `find-undefended-attack` | Какой ход нападает на незащищённую фигуру? | Which move attacks an undefended piece? |
 
 Обоснование правок:
 - **`find-hanging-piece`** — добавлено «противника» / «enemy»: своя фигура тоже может висеть, но в drill ищется фигура для взятия. Снимает двусмысленность для новичка.
-- **`find-mate-in-one-square`** — «куда ставится» вместо «куда поставить»: drill — про распознавание матующей клетки, а не про действие игрока. Семантически ближе к «найди».
-- **`find-all-checks` (EN)** — «Find every check» был неоднозначен (move? square?). «Find all checking squares» синхронен с RU «все клетки», явно указывает answer-shape.
+- **`find-mate-in-one-square`** ✱✱ — после KS-2320 переход на shape='move' → промпт переписан с «найдите клетку» на императив «сделайте ход». «Поставьте мат в один ход» / «Deliver mate-in-one» — соответствует новой UX-модели «делать ход», не «отмечать клетку». Окончательная формулировка — на согласование с chess-expert (мини-тикет, не блокирующий).
+- **`find-all-checks`** ✱✱ — после KS-2324 переход на shape='moves' → «отметьте все клетки» уже не подходит. «Сделайте все ходы с шахом» / «Make every check» — отражает multi-step input (см. §11). Окончательная формулировка — на согласование с chess-expert.
 
 ### 3.1 Принципы стиля для расширения палитры (v2+)
 
@@ -104,12 +105,12 @@ review.drill.prompt.findPin              ru: "Найдите связанную 
                                          en: "Find the pinned piece"
 review.drill.prompt.findFork             ru: "Какая фигура делает вилку?"
                                          en: "Which piece forks?"
-review.drill.prompt.findMateInOneSquare  ru: "Куда ставится мат в один ход?"
-                                         en: "Where is mate-in-one delivered?"
+review.drill.prompt.findMateInOneSquare  ru: "Поставьте мат в один ход"            (KS-2320)
+                                         en: "Deliver mate-in-one"
 review.drill.prompt.countAttackers       ru: "Сколько фигур атакуют выделенную клетку?"
                                          en: "How many pieces attack the highlighted square?"
-review.drill.prompt.findAllChecks        ru: "Найдите все клетки, куда можно дать шах"
-                                         en: "Find all checking squares"
+review.drill.prompt.findAllChecks        ru: "Сделайте все ходы с шахом"            (KS-2324)
+                                         en: "Make every check"
 review.drill.prompt.findUndefendedAttack ru: "Какой ход нападает на незащищённую фигуру?"
                                          en: "Which move attacks an undefended piece?"
 ```
@@ -156,7 +157,7 @@ UX (для KS-DRILL-LOBBY):
 
 ---
 
-## 6. Threshold для shape=`squares[]`
+## 6. Threshold IoU 0.7 (применяется для shape=`squares[]` и `moves[]`)
 
 **Финальное значение: `0.7`** (Jaccard / IoU = TP / (TP + FP + FN)).
 
@@ -198,12 +199,14 @@ Threshold 0.7 в комбинации с размером N даёт согла�
 
 ### 6.4 Метрика для пересмотра threshold
 
-После накопления первых **1000 drill-сессий** на shape=`squares[]`:
+После накопления первых **1000 drill-сессий** на shape с IoU-scoring (исходно — `squares[]`, после KS-2324 — `moves[]` для `find-all-checks`):
 - **pass-rate > 90%** → ужесточить до 0.8;
 - **pass-rate < 50%** → ослабить до 0.65;
 - **drop-off на этом drill > 30%** → пересмотреть N-распределение, **не** threshold (проблема не в строгости, а в избыточном размере ответа).
 
 Метрики собирает backend (KS-DRILL-API), пересмотр — chess-expert + architect совместно (открытие отдельного тикета по результатам).
+
+> **KS-2324 note:** для `find-all-checks` единица сравнения переехала с set-of-squares на set-of-(from,to)-pairs. Threshold 0.7 и формула IoU те же; пилот будет переснят с новым банком после backend predicate-update.
 
 ---
 
@@ -303,6 +306,24 @@ Threshold 0.7 в комбинации с размером N даёт согла�
 
 **Стало:**
 > R8 | Что считать «решено» для shape=`squares[]`? **Threshold 0.7 IoU** (зафиксировано в [`tactical-drills-methodology.md`](../architecture/tactical-drills-methodology.md) §6) | chess-expert (закрыто KS-2223) | Метрить на первых 1000 сессиях, пересмотр по правилам §6.4 methodology-doc
+
+### 8.5 `find-all-checks` — answer-shape revision (KS-2324)
+
+> ⚠️ **REVISED в KS-2324.** Изначальное `shape: 'squares'` (отметить все клетки откуда можно дать шах) — отменено по фидбеку пользователя. Финальный формат — **`moves` (массив пар `{from, to}`)**.
+
+**Было (KS-2227 финальный после KS-2313):**
+> `squares[]` — отметить все `to`-клетки, куда можно дать шах. Strict-uniqueness по `Set<to>`. Battery (две фигуры на одну `to`) → одна позиция в pool'е.
+
+**Стало (KS-2324):**
+> **`moves` (массив `{from, to}`)** — multi-step input. Пользователь делает каждый шах ходом (drag/click-click), доска auto-undo'ится после каждого хода, прогресс «найдено N/M». Strict-uniqueness по `Set<(from,to)>`. Battery → две **разные** пары, обе нужно сделать. Scoring IoU 0.7 (тот же threshold, единица — пара).
+
+Обоснование revision'а: пользовательский фидбек после пилота KS-2246 показал, что отметка клеток «со стороны» (без перемещения фигур) **не интуитивна** для шахматного контекста. Drill должен быть в той же модальности, что и обычные пазлы — через ходы.
+
+UX-flow зафиксирован в §11. Цена перехода:
+- **расширение банка** для позиций с battery (раньше одна позиция → теперь две пары); часть pool'а перевыпустится с большим количеством expected moves.
+- **новый frontend handler** для shape='moves' (multi-step state-machine, отличается от shape='move' одиночного из KS-2318).
+- **backend predicate** меняет тип результата (`Set<string>` → `Array<{from,to}>`).
+- **chess-expert** перевалидирует `/tmp/KS-2246/find-all-checks.json` после backend predicate-update — часть позиций отвалится / появится из-за battery, это ожидаемо.
 
 ---
 
@@ -884,7 +905,115 @@ Acceptance — будущий тикет KS-DRILL-RATING. Чек-лист:
 
 ---
 
-## 11. Связанные документы и тикеты
+## 11. Multi-step input UX (find-all-checks, KS-2324)
+
+`find-all-checks` после перехода на shape='moves' (KS-2324) — единственный drill с **multi-step input flow**: ученик последовательно делает несколько ходов, доска возвращается в исходное состояние после каждого. Это секция фиксирует UX-flow для frontend и backend.
+
+### 11.1 Состояния и переходы
+
+```
+                    ┌─────────────────┐
+                    │  /next ответ:   │
+                    │ TacticDrillDto  │
+                    │ + expectedMoves │
+                    └────────┬────────┘
+                             ↓
+                    ┌─────────────────┐
+                    │   IDLE / READY  │  ← board в исходной позиции
+                    │   found = []    │
+                    │   attempts = 0  │
+                    └────────┬────────┘
+                             ↓ user makes move m
+                    ┌────────────────────────┐
+                    │  Frontend проверяет m  │
+                    └────────┬───────────────┘
+                             ↓
+        ┌────────────────────┼─────────────────────┐
+        ↓                    ↓                     ↓
+┌──────────────┐   ┌──────────────────┐   ┌─────────────────┐
+│ correct      │   │ already-found    │   │ not-a-check     │
+│ зелёный 600мс│   │ жёлтый 400мс     │   │ красный 600мс   │
+│ found.add(m) │   │ (без штрафа)     │   │ attempts++      │
+└──────┬───────┘   └─────────┬────────┘   └────────┬────────┘
+       └─────────────────────┼─────────────────────┘
+                             ↓ chess.undo()
+                    ┌─────────────────┐
+                    │  Update HUD:    │
+                    │  «Найдено N/M»  │
+                    └────────┬────────┘
+                             ↓
+                ┌────────────┼────────────┐
+                ↓                         ↓
+       ┌────────────────┐       ┌────────────────┐
+       │ found.size     │       │ found.size     │
+       │   < expected   │       │   === expected │
+       │ → READY (loop) │       │ → AUTO-SUBMIT  │
+       └────────────────┘       └────────┬───────┘
+                                         ↓
+                             ┌─────────────────────┐
+                             │ POST /attempt с     │
+                             │ userAnswer.moves =  │
+                             │ Array.from(found)   │
+                             └─────────────────────┘
+```
+
+Альтернативные пути завершения (без auto-submit):
+- **Кнопка «Готово»** — submit с тем, что найдено (IoU-score применит scoring §6 / §4.6).
+- **Timeout** — то же.
+- **Skip** — отменяет попытку (drill не учитывается в статистике; cooldown не активируется).
+
+### 11.2 Frontend state-machine
+
+```ts
+interface FindAllChecksDrillState {
+  drillId: string;
+  expectedMoves: ReadonlySet<string>;  // moveKey = `${from}${to}`
+  found: Set<string>;                  // moveKey
+  attempts: number;                     // total user attempts (correct + wrong + already-found)
+  status: 'ready' | 'feedback' | 'submitted';
+  feedbackMove: { from: string; to: string; result: 'correct' | 'already-found' | 'not-a-check' } | null;
+}
+```
+
+`expectedMoves` — приходит с `/next` (либо встроено в DTO, либо отдельным endpoint'ом — выбор backend, см. api-contract §4.6.2). Frontend держит в state (не запрашивает повторно).
+
+### 11.3 Backend — где сравнение
+
+Backend получает submit с `userAnswer.moves` и считает IoU **на финальном множестве** через §4.6 валидатор. Live-feedback per-move — **не делает**: backend работает stateless, frontend сам ведёт state ходов.
+
+Это допустимое нарушение принципа «эталон не отдавать клиенту» (§7 api-contract): эталон отдаётся только для `find-all-checks` и только потому, что drill требует multi-step flow с live feedback. Mitigation: payload эталона приходит после старта drill-сессии, передаётся через защищённый endpoint, не светится в `/next` для всех типов.
+
+### 11.4 Pacing (длительность feedback)
+
+| Result | Подсветка | Длительность | Auto-undo |
+|---|---|---|---|
+| correct | зелёный border на (from, to) | 600 мс | да |
+| already-found | жёлтый border на (from, to) | 400 мс | да |
+| not-a-check | красный border на (from, to) | 600 мс | да |
+
+После feedback'а — мгновенный возврат board state, drill-state переходит в `ready` (готов к следующему ходу). Если пользователь начинает следующий ход во время feedback'а (нажимает на фигуру) — feedback прерывается, undo выполняется, новый ход обрабатывается.
+
+### 11.5 Прогресс-индикация (HUD)
+
+Над доской — счётчик «Найдено N / M», где N=`found.size`, M=`expectedMoves.size`. Опционально — список галочек в боковой панели (как пары `(from,to)` или просто по N точек). UX-решение точного представления — на frontend.
+
+При `N === M` — auto-submit, прогресс-бар анимируется заполнением, переход на feedback-overlay drill'а («Решено»).
+
+### 11.6 Acceptance для frontend
+
+- [ ] Новый компонент `FindAllChecksRunner` (или расширение существующего DrillRunner для shape='moves').
+- [ ] State-machine из §11.2.
+- [ ] Three feedback states (correct / already-found / not-a-check) с правильным pacing'ом §11.4.
+- [ ] Auto-undo после каждого хода (включая incorrect).
+- [ ] HUD с прогрессом N/M.
+- [ ] Auto-submit при `found.size === expected.size`.
+- [ ] Кнопка «Готово» для досрочного submit.
+- [ ] Timeout (если sprint-mode — таймер ведёт sprint, drill завершается через `/sprint/submit`; в drill-mode таймер не блокирующий).
+- [ ] Юнит-тесты на state-transitions.
+
+---
+
+## 12. Связанные документы и тикеты
 
 ### Документация
 - [ADR-035](../adr/035-tactical-pattern-drills.md) — основной ADR (каталог, схема данных, UX, архитектура).

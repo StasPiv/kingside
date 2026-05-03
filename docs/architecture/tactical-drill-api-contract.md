@@ -92,10 +92,14 @@ export const DRILL_TYPE_ORDER: TacticDrillType[] = [
 // ─── Answer-shape ────────────────────────────────────────────────────────
 
 /**
- * 4 формата ответа. Discriminator — поле `shape` в каждом варианте.
+ * 5 форматов ответа. Discriminator — поле `shape` в каждом варианте.
  * Связь shape ↔ drill-type фиксирована в DRILL_TYPE_ANSWER_SHAPE ниже.
+ *
+ * `'moves'` (множественное) добавлен в KS-2324 для `find-all-checks`
+ * (бывший shape='squares' отменён). Не путать с `'move'` (единичный
+ * для `find-mate-in-one-square` после KS-2320 и `find-undefended-attack`).
  */
-export type AnswerShape = 'square' | 'squares' | 'number' | 'move';
+export type AnswerShape = 'square' | 'squares' | 'number' | 'move' | 'moves';
 
 /**
  * Связь drill-type → ожидаемый answer-shape (methodology §2,
@@ -109,9 +113,9 @@ export const DRILL_TYPE_ANSWER_SHAPE: Record<TacticDrillType, AnswerShape> = {
   'find-loose-piece':        'square',
   'find-pin':                'square',
   'find-fork':               'square',
-  'find-mate-in-one-square': 'move',  // KS-2320 (раньше было 'square')
+  'find-mate-in-one-square': 'move',   // KS-2320 (раньше было 'square')
   'count-attackers':         'number',
-  'find-all-checks':         'squares',
+  'find-all-checks':         'moves',  // KS-2324 (раньше было 'squares')
   'find-undefended-attack':  'move',
 };
 
@@ -127,7 +131,8 @@ export type AnswerData =
   | AnswerSquare
   | AnswerSquares
   | AnswerNumber
-  | AnswerMove;
+  | AnswerMove
+  | AnswerMoves;
 
 /** shape='square' — одна правильная клетка. */
 export interface AnswerSquare {
@@ -137,7 +142,13 @@ export interface AnswerSquare {
 }
 
 /**
- * shape='squares' — множество клеток-ответов (для `find-all-checks`).
+ * shape='squares' — множество клеток-ответов.
+ *
+ * До KS-2324 использовался `find-all-checks`, с KS-2324 переведён на shape='moves'.
+ * В v1 `'squares'` не используется ни одним drill-типом, оставлен в union'е
+ * для возможного будущего применения и обратной совместимости валидатора
+ * (старые `tactic_drill_attempts` могут содержать `userAnswer` в этом формате).
+ *
  * Порядок в массиве не важен — валидатор сравнивает как множество.
  * Дубли в `squares` — невалидный ответ (валидатор отклонит).
  */
@@ -154,7 +165,11 @@ export interface AnswerNumber {
   value: number;
 }
 
-/** shape='move' — пара from→to для `find-undefended-attack`. */
+/**
+ * shape='move' — одна пара from→to.
+ *
+ * Применимо к: `find-undefended-attack`, `find-mate-in-one-square` (KS-2320).
+ */
 export interface AnswerMove {
   shape: 'move';
   from: Square;
@@ -165,6 +180,24 @@ export interface AnswerMove {
    * на v2.
    */
   promotion?: 'q' | 'r' | 'b' | 'n';
+}
+
+/**
+ * shape='moves' — множество пар from→to (KS-2324).
+ *
+ * Применимо к: `find-all-checks` (multi-check drill).
+ *
+ * Порядок в массиве не важен — валидатор сравнивает как множество пар.
+ * Уникальность по `(from, to)`: дубли — невалидный ответ. Promotion в v1
+ * не поддерживается, эталон без поля `promotion`.
+ *
+ * Scoring — IoU 0.7 (methodology §6.2), но единица сравнения — пара
+ * `(from, to)`, не клетка.
+ */
+export interface AnswerMoves {
+  shape: 'moves';
+  /** Массив уникальных пар. Например `[{from:'a4',to:'e4'},{from:'b5',to:'f6'}]`. */
+  moves: Array<{ from: Square; to: Square }>;
 }
 
 // ─── DTO drill (для GET /next, /sprint/start) ────────────────────────────
@@ -361,7 +394,7 @@ export interface TacticDrillStatsResponse {
 { "shape": "squares", "squares": ["e4", "f6", "g7"] }
 ```
 
-**Применимо к:** `find-all-checks`.
+**Применимо к:** в v1 — никаким drill-типом. Бывший потребитель `find-all-checks` переведён на `shape: 'moves'` в KS-2324 (см. §3.6). Этот раздел оставлен для исторических attempts и возможного будущего применения.
 
 **Инварианты:**
 - Минимум 2 элемента, максимум 7 (methodology §6.3).
@@ -397,7 +430,32 @@ export interface TacticDrillStatsResponse {
   - Для `find-mate-in-one-square` strict-uniqueness считается по полной паре `(from, to)`: позиции с двумя разными фигурами на одну `to`-клетку — drop (см. ADR-035 §2.2.1(e)).
 - В v1 поле `promotion` отсутствует у эталона (генератор отбрасывает позиции с промоушеном).
 
-### 3.5 Сводная таблица drill-type → answer-shape → пример
+### 3.5 `shape: 'moves'` (KS-2324)
+
+```json
+{
+  "shape": "moves",
+  "moves": [
+    { "from": "a4", "to": "e4" },
+    { "from": "b5", "to": "f6" },
+    { "from": "h2", "to": "h6" }
+  ]
+}
+```
+
+**Применимо к:** `find-all-checks` (multi-check drill, ранее был `shape: 'squares'`).
+
+**Инварианты эталона:**
+- 2 ≤ `moves.length` ≤ 7 (как и раньше; единица — пара, не клетка).
+- Каждая пара `(from, to)` — валидные клетки `[a-h][1-8]`.
+- В позиции ход `from→to` законный и даёт шах (`m.san.includes('+')`).
+- Уникальность по `(from, to)`: дубли — невалидный эталон. Battery-ходы (две разные `from` на одну `to`) — это **разные** пары, обе входят в эталон.
+- В v1 поле `promotion` отсутствует у пар; позиции, где хотя бы один шах с промоушеном, drop'аются генератором.
+- Позиции, где среди шахов есть мат-в-1, drop'аются (уходят в `find-mate-in-one-square`, см. ADR §2.2).
+
+В `userAnswer.moves` пользователь присылает пары в любом порядке; дубли — backend нормализует через `Set<string>` (где key = `${from}${to}`) перед сравнением.
+
+### 3.6 Сводная таблица drill-type → answer-shape → пример
 
 | drill-type | shape | пример эталона |
 |---|---|---|
@@ -407,7 +465,7 @@ export interface TacticDrillStatsResponse {
 | `find-fork` | `square` | `{ shape: 'square', square: 'f5' }` |
 | `find-mate-in-one-square` | `move` | `{ shape: 'move', from: 'd1', to: 'h5' }` *(KS-2320)* |
 | `count-attackers` | `number` | `{ shape: 'number', value: 3 }` |
-| `find-all-checks` | `squares` | `{ shape: 'squares', squares: ['e4', 'g7'] }` |
+| `find-all-checks` | `moves` | `{ shape: 'moves', moves: [{from:'a4',to:'e4'},{from:'b5',to:'f6'}] }` *(KS-2324)* |
 | `find-undefended-attack` | `move` | `{ shape: 'move', from: 'd1', to: 'a4' }` |
 
 ---
@@ -510,7 +568,71 @@ return {
 
 #### 4.5.2 Метрика для статистики
 
-Для drill `find-all-checks` `avgIou` per user (поле `TacticDrillStatsItem.avgIou`) считается как среднее `iou` по всем попыткам этого юзера на этот drill-type. Вычисляется на запросе `GET /stats/me`, не материализуется в БД.
+Для drill `find-all-checks` `avgIou` per user (поле `TacticDrillStatsItem.avgIou`) считается как среднее `iou` по всем попыткам этого юзера на этот drill-type. Вычисляется на запросе `GET /stats/me`, не материализуется в БД. После KS-2324 единица сравнения — пара `(from, to)`, формула та же.
+
+### 4.6 `shape: 'moves'` — Jaccard / IoU по парам (KS-2324)
+
+**Threshold = 0.7** (methodology §6.2). Тот же что для `'squares'`, но единица сравнения — пара `(from, to)`.
+
+Алгоритм:
+
+```ts
+const moveKey = (m: { from: string; to: string }) => `${m.from}${m.to}`;
+
+const expected = new Set(answer.moves.map(moveKey));
+const got      = new Set(userAnswer.moves.map(moveKey));
+
+let truePositive = 0;
+let falsePositive = 0;
+let falseNegative = 0;
+
+for (const k of got) {
+  if (expected.has(k)) truePositive++;
+  else falsePositive++;
+}
+for (const k of expected) {
+  if (!got.has(k)) falseNegative++;
+}
+
+const denominator = truePositive + falsePositive + falseNegative;
+const iou = denominator === 0 ? 1 : truePositive / denominator;
+const solved = iou >= 0.7;
+
+return {
+  solved,
+  metrics: {
+    truePositive,
+    falsePositive,
+    falseNegative,
+    iou: Math.round(iou * 100) / 100,
+  },
+};
+```
+
+#### 4.6.1 Edge-cases (специфика для `moves`)
+
+Те же, что в §4.5.1, но единица — пара. Дополнительно:
+
+| Случай | userAnswer | expected | result |
+|---|---|---|---|
+| Battery: совпало 2 пары на одну `to` | `[{a4,e4},{b5,e4}]` | `[{a4,e4},{b5,e4},{h2,h6}]` | TP=2, FP=0, FN=1, IoU=2/3≈0.67, **fail** |
+| Та же `to`-клетка, но другой `from` | `[{a4,e4}]` | `[{b5,e4}]` | TP=0, FP=1, FN=1, IoU=0, **fail** (раньше при `squares` это было бы `pass`) |
+
+Это сужение по сравнению с прежним shape='squares': пользователь должен указать **правильную фигуру**, а не просто клетку. Это by design — логично для нового UX «сделать ход».
+
+#### 4.6.2 Live-feedback semantics (для multi-step UX)
+
+Backend-валидатор работает на финальном submit'е. Live-feedback per-move во время drill — **на стороне frontend**, по локальной копии эталона `expected`:
+
+| Действие пользователя | Frontend-state | Visual feedback |
+|---|---|---|
+| Ход `m`, `expected.has(moveKey(m))`, не было в `found` | добавить в `found` | зелёный (correct), пометить (from, to) галочкой в боковой панели |
+| Ход `m`, `expected.has(moveKey(m))`, уже в `found` | без изменений | жёлтый (already found), без штрафа |
+| Ход `m`, `!expected.has(moveKey(m))` | без изменений | красный (not a check / wrong), `attempts++` для статистики |
+
+После каждого хода — automatic `chess.undo()`, доска возвращается в исходное состояние. Полный flow — methodology §11.
+
+Чтобы клиент мог делать live-проверку, эталон **должен** прийти к нему. Это нарушение принципа из §7 «эталон не отдавать в `/next`». Решение: для `find-all-checks` (shape='moves') — допускаем отдачу `answer.moves` через специальный endpoint `GET /api/tactic-drill/checks/expected?drillId=...` после старта drill (с rate-limit + audit), либо встраиваем в `TacticDrillDto` ТОЛЬКО для этого drill-type. Это компромисс ради UX. Backend-имплементатор выбирает (предпочтительно — отдельный endpoint, защищённый sessionId). См. §5.x.
 
 ---
 
