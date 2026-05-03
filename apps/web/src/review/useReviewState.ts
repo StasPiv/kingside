@@ -1,9 +1,13 @@
 import { useReducer, useCallback } from 'react';
 import { Chess } from 'chess.js';
-import { ChessMove, NodeAnnotations } from './types';
+import { ChessMove, NodeAnnotations, VariationColor } from './types';
 import { addMoveToHistory } from './utils/AddMoveToHistory';
 import { addVariationToHistory } from './utils/AddVariationToHistory';
-import { linkAllMovesRecursively, searchInHistory } from './utils/ChessHistoryUtils';
+import {
+  findVariationRoot,
+  linkAllMovesRecursively,
+  searchInHistory,
+} from './utils/ChessHistoryUtils';
 import { promoteVariationLink } from './utils/PromoteVariationLink';
 import { deleteVariation as deleteVariationUtil } from './utils/DeleteVariation';
 import { deleteRemaining as deleteRemainingUtil } from './utils/DeleteRemaining';
@@ -55,6 +59,21 @@ type ReviewAction =
   | { type: 'DELETE_REMAINING'; payload: ChessMove }
   | { type: 'SET_NAG'; payload: { globalIndex: number; nags: number[] } }
   | { type: 'SET_COMMENT'; payload: { globalIndex: number; comment: string } }
+  | {
+      /**
+       * KS-2287 (ADR-038 §6, VC E1) — установить / снять
+       * пользовательский цвет варианта.
+       *  - `moveIndex` — globalIndex любого хода ВНУТРИ вариации
+       *    (не обязательно head'а). Reducer находит variation-root
+       *    через `findVariationRoot`.
+       *  - `color: VariationColor` — поставить (зеленый/синий/...).
+       *  - `color: null` — снять (clear).
+       *  - move на main-line → no-op (variation-color применим только
+       *    к веткам).
+       */
+      type: 'SET_VARIATION_COLOR';
+      payload: { moveIndex: number; color: VariationColor | null };
+    }
   | {
       type: 'SET_ANNOTATIONS';
       payload:
@@ -255,6 +274,31 @@ function reducer(state: ReviewState, action: ReviewAction): ReviewState {
         history: [...state.history],
       };
     }
+    case 'SET_VARIATION_COLOR': {
+      // KS-2287: ставим/снимаем variationColor на ROOT'е вариации.
+      // Если moveIndex указывает на main-line — no-op.
+      const move = searchInHistory(
+        state.history,
+        action.payload.moveIndex,
+      ) as ChessMove | null;
+      if (!move) return state;
+      const root = findVariationRoot(state.history, move) as
+        | ChessMove
+        | null;
+      if (!root) return state; // main-line — variationColor неприменим
+      if (action.payload.color === null) {
+        // Защита от no-op re-render: если уже undefined — return state.
+        if (root.variationColor === undefined) return state;
+        delete root.variationColor;
+      } else {
+        if (root.variationColor === action.payload.color) return state;
+        root.variationColor = action.payload.color;
+      }
+      return {
+        ...state,
+        history: [...state.history],
+      };
+    }
     case 'SET_ANNOTATIONS': {
       // KS-2152: полностью immutable update — пишем только в
       // annotationsByIndex (или initialAnnotations). Мутация move
@@ -416,6 +460,19 @@ export function useReviewState() {
   }, []);
 
   /**
+   * KS-2287 (ADR-038 §6) — установить/снять цвет вариации.
+   * `moveIndex` — globalIndex любого хода ВНУТРИ вариации; reducer
+   * сам найдёт variation-root через `findVariationRoot`. `color: null`
+   * — clear.
+   */
+  const setVariationColor = useCallback(
+    (moveIndex: number, color: VariationColor | null) => {
+      dispatch({ type: 'SET_VARIATION_COLOR', payload: { moveIndex, color } });
+    },
+    [],
+  );
+
+  /**
    * KS-2152: установить аннотации (стрелки/выделения) для текущего
    * положения. Если currentMove === null — сохраняем в initialAnnotations,
    * иначе — на сам узел дерева.
@@ -473,6 +530,8 @@ export function useReviewState() {
     truncateRemaining,
     setNag,
     setComment,
+    /** KS-2287 (ADR-038 §6, VC E1) */
+    setVariationColor,
     /** KS-2152 */
     currentAnnotations,
     initialAnnotations: state.initialAnnotations,

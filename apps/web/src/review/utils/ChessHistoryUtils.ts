@@ -201,6 +201,25 @@ export function findFirstMoveInVariation(history: any[], targetMove: any): any |
 }
 
 /**
+ * KS-2287 (ADR-038 §6) — найти «корень» вариации, в которой находится
+ * `move`. Возвращает первый ход вариации (`variation[0]`) или `null`,
+ * если `move` принадлежит main-line.
+ *
+ * Тонкое место: если `move` уже сам является `variation[0]` — функция
+ * вернёт его же (что и нужно — корень сам себе корень). Если `move`
+ * лежит в подвариации (variation внутри variation), вернётся корень
+ * самой ВНУТРЕННЕЙ вариации, не главной — потому что variationColor
+ * хранится на head'е каждой вариации независимо.
+ *
+ * Обёртка над `findFirstMoveInVariation` ради читаемого имени в
+ * reducer'е и UI-коде (где термин «variation root» прямо из ADR-038).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function findVariationRoot(history: any[], move: any): any | null {
+  return findFirstMoveInVariation(history, move);
+}
+
+/**
  * Строит линию ходов, начиная с указанного хода и продолжая до конца его линии
  * @param history - полная история ходов
  * @param startMove - начальный ход, с которого строить линию
