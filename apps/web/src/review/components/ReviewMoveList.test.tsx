@@ -185,55 +185,75 @@ describe('<ReviewMoveList> KS-2283 — интеграция NagPalette / NagPale
   });
 
   it('long-press 500ms → монтирует NagPaletteSheet (mobile bottom-sheet)', async () => {
-    const move = makeMove({ nags: [3] });
-    renderWithProviders(
-      <ReviewMoveList
-        history={[move]}
-        currentGlobalIndex={1}
-        onMoveClick={() => {}}
-        onSetNag={() => {}}
-      />,
-    );
-    const moveEl = screen.getByTestId('review-move-1');
-    fireEvent.touchStart(moveEl, {
-      touches: [{ clientX: 50, clientY: 100 }],
-    });
-    // long-press timer 500ms; ждём чуть дольше реальным setTimeout
-    // (vi.useFakeTimers + React 19 не дружат с handleTouchStart timer).
-    await new Promise((r) => setTimeout(r, 550));
-    await waitFor(() =>
-      expect(screen.getByTestId('nag-palette-sheet')).toBeInTheDocument(),
-    );
-    // Внутри sheet — NagPalette с активным `!!` (nag=3).
-    expect(screen.getByTestId('nag-palette')).toBeInTheDocument();
-    expect(
-      screen.getByTestId('nag-palette-btn-3').className,
-    ).toMatch(/--active/);
+    // KS-2278: режим теперь зависит от device. Подменяем touch+viewport
+    // чтобы useIsMobile() вернул true в этом тесте.
+    const origW = window.innerWidth;
+    const origT = navigator.maxTouchPoints;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+    try {
+      const move = makeMove({ nags: [3] });
+      renderWithProviders(
+        <ReviewMoveList
+          history={[move]}
+          currentGlobalIndex={1}
+          onMoveClick={() => {}}
+          onSetNag={() => {}}
+        />,
+      );
+      const moveEl = screen.getByTestId('review-move-1');
+      fireEvent.touchStart(moveEl, {
+        touches: [{ clientX: 50, clientY: 100 }],
+      });
+      // long-press timer 500ms; ждём чуть дольше реальным setTimeout
+      // (vi.useFakeTimers + React 19 не дружат с handleTouchStart timer).
+      await new Promise((r) => setTimeout(r, 550));
+      await waitFor(() =>
+        expect(screen.getByTestId('nag-palette-sheet')).toBeInTheDocument(),
+      );
+      // Внутри sheet — NagPalette с активным `!!` (nag=3).
+      expect(screen.getByTestId('nag-palette')).toBeInTheDocument();
+      expect(
+        screen.getByTestId('nag-palette-btn-3').className,
+      ).toMatch(/--active/);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: origW });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: origT });
+    }
   });
 
   it('mobile sheet: extraActions — comment / promote / truncate / delete рендерятся под палитрой', async () => {
-    const move = makeMove({ nags: [] });
-    renderWithProviders(
-      <ReviewMoveList
-        history={[move]}
-        currentGlobalIndex={1}
-        onMoveClick={() => {}}
-        onSetNag={() => {}}
-        onSetComment={() => {}}
-        onPromoteVariation={() => {}}
-        onTruncateRemaining={() => {}}
-        onDeleteVariation={() => {}}
-      />,
-    );
-    fireEvent.touchStart(screen.getByTestId('review-move-1'), {
-      touches: [{ clientX: 50, clientY: 100 }],
-    });
-    await new Promise((r) => setTimeout(r, 550));
-    const actions = await screen.findByTestId('nag-palette-sheet-actions');
-    expect(actions.textContent).toMatch(/Add comment/i);
-    expect(actions.textContent).toMatch(/Promote/i);
-    expect(actions.textContent).toMatch(/Truncate/i);
-    expect(actions.textContent).toMatch(/Delete/i);
+    const origW = window.innerWidth;
+    const origT = navigator.maxTouchPoints;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 375 });
+    Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+    try {
+      const move = makeMove({ nags: [] });
+      renderWithProviders(
+        <ReviewMoveList
+          history={[move]}
+          currentGlobalIndex={1}
+          onMoveClick={() => {}}
+          onSetNag={() => {}}
+          onSetComment={() => {}}
+          onPromoteVariation={() => {}}
+          onTruncateRemaining={() => {}}
+          onDeleteVariation={() => {}}
+        />,
+      );
+      fireEvent.touchStart(screen.getByTestId('review-move-1'), {
+        touches: [{ clientX: 50, clientY: 100 }],
+      });
+      await new Promise((r) => setTimeout(r, 550));
+      const actions = await screen.findByTestId('nag-palette-sheet-actions');
+      expect(actions.textContent).toMatch(/Add comment/i);
+      expect(actions.textContent).toMatch(/Promote/i);
+      expect(actions.textContent).toMatch(/Truncate/i);
+      expect(actions.textContent).toMatch(/Delete/i);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: origW });
+      Object.defineProperty(navigator, 'maxTouchPoints', { configurable: true, value: origT });
+    }
   });
 
   it('read-only (editable=false): правый клик НЕ открывает палитру', () => {
@@ -265,6 +285,99 @@ describe('<ReviewMoveList> KS-2283 — интеграция NagPalette / NagPale
       touches: [{ clientX: 50, clientY: 100 }],
     });
     await new Promise((r) => setTimeout(r, 600));
+    expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
+  });
+});
+
+describe('<ReviewMoveList> KS-2278 — device-detection mode', () => {
+  // Хелпер: подменить touch+viewport, требуется ДО mount компонента,
+  // чтобы useIsMobile взял правильное начальное значение.
+  function setDevice(opts: { width: number; touch: number }) {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: opts.width,
+    });
+    Object.defineProperty(navigator, 'maxTouchPoints', {
+      configurable: true,
+      value: opts.touch,
+    });
+  }
+  const originalWidth = window.innerWidth;
+  const originalTouch = navigator.maxTouchPoints;
+
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  afterEach(() => {
+    setDevice({ width: originalWidth, touch: originalTouch });
+  });
+
+  it('mobile (touch + узкий viewport): right-click → открывается NagPaletteSheet, НЕ popup', () => {
+    setDevice({ width: 375, touch: 5 });
+    const move = makeMove({ nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('review-move-1'));
+    expect(screen.getByTestId('nag-palette-sheet')).toBeInTheDocument();
+    expect(document.querySelector('.review-context-menu')).toBeNull();
+  });
+
+  it('desktop touch-screen ноут (touch + широкий viewport): long-press → popup, НЕ sheet', async () => {
+    setDevice({ width: 1280, touch: 10 });
+    const move = makeMove({ nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    fireEvent.touchStart(screen.getByTestId('review-move-1'), {
+      touches: [{ clientX: 50, clientY: 100 }],
+    });
+    await new Promise((r) => setTimeout(r, 550));
+    expect(document.querySelector('.review-context-menu')).not.toBeNull();
+    expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
+  });
+
+  it('desktop без touch: right-click → popup', () => {
+    setDevice({ width: 1920, touch: 0 });
+    const move = makeMove({ nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('review-move-1'));
+    expect(document.querySelector('.review-context-menu')).not.toBeNull();
+    expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
+  });
+
+  it('узкое окно desktop без touch (600px, touch=0): right-click → popup, НЕ sheet (false-positive защита)', () => {
+    setDevice({ width: 600, touch: 0 });
+    const move = makeMove({ nags: [] });
+    renderWithProviders(
+      <ReviewMoveList
+        history={[move]}
+        currentGlobalIndex={1}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByTestId('review-move-1'));
+    // Без touch — это desktop с пользователем за мышкой, sheet не нужен.
+    expect(document.querySelector('.review-context-menu')).not.toBeNull();
     expect(screen.queryByTestId('nag-palette-sheet')).not.toBeInTheDocument();
   });
 });

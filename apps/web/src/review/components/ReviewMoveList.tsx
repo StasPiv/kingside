@@ -9,6 +9,8 @@ import { groupNagsByCategory } from '../../utils/nagCategories';
 // 6-кнопочной NAG-row в context-menu. Десктоп — popup, мобайл — sheet.
 import { NagPalette } from './NagPalette';
 import { NagPaletteSheet } from './NagPaletteSheet';
+// KS-2278 (ADR-037 §3.4, E4): детект устройства для выбора popup/sheet.
+import { useIsMobile } from '../../hooks/useIsMobile';
 import {
   processMoveHierarchy,
   getMoveClasses,
@@ -89,6 +91,11 @@ export function ReviewMoveList({
       onSetComment,
   );
   const { t } = useTranslation();
+  // KS-2278: режим popup'а определяется устройством (touch + viewport),
+  // а не триггером. На desktop (мышь + широкий viewport) даже long-press
+  // на гибридном ноутбуке открывает popup. На mobile (touch + узкий
+  // viewport) даже PointerEvent right-click из stylus'а открывает sheet.
+  const isMobile = useIsMobile();
   const movesContainerRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFiredRef = useRef(false);
@@ -183,7 +190,10 @@ export function ReviewMoveList({
     e.preventDefault();
     e.stopPropagation();
     if (processedMove.originalMove) {
-      showContextMenu(e, processedMove.originalMove);
+      // KS-2278: режим зависит от устройства, а не от триггера. На
+      // mobile-touch-screen с подключенной мышкой right-click тоже
+      // должен открыть sheet (mobile UX primary).
+      showContextMenu(e, processedMove.originalMove, isMobile ? 'mobile' : 'desktop');
     }
   };
 
@@ -198,11 +208,13 @@ export function ReviewMoveList({
       longPressTimerRef.current = null;
       // Ignore any synthetic click/touchstart events for 700ms after showing the menu
       ignoreCloseUntilRef.current = Date.now() + 700;
-      // KS-2283: long-press на mobile открывает bottom-sheet с NagPalette.
+      // KS-2278: long-press на гибридном desktop-ноуте (touch-screen
+      // + широкий viewport) открывает popup, а не sheet. На mobile
+      // (touch + узкий viewport) — sheet.
       showContextMenu(
         { clientX: touch.clientX, clientY: touch.clientY },
         move,
-        'mobile',
+        isMobile ? 'mobile' : 'desktop',
       );
     }, 500);
   };
