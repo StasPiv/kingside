@@ -27,6 +27,9 @@ function makePrisma() {
     tacticDrillSprintScore: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    lessonStep: {
+      findUnique: jest.fn().mockResolvedValue(null),
+    },
   } as unknown as PrismaService & Record<string, never>;
 }
 
@@ -253,6 +256,303 @@ describe('TacticDrillService — KS-2230', () => {
       expect(pin.solved).toBe(1);
       expect(pin.avgTimeMs).toBe(800);
       expect(r.unlocked.sort()).toEqual(['find-fork', 'find-pin']);
+    });
+  });
+
+  // ─── KS-2315: pickDrillForLesson (резолвер /tactic-drill/by-step) ──
+
+  describe('pickDrillForLesson (KS-2315)', () => {
+    const STEP_ID = '11111111-1111-1111-1111-111111111111';
+    const DRILL_ID = '22222222-2222-2222-2222-222222222222';
+
+    it('step не найден → 404 NotFoundException', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue(null);
+      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
+        /lesson step not found/,
+      );
+    });
+
+    it('step есть, но type != "drill" → 400 BadRequestException', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'text',
+        payload: { type: 'text', bodyMarkdown: 'hello' },
+      });
+      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
+        /is not a drill/,
+      );
+    });
+
+    it('payload malformed (нет drillType) → 400', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill' /* drillType отсутствует */ },
+      });
+      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
+        /malformed/,
+      );
+    });
+
+    it('fixed drillId → возвращает тот drill (без cooldown)', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill', drillType: 'find-fork', drillId: DRILL_ID },
+      });
+      (prisma.tacticDrill.findUnique as jest.Mock).mockResolvedValue({
+        id: DRILL_ID,
+        type: 'find-fork',
+        fen: '4k3/8/8/4r3/2N5/q7/8/4K3 w - - 0 1',
+        difficulty: 3,
+        sfRejected: false,
+      });
+      const r = await svc.pickDrillForLesson(STEP_ID);
+      expect(r.drill.id).toBe(DRILL_ID);
+      expect(r.drill.drillType).toBe('find-fork');
+      expect(r.drill.difficulty).toBe(3);
+      // Должен быть БЕЗ answer (api-contract §7).
+      expect((r.drill as unknown as Record<string, unknown>).answer).toBeUndefined();
+      expect(r.stepMeta).toEqual({ stepId: STEP_ID, count: 1, minSolved: 1 });
+    });
+
+    it('fixed drillId, drill отсутствует → 404', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill', drillType: 'find-fork', drillId: DRILL_ID },
+      });
+      (prisma.tacticDrill.findUnique as jest.Mock).mockResolvedValue(null);
+      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
+        /no drill available/,
+      );
+    });
+
+    it('fixed drillId, sfRejected=true → 404', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill', drillType: 'find-fork', drillId: DRILL_ID },
+      });
+      (prisma.tacticDrill.findUnique as jest.Mock).mockResolvedValue({
+        id: DRILL_ID,
+        type: 'find-fork',
+        fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+        difficulty: 3,
+        sfRejected: true,
+      });
+      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
+        /no drill available/,
+      );
+    });
+
+    it('fixed drillId, drillType подменён → 404 (защита от подмены)', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill', drillType: 'find-pin', drillId: DRILL_ID },
+      });
+      (prisma.tacticDrill.findUnique as jest.Mock).mockResolvedValue({
+        id: DRILL_ID,
+        type: 'find-fork',
+        fen: '4k3/8/8/4r3/2N5/q7/8/4K3 w - - 0 1',
+        difficulty: 3,
+        sfRejected: false,
+      });
+      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
+        /no drill available/,
+      );
+    });
+
+    it('random + bucket=easy → WHERE difficulty IN [1,2]', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: {
+          type: 'drill',
+          drillType: 'find-fork',
+          difficultyBucket: 'easy',
+        },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(5);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-easy',
+        type: 'find-fork',
+        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
+        difficulty: 1,
+      });
+      const r = await svc.pickDrillForLesson(STEP_ID);
+      expect(r.drill.id).toBe('drill-easy');
+      // Проверяем что count вызвался с difficulty IN [1,2].
+      const countCall = (prisma.tacticDrill.count as jest.Mock).mock.calls[0][0];
+      expect(countCall.where.type).toBe('find-fork');
+      expect(countCall.where.sfRejected).toBe(false);
+      expect(countCall.where.difficulty).toEqual({ in: [1, 2] });
+    });
+
+    it('random + bucket=medium → difficulty IN [3]', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: {
+          type: 'drill',
+          drillType: 'find-pin',
+          difficultyBucket: 'medium',
+        },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(2);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-mid',
+        type: 'find-pin',
+        fen: '4k3/8/2n5/8/B7/8/8/4K3 w - - 0 1',
+        difficulty: 3,
+      });
+      const r = await svc.pickDrillForLesson(STEP_ID);
+      expect(r.drill.id).toBe('drill-mid');
+      const countCall = (prisma.tacticDrill.count as jest.Mock).mock.calls[0][0];
+      expect(countCall.where.difficulty).toEqual({ in: [3] });
+    });
+
+    it('random + bucket=hard → difficulty IN [4,5]', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: {
+          type: 'drill',
+          drillType: 'find-fork',
+          difficultyBucket: 'hard',
+        },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-hard',
+        type: 'find-fork',
+        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
+        difficulty: 5,
+      });
+      await svc.pickDrillForLesson(STEP_ID);
+      const countCall = (prisma.tacticDrill.count as jest.Mock).mock.calls[0][0];
+      expect(countCall.where.difficulty).toEqual({ in: [4, 5] });
+    });
+
+    it('random без bucket → без фильтра difficulty', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill', drillType: 'find-fork' },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(10);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-any',
+        type: 'find-fork',
+        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
+        difficulty: 2,
+      });
+      await svc.pickDrillForLesson(STEP_ID);
+      const countCall = (prisma.tacticDrill.count as jest.Mock).mock.calls[0][0];
+      expect(countCall.where.type).toBe('find-fork');
+      expect(countCall.where.difficulty).toBeUndefined();
+    });
+
+    it('random + bucket=easy пустой → fallback на любой drill', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: {
+          type: 'drill',
+          drillType: 'find-fork',
+          difficultyBucket: 'easy',
+        },
+      });
+      // Первый count — bucket-фильтр пустой; второй count — fallback,
+      // в нём 3 drill'а.
+      const countMock = prisma.tacticDrill.count as jest.Mock;
+      countMock.mockResolvedValueOnce(0).mockResolvedValueOnce(3);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-fallback',
+        type: 'find-fork',
+        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
+        difficulty: 4,
+      });
+      const r = await svc.pickDrillForLesson(STEP_ID);
+      expect(r.drill.id).toBe('drill-fallback');
+      // Должно быть 2 вызова count (bucket-фильтр + fallback).
+      expect(countMock).toHaveBeenCalledTimes(2);
+      expect(countMock.mock.calls[0][0].where.difficulty).toEqual({ in: [1, 2] });
+      expect(countMock.mock.calls[1][0].where.difficulty).toBeUndefined();
+    });
+
+    it('random — оба пула пустые → 404', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: {
+          type: 'drill',
+          drillType: 'find-fork',
+          difficultyBucket: 'hard',
+        },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(0);
+      await expect(svc.pickDrillForLesson(STEP_ID)).rejects.toThrow(
+        /no drill available/,
+      );
+    });
+
+    it('count + minSolved пробрасываются в stepMeta', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: {
+          type: 'drill',
+          drillType: 'find-fork',
+          count: 5,
+          minSolved: 3,
+        },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-x',
+        type: 'find-fork',
+        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
+        difficulty: 3,
+      });
+      const r = await svc.pickDrillForLesson(STEP_ID);
+      expect(r.stepMeta).toEqual({ stepId: STEP_ID, count: 5, minSolved: 3 });
+    });
+
+    it('count указан, minSolved нет → minSolved дефолтится на count', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill', drillType: 'find-fork', count: 7 },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-y',
+        type: 'find-fork',
+        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
+        difficulty: 3,
+      });
+      const r = await svc.pickDrillForLesson(STEP_ID);
+      expect(r.stepMeta).toEqual({ stepId: STEP_ID, count: 7, minSolved: 7 });
+    });
+
+    it('sfRejected=false фильтр всегда применяется', async () => {
+      (prisma.lessonStep.findUnique as jest.Mock).mockResolvedValue({
+        id: STEP_ID,
+        type: 'drill',
+        payload: { type: 'drill', drillType: 'find-fork' },
+      });
+      (prisma.tacticDrill.count as jest.Mock).mockResolvedValue(1);
+      (prisma.tacticDrill.findFirst as jest.Mock).mockResolvedValue({
+        id: 'drill-z',
+        type: 'find-fork',
+        fen: '8/8/8/8/8/8/8/4K2k w - - 0 1',
+        difficulty: 3,
+      });
+      await svc.pickDrillForLesson(STEP_ID);
+      const countCall = (prisma.tacticDrill.count as jest.Mock).mock.calls[0][0];
+      expect(countCall.where.sfRejected).toBe(false);
     });
   });
 });

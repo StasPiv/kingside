@@ -24,6 +24,8 @@ import {
   Controller,
   Get,
   NotFoundException,
+  Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -74,6 +76,24 @@ export class TacticDrillController {
   async listTypes(@Req() req: Request) {
     const userId = readUserId(req);
     return { types: await this.service.listTypes(userId) };
+  }
+
+  /**
+   * KS-2315 (ADR-035 §11 / E6). Резолвер drill-step для lesson-player'а.
+   *
+   * GET /tactic-drill/by-step/:stepId — auth: JWT (как у /api/lessons/*).
+   * Логика — в `TacticDrillService.pickDrillForLesson`:
+   *  - читает `LessonStep`, проверяет тип = 'drill';
+   *  - fixed (drillId) либо random (drillType + опц. bucket → difficulty);
+   *  - возвращает `{drill, stepMeta:{stepId, count, minSolved}}`.
+   *
+   * 400 — step есть, но не drill / payload malformed.
+   * 404 — step не найден / пул пуст / fixed-drill удалён / sfRejected.
+   */
+  @Get('by-step/:stepId')
+  @UseGuards(JwtAuthGuard)
+  async byStep(@Param('stepId', new ParseUUIDPipe()) stepId: string) {
+    return this.service.pickDrillForLesson(stepId);
   }
 
   @Get('next')

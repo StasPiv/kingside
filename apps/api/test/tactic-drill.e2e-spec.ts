@@ -29,6 +29,9 @@ describe('TacticDrill e2e (KS-2230)', () => {
   const testDrillIds: string[] = [];
   const testAttemptIds: string[] = [];
   const testUserIds: string[] = [];
+  const testCourseIds: string[] = [];
+  const testLessonIds: string[] = [];
+  const testStepIds: string[] = [];
 
   async function registerUser(prefix: string) {
     const username = `${prefix}_${randomUUID().slice(0, 8)}`;
@@ -107,6 +110,21 @@ describe('TacticDrill e2e (KS-2230)', () => {
         .deleteMany({ where: { id: { in: testDrillIds } } })
         .catch(() => {});
     }
+    if (testStepIds.length > 0) {
+      await prisma.lessonStep
+        .deleteMany({ where: { id: { in: testStepIds } } })
+        .catch(() => {});
+    }
+    if (testLessonIds.length > 0) {
+      await prisma.lesson
+        .deleteMany({ where: { id: { in: testLessonIds } } })
+        .catch(() => {});
+    }
+    if (testCourseIds.length > 0) {
+      await prisma.course
+        .deleteMany({ where: { id: { in: testCourseIds } } })
+        .catch(() => {});
+    }
     if (testUserIds.length > 0) {
       await prisma.user
         .deleteMany({ where: { id: { in: testUserIds } } })
@@ -114,6 +132,53 @@ describe('TacticDrill e2e (KS-2230)', () => {
     }
     if (app) await app.close();
   });
+
+  /**
+   * KS-2315: создаёт Course → Lesson → LessonStep с заданным
+   * `payload`. Возвращает stepId. Все три записи зарегистрируются в
+   * cleanup-массивах.
+   */
+  async function seedDrillStep(payload: object): Promise<string> {
+    const courseSlug = `e2e-drill-step-${randomUUID().slice(0, 8)}`;
+    const course = await prisma.course.create({
+      data: {
+        slug: courseSlug,
+        level: 'beginner',
+        titleKey: 'e2e.title',
+        descriptionKey: 'e2e.description',
+        order: 0,
+        isPublished: false,
+      },
+      select: { id: true },
+    });
+    testCourseIds.push(course.id);
+
+    const lesson = await prisma.lesson.create({
+      data: {
+        courseId: course.id,
+        slug: `e2e-lesson-${randomUUID().slice(0, 8)}`,
+        order: 0,
+        blockKey: 'e2e',
+        kind: 'theory',
+        titleKey: 'e2e.lesson.title',
+        summaryKey: 'e2e.lesson.summary',
+      },
+      select: { id: true },
+    });
+    testLessonIds.push(lesson.id);
+
+    const step = await prisma.lessonStep.create({
+      data: {
+        lessonId: lesson.id,
+        order: 0,
+        type: 'drill',
+        payload: payload as object,
+      },
+      select: { id: true },
+    });
+    testStepIds.push(step.id);
+    return step.id;
+  }
 
   it('GET /tactic-drill/types → 8 типов с metadata', async () => {
     const res = await request(app.getHttpServer())
@@ -503,5 +568,180 @@ describe('TacticDrill e2e (KS-2230)', () => {
     expect(usernames).toContain(top.username);
     // noob с 5 attempts не должен попасть (фильтр attempts ≥ 20).
     expect(usernames).not.toContain(noob.username);
+  });
+
+  // ─── KS-2315: GET /tactic-drill/by-step/:stepId ──────────────
+
+  describe('GET /tactic-drill/by-step/:stepId (KS-2315)', () => {
+    it('без auth → 401', async () => {
+      const stepId = await seedDrillStep({
+        type: 'drill',
+        drillType: 'find-fork',
+      });
+      await request(app.getHttpServer())
+        .get(`/tactic-drill/by-step/${stepId}`)
+        .expect(401);
+    });
+
+    it('фиксированный drillId → возвращает тот drill, без answer + stepMeta', async () => {
+      const user = await registerUser('byst1');
+      const drillId = await seedDrill({
+        type: 'find-fork',
+        fen: 'r3k3/2N5/8/8/8/8/8/4K3 w - - 0 21',
+        answer: { shape: 'square', square: 'c7' },
+        difficulty: 3,
+      });
+      const stepId = await seedDrillStep({
+        type: 'drill',
+        drillType: 'find-fork',
+        drillId,
+        count: 5,
+        minSolved: 3,
+      });
+      const res = await request(app.getHttpServer())
+        .get(`/tactic-drill/by-step/${stepId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+
+      expect(res.body.drill.id).toBe(drillId);
+      expect(res.body.drill.drillType).toBe('find-fork');
+      expect(res.body.drill).not.toHaveProperty('answer');
+      expect(res.body.stepMeta).toEqual({
+        stepId,
+        count: 5,
+        minSolved: 3,
+      });
+    });
+
+    it('random + bucket=easy → возвращает drill с difficulty ∈ {1,2}', async () => {
+      const user = await registerUser('byst2');
+      // Один easy drill (difficulty=1) + один hard (4) — резолвер
+      // должен вернуть easy.
+      await seedDrill({
+        type: 'find-pin',
+        fen: '4k3/8/2n5/8/B7/8/8/4K3 w - - 0 22',
+        answer: { shape: 'square', square: 'c6' },
+        difficulty: 1,
+      });
+      await seedDrill({
+        type: 'find-pin',
+        fen: '4k3/8/8/2n5/8/B7/8/4K3 w - - 0 23',
+        answer: { shape: 'square', square: 'c5' },
+        difficulty: 4,
+      });
+      const stepId = await seedDrillStep({
+        type: 'drill',
+        drillType: 'find-pin',
+        difficultyBucket: 'easy',
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/tactic-drill/by-step/${stepId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+      expect(res.body.drill.drillType).toBe('find-pin');
+      expect([1, 2]).toContain(res.body.drill.difficulty);
+      // count/minSolved дефолтятся в 1/1.
+      expect(res.body.stepMeta).toEqual({ stepId, count: 1, minSolved: 1 });
+    });
+
+    it('random + bucket=easy с пустым пулом → fallback на любой drillType', async () => {
+      const user = await registerUser('byst3');
+      // Только hard drill — bucket=easy пустой, fallback должен вернуть
+      // hard.
+      await seedDrill({
+        type: 'find-loose-piece',
+        fen: 'r3k3/8/8/8/8/8/8/4K3 w - - 0 24',
+        answer: { shape: 'square', square: 'a8' },
+        difficulty: 5,
+      });
+      const stepId = await seedDrillStep({
+        type: 'drill',
+        drillType: 'find-loose-piece',
+        difficultyBucket: 'easy',
+      });
+
+      const res = await request(app.getHttpServer())
+        .get(`/tactic-drill/by-step/${stepId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(200);
+      expect(res.body.drill.drillType).toBe('find-loose-piece');
+      expect(res.body.drill.difficulty).toBe(5);
+    });
+
+    it('пул пустой полностью → 404', async () => {
+      const user = await registerUser('byst4');
+      const stepId = await seedDrillStep({
+        type: 'drill',
+        drillType: 'find-mate-in-one-square',
+        difficultyBucket: 'medium',
+      });
+      // Без seed'а — пул пустой.
+      await request(app.getHttpServer())
+        .get(`/tactic-drill/by-step/${stepId}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(404);
+    });
+
+    it('step не существует → 404', async () => {
+      const user = await registerUser('byst5');
+      await request(app.getHttpServer())
+        .get(`/tactic-drill/by-step/${randomUUID()}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(404);
+    });
+
+    it('step есть, но type=text → 400', async () => {
+      const user = await registerUser('byst6');
+      // Создаём text-step (не через seedDrillStep, чтобы был другой type).
+      const courseSlug = `e2e-text-${randomUUID().slice(0, 8)}`;
+      const course = await prisma.course.create({
+        data: {
+          slug: courseSlug,
+          level: 'beginner',
+          titleKey: 'e2e.title',
+          descriptionKey: 'e2e.description',
+          order: 0,
+        },
+        select: { id: true },
+      });
+      testCourseIds.push(course.id);
+      const lesson = await prisma.lesson.create({
+        data: {
+          courseId: course.id,
+          slug: `e2e-lesson-text-${randomUUID().slice(0, 8)}`,
+          order: 0,
+          blockKey: 'e2e',
+          kind: 'theory',
+          titleKey: 'e2e.title',
+          summaryKey: 'e2e.summary',
+        },
+        select: { id: true },
+      });
+      testLessonIds.push(lesson.id);
+      const step = await prisma.lessonStep.create({
+        data: {
+          lessonId: lesson.id,
+          order: 0,
+          type: 'text',
+          payload: { type: 'text', bodyMarkdown: 'hello' },
+        },
+        select: { id: true },
+      });
+      testStepIds.push(step.id);
+
+      await request(app.getHttpServer())
+        .get(`/tactic-drill/by-step/${step.id}`)
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(400);
+    });
+
+    it('некорректный UUID в URL → 400 (ParseUUIDPipe)', async () => {
+      const user = await registerUser('byst7');
+      await request(app.getHttpServer())
+        .get('/tactic-drill/by-step/not-a-uuid')
+        .set('Authorization', `Bearer ${user.token}`)
+        .expect(400);
+    });
   });
 });

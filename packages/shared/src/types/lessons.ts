@@ -374,12 +374,31 @@ export interface OpeningDrillStepPayload {
 /**
  * KS-2249 (ADR-035 §11 / E6): корзина сложности для случайной выборки
  * drill'а из пула. Маппинг бакета на числовой `difficulty` (1..5) —
- * на бэкенде (`TacticDrillService.pickDrillForLesson`).
+ * через константу `DRILL_BUCKET_TO_DIFFICULTY` ниже.
  *  - `easy`   — difficulty 1..2 (для первых уроков курса)
  *  - `medium` — difficulty 3
  *  - `hard`   — difficulty 4..5 (для проверки в конце темы)
  */
 export type DrillDifficultyBucket = 'easy' | 'medium' | 'hard';
+
+/**
+ * KS-2315 (ADR-035 §11 / E6): связь корзина сложности → допустимые
+ * значения `tactic_drills.difficulty` (1..5). Используется резолвером
+ * `/tactic-drill/by-step/:stepId`:
+ *   `WHERE difficulty IN (DRILL_BUCKET_TO_DIFFICULTY[bucket]) ORDER BY random()`
+ *
+ * При расширении методики (например, добавление difficulty 6 для
+ * экспертных drill'ов) — менять только эту константу, поведение
+ * резолвера и pickDrillForLesson остаётся прежним.
+ */
+export const DRILL_BUCKET_TO_DIFFICULTY: Record<
+  DrillDifficultyBucket,
+  readonly number[]
+> = {
+  easy:   [1, 2],
+  medium: [3],
+  hard:   [4, 5],
+};
 
 /**
  * KS-2249 (ADR-035 §11 / E6). Drill-шаг урока — `LessonStep.kind = 'drill'`.

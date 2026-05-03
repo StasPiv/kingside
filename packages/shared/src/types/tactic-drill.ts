@@ -266,6 +266,27 @@ export interface TacticDrillSprintSubmitResponse {
   };
 }
 
+/**
+ * KS-2315 (ADR-035 §11 / E6). Ответ резолвера
+ * `GET /tactic-drill/by-step/:stepId` для рендера drill-step внутри
+ * lesson-player'а.
+ *
+ * `drill` — тот же `TacticDrillDto` без `answer` (как `/next`). `stepMeta`
+ * — параметры шага из `LessonStep.payload` (DrillStepPayload в shared
+ * lessons.ts), нужны frontend'у для счётчика «N решено из M». `progress`
+ * server-side в MVP не возвращается — frontend считает локально.
+ */
+export interface TacticDrillByStepResponse {
+  drill: TacticDrillDto;
+  stepMeta: {
+    stepId: string;
+    /** Сколько drill'ов нужно показать в шаге всего. `payload.count ?? 1`. */
+    count: number;
+    /** Минимум solved для зачёта шага. `payload.minSolved ?? count`. */
+    minSolved: number;
+  };
+}
+
 /** Запись лидерборда. */
 export interface TacticDrillSprintScoreItem {
   userId: string;

@@ -13,11 +13,14 @@
  * `TacticDrillDto` БЕЗ поля `answer`. Эталон отдаётся только в ответе
  * `recordAttempt` (через `correctAnswer`).
  */
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type {
   AnswerData,
   AnswerShape,
+  DrillDifficultyBucket,
+  DrillStepPayload,
   TacticDrillAttemptResponse,
+  TacticDrillByStepResponse,
   TacticDrillDto,
   TacticDrillSkillLayer,
   TacticDrillStatsItem,
@@ -25,6 +28,7 @@ import type {
   TacticDrillType,
 } from '@kingside/shared';
 import {
+  DRILL_BUCKET_TO_DIFFICULTY,
   DRILL_TYPE_ANSWER_SHAPE,
   DRILL_TYPE_LAYER,
   DRILL_TYPE_ORDER,
@@ -290,6 +294,143 @@ export class TacticDrillService {
       byType: items,
       unlocked,
     };
+  }
+
+  /**
+   * KS-2315 (ADR-035 §11 / E6): резолвер для drill-step в lesson-player'е.
+   *
+   * Логика (см. ТЗ):
+   *  1. Прочитать `LessonStep` по `stepId`. Не найден → 404.
+   *  2. Проверить `payload.type === 'drill'` (иначе 400 — step есть, но
+   *     это не drill-step).
+   *  3. Если `payload.drillId` указан → отдать тот drill (404 если он
+   *     удалён или sfRejected).
+   *  4. Иначе random pick по `drillType` (+ опц. `difficultyBucket`).
+   *  5. Если пул при заданном `bucket` пуст — fallback на любой drill
+   *     этого `drillType`. Если и тогда пусто — 404.
+   *
+   * Cooldown 30 дней НЕ применяется (в lesson-context повторное
+   * прохождение — это норма; рейтинг fading'ом по KS-2311 §10 не
+   * растёт). Sf-rejected исключаем (как и в `getNext`).
+   *
+   * Возвращает `TacticDrillDto` без `answer` + `stepMeta` для FE-счётчика.
+   */
+  async pickDrillForLesson(stepId: string): Promise<TacticDrillByStepResponse> {
+    const step = await this.prisma.lessonStep.findUnique({
+      where: { id: stepId },
+      select: { id: true, type: true, payload: true },
+    });
+    if (!step) {
+      throw new NotFoundException(`lesson step not found: ${stepId}`);
+    }
+    if (step.type !== 'drill') {
+      throw new BadRequestException(
+        `lesson step ${stepId} is not a drill (type=${step.type})`,
+      );
+    }
+
+    const payload = step.payload as unknown as DrillStepPayload;
+    if (!payload || payload.type !== 'drill' || !payload.drillType) {
+      throw new BadRequestException(
+        `lesson step ${stepId} payload is malformed (expected DrillStepPayload)`,
+      );
+    }
+
+    const drill = payload.drillId
+      ? await this.fetchFixedDrillForLesson(payload.drillId, payload.drillType)
+      : await this.pickRandomDrillForLesson(
+          payload.drillType,
+          payload.difficultyBucket,
+        );
+
+    if (!drill) {
+      throw new NotFoundException(
+        `no drill available for type=${payload.drillType}` +
+          (payload.difficultyBucket
+            ? ` bucket=${payload.difficultyBucket}`
+            : ''),
+      );
+    }
+
+    const count = payload.count ?? 1;
+    const minSolved = payload.minSolved ?? count;
+
+    return {
+      drill: this.toDto(
+        drill.id,
+        drill.type as TacticDrillType,
+        drill.fen,
+        drill.difficulty,
+      ),
+      stepMeta: {
+        stepId,
+        count,
+        minSolved,
+      },
+    };
+  }
+
+  /**
+   * Fixed-режим: драйл по UUID. Проверяем что он существует, не sfRejected
+   * и совпадает по типу с payload (защита от подмены — автор курса не
+   * должен указывать `drillType: 'find-pin'` + drillId фигурной задачи).
+   * При несовпадении возвращаем null → controller выдаёт 404.
+   */
+  private async fetchFixedDrillForLesson(
+    drillId: string,
+    expectedType: TacticDrillType,
+  ): Promise<{ id: string; type: string; fen: string; difficulty: number } | null> {
+    const drill = await this.prisma.tacticDrill.findUnique({
+      where: { id: drillId },
+      select: { id: true, type: true, fen: true, difficulty: true, sfRejected: true },
+    });
+    if (!drill) return null;
+    if (drill.sfRejected) return null;
+    if (drill.type !== expectedType) return null;
+    return drill;
+  }
+
+  /**
+   * Random-режим: bucket → diapason difficulty (1..5), затем
+   * `ORDER BY random() LIMIT 1`. Если пул пуст при заданном bucket —
+   * fallback на любой drill этого `drillType`. Sf-rejected всегда
+   * исключаем.
+   */
+  private async pickRandomDrillForLesson(
+    drillType: TacticDrillType,
+    bucket: DrillDifficultyBucket | undefined,
+  ): Promise<{ id: string; type: string; fen: string; difficulty: number } | null> {
+    const baseWhere: Record<string, unknown> = { type: drillType, sfRejected: false };
+
+    // 1. Сначала пробуем с фильтром по bucket (если задан).
+    if (bucket) {
+      const bucketDifficulties = DRILL_BUCKET_TO_DIFFICULTY[bucket];
+      const where = {
+        ...baseWhere,
+        difficulty: { in: [...bucketDifficulties] },
+      };
+      const found = await this.pickRandomFromPool(where);
+      if (found) return found;
+    }
+
+    // 2. Fallback — без bucket'а. (Также сюда попадаем если bucket не задан.)
+    return this.pickRandomFromPool(baseWhere);
+  }
+
+  /** Random pick из пула: count + offset random. */
+  private async pickRandomFromPool(
+    where: Record<string, unknown>,
+  ): Promise<{ id: string; type: string; fen: string; difficulty: number } | null> {
+    const total = await this.prisma.tacticDrill.count({ where });
+    if (total === 0) return null;
+    const offset = Math.floor(Math.random() * total);
+    const drill = await this.prisma.tacticDrill.findFirst({
+      where,
+      skip: offset,
+      orderBy: { id: 'asc' },
+      select: { id: true, type: true, fen: true, difficulty: true },
+    });
+    return drill;
   }
 
   /**
