@@ -578,6 +578,34 @@
       "hint": "↑/↓ or 1–9 · Enter to choose · Esc to cancel"
     }
   },
+  "nag": {
+    "palette": {
+      "title": "Annotate move",
+      "quality": "Move quality",
+      "positionEval": "Position evaluation",
+      "clear": "Clear annotations"
+    },
+    "group": {
+      "quality": "Move quality",
+      "evaluation": "Position evaluation"
+    },
+    "tooltip": {
+      "!": "Good move",
+      "?": "Mistake",
+      "!!": "Brilliant move",
+      "??": "Blunder",
+      "!?": "Interesting move",
+      "?!": "Dubious move",
+      "=": "Equal position",
+      "∞": "Unclear position",
+      "⩲": "White is slightly better",
+      "⩱": "Black is slightly better",
+      "±": "White is clearly better",
+      "∓": "Black is clearly better",
+      "+−": "White has a winning advantage",
+      "−+": "Black has a winning advantage"
+    }
+  },
   "position": {
     "title": "Set Position",
     "fenLabel": "FEN notation:",

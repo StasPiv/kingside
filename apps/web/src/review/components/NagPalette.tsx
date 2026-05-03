@@ -8,6 +8,31 @@ import {
 } from '../../utils/nagCategories';
 import { nagToSymbol } from '../utils/nagUtils';
 
+import './NagPalette.css';
+
+/**
+ * KS-2271: human-readable названия NAG-категорий и хинты для каждого
+ * символа. Имена ключей i18n зафиксированы в `nag.tooltip.<symbol>` /
+ * `nag.group.{quality,evaluation}` (см. en/ru translation.json).
+ * Дефолты совпадают со стандартом PGN-нотации (English chess terminology).
+ */
+const NAG_TOOLTIP_DEFAULTS: Record<string, string> = {
+  '!': 'Good move',
+  '?': 'Mistake',
+  '!!': 'Brilliant move',
+  '??': 'Blunder',
+  '!?': 'Interesting move',
+  '?!': 'Dubious move',
+  '=': 'Equal position',
+  '∞': 'Unclear position',
+  '⩲': 'White is slightly better',
+  '⩱': 'Black is slightly better',
+  '±': 'White is clearly better',
+  '∓': 'Black is clearly better',
+  '+−': 'White has a winning advantage',
+  '−+': 'Black has a winning advantage',
+};
+
 /**
  * KS-2269 (ADR-037 §3, §6, этап E2) — desktop popup-палитра NAG.
  *
@@ -65,6 +90,14 @@ interface NagButtonProps {
 }
 
 function NagButton({ nag, category, active, onClick }: NagButtonProps) {
+  const { t } = useTranslation();
+  const symbol = nagToSymbol(nag);
+  // KS-2271: title/aria-label для tooltip и SR. i18next разделяет ключ
+  // по `.` — символ-leaf после `nag.tooltip.` работает (см. unit-тесты).
+  const tooltip = t(
+    `nag.tooltip.${symbol}`,
+    NAG_TOOLTIP_DEFAULTS[symbol] ?? symbol,
+  );
   return (
     <button
       type="button"
@@ -73,6 +106,8 @@ function NagButton({ nag, category, active, onClick }: NagButtonProps) {
       data-category={category}
       data-testid={`nag-palette-btn-${nag}`}
       aria-pressed={active}
+      title={tooltip}
+      aria-label={tooltip}
       onClick={(e) => {
         // KS-2265: для всех кнопок модалок/попапов внутри AnalysisPage
         // явно гасим bubbling, чтобы клик не попал на overlay-onClose
@@ -83,7 +118,7 @@ function NagButton({ nag, category, active, onClick }: NagButtonProps) {
         onClick(nag);
       }}
     >
-      {nagToSymbol(nag)}
+      {symbol}
     </button>
   );
 }
@@ -116,7 +151,8 @@ export function NagPalette({ nags, onChange, onClose }: NagPaletteProps) {
         data-category="quality"
       >
         <div className="nag-palette__group-label">
-          {t('nag.palette.quality', 'Quality')}
+          {/* KS-2271: ключ задачи `nag.group.quality`. */}
+          {t('nag.group.quality', 'Move quality')}
         </div>
         <div className="nag-palette__buttons">
           {QUALITY_NAGS.map((nag) => (
@@ -136,7 +172,8 @@ export function NagPalette({ nags, onChange, onClose }: NagPaletteProps) {
         data-category="positionEval"
       >
         <div className="nag-palette__group-label">
-          {t('nag.palette.positionEval', 'Position')}
+          {/* KS-2271: ключ задачи `nag.group.evaluation`. */}
+          {t('nag.group.evaluation', 'Position evaluation')}
         </div>
         <div className="nag-palette__buttons">
           {POSITION_EVAL_NAGS.map((nag) => (
