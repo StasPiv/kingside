@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useArchiveTree, type UseArchiveTreeFilters } from '../../hooks/useArchiveTree';
-import { BucketSelect, type BucketValue } from './BucketSelect';
+import type { BucketValue } from './BucketSelect';
 import { WinDrawLossBar } from './WinDrawLossBar';
 
 interface ArchiveTreePanelProps {
@@ -28,11 +28,17 @@ export function ArchiveTreePanel({
   onHoverMove,
 }: ArchiveTreePanelProps) {
   const { t } = useTranslation();
-  const [bucket, setBucket] = useState<BucketValue>('master');
+  // KS-2263: dropdown переключения базы (Masters / Lichess 2000+ / All)
+  // скрыт — пользователь жаловался, что фильтр бесполезный. Дефолт `master`
+  // оставлен константой: запрос к серверу не меняется, ссылка «View N games»
+  // продолжает уводить с `bucket=master`. Если в будущем понадобится вернуть
+  // селект, восстановить useState и `<BucketSelect value={bucket} onChange={setBucket} />`
+  // в header (см. git history до коммита KS-2263).
+  const bucket: BucketValue = 'master';
   const [collapsed, setCollapsed] = useState(false);
 
   const filters = useMemo<UseArchiveTreeFilters>(
-    () => (bucket === 'all' ? {} : { bucket }),
+    () => ({ bucket }),
     [bucket],
   );
 
@@ -53,7 +59,8 @@ export function ArchiveTreePanel({
           <span className="archive-tree-panel__title">
             {t('archive.database', 'Database')}
           </span>
-          <BucketSelect value={bucket} onChange={setBucket} />
+          {/* KS-2263: BucketSelect скрыт — фильтр был бесполезным.
+              Дефолт `master` зашит в константу `bucket` выше. */}
         </div>
         <span className="archive-tree-panel__chevron">{collapsed ? '\u25B8' : '\u25BE'}</span>
       </div>
@@ -148,7 +155,8 @@ export function ArchiveTreePanel({
                   className="archive-tree-panel__view-games"
                   to={(() => {
                     const params = new URLSearchParams({ fen: currentFen, sort: 'topElo' });
-                    if (bucket !== 'all') params.set('bucket', bucket);
+                    // KS-2263: bucket теперь константа `'master'`, всегда добавляется.
+                    params.set('bucket', bucket);
                     // KS-2068 (F2/ADR-033 §4): после реализации
                     // универсального списка `/archive/games` сам
                     // переключается между metadata- и by-position-режимами
