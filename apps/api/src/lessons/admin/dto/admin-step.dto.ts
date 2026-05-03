@@ -40,6 +40,8 @@ const LESSON_STEP_TYPES: ReadonlyArray<LessonStepType> = [
   'video',
   'endgame_drill',
   'opening_drill',
+  // KS-2249: тактический drill (8 типов из methodology §2) в составе урока.
+  'drill',
 ];
 
 export class CreateAdminStepDto {

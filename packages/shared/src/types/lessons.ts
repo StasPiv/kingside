@@ -17,6 +17,7 @@
  */
 
 import type { PuzzleTheme } from './puzzle.js';
+import type { TacticDrillType } from './tactic-drill.js';
 
 // ─── Common ──────────────────────────────────────────────────────────
 
@@ -49,7 +50,13 @@ export type LessonStepType =
   | 'game_review'
   | 'video'
   | 'endgame_drill'
-  | 'opening_drill';
+  | 'opening_drill'
+  /**
+   * KS-2249 (ADR-035 §11 / E6): тактический drill в составе урока.
+   * Использует ту же drill-инфраструктуру (predicates / rating /
+   * sprint), что и автономный режим, но рендерится как шаг урока.
+   */
+  | 'drill';
 
 /** Статус прохождения шага внутри урока (агрегат в `UserLessonProgress.stepsState`). */
 export type LessonStepState = 'pending' | 'in_progress' | 'done' | 'failed' | 'skipped';
@@ -365,6 +372,69 @@ export interface OpeningDrillStepPayload {
 }
 
 /**
+ * KS-2249 (ADR-035 §11 / E6): корзина сложности для случайной выборки
+ * drill'а из пула. Маппинг бакета на числовой `difficulty` (1..5) —
+ * на бэкенде (`TacticDrillService.pickDrillForLesson`).
+ *  - `easy`   — difficulty 1..2 (для первых уроков курса)
+ *  - `medium` — difficulty 3
+ *  - `hard`   — difficulty 4..5 (для проверки в конце темы)
+ */
+export type DrillDifficultyBucket = 'easy' | 'medium' | 'hard';
+
+/**
+ * KS-2249 (ADR-035 §11 / E6). Drill-шаг урока — `LessonStep.kind = 'drill'`.
+ *
+ * Drill-payload разрешает два сценария выбора позиции:
+ *  1. **Fixed** — указан `drillId` (UUID конкретного drill'а из
+ *     `tactic_drills`). Используется когда автор курса ссылается на
+ *     известную позицию (например, классический пример на пин).
+ *  2. **Random** — `drillId` не указан, drill случайно подбирается
+ *     из пула по `drillType` (+ опц. `difficultyBucket`). Каждое
+ *     прохождение шага даёт новый drill — отлично для повторного
+ *     тренинга паттерна.
+ *
+ * Если переданы оба поля — приоритет у `drillId` (`difficultyBucket`
+ * игнорируется backend'ом; для редактора это валидный, но избыточный
+ * payload).
+ *
+ * Поле `count` управляет количеством drill'ов подряд в одном шаге
+ * (default 1, max 10). При `count > 1` для каждой попытки backend
+ * подбирает новый drill (для `mode='random'`) или возвращает один
+ * и тот же drillId (для `mode='fixed'` — повторное прохождение
+ * допустимо, рейтинг не растёт).
+ */
+export interface DrillStepPayload {
+  type: 'drill';
+  /**
+   * Один из 8 drill-типов из methodology §2 (см. TacticDrillType).
+   * Обязателен — фронт по нему выбирает UI (palette / single-square
+   * / multi-square / number-pad / from-to-pad).
+   */
+  drillType: TacticDrillType;
+  /**
+   * UUID конкретного drill'а в `tactic_drills`. Опц. — без него
+   * backend подберёт случайный drill заданного типа из пула.
+   */
+  drillId?: string;
+  /**
+   * Опц. бакет сложности для случайной выборки. Игнорируется если
+   * `drillId` указан.
+   */
+  difficultyBucket?: DrillDifficultyBucket;
+  /**
+   * Сколько drill'ов нужно показать в шаге подряд. Default 1.
+   * Допустимо 1..10. Имеет смысл при `mode='random'` — при
+   * `drillId` все count покажут одну и ту же позицию.
+   */
+  count?: number;
+  /**
+   * Минимальное число решённых для зачёта шага. Default = `count`.
+   * Должно быть в диапазоне `1..count`.
+   */
+  minSolved?: number;
+}
+
+/**
  * Дискриминированный union по полю `type`. Сужать через `switch (payload.type)`.
  */
 export type StepPayload =
@@ -375,7 +445,8 @@ export type StepPayload =
   | GameReviewStepPayload
   | VideoStepPayload
   | EndgameDrillStepPayload
-  | OpeningDrillStepPayload;
+  | OpeningDrillStepPayload
+  | DrillStepPayload;
 
 /** Алиасы под именование в ТЗ (`TextStep`/`PuzzleStep`/`QuizStep`). */
 export type TextStep = TextStepPayload;
@@ -386,6 +457,7 @@ export type GameReviewStep = GameReviewStepPayload;
 export type VideoStep = VideoStepPayload;
 export type EndgameDrillStep = EndgameDrillStepPayload;
 export type OpeningDrillStep = OpeningDrillStepPayload;
+export type DrillStep = DrillStepPayload;
 
 // ─── Domain entities (API shape, сериализовано в JSON) ────────────────
 

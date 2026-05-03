@@ -31,6 +31,9 @@ import type {
   QuizOption,
   PuzzleTheme,
   CustomPuzzle,
+  DrillStepPayload,
+  DrillDifficultyBucket,
+  TacticDrillType,
 } from '@kingside/shared';
 import { ArePositionMovesLegal, IsFen } from './position-step.validators';
 import { IsVideoUrl } from './video-step.validators';
@@ -38,6 +41,7 @@ import { IsGameReviewXor, IsValidPgn } from './game-review-step.validators';
 import { IsEndgameWinCondition } from './endgame-drill-step.validators';
 import { IsDrillPgn } from './opening-drill-step.validators';
 import { IsCustomPuzzlesArray } from './custom-puzzle.validators';
+import { IsValidDrillStepPayload } from './drill-step.validators';
 
 // ─── Базовые подтипы ──────────────────────────────────────────────────
 
@@ -408,6 +412,63 @@ class OpeningDrillStepPayloadDto implements OpeningDrillStepPayload {
   engineSkillLevel?: number;
 }
 
+/**
+ * KS-2249 (ADR-035 §11 / E6) — drill-шаг урока.
+ * Тактический drill в составе lesson player'а: использует ту же
+ * predicate-инфраструктуру и rating, что и автономный режим, но
+ * рендерится как очередной step урока. Поля задокументированы в
+ * `@kingside/shared#DrillStepPayload`.
+ *
+ * `@IsValidDrillStepPayload` — cross-field валидация (drillType ∈
+ * TacticDrillType, count/minSolved consistency, UUID-формат drillId,
+ * bucket-whitelist) — общий с seed-линтером словарь ошибок.
+ */
+class DrillStepPayloadDto implements DrillStepPayload {
+  @IsIn(['drill'])
+  type!: 'drill';
+
+  @IsString()
+  @IsIn([
+    'find-hanging-piece',
+    'find-loose-piece',
+    'find-pin',
+    'find-fork',
+    'find-mate-in-one-square',
+    'count-attackers',
+    'find-all-checks',
+    'find-undefended-attack',
+  ])
+  drillType!: TacticDrillType;
+
+  @IsOptional()
+  @IsUUID()
+  drillId?: string;
+
+  @IsOptional()
+  @IsIn(['easy', 'medium', 'hard'])
+  difficultyBucket?: DrillDifficultyBucket;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  count?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  minSolved?: number;
+
+  /**
+   * Cross-field проверка: `minSolved ≤ count`, единый словарь ошибок с
+   * seed-линтером. Висит на `type` (только потому, что валидатор работает
+   * с целым объектом — `args.object`, поле любое).
+   */
+  @IsValidDrillStepPayload()
+  __crossField?: never;
+}
+
 // ─── Discriminated union wrapper ─────────────────────────────────────
 
 /**
@@ -424,6 +485,7 @@ export const STEP_PAYLOAD_SUBTYPES = [
   { value: VideoStepPayloadDto, name: 'video' },
   { value: EndgameDrillStepPayloadDto, name: 'endgame_drill' },
   { value: OpeningDrillStepPayloadDto, name: 'opening_drill' },
+  { value: DrillStepPayloadDto, name: 'drill' },
 ] as const;
 
 export type StepPayloadDto =
@@ -434,7 +496,8 @@ export type StepPayloadDto =
   | GameReviewStepPayloadDto
   | VideoStepPayloadDto
   | EndgameDrillStepPayloadDto
-  | OpeningDrillStepPayloadDto;
+  | OpeningDrillStepPayloadDto
+  | DrillStepPayloadDto;
 
 export {
   TextStepPayloadDto,
@@ -445,6 +508,7 @@ export {
   VideoStepPayloadDto,
   EndgameDrillStepPayloadDto,
   OpeningDrillStepPayloadDto,
+  DrillStepPayloadDto,
   QuizQuestionDto,
   QuizOptionDto,
   PuzzleSelectionIdsDto,

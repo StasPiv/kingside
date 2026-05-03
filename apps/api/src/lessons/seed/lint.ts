@@ -37,11 +37,13 @@ import {
   VideoStepPayloadDto,
   EndgameDrillStepPayloadDto,
   OpeningDrillStepPayloadDto,
+  DrillStepPayloadDto,
 } from '../dto/step-payload.dto';
 import { isValidFen, isLegalUciOnFen } from '../dto/position-step.validators';
 import { validateGameReviewPayload } from '../dto/game-review-step.validators';
 import { validateEndgameDrillPayload } from '../dto/endgame-drill-step.validators';
 import { validateOpeningDrillPayload } from '../dto/opening-drill-step.validators';
+import { validateDrillStepPayload } from '../dto/drill-step.validators';
 import { ALLOWED_VIDEO_HOSTS, isAllowedVideoUrl } from '@kingside/shared';
 
 export interface LinterError {
@@ -58,6 +60,7 @@ const PAYLOAD_DTO_BY_TYPE = {
   video: VideoStepPayloadDto,
   endgame_drill: EndgameDrillStepPayloadDto,
   opening_drill: OpeningDrillStepPayloadDto,
+  drill: DrillStepPayloadDto,
 } as const;
 
 export interface LintOptions {
@@ -311,6 +314,19 @@ function collectChessChecks(
       // сбалансированные скобки вариантов), playerSide, onDeviation,
       // engineSkillLevel 0..20. Общий helper с DTO.
       const res = validateOpeningDrillPayload(
+        payload as unknown as Record<string, unknown>,
+        `${stepPath}.payload`,
+      );
+      for (const e of res.errors) {
+        errors.push({ path: e.path, message: e.message });
+      }
+      break;
+    }
+    case 'drill': {
+      // KS-2249: drillType ∈ TacticDrillType, drillId — UUID (опц.),
+      // difficultyBucket — easy/medium/hard (опц.), count 1..10,
+      // minSolved 1..count. Общий helper с DTO — словарь ошибок один.
+      const res = validateDrillStepPayload(
         payload as unknown as Record<string, unknown>,
         `${stepPath}.payload`,
       );
