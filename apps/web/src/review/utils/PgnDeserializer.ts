@@ -249,6 +249,14 @@ export function parseAnnotatedPgn(pgn: string): ChessMove[] {
               ...(parsed.annotations.arrows && { arrows: parsed.annotations.arrows }),
             };
           }
+          // KS-2286 (ADR-038 §4): [%cvc X] → move.variationColor.
+          // Хранится на comment первого хода варианта; парсер не знает,
+          // «голова» это вариации или нет — кладёт всем, у кого встретил
+          // макрос. SET_VARIATION_COLOR в reducer'е (KS-2287) /
+          // render-override (KS-2288) сами фильтруют по позиции.
+          if (parsed.variationColor) {
+            lastMove.variationColor = parsed.variationColor;
+          }
         }
         pos++;
         continue;

@@ -53,11 +53,13 @@ function serializeMoves(
 
     // Serialize comment (including eval/clock/annotations macros)
     // KS-2152: annotations передаются и сериализуются как [%csl][%cal] макросы.
+    // KS-2286: move.variationColor → [%cvc X] (variation-color).
     const fullComment = serializeCommentWithMacros(
       move.comment,
       move.eval,
       move.clock,
       getAnnotations(move, byIndex),
+      move.variationColor,
     );
     if (fullComment) {
       parts.push(`{${fullComment}}`);

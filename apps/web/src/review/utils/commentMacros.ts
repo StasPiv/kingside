@@ -1,4 +1,4 @@
-import type { AnnotationColor, NodeAnnotations } from '../types';
+import type { AnnotationColor, NodeAnnotations, VariationColor } from '../types';
 
 /**
  * KS-2152: соответствие однобуквенного кода в PGN-макросах [%csl/%cal] и
@@ -58,14 +58,22 @@ function parseCal(raw: string): NodeAnnotations['arrows'] {
 
 /**
  * Parse PGN comment macros [%eval ...], [%clk ...], [%csl ...], [%cal ...]
- * from comment text. Returns extracted values and the remaining
- * human-readable comment.
+ * + KS-2286: [%cvc X] (variation-color, X = G|B|Y|R) — из comment первого
+ * хода варианта. Симметрично с [%csl]/[%cal] по нотации цвета.
+ *
+ * Returns extracted values and the remaining human-readable comment.
  */
 export function parseCommentMacros(raw: string): {
   eval?: number;
   clock?: string;
   comment?: string;
   annotations?: NodeAnnotations;
+  /**
+   * KS-2286 (ADR-038 §4): user-variation-color, если в comment был
+   * макрос `[%cvc X]`. Хост (PgnDeserializer) кладёт это в
+   * `move.variationColor`.
+   */
+  variationColor?: VariationColor;
 } {
   let text = raw;
   let evalValue: number | undefined;
@@ -110,13 +118,26 @@ export function parseCommentMacros(raw: string): {
     text = text.replace(/\[%cal\s+[^\]]+\]/g, '');
   }
 
+  // KS-2286: [%cvc X] — variation-color, X = G|B|Y|R.
+  // Первый валидный match выигрывает. ВСЕ макросы (валидные и
+  // невалидные) удаляем из текста, чтобы они не утекли в comment.
+  let variationColor: VariationColor | undefined;
+  const cvcMatch = text.match(/\[%cvc\s+([GBYRgbyr])\s*\]/);
+  if (cvcMatch) {
+    const letter = cvcMatch[1].toUpperCase();
+    variationColor = COLOR_LETTER_TO_NAME[letter];
+  }
+  // Чистим в любом случае — невалидный макрос (`[%cvc X]`) тоже не
+  // должен оставаться в человеко-читаемом comment.
+  text = text.replace(/\[%cvc\s+[^\]]+\]/g, '');
+
   // Clean up remaining text
   const comment = text.trim() || undefined;
 
   const annotations: NodeAnnotations | undefined =
     highlights || arrows ? { ...(highlights && { highlights }), ...(arrows && { arrows }) } : undefined;
 
-  return { eval: evalValue, clock: clockValue, comment, annotations };
+  return { eval: evalValue, clock: clockValue, comment, annotations, variationColor };
 }
 
 /** Сериализовать NodeAnnotations.highlights → "Gd4,Re5" (или undefined). */
@@ -138,12 +159,17 @@ function serializeCal(arrows?: NodeAnnotations['arrows']): string | undefined {
 /**
  * Serialize eval/clock/annotations values back into PGN comment macro format.
  * Combines with human comment text if present.
+ *
+ * KS-2286: добавлен `variationColor` — сериализуется как `[%cvc X]`
+ * после [%csl]/[%cal] (порядок по доменной близости — все «макросы
+ * рендера» стоят группой в конце).
  */
 export function serializeCommentWithMacros(
   comment?: string,
   evalValue?: number,
   clock?: string,
   annotations?: NodeAnnotations,
+  variationColor?: VariationColor,
 ): string | undefined {
   const parts: string[] = [];
 
@@ -172,6 +198,11 @@ export function serializeCommentWithMacros(
   if (csl) parts.push(`[%csl ${csl}]`);
   const cal = serializeCal(annotations?.arrows);
   if (cal) parts.push(`[%cal ${cal}]`);
+
+  // KS-2286: [%cvc X] — variation-color, после [%csl]/[%cal].
+  if (variationColor) {
+    parts.push(`[%cvc ${COLOR_NAME_TO_LETTER[variationColor]}]`);
+  }
 
   if (parts.length === 0) return undefined;
   return parts.join(' ');
