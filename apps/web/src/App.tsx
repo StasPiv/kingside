@@ -59,6 +59,8 @@ import { DrillPage } from './pages/DrillPage';
 import { DrillSprintSetupPage } from './pages/DrillSprintSetupPage';
 import { DrillSprintPlayPage } from './pages/DrillSprintPlayPage';
 import { DrillSprintResultsPage } from './pages/DrillSprintResultsPage';
+// KS-2242 (Drills E4): лидерборд sprint.
+import { DrillLeaderboardPage } from './pages/DrillLeaderboardPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag } from './context/FeatureFlagsContext';
@@ -327,6 +329,8 @@ export function App() {
             <Route path="/drills/sprint" element={<DrillSprintSetupPage />} />
             <Route path="/drills/sprint/play" element={<DrillSprintPlayPage />} />
             <Route path="/drills/sprint/results" element={<DrillSprintResultsPage />} />
+            {/* KS-2242: лидерборд sprint. */}
+            <Route path="/drills/sprint/leaderboard" element={<DrillLeaderboardPage />} />
             <Route path="/drills/:type" element={<DrillPage />} />
           </>
         ) : (

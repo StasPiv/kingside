@@ -155,6 +155,10 @@ vi.mock('./pages/DrillSprintPlayPage', () => ({
 vi.mock('./pages/DrillSprintResultsPage', () => ({
   DrillSprintResultsPage: () => <div data-testid="page-drill-sprint-results" />,
 }));
+// KS-2242: заглушка лидерборда.
+vi.mock('./pages/DrillLeaderboardPage', () => ({
+  DrillLeaderboardPage: () => <div data-testid="page-drill-leaderboard" />,
+}));
 // useAuth вычитывает /auth/me — вернём unauth-пользователя, чтобы
 // ProtectedRoute редиректил на /login. Для теста достаточно.
 vi.mock('./context/AuthContext', () => ({
@@ -402,6 +406,23 @@ describe('App routing: KS-2232 drills feature flag', () => {
       expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('page-drill-sprint-setup')).not.toBeInTheDocument();
+  });
+
+  it('KS-2242: drillsEnabled=true → /drills/sprint/leaderboard рендерит лидерборд', async () => {
+    flags.drills = true;
+    renderWithProviders(<App />, { route: '/drills/sprint/leaderboard' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-drill-leaderboard')).toBeInTheDocument(),
+    );
+  });
+
+  it('KS-2242: drillsEnabled=false → /drills/sprint/leaderboard редирект на /lobby', async () => {
+    flags.drills = false;
+    renderWithProviders(<App />, { route: '/drills/sprint/leaderboard' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-drill-leaderboard')).not.toBeInTheDocument();
   });
 });
 
