@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { OAuthCallbackController } from './oauth-callback.controller';
 import { InternalAuthController } from './internal-auth.controller';
+import { ScreenshotTokenController } from './screenshot-token.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { GoogleStrategy } from './google.strategy';
@@ -27,7 +28,15 @@ import { PrismaModule } from '../prisma/prisma.module';
       }),
     }),
   ],
-  controllers: [AuthController, OAuthCallbackController, InternalAuthController],
+  // KS-2304: ScreenshotTokenController — POST /api/internal/screenshot-token,
+  // см. ADR-039 §4. Без auth, за RedisRateLimitGuard 10/60s; гард
+  // подхватывается из global RedisModule (RedisService) + Reflector.
+  controllers: [
+    AuthController,
+    OAuthCallbackController,
+    InternalAuthController,
+    ScreenshotTokenController,
+  ],
   providers: [
     AuthService,
     JwtStrategy,
