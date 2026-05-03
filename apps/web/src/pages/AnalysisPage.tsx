@@ -120,6 +120,11 @@ export function AnalysisPage() {
   const [mobileTab, setMobileTab] = useState<MobileTabId>('moves');
   const [showOverflowMenu, setShowOverflowMenu] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
+  // KS-2220: inline-сообщение возле кнопок «PGN» после копирования.
+  // Глобального toast-сервиса в проекте нет (см. ArchiveGamePage —
+  // тот же паттерн state + setTimeout).
+  const [pgnCopyMsg, setPgnCopyMsg] = useState<string | null>(null);
+  const pgnCopyTimerRef = useRef<number | null>(null);
   const pendingPositionRef = useRef<number | null>(null);
 
   // Standalone analysis state
@@ -617,25 +622,33 @@ export function AnalysisPage() {
     return () => document.removeEventListener('mousedown', handleClick);
   }, [showOverflowMenu]);
 
+  // KS-2220: сериализация PGN вынесена из handleExportPgn в общий
+  // helper, чтобы handleCopyPgn использовал ровно тот же текст, что и
+  // скачивание файла (включая заголовки + аннотации).
+  const buildAnalysisPgn = useCallback((): string | null => {
+    if (history.length === 0) return null;
+    const headers: string[] = [];
+    headers.push(`[Event "${pgnHeaders['Event'] || analysisTitle || 'Analysis'}"]`);
+    headers.push(`[Site "${pgnHeaders['Site'] || 'Kingside'}"]`);
+    headers.push(`[Date "${pgnHeaders['Date'] || new Date().toISOString().slice(0, 10).replace(/-/g, '.')}"]`);
+    if (pgnHeaders['Round']) headers.push(`[Round "${pgnHeaders['Round']}"]`);
+    if (pgnHeaders['White']) headers.push(`[White "${pgnHeaders['White']}"]`);
+    if (pgnHeaders['Black']) headers.push(`[Black "${pgnHeaders['Black']}"]`);
+    headers.push(`[Result "${pgnHeaders['Result'] || '*'}"]`);
+    if (pgnHeaders['WhiteElo']) headers.push(`[WhiteElo "${pgnHeaders['WhiteElo']}"]`);
+    if (pgnHeaders['BlackElo']) headers.push(`[BlackElo "${pgnHeaders['BlackElo']}"]`);
+    if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
+    // KS-2152: initialAnnotations попадают в leading-комментарий, а
+    // node-annotations берутся из annotationsByIndex (state useReviewState).
+    const moves = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
+    return headers.join('\n') + '\n\n' + moves + '\n';
+  }, [history, analysisTitle, initialFen, pgnHeaders, initialAnnotations, annotationsByIndex]);
+
   // Export PGN handler
   const handleExportPgn = useCallback(() => {
     try {
-      if (history.length === 0) return;
-      const headers: string[] = [];
-      headers.push(`[Event "${pgnHeaders['Event'] || analysisTitle || 'Analysis'}"]`);
-      headers.push(`[Site "${pgnHeaders['Site'] || 'Kingside'}"]`);
-      headers.push(`[Date "${pgnHeaders['Date'] || new Date().toISOString().slice(0, 10).replace(/-/g, '.')}"]`);
-      if (pgnHeaders['Round']) headers.push(`[Round "${pgnHeaders['Round']}"]`);
-      if (pgnHeaders['White']) headers.push(`[White "${pgnHeaders['White']}"]`);
-      if (pgnHeaders['Black']) headers.push(`[Black "${pgnHeaders['Black']}"]`);
-      headers.push(`[Result "${pgnHeaders['Result'] || '*'}"]`);
-      if (pgnHeaders['WhiteElo']) headers.push(`[WhiteElo "${pgnHeaders['WhiteElo']}"]`);
-      if (pgnHeaders['BlackElo']) headers.push(`[BlackElo "${pgnHeaders['BlackElo']}"]`);
-      if (initialFen !== DEFAULT_FEN) headers.push(`[FEN "${initialFen}"]`);
-      // KS-2152: initialAnnotations попадают в leading-комментарий, а
-      // node-annotations берутся из annotationsByIndex (state useReviewState).
-      const moves = serializeToAnnotatedPgn(history, initialAnnotations, annotationsByIndex);
-      const pgn = headers.join('\n') + '\n\n' + moves + '\n';
+      const pgn = buildAnalysisPgn();
+      if (pgn === null) return;
       const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -648,7 +661,35 @@ export function AnalysisPage() {
     } catch (err) {
       console.error('[Export PGN] Failed:', err);
     }
-  }, [history, analysisTitle, initialFen, pgnHeaders]);
+  }, [buildAnalysisPgn, analysisTitle]);
+
+  // KS-2220: handleCopyPgn — копирует тот же PGN, что и handleExportPgn,
+  // в буфер обмена через `navigator.clipboard.writeText`. Inline-сообщение
+  // возле кнопок (success/error) автоматически скрывается через 1.8 сек.
+  const handleCopyPgn = useCallback(async () => {
+    const pgn = buildAnalysisPgn();
+    if (pgn === null) return;
+    try {
+      await navigator.clipboard.writeText(pgn);
+      setPgnCopyMsg(t('review.pgnCopied', 'PGN copied to clipboard'));
+    } catch (err) {
+      console.error('[Copy PGN] Failed:', err);
+      setPgnCopyMsg(t('review.pgnCopyError', 'Failed to copy PGN'));
+    }
+    if (pgnCopyTimerRef.current) {
+      window.clearTimeout(pgnCopyTimerRef.current);
+    }
+    pgnCopyTimerRef.current = window.setTimeout(() => setPgnCopyMsg(null), 1800);
+  }, [buildAnalysisPgn, t]);
+
+  // Очистка таймера при unmount, чтобы setState не дёргался на размонтированный компонент.
+  useEffect(() => {
+    return () => {
+      if (pgnCopyTimerRef.current) {
+        window.clearTimeout(pgnCopyTimerRef.current);
+      }
+    };
+  }, []);
 
   // --- Board setup ---
   const stablePosition = useStablePosition(currentFen);
@@ -1262,6 +1303,25 @@ export function AnalysisPage() {
               >
                 &#x2B07; PGN
               </button>
+              {/* KS-2220: «Copy PGN» рядом с «↓ PGN». */}
+              <button
+                className="analysis-export-btn"
+                onClick={handleCopyPgn}
+                disabled={history.length === 0}
+                title={t('review.copyPgn', 'Copy PGN to clipboard')}
+                data-testid="analysis-copy-pgn"
+              >
+                &#x1F4CB; PGN
+              </button>
+              {pgnCopyMsg && (
+                <span
+                  className="analysis-copy-msg"
+                  role="status"
+                  data-testid="analysis-copy-pgn-msg"
+                >
+                  {pgnCopyMsg}
+                </span>
+              )}
             </span>
             {/* Mobile: overflow menu */}
             <div className="analysis-overflow-wrapper" ref={overflowMenuRef}>
@@ -1289,6 +1349,14 @@ export function AnalysisPage() {
                     disabled={history.length === 0}
                   >
                     {t('review.exportPgn', 'Export PGN')}
+                  </button>
+                  {/* KS-2220: «Copy PGN» в overflow-меню (mobile). */}
+                  <button
+                    onClick={() => { void handleCopyPgn(); setShowOverflowMenu(false); }}
+                    disabled={history.length === 0}
+                    data-testid="analysis-copy-pgn-overflow"
+                  >
+                    {t('review.copyPgn', 'Copy PGN to clipboard')}
                   </button>
                 </div>
               )}

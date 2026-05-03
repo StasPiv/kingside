@@ -567,12 +567,31 @@
     "truncate": "Truncate",
     "delete": "Delete",
     "moves": "Moves",
+    "exportPgn": "Export PGN",
+    "copyPgn": "Copy PGN to clipboard",
+    "pgnCopied": "PGN copied to clipboard",
+    "pgnCopyError": "Failed to copy PGN",
     "variationChooser": {
       "title": "Choose continuation",
       "mainLine": "Main line",
       "variation": "Variation",
       "hint": "↑/↓ or 1–9 · Enter to choose · Esc to cancel"
     }
+  },
+  "position": {
+    "title": "Set Position",
+    "fenLabel": "FEN notation:",
+    "startPos": "Starting Position",
+    "emptyBoard": "Empty Board",
+    "paste": "Paste from Clipboard",
+    "copy": "Copy to Clipboard",
+    "fenCopied": "FEN copied to clipboard",
+    "fenCopyError": "Failed to copy FEN",
+    "apply": "Apply",
+    "pieces": "Pieces:",
+    "turn": "Side to move:",
+    "castling": "Castling:",
+    "clear": "Clear Board"
   },
   "analysis": {
     "depth": "Depth",
@@ -1903,6 +1922,14 @@
         "endgameDrill": "Position vs. engine",
         "endgameDrillDescription": "Learner plays a position against the engine (pick strength + win condition)."
       }
+    }
+  },
+  "matchmaking": {
+    "noOpponents": {
+      "title": "No opponents online",
+      "subtitle": "Try again later or invite a friend",
+      "retry": "Try again",
+      "changeTc": "Choose another time control"
     }
   }
 }

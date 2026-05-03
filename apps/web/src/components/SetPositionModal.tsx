@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Chess } from 'chess.js';
 import { useBoardSettings } from '../hooks/useBoardSettings';
@@ -121,6 +121,34 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
   const [tab, setTab] = useState<Tab>('fen');
   const [fenInput, setFenInput] = useState(startFen);
   const [error, setError] = useState<string | null>(null);
+  // KS-2220: inline-сообщение возле кнопок Copy/Paste (success/error).
+  // Глобального toast в проекте нет — паттерн как в ArchiveGamePage.
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+    };
+  }, []);
+
+  const flashCopyMsg = useCallback((msg: string) => {
+    setCopyMsg(msg);
+    if (copyTimerRef.current) window.clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = window.setTimeout(() => setCopyMsg(null), 1800);
+  }, []);
+
+  // KS-2220: копирование текущего значения FEN в буфер обмена.
+  const handleCopyFen = useCallback(async () => {
+    const value = fenInput.trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      flashCopyMsg(t('position.fenCopied', 'FEN copied to clipboard'));
+    } catch {
+      flashCopyMsg(t('position.fenCopyError', 'Failed to copy FEN'));
+    }
+  }, [fenInput, flashCopyMsg, t]);
 
   // Board editor state
   const [board, setBoard] = useState<Record<string, string>>(() => fenToBoard(startFen));
@@ -203,7 +231,25 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
               }}>
                 {t('position.paste', 'Paste from Clipboard')}
               </button>
+              {/* KS-2220: «Copy to Clipboard» — копирует текущее значение FEN. */}
+              <button
+                className="set-position-preset"
+                onClick={handleCopyFen}
+                disabled={!fenInput.trim()}
+                data-testid="set-position-copy-fen"
+              >
+                {t('position.copy', 'Copy to Clipboard')}
+              </button>
             </div>
+            {copyMsg && (
+              <div
+                className="set-position-copy-msg"
+                role="status"
+                data-testid="set-position-copy-fen-msg"
+              >
+                {copyMsg}
+              </div>
+            )}
             <div className="set-position-actions">
               <button className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
               <button className="set-position-apply" onClick={handleApplyFen}>{t('position.apply', 'Apply')}</button>

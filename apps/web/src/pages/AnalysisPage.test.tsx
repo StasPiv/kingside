@@ -413,4 +413,81 @@ describe('KS-308: AnalysisPage — Stockfish analysis verification', () => {
       expect(screen.getByText(/Stockfish 18/)).toBeInTheDocument();
     });
   });
+
+  /**
+   * KS-2220: кнопка «Copy PGN» рендерится рядом с «↓ PGN»
+   * и при успешном `navigator.clipboard.writeText` показывает toast.
+   */
+  it('KS-2220: «Copy PGN» копирует PGN в буфер и показывает toast', async () => {
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: () => Promise.resolve(), readText: () => Promise.resolve('') },
+      });
+    }
+    const writeTextSpy = vi
+      .spyOn(navigator.clipboard, 'writeText')
+      .mockResolvedValue(undefined);
+
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
+
+    // Дожидаемся загрузки игры — moves подкачаются и кнопка станет enabled.
+    await waitFor(() => {
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
+    });
+
+    // Кнопка имеет data-testid `analysis-copy-pgn` (desktop-вариант).
+    const copyBtn = await screen.findByTestId('analysis-copy-pgn');
+
+    await act(async () => {
+      copyBtn.click();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('analysis-copy-pgn-msg')).toHaveTextContent(
+        /copied/i,
+      ),
+    );
+    expect(writeTextSpy).toHaveBeenCalled();
+    // PGN должен содержать хотя бы один из ходов из mockMoves.
+    const arg = writeTextSpy.mock.calls[0][0] as string;
+    expect(arg).toMatch(/e4/);
+
+    writeTextSpy.mockRestore();
+  });
+
+  /**
+   * KS-2220: при reject от clipboard.writeText появляется toast-ошибка.
+   */
+  it('KS-2220: «Copy PGN» при reject clipboard показывает toast-ошибку', async () => {
+    if (!navigator.clipboard) {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: () => Promise.resolve(), readText: () => Promise.resolve('') },
+      });
+    }
+    const writeTextSpy = vi
+      .spyOn(navigator.clipboard, 'writeText')
+      .mockRejectedValue(new Error('permission denied'));
+
+    renderWithProviders(<AnalysisPage />, { route: '/review/game-1' });
+
+    await waitFor(() => {
+      expect(screen.getAllByText('WhitePlayer')[0]).toBeInTheDocument();
+    });
+
+    const copyBtn = await screen.findByTestId('analysis-copy-pgn');
+
+    await act(async () => {
+      copyBtn.click();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('analysis-copy-pgn-msg')).toHaveTextContent(
+        /failed/i,
+      ),
+    );
+
+    writeTextSpy.mockRestore();
+  });
 });

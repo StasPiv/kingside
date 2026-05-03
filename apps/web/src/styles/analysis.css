@@ -350,6 +350,17 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   white-space: nowrap;
 }
 
+/* KS-2220: inline-сообщение «PGN скопирован» возле кнопок ↓PGN/📋PGN. */
+.analysis-copy-msg {
+  font-size: 12px;
+  margin-left: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--color-text, #333);
+  white-space: nowrap;
+}
+
 /* Inline eval - hidden on desktop */
 .analysis-inline-eval {
   display: none;
@@ -1342,6 +1353,13 @@ body[data-board-size='lg'] { --analysis-board-size-scale: 1; }
   color: var(--c-ef4444);
   font-size: 13px;
   margin-top: 8px;
+}
+
+/* KS-2220: inline «FEN скопирован» под Copy/Paste-кнопками. */
+.set-position-copy-msg {
+  font-size: 13px;
+  margin-top: 8px;
+  color: var(--c-a0a0ff, #a0a0ff);
 }
 
 .set-position-presets {
