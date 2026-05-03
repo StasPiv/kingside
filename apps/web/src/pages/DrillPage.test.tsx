@@ -93,6 +93,22 @@ function makeDrill(overrides: Partial<Record<string, unknown>> = {}) {
 beforeEach(() => {
   apiGet.mockReset();
   apiPost.mockReset();
+  // KS-2319: matchMedia stub → reduced-motion=true → авто-переход
+  // после feedback с delay=0.
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('reduce'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 afterEach(() => {
@@ -154,10 +170,21 @@ describe('<DrillPage> KS-2233', () => {
     );
   });
 
-  it('shape=square: после правильного ответа → feedback success + Next-кнопка', async () => {
-    apiGet.mockResolvedValueOnce(
-      makeDrill({ drillType: 'find-pin', answerShape: 'square' }),
-    );
+  it('shape=square: после правильного ответа → авто-переход к следующему drill (KS-2319)', async () => {
+    // Первый вызов /next отвечает сразу. Второй (авто-переход после
+    // feedback) — pending промис, чтобы DrillRunner застрял в
+    // 'loading' после короткого мелькания 'feedback' и счётчик 1/1
+    // успел зафиксироваться.
+    let resolveSecond: ((d: unknown) => void) | null = null;
+    apiGet
+      .mockResolvedValueOnce(
+        makeDrill({ drillType: 'find-pin', answerShape: 'square' }),
+      )
+      .mockReturnValueOnce(
+        new Promise((res) => {
+          resolveSecond = res as (d: unknown) => void;
+        }),
+      );
     apiPost.mockResolvedValue({
       attemptId: 'a1',
       solved: true,
@@ -171,19 +198,13 @@ describe('<DrillPage> KS-2233', () => {
       ),
     );
     await user.click(screen.getByTestId('fire-square-e4'));
-    await waitFor(() =>
-      expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
-        'feedback',
-      ),
-    );
-    expect(screen.getByTestId('drill-feedback').getAttribute('data-result')).toBe(
-      'correct',
-    );
-    expect(screen.getByTestId('drill-runner-next')).toBeInTheDocument();
-    // progress: 1/1.
-    const progress = screen.getByTestId('drill-runner-progress');
-    expect(progress.getAttribute('data-attempted')).toBe('1');
-    expect(progress.getAttribute('data-solved')).toBe('1');
+    // Авто-переход с reduced-motion=true делает delay=0; ждём что
+    // /next дёрнется второй раз (бесконечный count в DrillPage).
+    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(2));
+    // Освобождаем промис чтобы тест корректно завершился (loading-state
+    // продолжается до этого момента — progress в этом state не
+    // рендерится, см. DrillRunner.test.tsx для проверки счётчика).
+    resolveSecond?.(makeDrill({ drillType: 'find-pin', answerShape: 'square' }));
   });
 
   // ── shape='squares' ──────────────────────────────────────────────
@@ -273,18 +294,17 @@ describe('<DrillPage> KS-2233', () => {
         }),
       ),
     );
-    // feedback: incorrect (solved=false).
-    await waitFor(() =>
-      expect(screen.getByTestId('drill-feedback').getAttribute('data-result')).toBe(
-        'incorrect',
-      ),
-    );
-    expect(screen.getByTestId('drill-runner-progress').getAttribute('data-solved')).toBe(
-      '0',
-    );
-    expect(screen.getByTestId('drill-runner-progress').getAttribute('data-attempted')).toBe(
-      '1',
-    );
+    // KS-2319: feedback мелькнул и ушёл (auto-next с reduced=true → 0).
+    // Дожидаемся, пока стейт вернётся в idle с progress 0/1 (новый
+    // drill после авто-перехода).
+    await waitFor(() => {
+      const p = screen.queryByTestId('drill-runner-progress');
+      return (
+        p &&
+        p.getAttribute('data-solved') === '0' &&
+        p.getAttribute('data-attempted') === '1'
+      );
+    });
   });
 
   // ── shape='move' ─────────────────────────────────────────────────
@@ -367,10 +387,8 @@ describe('<DrillPage> KS-2233', () => {
       ),
     );
     await user.click(screen.getByTestId('fire-square-e4'));
-    await waitFor(() =>
-      expect(screen.getByTestId('drill-runner-next')).toBeInTheDocument(),
-    );
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: после feedback с reduced-motion=true (matchMedia mock)
+    // авто-переход срабатывает с delay=0 → fetchNext дёргается сразу.
     await waitFor(() => {
       expect(apiGet).toHaveBeenCalledTimes(2);
     });

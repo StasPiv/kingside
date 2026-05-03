@@ -62,6 +62,28 @@ function fireDrop(args: { sourceSquare: string; targetSquare: string }) {
   return handler(args);
 }
 
+/**
+ * KS-2319: для тестов где нужно «заморозить» feedback (проверить
+ * data-result, progress, drop в feedback), отключаем reduced-motion
+ * локально + ставим autoNextDelayMs=60s.
+ */
+function disableReducedMotion() {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+}
+
 import { DrillRunner } from './DrillRunner';
 
 const NUMBER_DRILL = {
@@ -86,6 +108,23 @@ const SQUARE_DRILL = {
 beforeEach(() => {
   vi.useRealTimers();
   dropHandlerRegistry.length = 0;
+  // KS-2319: тестируем как при prefers-reduced-motion → авто-переход
+  // мгновенный, тесты не ждут 1.5с. Конкретные тесты на delay/reduced
+  // переопределяют локально.
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('reduce'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 afterEach(() => {
@@ -138,6 +177,7 @@ describe('<DrillRunner> KS-2249', () => {
   });
 
   it('после правильного submit → state=feedback с зелёной подсветкой + counter 1/1', async () => {
+    disableReducedMotion();
     const loadDrill = vi.fn(async () => NUMBER_DRILL);
     const submitAnswer = vi.fn(async () => ({
       attemptId: 'a1',
@@ -146,7 +186,13 @@ describe('<DrillRunner> KS-2249', () => {
     }));
     const user = userEvent.setup();
     renderWithProviders(
-      <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+      // KS-2319: большой autoNextDelayMs — заморозить state в feedback,
+      // чтобы успеть проверить data-result/progress до авто-перехода.
+      <DrillRunner
+        loadDrill={loadDrill}
+        submitAnswer={submitAnswer}
+        autoNextDelayMs={60_000}
+      />,
     );
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
@@ -196,8 +242,8 @@ describe('<DrillRunner> KS-2249', () => {
         'feedback',
       ),
     );
-    // В feedback кликаем Next — он триггерит finish (count достигнут).
-    await user.click(screen.getByTestId('drill-runner-next'));
+
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',
@@ -254,7 +300,7 @@ describe('<DrillRunner> KS-2249', () => {
         'feedback',
       ),
     );
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     // Loading → idle следующего drill'а.
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
@@ -268,7 +314,7 @@ describe('<DrillRunner> KS-2249', () => {
         'feedback',
       ),
     );
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',
@@ -316,14 +362,14 @@ describe('<DrillRunner> KS-2249', () => {
       ),
     );
     await user.click(screen.getByTestId('fire-square-e4'));
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'idle',
       ),
     );
     await user.click(screen.getByTestId('fire-square-d4'));
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',
@@ -366,7 +412,7 @@ describe('<DrillRunner> KS-2249', () => {
         'feedback',
       ),
     );
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     // Должен снова стать idle (новый drill), а НЕ done.
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
@@ -482,6 +528,7 @@ describe('<DrillRunner> KS-2249', () => {
     });
 
     it('drop когда state≠idle (например, в feedback) → submit НЕ вызван', async () => {
+      disableReducedMotion();
       const loadDrill = vi.fn(async () => MOVE_DRILL);
       const submitAnswer = vi.fn(async () => ({
         attemptId: 'a1',
@@ -490,7 +537,11 @@ describe('<DrillRunner> KS-2249', () => {
       }));
       const user = userEvent.setup();
       renderWithProviders(
-        <DrillRunner loadDrill={loadDrill} submitAnswer={submitAnswer} />,
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayMs={60_000}
+        />,
       );
       await waitFor(() =>
         expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
@@ -538,6 +589,164 @@ describe('<DrillRunner> KS-2249', () => {
           }),
         ),
       );
+    });
+  });
+
+  // KS-2319: авто-переход после feedback (кнопка «Следующее» удалена).
+  describe('KS-2319 — авто-переход после feedback', () => {
+    it('кнопка drill-runner-next физически удалена (не рендерится в feedback)', async () => {
+      disableReducedMotion();
+      const loadDrill = vi.fn(async () => SQUARE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          // Заморозим feedback на 60s — гарантировано не успеет уйти.
+          autoNextDelayMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'feedback',
+        ),
+      );
+      expect(screen.queryByTestId('drill-runner-next')).not.toBeInTheDocument();
+    });
+
+    it('правильный ответ + autoNextDelayMs=0 → loadDrill вызван второй раз (авто-переход)', async () => {
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayMs={0}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+    });
+
+    it('неверный ответ → авто-переход тоже срабатывает (одинаковое поведение)', async () => {
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: false,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayMs={0}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      // Кликаем НЕ-правильный ответ (mock всё равно вернёт solved:false).
+      await user.click(screen.getByTestId('fire-square-d4'));
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+    });
+
+    it('prefers-reduced-motion=reduce → delay переопределяется на 0 (даже если autoNextDelayMs=60s)', async () => {
+      const loadDrill = vi
+        .fn()
+        .mockResolvedValueOnce(SQUARE_DRILL)
+        .mockResolvedValueOnce({ ...SQUARE_DRILL, id: 'd-sq-2' });
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const user = userEvent.setup();
+      // beforeEach уже вернул reduced=true. Несмотря на autoNextDelayMs=60s,
+      // prefersReducedMotion() override на 0 → переход мгновенный.
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          autoNextDelayMs={60_000}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      // Должен дойти до loadDrill #2 МГНОВЕННО (не ждём 60с).
+      await waitFor(() => expect(loadDrill).toHaveBeenCalledTimes(2));
+    });
+
+    it('count=1 + правильный ответ → авто-переход → done (НЕ fetchNext)', async () => {
+      const loadDrill = vi.fn(async () => SQUARE_DRILL);
+      const submitAnswer = vi.fn(async () => ({
+        attemptId: 'a1',
+        solved: true,
+        correctAnswer: { shape: 'square', square: 'e4' },
+      }));
+      const onComplete = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <DrillRunner
+          loadDrill={loadDrill}
+          submitAnswer={submitAnswer}
+          count={1}
+          minSolved={1}
+          onComplete={onComplete}
+          autoNextDelayMs={0}
+        />,
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'idle',
+        ),
+      );
+      await user.click(screen.getByTestId('fire-square-e4'));
+      await waitFor(() =>
+        expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
+          'done',
+        ),
+      );
+      // loadDrill = 1 (initial). Второго вызова не должно — done.
+      expect(loadDrill).toHaveBeenCalledTimes(1);
+      expect(onComplete).toHaveBeenCalledWith({
+        solved: 1,
+        attempted: 1,
+        success: true,
+      });
     });
   });
 

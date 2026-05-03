@@ -58,6 +58,21 @@ const SQUARE_DRILL = {
 beforeEach(() => {
   apiGet.mockReset();
   apiPost.mockReset();
+  // KS-2319: эмулируем prefers-reduced-motion → авто-переход без 1.5с задержки.
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: query.includes('reduce'),
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 afterEach(() => vi.restoreAllMocks());
@@ -118,7 +133,7 @@ describe('<DrillStep> KS-2249', () => {
         'feedback',
       ),
     );
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',
@@ -159,7 +174,7 @@ describe('<DrillStep> KS-2249', () => {
         'feedback',
       ),
     );
-    await user.click(screen.getByTestId('drill-runner-next'));
+    // KS-2319: авто-переход (matchMedia reduced=true → delay=0).
     await waitFor(() =>
       expect(screen.getByTestId('drill-runner').getAttribute('data-state')).toBe(
         'done',
