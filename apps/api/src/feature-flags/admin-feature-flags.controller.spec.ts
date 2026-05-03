@@ -118,7 +118,7 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       .expect(400);
   });
 
-  it('GET /config возвращает featureFlags (KS-2217: все 4 ключа)', async () => {
+  it('GET /config возвращает featureFlags (KS-2217 + KS-2222: все 5 ключей)', async () => {
     app = await makeApp({
       admin: true,
       auth: true,
@@ -128,6 +128,7 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
           puzzlesEnabled: false,
           broadcastsEnabled: true,
           tournamentsEnabled: true,
+          assistantEnabled: false,
         })),
       } as never,
     });
@@ -138,17 +139,19 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
         puzzlesEnabled: false,
         broadcastsEnabled: true,
         tournamentsEnabled: true,
+        assistantEnabled: false,
       },
     });
   });
 
-  it('GET /admin/feature-flags под админом → список с метаданными (KS-2108, KS-2217)', async () => {
+  it('GET /admin/feature-flags под админом → список с метаданными (KS-2108, KS-2217, KS-2222)', async () => {
     const updatedAt = new Date('2026-04-28T12:00:00Z');
     type Key =
       | 'lessonsEnabled'
       | 'puzzlesEnabled'
       | 'broadcastsEnabled'
-      | 'tournamentsEnabled';
+      | 'tournamentsEnabled'
+      | 'assistantEnabled';
     app = await makeApp({
       admin: true,
       auth: true,
@@ -158,6 +161,7 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
           puzzlesEnabled: false,
           broadcastsEnabled: true,
           tournamentsEnabled: true,
+          assistantEnabled: false,
         })),
         listWithMetadata: jest.fn(
           async () =>
@@ -166,6 +170,7 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
               ['puzzlesEnabled', updatedAt],
               ['broadcastsEnabled', updatedAt],
               ['tournamentsEnabled', updatedAt],
+              ['assistantEnabled', updatedAt],
             ]),
         ),
       } as never,
@@ -175,7 +180,7 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       .expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body).toHaveLength(4);
+    expect(res.body).toHaveLength(5);
     const byKey = Object.fromEntries(
       (res.body as Array<{ key: string }>).map((it) => [it.key, it]),
     );
@@ -205,6 +210,13 @@ describe('AdminFeatureFlagsController — KS-2104', () => {
       value: true,
       defaultValue: true,
       description: expect.stringContaining('Турниры'),
+      updatedAt: '2026-04-28T12:00:00.000Z',
+    });
+    expect(byKey.assistantEnabled).toEqual({
+      key: 'assistantEnabled',
+      value: false,
+      defaultValue: false,
+      description: expect.stringContaining('ассистент'),
       updatedAt: '2026-04-28T12:00:00.000Z',
     });
   });

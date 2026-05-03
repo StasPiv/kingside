@@ -30,6 +30,8 @@ export const KNOWN_FEATURE_FLAGS: FeatureFlags = {
   puzzlesEnabled: false,
   broadcastsEnabled: true,
   tournamentsEnabled: true,
+  // KS-2222: чат-ассистент по умолчанию скрыт, включается через админку.
+  assistantEnabled: false,
 };
 
 /**
@@ -56,6 +58,10 @@ export const FEATURE_FLAG_METADATA: Record<
   tournamentsEnabled: {
     description:
       'Показывать раздел «Турниры» в UI и пускать на /tournaments*. Аварийный rollback — выключить.',
+  },
+  assistantEnabled: {
+    description:
+      'Показывать чат-ассистент (иконка в правом нижнем углу). По умолчанию выключен — включить через PATCH.',
   },
 };
 

@@ -37,6 +37,12 @@ export interface FeatureFlags {
    * redeploy фронта.
    */
   tournamentsEnabled: boolean;
+  /**
+   * KS-2222: показывать чат-ассистент (`ChatWidget`, иконка чата в
+   * правом нижнем углу). Default `false` — раздел временно скрыт;
+   * включается админом через PATCH без redeploy фронта.
+   */
+  assistantEnabled: boolean;
 }
 
 export interface ConfigResponse {
