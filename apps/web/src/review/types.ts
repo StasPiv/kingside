@@ -4,6 +4,19 @@
  */
 export type AnnotationColor = 'red' | 'green' | 'blue' | 'yellow';
 
+/**
+ * KS-2285 (ADR-038 §6, E1) — цвет варианта в дереве анализа.
+ * Пользователь может вручную выкрасить ветку (ChessMove.variationColor)
+ * в один из 4 цветов, которые потом отображаются на доске и в нотации.
+ *
+ * Сейчас тип = AnnotationColor (тот же набор), переиспользуется ради
+ * единства палитры с подсветкой клеток / стрелок (KS-2152). Если в
+ * будущем понадобится отдельная палитра вариаций — здесь же ввести
+ * самостоятельный union, чтобы изменение AnnotationColor не задевало
+ * variation-color семантику.
+ */
+export type VariationColor = AnnotationColor;
+
 export interface SquareHighlight {
   square: string;
   color: AnnotationColor;
@@ -50,5 +63,19 @@ export interface ChessMove {
   clock?: string;
   /** KS-2152: аннотации (выделения клеток + стрелки), привязанные к этому узлу. */
   annotations?: NodeAnnotations;
+  /**
+   * KS-2285 (ADR-038 §6, E1) — пользовательский цвет варианта.
+   * Применяется к ходу-«голове» вариации (первому ходу варианта в
+   * дереве `move.variations[k][0]`); потомки наследуют визуальный
+   * цвет через CSS-уровень (`getMoveClasses`/`getBracketClasses`).
+   *
+   * `undefined` — цвет варианта не задан, используется default-цвет
+   * по уровню (`--c-subline-N` из ADR-037 / KS-2275). Сериализуется
+   * в PGN-комментарий через макрос `[%cvc <color>]` (KS-2286).
+   *
+   * Field optional: legacy-PGN без макроса даст `undefined`, что
+   * совместимо с текущим рендером.
+   */
+  variationColor?: VariationColor;
   [key: string]: any;
 }
