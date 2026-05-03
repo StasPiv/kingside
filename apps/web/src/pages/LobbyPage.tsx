@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import type { FeatureFlags } from '@kingside/shared';
 import { useAuth } from '../context/AuthContext';
+import { useFeatureFlags } from '../context/FeatureFlagsContext';
 import { api } from '../api';
 import { useTimeControl, CATEGORIES, presetKey, TC_LABEL_KEYS } from '../hooks/useTimeControl';
 import { useMatchmaking } from '../hooks/useMatchmaking';
@@ -9,6 +11,7 @@ import { useBotGame } from '../hooks/useBotGame';
 import type { TimeControlCategory } from '../hooks/useTimeControl';
 import { HelpButton } from '../components/HelpButton';
 import { ServerBusyBanner } from '../components/ServerBusyBanner';
+import { NoOpponentsBlock } from '../components/NoOpponentsBlock';
 
 type WorkshopGame = {
   id: string;
@@ -26,12 +29,22 @@ type PuzzleRushStats = {
   totalSessions: number;
 };
 
-type ModalId = 'human' | 'bot' | 'puzzles' | 'rush' | 'workshop' | 'broadcasts' | 'players' | 'liveGames' | null;
+// KS-2218: `puzzles`/`broadcasts` — это teasers с `to: '/puzzles' | '/broadcasts'`,
+// модального контента у них нет (навигация по клику). Удалены из ModalId,
+// чтобы статически отсечь случайные `openModal('puzzles' | 'broadcasts')`
+// при выключенных feature-flags.
+type ModalId = 'human' | 'bot' | 'rush' | 'workshop' | 'players' | 'liveGames' | null;
 
 export function LobbyPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  // KS-2218: runtime feature-flags из контекста (backend `GET /config`).
+  // Тизеры разделов /puzzles, /broadcasts, /tournaments фильтруются ниже,
+  // см. teasers.filter(...). Default `puzzlesEnabled=false` —
+  // карточка «Задачи» исчезает из лобби, как и из Sidebar/MobileBar.
+  const { flags } = useFeatureFlags();
 
   const tc = useTimeControl();
   const matchmaking = useMatchmaking();
@@ -107,7 +120,7 @@ export function LobbyPage() {
     searching, ratingFilterMode, setRatingFilterMode,
     ratingMin, setRatingMin, ratingMax, setRatingMax,
     ratingMinus, setRatingMinus, ratingPlus, setRatingPlus,
-    handleSearch,
+    handleSearch, noOpponents, retryAfterNoOpponents, dismissNoOpponents,
   } = matchmaking;
 
   const {
@@ -344,11 +357,18 @@ export function LobbyPage() {
           increment: selectedIncrement,
           activeTab,
         })}
+        disabled={!!noOpponents}
       >
         {searching ? t('lobby.cancelSearch') : t('lobby.play')}
       </button>
-      {searching && <p className="searching">{t('lobby.searching')}</p>}
+      {searching && !noOpponents && <p className="searching">{t('lobby.searching')}</p>}
       {searching && matchmaking.serverBusy && <ServerBusyBanner />}
+      {noOpponents && (
+        <NoOpponentsBlock
+          onRetry={retryAfterNoOpponents}
+          onChangeTc={dismissNoOpponents}
+        />
+      )}
     </div>
   );
 
@@ -500,38 +520,52 @@ export function LobbyPage() {
     </div>
   );
 
-  const teasers = [
+  // KS-2218: тизеры разделов под feature-flags. Если флаг выключен —
+  // карточка не рендерится, а CTA-навигация на закрытый роут не появляется.
+  // Список ниже фильтруется через `teasers.filter(...)` сразу после декларации.
+  type Teaser = {
+    id: NonNullable<ModalId> | 'puzzles' | 'broadcasts';
+    icon: string;
+    titleKey: string;
+    descKey: string;
+    ctaKey: string;
+    to?: string;
+    featureFlag?: keyof FeatureFlags;
+  };
+
+  const allTeasers: Teaser[] = [
     {
-      id: 'human' as const,
+      id: 'human',
       icon: '♟',
       titleKey: 'lobby.teasers.human.title',
       descKey: 'lobby.teasers.human.description',
       ctaKey: 'lobby.teasers.human.cta',
     },
     {
-      id: 'bot' as const,
+      id: 'bot',
       icon: '🤖',
       titleKey: 'lobby.teasers.bot.title',
       descKey: 'lobby.teasers.bot.description',
       ctaKey: 'lobby.teasers.bot.cta',
     },
     {
-      id: 'puzzles' as const,
+      id: 'puzzles',
       icon: '🧩',
       titleKey: 'lobby.teasers.puzzles.title',
       descKey: 'lobby.teasers.puzzles.description',
       ctaKey: 'lobby.teasers.puzzles.cta',
       to: '/puzzles',
+      featureFlag: 'puzzlesEnabled',
     },
     {
-      id: 'rush' as const,
+      id: 'rush',
       icon: '⚡',
       titleKey: 'lobby.teasers.rush.title',
       descKey: 'lobby.teasers.rush.description',
       ctaKey: 'lobby.teasers.rush.cta',
     },
     {
-      id: 'workshop' as const,
+      id: 'workshop',
       icon: '♟',
       titleKey: 'lobby.teasers.workshop.title',
       descKey: 'lobby.teasers.workshop.description',
@@ -539,15 +573,16 @@ export function LobbyPage() {
       to: '/workshop',
     },
     {
-      id: 'broadcasts' as const,
+      id: 'broadcasts',
       icon: '📡',
       titleKey: 'lobby.teasers.broadcasts.title',
       descKey: 'lobby.teasers.broadcasts.description',
       ctaKey: 'lobby.teasers.broadcasts.cta',
       to: '/broadcasts',
+      featureFlag: 'broadcastsEnabled',
     },
     {
-      id: 'players' as const,
+      id: 'players',
       icon: '👥',
       titleKey: 'lobby.teasers.players.title',
       descKey: 'lobby.teasers.players.description',
@@ -555,22 +590,29 @@ export function LobbyPage() {
       to: '/players',
     },
     {
-      id: 'liveGames' as const,
+      id: 'liveGames',
       icon: '👁',
       titleKey: 'lobby.teasers.liveGames.title',
       descKey: 'lobby.teasers.liveGames.description',
       ctaKey: 'lobby.teasers.liveGames.cta',
       to: '/games/live',
     },
-  ] as Array<{ id: NonNullable<ModalId>; icon: string; titleKey: string; descKey: string; ctaKey: string; to?: string }>;
+  ];
 
+  // KS-2218: при `puzzlesEnabled=false` (default) и выключенных
+  // broadcastsEnabled/tournamentsEnabled — соответствующие карточки
+  // полностью пропадают из сетки. См. acceptance в комментарии к задаче.
+  const teasers = allTeasers.filter(
+    (t) => !t.featureFlag || flags[t.featureFlag],
+  );
+
+  // Модалки только для тех id, у которых реально есть контент.
+  // `puzzles`/`broadcasts` навигируют через `to`, модалок не имеют.
   const modalContentMap: Record<NonNullable<ModalId>, React.ReactNode> = {
     human: onlineModalContent,
     bot: botModalContent,
     rush: rushModalContent,
     workshop: workshopModalContent,
-    puzzles: null,
-    broadcasts: null,
     players: null,
     liveGames: null,
   };
@@ -603,7 +645,10 @@ export function LobbyPage() {
             if (teaser.to) {
               navigate(teaser.to);
             } else {
-              openModal(teaser.id);
+              // Без `to` остались только id из NonNullable<ModalId>
+              // (human|bot|rush). `puzzles`/`broadcasts` обязательно
+              // имеют `to`, так что cast статически безопасен.
+              openModal(teaser.id as NonNullable<ModalId>);
             }
           };
           return (
@@ -612,6 +657,9 @@ export function LobbyPage() {
               className="lobby-teaser lobby-teaser--clickable"
               role="button"
               tabIndex={0}
+              // KS-2218: data-testid — стабильный локатор для тестов
+              // фильтрации тизеров по feature-flags.
+              data-testid={`lobby-teaser-${teaser.id}`}
               onClick={handleActivate}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
