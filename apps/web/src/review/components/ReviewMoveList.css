@@ -196,11 +196,36 @@
   background-color: var(--ov-white-10);
 }
 
-/* Variation levels */
-.variation-level-1 { color: var(--c-90caf9); }
-.variation-level-2 { color: var(--c-a5d6a7); }
-.variation-level-3 { color: var(--c-ffe082); }
-.variation-level-4 { color: var(--c-ef9a9a); }
+/*
+ * KS-2274 (ADR-037 §4 / R5 §9, этап E3) — стиль ходов подвариантов.
+ *
+ * A/B решение: inline-цвет (A) vs `.variation-block` с фоном + border-left (B).
+ * Выбран A — inline-цвет через семантические токены `--c-subline-{1..4}`
+ * (KS-2273).
+ *
+ * Почему не B (block-style):
+ *   1. R5 §9: bracket `(` обязан стоять inline РЯДОМ с первым ходом
+ *      варианта, без переноса строки и отдельного блока. JSX-структура
+ *      `processMoveHierarchy` рендерит bracket-open / variation-moves /
+ *      bracket-close как flat-spans — без обёртки `<span class="variation-block">`.
+ *      Чтобы сделать осмысленный block-style (сплошной фон + border-left
+ *      на всю variation), нужна группирующая обёртка → правка tsx /
+ *      ChessMoveProcessing.ts (frontend). Без неё `display: inline-block`
+ *      на каждом `.move-item` дробит фон на отдельные «плитки» под
+ *      каждый ход — выглядит хуже однотонной inline-окраски.
+ *   2. Inline-flow нотации (мейнлайн → `(` → подвариант → `)` → мейнлайн)
+ *      ломается, если ходы становятся `inline-block` с padding/border —
+ *      межстрочный baseline сбивается, длинные варианты переносятся
+ *      некрасиво.
+ *
+ * Если в будущем JSX обернёт variation в контейнер — в KS-VAR-STYLE-V2
+ * можно вернуться к block-style (фон `--c-subline-bg`, border-left
+ * `--c-subline-N`). Семантические токены уже готовы (KS-2273).
+ */
+.variation-level-1 { color: var(--c-subline-1); }
+.variation-level-2 { color: var(--c-subline-2); }
+.variation-level-3 { color: var(--c-subline-3); }
+.variation-level-4 { color: var(--c-subline-4); }
 
 .variation-bracket {
   display: inline;
