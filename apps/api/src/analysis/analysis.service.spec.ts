@@ -76,6 +76,44 @@ describe('AnalysisService', () => {
         data: expect.objectContaining({ opening: 'Sicilian Defense' }),
       });
     });
+
+    // ── KS-2280 (ADR-037 §6.5): PGN с NAG-аннотациями/комментариями
+    // сохраняется в БД дословно — никакая нормализация body/strip
+    // токенов в analysis.service не делается. PgnSerializer на фронте
+    // отвечает за корректный формат.
+
+    it('KS-2280: forward-order `$N {comment}` сохраняется как есть', async () => {
+      prisma.analysis.create.mockResolvedValue(mockAnalysis);
+      const pgn = '1. e4 $1 {good!} e5 *';
+
+      await service.create(userId, { pgn });
+
+      expect(prisma.analysis.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ pgn }),
+      });
+    });
+
+    it('KS-2280: reverse-order `{comment} $N` сохраняется как есть', async () => {
+      prisma.analysis.create.mockResolvedValue(mockAnalysis);
+      const pgn = '1. e4 {good!} $1 e5 *';
+
+      await service.create(userId, { pgn });
+
+      expect(prisma.analysis.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ pgn }),
+      });
+    });
+
+    it('KS-2280: PGN с несколькими NAG-токенами — body не теряется', async () => {
+      prisma.analysis.create.mockResolvedValue(mockAnalysis);
+      const pgn = '1. e4 $1 $14 {white slightly better} e5 *';
+
+      await service.create(userId, { pgn });
+
+      expect(prisma.analysis.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ pgn }),
+      });
+    });
   });
 
   describe('findAll', () => {

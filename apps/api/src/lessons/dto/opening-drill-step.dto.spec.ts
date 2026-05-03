@@ -229,4 +229,38 @@ describe('OpeningDrillStepPayloadDto (KS-1816)', () => {
     });
     expect(errors.some((m) => m.startsWith('engineSkillLevel:'))).toBe(true);
   });
+
+  // ── KS-2280 (ADR-037 R6): NAG/comments reverse-order ─────────────
+  // chess.js принимает только `$N {comment}`; reverse-order
+  // `{comment} $N` валидатор сам нормализует перед loadPgn.
+
+  it('KS-2280: PGN с NAG-токеном — ok', async () => {
+    const errors = await validatePayload({
+      type: 'opening_drill',
+      pgn: '1. e4 $1 e5 2. Nf3 Nc6 3. Bb5 a6',
+      playerSide: 'white',
+      onDeviation: 'show_correction',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('KS-2280: reverse-order `{comment} $N` принимается', async () => {
+    const errors = await validatePayload({
+      type: 'opening_drill',
+      pgn: '1. e4 {good!} $1 e5 2. Nf3 Nc6 3. Bb5 a6',
+      playerSide: 'white',
+      onDeviation: 'show_correction',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('KS-2280: forward-order `$N {comment}` принимается', async () => {
+    const errors = await validatePayload({
+      type: 'opening_drill',
+      pgn: '1. e4 $1 {good!} e5 2. Nf3 Nc6 3. Bb5 a6',
+      playerSide: 'white',
+      onDeviation: 'show_correction',
+    });
+    expect(errors).toEqual([]);
+  });
 });

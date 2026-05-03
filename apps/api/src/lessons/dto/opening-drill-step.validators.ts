@@ -20,6 +20,7 @@ import {
   type ValidationArguments,
   type ValidationOptions,
 } from 'class-validator';
+import { normalizeNagOrder } from './pgn-normalize';
 
 export interface OpeningDrillValidationResult {
   ok: boolean;
@@ -34,9 +35,12 @@ export interface OpeningDrillValidationResult {
  */
 export function isValidDrillPgn(pgn: unknown): pgn is string {
   if (typeof pgn !== 'string' || pgn.trim().length === 0) return false;
+  // KS-2280 (ADR-037 R6): reverse-order `{comment} $N` приводим к
+  // `$N {comment}` — chess.js на втором варианте падает.
+  const normalized = normalizeNagOrder(pgn);
   const chess = new Chess();
   try {
-    chess.loadPgn(pgn);
+    chess.loadPgn(normalized);
   } catch {
     return false;
   }

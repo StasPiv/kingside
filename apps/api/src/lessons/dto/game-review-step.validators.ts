@@ -18,6 +18,7 @@ import {
   type ValidationArguments,
   type ValidationOptions,
 } from 'class-validator';
+import { normalizeNagOrder } from './pgn-normalize';
 
 /** UUID v1..v5 по RFC 4122 (без NIL и без максимальной версии). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -33,9 +34,12 @@ export function isUuid(value: unknown): value is string {
  */
 export function isValidPgn(pgn: unknown): pgn is string {
   if (typeof pgn !== 'string' || pgn.trim().length === 0) return false;
+  // KS-2280 (ADR-037 R6): нормализуем reverse-order `{comment} $N` →
+  // `$N {comment}`, иначе chess.js падает на втором варианте.
+  const normalized = normalizeNagOrder(pgn);
   const chess = new Chess();
   try {
-    chess.loadPgn(pgn);
+    chess.loadPgn(normalized);
   } catch {
     return false;
   }

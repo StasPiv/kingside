@@ -117,4 +117,49 @@ describe('GameReviewStepPayloadDto', () => {
     });
     expect(errors).toEqual([]);
   });
+
+  // ── KS-2280 (ADR-037 R6): NAG-аннотации и комментарии ────────────
+  // PGN-стандарт допускает оба порядка `<move> $N {comment}` и
+  // `<move> {comment} $N`. chess.js#loadPgn принимает только первый;
+  // второй приводим к первому через `normalizeNagOrder` в валидаторе.
+
+  it('KS-2280: PGN с NAG-токеном после хода — ok', async () => {
+    const errors = await validatePayload({
+      type: 'game_review',
+      pgn: '1. e4 $1 e5 *',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('KS-2280: reverse-order `{comment} $N` принимается (нормализация)', async () => {
+    const errors = await validatePayload({
+      type: 'game_review',
+      pgn: '1. e4 {good!} $1 e5 *',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('KS-2280: forward-order `$N {comment}` принимается', async () => {
+    const errors = await validatePayload({
+      type: 'game_review',
+      pgn: '1. e4 $1 {good!} e5 *',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('KS-2280: несколько NAG до комментария — ok', async () => {
+    const errors = await validatePayload({
+      type: 'game_review',
+      pgn: '1. e4 $1 $14 {white slightly better} e5 *',
+    });
+    expect(errors).toEqual([]);
+  });
+
+  it('KS-2280: несколько NAG после комментария — ok (reverse-order)', async () => {
+    const errors = await validatePayload({
+      type: 'game_review',
+      pgn: '1. e4 {white slightly better} $1 $14 e5 *',
+    });
+    expect(errors).toEqual([]);
+  });
 });
