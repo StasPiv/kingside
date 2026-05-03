@@ -12,9 +12,15 @@ test-аккаунта `__screenshot_agent`. Используется агент�
 визуальной верификации задач (ADR-039 §6 E2 / KS-2307; ранее ADR-036 §5 / KS-2259).
 
 С KS-2307 авторизация работает БЕЗ env-переменных. Скрипт идёт в
-`POST /api/internal/screenshot-token` (см. KS-2304), получает короткоживущий
+`POST /internal/screenshot-token` (см. KS-2304), получает короткоживущий
 JWT (~15 минут на проде) и передаёт его в `localStorage.token` через
 `addInitScript`. Никаких паролей в env, никаких ротаций.
+
+> **Примечание о пути endpoint'а (KS-2308 follow-up):** в задаче KS-2304
+> backend написал «На проде ALB добавит `/api`» — это оказалось неверным.
+> Реально Nest на проде развёрнут без global prefix `/api`, и endpoint
+> доступен по `/internal/screenshot-token` (так же, как `/auth/login`).
+> Скрипт использует единый путь без `/api` для всех окружений.
 
 Базовое использование:
 
@@ -46,8 +52,8 @@ node scripts/screenshot.mjs \
 
 **Auth flow (`--auth=test`):**
 
-1. `POST <api-base>/api/internal/screenshot-token` (на проде через ALB);
-   на dev (`localhost`) — без `/api` префикса: `/internal/screenshot-token`.
+1. `POST <api-base>/internal/screenshot-token` (единый путь для всех env;
+   Nest на проде без global `/api` prefix'а — см. примечание выше).
 2. Endpoint возвращает `{ accessToken, expiresIn }` (KS-2304).
 3. Перед `page.goto` через `addInitScript` пишется
    `localStorage.setItem('token', <accessToken>)`.
@@ -80,10 +86,10 @@ Refresh-токен не выдаётся: TTL 15 минут хватает на 
 
 | `--url` host         | API base                  | Endpoint path                       |
 | -------------------- | ------------------------- | ----------------------------------- |
-| `kingside.site`      | `https://api.kingside.site` | `/api/internal/screenshot-token`  |
-| `api.kingside.site`  | `https://api.kingside.site` | `/api/internal/screenshot-token`  |
-| `localhost`          | `http://localhost:3001`   | `/internal/screenshot-token` (dev — без `/api` prefix) |
-| прочее               | `https://api.<host>`       | `/api/internal/screenshot-token`  |
+| `kingside.site`      | `https://api.kingside.site` | `/internal/screenshot-token`     |
+| `api.kingside.site`  | `https://api.kingside.site` | `/internal/screenshot-token`     |
+| `localhost`          | `http://localhost:3001`   | `/internal/screenshot-token`        |
+| прочее               | `https://api.<host>`       | `/internal/screenshot-token`       |
 
 **Примеры:**
 

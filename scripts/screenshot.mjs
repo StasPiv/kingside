@@ -2,9 +2,10 @@
 /**
  * scripts/screenshot.mjs — CLI для агентских скринов Kingside.
  *
- * ADR-039 §6 E2 (KS-2307). Заменяет ADR-036 password-flow (KS-2259):
+ * ADR-039 §6 E2 (KS-2307, follow-up KS-2308). Заменяет ADR-036 password-flow
+ * (KS-2259):
  *   до KS-2307 — POST /auth/login с паролем из env SCRN_AGENT_PASSWORD;
- *   после   — POST /api/internal/screenshot-token (KS-2304), без env.
+ *   после   — POST /internal/screenshot-token (KS-2304), без env.
  *
  * Зависит от KS-2257 (seed test-аккаунта `__screenshot_agent`) и KS-2303/
  * KS-2304 (controller `ScreenshotTokenController` подключён к AuthModule).
@@ -13,7 +14,7 @@
  *   Снимает скриншот заданной страницы Kingside в headless Chromium через
  *   Playwright. При --auth=test получает короткоживущий JWT с правами
  *   test-аккаунта `__screenshot_agent` (`isTestAccount=true, isHidden=true`)
- *   через внутренний endpoint `/api/internal/screenshot-token` — никаких
+ *   через внутренний endpoint `/internal/screenshot-token` — никаких
  *   паролей в env, никаких ротаций, токен валиден ~15 минут.
  *
  * Окружение:
@@ -204,13 +205,6 @@ function deriveApiBase(pageUrl) {
   return `${u.protocol}//api.${u.hostname}`;
 }
 
-function isLocalApiBase(apiBase) {
-  try {
-    const u = new URL(apiBase);
-    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
-  } catch { return false; }
-}
-
 function classifyFetchError(e) {
   // node fetch / undici net errors → exit 4. CertificateError / DNS / connect refused.
   if (!e || !e.cause) return null;
@@ -224,12 +218,14 @@ function classifyFetchError(e) {
   return null;
 }
 
-// --- Auth (POST /api/internal/screenshot-token, KS-2304) ---
+// --- Auth (POST /internal/screenshot-token, KS-2304/KS-2308) ---
 //
 // Контроллер `ScreenshotTokenController` подключён к `AuthModule`. На проде
-// глобальный prefix `/api` добавляется ALB → endpoint доступен по
-// `/api/internal/screenshot-token`. На dev (localhost) Nest без prefix'а →
-// `/internal/screenshot-token`. Поведение симметрично synthetic-token (KS-2182).
+// Nest развёрнут БЕЗ global prefix `/api` (ALB ничего не добавляет), endpoint
+// доступен по `/internal/screenshot-token`. То же на dev (localhost). Это
+// поведение симметрично `/auth/login` и проверено вручную после KS-SCR2-E1
+// deploy (build tag `0a046e2b`, kingside-api:54): `/internal/screenshot-token`
+// → 201 + JWT, `/api/internal/screenshot-token` → 404 от ALB.
 //
 // Ответ (201): { accessToken: "<JWT>", expiresIn: <seconds> }. JWT payload
 // содержит { sub: <userId>, username: '__screenshot_agent', iat, exp }.
@@ -245,10 +241,11 @@ function classifyFetchError(e) {
 // Все не-2xx → exit 1 со специфичным stderr-сообщением.
 
 async function fetchScreenshotToken(args, apiBase) {
-  // На localhost Nest без global prefix /api; на проде ALB/Nest добавляет /api.
-  const path = isLocalApiBase(apiBase)
-    ? '/internal/screenshot-token'
-    : '/api/internal/screenshot-token';
+  // KS-2308 follow-up: на проде Nest БЕЗ global prefix `/api` (ALB ничего
+  // не добавляет; реально endpoint `/internal/screenshot-token` отдаёт 201,
+  // а `/api/internal/screenshot-token` уходит в ALB-404). Поведение
+  // симметрично `/auth/login` (тоже без /api). Единый path для всех env.
+  const path = '/internal/screenshot-token';
   const endpoint = `${apiBase}${path}`;
   log(args, `screenshot-token: POST ${endpoint}`);
 
