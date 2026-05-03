@@ -1,4 +1,4 @@
-import { ChessMove } from '../types';
+import { ChessMove, VariationColor } from '../types';
 
 export interface ProcessedMove {
   globalIndex: number;
@@ -12,6 +12,20 @@ export interface ProcessedMove {
   fen?: string | null; // Исправлено: убрали undefined
   ply?: number;
   originalMove?: ChessMove;
+  /**
+   * KS-2288 (ADR-038 §6, VC E2) — пользовательский цвет вариации,
+   * рассчитанный для этого хода. Берётся с root'а вариации
+   * (`moves[0].variationColor`); при отсутствии наследуется от
+   * родительской вариации (через `inheritedVariationColor` параметр
+   * в `processMoveHierarchy`). Подвариация с СВОИМ root.variationColor
+   * переопределяет наследуемый.
+   *
+   * `undefined` для main-line ходов и для вариаций без явного цвета,
+   * чьи родители тоже без цвета. Render-side (`getMoveClasses`) при
+   * отсутствии этого поля fallback'ает на auto-coloring
+   * `.variation-level-N` (ADR-037 / KS-2275).
+   */
+  variationColor?: VariationColor;
 }
 
 export interface BracketItem {
@@ -21,6 +35,11 @@ export interface BracketItem {
   path: any[];
   variationIndex: number;
   parentMoveIndex: number;
+  /**
+   * KS-2288 (ADR-038 §6, VC E2) — пользовательский цвет вариации,
+   * к которой относится скобка. См. `ProcessedMove.variationColor`.
+   */
+  variationColor?: VariationColor;
 }
 
 export type ProcessedItem = ProcessedMove | BracketItem;
@@ -84,19 +103,40 @@ function formatMoveDisplay(
 }
 
 /**
- * Обрабатывает иерархию ходов, возвращая плоский массив обработанных элементов
+ * Обрабатывает иерархию ходов, возвращая плоский массив обработанных элементов.
+ *
+ * KS-2288 (ADR-038 §6, VC E2) — пробрасывает `variationColor` каждому
+ * `ProcessedMove` и `BracketItem` варианта:
+ *  - root вариации (moves[0]) задаёт цвет ветки (если у него `variationColor`);
+ *  - все потомки вариации наследуют этот цвет;
+ *  - подвариация со СВОИМ `root.variationColor` переопределяет
+ *    наследуемый цвет;
+ *  - main-line (level=0) не получает variationColor (variation-color
+ *    применим только к веткам).
+ *
+ * @param inheritedVariationColor — цвет от родительской вариации
+ *   (для рекурсивных вызовов). На главной линии не используется.
  */
 export function processMoveHierarchy(
   moves: ChessMove[],
   currentMoveIndex: number | null,
   parentPath: any[] = [],
-  level: number = 0
+  level: number = 0,
+  inheritedVariationColor?: VariationColor
 ): ProcessedItem[] {
   const result: ProcessedItem[] = [];
 
   if (!moves || !Array.isArray(moves) || moves.length === 0) {
     return result;
   }
+
+  // KS-2288: цвет ВСЕЙ текущей вариации.
+  // Main-line (level=0) — без цвета.
+  // Variation root (moves[0]) задаёт цвет; иначе наследуем от родителя.
+  const branchColor: VariationColor | undefined =
+    level > 0
+      ? moves[0]?.variationColor ?? inheritedVariationColor
+      : undefined;
 
   for (let i = 0; i < moves.length; i++) {
     const move = moves[i];
@@ -118,7 +158,10 @@ export function processMoveHierarchy(
       san: move.san,
       fen: move.fen, // Теперь TypeScript не будет ругаться
       ply: move.ply,
-      originalMove: move
+      originalMove: move,
+      // KS-2288: цвет всей ветки (включая root и всех потомков
+      // одной вариации). На main-line — undefined.
+      variationColor: branchColor,
     };
 
     result.push(processedMove);
@@ -132,6 +175,13 @@ export function processMoveHierarchy(
           continue;
         }
 
+        const variationMoves = extractVariationMoves(variation);
+        // KS-2288: цвет подвариации = свой root.variationColor или
+        // наследует от текущей ветки (branchColor для не-main-line,
+        // undefined для main-line как parent).
+        const subBranchColor: VariationColor | undefined =
+          variationMoves[0]?.variationColor ?? branchColor;
+
         // Открывающая скобка
         const openBracket: BracketItem = {
           type: 'bracket',
@@ -139,19 +189,22 @@ export function processMoveHierarchy(
           level,
           path: currentPath,
           variationIndex: varIndex,
-          parentMoveIndex: move.globalIndex
+          parentMoveIndex: move.globalIndex,
+          // KS-2288: скобка визуально принадлежит вариации, которую
+          // обрамляет — берёт subBranchColor.
+          variationColor: subBranchColor,
         };
         result.push(openBracket);
 
         // Рекурсивно обрабатываем варианты
         const variationPath = [...currentPath, { variation: varIndex }];
-        const variationMoves = extractVariationMoves(variation);
 
         const processedVariation = processMoveHierarchy(
           variationMoves,
           currentMoveIndex,
           variationPath,
-          level + 1
+          level + 1,
+          subBranchColor,
         );
 
         result.push(...processedVariation);
@@ -163,7 +216,8 @@ export function processMoveHierarchy(
           level,
           path: currentPath,
           variationIndex: varIndex,
-          parentMoveIndex: move.globalIndex
+          parentMoveIndex: move.globalIndex,
+          variationColor: subBranchColor,
         };
         result.push(closeBracket);
       }
@@ -174,7 +228,14 @@ export function processMoveHierarchy(
 }
 
 /**
- * Генерирует CSS классы для хода
+ * Генерирует CSS классы для хода.
+ *
+ * KS-2288 (ADR-038 §6, VC E2): если у `processedMove.variationColor`
+ * задан пользовательский цвет — добавляем override-класс
+ * `.variation-color-{green|blue|yellow|red}` ВМЕСТО auto-coloring
+ * `.variation-level-N`. Логика «либо то, либо то» в коде, а не на
+ * уровне CSS-специфики, чтобы DOM-тесты могли проверить точное
+ * множество классов.
  */
 export function getMoveClasses(processedMove: ProcessedMove): string {
   const classes = ['move-item'];
@@ -187,7 +248,10 @@ export function getMoveClasses(processedMove: ProcessedMove): string {
     classes.push('variation-move');
   }
 
-  if (processedMove.level > 0) {
+  if (processedMove.variationColor) {
+    // Override: пользовательский цвет вытесняет auto-coloring по уровню.
+    classes.push(`variation-color-${processedMove.variationColor}`);
+  } else if (processedMove.level > 0) {
     const levelClass = `variation-level-${Math.min(processedMove.level, 4)}`;
     classes.push(levelClass);
   }
@@ -198,19 +262,24 @@ export function getMoveClasses(processedMove: ProcessedMove): string {
 /**
  * Генерирует CSS классы для скобок.
  *
- * KS-2275: добавлен `variation-level-N` класс для CSS-окраски скобок
- * по уровню вариации (`--c-subline-N`). `BracketItem.level` хранит
- * уровень РОДИТЕЛЯ (вокруг варианта), а скобка визуально принадлежит
- * самой вариации — потому `level + 1` (тот же level, что у ходов
- * внутри скобок, см. `getMoveClasses`). Clamp до 4, как у move-item,
- * чтобы CSS-переменные `--c-subline-1..4` хватало.
+ * KS-2275: `variation-level-N` для auto-coloring по уровню вариации
+ * (`--c-subline-N`). `BracketItem.level` хранит уровень РОДИТЕЛЯ;
+ * скобка принадлежит самой вариации → `level + 1` (clamp до 4).
+ *
+ * KS-2288: если задан `bracket.variationColor` (пользовательский
+ * цвет ветки) — override-класс `.variation-color-{name}` ВМЕСТО
+ * auto-coloring (как в `getMoveClasses`).
  */
 export function getBracketClasses(bracket: BracketItem): string {
   const classes = [
     'variation-bracket',
     `variation-bracket-${bracket.bracketType}`,
-    `variation-level-${Math.min(bracket.level + 1, 4)}`,
   ];
+  if (bracket.variationColor) {
+    classes.push(`variation-color-${bracket.variationColor}`);
+  } else {
+    classes.push(`variation-level-${Math.min(bracket.level + 1, 4)}`);
+  }
 
   return classes.join(' ');
 }
