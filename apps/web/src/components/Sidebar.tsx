@@ -119,12 +119,21 @@ export function Sidebar() {
           );
         })}
         <div className="sidebar-spacer" />
+        {/*
+          KS-2252: эмодзи изменена с 💬 на 📝, чтобы кнопка обратной
+          связи не путалась с иконкой `ChatWidget` (ассистент в правом
+          нижнем углу — KS-2228, default `assistantEnabled=false`).
+          Пользователь жаловался на «бейджик ассистента» именно из-за
+          совпадающей 💬 — функционально кнопка относится к feedback,
+          под `assistantEnabled` её прятать неверно.
+         */}
         <button
           className="sidebar-item sidebar-feedback-btn"
           onClick={() => setShowFeedback(true)}
           title={t('feedback.title', 'Feedback')}
+          data-testid="sidebar-feedback-btn"
         >
-          <span className="sidebar-icon">💬</span>
+          <span className="sidebar-icon">📝</span>
         </button>
       </aside>
       {showFeedback && <FeedbackModal onClose={() => setShowFeedback(false)} />}

@@ -125,6 +125,15 @@ describe('<Sidebar>', () => {
     expect(screen.getByTitle(/tournaments|турнир/i)).toBeInTheDocument();
   });
 
+  it('KS-2252: иконка кнопки обратной связи — 📝 (НЕ 💬, чтобы не путалась с ChatWidget)', () => {
+    renderWithProviders(<Sidebar />);
+    const btn = screen.getByTestId('sidebar-feedback-btn');
+    expect(btn).toHaveTextContent('📝');
+    // Дополнительно: 💬 нигде не должно быть в Sidebar (ChatWidget — отдельный
+    // компонент в MainLayout, и под `assistantEnabled=false` он null).
+    expect(btn).not.toHaveTextContent('💬');
+  });
+
   it('KS-2109: пункт «Админка» виден ТОЛЬКО админам', () => {
     adminControls.isAdmin = false;
     const { unmount } = renderWithProviders(<Sidebar />);
