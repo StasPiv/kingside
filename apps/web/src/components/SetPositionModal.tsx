@@ -138,17 +138,29 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
     copyTimerRef.current = window.setTimeout(() => setCopyMsg(null), 1800);
   }, []);
 
-  // KS-2220: копирование текущего значения FEN в буфер обмена.
-  const handleCopyFen = useCallback(async () => {
-    const value = fenInput.trim();
-    if (!value) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      flashCopyMsg(t('position.fenCopied', 'FEN copied to clipboard'));
-    } catch {
-      flashCopyMsg(t('position.fenCopyError', 'Failed to copy FEN'));
-    }
-  }, [fenInput, flashCopyMsg, t]);
+  // KS-2220 / KS-2265: копирование текущего значения FEN в буфер обмена.
+  // Чистый эффект: только writeText + toast. Никаких setFenInput / onApply
+  // / setInitialFen — handler не должен трогать партию вообще.
+  // KS-2265: явный preventDefault + stopPropagation на event-объекте,
+  // чтобы исключить submit-default `<button>` (default `type` без явного
+  // указания может всплыть как submit в окружениях вроде webview/PWA) и
+  // bubbling до overlay-onClose. У всех кнопок модалки выставлен
+  // `type="button"` ниже — это duplicate guard.
+  const handleCopyFen = useCallback(
+    async (e?: React.MouseEvent<HTMLButtonElement>) => {
+      e?.preventDefault();
+      e?.stopPropagation();
+      const value = fenInput.trim();
+      if (!value) return;
+      try {
+        await navigator.clipboard.writeText(value);
+        flashCopyMsg(t('position.fenCopied', 'FEN copied to clipboard'));
+      } catch {
+        flashCopyMsg(t('position.fenCopyError', 'Failed to copy FEN'));
+      }
+    },
+    [fenInput, flashCopyMsg, t],
+  );
 
   // Board editor state
   const [board, setBoard] = useState<Record<string, string>>(() => fenToBoard(startFen));
@@ -199,12 +211,14 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
       <div className="set-position-modal set-position-modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="set-position-header">
           <h3>{t('position.title', 'Set Position')}</h3>
-          <button className="set-position-close" onClick={onClose}>✕</button>
+          {/* KS-2265: всем кнопкам модалки выставлен `type="button"`,
+              чтобы исключить submit-default behaviour (см. handleCopyFen). */}
+          <button type="button" className="set-position-close" onClick={onClose}>✕</button>
         </div>
 
         <div className="set-position-tabs">
-          <button className={`set-position-tab${tab === 'fen' ? ' active' : ''}`} onClick={() => setTab('fen')}>FEN</button>
-          <button className={`set-position-tab${tab === 'editor' ? ' active' : ''}`} onClick={() => setTab('editor')}>Board Editor</button>
+          <button type="button" className={`set-position-tab${tab === 'fen' ? ' active' : ''}`} onClick={() => setTab('fen')}>FEN</button>
+          <button type="button" className={`set-position-tab${tab === 'editor' ? ' active' : ''}`} onClick={() => setTab('editor')}>Board Editor</button>
         </div>
 
         {tab === 'fen' && (
@@ -220,19 +234,25 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
             />
             {error && <div className="set-position-error">{error}</div>}
             <div className="set-position-presets">
-              <button className="set-position-preset" onClick={() => setFenInput(INITIAL_FEN)}>
+              <button type="button" className="set-position-preset" onClick={() => setFenInput(INITIAL_FEN)}>
                 {t('position.startPos', 'Starting Position')}
               </button>
-              <button className="set-position-preset" onClick={() => setFenInput(EMPTY_FEN)}>
+              <button type="button" className="set-position-preset" onClick={() => setFenInput(EMPTY_FEN)}>
                 {t('position.emptyBoard', 'Empty Board')}
               </button>
-              <button className="set-position-preset" onClick={async () => {
+              <button type="button" className="set-position-preset" onClick={async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 try { const text = await navigator.clipboard.readText(); if (text.trim()) setFenInput(text.trim()); } catch {}
               }}>
                 {t('position.paste', 'Paste from Clipboard')}
               </button>
-              {/* KS-2220: «Copy to Clipboard» — копирует текущее значение FEN. */}
+              {/* KS-2220 / KS-2265: «Copy to Clipboard» — только writeText + toast.
+                  type="button" + preventDefault/stopPropagation в handler —
+                  чтобы Copy не мог случайно сабмитить форму или всплыть до
+                  overlay-onClose, что в KS-2265 связали со сбросом партии. */}
               <button
+                type="button"
                 className="set-position-preset"
                 onClick={handleCopyFen}
                 disabled={!fenInput.trim()}
@@ -251,8 +271,8 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
               </div>
             )}
             <div className="set-position-actions">
-              <button className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
-              <button className="set-position-apply" onClick={handleApplyFen}>{t('position.apply', 'Apply')}</button>
+              <button type="button" className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
+              <button type="button" className="set-position-apply" onClick={handleApplyFen}>{t('position.apply', 'Apply')}</button>
             </div>
           </div>
         )}
@@ -297,6 +317,7 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
                   <span className="set-position-palette__color-label">W</span>
                   {WHITE_PIECES.map((p) => (
                     <button
+                      type="button"
                       key={p.piece}
                       className={`set-position-palette__piece set-position-palette__piece--white${selectedPiece === p.piece ? ' active' : ''}`}
                       onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
@@ -310,6 +331,7 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
                   <span className="set-position-palette__color-label">B</span>
                   {BLACK_PIECES.map((p) => (
                     <button
+                      type="button"
                       key={p.piece}
                       className={`set-position-palette__piece set-position-palette__piece--black${selectedPiece === p.piece ? ' active' : ''}`}
                       onClick={() => setSelectedPiece(selectedPiece === p.piece ? null : p.piece)}
@@ -321,6 +343,7 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
                 </div>
                 <div className="set-position-palette__row">
                   <button
+                    type="button"
                     className={`set-position-palette__piece set-position-palette__eraser${selectedPiece === null ? ' active' : ''}`}
                     onClick={() => setSelectedPiece(null)}
                     title="Eraser"
@@ -356,10 +379,10 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
               </div>
 
               <div className="set-position-presets">
-                <button className="set-position-preset" onClick={() => { setBoard(fenToBoard(INITIAL_FEN)); setCastling('KQkq'); setEditorTurn('w'); }}>
+                <button type="button" className="set-position-preset" onClick={() => { setBoard(fenToBoard(INITIAL_FEN)); setCastling('KQkq'); setEditorTurn('w'); }}>
                   {t('position.startPos', 'Starting Position')}
                 </button>
-                <button className="set-position-preset" onClick={() => { setBoard({}); setCastling('-'); }}>
+                <button type="button" className="set-position-preset" onClick={() => { setBoard({}); setCastling('-'); }}>
                   {t('position.clear', 'Clear Board')}
                 </button>
               </div>
@@ -368,8 +391,8 @@ export function SetPositionModal({ initialFen, onApply, onClose }: Props) {
               {error && !boardError && <div className="set-position-error">{error}</div>}
 
               <div className="set-position-actions">
-                <button className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
-                <button className="set-position-apply" onClick={handleApplyEditor} disabled={!!boardError}>{t('position.apply', 'Apply')}</button>
+                <button type="button" className="set-position-cancel" onClick={onClose}>{t('common.cancel', 'Cancel')}</button>
+                <button type="button" className="set-position-apply" onClick={handleApplyEditor} disabled={!!boardError}>{t('position.apply', 'Apply')}</button>
               </div>
             </div>
           </div>

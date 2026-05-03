@@ -86,6 +86,42 @@ describe('<SetPositionModal> — KS-2220 Copy FEN to clipboard', () => {
     expect(writeTextSpy).toHaveBeenCalled();
   });
 
+  it('KS-2265: клик Copy НЕ вызывает onApply / onClose (handler без побочных эффектов)', async () => {
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <SetPositionModal
+        initialFen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        onApply={onApply}
+        onClose={onClose}
+      />,
+    );
+
+    await user.click(screen.getByTestId('set-position-copy-fen'));
+    await waitFor(() =>
+      expect(
+        screen.getByTestId('set-position-copy-fen-msg'),
+      ).toHaveTextContent(/copied/i),
+    );
+
+    // Главное: handler копирования не должен трогать партию.
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('KS-2265: у кнопки Copy выставлен type="button" (защита от submit-default)', () => {
+    renderWithProviders(
+      <SetPositionModal
+        initialFen="rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        onApply={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    const copyBtn = screen.getByTestId('set-position-copy-fen') as HTMLButtonElement;
+    expect(copyBtn.getAttribute('type')).toBe('button');
+  });
+
   it('пустое поле FEN → кнопка disabled, writeText не вызывается', async () => {
     const user = userEvent.setup();
     renderWithProviders(
