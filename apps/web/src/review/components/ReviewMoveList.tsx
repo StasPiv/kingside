@@ -13,7 +13,7 @@ import { NagPaletteSheet } from './NagPaletteSheet';
 import { useIsMobile } from '../../hooks/useIsMobile';
 // KS-2291 (ADR-038 §13): variation-color секция в палитре — нужен
 // findVariationRoot для определения isVariation и currentVariationColor.
-import { findVariationRoot } from '../utils/ChessHistoryUtils';
+import { findVariationRoot, searchInHistory } from '../utils/ChessHistoryUtils';
 import type { VariationColor } from '../types';
 import {
   processMoveHierarchy,
@@ -322,9 +322,12 @@ export function ReviewMoveList({
       }
       // Уже открыт popup/sheet — Esc там работает; игнорируем повторный hotkey.
       if (contextMenu.visible) return;
-      const currentMove = history.find(
-        (m) => m.globalIndex === currentGlobalIndex,
-      );
+      // KS-2295: рекурсивный поиск по globalIndex — иначе ход внутри
+      // варианта не находится (history.find смотрит только в main-line).
+      const currentMove = searchInHistory(
+        history,
+        currentGlobalIndex,
+      ) as ChessMove | null;
       if (!currentMove) return;
       e.preventDefault();
       const container = movesContainerRef.current;

@@ -539,8 +539,49 @@ describe('<ReviewMoveList> KS-2295 — hotkey V для variation-color', () => {
     expect(palette.getAttribute('data-focus')).toBe('nag');
   });
 
-  // KS-2295: тест "V на варианте → focus='variationColor'" отложен,
-  // см. TODO в конце describe-блока.
+  it('"V" на ходе варианта → палитра открывается с focus="variationColor"', async () => {
+    const branch = makeMove({ globalIndex: 2, san: 'd4', ply: 1 });
+    const main = makeMove({ globalIndex: 1, variations: [[branch]] });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReviewMoveList
+        history={[main]}
+        currentGlobalIndex={2}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+        onSetVariationColor={() => {}}
+      />,
+    );
+    await user.keyboard('v');
+    const palette = await screen.findByTestId('nag-palette');
+    expect(palette.getAttribute('data-focus')).toBe('variationColor');
+    // Секция variation-color реально отрисована (не «недоступна»).
+    expect(screen.getByTestId('nag-palette-variation-color')).toBeInTheDocument();
+  });
+
+  it('"V" → "1" на ходе варианта → onSetVariationColor(idx, "green")', async () => {
+    const onSetVariationColor = vi.fn();
+    const branch = makeMove({ globalIndex: 2, san: 'd4', ply: 1 });
+    const main = makeMove({ globalIndex: 1, variations: [[branch]] });
+    const user = userEvent.setup();
+    renderWithProviders(
+      <ReviewMoveList
+        history={[main]}
+        currentGlobalIndex={2}
+        onMoveClick={() => {}}
+        onSetNag={() => {}}
+        onSetVariationColor={onSetVariationColor}
+      />,
+    );
+    await user.keyboard('v');
+    // Дождаться, пока mount NagPalette повесит window-listener (useEffect
+    // выполняется после commit). findByTestId уже это гарантирует —
+    // палитра видна → effect отработал.
+    await screen.findByTestId('nag-palette');
+    await user.keyboard('1');
+    expect(onSetVariationColor).toHaveBeenCalledTimes(1);
+    expect(onSetVariationColor).toHaveBeenCalledWith(2, 'green');
+  });
 
   it('"V" игнорируется если onSetVariationColor не передан', async () => {
     const move = makeMove({ globalIndex: 1 });
@@ -573,11 +614,4 @@ describe('<ReviewMoveList> KS-2295 — hotkey V для variation-color', () => {
     expect(screen.queryByTestId('nag-palette')).not.toBeInTheDocument();
   });
 
-  // KS-2295 TODO: интеграционные тесты hotkey "V" → "1" → onSetVariationColor
-  // временно отложены — нужно разобраться, почему в interaction-flow
-  // через ReviewMoveList → NagPalette → useEffect listener не успевает
-  // переключить focus на момент второго keydown. Юнит-тесты на сам
-  // NagPalette (KS-2295 group) покрывают всю keyboard-логику; здесь
-  // нужна только intregration. Пока пропущено: KS-2297 (urgent prod
-  // bug) приоритетней.
 });
