@@ -652,3 +652,201 @@ describe('<NagPaletteSheet> KS-2291 — пробрасывает variation-color
     ).not.toBeInTheDocument();
   });
 });
+
+describe('<NagPalette> KS-2295 — hotkeys variation-color (1..4 / 0 / Tab / Backspace)', () => {
+  it('по умолчанию focus="nag", `1` → onChange (NAG 1)', async () => {
+    const onChange = vi.fn();
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={onChange}
+        isVariation
+        onSetVariationColor={onSetVariationColor}
+      />,
+    );
+    expect(
+      screen.getByTestId('nag-palette').getAttribute('data-focus'),
+    ).toBe('nag');
+    await user.keyboard('1');
+    expect(onChange).toHaveBeenCalledWith([1]);
+    expect(onSetVariationColor).not.toHaveBeenCalled();
+  });
+
+  it('initialFocus="variationColor" → `1` маппится на green', async () => {
+    const onChange = vi.fn();
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={onChange}
+        isVariation
+        onSetVariationColor={onSetVariationColor}
+        initialFocus="variationColor"
+      />,
+    );
+    expect(
+      screen.getByTestId('nag-palette').getAttribute('data-focus'),
+    ).toBe('variationColor');
+    await user.keyboard('1');
+    expect(onSetVariationColor).toHaveBeenCalledWith('green');
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['1', 'green'],
+    ['2', 'blue'],
+    ['3', 'yellow'],
+    ['4', 'red'],
+  ] as const)(
+    'focus=variationColor: hotkey "%s" → onSetVariationColor("%s")',
+    async (key, expected) => {
+      const onSetVariationColor = vi.fn();
+      const user = userEvent.setup();
+      renderWithProviders(
+        <NagPalette
+          nags={[]}
+          onChange={() => {}}
+          isVariation
+          onSetVariationColor={onSetVariationColor}
+          initialFocus="variationColor"
+        />,
+      );
+      await user.keyboard(key);
+      expect(onSetVariationColor).toHaveBeenCalledWith(expected);
+    },
+  );
+
+  it('focus=variationColor: повторный hotkey того же цвета → null (toggle off)', async () => {
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="green"
+        onSetVariationColor={onSetVariationColor}
+        initialFocus="variationColor"
+      />,
+    );
+    await user.keyboard('1'); // green уже активен → toggle
+    expect(onSetVariationColor).toHaveBeenCalledWith(null);
+  });
+
+  it('focus=variationColor: `0` → clear (null)', async () => {
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="red"
+        onSetVariationColor={onSetVariationColor}
+        initialFocus="variationColor"
+      />,
+    );
+    await user.keyboard('0');
+    expect(onSetVariationColor).toHaveBeenCalledWith(null);
+  });
+
+  it('focus=variationColor: Backspace → clear (null)', async () => {
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        currentVariationColor="red"
+        onSetVariationColor={onSetVariationColor}
+        initialFocus="variationColor"
+      />,
+    );
+    await user.keyboard('{Backspace}');
+    expect(onSetVariationColor).toHaveBeenCalledWith(null);
+  });
+
+  it('focus=variationColor: 5..9 игнорируются (не NAG, не color)', async () => {
+    const onChange = vi.fn();
+    const onSetVariationColor = vi.fn();
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={onChange}
+        isVariation
+        onSetVariationColor={onSetVariationColor}
+        initialFocus="variationColor"
+      />,
+    );
+    await user.keyboard('5');
+    await user.keyboard('9');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onSetVariationColor).not.toHaveBeenCalled();
+  });
+
+  it('Tab → переключает focus с nag на variationColor (если секция доступна)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        onSetVariationColor={() => {}}
+      />,
+    );
+    const palette = screen.getByTestId('nag-palette');
+    expect(palette.getAttribute('data-focus')).toBe('nag');
+    await user.keyboard('{Tab}');
+    expect(palette.getAttribute('data-focus')).toBe('variationColor');
+    await user.keyboard('{Tab}');
+    expect(palette.getAttribute('data-focus')).toBe('nag');
+  });
+
+  it('Tab НЕ переключает focus, если секции variation-color нет', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette nags={[]} onChange={() => {}} isVariation={false} />,
+    );
+    const palette = screen.getByTestId('nag-palette');
+    expect(palette.getAttribute('data-focus')).toBe('nag');
+    await user.keyboard('{Tab}');
+    // Без variation-color Tab остаётся browser-default (мы не preventDefault).
+    expect(palette.getAttribute('data-focus')).toBe('nag');
+  });
+
+  it('hint footer меняется по focus (nag vs variationColor)', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        isVariation
+        onSetVariationColor={() => {}}
+      />,
+    );
+    const hint = screen.getByTestId('nag-palette-hint');
+    expect(hint.textContent).toMatch(/1\.\.9/);
+    expect(hint.textContent).toMatch(/Tab/);
+    await user.keyboard('{Tab}');
+    expect(hint.textContent).toMatch(/1\.\.4/);
+    expect(hint.textContent?.toLowerCase()).toMatch(/clear|снять/);
+  });
+
+  it('initialFocus="variationColor" игнорируется, если секция недоступна (default `nag`)', () => {
+    renderWithProviders(
+      <NagPalette
+        nags={[]}
+        onChange={() => {}}
+        initialFocus="variationColor"
+      />,
+    );
+    expect(
+      screen.getByTestId('nag-palette').getAttribute('data-focus'),
+    ).toBe('nag');
+  });
+});

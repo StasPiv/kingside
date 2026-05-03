@@ -44,6 +44,12 @@ interface ContextMenuState {
    * клик), `mobile` — bottom-sheet (`<NagPaletteSheet>`, long-press).
    */
   mode: 'desktop' | 'mobile';
+  /**
+   * KS-2295 (ADR-038 §13.11): начальный focus палитры. `'nag'` —
+   * стандарт (1..9 на NAG). `'variationColor'` — открыто через hotkey
+   * `V`, 1..4 сразу мап на цвета.
+   */
+  initialFocus: 'nag' | 'variationColor';
 }
 
 // KS-2283: NAG_BUTTONS удалены — старая 6-кнопочная NAG-row в context-menu
@@ -121,6 +127,7 @@ export function ReviewMoveList({
     y: 0,
     move: null,
     mode: 'desktop',
+    initialFocus: 'nag',
   });
   const [commentEditIndex, setCommentEditIndex] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
@@ -173,6 +180,8 @@ export function ReviewMoveList({
       coords: { clientX: number; clientY: number },
       move: ChessMove,
       mode: 'desktop' | 'mobile' = 'desktop',
+      // KS-2295: hotkey `V` открывает палитру с focus='variationColor'.
+      initialFocus: 'nag' | 'variationColor' = 'nag',
     ) => {
       // KS-2283: clamp X в viewport, чтобы desktop popup (NagPalette)
       // не уехал за правый край при клике у границы. Высота уходит вверх
@@ -188,6 +197,7 @@ export function ReviewMoveList({
         y: coords.clientY,
         move,
         mode,
+        initialFocus,
       });
     },
     [],
@@ -278,19 +288,29 @@ export function ReviewMoveList({
     [contextMenu.move, onSetVariationColor],
   );
 
-  // KS-2282: hotkey `A` открывает палитру для текущего хода
-  // (currentGlobalIndex). Координаты — центр текущего ход'а в DOM,
-  // если он виден; иначе центр контейнера моток (fallback).
-  // Игнорируется при focus в input/textarea/contenteditable, при
-  // открытом variation-chooser (не наш state, но соблюдается через
-  // editable=false в read-only режиме).
+  // KS-2282 / KS-2295: hotkey `A` (annotate, NAG focus) и `V`
+  // (variation color, VC focus) открывают палитру для текущего хода
+  // (currentGlobalIndex). `V` имеет смысл только когда хост передал
+  // onSetVariationColor — иначе работает как `A`.
+  // Координаты — центр текущего хода в DOM (fallback: центр контейнера
+  // / окна). Игнорируется при focus в input/textarea/contenteditable
+  // и при modifier'ах (Cmd/Ctrl/Alt).
   useEffect(() => {
-    if (!editable || !onSetNag) return;
+    if (!editable) return;
+    if (!onSetNag && !onSetVariationColor) return;
     const handleHotkey = (e: KeyboardEvent) => {
-      // Game-hotkey: только голая `a` без модификаторов
-      // (Cmd/Ctrl/Alt — оставляем браузеру / системе).
-      if (e.key !== 'a' && e.key !== 'A') return;
+      // Modifier'ы — оставляем браузеру / системе.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      let openInitialFocus: 'nag' | 'variationColor' | null = null;
+      if ((e.key === 'a' || e.key === 'A') && onSetNag) {
+        openInitialFocus = 'nag';
+      } else if ((e.key === 'v' || e.key === 'V') && onSetVariationColor) {
+        // KS-2295: V → focus сразу на variation-color (если будет
+        // доступна — определяется в палитре по isVariation).
+        openInitialFocus = 'variationColor';
+      }
+      if (openInitialFocus === null) return;
+
       const target = e.target as HTMLElement | null;
       if (
         target &&
@@ -300,15 +320,13 @@ export function ReviewMoveList({
       ) {
         return;
       }
-      // Уже открыт popup/sheet — Esc там работает; игнорируем повторное A.
+      // Уже открыт popup/sheet — Esc там работает; игнорируем повторный hotkey.
       if (contextMenu.visible) return;
       const currentMove = history.find(
         (m) => m.globalIndex === currentGlobalIndex,
       );
       if (!currentMove) return;
       e.preventDefault();
-      // Координаты — центр activeMove span, если он есть в DOM;
-      // иначе центр moves-container (fallback).
       const container = movesContainerRef.current;
       const activeEl = container?.querySelector(
         '.move-item.current',
@@ -318,13 +336,23 @@ export function ReviewMoveList({
       const cy = rect
         ? rect.top + rect.height / 2
         : window.innerHeight / 2;
-      showContextMenu({ clientX: cx, clientY: cy }, currentMove);
+      showContextMenu(
+        { clientX: cx, clientY: cy },
+        currentMove,
+        // mode пусть решит device-detection через ту же логику, что
+        // и handleMoveContextMenu (KS-2278). Передаём undefined →
+        // showContextMenu возьмёт дефолт 'desktop' (popup), что
+        // корректно для hotkey-открытия — пользователь за клавиатурой.
+        undefined,
+        openInitialFocus,
+      );
     };
     window.addEventListener('keydown', handleHotkey);
     return () => window.removeEventListener('keydown', handleHotkey);
   }, [
     editable,
     onSetNag,
+    onSetVariationColor,
     history,
     currentGlobalIndex,
     contextMenu.visible,
@@ -638,6 +666,8 @@ export function ReviewMoveList({
                 onSetVariationColor={
                   onSetVariationColor ? handlePaletteVariationColor : undefined
                 }
+                // KS-2295: hotkey V открывает с focus='variationColor'.
+                initialFocus={contextMenu.initialFocus}
               />
             );
           }
@@ -677,6 +707,8 @@ export function ReviewMoveList({
                   onSetVariationColor={
                     onSetVariationColor ? handlePaletteVariationColor : undefined
                   }
+                  // KS-2295: hotkey V открывает с focus='variationColor'.
+                  initialFocus={contextMenu.initialFocus}
                 />
                 <div className="review-context-menu__divider" />
               </>

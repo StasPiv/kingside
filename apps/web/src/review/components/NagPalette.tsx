@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -47,6 +47,28 @@ const NAG_HOTKEY_MAP: Record<string, number> = {
   '8': 13,
   '9': 14,
 };
+
+/**
+ * KS-2295 (ADR-038 §13.11, VC E4) — клавиатурный маппинг `1..4` на
+ * variation-color swatches в визуальном порядке (G/B/Y/R).
+ *
+ *   1 → green, 2 → blue, 3 → yellow, 4 → red.
+ *   `0` или `Backspace` → clear color.
+ *
+ * Маппинг активен ТОЛЬКО когда у палитры `focus === 'variationColor'`
+ * (см. state ниже). По умолчанию `focus === 'nag'`, и `1..9` идут на
+ * NAG-кнопки. Tab переключает фокус (если секция variation-color
+ * видна, то есть isVariation && onSetVariationColor). Hotkey `V`
+ * (открытие палитры) сразу ставит `focus = 'variationColor'`.
+ */
+const VARIATION_COLOR_HOTKEY_MAP: Record<string, VariationColor> = {
+  '1': 'green',
+  '2': 'blue',
+  '3': 'yellow',
+  '4': 'red',
+};
+
+type PaletteFocus = 'nag' | 'variationColor';
 
 /**
  * KS-2271: human-readable названия NAG-категорий и хинты для каждого
@@ -137,6 +159,14 @@ export interface NagPaletteProps {
    * который найдёт root'а вариации через findVariationRoot.
    */
   onSetVariationColor?: (color: VariationColor | null) => void;
+  /**
+   * KS-2295 (ADR-038 §13.11): начальный focus палитры. По умолчанию
+   * `'nag'` — `1..9` маппятся на NAG. Если хост открыл палитру через
+   * hotkey `V` (variation-color first), передаёт `'variationColor'` —
+   * `1..4` сразу маппятся на цвета. Tab внутри палитры переключает
+   * фокус между секциями (если variation-color видна).
+   */
+  initialFocus?: PaletteFocus;
 }
 
 interface NagButtonProps {
@@ -187,8 +217,26 @@ export function NagPalette({
   isVariation,
   currentVariationColor,
   onSetVariationColor,
+  initialFocus = 'nag',
 }: NagPaletteProps) {
   const { t } = useTranslation();
+  // KS-2295: focus state — определяет, на какую секцию идут хоткеи
+  // 1..9 (NAG) vs 1..4 (variation-color). Если variation-color
+  // секция не видна (нет isVariation/onSetVariationColor), focus
+  // силой оставляем на 'nag'.
+  const variationColorAvailable = Boolean(isVariation && onSetVariationColor);
+  const [focus, setFocus] = useState<PaletteFocus>(
+    initialFocus === 'variationColor' && variationColorAvailable
+      ? 'variationColor'
+      : 'nag',
+  );
+  // Если секция variation-color исчезла (host убрал prop) — гарантируем,
+  // что focus вернётся к 'nag'.
+  useEffect(() => {
+    if (!variationColorAvailable && focus === 'variationColor') {
+      setFocus('nag');
+    }
+  }, [variationColorAvailable, focus]);
 
   const isActive = useCallback(
     (nag: number) => nags.includes(nag),
@@ -227,7 +275,13 @@ export function NagPalette({
     onClose?.();
   }, [onSetVariationColor, onClose]);
 
-  // KS-2282: hotkeys внутри палитры (`1..9` → NAG, Esc → close).
+  // KS-2282 / KS-2295: hotkeys внутри палитры.
+  //   Esc       — close.
+  //   Tab       — переключить focus между NAG и variation-color
+  //               (если variation-color секция видна).
+  //   1..9      — если focus='nag' → NAG (KS-2282).
+  //   1..4      — если focus='variationColor' → green/blue/yellow/red.
+  //   0/Backspace — если focus='variationColor' → clear color.
   // Listener — на window, потому что палитра не focus-trap'ится
   // (popup рядом с курсором без явного focus). Игнорируем нажатия
   // если пользователь печатает в input/textarea/contenteditable.
@@ -247,6 +301,40 @@ export function NagPalette({
         onClose?.();
         return;
       }
+      // Tab → переключение focus между секциями (только если есть
+      // variation-color секция). Shift+Tab — то же (зеркальный).
+      if (e.key === 'Tab' && variationColorAvailable) {
+        e.preventDefault();
+        setFocus((prev) => (prev === 'nag' ? 'variationColor' : 'nag'));
+        return;
+      }
+      // Modifier'ы (Ctrl/Cmd/Alt) — оставляем браузеру / системе.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      // KS-2295: variation-color hotkeys активны при focus='variationColor'.
+      if (focus === 'variationColor' && variationColorAvailable) {
+        if (e.key === '0' || e.key === 'Backspace') {
+          e.preventDefault();
+          onSetVariationColor!(null);
+          onClose?.();
+          return;
+        }
+        const color = VARIATION_COLOR_HOTKEY_MAP[e.key];
+        if (color !== undefined) {
+          e.preventDefault();
+          onSetVariationColor!(
+            currentVariationColor === color ? null : color,
+          );
+          onClose?.();
+          return;
+        }
+        // В focus='variationColor' игнорируем NAG-цифры >4 (5..9),
+        // чтобы не было «случайно поставленного NAG» при попытке
+        // снять цвет через цифру.
+        return;
+      }
+
+      // KS-2282: NAG hotkeys активны при focus='nag' (default).
       const nag = NAG_HOTKEY_MAP[e.key];
       if (nag !== undefined) {
         e.preventDefault();
@@ -256,10 +344,23 @@ export function NagPalette({
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [nags, onChange, onClose]);
+  }, [
+    nags,
+    onChange,
+    onClose,
+    focus,
+    variationColorAvailable,
+    onSetVariationColor,
+    currentVariationColor,
+  ]);
 
   return (
-    <div className="nag-palette" role="menu" data-testid="nag-palette">
+    <div
+      className="nag-palette"
+      role="menu"
+      data-testid="nag-palette"
+      data-focus={focus}
+    >
       <div
         className="nag-palette__group"
         data-category="quality"
@@ -386,20 +487,25 @@ export function NagPalette({
       )}
 
       {/*
-        KS-2282: visible hint про hotkeys. Layout стилизует
-        `.nag-palette__hint` (KS-2270 / стиль footer'а). i18n-ключ
-        `nag.palette.hint` — единая строка с разделителями для
-        компактности. На mobile bottom-sheet visual может быть скрыт
-        (touch — без клавиатуры), CSS-решение.
+        KS-2282 + KS-2295: visible hint про hotkeys. Меняется в зависимости
+        от focus (NAG vs variation-color). Если variation-color секции нет,
+        показываем только NAG-подсказку.
       */}
       <div
         className="nag-palette__hint"
         data-testid="nag-palette-hint"
       >
-        {t(
-          'nag.palette.hint',
-          '1..9 — NAG · Esc — close',
-        )}
+        {variationColorAvailable
+          ? focus === 'variationColor'
+            ? t(
+                'nag.palette.hintVariationColor',
+                '1..4 — color · 0/Backspace — clear · Tab — switch · Esc — close',
+              )
+            : t(
+                'nag.palette.hintNagWithTab',
+                '1..9 — NAG · Tab — variation color · Esc — close',
+              )
+          : t('nag.palette.hint', '1..9 — NAG · Esc — close')}
       </div>
     </div>
   );

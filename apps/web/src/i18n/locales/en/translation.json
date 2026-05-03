@@ -595,7 +595,10 @@
       "positionEval": "Position evaluation",
       "clear": "Clear annotations",
       "hint": "1..9 — NAG · Esc — close",
-      "openHotkeyHint": "A — annotate current move"
+      "hintNagWithTab": "1..9 — NAG · Tab — variation color · Esc — close",
+      "hintVariationColor": "1..4 — color · 0/Backspace — clear · Tab — switch · Esc — close",
+      "openHotkeyHint": "A — annotate current move",
+      "openHotkeyVariationColor": "V — variation color for current move"
     },
     "group": {
       "quality": "Move quality",

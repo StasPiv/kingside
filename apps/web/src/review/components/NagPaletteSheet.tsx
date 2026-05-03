@@ -76,6 +76,7 @@ export function NagPaletteSheet({
   isVariation,
   currentVariationColor,
   onSetVariationColor,
+  initialFocus,
 }: NagPaletteSheetProps) {
   const { t } = useTranslation();
 
@@ -199,6 +200,7 @@ export function NagPaletteSheet({
             isVariation={isVariation}
             currentVariationColor={currentVariationColor}
             onSetVariationColor={onSetVariationColor}
+            initialFocus={initialFocus}
           />
         </div>
         {extraActions && (

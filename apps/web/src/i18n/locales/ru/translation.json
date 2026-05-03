@@ -597,7 +597,10 @@
       "positionEval": "Оценка позиции",
       "clear": "Снять аннотации",
       "hint": "1..9 — NAG · Esc — закрыть",
-      "openHotkeyHint": "A — аннотировать текущий ход"
+      "hintNagWithTab": "1..9 — NAG · Tab — цвет варианта · Esc — закрыть",
+      "hintVariationColor": "1..4 — цвет · 0/Backspace — снять · Tab — переключить · Esc — закрыть",
+      "openHotkeyHint": "A — аннотировать текущий ход",
+      "openHotkeyVariationColor": "V — цвет для текущего варианта"
     },
     "group": {
       "quality": "Качество хода",
