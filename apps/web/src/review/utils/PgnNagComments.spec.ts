@@ -55,6 +55,83 @@ describe('PgnDeserializer — comment parsing', () => {
   });
 });
 
+/**
+ * KS-2296 (ADR-037 R6, §9). Backend (KS-2280) уже добавил
+ * `normalizeNagOrder()` для chess.js, который падал на `{comment} $N`.
+ * Frontend deserializer в `PgnDeserializer.parseAnnotatedPgn` написан
+ * на собственном tokenizer'е (не chess.js) и порядок токенов внутри
+ * хода ему безразличен — оба прикрепляются к `lastMove` независимо.
+ * Эти тесты фиксируют поведение как требование, чтобы регрессия
+ * (например, переход на стороннюю lib) не сломала ChessBase/lichess
+ * экспорты.
+ */
+describe('PgnDeserializer — KS-2296 reverse-order {comment} $N', () => {
+  it('reverse-order: `1. e4 {good!} $1` → nags=[1], comment="good!"', () => {
+    const moves = parseAnnotatedPgn('1. e4 {good!} $1');
+    expect(moves[0].san).toBe('e4');
+    expect(moves[0].nags).toEqual([1]);
+    expect(moves[0].comment).toBe('good!');
+  });
+
+  it('forward (baseline): `1. e4 $1 {good!}` → nags=[1], comment="good!"', () => {
+    const moves = parseAnnotatedPgn('1. e4 $1 {good!}');
+    expect(moves[0].nags).toEqual([1]);
+    expect(moves[0].comment).toBe('good!');
+  });
+
+  it('reverse-order multi-NAG: `1. e4 {c} $1 $14` → nags=[1,14], comment="c"', () => {
+    const moves = parseAnnotatedPgn('1. e4 {c} $1 $14');
+    expect(moves[0].nags).toEqual([1, 14]);
+    expect(moves[0].comment).toBe('c');
+  });
+
+  it('mixed: `1. e4 $1 {c} $14` → nags=[1,14], comment="c"', () => {
+    const moves = parseAnnotatedPgn('1. e4 $1 {c} $14');
+    expect(moves[0].nags).toEqual([1, 14]);
+    expect(moves[0].comment).toBe('c');
+  });
+
+  it('reverse-order на разных ходах партии', () => {
+    const moves = parseAnnotatedPgn(
+      '1. e4 {strong} $1 e5 {dubious} $6 2. Nf3',
+    );
+    expect(moves[0].san).toBe('e4');
+    expect(moves[0].nags).toEqual([1]);
+    expect(moves[0].comment).toBe('strong');
+    expect(moves[1].san).toBe('e5');
+    expect(moves[1].nags).toEqual([6]);
+    expect(moves[1].comment).toBe('dubious');
+    expect(moves[2].san).toBe('Nf3');
+    expect(moves[2].nags).toBeUndefined();
+    expect(moves[2].comment).toBeUndefined();
+  });
+
+  it('reverse-order работает в вариациях: `1. e4 e5 (1... d5 {Scandi} $6) 2. Nf3`', () => {
+    const moves = parseAnnotatedPgn('1. e4 e5 (1... d5 {Scandi} $6) 2. Nf3');
+    expect(moves[1].san).toBe('e5');
+    const variation = moves[1].variations?.[0];
+    expect(variation).toBeDefined();
+    expect(variation![0].san).toBe('d5');
+    expect(variation![0].nags).toEqual([6]);
+    expect(variation![0].comment).toBe('Scandi');
+  });
+
+  it('reverse-order с macros: `1. e4 {[%eval 0.18] good!} $1` → eval+comment+nag', () => {
+    const moves = parseAnnotatedPgn('1. e4 {[%eval 0.18] good!} $1');
+    expect(moves[0].nags).toEqual([1]);
+    expect(moves[0].comment).toBe('good!');
+    expect(moves[0].eval).toBe(0.18);
+  });
+
+  it('два comment-блока + NAG посередине склеиваются: `1. e4 {a} $1 {b}`', () => {
+    const moves = parseAnnotatedPgn('1. e4 {a} $1 {b}');
+    expect(moves[0].nags).toEqual([1]);
+    // Поведение конкатенации задано в parseAnnotatedPgn (через
+    // `lastMove.comment + ' ' + parsed.comment`).
+    expect(moves[0].comment).toBe('a b');
+  });
+});
+
 describe('PgnSerializer — NAG and comments', () => {
   it('serializes NAGs as $N', () => {
     const moves = parseAnnotatedPgn('1. e4 e5 2. Nf3');
