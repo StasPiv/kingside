@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { ArenaService } from './arena.service';
 
 describe('ArenaService', () => {
@@ -22,8 +23,14 @@ describe('ArenaService', () => {
         findUnique: jest.fn(),
         update: jest.fn(),
       },
-      game: { create: jest.fn(), findUnique: jest.fn() },
-      user: { findUniqueOrThrow: jest.fn() },
+      tournamentPairing: { findMany: jest.fn().mockResolvedValue([]) },
+      tournamentInvite: { upsert: jest.fn() },
+      game: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+      user: {
+        findUniqueOrThrow: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
     redis = {
       zrangebyscore: jest.fn().mockResolvedValue([]),
@@ -102,5 +109,67 @@ describe('ArenaService', () => {
     expect(prisma.arenaTournamentEntry.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ score: { increment: 1 }, streak: 0 }) }),
     );
+  });
+
+  // ── KS-2256 (ADR-036 §3.4): hidden-аккаунты не показываем в публичных
+  // standings/crosstable/invite. Нужно убедиться, что соответствующие
+  // запросы фильтруют через nested-where `user: { isHidden: false }`.
+  describe('KS-2256: isHidden filter в публичных endpoints', () => {
+    it('getStandings: entries запрашиваются с user.isHidden=false', async () => {
+      prisma.arenaTournament.findUnique.mockResolvedValue({
+        id: 't1',
+        type: 'arena',
+        pointsWin: 1,
+        pointsDraw: 0,
+        pointsLoss: 0,
+      });
+      prisma.arenaTournamentEntry.findMany.mockResolvedValue([]);
+      prisma.game.findMany.mockResolvedValue([]);
+
+      await service.getStandings('t1');
+
+      expect(prisma.arenaTournamentEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tournamentId: 't1',
+            user: { isHidden: false },
+          }),
+        }),
+      );
+    });
+
+    it('getCrosstable: entries запрашиваются с user.isHidden=false', async () => {
+      prisma.arenaTournament.findUnique.mockResolvedValue({ id: 't1', type: 'swiss' });
+      prisma.arenaTournamentEntry.findMany.mockResolvedValue([]);
+      prisma.tournamentPairing.findMany.mockResolvedValue([]);
+
+      await service.getCrosstable('t1');
+
+      expect(prisma.arenaTournamentEntry.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            tournamentId: 't1',
+            user: { isHidden: false },
+          }),
+        }),
+      );
+    });
+
+    it('invitePlayer: hidden-аккаунт не находится → 404', async () => {
+      prisma.arenaTournament.findUnique.mockResolvedValue({
+        id: 't1',
+        createdBy: 'creator',
+      });
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.invitePlayer('t1', 'hiddenuser', 'creator'),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ username: 'hiddenuser', isHidden: false }),
+        }),
+      );
+    });
   });
 });

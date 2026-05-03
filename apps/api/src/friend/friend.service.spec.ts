@@ -4,7 +4,7 @@ import { FriendService } from './friend.service';
 describe('FriendService', () => {
   let service: FriendService;
   let prisma: {
-    user: { findUnique: jest.Mock };
+    user: { findUnique: jest.Mock; findFirst: jest.Mock };
     friendship: {
       findFirst: jest.Mock;
       findUnique: jest.Mock;
@@ -20,7 +20,7 @@ describe('FriendService', () => {
 
   beforeEach(() => {
     prisma = {
-      user: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn(), findFirst: jest.fn() },
       friendship: {
         findFirst: jest.fn(),
         findUnique: jest.fn(),
@@ -36,7 +36,7 @@ describe('FriendService', () => {
 
   describe('sendRequest', () => {
     it('should create a pending request', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: userB });
+      prisma.user.findFirst.mockResolvedValue({ id: userB });
       prisma.friendship.findFirst.mockResolvedValue(null);
       prisma.friendship.create.mockResolvedValue({
         id: 'f1', status: 'PENDING',
@@ -57,18 +57,29 @@ describe('FriendService', () => {
     });
 
     it('should throw if user not found', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
       await expect(service.sendRequest(userA, userB)).rejects.toThrow(NotFoundException);
     });
 
+    // KS-2256: hidden-аккаунт «не существует» с т.з. friend-API.
+    it('KS-2256: hidden user → 404', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      await expect(service.sendRequest(userA, userB)).rejects.toThrow(NotFoundException);
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ id: userB, isHidden: false }),
+        }),
+      );
+    });
+
     it('should throw if already friends', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: userB });
+      prisma.user.findFirst.mockResolvedValue({ id: userB });
       prisma.friendship.findFirst.mockResolvedValue({ status: 'ACCEPTED' });
       await expect(service.sendRequest(userA, userB)).rejects.toThrow(ConflictException);
     });
 
     it('should throw if request already pending', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: userB });
+      prisma.user.findFirst.mockResolvedValue({ id: userB });
       prisma.friendship.findFirst.mockResolvedValue({ status: 'PENDING' });
       await expect(service.sendRequest(userA, userB)).rejects.toThrow(ConflictException);
     });

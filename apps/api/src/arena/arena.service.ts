@@ -258,9 +258,11 @@ export class ArenaService {
     const ptsDraw = isArena ? 1 : tournament.pointsDraw;
     const ptsLoss = isArena ? 0 : tournament.pointsLoss;
 
+    // KS-2256 (ADR-036 §3.4): hidden-аккаунты не показываем в публичных
+    // standings турнира. Фильтр через nested-where на user-relation.
     const [entries, games] = await Promise.all([
       this.prisma.arenaTournamentEntry.findMany({
-        where: { tournamentId },
+        where: { tournamentId, user: { isHidden: false } },
         orderBy: { score: 'desc' },
         select: {
           userId: true,
@@ -654,8 +656,9 @@ export class ArenaService {
     const t = await this.prisma.arenaTournament.findUnique({ where: { id: tournamentId } });
     if (!t) throw new NotFoundException('Tournament not found');
 
+    // KS-2256: hidden-аккаунты не показываем в crosstable.
     const entries = await this.prisma.arenaTournamentEntry.findMany({
-      where: { tournamentId },
+      where: { tournamentId, user: { isHidden: false } },
       orderBy: { score: 'desc' },
       include: { user: { select: { username: true, ratingBlitz: true } } },
     });
@@ -849,7 +852,11 @@ export class ArenaService {
     if (!t) throw new NotFoundException('Tournament not found');
     if (t.createdBy !== invitedBy) throw new ForbiddenException('Only creator can invite');
 
-    const user = await this.prisma.user.findUnique({ where: { username }, select: { id: true } });
+    // KS-2256: нельзя пригласить hidden-аккаунт — 404, как будто его нет.
+    const user = await this.prisma.user.findFirst({
+      where: { username, isHidden: false },
+      select: { id: true },
+    });
     if (!user) throw new NotFoundException('User not found');
 
     return this.prisma.tournamentInvite.upsert({

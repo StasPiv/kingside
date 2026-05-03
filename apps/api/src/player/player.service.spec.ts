@@ -10,7 +10,7 @@ import { I18nService } from 'nestjs-i18n';
 describe('PlayerService', () => {
   let service: PlayerService;
   let prisma: {
-    user: { findMany: jest.Mock; count: jest.Mock; findUnique: jest.Mock };
+    user: { findMany: jest.Mock; count: jest.Mock; findUnique: jest.Mock; findFirst: jest.Mock };
     game: { count: jest.Mock; findMany: jest.Mock };
     puzzleRushScore: { findFirst: jest.Mock; count: jest.Mock };
   };
@@ -24,6 +24,7 @@ describe('PlayerService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         findUnique: jest.fn(),
+        findFirst: jest.fn(),
       },
       game: {
         count: jest.fn(),
@@ -125,6 +126,23 @@ describe('PlayerService', () => {
       );
     });
 
+    // KS-2256: hidden-аккаунты не должны попадать в top-leaderboard.
+    it('KS-2256: top-list фильтрует isHidden=false', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+      prisma.user.count.mockResolvedValue(0);
+
+      await service.getTopPlayers('blitz', 20, 0);
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ isHidden: false }),
+        }),
+      );
+      expect(prisma.user.count).toHaveBeenCalledWith({
+        where: expect.objectContaining({ isHidden: false }),
+      });
+    });
+
     it('should include puzzleRush stats when type=puzzle', async () => {
       const mockUsers = [
         {
@@ -188,6 +206,31 @@ describe('PlayerService', () => {
         }),
       );
     });
+
+    // KS-2256: online-list фильтрует isHidden и для real, и для bot.
+    it('KS-2256: online-list фильтрует isHidden=false (real + bot)', async () => {
+      prisma.user.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+      prisma.user.count.mockResolvedValue(0);
+
+      await service.getOnlinePlayers(50, 0);
+
+      // Real-online query (1-й вызов) фильтрует isHidden=false.
+      expect(prisma.user.findMany).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          where: expect.objectContaining({ isHidden: false, isBot: false }),
+        }),
+      );
+      // Bot-online query (2-й вызов) фильтрует isHidden=false.
+      expect(prisma.user.findMany).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          where: expect.objectContaining({ isHidden: false, isBot: true }),
+        }),
+      );
+    });
   });
 
   describe('getPlayerProfile', () => {
@@ -204,7 +247,7 @@ describe('PlayerService', () => {
         lastSeenAt: new Date('2026-03-17'),
       };
 
-      prisma.user.findUnique.mockResolvedValue(mockUser);
+      prisma.user.findFirst.mockResolvedValue(mockUser);
       prisma.game.count
         .mockResolvedValueOnce(10)  // wins
         .mockResolvedValueOnce(5)   // losses
@@ -232,16 +275,29 @@ describe('PlayerService', () => {
     });
 
     it('should throw NotFoundException for non-existent user', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
 
       await expect(service.getPlayerProfile('nonexistent')).rejects.toThrow(NotFoundException);
+    });
+
+    // KS-2256: hidden-аккаунт публично не доступен — даже если username
+    // правильный, findFirst({ username, isHidden: false }) вернёт null.
+    it('KS-2256: hidden user → 404 на публичном профиле', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.getPlayerProfile('hiddenuser')).rejects.toThrow(NotFoundException);
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ username: 'hiddenuser', isHidden: false }),
+        }),
+      );
     });
   });
 
   // KS-1914: список публичных user-курсов автора по `username`.
   describe('getPublicCoursesByUsername', () => {
     it('резолвит username → userId и делегирует в UserCoursesService.listPublicByOwner', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+      prisma.user.findFirst.mockResolvedValue({ id: 'u1' });
       userCourses.listPublicByOwner.mockResolvedValue({
         data: [
           {
@@ -260,8 +316,8 @@ describe('PlayerService', () => {
 
       const r = await service.getPublicCoursesByUsername('alice');
 
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({
-        where: { username: 'alice' },
+      expect(prisma.user.findFirst).toHaveBeenCalledWith({
+        where: { username: 'alice', isHidden: false },
         select: { id: true },
       });
       expect(userCourses.listPublicByOwner).toHaveBeenCalledWith('u1');
@@ -270,7 +326,7 @@ describe('PlayerService', () => {
     });
 
     it('несуществующий username → NotFoundException, listPublicByOwner НЕ вызван', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.findFirst.mockResolvedValue(null);
 
       await expect(
         service.getPublicCoursesByUsername('ghost'),
@@ -278,8 +334,24 @@ describe('PlayerService', () => {
       expect(userCourses.listPublicByOwner).not.toHaveBeenCalled();
     });
 
+    // KS-2256: hidden-аккаунт публично не отдаём — courses-эндпоинт
+    // тоже возвращает 404.
+    it('KS-2256: hidden user → 404, listPublicByOwner НЕ вызван', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getPublicCoursesByUsername('hiddenuser'),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ username: 'hiddenuser', isHidden: false }),
+        }),
+      );
+      expect(userCourses.listPublicByOwner).not.toHaveBeenCalled();
+    });
+
     it('у автора нет курсов → пустой data', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+      prisma.user.findFirst.mockResolvedValue({ id: 'u1' });
       userCourses.listPublicByOwner.mockResolvedValue({ data: [] });
 
       const r = await service.getPublicCoursesByUsername('alice');
@@ -314,6 +386,19 @@ describe('PlayerService', () => {
 
       expect(prisma.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ take: 50 }),
+      );
+    });
+
+    // KS-2256: friend-search и общий public-search не находят hidden.
+    it('KS-2256: search фильтрует isHidden=false', async () => {
+      prisma.user.findMany.mockResolvedValue([]);
+
+      await service.searchPlayers('test');
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ isHidden: false }),
+        }),
       );
     });
   });

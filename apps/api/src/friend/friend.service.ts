@@ -23,8 +23,10 @@ export class FriendService {
       throw new BadRequestException('Cannot send friend request to yourself');
     }
 
-    const addressee = await this.prisma.user.findUnique({
-      where: { id: addresseeId },
+    // KS-2256 (ADR-036 §3.4): hidden-аккаунт не доступен для friend-
+    // request — отдаём 404, как будто пользователя нет.
+    const addressee = await this.prisma.user.findFirst({
+      where: { id: addresseeId, isHidden: false },
       select: { id: true },
     });
     if (!addressee) throw new NotFoundException('User not found');

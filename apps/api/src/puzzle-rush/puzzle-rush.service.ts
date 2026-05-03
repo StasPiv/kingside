@@ -339,6 +339,8 @@ export class PuzzleRushService {
     }
 
     // Use DISTINCT ON to get the best score per user, then sort by score desc.
+    // KS-2256 (ADR-036 §3.4): hidden-аккаунты в публичном leaderboard
+    // не показываем — добавляем фильтр по `users.is_hidden = FALSE`.
     const entries = await this.prisma.$queryRaw<
       Array<{ userId: string; username: string; score: number; createdAt: Date }>
     >`
@@ -349,6 +351,7 @@ export class PuzzleRushService {
         FROM puzzle_rush_scores prs
         JOIN users u ON u.id = prs.user_id
         WHERE prs.time_mode = ${timeMode}
+          AND u.is_hidden = FALSE
         ORDER BY prs.user_id, prs.score DESC
       ) sub
       ORDER BY sub.score DESC

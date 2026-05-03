@@ -55,6 +55,24 @@ describe('TournamentService', () => {
 
       expect(result[0].activePlayers).toBe(0);
     });
+
+    // KS-2256 (ADR-036 §3.4): партии с участием hidden-аккаунта не
+    // должны попадать в публичный «top active games» список.
+    it('KS-2256: фильтрует игры hidden-игроков (white/black.isHidden=false)', async () => {
+      prisma.game.findMany.mockResolvedValue([]);
+
+      await service.getTopActiveTournaments();
+
+      expect(prisma.game.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: 'active',
+            white: { isHidden: false },
+            black: { isHidden: false },
+          }),
+        }),
+      );
+    });
   });
 
   describe('getLiveTournaments', () => {

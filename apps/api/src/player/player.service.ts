@@ -60,9 +60,11 @@ export class PlayerService {
     const gamesField = GAMES_PLAYED_FIELD_MAP[type];
     const safeLimit = Math.min(limit, 100);
 
+    // KS-2256 (ADR-036 §3.4): isHidden=true — служебные/screenshot-аккаунты,
+    // не показываем в публичном top-leaderboard.
     const [users, total] = await Promise.all([
       this.prisma.user.findMany({
-        where: { username: { not: null }, isBot: false },
+        where: { username: { not: null }, isBot: false, isHidden: false },
         orderBy: { [ratingField]: 'desc' },
         take: safeLimit,
         skip: offset,
@@ -82,7 +84,7 @@ export class PlayerService {
         },
       }),
       this.prisma.user.count({
-        where: { username: { not: null }, isBot: false },
+        where: { username: { not: null }, isBot: false, isHidden: false },
       }),
     ]);
 
@@ -130,12 +132,14 @@ export class PlayerService {
     const safeLimit = Math.min(limit, 100);
     const threshold = new Date(Date.now() - ONLINE_THRESHOLD_MS);
 
+    // KS-2256: isHidden фильтруется и для real, и для bot-выборки.
     // Fetch real online users + bot accounts (always online)
     const [users, bots, realTotal] = await Promise.all([
       this.prisma.user.findMany({
         where: {
           username: { not: null },
           isBot: false,
+          isHidden: false,
           lastSeenAt: { gte: threshold },
         },
         orderBy: { lastSeenAt: 'desc' },
@@ -149,7 +153,7 @@ export class PlayerService {
       // Bots are always online — only fetch on first page
       offset === 0
         ? this.prisma.user.findMany({
-            where: { isBot: true, username: { not: null } },
+            where: { isBot: true, isHidden: false, username: { not: null } },
             orderBy: { ratingBlitz: 'desc' },
             select: {
               id: true, username: true, isBot: true, country: true, // KS-2176
@@ -161,6 +165,7 @@ export class PlayerService {
         where: {
           username: { not: null },
           isBot: false,
+          isHidden: false,
           lastSeenAt: { gte: threshold },
         },
       }),
@@ -185,8 +190,10 @@ export class PlayerService {
   }
 
   async getPlayerProfile(username: string): Promise<PlayerProfileResponse> {
-    const user = await this.prisma.user.findUnique({
-      where: { username },
+    // KS-2256: isHidden=true → 404 на публичном профиле, аккаунт не
+    // существует с т.з. внешнего API.
+    const user = await this.prisma.user.findFirst({
+      where: { username, isHidden: false },
       select: {
         id: true,
         username: true,
@@ -323,8 +330,10 @@ export class PlayerService {
   async getPublicCoursesByUsername(
     username: string,
   ): Promise<UserCourseListResponse> {
-    const user = await this.prisma.user.findUnique({
-      where: { username },
+    // KS-2256: hidden-аккаунт не должен «обнаруживаться» через public
+    // courses-эндпоинт — 404, как и в `getPlayerProfile`.
+    const user = await this.prisma.user.findFirst({
+      where: { username, isHidden: false },
       select: { id: true },
     });
     if (!user) {
@@ -339,10 +348,13 @@ export class PlayerService {
   ): Promise<SearchPlayersResponse> {
     const safeLimit = Math.min(limit, 50);
 
+    // KS-2256: friend-search и общий public-search не должны находить
+    // hidden-аккаунты.
     const users = await this.prisma.user.findMany({
       where: {
         username: { contains: query, mode: 'insensitive' },
         isBot: false,
+        isHidden: false,
       },
       orderBy: { ratingBlitz: 'desc' },
       take: safeLimit,

@@ -344,6 +344,20 @@ describe('PuzzleRushService', () => {
       expect(prisma.$queryRaw).toHaveBeenCalled();
     });
 
+    // KS-2256 (ADR-036 §3.4): hidden-аккаунты не должны попадать в
+    // публичный leaderboard. SQL содержит `AND u.is_hidden = FALSE`.
+    it('KS-2256: SQL содержит фильтр u.is_hidden = FALSE', async () => {
+      await service.getLeaderboard('3');
+
+      // $queryRaw вызывается с TaggedTemplateLiteral — первый аргумент
+      // массив строк-фрагментов запроса. Проверяем, что в собранном
+      // тексте присутствует фильтр по is_hidden.
+      const call = prisma.$queryRaw.mock.calls[0];
+      const sqlChunks: string[] = call[0] as string[];
+      const fullSql = sqlChunks.join(' ');
+      expect(fullSql).toMatch(/u\.is_hidden\s*=\s*FALSE/i);
+    });
+
     it('should throw BadRequestException for invalid time mode', async () => {
       await expect(service.getLeaderboard('10')).rejects.toThrow(
         BadRequestException,

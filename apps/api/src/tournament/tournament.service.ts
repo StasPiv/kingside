@@ -47,8 +47,16 @@ export class TournamentService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getTopActiveTournaments(): Promise<TopActiveTournamentDto[]> {
+    // KS-2256 (ADR-036 §3.4): партии с участием hidden-аккаунтов не
+    // должны попадать в публичный «top active games» список —
+    // фильтруем оба игрока через nested-where.
     const activeGames = await this.prisma.game.findMany({
-      where: { status: 'active', isBot: false },
+      where: {
+        status: 'active',
+        isBot: false,
+        white: { isHidden: false },
+        black: { isHidden: false },
+      },
       orderBy: { startedAt: 'desc' },
       take: 20,
       select: {
