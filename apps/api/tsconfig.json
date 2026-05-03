@@ -9,7 +9,10 @@
     "experimentalDecorators": true
   },
   "include": ["src"],
-  "exclude": ["src/puzzle/import-puzzles.ts"],
+  "exclude": [
+    "src/puzzle/import-puzzles.ts",
+    "src/scripts/**/*.spec.ts"
+  ],
   "references": [
     { "path": "../../packages/shared" }
   ]
