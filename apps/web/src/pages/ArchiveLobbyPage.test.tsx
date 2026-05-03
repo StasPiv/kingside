@@ -5,16 +5,18 @@ import { __buildSearchUrl } from '../components/archive/ArchiveSearchForm';
 import { EMPTY_FILTERS } from '../components/archive/ArchiveFiltersForm';
 
 /**
- * KS-2067/KS-2125: юнит-тесты лобби архива.
+ * KS-2067/KS-2125/KS-2210/KS-2219: юнит-тесты лобби архива.
  *
  * После KS-2125 форма поиска (`ArchiveSearchForm`) — тонкая обёртка
- * над общим `ArchiveFiltersForm` с autoNavigate-семантикой:
- * любое изменение фильтра ⇒ navigate('/archive/games?<query>').
+ * над общим `ArchiveFiltersForm` с autoNavigate-семантикой.
+ * После KS-2210 единый список партий живёт на `/archive` (старый
+ * `/archive/games` → 301-редирект), поэтому autoNavigate бьёт в
+ * `/archive?<query>`. Тесты обновлены в KS-2219.
  *
  * Покрытие:
- *  - URL-сборка (`__buildSearchUrl`) — чистая функция.
+ *  - URL-сборка (`__buildSearchUrl`) — чистая функция, базовый путь `/archive`.
  *  - Lobby рендерит форму, by-position CTA и Recent games.
- *  - Изменение любого фильтра → autoNavigate.
+ *  - Изменение любого фильтра → autoNavigate (`/archive?...`).
  *  - Reset all → state очищается + navigate('/archive').
  *  - Recent games loading/data/retry.
  */
@@ -64,8 +66,8 @@ afterEach(() => {
 // ─── URL-builder ────────────────────────────────────────────────────
 
 describe('__buildSearchUrl (ArchiveSearchForm)', () => {
-  it('пустые фильтры → /archive/games без query', () => {
-    expect(__buildSearchUrl(EMPTY_FILTERS)).toBe('/archive/games');
+  it('KS-2210: пустые фильтры → /archive без query (после редиректа /archive/games → /archive)', () => {
+    expect(__buildSearchUrl(EMPTY_FILTERS)).toBe('/archive');
   });
 
   it('KS-2084: несколько игроков → несколько ?player=', () => {
@@ -93,7 +95,8 @@ describe('__buildSearchUrl (ArchiveSearchForm)', () => {
       sort: 'topElo',
     });
     const u = new URL(url, 'http://localhost');
-    expect(u.pathname).toBe('/archive/games');
+    // KS-2210: единый список — `/archive`. Старый `/archive/games` → редирект.
+    expect(u.pathname).toBe('/archive');
     expect(u.searchParams.get('player')).toBe('Carlsen');
     expect(u.searchParams.get('event')).toBe('Wijk aan Zee');
     expect(u.searchParams.get('eco')).toBe('B90');
@@ -163,7 +166,7 @@ describe('ArchiveLobbyPage — header и форма', () => {
     expect(screen.getByTestId('archive-search-form-max-ply')).toBeInTheDocument();
   });
 
-  it('KS-2125: клик по «Классика» → autoNavigate на /archive/games?timeControlCategory=classical', async () => {
+  it('KS-2125/KS-2210: клик по «Классика» → autoNavigate на /archive?timeControlCategory=classical', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
 
@@ -172,20 +175,18 @@ describe('ArchiveLobbyPage — header и форма', () => {
     );
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     const arg = mockNavigate.mock.calls[0][0] as string;
-    expect(arg).toBe('/archive/games?timeControlCategory=classical');
+    expect(arg).toBe('/archive?timeControlCategory=classical');
   });
 
-  it('KS-2125: клик по «Min Elo 2600» → autoNavigate', async () => {
+  it('KS-2125/KS-2210: клик по «Min Elo 2600» → autoNavigate', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
 
     await user.click(screen.getByTestId('archive-search-form-min-elo-2600'));
-    expect(mockNavigate).toHaveBeenCalledWith(
-      '/archive/games?minElo=2600',
-    );
+    expect(mockNavigate).toHaveBeenCalledWith('/archive?minElo=2600');
   });
 
-  it('KS-2125: смена sort на «recent» (default) не уводит со страницы', async () => {
+  it('KS-2125/KS-2210: смена sort на «recent» (default) не уводит со страницы', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
 
@@ -197,9 +198,7 @@ describe('ArchiveLobbyPage — header и форма', () => {
       screen.getByTestId('archive-search-form-sort'),
       'topElo',
     );
-    expect(mockNavigate).toHaveBeenCalledWith(
-      '/archive/games?sort=topElo',
-    );
+    expect(mockNavigate).toHaveBeenCalledWith('/archive?sort=topElo');
 
     mockNavigate.mockClear();
     await user.selectOptions(
@@ -225,7 +224,7 @@ describe('ArchiveLobbyPage — header и форма', () => {
     expect(mockNavigate).toHaveBeenLastCalledWith('/archive');
   });
 
-  it('KS-2125: Enter в Player input добавляет chip и autoNavigate', async () => {
+  it('KS-2125/KS-2210: Enter в Player input добавляет chip и autoNavigate', async () => {
     const user = (await import('@testing-library/user-event')).default.setup();
     renderWithProviders(<ArchiveLobbyPage />, { route: '/archive' });
 
@@ -239,9 +238,7 @@ describe('ArchiveLobbyPage — header и форма', () => {
     expect(
       screen.getByTestId('archive-search-form-player-chip-Carlsen'),
     ).toBeInTheDocument();
-    expect(mockNavigate).toHaveBeenCalledWith(
-      '/archive/games?player=Carlsen',
-    );
+    expect(mockNavigate).toHaveBeenCalledWith('/archive?player=Carlsen');
   });
 });
 

@@ -29,11 +29,18 @@ import { EMPTY_METADATA_FILTERS } from '../components/archive/ArchiveMetadataFil
  */
 
 const mockGetGamesMetadata = vi.fn();
+// KS-2219: при клике по строке `ArchiveGamesPage` грузит партию через
+// `archiveApi.getArchiveGameById` и при успехе уходит в `/analysis`,
+// при ошибке — fallback `navigate('/archive/games/<id>')`. Раньше мок
+// этого метода отсутствовал, и тест падал тихо (handleRowClick
+// проваливался в catch до navigate из-за `archiveApi.getArchiveGameById is not a function`).
+const mockGetGameById = vi.fn();
 
 vi.mock('../api/archive', () => ({
   archiveApi: {
     getArchiveGamesMetadata: (...args: unknown[]) =>
       mockGetGamesMetadata(...args),
+    getArchiveGameById: (...args: unknown[]) => mockGetGameById(...args),
   },
 }));
 
@@ -73,6 +80,7 @@ vi.mock('react-router-dom', async () => {
 
 beforeEach(() => {
   mockGetGamesMetadata.mockReset();
+  mockGetGameById.mockReset();
   mockNavigate.mockReset();
 });
 
@@ -406,16 +414,57 @@ describe('ArchiveGamesPage — metadata режим', () => {
     );
   });
 
-  it('клик по строке → navigate(/archive/games/<id>)', async () => {
+  it('KS-2219: клик по строке (успех getArchiveGameById) → navigate(/analysis)', async () => {
     mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
+    // KS-2210/F4: страница пытается загрузить PGN партии и сразу открыть
+    // её в анализаторе (`/analysis`), а на детальный URL уходит только
+    // как fallback при ошибке загрузки.
+    mockGetGameById.mockResolvedValueOnce({
+      id: 'g1',
+      pgn: '1. e4 e5',
+      white: { name: 'Magnus Carlsen', slug: 'magnus-carlsen', elo: 2870, title: 'GM' },
+      black: { name: 'Hikaru Nakamura', slug: 'hikaru-nakamura', elo: 2780, title: 'GM' },
+      result: '1-0',
+      eco: 'C42',
+      opening: 'Petroff',
+      event: 'World Cup',
+      date: '2024.01.15',
+      plyCount: 60,
+    });
     const user = (await import('@testing-library/user-event')).default.setup();
-    renderWithProviders(<ArchiveGamesPage />, { route: '/archive/games' });
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive' });
 
     await waitFor(() =>
       expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
     );
     await user.click(screen.getByTestId('archive-game-row-g1'));
-    expect(mockNavigate).toHaveBeenCalledWith('/archive/games/g1');
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith(
+        '/analysis',
+        expect.objectContaining({
+          state: expect.objectContaining({
+            pgn: '1. e4 e5',
+            title: 'Magnus Carlsen vs Hikaru Nakamura',
+            breadcrumbRootUrl: '/archive',
+          }),
+        }),
+      ),
+    );
+  });
+
+  it('KS-2219: клик по строке (ошибка getArchiveGameById) → fallback navigate(/archive/games/<id>)', async () => {
+    mockGetGamesMetadata.mockResolvedValueOnce(sampleResponse);
+    mockGetGameById.mockRejectedValueOnce(new Error('boom'));
+    const user = (await import('@testing-library/user-event')).default.setup();
+    renderWithProviders(<ArchiveGamesPage />, { route: '/archive' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('archive-game-row-g1')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId('archive-game-row-g1'));
+    await waitFor(() =>
+      expect(mockNavigate).toHaveBeenCalledWith('/archive/games/g1'),
+    );
   });
 
   it('клик по имени игрока НЕ зовёт row-onClick (Link перехватывает)', async () => {

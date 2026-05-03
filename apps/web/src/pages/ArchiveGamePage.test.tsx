@@ -333,7 +333,7 @@ describe('ArchiveGamePage — кнопки действий', () => {
     );
   });
 
-  it('«Find similar» зовёт navigate на /archive/games?fen=...', async () => {
+  it('KS-2210: «Find similar» зовёт navigate на /archive?fen=... (после редиректа /archive/games → /archive)', async () => {
     mockArchiveApi.getArchiveGameById.mockResolvedValueOnce(baseGame);
     const user = (await import('@testing-library/user-event')).default.setup();
 
@@ -347,7 +347,7 @@ describe('ArchiveGamePage — кнопки действий', () => {
 
     await user.click(screen.getByTestId('archive-game-page-find-similar'));
     const arg = mockNavigate.mock.calls[0][0] as string;
-    expect(arg.startsWith('/archive/games?fen=')).toBe(true);
+    expect(arg.startsWith('/archive?fen=')).toBe(true);
   });
 
   it('«Copy PGN» зовёт navigator.clipboard.writeText', async () => {
@@ -470,9 +470,9 @@ describe('ArchiveGamePage — lazy-блок «Other games»', () => {
     await waitFor(() =>
       expect(screen.getByTestId('archive-game-row-o-0')).toBeInTheDocument(),
     );
-    // «See all →» ведёт на /archive/games?fen=...
+    // KS-2210: «See all →» ведёт на /archive?fen=... (старый /archive/games → редирект).
     const seeAll = screen.getByTestId('archive-other-games-see-all');
-    expect(seeAll.getAttribute('href')).toMatch(/^\/archive\/games\?fen=/);
+    expect(seeAll.getAttribute('href')).toMatch(/^\/archive\?fen=/);
   });
 
   it('при смене ply блок сбрасывается в collapsed', async () => {
