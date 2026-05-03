@@ -34,6 +34,7 @@ import { MistakesModule } from './puzzle/mistakes.module';
 import { UserCoursesModule } from './lessons/user-courses/user-courses.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { ProfileModule } from './profile/profile.module';
+import { TacticDrillModule } from './tactic-drill/tactic-drill.module';
 import { LastSeenMiddleware } from './auth/last-seen.middleware';
 import { HealthController } from './health.controller';
 @Module({
@@ -81,6 +82,7 @@ import { HealthController } from './health.controller';
     UserCoursesModule,
     FeatureFlagsModule,
     ProfileModule,
+    TacticDrillModule,
   ],
 })
 export class AppModule implements NestModule {
