@@ -196,12 +196,20 @@ export function getMoveClasses(processedMove: ProcessedMove): string {
 }
 
 /**
- * Генерирует CSS классы для скобок
+ * Генерирует CSS классы для скобок.
+ *
+ * KS-2275: добавлен `variation-level-N` класс для CSS-окраски скобок
+ * по уровню вариации (`--c-subline-N`). `BracketItem.level` хранит
+ * уровень РОДИТЕЛЯ (вокруг варианта), а скобка визуально принадлежит
+ * самой вариации — потому `level + 1` (тот же level, что у ходов
+ * внутри скобок, см. `getMoveClasses`). Clamp до 4, как у move-item,
+ * чтобы CSS-переменные `--c-subline-1..4` хватало.
  */
 export function getBracketClasses(bracket: BracketItem): string {
   const classes = [
     'variation-bracket',
-    `variation-bracket-${bracket.bracketType}`
+    `variation-bracket-${bracket.bracketType}`,
+    `variation-level-${Math.min(bracket.level + 1, 4)}`,
   ];
 
   return classes.join(' ');
