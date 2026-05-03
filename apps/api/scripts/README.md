@@ -15,6 +15,7 @@
 | Скрипт (исходник / dist) | Назначение | Запуск локально | Запуск на проде |
 |---|---|---|---|
 | `src/scripts/seed-screenshot-account.ts` → `dist/scripts/seed-screenshot-account.js` | KS-2257 — seed аккаунта `__screenshot_agent` для screenshot-tooling | `SCRN_AGENT_PASSWORD=... npm run seed:screenshot --workspace=@kingside/api` | ECS RunTask, см. ниже |
+| `src/scripts/apply-ks-2255-dev.ts` | KS-2301 (dev-only) — workaround на dev-БД, где `prisma migrate deploy` не может загрузить schema-engine binary; идемпотентно применяет миграцию `20260503100000_add_user_test_account_hidden` через `$executeRawUnsafe` и регистрирует её в `_prisma_migrations` | `DATABASE_URL=... npx ts-node src/scripts/apply-ks-2255-dev.ts` | **не запускать** — на проде CLI работает штатно |
 
 ---
 
