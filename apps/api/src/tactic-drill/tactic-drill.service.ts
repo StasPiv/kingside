@@ -97,7 +97,11 @@ export class TacticDrillService {
     type: TacticDrillType,
     difficulty?: number,
   ): Promise<TacticDrillDto | null> {
-    const where: Record<string, unknown> = { type };
+    // KS-2247: исключаем drill'ы, отбракованные Stockfish-валидацией
+    // (`sfRejected=true`). Не валидированные (`sfValidatedAt=null`) —
+    // выдаём (валидация фоновая, отсутствие отметки не означает
+    // дефект).
+    const where: Record<string, unknown> = { type, sfRejected: false };
     if (difficulty !== undefined) {
       where.difficulty = difficulty;
     }

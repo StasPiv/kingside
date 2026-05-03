@@ -389,7 +389,11 @@ export class TacticDrillSprintService {
   ): Promise<{ id: string; dto: TacticDrillDto } | null> {
     // Random pick by offset из пула типов. Простейший подход; в KS-2229
     // (KS-DRILL-INDEXER-INC) появится «least-recently-shown» курсор.
-    const where: Record<string, unknown> = { type: { in: types } };
+    // KS-2247: sf-rejected drill'ы тоже исключаем из sprint-пула.
+    const where: Record<string, unknown> = {
+      type: { in: types },
+      sfRejected: false,
+    };
     if (excludeIds.length > 0) {
       where.id = { notIn: excludeIds };
     }
