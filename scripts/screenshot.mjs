@@ -2,22 +2,23 @@
 /**
  * scripts/screenshot.mjs — CLI для агентских скринов Kingside.
  *
- * ADR-036 §5, KS-2259. Зависит от KS-2257 (seed-скрипт), KS-2258 (пароль в SSM
- * + env агентского контейнера).
+ * ADR-039 §6 E2 (KS-2307). Заменяет ADR-036 password-flow (KS-2259):
+ *   до KS-2307 — POST /auth/login с паролем из env SCRN_AGENT_PASSWORD;
+ *   после   — POST /api/internal/screenshot-token (KS-2304), без env.
+ *
+ * Зависит от KS-2257 (seed test-аккаунта `__screenshot_agent`) и KS-2303/
+ * KS-2304 (controller `ScreenshotTokenController` подключён к AuthModule).
  *
  * Назначение:
  *   Снимает скриншот заданной страницы Kingside в headless Chromium через
- *   Playwright. Поддерживает логин под test-аккаунтом `__screenshot_agent`
- *   (`isTestAccount=true, isHidden=true`) — для скринов защищённых страниц
- *   без прав администратора.
+ *   Playwright. При --auth=test получает короткоживущий JWT с правами
+ *   test-аккаунта `__screenshot_agent` (`isTestAccount=true, isHidden=true`)
+ *   через внутренний endpoint `/api/internal/screenshot-token` — никаких
+ *   паролей в env, никаких ротаций, токен валиден ~15 минут.
  *
  * Окружение:
- *   - SCRN_AGENT_PASSWORD — пароль test-аккаунта (берётся из AWS SSM
- *     `/kingside/prod/SCRN_AGENT_PASSWORD` через webhook-server при
- *     запуске агентского контейнера). Обязателен при --auth=test.
- *   - SCRN_AGENT_USERNAME — переопределение username (default `__screenshot_agent`).
- *   - SCRN_API_BASE_URL — переопределение API base URL для логина. По
- *     умолчанию выводится из --url:
+ *   - SCRN_API_BASE_URL — переопределение API base. По умолчанию выводится
+ *     из --url:
  *       https://kingside.site/...      → https://api.kingside.site
  *       https://api.kingside.site/...  → https://api.kingside.site
  *       http://localhost:5173/...      → http://localhost:3001
@@ -26,7 +27,8 @@
  * Args:
  *   --url=<URL>                   обязательный, страница для скрина
  *   --out=<path>                  обязательный, путь к выходному PNG
- *   --auth=test|none              none (default) — без логина; test — login
+ *   --auth=test|none              none (default) — без логина; test —
+ *                                 получает screenshot-token и логинится
  *                                 под __screenshot_agent
  *   --viewport=desktop|mobile|mobile-small|tablet
  *                                 desktop (default 1280×800), mobile
@@ -49,16 +51,19 @@
  *
  * Exit codes:
  *   0 — OK, файл создан.
- *   1 — auth fail (HTTP != 200 на /auth/login, нет токенов в ответе,
- *       неверные creds).
- *   2 — page load fail (page.goto бросил, не таймаут селектора).
+ *   1 — auth fail. Сюда мапим всё, что мешает получить screenshot-token:
+ *       - HTTP 503 от endpoint'а (test-аккаунт не provisioned: см. KS-2257);
+ *       - HTTP 429 (rate limit RedisRateLimitGuard);
+ *       - любой 4xx/5xx с endpoint'а;
+ *       - валидационные ошибки args (отсутствие --url/--out, плохой enum).
+ *   2 — page load fail (page.goto / page.screenshot бросили без сетевой причины).
  *   3 — селектор не найден за 10s после goto.
- *   4 — сетевая ошибка (DNS / connection refused / TLS) до или во время
- *       любого HTTP-запроса.
+ *   4 — сетевая ошибка (DNS / connection refused / TLS / playwright runtime
+ *       недоступен) до или во время любого HTTP-запроса.
  *
  * Примеры:
  *
- *   # 1. Анонимный скрин лобби на десктопе (без логина), networkidle.
+ *   # 1. Анонимный скрин лобби на десктопе (без логина).
  *   node scripts/screenshot.mjs \
  *     --url=https://kingside.site/lobby \
  *     --out=/tmp/lobby-desktop.png
@@ -75,13 +80,13 @@
  *     --out=/tmp/analysis-dark.png \
  *     --auth=test --selector='[data-testid="analysis-board"]' --theme=dark
  *
- *   # 4. Локализация — русская версия страницы puzzles.
+ *   # 4. Локализация — русская версия страницы puzzles на планшете.
  *   node scripts/screenshot.mjs \
  *     --url=https://kingside.site/puzzles \
  *     --out=/tmp/puzzles-ru.png \
  *     --auth=test --locale=ru --viewport=tablet
  *
- *   # 5. Debug-режим: увидеть все шаги (login, init-script, goto, screenshot).
+ *   # 5. Debug-режим: увидеть все шаги (token-fetch, init-script, goto, screenshot).
  *   node scripts/screenshot.mjs \
  *     --url=https://kingside.site/lobby \
  *     --out=/tmp/lobby-debug.png \
@@ -93,6 +98,13 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { argv, env, exit, stderr, stdout } from 'node:process';
+
+// --- Exit codes ---
+const EXIT_OK = 0;
+const EXIT_AUTH = 1;
+const EXIT_PAGE = 2;
+const EXIT_SELECTOR = 3;
+const EXIT_NETWORK = 4;
 
 // Playwright лежит в node_modules проекта (workspace deps). Импортируется
 // лениво, чтобы валидация args / ошибки конфигурации могли отчитаться
@@ -111,13 +123,6 @@ async function loadPlaywright() {
     exit(EXIT_NETWORK);
   }
 }
-
-// --- Exit codes ---
-const EXIT_OK = 0;
-const EXIT_AUTH = 1;
-const EXIT_PAGE = 2;
-const EXIT_SELECTOR = 3;
-const EXIT_NETWORK = 4;
 
 // --- Args parsing ---
 
@@ -171,9 +176,8 @@ function validate(args) {
   if (!waitChoices.includes(args.waitFor)) errs.push(`--wait-for must be one of ${waitChoices.join('|')}`);
   if (args.theme !== null && !['light', 'dark'].includes(args.theme)) errs.push('--theme must be light|dark');
   if (args.locale !== null && !['en', 'ru'].includes(args.locale)) errs.push('--locale must be en|ru');
-  if (args.auth === 'test' && !env.SCRN_AGENT_PASSWORD) {
-    errs.push('--auth=test requires env SCRN_AGENT_PASSWORD (see KS-2258, scripts/screenshot-agent-rotation.md)');
-  }
+  // ВАЖНО: --auth=test больше НЕ требует env-переменных. Токен берётся
+  // из /api/internal/screenshot-token (KS-2304/KS-2307).
   return errs;
 }
 
@@ -200,6 +204,13 @@ function deriveApiBase(pageUrl) {
   return `${u.protocol}//api.${u.hostname}`;
 }
 
+function isLocalApiBase(apiBase) {
+  try {
+    const u = new URL(apiBase);
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
+  } catch { return false; }
+}
+
 function classifyFetchError(e) {
   // node fetch / undici net errors → exit 4. CertificateError / DNS / connect refused.
   if (!e || !e.cause) return null;
@@ -213,43 +224,74 @@ function classifyFetchError(e) {
   return null;
 }
 
-// --- Auth (POST /auth/login) ---
+// --- Auth (POST /api/internal/screenshot-token, KS-2304) ---
+//
+// Контроллер `ScreenshotTokenController` подключён к `AuthModule`. На проде
+// глобальный prefix `/api` добавляется ALB → endpoint доступен по
+// `/api/internal/screenshot-token`. На dev (localhost) Nest без prefix'а →
+// `/internal/screenshot-token`. Поведение симметрично synthetic-token (KS-2182).
+//
+// Ответ (201): { accessToken: "<JWT>", expiresIn: <seconds> }. JWT payload
+// содержит { sub: <userId>, username: '__screenshot_agent', iat, exp }.
+// Refresh-токен НЕ выдаётся: токен короткоживущий (15m на проде), refresh
+// для скриншот-сессии не нужен.
+//
+// Известные не-2xx коды:
+//   503 — test-аккаунт не provisioned (`isTestAccount=true, isHidden=true`,
+//         username `__screenshot_agent` — KS-2257). На проде должен быть
+//         засеян; локально нужно один раз `npm run seed:screenshot` в apps/api.
+//   429 — rate limit (RedisRateLimitGuard). Стандартное поведение Nest auth.
+//
+// Все не-2xx → exit 1 со специфичным stderr-сообщением.
 
-async function login(args, apiBase) {
-  const username = env.SCRN_AGENT_USERNAME || '__screenshot_agent';
-  const password = env.SCRN_AGENT_PASSWORD;
-  const endpoint = `${apiBase}/auth/login`;
-  log(args, `login: POST ${endpoint} (username=${username})`);
+async function fetchScreenshotToken(args, apiBase) {
+  // На localhost Nest без global prefix /api; на проде ALB/Nest добавляет /api.
+  const path = isLocalApiBase(apiBase)
+    ? '/internal/screenshot-token'
+    : '/api/internal/screenshot-token';
+  const endpoint = `${apiBase}${path}`;
+  log(args, `screenshot-token: POST ${endpoint}`);
+
   let res;
   try {
-    res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
+    res = await fetch(endpoint, { method: 'POST' });
   } catch (e) {
     const netExit = classifyFetchError(e);
     if (netExit !== null) {
-      err(`network error during login: ${e.message}`);
+      err(`network error on screenshot-token: ${e.message}`);
       exit(EXIT_NETWORK);
     }
-    err(`login fetch failed: ${e.message}`);
+    err(`screenshot-token fetch failed: ${e.message}`);
     exit(EXIT_AUTH);
   }
-  // NestJS @Post() по умолчанию возвращает 201 на успех; принимаем оба
-  // 200 и 201 как успех. Остальные коды — auth fail.
+
+  // Известные коды с осмысленными сообщениями.
+  if (res.status === 503) {
+    err(`screenshot-token: HTTP 503 — test account is not provisioned on this env`);
+    err('hint: run apps/api seed:screenshot (KS-2257) — see scripts/screenshot-agent-rotation.md');
+    exit(EXIT_AUTH);
+  }
+  if (res.status === 429) {
+    let retry = '';
+    try { retry = res.headers.get('retry-after') || ''; } catch { /* ignore */ }
+    err(`screenshot-token: HTTP 429 — rate-limit by RedisRateLimitGuard${retry ? ` (Retry-After=${retry})` : ''}`);
+    err('hint: retry later, or check rate-limit window in apps/api');
+    exit(EXIT_AUTH);
+  }
+  // NestJS @Post() default — 201 на success; 200 принимаем тоже.
   if (res.status !== 200 && res.status !== 201) {
     let body = '';
     try { body = await res.text(); } catch { /* ignore */ }
-    err(`login HTTP ${res.status}: ${body.slice(0, 300)}`);
+    err(`screenshot-token: HTTP ${res.status}: ${body.slice(0, 300)}`);
     exit(EXIT_AUTH);
   }
+
   const data = await res.json().catch(() => ({}));
-  if (!data.accessToken || !data.refreshToken) {
-    err('login response missing accessToken/refreshToken');
+  if (!data.accessToken) {
+    err('screenshot-token: response missing accessToken');
     exit(EXIT_AUTH);
   }
-  log(args, `login: OK (accessToken len=${data.accessToken.length}, refreshToken len=${data.refreshToken.length})`);
+  log(args, `screenshot-token: OK (accessToken len=${data.accessToken.length}, expiresIn=${data.expiresIn ?? '?'}s)`);
   return data;
 }
 
@@ -294,16 +336,17 @@ async function main() {
   }
   log(args, `args: ${JSON.stringify({ ...args, _help: undefined })}`);
 
-  // 1. Login (если auth=test) — до запуска браузера: дёшево валидируем
-  // creds и сетевую достижимость API. fetch ошибки → exit 1/4.
-  let tokens = null;
+  // 1. Token (если auth=test) — до запуска браузера: дёшево валидируем
+  // достижимость API + готовность endpoint'а. fetch ошибки → exit 1/4.
+  let token = null;
   if (args.auth === 'test') {
     const apiBase = deriveApiBase(args.url);
     if (!apiBase) {
       err(`cannot derive API base from --url=${args.url}; set SCRN_API_BASE_URL`);
       exit(EXIT_AUTH);
     }
-    tokens = await login(args, apiBase);
+    const tokenRes = await fetchScreenshotToken(args, apiBase);
+    token = tokenRes.accessToken;
   }
 
   // 2. Browser context. Берём конфигурацию из playwright/devices для
@@ -330,13 +373,15 @@ async function main() {
     const context = await browser.newContext(contextOpts);
 
     // 3. Init-script — выполняется до любых скриптов страницы. Записываем
-    // токены в localStorage по тем же ключам, что использует фронт
-    // (см. apps/web/src/contexts/AuthContext.tsx — `token`/`refreshToken`).
+    // access-токен в localStorage по тому же ключу, что использует фронт
+    // (см. apps/web/src/contexts/AuthContext.tsx — `token`). Refresh-токен
+    // не выдаётся endpoint'ом /api/internal/screenshot-token (15m TTL,
+    // фронт перерефрешит при истечении 401 — для скриншот-сессии не успеет
+    // понадобиться).
     const initParts = [];
-    if (tokens) {
+    if (token) {
       initParts.push(
-        `localStorage.setItem('token', ${JSON.stringify(tokens.accessToken)});`,
-        `localStorage.setItem('refreshToken', ${JSON.stringify(tokens.refreshToken)});`,
+        `localStorage.setItem('token', ${JSON.stringify(token)});`,
       );
     }
     if (args.locale) {

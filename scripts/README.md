@@ -9,7 +9,12 @@
 
 Headless Chromium снимает страницу Kingside, опционально под логином
 test-аккаунта `__screenshot_agent`. Используется агентами для
-визуальной верификации задач (KS-2259, ADR-036 §5).
+визуальной верификации задач (ADR-039 §6 E2 / KS-2307; ранее ADR-036 §5 / KS-2259).
+
+С KS-2307 авторизация работает БЕЗ env-переменных. Скрипт идёт в
+`POST /api/internal/screenshot-token` (см. KS-2304), получает короткоживущий
+JWT (~15 минут на проде) и передаёт его в `localStorage.token` через
+`addInitScript`. Никаких паролей в env, никаких ротаций.
 
 Базовое использование:
 
@@ -39,33 +44,46 @@ node scripts/screenshot.mjs \
 **Stdout:** только абсолютный путь к созданному PNG. Парсится агентом —
 никаких других сообщений (всё, что нужно глазам, идёт в stderr).
 
+**Auth flow (`--auth=test`):**
+
+1. `POST <api-base>/api/internal/screenshot-token` (на проде через ALB);
+   на dev (`localhost`) — без `/api` префикса: `/internal/screenshot-token`.
+2. Endpoint возвращает `{ accessToken, expiresIn }` (KS-2304).
+3. Перед `page.goto` через `addInitScript` пишется
+   `localStorage.setItem('token', <accessToken>)`.
+4. Дальше браузер ходит как обычный залогиненный пользователь
+   `__screenshot_agent` (`isTestAccount=true`, `isHidden=true`, без админки).
+
+Refresh-токен не выдаётся: TTL 15 минут хватает на скриншот-сессию.
+
 **Exit codes:**
 
 | Код | Когда                                                                          |
 | --- | ------------------------------------------------------------------------------ |
 | 0   | OK, файл создан.                                                                |
-| 1   | Auth fail (HTTP != 200 на `/auth/login`, нет токенов в ответе, отсутствует `SCRN_AGENT_PASSWORD`, неверные args). |
+| 1   | Auth fail. Сюда попадают: 503 от `/api/internal/screenshot-token` (test-аккаунт не provisioned — нужен seed KS-2257), 429 (rate limit `RedisRateLimitGuard`), любой другой 4xx/5xx, отсутствие `accessToken` в ответе, валидационные ошибки args. |
 | 2   | Page load fail (`page.goto` бросил, `screenshot` не записал, не сетевая причина). |
 | 3   | Селектор `--selector` не найден за 10s.                                         |
-| 4   | Сетевая ошибка (DNS/connect refused/TLS/timeout) до или во время HTTP.          |
+| 4   | Сетевая ошибка (DNS/connect refused/TLS/timeout) до или во время HTTP. Также: playwright runtime недоступен в node_modules. |
 
 **Окружение:**
 
 | Переменная             | Что это                                                                |
 | ---------------------- | ---------------------------------------------------------------------- |
-| `SCRN_AGENT_PASSWORD`  | Пароль `__screenshot_agent`. Из AWS SSM (см. KS-2258 + `screenshot-agent-rotation.md`). Обязателен при `--auth=test`. |
-| `SCRN_AGENT_USERNAME`  | Перекрытие username (default `__screenshot_agent`).                    |
-| `SCRN_API_BASE_URL`    | Перекрытие API base (для логина). По умолчанию выводится из `--url`.   |
+| `SCRN_API_BASE_URL`    | Перекрытие API base. По умолчанию выводится из `--url`.                |
 | `SCRN_DEBUG`           | `1` = эквивалент `--debug`.                                            |
+
+С KS-2307 переменные `SCRN_AGENT_PASSWORD` и `SCRN_AGENT_USERNAME` больше
+не используются — авторизация полностью через серверный endpoint.
 
 **API-base inference (если `SCRN_API_BASE_URL` не задана):**
 
-| `--url` host         | API base                  |
-| -------------------- | ------------------------- |
-| `kingside.site`      | `https://api.kingside.site` |
-| `api.kingside.site`  | `https://api.kingside.site` |
-| `localhost`          | `http://localhost:3001`   |
-| прочее               | `https://api.<host>`       |
+| `--url` host         | API base                  | Endpoint path                       |
+| -------------------- | ------------------------- | ----------------------------------- |
+| `kingside.site`      | `https://api.kingside.site` | `/api/internal/screenshot-token`  |
+| `api.kingside.site`  | `https://api.kingside.site` | `/api/internal/screenshot-token`  |
+| `localhost`          | `http://localhost:3001`   | `/internal/screenshot-token` (dev — без `/api` prefix) |
+| прочее               | `https://api.<host>`       | `/api/internal/screenshot-token`  |
 
 **Примеры:**
 
@@ -89,7 +107,7 @@ node scripts/screenshot.mjs \
   --url=https://kingside.site/puzzles --out=/tmp/puzzles-ru.png \
   --auth=test --locale=ru --viewport=tablet
 
-# 5. Debug — увидеть все шаги (login, init-script, goto, screenshot).
+# 5. Debug — увидеть все шаги (token-fetch, init-script, goto, screenshot).
 node scripts/screenshot.mjs \
   --url=https://kingside.site/lobby --out=/tmp/lobby-debug.png \
   --auth=test --debug
@@ -97,9 +115,10 @@ node scripts/screenshot.mjs \
 
 **Связанные документы:**
 
-- `scripts/screenshot-agent-rotation.md` — ротация пароля test-аккаунта (90 дней).
-- `scripts/rotate-screenshot-agent-password.sh` — автоматизация ротации.
-- ADR-036 — общая архитектура screenshot-инфры.
+- ADR-039 — текущая архитектура (controller-driven token-issuing).
+- ADR-036 — предыдущая архитектура (env password). Заменена KS-2307.
+- `scripts/screenshot-agent-rotation.md` — ротация пароля test-аккаунта в БД (исторически связано с ADR-036; пароль из БД до сих пор нужен seed-скрипту KS-2257, но `screenshot.mjs` его уже не читает).
+- `scripts/rotate-screenshot-agent-password.sh` — автоматизация ротации пароля в БД и SSM.
 
 ---
 
