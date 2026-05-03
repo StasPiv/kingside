@@ -13,7 +13,7 @@
  *   4. Лог прогресса каждые `--log-every` партий, итог в конце.
  *
  * Контракт CLI:
- *   ARCHIVE_DATABASE_URL=...  DATABASE_URL=...  \
+ *   ARCHIVE_DATABASE_URL=postgresql://...  DATABASE_URL=postgresql://...  \
  *     npm run index:tactic-drills --workspace=@kingside/api -- \
  *       [--difficulty-version=v1|full]   default v1
  *       [--per-type-target=N]            default 3000 (methodology §3.2 MVP top)
@@ -33,8 +33,8 @@
  */
 
 import { Chess } from 'chess.js';
+import { Client as PgClient } from 'pg';
 import { PrismaClient } from '@kingside/db';
-import { PrismaClient as ArchivePrismaClient } from '@kingside/archive-db';
 import type { TacticDrillType, AnswerData } from '@kingside/shared';
 import {
   countAttackers,
@@ -274,20 +274,41 @@ async function main(): Promise<void> {
   );
 
   const prisma = new PrismaClient();
-  const archive = new ArchivePrismaClient();
+  const archiveUrl = process.env.ARCHIVE_DATABASE_URL;
+  if (!archiveUrl) {
+    throw new Error(
+      'ARCHIVE_DATABASE_URL env not set; need read-access to archive_games',
+    );
+  }
+  // Подключаемся к archive-БД напрямую через `pg`. Здесь не нужен
+  // Prisma-клиент: запрос только один (`SELECT id, pgn FROM
+  // archive_games`), типы тривиальны, а `@kingside/archive-db` пакет
+  // не входит в production-image kingside-api (Dockerfile собирает
+  // только shared/db). Использование `pg` напрямую эту зависимость
+  // снимает.
+  const archive = new PgClient({ connectionString: archiveUrl });
+  await archive.connect();
   const stats = newStats();
   const buffer: PendingDrill[] = [];
 
   try {
     let cursor: string | null = null;
     while (stats.gamesProcessed < options.maxGames && !allTargetsReached(stats, options)) {
-      const games: { id: string; pgn: string }[] =
-        await archive.archiveGame.findMany({
-          take: options.gameBatchSize,
-          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-          orderBy: { id: 'asc' },
-          select: { id: true, pgn: true },
-        });
+      // Cursor pagination по UUID-id (lex-order). Запрос:
+      // `id > cursor` — пропускаем уже обработанные.
+      const sql: string = cursor
+        ? `SELECT id::text AS id, pgn FROM archive_games
+           WHERE id > $1 ORDER BY id ASC LIMIT $2`
+        : `SELECT id::text AS id, pgn FROM archive_games
+           ORDER BY id ASC LIMIT $1`;
+      const params: (string | number)[] = cursor
+        ? [cursor, options.gameBatchSize]
+        : [options.gameBatchSize];
+      const res = await archive.query<{ id: string; pgn: string }>(
+        sql,
+        params,
+      );
+      const games: { id: string; pgn: string }[] = res.rows;
       if (games.length === 0) break;
       cursor = games[games.length - 1].id;
 
@@ -337,7 +358,7 @@ async function main(): Promise<void> {
     );
   } finally {
     await prisma.$disconnect();
-    await archive.$disconnect();
+    await archive.end();
   }
 }
 
