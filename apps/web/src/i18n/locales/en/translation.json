@@ -715,7 +715,13 @@
     "side": {
       "whiteToMove": "White to move",
       "blackToMove": "Black to move"
-    }
+    },
+    "layers": {
+      "overview": "Board overview",
+      "pattern": "Pattern recognition",
+      "calculation": "Calculation"
+    },
+    "loading": "Loading drills…"
   },
   "puzzle": {
     "title": "Puzzles",

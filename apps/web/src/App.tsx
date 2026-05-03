@@ -51,6 +51,8 @@ import { ArchiveGamesPage } from './pages/ArchiveGamesPage';
 import { ArchivePlayerProfilePage } from './pages/ArchivePlayerProfilePage';
 import { TermsOfServicePage } from './pages/TermsOfServicePage';
 import { ArchiveGamePage } from './pages/ArchiveGamePage';
+// KS-2232 (Drills E3): лобби тренажёров /drills под `drillsEnabled`.
+import { DrillsLobbyPage } from './pages/DrillsLobbyPage';
 import { useAuth } from './context/AuthContext';
 import { api } from './api';
 import { useFeatureFlag } from './context/FeatureFlagsContext';
@@ -205,6 +207,10 @@ export function App() {
   const puzzlesEnabled = useFeatureFlag('puzzlesEnabled');
   const broadcastsEnabled = useFeatureFlag('broadcastsEnabled');
   const tournamentsEnabled = useFeatureFlag('tournamentsEnabled');
+  // KS-2232 (ADR-035 §7): лобби `/drills` доступно только при
+  // `drillsEnabled=true` (KS-2231). Default false → старые ссылки
+  // редиректят на /lobby по образцу puzzles/broadcasts/tournaments.
+  const drillsEnabled = useFeatureFlag('drillsEnabled');
 
   if (devSecret && searchParams.has('dev_bypass')) {
     const returnParams = new URLSearchParams(searchParams);
@@ -304,6 +310,14 @@ export function App() {
           // редиректят на корень (не просто 404 — чтобы пользователь
           // из старых ссылок не застревал).
           <Route path="/lessons/*" element={<Navigate to="/" replace />} />
+        )}
+        {/* KS-2232 (ADR-035 §7): лобби `/drills` под drillsEnabled. */}
+        {drillsEnabled ? (
+          <Route path="/drills" element={<DrillsLobbyPage />} />
+        ) : (
+          // По образцу KS-2218: всё `/drills*` уводит в /lobby при
+          // выключенном флаге (включая будущий /drills/:type из KS-2233).
+          <Route path="/drills/*" element={<Navigate to="/lobby" replace />} />
         )}
         {/* KS-1821: compile-time guard. `DevRoutesLazy` = null в prod-сборке,
             поэтому Route не рендерится и мёртвая ветка с импортом

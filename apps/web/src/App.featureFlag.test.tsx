@@ -13,6 +13,8 @@ const flags = {
   puzzles: false,
   broadcasts: true,
   tournaments: true,
+  // KS-2232 (KS-2231): default false.
+  drills: false,
 };
 vi.mock('./context/FeatureFlagsContext', async () => {
   const actual = await vi.importActual<
@@ -25,6 +27,7 @@ vi.mock('./context/FeatureFlagsContext', async () => {
       if (key === 'puzzlesEnabled') return flags.puzzles;
       if (key === 'broadcastsEnabled') return flags.broadcasts;
       if (key === 'tournamentsEnabled') return flags.tournaments;
+      if (key === 'drillsEnabled') return flags.drills;
       return false;
     },
     useFeatureFlags: () => ({
@@ -33,6 +36,7 @@ vi.mock('./context/FeatureFlagsContext', async () => {
         puzzlesEnabled: flags.puzzles,
         broadcastsEnabled: flags.broadcasts,
         tournamentsEnabled: flags.tournaments,
+        drillsEnabled: flags.drills,
       },
       loading: false,
       error: null,
@@ -133,6 +137,10 @@ vi.mock('./pages/BroadcastsPage', () => ({
 vi.mock('./pages/BroadcastTournamentPage', () => ({
   BroadcastTournamentPage: () => <div data-testid="page-broadcast-tournament" />,
 }));
+// KS-2232: заглушка лобби тренажёров.
+vi.mock('./pages/DrillsLobbyPage', () => ({
+  DrillsLobbyPage: () => <div data-testid="page-drills-lobby" />,
+}));
 // useAuth вычитывает /auth/me — вернём unauth-пользователя, чтобы
 // ProtectedRoute редиректил на /login. Для теста достаточно.
 vi.mock('./context/AuthContext', () => ({
@@ -147,6 +155,7 @@ beforeEach(() => {
   flags.puzzles = false;
   flags.broadcasts = true;
   flags.tournaments = true;
+  flags.drills = false;
 });
 
 afterEach(() => {
@@ -300,6 +309,34 @@ describe('App routing: KS-2218 puzzles/broadcasts/tournaments feature flags', ()
     renderWithProviders(<App />, { route: '/tournaments' });
     await waitFor(() =>
       expect(screen.getByTestId('page-tournaments')).toBeInTheDocument(),
+    );
+  });
+});
+
+describe('App routing: KS-2232 drills feature flag', () => {
+  it('drillsEnabled=false (default) → /drills редиректит на /lobby', async () => {
+    flags.drills = false;
+    renderWithProviders(<App />, { route: '/drills' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-drills-lobby')).not.toBeInTheDocument();
+  });
+
+  it('drillsEnabled=false → /drills/find-pin тоже редирект (catch-all /drills/*)', async () => {
+    flags.drills = false;
+    renderWithProviders(<App />, { route: '/drills/find-pin' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-lobby')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('page-drills-lobby')).not.toBeInTheDocument();
+  });
+
+  it('drillsEnabled=true → /drills рендерит лобби', async () => {
+    flags.drills = true;
+    renderWithProviders(<App />, { route: '/drills' });
+    await waitFor(() =>
+      expect(screen.getByTestId('page-drills-lobby')).toBeInTheDocument(),
     );
   });
 });

@@ -717,7 +717,13 @@
     "side": {
       "whiteToMove": "Ход белых",
       "blackToMove": "Ход чёрных"
-    }
+    },
+    "layers": {
+      "overview": "Обзор доски",
+      "pattern": "Распознавание паттернов",
+      "calculation": "Расчёт"
+    },
+    "loading": "Загружаем упражнения…"
   },
   "puzzle": {
     "title": "Задачи",
